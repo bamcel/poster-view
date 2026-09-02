@@ -1,0 +1,16 @@
+[package]
+name = "posterview-infra-media-servers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+base64.workspace = true
+chrono.workspace = true
+posterview-contracts.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<CommunityApplications>
+  <Profile>PosterView is a self-hosted artwork manager for Plex, Jellyfin, and Emby. It provides one interface for browsing libraries and managing posters, backgrounds, and logos from ThePosterDB, Fanart.tv, TheTVDB, AniList, and MediUX.</Profile>
+  <Icon>https://raw.githubusercontent.com/bamcel/poster-view/main/icon.png</Icon>
+  <WebPage>https://github.com/bamcel/poster-view</WebPage>
+</CommunityApplications>

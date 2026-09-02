@@ -1,0 +1,22 @@
+# Keep the build context small and avoid copying host-built artifacts that
+# would shadow what the image builds itself.
+
+# Python
+backend/.venv/
+**/__pycache__/
+*.py[cod]
+backend/data/
+
+# Node / frontend build output (rebuilt inside the image)
+frontend/node_modules/
+frontend/dist/
+**/*.tsbuildinfo
+
+# VCS / editor / docs
+.git/
+.gitignore
+.idea/
+.vscode/
+*.md
+LICENSE
+dev.ps1

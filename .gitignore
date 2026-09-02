@@ -1,0 +1,26 @@
+# --- Python / backend ---
+backend/.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# --- Rust workspace ---
+/target/
+/graphify-out/
+
+# Runtime data: SQLite db + encryption key + any cached state
+backend/data/*
+!backend/data/.gitkeep
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+*.local
+*.tsbuildinfo
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

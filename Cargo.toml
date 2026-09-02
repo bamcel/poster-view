@@ -1,0 +1,55 @@
+[workspace]
+resolver = "2"
+members = [
+    "apps/server",
+    "crates/posterview-contracts",
+    "crates/posterview-infra-media-servers",
+    "crates/posterview-infra-artwork",
+    "crates/posterview-infra-sqlite",
+    "crates/posterview-runtime",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+authors = ["bamcel"]
+repository = "https://github.com/bamcel/poster-view"
+
+[workspace.dependencies]
+anyhow = "1"
+axum = { version = "0.8", features = ["json", "macros", "multipart"] }
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+fernet = { version = "0.2", default-features = false, features = ["rustcrypto"] }
+http-body-util = "0.1"
+posterview-contracts = { path = "crates/posterview-contracts" }
+posterview-infra-media-servers = { path = "crates/posterview-infra-media-servers" }
+posterview-infra-artwork = { path = "crates/posterview-infra-artwork" }
+posterview-infra-sqlite = { path = "crates/posterview-infra-sqlite" }
+posterview-runtime = { path = "crates/posterview-runtime" }
+rusqlite = { version = "0.37", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tempfile = "3"
+uuid = { version = "1", features = ["v4"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

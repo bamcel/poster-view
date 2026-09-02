@@ -1,0 +1,19 @@
+services:
+  posterview:
+    build: .
+    image: posterview:latest
+    container_name: posterview
+    ports:
+      - "7979:7979"
+    volumes:
+      # Persists the SQLite database + encryption key across restarts/upgrades.
+      - posterview-data:/data
+    # Lets you reach a media server running on the Docker host by using
+    # "http://host.docker.internal:32400" (Plex) / ":8096" (Jellyfin/Emby) as
+    # the Server URL. Media servers elsewhere on your LAN work with their normal IP.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  posterview-data:

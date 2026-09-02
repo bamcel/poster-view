@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>PosterView</Name>
+  <Repository>ghcr.io/bamcel/poster-view:latest</Repository>
+  <Registry>https://github.com/bamcel/poster-view/pkgs/container/poster-view</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/bamcel/poster-view/issues</Support>
+  <Project>https://github.com/bamcel/poster-view</Project>
+  <Overview>Self-hosted artwork manager for Plex, Jellyfin, and Emby. Browse libraries, including collections, and replace posters, backgrounds, and logos from multiple artwork providers.</Overview>
+  <Description>PosterView provides one interface for managing media artwork across Plex, Jellyfin, and Emby. Browse titles and collections; apply posters, backgrounds, banners, and logos from ThePosterDB, Fanart.tv, TheTVDB, AniList, and MediUX; upload custom artwork; and revert earlier changes from apply history. Credentials are encrypted at rest, and application data persists in the configured Data path.</Description>
+  <Category>MediaApp:Other</Category>
+  <WebUI>http://[IP]:[PORT:7979]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/bamcel/poster-view/main/templates/posterview.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/bamcel/poster-view/main/icon.png</Icon>
+  <License>MIT</License>
+  <ExtraSearchTerms>poster artwork plex jellyfin emby theposterdb fanart tvdb anilist mediux</ExtraSearchTerms>
+  <Screenshot>https://raw.githubusercontent.com/bamcel/poster-view/main/docs/Library_Dashboard.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/bamcel/poster-view/main/docs/Auto_Apply_Poster_Set.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/bamcel/poster-view/main/docs/Custom_Select.png</Screenshot>
+  <ExtraParams>--add-host=host.docker.internal:host-gateway</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="WebUI Port" Target="7979" Default="7979" Mode="tcp" Description="Port for the PosterView web UI" Type="Port" Display="always" Required="true" Mask="false">7979</Config>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/posterview" Mode="rw" Description="SQLite database, encryption key, settings, and apply history" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/posterview</Config>
+</Container>

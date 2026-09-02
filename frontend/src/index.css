@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+/* PosterView design tokens. Tailwind v4 reads @theme to generate utilities like
+   bg-surface, text-accent, etc. The palette is a modern dark media UI with a
+   green "Play" accent matching the reference design. */
+@theme {
+  --color-base: #0c0d10;
+  --color-surface: #16181d;
+  --color-surface-2: #1d2026;
+  --color-elevated: #24272e;
+  --color-border: #2c3039;
+  --color-muted: #9aa3b2;
+  --color-faint: #6b7280;
+  --color-accent: #21d07a;
+  --color-accent-hover: #1bb86a;
+  --color-danger: #ef4444;
+  --color-sidebar: #1b1e25;
+  --color-input: #1d2028;
+  --color-input-hover: #292e38;
+  --color-button: #3b4252;
+  --color-button-hover: #2e3440;
+  --color-border-strong: #4c566a;
+  --color-text: #eceff4;
+  --color-disabled: #7d8797;
+  --color-success: #50fa7b;
+  --color-warning: #ebcb8b;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  font-size: clamp(12px, 1.1vw, 16px);
+  background: var(--color-base);
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background-color: var(--color-base);
+  color: var(--color-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 28%, transparent);
+}
+
+/* Existing text-white utilities mean "primary themed text" in PosterView. */
+.text-white { color: var(--color-text); }
+
+/* Slim, dark scrollbars to match the surface. The track is a translucent black
+   wash (not fully transparent, not opaque) — matching the item detail page's own
+   bg-black/55 scrim — so on that page it tints the fixed, full-bleed backdrop
+   showing through the gutter to blend with the darkened content beside it,
+   rather than either revealing the bright raw image (transparent) or painting a
+   flat black strip (opaque). On normal pages it sits over the base background
+   and is barely visible. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-elevated) rgba(0, 0, 0, 0.55);
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.55);
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-elevated);
+  border-radius: 9999px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in {
+  animation: fadeIn 0.25s ease-out both;
+}
