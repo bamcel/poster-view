@@ -6,6 +6,7 @@ backend/.venv/
 **/__pycache__/
 *.py[cod]
 backend/data/
+data/
 
 # Node / frontend build output (rebuilt inside the image)
 frontend/node_modules/

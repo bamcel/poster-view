@@ -3,6 +3,7 @@ mod posterdb;
 use posterview_contracts::{
     ArtworkItem, ArtworkProviderInfo, ArtworkSearchResult, ItemDetail, ItemType,
 };
+use posterview_url_security::provider_https;
 use reqwest::{Client, StatusCode};
 use serde_json::{Value, json};
 use std::{collections::HashMap, time::Duration};
@@ -332,8 +333,16 @@ impl ArtworkService {
     }
 }
 
-pub async fn download_public_image(url: &str) -> Result<(Vec<u8>, String), String> {
-    let response = http_client()?
+pub async fn download_public_image(provider: &str, url: &str) -> Result<(Vec<u8>, String), String> {
+    let domains: &[&str] = match provider {
+        "fanart" => &["fanart.tv"],
+        "tvdb" => &["thetvdb.com"],
+        "anilist" => &["anilist.co"],
+        "mediux" => &["mediux.pro"],
+        _ => return Err(format!("Unknown artwork provider: {provider}")),
+    };
+    let url = provider_https(url, domains)?;
+    let response = provider_client(domains)?
         .get(url)
         .send()
         .await
@@ -566,11 +575,12 @@ async fn fetch_mediux(
 }
 
 pub async fn fetch_mediux_thumb(url: &str) -> Result<(Vec<u8>, String), String> {
-    if !url.starts_with("https://mediux.pro/_next/image") {
+    let parsed = provider_https(url, &["mediux.pro"])?;
+    if parsed.host_str() != Some("mediux.pro") || parsed.path() != "/_next/image" {
         return Err("Refusing to proxy a non-MediUX URL.".to_owned());
     }
-    let response = http_client()?
-        .get(url)
+    let response = provider_client(&["mediux.pro"])?
+        .get(parsed)
         .header(reqwest::header::REFERER, "https://mediux.pro/")
         .send()
         .await
@@ -658,9 +668,27 @@ fn provider(
 }
 
 fn http_client() -> Result<Client, String> {
+    provider_client(&["fanart.tv", "anilist.co", "thetvdb.com", "mediux.pro"])
+}
+
+fn provider_client(domains: &[&str]) -> Result<Client, String> {
+    let domains = domains
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect::<Vec<_>>();
+    let redirects = reqwest::redirect::Policy::custom(move |attempt| {
+        let allowed = domains.iter().map(String::as_str).collect::<Vec<_>>();
+        if attempt.previous().len() >= 10
+            || provider_https(attempt.url().as_str(), &allowed).is_err()
+        {
+            attempt.stop()
+        } else {
+            attempt.follow()
+        }
+    });
     Client::builder()
         .user_agent(USER_AGENT)
-        .redirect(reqwest::redirect::Policy::limited(10))
+        .redirect(redirects)
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .build()

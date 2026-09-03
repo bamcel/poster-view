@@ -14,6 +14,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 
 # frontend (from frontend/)
 npm run dev                            # Vite on :5173, proxies /api -> :7979
+npm test                               # Vitest component and API-client tests
 npm run build                          # tsc typecheck + production bundle -> dist/
 
 # deploy the running container (rebuilds frontend + backend into the image)
@@ -25,16 +26,16 @@ Live provider/media-server verification remains opt-in because it needs user cre
 
 ## Deployment security
 
-PosterView currently has no built-in user authentication or per-route authorization. Treat every
-client that can reach port `7979` as an administrator: API callers can manage servers, provider
-credentials, artwork, and history. Do not expose the port directly to the public internet. Use a
-trusted LAN, an authenticated reverse proxy, or restrictive Tailscale ACLs. The encrypted SQLite
-settings protect secrets at rest but do not secure the running HTTP API.
+PosterView requires an administrator session for every API route except health and authentication.
+Set `POSTERVIEW_PASSWORD`, or retrieve the generated first-run password from
+`data/admin-password.txt`. Set `POSTERVIEW_SECURE_COOKIES=true` behind HTTPS. Keep the service on a
+trusted network or behind a reverse proxy because application login does not replace TLS and
+network access controls.
 
 Server URLs intentionally support LAN IPs, direct Tailscale IPs, resolvable MagicDNS names, and
-complete domain URLs because PosterView must reach remote media servers. Any future SSRF controls
-must preserve configured private/Tailnet destinations while preventing unauthenticated arbitrary
-outbound requests.
+complete domain URLs because PosterView must reach remote media servers. URL validation therefore
+allows private destinations only for configured media-server bases. Artwork downloads and their
+redirects are HTTPS-only and restricted to the selected provider's domain.
 
 ## Architecture
 
@@ -44,8 +45,9 @@ outbound requests.
 - `crates/posterview-infra-artwork/` — ThePosterDB session/scraping plus
   Fanart.tv, TheTVDB, AniList, and MediUX providers.
 - `crates/posterview-infra-sqlite/` — compatible SQLite schema and Fernet secrets.
+- `crates/posterview-url-security/` — shared media-server and provider URL trust rules.
 - `crates/posterview-runtime/` — host-independent orchestration, apply, history, and revert.
-- `apps/server/` — Axum routes and compiled-SPA serving.
+- `apps/server/` — Axum routes, authentication, configuration, errors, and compiled-SPA serving.
 - **Title search for Fanart.tv/TheTVDB/MediUX** (`GET /api/artwork/search`,
   `ArtworkBrowser.tsx`'s id/search box): typing a non-numeric value shows a
   picker of candidates instead of an id lookup. None of the three has its

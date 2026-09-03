@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use posterview_contracts::{
     ItemDetail, ItemType, Library, LibraryType, MediaItem, Season, ServerType,
 };
+use posterview_url_security::media_server_base;
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -14,12 +15,33 @@ pub struct ConnectionConfig<'a> {
     pub token: &'a str,
 }
 
-pub async fn test_connection(config: ConnectionConfig<'_>) -> Result<(String, String), String> {
-    let client = Client::builder()
+fn media_client(config: &ConnectionConfig<'_>) -> Result<Client, String> {
+    let base = media_server_base(config.base_url)?;
+    let scheme = base.scheme().to_owned();
+    let host = base.host_str().unwrap_or_default().to_owned();
+    let port = base.port_or_known_default();
+    let redirects = reqwest::redirect::Policy::custom(move |attempt| {
+        let next = attempt.url();
+        let same_origin = next.scheme() == scheme
+            && next
+                .host_str()
+                .is_some_and(|value| value.eq_ignore_ascii_case(&host))
+            && next.port_or_known_default() == port;
+        if attempt.previous().len() >= 10 || !same_origin {
+            attempt.stop()
+        } else {
+            attempt.follow()
+        }
+    });
+    Client::builder()
         .danger_accept_invalid_certs(true)
-        .redirect(reqwest::redirect::Policy::limited(10))
+        .redirect(redirects)
         .build()
-        .map_err(|error| format!("Could not configure HTTP client: {error}"))?;
+        .map_err(|error| format!("Could not configure HTTP client: {error}"))
+}
+
+pub async fn test_connection(config: ConnectionConfig<'_>) -> Result<(String, String), String> {
+    let client = media_client(&config)?;
     match config.server_type {
         ServerType::Plex => test_plex(&client, &config).await,
         ServerType::Jellyfin => test_emby_family(&client, &config, "Jellyfin").await,
@@ -28,11 +50,7 @@ pub async fn test_connection(config: ConnectionConfig<'_>) -> Result<(String, St
 }
 
 pub async fn get_libraries(config: ConnectionConfig<'_>) -> Result<Vec<Library>, String> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(|error| format!("Could not configure HTTP client: {error}"))?;
+    let client = media_client(&config)?;
     match config.server_type {
         ServerType::Plex => plex_libraries(&client, &config).await,
         ServerType::Jellyfin => emby_libraries(&client, &config, "Jellyfin").await,
@@ -45,11 +63,7 @@ pub async fn get_items(
     library_id: &str,
     group_collections: bool,
 ) -> Result<Vec<MediaItem>, String> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(|error| format!("Could not configure HTTP client: {error}"))?;
+    let client = media_client(&config)?;
     match config.server_type {
         ServerType::Plex => plex_items(&client, &config, library_id, group_collections).await,
         ServerType::Jellyfin => {
@@ -65,11 +79,7 @@ pub async fn get_item_detail(
     config: ConnectionConfig<'_>,
     item_id: &str,
 ) -> Result<ItemDetail, String> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(|error| format!("Could not configure HTTP client: {error}"))?;
+    let client = media_client(&config)?;
     match config.server_type {
         ServerType::Plex => plex_item_detail(&client, &config, item_id).await,
         ServerType::Jellyfin => emby_item_detail(&client, &config, "Jellyfin", item_id).await,
@@ -308,11 +318,7 @@ pub async fn fetch_image(
     config: ConnectionConfig<'_>,
     reference: &str,
 ) -> Result<(Vec<u8>, String), String> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(|error| format!("Could not configure HTTP client: {error}"))?;
+    let client = media_client(&config)?;
     let mut request = client.get(format!(
         "{}/{}",
         config.base_url.trim_end_matches('/'),
@@ -348,11 +354,7 @@ pub async fn set_image(
     data: &[u8],
     content_type: &str,
 ) -> Result<(), String> {
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .build()
-        .map_err(|error| format!("Could not configure HTTP client: {error}"))?;
+    let client = media_client(&config)?;
     match config.server_type {
         ServerType::Plex => {
             let endpoint = match target {
@@ -1048,3 +1050,6 @@ fn string_field(value: &Value, field: &str, fallback: &str) -> String {
         .unwrap_or(fallback)
         .to_owned()
 }
+
+#[cfg(test)]
+mod tests;

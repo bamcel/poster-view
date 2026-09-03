@@ -12,6 +12,7 @@ __pycache__/
 # Runtime data: SQLite db + encryption key + any cached state
 backend/data/*
 !backend/data/.gitkeep
+/data/
 
 # --- Node / frontend ---
 node_modules/

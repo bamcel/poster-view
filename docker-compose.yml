@@ -8,6 +8,9 @@ services:
     volumes:
       # Persists the SQLite database + encryption key across restarts/upgrades.
       - posterview-data:/data
+    environment:
+      # Set this in a .env file. When omitted, PosterView creates /data/admin-password.txt.
+      - POSTERVIEW_PASSWORD=${POSTERVIEW_PASSWORD:-}
     # Lets you reach a media server running on the Docker host by using
     # "http://host.docker.internal:32400" (Plex) / ":8096" (Jellyfin/Emby) as
     # the Server URL. Media servers elsewhere on your LAN work with their normal IP.

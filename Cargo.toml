@@ -6,6 +6,7 @@ members = [
     "crates/posterview-infra-media-servers",
     "crates/posterview-infra-artwork",
     "crates/posterview-infra-sqlite",
+    "crates/posterview-url-security",
     "crates/posterview-runtime",
 ]
 
@@ -42,6 +43,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tempfile = "3"
 uuid = { version = "1", features = ["v4"] }
+url = "2"
+subtle = "2"
+posterview-url-security = { path = "crates/posterview-url-security" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

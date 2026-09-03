@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-// In dev, the Vite server proxies /api to the FastAPI backend on :7979 so the
+// In dev, the Vite server proxies /api to the Axum backend on :7979 so the
 // frontend and backend can run as separate processes with no CORS friction.
 export default defineConfig({
   plugins: [react(), tailwindcss()],

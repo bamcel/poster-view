@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 posterview-contracts.workspace = true
+posterview-url-security.workspace = true
 regex.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true

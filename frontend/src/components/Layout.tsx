@@ -1,9 +1,10 @@
 // App chrome: a left sidebar (logo, nav, active-server picker) + routed content.
 
 import { NavLink, Outlet } from "react-router-dom";
-import { LibraryBig, History, Settings, Server as ServerIcon } from "lucide-react";
+import { LibraryBig, History, LogOut, Settings, Server as ServerIcon } from "lucide-react";
 import { useServers } from "../lib/serverContext";
 import { Logo, ServerTypeBadge } from "./ui";
+import { api } from "../api/client";
 
 const navItems = [
   { to: "/", label: "Libraries", icon: LibraryBig, end: true },
@@ -13,6 +14,11 @@ const navItems = [
 
 export default function Layout() {
   const { servers, selectedId, setSelectedId } = useServers();
+
+  async function signOut() {
+    await api.authLogout();
+    window.location.assign("/");
+  }
 
   return (
     <div className="flex h-full flex-col md:flex-row">
@@ -35,6 +41,9 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
+        <button type="button" onClick={signOut} aria-label="Sign out" className="grid size-10 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white">
+          <LogOut className="size-[18px]" />
+        </button>
         {servers.length > 0 ? (
           <select
             aria-label="Active server"
@@ -77,7 +86,11 @@ export default function Layout() {
           ))}
         </nav>
 
-        <div className="mt-auto min-w-0 overflow-hidden rounded-lg border border-border bg-surface-2 p-3">
+        <button type="button" onClick={signOut} className="mt-auto mb-3 flex h-9 items-center gap-3 rounded-md px-3 text-sm text-muted hover:bg-input-hover hover:text-white">
+          <LogOut className="size-[18px]" /> Sign out
+        </button>
+
+        <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface-2 p-3">
           <label className="mb-2 flex items-center gap-2 text-[0.6875rem] font-semibold uppercase tracking-wide text-faint">
             <ServerIcon className="size-3.5" /> Active server
           </label>

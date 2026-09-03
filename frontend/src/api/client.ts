@@ -1,5 +1,5 @@
 // Thin typed wrapper over fetch. All calls are same-origin (/api/...): in dev
-// Vite proxies to the backend, in production FastAPI serves this bundle.
+// Vite proxies to the backend; in production the Axum server serves this bundle.
 
 import type {
   ApplyHistoryEntry,
@@ -42,6 +42,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   });
   if (!res.ok) {
+    if (res.status === 401) window.dispatchEvent(new Event("posterview:unauthorized"));
     let detail = res.statusText;
     try {
       const body = await res.json();
@@ -70,6 +71,15 @@ export interface ServerInput {
 }
 
 export const api = {
+  authStatus: () => request<{ authenticated: boolean }>("/auth/status"),
+  authLogin: (password: string) =>
+    request<{ authenticated: boolean }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
+  authLogout: () =>
+    request<{ authenticated: boolean }>("/auth/logout", { method: "POST" }),
+
   // -- servers --
   listServers: () => request<Server[]>("/servers"),
   createServer: (data: ServerInput) =>

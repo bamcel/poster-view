@@ -900,6 +900,7 @@ name = "posterview-infra-artwork"
 version = "0.1.0"
 dependencies = [
  "posterview-contracts",
+ "posterview-url-security",
  "regex",
  "reqwest",
  "serde_json",
@@ -910,11 +911,14 @@ dependencies = [
 name = "posterview-infra-media-servers"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "base64",
  "chrono",
  "posterview-contracts",
+ "posterview-url-security",
  "reqwest",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -954,14 +958,24 @@ dependencies = [
  "http-body-util",
  "posterview-contracts",
  "posterview-runtime",
+ "posterview-url-security",
  "serde",
  "serde_json",
+ "subtle",
  "tempfile",
  "tokio",
  "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "posterview-url-security"
+version = "0.1.0"
+dependencies = [
+ "url",
 ]
 
 [[package]]

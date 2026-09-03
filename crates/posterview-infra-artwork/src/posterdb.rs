@@ -11,6 +11,7 @@ use tokio::{
 };
 
 use crate::percent_encode;
+use posterview_url_security::provider_https;
 
 const BASE: &str = "https://theposterdb.com";
 const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/127 Safari/537.36 PosterView/0.1";
@@ -135,6 +136,7 @@ impl PosterDbClient {
         let mut current_method = method;
         let mut current_body = body;
         for _ in 0..10 {
+            provider_https(&url, &["theposterdb.com"])?;
             // Never hold the session lock while waiting on the network. Search and
             // title verification intentionally issue independent GETs concurrently.
             let (client, cookie) = {
@@ -371,12 +373,8 @@ impl PosterDbClient {
         } else {
             asset_url(url_or_id)
         };
-        if thumbnail
-            && !url.starts_with("https://images.theposterdb.com/")
-            && !url.starts_with("https://theposterdb.com/")
-        {
-            return Err("Refusing to proxy a non-ThePosterDB URL.".to_owned());
-        }
+        let _ = thumbnail;
+        provider_https(&url, &["theposterdb.com"])?;
         self.ensure_login(email, password).await?;
         let mut response = None;
         for attempt in 1..=3 {

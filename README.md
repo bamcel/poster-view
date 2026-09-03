@@ -113,7 +113,7 @@ backend/                          temporary rollback implementation only
 ## Requirements
 
 - **Docker** (easiest), or
-- Rust 1.88+ and Node 18+ for a local development setup.
+- Rust 1.88+ and Node 20.19+ or 22.12+ for a local development setup.
 
 ## Run with Docker (recommended)
 
@@ -135,6 +135,17 @@ Open **http://localhost:7979**. The SQLite database and encryption key live in t
 `posterview-data` volume (`/data` in the container), so your servers and settings survive
 restarts and image upgrades.
 
+PosterView requires an administrator password. Set `POSTERVIEW_PASSWORD` in a local `.env`
+file before starting Compose, or let PosterView generate a strong password on first launch and
+retrieve it with:
+
+```bash
+docker compose exec posterview cat /data/admin-password.txt
+```
+
+When an HTTPS reverse proxy terminates TLS, also set `POSTERVIEW_SECURE_COOKIES=true` so the
+session cookie is sent only over HTTPS.
+
 **Reaching your media server from the container:**
 
 - Media server elsewhere on your LAN → just use its normal address (e.g. `http://192.168.1.20:8096`).
@@ -153,11 +164,13 @@ to reach the address itself; a URL that works only inside another device's brows
 ### Network security
 
 PosterView is an administrative tool: it stores media-server credentials and can replace or
-revert library artwork. The current release does not provide its own user login or per-user
-authorization. Do not expose port `7979` directly to the public internet. Keep it on a trusted
-LAN, place it behind an authenticated reverse proxy, or restrict it with Tailscale ACLs so only
-administrators can connect. Encrypted settings protect credentials at rest, but they do not
-replace access control around the running application.
+revert library artwork. All API routes except the health check and sign-in flow require an
+HttpOnly, same-site administrator session. Keep port `7979` on a trusted LAN or behind an HTTPS
+reverse proxy; the login is an application boundary, not a substitute for firewalling and TLS.
+
+Media-server base URLs may intentionally target LAN, loopback, or Tailnet hosts, but must be
+valid HTTP(S) URLs without embedded credentials. User-selectable artwork downloads are restricted
+to the selected provider's HTTPS domain, including every redirect.
 
 To update after pulling new code: `docker compose up -d --build`.
 
@@ -171,7 +184,7 @@ UI to port `7979`, persists `/data` to `/mnt/user/appdata/posterview`, and adds 
 
 1. **Tools → Terminal** (or SSH in) and run:
    ```
-   curl -o /boot/config/plugins/dockerMan/templates-user/posterview.xml \
+   curl -L -o /boot/config/plugins/dockerMan/templates-user/my-posterview.xml \
      https://raw.githubusercontent.com/bamcel/poster-view/main/templates/posterview.xml
    ```
 2. **Docker** tab → **Add Container** → pick **PosterView** from the **Template** dropdown at the
@@ -215,8 +228,9 @@ cd frontend && npm run build       # outputs frontend/dist
 cd .. && cargo run --release --package posterview-server
 ```
 
-Override the bind address, data directory, and built UI directory with `POSTERVIEW_BIND`,
-`POSTERVIEW_DATA_DIR`, and `POSTERVIEW_UI_DIR`.
+Override the bind address, data directory, built UI directory, administrator password, and secure
+cookie behavior with `POSTERVIEW_BIND`, `POSTERVIEW_DATA_DIR`, `POSTERVIEW_UI_DIR`,
+`POSTERVIEW_PASSWORD`, and `POSTERVIEW_SECURE_COOKIES`.
 
 The previous FastAPI image remains available as a rollback build only:
 

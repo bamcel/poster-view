@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use posterview_runtime::Runtime;
-use posterview_server::{ServerConfig, router};
+use posterview_server::{AuthState, ServerConfig, router};
 use tokio::net::TcpListener;
 use tracing::info;
 
@@ -20,6 +20,12 @@ async fn main() -> anyhow::Result<()> {
     runtime
         .initialize()
         .context("could not initialize PosterView data directory")?;
+    let auth = AuthState::load(
+        &config.data_dir,
+        config.password.as_deref(),
+        config.secure_cookies,
+    )
+    .context("could not initialize administrator authentication")?;
     tokio::spawn(watchdog_loop(Arc::clone(&runtime)));
 
     let listener = TcpListener::bind(config.bind)
@@ -27,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
         .with_context(|| format!("could not bind {}", config.bind))?;
     info!(bind = %config.bind, data_dir = %config.data_dir.display(), "PosterView Rust server starting");
 
-    axum::serve(listener, router(runtime, config.ui_dir))
+    axum::serve(listener, router(runtime, config.ui_dir, auth))
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("PosterView server stopped unexpectedly")
