@@ -18,8 +18,8 @@ import CustomTargetButton from "./CustomTargetButton";
 import type { ArtworkItem, ArtworkSearchResult, ArtworkType, ImageTarget, ItemDetail } from "../types";
 
 // Fanart.tv, TheTVDB, and MediUX have no title-search API of their own —
-// all three are backed by TheTVDB's /search endpoint on the backend (see
-// backend/app/routers/artwork.py's /artwork/search). AniList doesn't need
+// all three are backed by TheTVDB's search endpoint in the artwork adapter.
+// AniList doesn't need
 // this: its own fetch already accepts a free-text title directly.
 const TITLE_SEARCH_PROVIDERS = new Set(["fanart", "tvdb", "mediux"]);
 

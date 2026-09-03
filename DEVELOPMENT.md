@@ -136,7 +136,7 @@ redirects are HTTPS-only and restricted to the selected provider's domain.
   reaches `mediux.pro/{movies,shows,collections}/{tmdbId}` fine. But its
   Next.js image proxy (used for thumbnails) 403s without a same-origin
   `Referer` header and 400s on a non-whitelisted `w=` value (only specific
-  sizes like 256 are allowed) — see `backend/app/artwork/mediux.py`.
+  sizes like 256 are allowed) — see `crates/posterview-infra-artwork/src/lib.rs`.
 - **SQLite's `datetime('now')`** (used for `apply_history.applied_at`) is
   `"YYYY-MM-DD HH:MM:SS"` UTC with **no timezone marker and a space, not a
   `T`** — `Date.parse()` on the frontend needs

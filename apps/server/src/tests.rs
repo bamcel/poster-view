@@ -78,7 +78,7 @@ async fn administrator_session_protects_api_routes() {
 }
 
 #[tokio::test]
-async fn health_contract_matches_fastapi() {
+async fn health_contract_matches_public_schema() {
     let app = router(Arc::new(Runtime::new("data")), PathBuf::from("missing-ui"));
     let response = app
         .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
@@ -196,7 +196,7 @@ async fn media_server_crud_matches_the_frontend_contract() {
 }
 
 #[tokio::test]
-async fn adhoc_jellyfin_connection_test_matches_fastapi_shape() {
+async fn adhoc_jellyfin_connection_test_matches_public_schema() {
     let media_app = axum::Router::new().route(
         "/System/Info",
         axum::routing::get(|| async {

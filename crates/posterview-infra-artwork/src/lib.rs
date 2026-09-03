@@ -799,7 +799,7 @@ mod tests {
     use super::{slug_type, strip_year};
 
     #[test]
-    fn shared_normalizers_match_python_provider_behavior() {
+    fn shared_normalizers_match_provider_contracts() {
         assert_eq!(slug_type("series-background"), Some("background"));
         assert_eq!(slug_type("clearlogo"), Some("logo"));
         assert_eq!(strip_year("Example (2024)"), "Example");

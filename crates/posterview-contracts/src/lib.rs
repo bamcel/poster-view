@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Kept byte-for-byte compatible with the current FastAPI health response.
+/// Stable response returned by the public health endpoint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HealthResponse {
     pub status: &'static str,

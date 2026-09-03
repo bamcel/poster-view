@@ -1,11 +1,6 @@
 # Keep the build context small and avoid copying host-built artifacts that
 # would shadow what the image builds itself.
 
-# Python
-backend/.venv/
-**/__pycache__/
-*.py[cod]
-backend/data/
 data/
 
 # Node / frontend build output (rebuilt inside the image)

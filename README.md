@@ -101,7 +101,6 @@ crates/posterview-contracts/      stable frontend/API contracts
 crates/posterview-infra-sqlite/   SQLite + Fernet-compatible encrypted settings
 crates/posterview-infra-media-servers/  Plex / Jellyfin / Emby adapters
 crates/posterview-infra-artwork/  Fanart / TVDB / AniList / MediUX / ThePosterDB
-backend/                          temporary rollback implementation only
 ```
 
 - **Credentials are encrypted at rest** (Fernet) and never echoed back to the browser.
@@ -231,12 +230,6 @@ cd .. && cargo run --release --package posterview-server
 Override the bind address, data directory, built UI directory, administrator password, and secure
 cookie behavior with `POSTERVIEW_BIND`, `POSTERVIEW_DATA_DIR`, `POSTERVIEW_UI_DIR`,
 `POSTERVIEW_PASSWORD`, and `POSTERVIEW_SECURE_COOKIES`.
-
-The previous FastAPI image remains available as a rollback build only:
-
-```bash
-docker build -f Dockerfile.python -t posterview:python-rollback .
-```
 
 ## First-run setup
 
