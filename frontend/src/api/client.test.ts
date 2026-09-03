@@ -4,6 +4,15 @@ import { api } from "./client";
 describe("API client authentication", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("sends both username and password to the login endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ authenticated: true })));
+    vi.stubGlobal("fetch", fetchMock);
+    await api.authLogin("admin", "test-password");
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/login", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ username: "admin", password: "test-password" }),
+    }));
+  });
+
   it("reads authentication status from the public endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ authenticated: true }), {

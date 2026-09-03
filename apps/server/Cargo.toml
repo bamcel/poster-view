@@ -12,6 +12,7 @@ posterview-contracts.workspace = true
 posterview-runtime.workspace = true
 posterview-url-security.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 subtle.workspace = true
 tokio.workspace = true
 tower-http.workspace = true
@@ -21,7 +22,6 @@ uuid.workspace = true
 
 [dev-dependencies]
 http-body-util.workspace = true
-serde_json.workspace = true
 tempfile.workspace = true
 tower.workspace = true
 

@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AuthGate from "./AuthGate";
 import { api } from "../api/client";
+import { initialUsername, setRememberUsername } from "../lib/rememberUsername";
 
 vi.mock("../api/client", () => ({
   api: {
@@ -14,6 +15,7 @@ describe("AuthGate", () => {
   afterEach(cleanup);
 
   beforeEach(() => {
+    localStorage.clear();
     vi.mocked(api.authStatus).mockReset();
     vi.mocked(api.authLogin).mockReset();
   });
@@ -34,7 +36,44 @@ describe("AuthGate", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    await waitFor(() => expect(api.authLogin).toHaveBeenCalledWith("correct-password"));
+    await waitFor(() => expect(api.authLogin).toHaveBeenCalledWith("admin", "correct-password"));
     expect(await screen.findByText("Protected library")).toBeTruthy();
+  });
+
+  it("keeps a successful username after sign-out and reload, but clears the password", async () => {
+    vi.mocked(api.authStatus).mockResolvedValue({ authenticated: false });
+    vi.mocked(api.authLogin).mockResolvedValue({ authenticated: true });
+    const view = render(<AuthGate><div>Protected library</div></AuthGate>);
+    fireEvent.change(await screen.findByLabelText("Username"), { target: { value: "curator" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByText("Protected library");
+    expect(api.authLogin).toHaveBeenCalledWith("curator", "secret");
+    fireEvent(window, new Event("posterview:unauthorized"));
+    expect((await screen.findByLabelText("Username") as HTMLInputElement).value).toBe("curator");
+    expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe("");
+    view.unmount();
+    render(<AuthGate><div>Protected library</div></AuthGate>);
+    expect((await screen.findByLabelText("Username") as HTMLInputElement).value).toBe("curator");
+    expect(JSON.stringify(localStorage)).not.toContain("secret");
+  });
+
+  it("does not remember unsuccessful logins or usernames when remembering is off", async () => {
+    setRememberUsername(false);
+    vi.mocked(api.authStatus).mockResolvedValue({ authenticated: false });
+    vi.mocked(api.authLogin).mockRejectedValueOnce(new Error("Incorrect username or password."));
+    vi.mocked(api.authLogin).mockResolvedValueOnce({ authenticated: true });
+    render(<AuthGate><div>Protected library</div></AuthGate>);
+    expect((await screen.findByLabelText("Username") as HTMLInputElement).value).toBe("");
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "curator" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByRole("alert");
+    expect(initialUsername()).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByText("Protected library");
+    expect(initialUsername()).toBe("");
+    fireEvent(window, new Event("posterview:unauthorized"));
+    expect((await screen.findByLabelText("Username") as HTMLInputElement).value).toBe("");
   });
 });

@@ -23,6 +23,7 @@ import { useToast } from "../lib/toast";
 import { ServerTypeBadge } from "../components/ui";
 import type { ConnectionTest, Server, ServerType } from "../types";
 import { applyTheme, THEMES } from "../lib/theme";
+import SecuritySection from "../components/SecuritySection";
 
 const BLANK: ServerInput = {
   name: "",
@@ -44,13 +45,14 @@ const TOKEN_LABEL: Record<ServerType, string> = {
   emby: "API key",
 };
 
-type SettingsTab = "servers" | "sources" | "database" | "appearance";
+type SettingsTab = "servers" | "sources" | "database" | "appearance" | "security";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   { id: "servers", label: "Server Setup", icon: <ServerIcon className="size-4" /> },
   { id: "sources", label: "Artwork Sources", icon: <ImageIcon className="size-4" /> },
   { id: "database", label: "Database", icon: <Database className="size-4" /> },
   { id: "appearance", label: "Appearance", icon: <Palette className="size-4" /> },
+  { id: "security", label: "Privacy / Security", icon: <KeyRound className="size-4" /> },
 ];
 
 export default function SettingsPage() {
@@ -82,6 +84,7 @@ export default function SettingsPage() {
         {tab === "sources" && <ArtworkSourcesSection />}
         {tab === "database" && <DatabaseSection />}
         {tab === "appearance" && <AppearanceSection />}
+        {tab === "security" && <SecuritySection />}
       </div>
     </div>
   );

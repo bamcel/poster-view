@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use axum::{
     Json, Router,
-    extract::{Multipart, Path, Query, Request, State},
+    extract::{ConnectInfo, Multipart, Path, Query, Request, State},
     http::{HeaderValue, StatusCode, Uri, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -44,6 +44,11 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 
     let protected = Router::new()
+        .route(
+            "/api/security/settings",
+            get(security_settings).put(update_security_settings),
+        )
+        .route("/api/auth/activity", axum::routing::post(auth_activity))
         .route("/api/status", get(status))
         .route("/api/servers/test", axum::routing::post(test_adhoc_server))
         .route("/api/servers", get(list_servers).post(create_server))
@@ -130,19 +135,22 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
 #[derive(Serialize)]
 struct AuthStatus {
     authenticated: bool,
+    password_required: bool,
+    idle_timeout_minutes: Option<u32>,
 }
 
 #[derive(Deserialize)]
 struct LoginRequest {
+    username: String,
     password: String,
 }
 
-async fn auth_status(
-    State(state): State<AppState>,
-    headers: axum::http::HeaderMap,
-) -> Json<AuthStatus> {
+async fn auth_status(State(state): State<AppState>, request: Request) -> Json<AuthStatus> {
+    let bypass = state.auth.local_bypass(peer(&request));
     Json(AuthStatus {
-        authenticated: state.auth.authenticated(&headers),
+        authenticated: bypass || state.auth.authenticated(request.headers()),
+        password_required: state.auth.password_required(peer(&request)),
+        idle_timeout_minutes: state.auth.security_settings().idle_timeout_minutes,
     })
 }
 
@@ -152,12 +160,14 @@ async fn auth_login(
 ) -> Result<impl IntoResponse, HttpError> {
     let (_, cookie) = state
         .auth
-        .login(&input.password)
-        .ok_or_else(|| HttpError::unauthorized("Incorrect administrator password."))?;
+        .login(&input.username, &input.password)
+        .ok_or_else(|| HttpError::unauthorized("Incorrect username or password."))?;
     Ok((
         [(header::SET_COOKIE, cookie)],
         Json(AuthStatus {
             authenticated: true,
+            password_required: true,
+            idle_timeout_minutes: state.auth.security_settings().idle_timeout_minutes,
         }),
     ))
 }
@@ -171,13 +181,52 @@ async fn auth_logout(
         [(header::SET_COOKIE, cookie)],
         Json(AuthStatus {
             authenticated: false,
+            password_required: true,
+            idle_timeout_minutes: state.auth.security_settings().idle_timeout_minutes,
         }),
     )
 }
 
 async fn require_auth(State(auth): State<AuthState>, request: Request, next: Next) -> Response {
-    if auth.authenticated(request.headers()) {
+    if auth.local_bypass(peer(&request)) || auth.authenticated(request.headers()) {
         next.run(request).await
+    } else {
+        auth::unauthorized()
+    }
+}
+
+fn peer(request: &Request) -> Option<std::net::SocketAddr> {
+    request
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map(|info| info.0)
+}
+
+async fn security_settings(State(state): State<AppState>) -> Json<auth::SecuritySettings> {
+    Json(state.auth.security_settings())
+}
+
+async fn update_security_settings(
+    State(state): State<AppState>,
+    Json(settings): Json<auth::SecuritySettings>,
+) -> Result<Json<auth::SecuritySettings>, HttpError> {
+    settings.validate().map_err(HttpError::bad_request)?;
+    state
+        .auth
+        .set_security_settings(settings.clone())
+        .map_err(|error| {
+            tracing::error!(%error, "could not save security settings");
+            HttpError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                detail: "Could not save security settings.".to_owned(),
+            }
+        })?;
+    Ok(Json(settings))
+}
+
+async fn auth_activity(State(state): State<AppState>, request: Request) -> Response {
+    if !state.auth.password_required(peer(&request)) || state.auth.activity(request.headers()) {
+        StatusCode::NO_CONTENT.into_response()
     } else {
         auth::unauthorized()
     }

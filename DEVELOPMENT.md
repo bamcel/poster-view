@@ -26,11 +26,34 @@ Live provider/media-server verification remains opt-in because it needs user cre
 
 ## Deployment security
 
-PosterView requires an administrator session for every API route except health and authentication.
+By default, PosterView requires an administrator session for every API route except health and sign-in/out.
 Set `POSTERVIEW_PASSWORD`, or retrieve the generated first-run password from
 `data/admin-password.txt`. Set `POSTERVIEW_SECURE_COOKIES=true` behind HTTPS. Keep the service on a
 trusted network or behind a reverse proxy because application login does not replace TLS and
 network access controls.
+
+The administrator username is configured by `POSTERVIEW_USERNAME` (default `admin`). Login
+requires both `username` and `password`; failed credentials return the same generic error.
+The optional remember-username preference is per browser and stores only the username, never
+the password. It is independent of the shared security settings described below.
+
+`POSTERVIEW_AUTH_ENABLED` accepts `true` or `false`. When unset it defaults to `true`;
+the Unraid template explicitly defaults it to `false`. False bypasses authentication for all
+connections, not only LAN peers, and overrides inactivity and local-bypass settings. A startup
+warning is logged when disabled. Credentials are preserved so enabling login restores them.
+
+`GET/PUT /api/security/settings` manages `/data/security-settings.json` (or the configured data
+directory). `idle_timeout_minutes` is null for disabled, otherwise an integer from 1 to 1440.
+Sessions track monotonic last-activity time; only authenticated `POST /api/auth/activity` extends
+it. Normal API calls, status polling, and image loads never extend the session. The frontend sends
+activity updates for user input and shares activity across same-origin tabs.
+
+`local_network_bypass` defaults to false. When enabled, middleware and auth status use Axum's
+TCP `ConnectInfo<SocketAddr>` to allow private IPv4, loopback, link-local, and IPv6 unique-local
+peers (including IPv4-mapped addresses). Missing peer info fails closed. Forwarded headers are
+not trusted. A private reverse proxy can therefore bypass authentication for remote visitors;
+the UI explicitly warns about this. Tailscale's IPv4 100.64.0.0/10 range is not treated as private.
+Password-free access has no session to expire; turning bypass off restores password enforcement.
 
 Server URLs intentionally support LAN IPs, direct Tailscale IPs, resolvable MagicDNS names, and
 complete domain URLs because PosterView must reach remote media servers. URL validation therefore

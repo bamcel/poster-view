@@ -14,6 +14,116 @@ fn router(runtime: Arc<Runtime>, ui_dir: PathBuf) -> axum::Router {
 }
 
 #[tokio::test]
+async fn security_routes_require_auth_and_local_bypass_uses_connection_info() {
+    let data = tempdir().unwrap();
+    let runtime = Arc::new(Runtime::new(data.path()));
+    runtime.initialize().unwrap();
+    let auth = super::AuthState::for_tests("password");
+    let app = super::router(runtime, PathBuf::from("missing-ui"), auth.clone());
+    let denied = app
+        .clone()
+        .oneshot(
+            Request::get("/api/security/settings")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+    let rejected = app
+        .clone()
+        .oneshot(
+            Request::put("/api/security/settings")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"idle_timeout_minutes":null,"local_network_bypass":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+
+    let (_, cookie) = auth.login("admin", "password").unwrap();
+    let invalid = app
+        .clone()
+        .oneshot(
+            Request::put("/api/security/settings")
+                .header("cookie", cookie.clone())
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"idle_timeout_minutes":0,"local_network_bypass":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+    let saved = app
+        .clone()
+        .oneshot(
+            Request::put("/api/security/settings")
+                .header("cookie", cookie)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"idle_timeout_minutes":30,"local_network_bypass":true}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+
+    for (address, expected) in [
+        ("192.168.1.20:80", StatusCode::OK),
+        ("172.18.0.2:80", StatusCode::OK),
+        ("8.8.8.8:80", StatusCode::UNAUTHORIZED),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get("/api/security/settings")
+                    .extension(axum::extract::ConnectInfo(
+                        address.parse::<std::net::SocketAddr>().unwrap(),
+                    ))
+                    .header("x-forwarded-for", "192.168.1.20")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected, "{address}");
+    }
+    let unknown = app
+        .clone()
+        .oneshot(
+            Request::get("/api/security/settings")
+                .header("x-forwarded-for", "192.168.1.20")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unknown.status(), StatusCode::UNAUTHORIZED);
+    let local = app
+        .oneshot(
+            Request::get("/api/auth/status")
+                .extension(axum::extract::ConnectInfo(
+                    "192.168.1.20:80".parse::<std::net::SocketAddr>().unwrap(),
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status: serde_json::Value =
+        serde_json::from_slice(&local.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(status["authenticated"], true);
+    assert_eq!(status["password_required"], false);
+    assert_eq!(status["idle_timeout_minutes"], 30);
+}
+
+#[tokio::test]
 async fn administrator_session_protects_api_routes() {
     let data = tempdir().unwrap();
     let runtime = Arc::new(Runtime::new(data.path()));
@@ -36,7 +146,7 @@ async fn administrator_session_protects_api_routes() {
         .oneshot(
             Request::post("/api/auth/login")
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"password":"wrong"}"#))
+                .body(Body::from(r#"{"username":"admin","password":"wrong"}"#))
                 .unwrap(),
         )
         .await
@@ -48,7 +158,23 @@ async fn administrator_session_protects_api_routes() {
         .oneshot(
             Request::post("/api/auth/login")
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"password":"correct-password"}"#))
+                .body(Body::from(
+                    r#"{"username":"wrong-user","password":"correct-password"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(accepted.status(), StatusCode::UNAUTHORIZED);
+
+    let accepted = app
+        .clone()
+        .oneshot(
+            Request::post("/api/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"username":"admin","password":"correct-password"}"#,
+                ))
                 .unwrap(),
         )
         .await
@@ -75,6 +201,42 @@ async fn administrator_session_protects_api_routes() {
         .await
         .unwrap();
     assert_eq!(allowed.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn disabled_login_allows_remote_access_and_reports_no_password_required() {
+    let data = tempdir().unwrap();
+    let runtime = Arc::new(Runtime::new(data.path()));
+    runtime.initialize().unwrap();
+    let auth = super::AuthState::for_tests("password").with_authentication(false);
+    let app = super::router(runtime, PathBuf::from("missing-ui"), auth);
+    for path in ["/api/security/settings", "/api/servers"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .extension(axum::extract::ConnectInfo(
+                        "8.8.8.8:1234".parse::<std::net::SocketAddr>().unwrap(),
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+    let response = app
+        .oneshot(
+            Request::get("/api/auth/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status: serde_json::Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(status["authenticated"], true);
+    assert_eq!(status["password_required"], false);
 }
 
 #[tokio::test]

@@ -70,12 +70,28 @@ export interface ServerInput {
   is_default: boolean;
 }
 
+export interface SecuritySettings {
+  idle_timeout_minutes: number | null;
+  local_network_bypass: boolean;
+}
+
+export interface AuthSession {
+  authenticated: boolean;
+  password_required?: boolean;
+  idle_timeout_minutes?: number | null;
+}
+
 export const api = {
-  authStatus: () => request<{ authenticated: boolean }>("/auth/status"),
-  authLogin: (password: string) =>
-    request<{ authenticated: boolean }>("/auth/login", {
+  securitySettings: () => request<SecuritySettings>("/security/settings"),
+  saveSecuritySettings: (settings: SecuritySettings) => request<SecuritySettings>("/security/settings", {
+    method: "PUT", body: JSON.stringify(settings),
+  }),
+  authActivity: () => request<void>("/auth/activity", { method: "POST" }),
+  authStatus: () => request<AuthSession>("/auth/status"),
+  authLogin: (username: string, password: string) =>
+    request<AuthSession>("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ username, password }),
     }),
   authLogout: () =>
     request<{ authenticated: boolean }>("/auth/logout", { method: "POST" }),

@@ -9,6 +9,7 @@ services:
       # Persists the SQLite database + encryption key across restarts/upgrades.
       - posterview-data:/data
     environment:
+      - POSTERVIEW_USERNAME=${POSTERVIEW_USERNAME:-admin}
       # Set this in a .env file. When omitted, PosterView creates /data/admin-password.txt.
       - POSTERVIEW_PASSWORD=${POSTERVIEW_PASSWORD:-}
     # Lets you reach a media server running on the Docker host by using

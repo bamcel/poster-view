@@ -134,6 +134,18 @@ Open **http://localhost:7979**. The SQLite database and encryption key live in t
 `posterview-data` volume (`/data` in the container), so your servers and settings survive
 restarts and image upgrades.
 
+PosterView's administrator username defaults to `admin`. Change it with `POSTERVIEW_USERNAME`
+in your `.env` file or the **Administrator Username** field in the Unraid XML template, then
+recreate the container. Usernames are case-sensitive.
+
+The Unraid XML template includes **Require Login**, a `false`/`true` option defaulting to `false`.
+It sets `POSTERVIEW_AUTH_ENABLED`: `false` disables login for **all connections**, including
+reverse proxies and remote visitors; `true` enables login (subject to the optional LAN bypass).
+With login disabled, inactivity sign-out cannot lock access. Use disabled login only on a
+trusted network. Username/password settings are retained for when login is enabled again.
+Outside the Unraid template, omitting this variable keeps authentication enabled. Recreate the
+container after changing the variable.
+
 PosterView requires an administrator password. Set `POSTERVIEW_PASSWORD` in a local `.env`
 file before starting Compose, or let PosterView generate a strong password on first launch and
 retrieve it with:
@@ -163,9 +175,31 @@ to reach the address itself; a URL that works only inside another device's brows
 ### Network security
 
 PosterView is an administrative tool: it stores media-server credentials and can replace or
-revert library artwork. All API routes except the health check and sign-in flow require an
+revert library artwork. By default, all API routes except the health check and sign-in flow require an
 HttpOnly, same-site administrator session. Keep port `7979` on a trusted LAN or behind an HTTPS
 reverse proxy; the login is an application boundary, not a substitute for firewalling and TLS.
+
+In **Settings → Privacy / Security**, you can configure:
+
+- **Remember username on this browser:** enabled by default. The last successful username stays
+  filled in after sign-out and on future visits. Turning it off immediately removes the saved
+  username. This preference is local to each browser/origin and saves immediately; PosterView
+  never saves your login password in browser storage.
+- **Automatic sign-out:** optionally expire password-authenticated sessions after 1–1440 minutes
+  of inactivity. Disabled by default. Mouse, keyboard, touch, and scrolling count as activity;
+  background requests do not. Activity in another tab on the same origin keeps the shared session
+  active. The server also enforces expiry when the browser is closed or suspended.
+- **Skip password authentication on local networks:** disabled by default. When enabled, direct
+  connections from private, loopback, or link-local IP addresses receive full access without a
+  password. The direct connection's address is used, not the hostname or forwarded headers.
+  **A reverse proxy or Docker networking can make remote visitors appear local, including visitors
+  using your public domain. Enable only if you accept that they may also bypass authentication.**
+  Auto sign-out and the Sign out button do not lock password-free local access. Disable this
+  setting to require the existing password again.
+
+Preferences are saved in `/data/security-settings.json` and survive container restarts. To restore
+the defaults outside the UI, stop the container, remove only that settings file, then restart it.
+The password and media-server data are preserved. Sessions themselves are not persisted.
 
 Media-server base URLs may intentionally target LAN, loopback, or Tailnet hosts, but must be
 valid HTTP(S) URLs without embedded credentials. User-selectable artwork downloads are restricted

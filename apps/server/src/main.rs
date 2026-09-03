@@ -23,9 +23,11 @@ async fn main() -> anyhow::Result<()> {
     let auth = AuthState::load(
         &config.data_dir,
         config.password.as_deref(),
+        &config.username,
         config.secure_cookies,
     )
-    .context("could not initialize administrator authentication")?;
+    .context("could not initialize administrator authentication")?
+    .with_authentication(config.auth_enabled);
     tokio::spawn(watchdog_loop(Arc::clone(&runtime)));
 
     let listener = TcpListener::bind(config.bind)
@@ -33,10 +35,14 @@ async fn main() -> anyhow::Result<()> {
         .with_context(|| format!("could not bind {}", config.bind))?;
     info!(bind = %config.bind, data_dir = %config.data_dir.display(), "PosterView Rust server starting");
 
-    axum::serve(listener, router(runtime, config.ui_dir, auth))
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .context("PosterView server stopped unexpectedly")
+    axum::serve(
+        listener,
+        router(runtime, config.ui_dir, auth)
+            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .context("PosterView server stopped unexpectedly")
 }
 
 async fn watchdog_loop(runtime: Arc<Runtime>) {

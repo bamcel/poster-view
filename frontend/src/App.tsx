@@ -6,20 +6,23 @@ import SettingsPage from "./pages/SettingsPage";
 import HistoryPage from "./pages/HistoryPage";
 import { ToastProvider } from "./lib/toast";
 import AuthGate from "./components/AuthGate";
+import { ServerProvider } from "./lib/serverContext";
 
 export default function App() {
   return (
     <AuthGate>
-      <ToastProvider>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<LibraryPage />} />
-            <Route path="/history" element={<HistoryPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/server/:serverId/item/:itemId" element={<ItemDetailPage />} />
-          </Route>
-        </Routes>
-      </ToastProvider>
+      <ServerProvider>
+        <ToastProvider>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/" element={<LibraryPage />} />
+              <Route path="/history" element={<HistoryPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/server/:serverId/item/:itemId" element={<ItemDetailPage />} />
+            </Route>
+          </Routes>
+        </ToastProvider>
+      </ServerProvider>
     </AuthGate>
   );
 }
