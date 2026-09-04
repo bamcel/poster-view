@@ -87,12 +87,14 @@ export default function Layout() {
               {label}
             </NavLink>
           ))}
-          {showSignOut && <button type="button" onClick={signOut} className="flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted transition-colors hover:bg-input-hover hover:text-white">
-            <LogOut className="size-[18px]" /> Sign out
-          </button>}
         </nav>
 
-        <div className="mt-auto min-w-0 overflow-hidden rounded-lg border border-border bg-surface-2 p-3">
+        <div className="mt-auto pt-4" />
+        {showSignOut && <button type="button" onClick={signOut} className="mb-3 flex h-9 shrink-0 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted transition-colors hover:bg-input-hover hover:text-white">
+          <LogOut className="size-[18px]" /> Sign out
+        </button>}
+
+        <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface-2 p-3">
           <label className="mb-2 flex items-center gap-2 text-[0.6875rem] font-semibold uppercase tracking-wide text-faint">
             <ServerIcon className="size-3.5" /> Active server
           </label>
