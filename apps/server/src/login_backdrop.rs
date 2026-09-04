@@ -69,10 +69,10 @@ impl LoginBackdrop {
         if self.refreshing.swap(true, Ordering::AcqRel) {
             return;
         }
+        let _refresh_guard = RefreshGuard(Arc::clone(&self.refreshing));
         if let Err(error) = self.refresh_inner(runtime).await {
             tracing::warn!(%error, "could not refresh the login poster backdrop");
         }
-        self.refreshing.store(false, Ordering::Release);
     }
 
     async fn refresh_inner(&self, runtime: &Runtime) -> Result<(), String> {
@@ -159,8 +159,19 @@ impl LoginBackdrop {
 }
 
 fn shuffled<T>(mut values: Vec<T>) -> Vec<T> {
-    values.sort_by_key(|_| uuid::Uuid::new_v4());
+    for index in (1..values.len()).rev() {
+        let swap = (uuid::Uuid::new_v4().as_u128() % (index as u128 + 1)) as usize;
+        values.swap(index, swap);
+    }
     values
+}
+
+struct RefreshGuard(Arc<AtomicBool>);
+
+impl Drop for RefreshGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 #[cfg(test)]
@@ -187,5 +198,12 @@ mod tests {
         assert_eq!(cache.image("allowed"), Some(b"image".to_vec()));
         assert!(cache.image("unlisted").is_none());
         assert!(cache.image("../allowed").is_none());
+    }
+
+    #[test]
+    fn shuffled_preserves_every_value() {
+        let mut values = shuffled((0..100).collect::<Vec<_>>());
+        values.sort_unstable();
+        assert_eq!(values, (0..100).collect::<Vec<_>>());
     }
 }
