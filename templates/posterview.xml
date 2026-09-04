@@ -29,7 +29,7 @@
   <Requires/>
   <Config Name="WebUI Port" Target="7979" Default="7979" Mode="tcp" Description="Port for the PosterView web UI" Type="Port" Display="always" Required="true" Mask="false">7979</Config>
   <Config Name="Data" Target="/data" Default="/mnt/user/appdata/posterview" Mode="rw" Description="SQLite database, encryption key, settings, and apply history" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/posterview</Config>
-  <Config Name="Administrator Password" Target="POSTERVIEW_PASSWORD" Default="" Mode="" Description="Password for the PosterView sign-in screen. Leave blank to generate one in /data/admin-password.txt." Type="Variable" Display="always-hide" Required="false" Mask="true"></Config>
   <Config Name="Require Login" Target="POSTERVIEW_AUTH_ENABLED" Default="false|true" Mode="" Description="false disables login for ALL connections, including reverse proxies and remote access. true requires administrator login unless local-network bypass is enabled in Settings. Defaults to false. Use only on a trusted network when disabled." Type="Variable" Display="always" Required="false" Mask="false">false</Config>
   <Config Name="Administrator Username" Target="POSTERVIEW_USERNAME" Default="admin" Mode="" Description="Username when Require Login is true. Defaults to admin." Type="Variable" Display="always" Required="false" Mask="false">admin</Config>
+  <Config Name="Administrator Password" Target="POSTERVIEW_PASSWORD" Default="" Mode="" Description="Password for the PosterView sign-in screen. Leave blank to generate one in /data/admin-password.txt." Type="Variable" Display="always-hide" Required="false" Mask="true"></Config>
 </Container>
