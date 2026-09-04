@@ -44,8 +44,12 @@ pub struct CacheUsage {
 
 impl ArtworkCache {
     pub fn new(data_dir: &Path) -> Self {
+        Self::at(data_dir.join("artwork-cache"))
+    }
+
+    pub fn at(root: PathBuf) -> Self {
         Self {
-            root: data_dir.join("artwork-cache"),
+            root,
             lock: Mutex::new(()),
         }
     }
@@ -193,13 +197,17 @@ impl ArtworkCache {
     }
 
     pub fn remove_matching(&self, pattern: &str) -> io::Result<CacheUsage> {
+        self.remove_matching_all(&[pattern])
+    }
+
+    pub fn remove_matching_all(&self, patterns: &[&str]) -> io::Result<CacheUsage> {
         let _guard = self
             .lock
             .lock()
             .map_err(|_| io::Error::other("cache lock poisoned"))?;
         let mut removed = CacheUsage::default();
         for entry in cache_entries(&self.root)? {
-            if entry.key.contains(pattern) {
+            if patterns.iter().all(|pattern| entry.key.contains(pattern)) {
                 removed.bytes += entry.bytes;
                 removed.files += 1;
                 remove_entry(&entry);
@@ -383,5 +391,41 @@ mod tests {
         let cleared = cache.clear().expect("clear");
         assert!(cleared.bytes > 0);
         assert_eq!(cache.usage().expect("empty usage").bytes, 0);
+    }
+
+    #[test]
+    fn removes_only_entries_matching_every_pattern() {
+        let temp = tempfile::tempdir().expect("temp directory");
+        let cache = ArtworkCache::at(temp.path().join("media-image-cache"));
+        cache.initialize().expect("initialize cache");
+        for key in [
+            "media:1:/Items/movie-1/Images/Primary",
+            "media:1:/Items/movie-2/Images/Primary",
+            "media:2:/Items/movie-1/Images/Primary",
+        ] {
+            cache
+                .put_image(key, b"jpeg", "image/jpeg", 250, 30)
+                .expect("store image");
+        }
+
+        cache
+            .remove_matching_all(&["media:1:", "movie-1"])
+            .expect("remove matching item");
+
+        assert!(
+            cache
+                .get_image("media:1:/Items/movie-1/Images/Primary", 30)
+                .is_none()
+        );
+        assert!(
+            cache
+                .get_image("media:1:/Items/movie-2/Images/Primary", 30)
+                .is_some()
+        );
+        assert!(
+            cache
+                .get_image("media:2:/Items/movie-1/Images/Primary", 30)
+                .is_some()
+        );
     }
 }

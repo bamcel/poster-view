@@ -92,11 +92,18 @@ impl LoginBackdrop {
             .ok_or_else(|| "server disappeared".to_owned())??;
         let mut rows = Vec::new();
         for (row_index, library) in shuffled(libraries).into_iter().take(MAX_ROWS).enumerate() {
-            let items = runtime
-                .get_items(server.id, &library.id, true)
-                .await
-                .map_err(|error| error.to_string())?
-                .ok_or_else(|| "server disappeared".to_owned())??;
+            let items = match runtime.get_items(server.id, &library.id, true).await {
+                Ok(Some(Ok(items))) => items,
+                Ok(Some(Err(error))) => {
+                    tracing::warn!(library_id = %library.id, %error, "skipping a library while refreshing the login backdrop");
+                    continue;
+                }
+                Ok(None) => break,
+                Err(error) => {
+                    tracing::warn!(library_id = %library.id, %error, "skipping a library while refreshing the login backdrop");
+                    continue;
+                }
+            };
             let mut posters = Vec::new();
             for (poster_index, reference) in shuffled(items)
                 .into_iter()
@@ -104,10 +111,7 @@ impl LoginBackdrop {
                 .take(POSTERS_PER_ROW)
                 .enumerate()
             {
-                let Some(Ok((bytes, _))) = runtime
-                    .fetch_image(server.id, &reference)
-                    .await
-                    .map_err(|error| error.to_string())?
+                let Ok(Some(Ok((bytes, _)))) = runtime.fetch_image(server.id, &reference).await
                 else {
                     continue;
                 };

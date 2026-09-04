@@ -15,11 +15,27 @@ export default function LoginBackdrop() {
   const [rows, setRows] = useState<string[][]>([]);
   useEffect(() => {
     const controller = new AbortController();
-    void fetch("/api/login-backdrop", { signal: controller.signal, cache: "no-store" })
-      .then((response) => response.ok ? response.json() : Promise.reject(new Error("Backdrop unavailable")))
-      .then((manifest: LoginBackdropManifest) => setRows(shuffled(manifest.rows).map((row) => shuffled(row.posters))))
-      .catch(() => { /* The themed base remains when no cache is available. */ });
-    return () => controller.abort();
+    let timer: number | undefined;
+    let stopped = false;
+    let loaded = false;
+    const load = async () => {
+      try {
+        const response = await fetch("/api/login-backdrop", { signal: controller.signal, cache: "no-store" });
+        if (!response.ok) throw new Error("Backdrop unavailable");
+        const manifest: LoginBackdropManifest = await response.json();
+        if (!stopped && manifest.rows.length > 0) {
+          loaded = true;
+          setRows((current) => current.length > 0 ? current : shuffled(manifest.rows).map((row) => shuffled(row.posters)));
+        }
+      } catch { /* The themed base remains while no cache is available. */ }
+      if (!stopped) timer = window.setTimeout(load, loaded ? 300_000 : 3_000);
+    };
+    void load();
+    return () => {
+      stopped = true;
+      controller.abort();
+      if (timer !== undefined) clearTimeout(timer);
+    };
   }, []);
 
   if (rows.length === 0) return null;

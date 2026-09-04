@@ -23,6 +23,8 @@ use artwork_cache::ArtworkCache;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const ARTWORK_PROVIDERS: [&str; 5] = ["posterdb", "fanart", "tvdb", "anilist", "mediux"];
+const MEDIA_CACHE_MAX_MB: i64 = 10_240;
+const MEDIA_CACHE_TTL_DAYS: i64 = 365;
 
 #[derive(Debug)]
 pub struct Runtime {
@@ -30,6 +32,7 @@ pub struct Runtime {
     servers: OnceLock<ServerStore>,
     artwork: ArtworkService,
     artwork_cache: ArtworkCache,
+    media_image_cache: ArtworkCache,
     watchdog_running: AtomicBool,
 }
 
@@ -51,6 +54,7 @@ impl Runtime {
         let data_dir = data_dir.into();
         Self {
             artwork_cache: ArtworkCache::new(&data_dir),
+            media_image_cache: ArtworkCache::at(data_dir.join("media-image-cache")),
             data_dir,
             servers: OnceLock::new(),
             artwork: ArtworkService::default(),
@@ -62,6 +66,7 @@ impl Runtime {
         let store = ServerStore::new(&self.data_dir);
         store.initialize()?;
         self.artwork_cache.initialize()?;
+        self.media_image_cache.initialize()?;
         let _ = self.servers.set(store);
         Ok(())
     }
@@ -106,11 +111,19 @@ impl Runtime {
         id: i64,
         input: &ServerUpdate,
     ) -> Result<Option<Server>, RuntimeError> {
-        Ok(self.server_store()?.update_server(id, input)?)
+        let updated = self.server_store()?.update_server(id, input)?;
+        if updated.is_some() {
+            self.invalidate_media_images(id)?;
+        }
+        Ok(updated)
     }
 
     pub fn delete_server(&self, id: i64) -> Result<bool, RuntimeError> {
-        Ok(self.server_store()?.delete_server(id)?)
+        let deleted = self.server_store()?.delete_server(id)?;
+        if deleted {
+            self.invalidate_media_images(id)?;
+        }
+        Ok(deleted)
     }
 
     pub async fn test_adhoc_server(&self, input: &ServerCreate) -> ConnectionTest {
@@ -196,21 +209,38 @@ impl Runtime {
         let Some(server) = self.server_store()?.get_server(id)? else {
             return Ok(None);
         };
+        let cache_key = media_image_cache_key(id, reference);
+        if let Some(image) = self
+            .media_image_cache
+            .get_image(&cache_key, MEDIA_CACHE_TTL_DAYS)
+        {
+            return Ok(Some(Ok(image)));
+        }
         let token = self
             .server_store()?
             .decrypted_token(id)?
             .unwrap_or_default();
-        Ok(Some(
-            fetch_image(
-                ConnectionConfig {
-                    server_type: server.server_type,
-                    base_url: &server.base_url,
-                    token: &token,
-                },
-                reference,
+        let result = fetch_image(
+            ConnectionConfig {
+                server_type: server.server_type,
+                base_url: &server.base_url,
+                token: &token,
+            },
+            reference,
+        )
+        .await;
+        if let Ok((bytes, content_type)) = &result
+            && let Err(error) = self.media_image_cache.put_image(
+                &cache_key,
+                bytes,
+                content_type,
+                MEDIA_CACHE_MAX_MB,
+                MEDIA_CACHE_TTL_DAYS,
             )
-            .await,
-        ))
+        {
+            tracing::warn!(%error, "could not persist a media-server image in the cache");
+        }
+        Ok(Some(result))
     }
 
     pub async fn get_item_detail(
@@ -256,23 +286,25 @@ impl Runtime {
             .server_store()?
             .decrypted_token(server_id)?
             .unwrap_or_default();
-        if let Err(message) = set_image(
-            ConnectionConfig {
-                server_type: server.server_type,
-                base_url: &server.base_url,
-                token: &token,
-            },
-            item_id,
-            target.as_str(),
-            data,
-            content_type,
-        )
-        .await
+        let config = ConnectionConfig {
+            server_type: server.server_type,
+            base_url: &server.base_url,
+            token: &token,
+        };
+        let current_reference = get_item_detail(config.clone(), item_id)
+            .await
+            .ok()
+            .and_then(|detail| image_reference(&detail, target).cloned());
+        if let Err(message) = set_image(config, item_id, target.as_str(), data, content_type).await
         {
             return Ok(Some(ApplyResult {
                 ok: false,
                 message: format!("Upload failed: {message}"),
             }));
+        }
+        self.invalidate_media_item_images(server_id, item_id)?;
+        if let Some(reference) = current_reference {
+            self.cache_media_image(server_id, &reference, data, content_type);
         }
         self.record_history(
             server_id,
@@ -295,6 +327,53 @@ impl Runtime {
 
     pub(crate) fn server_store(&self) -> Result<&ServerStore, RuntimeError> {
         self.servers.get().ok_or(RuntimeError::NotInitialized)
+    }
+
+    pub(crate) fn invalidate_media_images(&self, server_id: i64) -> Result<(), RuntimeError> {
+        self.media_image_cache
+            .remove_matching(&format!("media:{server_id}:"))?;
+        Ok(())
+    }
+
+    pub(crate) fn invalidate_media_item_images(
+        &self,
+        server_id: i64,
+        item_id: &str,
+    ) -> Result<(), RuntimeError> {
+        let server_pattern = format!("media:{server_id}:");
+        self.media_image_cache
+            .remove_matching_all(&[&server_pattern, item_id])?;
+        Ok(())
+    }
+
+    pub(crate) fn cache_media_image(
+        &self,
+        server_id: i64,
+        reference: &str,
+        data: &[u8],
+        content_type: &str,
+    ) {
+        if let Err(error) = self.media_image_cache.put_image(
+            &media_image_cache_key(server_id, reference),
+            data,
+            content_type,
+            MEDIA_CACHE_MAX_MB,
+            MEDIA_CACHE_TTL_DAYS,
+        ) {
+            tracing::warn!(%error, "could not update a media-server image in the cache");
+        }
+    }
+}
+
+fn media_image_cache_key(server_id: i64, reference: &str) -> String {
+    format!("media:{server_id}:{reference}")
+}
+
+fn image_reference<'a>(detail: &'a ItemDetail, target: &ImageTarget) -> Option<&'a String> {
+    match target {
+        ImageTarget::Poster => detail.poster.as_ref(),
+        ImageTarget::Background => detail.background.as_ref(),
+        ImageTarget::Logo => detail.logo.as_ref(),
     }
 }
 

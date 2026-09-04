@@ -80,12 +80,22 @@ impl Runtime {
             .server_store()?
             .decrypted_token(row.server_id)?
             .unwrap_or_default();
+        let config = ConnectionConfig {
+            server_type: server.server_type,
+            base_url: &server.base_url,
+            token: &token,
+        };
+        let current_reference =
+            posterview_infra_media_servers::get_item_detail(config.clone(), &row.item_id)
+                .await
+                .ok()
+                .and_then(|detail| match target {
+                    ImageTarget::Poster => detail.poster,
+                    ImageTarget::Background => detail.background,
+                    ImageTarget::Logo => detail.logo,
+                });
         if let Err(message) = set_image(
-            ConnectionConfig {
-                server_type: server.server_type,
-                base_url: &server.base_url,
-                token: &token,
-            },
+            config,
             &row.item_id,
             target.as_str(),
             &data,
@@ -97,6 +107,10 @@ impl Runtime {
                 ok: false,
                 message: format!("Revert failed: {message}"),
             }));
+        }
+        self.invalidate_media_item_images(row.server_id, &row.item_id)?;
+        if let Some(reference) = current_reference {
+            self.cache_media_image(row.server_id, &reference, &data, &row.content_type);
         }
         self.record_history(
             row.server_id,

@@ -71,6 +71,11 @@ encrypted at rest and never sent back to the browser._
 - **Persistent artwork cache**: provider results and proxied thumbnails are reused from the Docker
   data volume. The default cap is 250 MB with 30-day expiry; Settings shows current usage and lets
   you change the limit, retention period, or clear it. Oldest entries are removed automatically.
+- **Persistent media-image cache**: posters, backgrounds, logos, and other media-server images are
+  stored under `/data/media-image-cache` after their first request, so repeat page loads do not
+  download them from Plex, Jellyfin, or Emby again. This separate cache is capped at 10 GB with a
+  365-day retention period. Applying or reverting artwork immediately replaces the affected
+  title's cached image; editing or deleting a server clears that server's entries.
 - **Per-title refresh + Artwork Watchdog**: right-click any movie, series, or collection in a
   library to refresh its cached provider data. The optional Watchdog in Settings → Database walks
   current libraries on a schedule and records a persistent inventory. After its initial build, it

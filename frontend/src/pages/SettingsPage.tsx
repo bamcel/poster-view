@@ -60,7 +60,7 @@ export default function SettingsPage() {
 
   return (
     <div className="h-full overflow-y-auto px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8">
-      <div className="mx-auto max-w-3xl space-y-6">
+      <div className="mx-auto w-full max-w-[110rem] space-y-6">
         <h1 className="text-2xl font-semibold">Settings</h1>
 
         <div className="flex flex-wrap gap-2 border-b border-border pb-3">

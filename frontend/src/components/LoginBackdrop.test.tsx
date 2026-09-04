@@ -1,8 +1,8 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import LoginBackdrop from "./LoginBackdrop";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 it("renders shuffled alternating poster rows from the sanitized feed", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ rows: [
@@ -21,4 +21,17 @@ it("leaves the themed fallback cleanly when the cache is unavailable", async () 
   const { container } = render(<LoginBackdrop />);
   await waitFor(() => expect(fetch).toHaveBeenCalled());
   expect(container.innerHTML).toBe("");
+});
+
+it("retries an empty startup cache and renders posters when generation finishes", async () => {
+  vi.useFakeTimers();
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [] })))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ posters: ["one", "two"] }] })));
+  vi.stubGlobal("fetch", fetchMock);
+  const { container } = render(<LoginBackdrop />);
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  expect(container.querySelectorAll("img")).toHaveLength(0);
+  await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+  expect(container.querySelectorAll("img").length).toBeGreaterThan(0);
 });
