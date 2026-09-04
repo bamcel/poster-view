@@ -25,6 +25,7 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 fernet = { version = "0.2", default-features = false, features = ["rustcrypto"] }
 http-body-util = "0.1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 posterview-contracts = { path = "crates/posterview-contracts" }
 posterview-infra-media-servers = { path = "crates/posterview-infra-media-servers" }
 posterview-infra-artwork = { path = "crates/posterview-infra-artwork" }

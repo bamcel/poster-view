@@ -15,6 +15,7 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
   const [autoSignOut, setAutoSignOut] = useState(initial.idle_timeout_minutes !== null);
   const [minutes, setMinutes] = useState(String(initial.idle_timeout_minutes ?? 30));
   const [bypass, setBypass] = useState(initial.local_network_bypass);
+  const [backdrop, setBackdrop] = useState(initial.login_backdrop_enabled);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -24,7 +25,7 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
     event.preventDefault();
     setSaving(true); setMessage(""); setError("");
     try {
-      const saved = await api.saveSecuritySettings({ idle_timeout_minutes: autoSignOut ? Number(minutes) : null, local_network_bypass: bypass });
+      const saved = await api.saveSecuritySettings({ idle_timeout_minutes: autoSignOut ? Number(minutes) : null, local_network_bypass: bypass, login_backdrop_enabled: backdrop });
       client.setQueryData(["security-settings"], saved);
       setMessage("Security settings saved.");
       window.dispatchEvent(new Event("posterview:security-changed"));
@@ -39,6 +40,10 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
         setRememberUsername(event.target.checked);
       }} />Remember username on this browser</label>
       <p className="text-sm text-faint">Saves immediately on this browser only. Keeps your last successful username filled in on the sign-in screen. Turning this off deletes the saved username. PosterView never stores your login password in browser storage.</p>
+    </fieldset>
+    <fieldset disabled={saving} className="space-y-3 border-t border-border pt-5">
+      <label className="flex items-center gap-3 font-medium"><input type="checkbox" checked={backdrop} onChange={(event) => setBackdrop(event.target.checked)} />Show library posters on the login page</label>
+      <p className="text-sm text-faint">Uses cached, resized posters from your connected server. Library names, item names, server addresses, and credentials are never included in the public backdrop feed. Turn this off if artwork would reveal private library content.</p>
     </fieldset>
     <fieldset disabled={saving} className="space-y-3">
       <label className="flex items-center gap-3 font-medium"><input type="checkbox" checked={autoSignOut} onChange={(event) => setAutoSignOut(event.target.checked)} />Automatically sign out when inactive</label>

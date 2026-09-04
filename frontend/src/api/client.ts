@@ -73,7 +73,10 @@ export interface ServerInput {
 export interface SecuritySettings {
   idle_timeout_minutes: number | null;
   local_network_bypass: boolean;
+  login_backdrop_enabled: boolean;
 }
+
+export interface LoginBackdropManifest { rows: { posters: string[] }[]; }
 
 export interface AuthSession {
   username?: string;
@@ -83,6 +86,7 @@ export interface AuthSession {
 }
 
 export const api = {
+  loginBackdrop: () => request<LoginBackdropManifest>("/login-backdrop"),
   securitySettings: () => request<SecuritySettings>("/security/settings"),
   saveSecuritySettings: (settings: SecuritySettings) => request<SecuritySettings>("/security/settings", {
     method: "PUT", body: JSON.stringify(settings),

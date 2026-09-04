@@ -181,6 +181,12 @@ reverse proxy; the login is an application boundary, not a substitute for firewa
 
 In **Settings → Privacy / Security**, you can configure:
 
+- **Login poster backdrop:** enabled by default. While login is required, the sign-in screen shows
+  randomized poster rows from the default (or first) connected server. Each row represents one
+  library, rows alternate left/right motion, and a dark transparent treatment keeps the form
+  readable. Poster order reshuffles when the cache and page refresh. The public feed contains only
+  locally cached 280×420 JPEGs with opaque names—never library/title names, item IDs, server URLs,
+  or credentials. Disable it if showing library artwork before sign-in is inappropriate.
 - **Remember username on this browser:** enabled by default. The last successful username stays
   filled in after sign-out and on future visits. Turning it off immediately removes the saved
   username. This preference is local to each browser/origin and saves immediately; PosterView
@@ -204,6 +210,10 @@ In **Settings → Privacy / Security**, you can configure:
 Preferences are saved in `/data/security-settings.json` and survive container restarts. To restore
 the defaults outside the UI, stop the container, remove only that settings file, then restart it.
 The password and media-server data are preserved. Sessions themselves are not persisted.
+The poster cache is stored separately under `/data/login-backdrop`, refreshes at startup, after a
+successful login, when a server is added, or when the setting is enabled, and keeps the prior cache
+if the media server is temporarily unavailable. The login page has a clean themed fallback until
+the first cache is ready. Reduced-motion browser preferences pause the row animation.
 
 Media-server base URLs may intentionally target LAN, loopback, or Tailnet hosts, but must be
 valid HTTP(S) URLs without embedded credentials. User-selectable artwork downloads are restricted

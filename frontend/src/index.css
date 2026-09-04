@@ -97,3 +97,51 @@ select {
 .animate-fade-in {
   animation: fadeIn 0.25s ease-out both;
 }
+
+.login-backdrop {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--color-base);
+}
+.login-backdrop-rows {
+  position: absolute;
+  inset: -7rem -10rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(0.8rem, 1.5vh, 1.35rem);
+  transform: rotate(-2deg) scale(1.05);
+}
+.login-backdrop-row {
+  display: flex;
+  width: max-content;
+  gap: clamp(0.6rem, 1vw, 1rem);
+  animation: loginPostersLeft var(--backdrop-duration, 60s) linear infinite;
+  will-change: transform;
+}
+.login-backdrop-row-reverse { animation-name: loginPostersRight; }
+.login-backdrop-segment {
+  display: flex;
+  gap: clamp(0.6rem, 1vw, 1rem);
+}
+.login-backdrop-row img {
+  width: clamp(5.5rem, 8vw, 8.5rem);
+  aspect-ratio: 2 / 3;
+  flex: none;
+  border-radius: 0.65rem;
+  object-fit: cover;
+  opacity: 0.34;
+  filter: brightness(0.58) saturate(0.75);
+  box-shadow: 0 10px 25px rgb(0 0 0 / 35%);
+}
+.login-backdrop-shade {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgb(12 13 16 / 48%), rgb(12 13 16 / 88%));
+}
+@keyframes loginPostersLeft { to { transform: translateX(-50%); } }
+@keyframes loginPostersRight { from { transform: translateX(-50%); } to { transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .login-backdrop-row { animation-play-state: paused; }
+}

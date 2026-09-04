@@ -5,6 +5,7 @@ import { useIdleSession } from "../lib/useIdleSession";
 import { Logo } from "./ui";
 import { AuthSessionContext } from "../lib/authContext";
 import { initialUsername, rememberUsername, remembersUsername, USERNAME_PREFERENCE_EVENT } from "../lib/rememberUsername";
+import LoginBackdrop from "./LoginBackdrop";
 
 export default function AuthGate({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
@@ -95,8 +96,9 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   if (authenticated) return <AuthSessionContext.Provider value={session}>{children}</AuthSessionContext.Provider>;
 
   return (
-    <main className="grid h-full place-items-center bg-base px-4">
-      <form onSubmit={submit} className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-xl">
+    <main className="relative grid h-full overflow-hidden place-items-center bg-base px-4">
+      <LoginBackdrop />
+      <form onSubmit={submit} className="relative z-10 w-full max-w-sm rounded-xl border border-border bg-surface/95 p-6 shadow-2xl backdrop-blur-sm">
         <Logo />
         <div className="mt-8 flex items-center gap-3">
           <div className="grid size-10 place-items-center rounded-lg bg-surface-2 text-accent"><LockKeyhole className="size-5" /></div>

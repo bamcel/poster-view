@@ -55,6 +55,14 @@ not trusted. A private reverse proxy can therefore bypass authentication for rem
 the UI explicitly warns about this. Tailscale's IPv4 100.64.0.0/10 range is not treated as private.
 Password-free access has no session to expire; turning bypass off restores password enforcement.
 
+The public `GET /api/login-backdrop` manifest and `/api/login-backdrop/{opaque-name}` images serve
+only the sanitized login cache under the data directory. Refreshing uses the default/first server,
+randomizes libraries/items, downloads at most five rows × fourteen posters, decodes them, and
+re-encodes 280×420 maximum JPEG thumbnails without names, IDs, upstream URLs, or tokens. Image
+requests are restricted to names present in the current manifest. Refresh work runs asynchronously
+at startup, login, server creation, and backdrop enablement; concurrent refreshes collapse into one.
+`login_backdrop_enabled` is backward-compatible and defaults to true in security settings.
+
 Server URLs intentionally support LAN IPs, direct Tailscale IPs, resolvable MagicDNS names, and
 complete domain URLs because PosterView must reach remote media servers. URL validation therefore
 allows private destinations only for configured media-server bases. Artwork downloads and their

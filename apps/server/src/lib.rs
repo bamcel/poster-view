@@ -25,6 +25,7 @@ use tower_http::{
 mod auth;
 mod config;
 mod error;
+mod login_backdrop;
 pub use auth::AuthState;
 pub use config::ServerConfig;
 use error::HttpError;
@@ -33,12 +34,20 @@ use error::HttpError;
 struct AppState {
     runtime: Arc<Runtime>,
     auth: AuthState,
+    login_backdrop: login_backdrop::LoginBackdrop,
 }
 
 pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router {
+    let login_backdrop = login_backdrop::LoginBackdrop::new(runtime.data_dir());
+    let refresh_cache = login_backdrop.clone();
+    let refresh_runtime = Arc::clone(&runtime);
+    tokio::spawn(async move {
+        refresh_cache.refresh(&refresh_runtime).await;
+    });
     let state = AppState {
         runtime,
         auth: auth.clone(),
+        login_backdrop,
     };
     let index = ui_dir.join("index.html");
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
@@ -126,6 +135,8 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/auth/status", get(auth_status))
         .route("/api/auth/login", axum::routing::post(auth_login))
         .route("/api/auth/logout", axum::routing::post(auth_logout))
+        .route("/api/login-backdrop", get(login_backdrop_manifest))
+        .route("/api/login-backdrop/{name}", get(login_backdrop_image))
         .merge(protected)
         .fallback_service(spa)
         .layer(TraceLayer::new_for_http())
@@ -164,6 +175,11 @@ async fn auth_login(
         .auth
         .login(&input.username, &input.password)
         .ok_or_else(|| HttpError::unauthorized("Incorrect username or password."))?;
+    let cache = state.login_backdrop.clone();
+    let runtime = Arc::clone(&state.runtime);
+    tokio::spawn(async move {
+        cache.refresh(&runtime).await;
+    });
     Ok((
         [(header::SET_COOKIE, cookie)],
         Json(AuthStatus {
@@ -173,6 +189,32 @@ async fn auth_login(
             idle_timeout_minutes: state.auth.security_settings().idle_timeout_minutes,
         }),
     ))
+}
+
+async fn login_backdrop_manifest(State(state): State<AppState>) -> impl IntoResponse {
+    let manifest = if state.auth.security_settings().login_backdrop_enabled {
+        state.login_backdrop.manifest()
+    } else {
+        login_backdrop::BackdropManifest::default()
+    };
+    ([(header::CACHE_CONTROL, "no-store")], Json(manifest))
+}
+
+async fn login_backdrop_image(State(state): State<AppState>, Path(name): Path<String>) -> Response {
+    if !state.auth.security_settings().login_backdrop_enabled {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    match state.login_backdrop.image(&name) {
+        Some(bytes) => (
+            [
+                (header::CONTENT_TYPE, "image/jpeg"),
+                (header::CACHE_CONTROL, "public, max-age=3600"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn auth_logout(
@@ -225,7 +267,18 @@ async fn update_security_settings(
                 detail: "Could not save security settings.".to_owned(),
             }
         })?;
+    if settings.login_backdrop_enabled {
+        spawn_backdrop_refresh(&state);
+    }
     Ok(Json(settings))
+}
+
+fn spawn_backdrop_refresh(state: &AppState) {
+    let cache = state.login_backdrop.clone();
+    let runtime = Arc::clone(&state.runtime);
+    tokio::spawn(async move {
+        cache.refresh(&runtime).await;
+    });
 }
 
 async fn auth_activity(State(state): State<AppState>, request: Request) -> Response {
@@ -253,10 +306,13 @@ async fn create_server(
     Json(input): Json<ServerCreate>,
 ) -> Result<impl IntoResponse, HttpError> {
     media_server_base(&input.base_url).map_err(HttpError::bad_request)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(state.runtime.create_server(&input)?),
-    ))
+    let server = state.runtime.create_server(&input)?;
+    let cache = state.login_backdrop.clone();
+    let runtime = Arc::clone(&state.runtime);
+    tokio::spawn(async move {
+        cache.refresh(&runtime).await;
+    });
+    Ok((StatusCode::CREATED, Json(server)))
 }
 
 async fn get_server(
@@ -278,11 +334,12 @@ async fn update_server(
     if let Some(base_url) = input.base_url.as_deref() {
         media_server_base(base_url).map_err(HttpError::bad_request)?;
     }
-    state
+    let server = state
         .runtime
         .update_server(id, &input)?
-        .map(Json)
-        .ok_or_else(HttpError::not_found)
+        .ok_or_else(HttpError::not_found)?;
+    spawn_backdrop_refresh(&state);
+    Ok(Json(server))
 }
 
 async fn delete_server(
@@ -290,6 +347,7 @@ async fn delete_server(
     Path(id): Path<i64>,
 ) -> Result<StatusCode, HttpError> {
     if state.runtime.delete_server(id)? {
+        spawn_backdrop_refresh(&state);
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(HttpError::not_found())

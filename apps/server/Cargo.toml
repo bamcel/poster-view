@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+image.workspace = true
 posterview-contracts.workspace = true
 posterview-runtime.workspace = true
 posterview-url-security.workspace = true

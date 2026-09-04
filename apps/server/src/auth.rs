@@ -16,11 +16,17 @@ use tracing::warn;
 
 const COOKIE_NAME: &str = "posterview_session";
 
-#[derive(Clone, Default, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SecuritySettings {
     pub idle_timeout_minutes: Option<u32>,
     pub local_network_bypass: bool,
+    #[serde(default = "enabled_by_default")]
+    pub login_backdrop_enabled: bool,
+}
+
+const fn enabled_by_default() -> bool {
+    true
 }
 
 impl SecuritySettings {
@@ -32,6 +38,16 @@ impl SecuritySettings {
             return Err("Inactivity timeout must be between 1 and 1440 minutes.");
         }
         Ok(())
+    }
+}
+
+impl Default for SecuritySettings {
+    fn default() -> Self {
+        Self {
+            idle_timeout_minutes: None,
+            local_network_bypass: false,
+            login_backdrop_enabled: true,
+        }
     }
 }
 
@@ -293,6 +309,7 @@ mod tests {
         auth.set_security_settings(SecuritySettings {
             local_network_bypass: true,
             idle_timeout_minutes: None,
+            login_backdrop_enabled: true,
         })
         .unwrap();
         for address in [
@@ -324,6 +341,7 @@ mod tests {
         auth.set_security_settings(SecuritySettings {
             idle_timeout_minutes: Some(1),
             local_network_bypass: false,
+            login_backdrop_enabled: true,
         })
         .unwrap();
         let (token, value) = auth.login("admin", "password").unwrap();
@@ -366,6 +384,7 @@ mod tests {
         auth.set_security_settings(SecuritySettings {
             idle_timeout_minutes: Some(20),
             local_network_bypass: true,
+            login_backdrop_enabled: true,
         })
         .unwrap();
         let reloaded = AuthState::load(directory.path(), Some("password"), "admin", false).unwrap();
@@ -376,7 +395,8 @@ mod tests {
                 reloaded
                     .set_security_settings(SecuritySettings {
                         idle_timeout_minutes: Some(minutes),
-                        local_network_bypass: false
+                        local_network_bypass: false,
+                        login_backdrop_enabled: true,
                     })
                     .is_err()
             );
