@@ -59,8 +59,8 @@ export default function SettingsPage() {
   const [tab, setTab] = useState<SettingsTab>("servers");
 
   return (
-    <div className="h-full overflow-y-auto px-4 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8">
-      <div className="mx-auto w-full max-w-[110rem] space-y-6">
+    <div className="h-full overflow-y-auto px-4 py-4 sm:px-6 lg:px-8 xl:overflow-hidden">
+      <div className="mx-auto flex min-h-full w-full max-w-[110rem] flex-col gap-4 xl:h-full xl:min-h-0">
         <h1 className="text-2xl font-semibold">Settings</h1>
 
         <div className="flex flex-wrap gap-2 border-b border-border pb-3">
@@ -80,11 +80,13 @@ export default function SettingsPage() {
           ))}
         </div>
 
-        {tab === "servers" && <ServersSection />}
-        {tab === "sources" && <ArtworkSourcesSection />}
-        {tab === "database" && <DatabaseSection />}
-        {tab === "appearance" && <AppearanceSection />}
-        {tab === "security" && <SecuritySection />}
+        <div className="min-h-0 flex-1">
+          {tab === "servers" && <ServersSection />}
+          {tab === "sources" && <ArtworkSourcesSection />}
+          {tab === "database" && <DatabaseSection />}
+          {tab === "appearance" && <AppearanceSection />}
+          {tab === "security" && <SecuritySection />}
+        </div>
       </div>
     </div>
   );
@@ -98,22 +100,22 @@ function AppearanceSection() {
   };
 
   return (
-    <section className="rounded-2xl border border-border bg-surface p-4 sm:p-6">
+    <section className="h-full rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
         <Palette className="size-5 text-accent" /> Color theme
       </h2>
-      <p className="mb-5 text-sm text-faint">
+      <p className="mb-3 text-sm text-faint">
         Choose a shared interface palette. Your selection is saved in this browser.
       </p>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
         {THEMES.map((theme) => (
           <button
             key={theme.name}
             type="button"
             onClick={() => choose(theme.name)}
             aria-pressed={selected === theme.name}
-            className={`flex min-h-20 items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
+            className={`flex min-h-16 items-center gap-3 rounded-xl border p-2.5 text-left transition-colors ${
               selected === theme.name
                 ? "border-accent bg-elevated"
                 : "border-border bg-surface-2 hover:border-border-strong"
@@ -210,14 +212,14 @@ function ServersSection() {
   const canSubmit = form.name.trim() && form.base_url.trim() && (editingId != null || form.token);
 
   return (
-    <section className="rounded-2xl border border-border bg-surface p-6">
+    <section className="h-full rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 text-lg font-semibold">Media servers</h2>
-      <p className="mb-5 text-sm text-faint">
+      <p className="mb-3 text-sm text-faint">
         Connect Plex, Jellyfin, or Emby. Tokens are encrypted before they're stored.
       </p>
 
       {/* Existing servers */}
-      <div className="mb-6 space-y-2">
+      <div className="mb-4 max-h-52 space-y-2 overflow-y-auto pr-1 xl:max-h-44">
         {serversQ.data?.length === 0 && (
           <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-faint">
             No servers yet — add one below.
@@ -360,19 +362,20 @@ function ServersSection() {
 
 function ArtworkSourcesSection() {
   return (
-    <section className="rounded-2xl border border-border bg-surface p-6">
+    <section className="h-full rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
         <ImageIcon className="size-5 text-accent" /> Artwork sources
       </h2>
-      <p className="mb-5 text-sm text-faint">
+      <p className="mb-3 text-sm text-faint">
         Accounts and API keys used to search and download posters, backgrounds, banners, and logos.
       </p>
 
-      <DefaultArtworkSourceFields />
-
-      <div className="my-6 border-t border-border" />
-
-      <ArtworkCredentialsFields />
+      <div className="grid gap-4 xl:grid-cols-[minmax(15rem,0.55fr)_minmax(0,2fr)]">
+        <DefaultArtworkSourceFields />
+        <div className="border-t border-border pt-4 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+          <ArtworkCredentialsFields />
+        </div>
+      </div>
 
     </section>
   );
@@ -380,16 +383,19 @@ function ArtworkSourcesSection() {
 
 function DatabaseSection() {
   return (
-    <section className="rounded-2xl border border-border bg-surface p-6">
+    <section className="h-full rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
         <Database className="size-5 text-accent" /> Database
       </h2>
-      <p className="mb-5 text-sm text-faint">
+      <p className="mb-3 text-sm text-faint">
         Choose which databases PosterView uses, manage cached artwork, and control background preloading.
       </p>
-      <EnabledArtworkSourcesFields />
-      <div className="my-6 border-t border-border" />
-      <ArtworkCacheFields />
+      <div className="grid gap-4 xl:grid-cols-[minmax(15rem,0.65fr)_minmax(0,2fr)]">
+        <EnabledArtworkSourcesFields />
+        <div className="border-t border-border pt-4 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+          <ArtworkCacheFields />
+        </div>
+      </div>
     </section>
   );
 }
