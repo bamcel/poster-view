@@ -192,11 +192,15 @@ async fn auth_login(
 }
 
 async fn login_backdrop_manifest(State(state): State<AppState>) -> impl IntoResponse {
-    let manifest = if state.auth.security_settings().login_backdrop_enabled {
+    let enabled = state.auth.security_settings().login_backdrop_enabled;
+    let manifest = if enabled {
         state.login_backdrop.manifest()
     } else {
         login_backdrop::BackdropManifest::default()
     };
+    if enabled && manifest.rows.is_empty() {
+        spawn_backdrop_refresh(&state);
+    }
     ([(header::CACHE_CONTROL, "no-store")], Json(manifest))
 }
 
