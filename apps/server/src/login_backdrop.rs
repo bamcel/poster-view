@@ -92,7 +92,9 @@ impl LoginBackdrop {
             .ok_or_else(|| "server disappeared".to_owned())??;
         let mut rows = Vec::new();
         for (row_index, library) in shuffled(libraries).into_iter().take(MAX_ROWS).enumerate() {
-            let items = match runtime.get_items(server.id, &library.id, true).await {
+            // The login collage only needs representative posters. Collection grouping can
+            // perform many additional media-server requests and needlessly delay first paint.
+            let items = match runtime.get_items(server.id, &library.id, false).await {
                 Ok(Some(Ok(items))) => items,
                 Ok(Some(Err(error))) => {
                     tracing::warn!(library_id = %library.id, %error, "skipping a library while refreshing the login backdrop");
@@ -135,6 +137,9 @@ impl LoginBackdrop {
             }
             if posters.len() >= 2 {
                 rows.push(BackdropRow { posters });
+                // Publish progressively so the login page can begin rendering after the first
+                // usable library instead of waiting for every row to finish downloading.
+                self.save_manifest(&BackdropManifest { rows: rows.clone() })?;
             }
         }
         self.save_manifest(&BackdropManifest { rows })
