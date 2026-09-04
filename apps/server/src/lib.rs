@@ -134,6 +134,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
 
 #[derive(Serialize)]
 struct AuthStatus {
+    username: String,
     authenticated: bool,
     password_required: bool,
     idle_timeout_minutes: Option<u32>,
@@ -148,6 +149,7 @@ struct LoginRequest {
 async fn auth_status(State(state): State<AppState>, request: Request) -> Json<AuthStatus> {
     let bypass = state.auth.local_bypass(peer(&request));
     Json(AuthStatus {
+        username: state.auth.username().to_owned(),
         authenticated: bypass || state.auth.authenticated(request.headers()),
         password_required: state.auth.password_required(peer(&request)),
         idle_timeout_minutes: state.auth.security_settings().idle_timeout_minutes,
@@ -165,6 +167,7 @@ async fn auth_login(
     Ok((
         [(header::SET_COOKIE, cookie)],
         Json(AuthStatus {
+            username: state.auth.username().to_owned(),
             authenticated: true,
             password_required: true,
             idle_timeout_minutes: state.auth.security_settings().idle_timeout_minutes,
@@ -180,6 +183,7 @@ async fn auth_logout(
     (
         [(header::SET_COOKIE, cookie)],
         Json(AuthStatus {
+            username: state.auth.username().to_owned(),
             authenticated: false,
             password_required: true,
             idle_timeout_minutes: state.auth.security_settings().idle_timeout_minutes,

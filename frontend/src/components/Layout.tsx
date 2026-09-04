@@ -5,6 +5,8 @@ import { LibraryBig, History, LogOut, Settings, Server as ServerIcon } from "luc
 import { useServers } from "../lib/serverContext";
 import { Logo, ServerTypeBadge } from "./ui";
 import { api } from "../api/client";
+import { useContext } from "react";
+import { AuthSessionContext } from "../lib/authContext";
 
 const navItems = [
   { to: "/", label: "Libraries", icon: LibraryBig, end: true },
@@ -14,6 +16,7 @@ const navItems = [
 
 export default function Layout() {
   const { servers, selectedId, setSelectedId } = useServers();
+  const showSignOut = useContext(AuthSessionContext)?.password_required !== false;
 
   async function signOut() {
     await api.authLogout();
@@ -41,9 +44,9 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        <button type="button" onClick={signOut} aria-label="Sign out" className="grid size-10 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white">
+        {showSignOut && <button type="button" onClick={signOut} aria-label="Sign out" className="grid size-10 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white">
           <LogOut className="size-[18px]" />
-        </button>
+        </button>}
         {servers.length > 0 ? (
           <select
             aria-label="Active server"
@@ -84,9 +87,9 @@ export default function Layout() {
               {label}
             </NavLink>
           ))}
-          <button type="button" onClick={signOut} className="flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted transition-colors hover:bg-input-hover hover:text-white">
+          {showSignOut && <button type="button" onClick={signOut} className="flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted transition-colors hover:bg-input-hover hover:text-white">
             <LogOut className="size-[18px]" /> Sign out
-          </button>
+          </button>}
         </nav>
 
         <div className="mt-auto min-w-0 overflow-hidden rounded-lg border border-border bg-surface-2 p-3">

@@ -158,6 +158,10 @@ impl AuthState {
         self.auth_enabled && !self.local_bypass(peer)
     }
 
+    pub fn username(&self) -> &str {
+        &self.username
+    }
+
     pub fn set_security_settings(&self, settings: SecuritySettings) -> std::io::Result<()> {
         settings.validate().map_err(std::io::Error::other)?;
         let mut current = self

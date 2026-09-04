@@ -185,6 +185,10 @@ In **Settings → Privacy / Security**, you can configure:
   filled in after sign-out and on future visits. Turning it off immediately removes the saved
   username. This preference is local to each browser/origin and saves immediately; PosterView
   never saves your login password in browser storage.
+  With remembering enabled, the sign-in form also reads the configured username from the server,
+  so changing `POSTERVIEW_USERNAME` replaces an outdated autofill value. It does not overwrite
+  a username you are actively editing. The username is provided by the public sign-in status
+  endpoint; the password is never returned.
 - **Automatic sign-out:** optionally expire password-authenticated sessions after 1–1440 minutes
   of inactivity. Disabled by default. Mouse, keyboard, touch, and scrolling count as activity;
   background requests do not. Activity in another tab on the same origin keeps the shared session

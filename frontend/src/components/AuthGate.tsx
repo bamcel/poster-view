@@ -3,12 +3,15 @@ import { LockKeyhole, Loader2 } from "lucide-react";
 import { api, type AuthSession } from "../api/client";
 import { useIdleSession } from "../lib/useIdleSession";
 import { Logo } from "./ui";
+import { AuthSessionContext } from "../lib/authContext";
 import { initialUsername, rememberUsername, remembersUsername, USERNAME_PREFERENCE_EVENT } from "../lib/rememberUsername";
 
 export default function AuthGate({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState(initialUsername);
+  const usernameEdited = useRef(false);
+  const configuredUsername = useRef<string | null>(null);
   const lastSuccessfulUsername = useRef<string | null>(null);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -16,6 +19,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   const revision = useRef(0);
   const expire = useCallback(() => {
     revision.current += 1;
+    usernameEdited.current = false;
     if (!remembersUsername()) setUsername("");
     setAuthenticated(false);
   }, []);
@@ -27,9 +31,9 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       if (!remembersUsername()) {
         rememberUsername("");
         setUsername("");
-      } else if (lastSuccessfulUsername.current !== null) {
-        rememberUsername(lastSuccessfulUsername.current);
-        setUsername(lastSuccessfulUsername.current);
+      } else {
+        const suggested = configuredUsername.current ?? lastSuccessfulUsername.current;
+        if (suggested !== null) setUsername(suggested);
       }
     };
     window.addEventListener(USERNAME_PREFERENCE_EVENT, changed);
@@ -42,6 +46,10 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       const requestedRevision = revision.current;
       void api.authStatus().then((status) => {
         if (cancelled || requestedRevision !== revision.current) return;
+        if (status.username) {
+          configuredUsername.current = status.username;
+          if (remembersUsername() && !usernameEdited.current) setUsername(status.username);
+        }
         setSession(status);
         setAuthenticated(status.authenticated);
       }).catch(() => {
@@ -67,6 +75,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     setError("");
     try {
       const status = await api.authLogin(username, password);
+      usernameEdited.current = false;
       lastSuccessfulUsername.current = username;
       rememberUsername(username);
       revision.current += 1;
@@ -83,7 +92,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   if (authenticated === null) {
     return <div className="grid h-full place-items-center"><Loader2 className="size-6 animate-spin text-accent" /></div>;
   }
-  if (authenticated) return children;
+  if (authenticated) return <AuthSessionContext.Provider value={session}>{children}</AuthSessionContext.Provider>;
 
   return (
     <main className="grid h-full place-items-center bg-base px-4">
@@ -104,7 +113,10 @@ export default function AuthGate({ children }: { children: ReactNode }) {
           autoFocus={!username}
           required
           value={username}
-          onChange={(event) => setUsername(event.target.value)}
+          onChange={(event) => {
+            usernameEdited.current = true;
+            setUsername(event.target.value);
+          }}
           className="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2.5 outline-none focus:border-accent"
         />
         <label className="mt-4 block text-sm font-medium text-muted" htmlFor="admin-password">Password</label>

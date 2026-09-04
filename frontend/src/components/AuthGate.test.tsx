@@ -26,6 +26,25 @@ describe("AuthGate", () => {
     expect(await screen.findByText("Protected library")).toBeTruthy();
   });
 
+  it("uses the container username instead of stale remembered admin without replacing edits", async () => {
+    localStorage.setItem("posterview.savedUsername", "admin");
+    vi.mocked(api.authStatus).mockResolvedValue({ authenticated: false, username: "curator" });
+    render(<AuthGate><div>Protected library</div></AuthGate>);
+    const input = await screen.findByLabelText("Username") as HTMLInputElement;
+    expect(input.value).toBe("curator");
+    fireEvent.change(input, { target: { value: "my-edit" } });
+    fireEvent(window, new Event("posterview:security-changed"));
+    await waitFor(() => expect(api.authStatus).toHaveBeenCalledTimes(2));
+    expect(input.value).toBe("my-edit");
+  });
+
+  it("does not prefill the container username when remembering is disabled", async () => {
+    setRememberUsername(false);
+    vi.mocked(api.authStatus).mockResolvedValue({ authenticated: false, username: "curator" });
+    render(<AuthGate><div>Protected library</div></AuthGate>);
+    expect((await screen.findByLabelText("Username") as HTMLInputElement).value).toBe("");
+  });
+
   it("signs in and reveals protected content", async () => {
     vi.mocked(api.authStatus).mockResolvedValue({ authenticated: false });
     vi.mocked(api.authLogin).mockResolvedValue({ authenticated: true });

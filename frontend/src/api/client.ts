@@ -76,6 +76,7 @@ export interface SecuritySettings {
 }
 
 export interface AuthSession {
+  username?: string;
   authenticated: boolean;
   password_required?: boolean;
   idle_timeout_minutes?: number | null;

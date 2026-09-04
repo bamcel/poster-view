@@ -256,6 +256,32 @@ async fn health_contract_matches_public_schema() {
 }
 
 #[tokio::test]
+async fn login_status_exposes_configured_username_but_never_password() {
+    let data = tempdir().unwrap();
+    let auth = super::AuthState::load(data.path(), Some("test-secret"), "curator", false).unwrap();
+    let app = super::router(
+        Arc::new(Runtime::new(data.path())),
+        PathBuf::from("missing-ui"),
+        auth,
+    );
+    let response = app
+        .oneshot(
+            Request::get("/api/auth/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(status["username"], "curator");
+    assert_eq!(status["authenticated"], false);
+    assert!(status.get("password").is_none());
+    assert!(!String::from_utf8_lossy(&body).contains("test-secret"));
+}
+
+#[tokio::test]
 async fn unknown_api_routes_return_json() {
     let app = router(Arc::new(Runtime::new("data")), PathBuf::from("missing-ui"));
     let response = app
