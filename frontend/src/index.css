@@ -138,7 +138,7 @@ select {
 .login-backdrop-shade {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at center, rgb(12 13 16 / 48%), rgb(12 13 16 / 88%));
+  background: radial-gradient(circle at center, rgb(12 13 16 / 40%), rgb(12 13 16 / 80%));
 }
 @keyframes loginPostersLeft { to { transform: translateX(-50%); } }
 @keyframes loginPostersRight { from { transform: translateX(-50%); } to { transform: translateX(0); } }
