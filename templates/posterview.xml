@@ -14,7 +14,7 @@
   <Category>MediaApp:Other</Category>
   <WebUI>http://[IP]:[PORT:7979]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/bamcel/poster-view/main/templates/posterview.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/bamcel/poster-view/main/icon.png</Icon>
+  <Icon>https://raw.githubusercontent.com/bamcel/poster-view/main/unraid-icon.png</Icon>
   <License>MIT</License>
   <ExtraSearchTerms>poster artwork plex jellyfin emby theposterdb fanart tvdb anilist mediux</ExtraSearchTerms>
   <Screenshot>https://raw.githubusercontent.com/bamcel/poster-view/main/docs/Library_Dashboard.png</Screenshot>
