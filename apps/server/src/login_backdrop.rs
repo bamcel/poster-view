@@ -90,8 +90,8 @@ impl LoginBackdrop {
             .await
             .map_err(|error| error.to_string())?
             .ok_or_else(|| "server disappeared".to_owned())??;
-        let mut rows = Vec::new();
-        for (row_index, library) in shuffled(libraries).into_iter().take(MAX_ROWS).enumerate() {
+        let mut references = Vec::new();
+        for library in shuffled(libraries).into_iter().take(MAX_ROWS) {
             // The login collage only needs representative posters. Collection grouping can
             // perform many additional media-server requests and needlessly delay first paint.
             let items = match runtime.get_items(server.id, &library.id, false).await {
@@ -106,39 +106,51 @@ impl LoginBackdrop {
                     continue;
                 }
             };
-            let mut posters = Vec::new();
-            for (poster_index, reference) in shuffled(items)
-                .into_iter()
-                .filter_map(|item| item.poster)
-                .take(POSTERS_PER_ROW)
-                .enumerate()
-            {
-                let Ok(Some(Ok((bytes, _)))) = runtime.fetch_image(server.id, &reference).await
-                else {
-                    continue;
-                };
-                let Ok(image) = image::load_from_memory(&bytes) else {
-                    continue;
-                };
-                let image = image.thumbnail(280, 420).to_rgb8();
-                let mut encoded = Vec::new();
-                JpegEncoder::new_with_quality(&mut encoded, 68)
-                    .write_image(
-                        image.as_raw(),
-                        image.width(),
-                        image.height(),
-                        image::ExtendedColorType::Rgb8,
-                    )
-                    .map_err(|error| error.to_string())?;
-                let name = format!("row-{row_index}-poster-{poster_index}");
-                fs::write(self.root.join(format!("{name}.jpg")), encoded)
-                    .map_err(|error| error.to_string())?;
-                posters.push(name);
-            }
-            if posters.len() >= 2 {
-                rows.push(BackdropRow { posters });
-                // Publish progressively so the login page can begin rendering after the first
-                // usable library instead of waiting for every row to finish downloading.
+            references.extend(
+                shuffled(items)
+                    .into_iter()
+                    .filter_map(|item| item.poster)
+                    .take(POSTERS_PER_ROW),
+            );
+        }
+
+        references = shuffled(references);
+        let row_count = MAX_ROWS.min(references.len() / 2);
+        if row_count == 0 {
+            return self.save_manifest(&BackdropManifest::default());
+        }
+        let mut rows = vec![
+            BackdropRow {
+                posters: Vec::new()
+            };
+            row_count
+        ];
+        let mut successful = 0;
+        for reference in references.into_iter().take(row_count * POSTERS_PER_ROW) {
+            let Ok(Some(Ok((bytes, _)))) = runtime.fetch_image(server.id, &reference).await else {
+                continue;
+            };
+            let Ok(image) = image::load_from_memory(&bytes) else {
+                continue;
+            };
+            let image = image.thumbnail(280, 420).to_rgb8();
+            let mut encoded = Vec::new();
+            JpegEncoder::new_with_quality(&mut encoded, 68)
+                .write_image(
+                    image.as_raw(),
+                    image.width(),
+                    image.height(),
+                    image::ExtendedColorType::Rgb8,
+                )
+                .map_err(|error| error.to_string())?;
+            let row_index = successful % row_count;
+            let name = format!("row-{row_index}-poster-{}", rows[row_index].posters.len());
+            fs::write(self.root.join(format!("{name}.jpg")), encoded)
+                .map_err(|error| error.to_string())?;
+            rows[row_index].posters.push(name);
+            successful += 1;
+            if successful >= row_count * 2 && successful.is_multiple_of(row_count) {
+                // Publish progressively once every mixed row has enough posters to animate.
                 self.save_manifest(&BackdropManifest { rows: rows.clone() })?;
             }
         }
