@@ -111,7 +111,7 @@ select {
   flex-direction: column;
   justify-content: center;
   gap: clamp(0.8rem, 1.5vh, 1.35rem);
-  transform: rotate(-2deg) scale(1.05);
+  transform: scale(1.05);
 }
 .login-backdrop-row {
   display: flex;

@@ -43,7 +43,7 @@ export default function LoginBackdrop() {
     <div className="login-backdrop-rows">
       {rows.map((posters, rowIndex) => {
         const segment = Array.from({ length: Math.max(1, Math.ceil(24 / posters.length)) }, () => posters).flat();
-        const style = { "--backdrop-duration": `${Math.max(42, posters.length * 5)}s` } as CSSProperties;
+        const style = { "--backdrop-duration": `${Math.max(52.5, posters.length * 6.25)}s` } as CSSProperties;
         return <div key={rowIndex} className={`login-backdrop-row ${rowIndex % 2 ? "login-backdrop-row-reverse" : ""}`} style={style}>
           {[0, 1].map((copy) => <div className="login-backdrop-segment" key={copy}>
             {segment.map((poster, index) => <img key={`${poster}-${index}`} src={`/api/login-backdrop/${encodeURIComponent(poster)}`} alt="" loading="eager" decoding="async" />)}

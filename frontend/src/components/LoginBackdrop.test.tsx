@@ -12,6 +12,7 @@ it("renders shuffled alternating poster rows from the sanitized feed", async () 
   await waitFor(() => expect(container.querySelectorAll("img").length).toBeGreaterThanOrEqual(8));
   expect(container.querySelectorAll(".login-backdrop-row")).toHaveLength(2);
   expect(container.querySelectorAll(".login-backdrop-row-reverse")).toHaveLength(1);
+  expect(container.querySelector<HTMLElement>(".login-backdrop-row")?.style.getPropertyValue("--backdrop-duration")).toBe("52.5s");
   expect(container.querySelector(".login-backdrop-shade")).toBeTruthy();
   expect(screen.queryByRole("img")).toBeNull();
 });
