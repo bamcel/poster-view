@@ -126,7 +126,7 @@ select {
   gap: clamp(0.6rem, 1vw, 1rem);
 }
 .login-backdrop-row img {
-  width: clamp(5.5rem, 8vw, 8.5rem);
+  width: clamp(6.875rem, 10vw, 10.625rem);
   aspect-ratio: 2 / 3;
   flex: none;
   border-radius: 0.65rem;

@@ -24,6 +24,7 @@ import { ServerTypeBadge } from "../components/ui";
 import type { ConnectionTest, Server, ServerType } from "../types";
 import { applyTheme, THEMES } from "../lib/theme";
 import SecuritySection from "../components/SecuritySection";
+import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
 
 const BLANK: ServerInput = {
   name: "",
@@ -57,14 +58,21 @@ const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<SettingsTab>("servers");
+  const [saveStatus, setSaveStatus] = useState<SettingsSaveStatus>("saved");
+
+  useEffect(() => {
+    const update = (event: Event) => setSaveStatus((event as CustomEvent<SettingsSaveStatus>).detail);
+    window.addEventListener("posterview:settings-save", update);
+    return () => window.removeEventListener("posterview:settings-save", update);
+  }, []);
 
   return (
     <div className="h-full overflow-y-auto px-4 py-4 sm:px-6 lg:px-8 xl:overflow-hidden">
       <div className="mx-auto flex min-h-full w-full max-w-[110rem] flex-col gap-4 xl:h-full xl:min-h-0">
         <h1 className="text-2xl font-semibold">Settings</h1>
 
-        <div className="flex flex-wrap gap-2 border-b border-border pb-3">
-          {TABS.map((t) => (
+        <div className="flex items-center justify-between gap-4 border-b border-border pb-3">
+          <div className="flex flex-wrap gap-2">{TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
@@ -77,7 +85,10 @@ export default function SettingsPage() {
               {t.icon}
               {t.label}
             </button>
-          ))}
+          ))}</div>
+          <span role="status" className={`shrink-0 text-xs ${saveStatus === "error" ? "text-danger" : "text-accent"}`}>
+            {saveStatus === "saving" ? "Saving settings…" : saveStatus === "error" ? "Settings could not be saved." : "Settings saved automatically."}
+          </span>
         </div>
 
         <div className="min-h-0 flex-1">
@@ -97,6 +108,7 @@ function AppearanceSection() {
 
   const choose = (name: string) => {
     setSelected(applyTheme(name));
+    reportSettingsSave("saved");
   };
 
   return (
@@ -175,6 +187,7 @@ function ServersSection() {
       if (editingId == null) return api.createServer(form);
       return api.updateServer(editingId, form);
     },
+    onMutate: () => reportSettingsSave("saving"),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["servers"] });
       toast.push("success", editingId == null ? "Server added." : "Server updated.");
@@ -334,7 +347,7 @@ function ServersSection() {
             className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-accent-hover disabled:opacity-50"
           >
             {saveMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-            {editingId == null ? "Add server" : "Save Settings"}
+            {editingId == null ? "Add server" : "Update server"}
           </button>
           <button
             onClick={test}
@@ -415,11 +428,14 @@ function DefaultArtworkSourceFields() {
   const enabled = settingsQ.data?.enabled_providers ?? [];
   const saveMut = useMutation({
     mutationFn: (provider: string) => api.setArtworkSettings({ default_provider: provider }),
+    onMutate: () => reportSettingsSave("saving"),
     onSuccess: (settings) => {
       queryClient.setQueryData(["artwork-settings"], settings);
       toast.push("success", "Default artwork source saved.");
+      reportSettingsSave("saved");
     },
     onError: (e: Error) => {
+      reportSettingsSave("error");
       queryClient.invalidateQueries({ queryKey: ["artwork-cache"] });
       toast.push("error", e.message);
     },
@@ -449,6 +465,7 @@ function EnabledArtworkSourcesFields() {
   const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
   const toggleMut = useMutation({
     mutationFn: (enabledProviders: string[]) => api.setArtworkSettings({ enabled_providers: enabledProviders }),
+    onMutate: () => reportSettingsSave("saving"),
     onSuccess: (settings) => {
       queryClient.setQueryData(["artwork-settings"], settings);
       queryClient.invalidateQueries({ queryKey: ["artwork-providers"] });
@@ -456,8 +473,12 @@ function EnabledArtworkSourcesFields() {
       queryClient.removeQueries({ queryKey: ["artwork-search"] });
       queryClient.removeQueries({ queryKey: ["posterdb-verify"] });
       queryClient.invalidateQueries({ queryKey: ["artwork-cache"] });
+      reportSettingsSave("saved");
     },
-    onError: (e: Error) => toast.push("error", e.message),
+    onError: (e: Error) => {
+      reportSettingsSave("error");
+      toast.push("error", e.message);
+    },
   });
   const enabled = settingsQ.data?.enabled_providers ?? [];
 
@@ -514,8 +535,13 @@ function ArtworkCacheFields() {
       watchdog_enabled: next.watchdog_enabled ?? watchdogEnabled,
       watchdog_interval_hours: next.watchdog_interval_hours ?? watchdogInterval,
     }),
-    onSuccess: (status) => queryClient.setQueryData(["artwork-cache"], status),
+    onMutate: () => reportSettingsSave("saving"),
+    onSuccess: (status) => {
+      queryClient.setQueryData(["artwork-cache"], status);
+      reportSettingsSave("saved");
+    },
     onError: (e: Error) => {
+      reportSettingsSave("error");
       queryClient.invalidateQueries({ queryKey: ["artwork-cache"] });
       toast.push("error", e.message);
     },
@@ -696,33 +722,33 @@ function ArtworkCredentialsFields() {
   const [fanart, setFanart] = useState("");
   const [tvdbKey, setTvdbKey] = useState("");
   const [tvdbPin, setTvdbPin] = useState("");
-  const posterdbChanged = Boolean(password) || email.trim() !== (statusQ.data?.email ?? "");
-  const credentialsDirty = posterdbChanged || Boolean(fanart || tvdbKey || tvdbPin);
 
   useEffect(() => {
     if (statusQ.data?.email) setEmail(statusQ.data.email);
   }, [statusQ.data?.email]);
 
   const saveMut = useMutation({
-    mutationFn: async () => {
-      if (posterdbChanged && email.trim()) await api.setPosterdbCredentials(email.trim(), password);
+    mutationFn: async (kind: "posterdb" | "fanart" | "tvdb") => {
+      if (kind === "posterdb") return api.setPosterdbCredentials(email.trim(), password);
+      if (kind === "fanart") return api.setArtworkSettings({ fanart_api_key: fanart });
       return api.setArtworkSettings({
-        fanart_api_key: fanart || undefined,
         tvdb_api_key: tvdbKey || undefined,
         tvdb_pin: tvdbPin || undefined,
       });
     },
-    onSuccess: () => {
+    onSuccess: (_, kind) => {
       queryClient.invalidateQueries({ queryKey: ["posterdb-status"] });
       queryClient.invalidateQueries({ queryKey: ["artwork-settings"] });
       queryClient.invalidateQueries({ queryKey: ["artwork-providers"] });
-      setPassword("");
-      setFanart("");
-      setTvdbKey("");
-      setTvdbPin("");
-      toast.push("success", "Artwork source settings saved.");
+      if (kind === "posterdb") setPassword("");
+      if (kind === "fanart") setFanart("");
+      if (kind === "tvdb") { setTvdbKey(""); setTvdbPin(""); }
+      reportSettingsSave("saved");
     },
-    onError: (e: Error) => toast.push("error", e.message),
+    onError: (e: Error) => {
+      reportSettingsSave("error");
+      toast.push("error", e.message);
+    },
   });
 
   const loginMut = useMutation({
@@ -767,6 +793,7 @@ function ArtworkCredentialsFields() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder={configured ? "••••••" : ""}
+            onBlur={() => { if (password && email.trim()) saveMut.mutate("posterdb"); }}
           />
         </Field>
       </div>
@@ -796,18 +823,8 @@ function ArtworkCredentialsFields() {
           tvdbPin={tvdbPin}
           setTvdbPin={setTvdbPin}
           configured={settingsQ.data}
+          onAutoSave={(kind) => saveMut.mutate(kind)}
         />
-      </div>
-
-      <div className="mt-6 border-t border-border pt-5">
-        <button
-          onClick={() => saveMut.mutate()}
-          disabled={saveMut.isPending || !credentialsDirty}
-          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-accent-hover disabled:opacity-50"
-        >
-          {saveMut.isPending && <Loader2 className="size-4 animate-spin" />}
-          Save Settings
-        </button>
       </div>
     </div>
   );
@@ -821,6 +838,7 @@ function FanartTvdbFields({
   tvdbPin,
   setTvdbPin,
   configured: cfg,
+  onAutoSave,
 }: {
   fanart: string;
   setFanart: (value: string) => void;
@@ -829,6 +847,7 @@ function FanartTvdbFields({
   tvdbPin: string;
   setTvdbPin: (value: string) => void;
   configured?: { fanart_configured: boolean; tvdb_configured: boolean };
+  onAutoSave: (kind: "fanart" | "tvdb") => void;
 }) {
   const toast = useToast();
 
@@ -872,6 +891,7 @@ function FanartTvdbFields({
             value={fanart}
             onChange={(e) => setFanart(e.target.value)}
             placeholder={cfg?.fanart_configured ? "••••••" : "your Fanart.tv personal API key"}
+            onBlur={() => { if (fanart) onAutoSave("fanart"); }}
           />
         </Field>
         <button
@@ -906,6 +926,7 @@ function FanartTvdbFields({
               value={tvdbKey}
               onChange={(e) => setTvdbKey(e.target.value)}
               placeholder={cfg?.tvdb_configured ? "••••••" : "TheTVDB v4 API key"}
+              onBlur={() => { if (tvdbKey) onAutoSave("tvdb"); }}
             />
           </Field>
           <Field label="TheTVDB subscriber PIN (optional)">
@@ -914,6 +935,7 @@ function FanartTvdbFields({
               value={tvdbPin}
               onChange={(e) => setTvdbPin(e.target.value)}
               placeholder="only for user-supported keys"
+              onBlur={() => { if (tvdbPin) onAutoSave("tvdb"); }}
             />
           </Field>
         </div>

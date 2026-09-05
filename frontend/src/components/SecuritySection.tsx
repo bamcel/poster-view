@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SecuritySettings } from "../api/client";
 import { remembersUsername, setRememberUsername } from "../lib/rememberUsername";
+import { reportSettingsSave } from "../lib/settingsSaveStatus";
 
 export default function SecuritySection() {
   const query = useQuery({ queryKey: ["security-settings"], queryFn: api.securitySettings });
@@ -17,21 +18,31 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
   const [bypass, setBypass] = useState(initial.local_network_bypass);
   const [backdrop, setBackdrop] = useState(initial.login_backdrop_enabled);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [remember, setRemember] = useState(remembersUsername);
 
-  return <form className="h-full rounded-2xl border border-border bg-surface p-4" onSubmit={async (event) => {
-    event.preventDefault();
-    setSaving(true); setMessage(""); setError("");
-    try {
-      const saved = await api.saveSecuritySettings({ idle_timeout_minutes: autoSignOut ? Number(minutes) : null, local_network_bypass: bypass, login_backdrop_enabled: backdrop });
-      client.setQueryData(["security-settings"], saved);
-      setMessage("Security settings saved.");
-      window.dispatchEvent(new Event("posterview:security-changed"));
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save settings."); }
-    finally { setSaving(false); }
-  }}>
+  const initialRender = useRef(true);
+  useEffect(() => {
+    if (initialRender.current) {
+      initialRender.current = false;
+      return;
+    }
+    const timer = window.setTimeout(async () => {
+      setSaving(true); setError(""); reportSettingsSave("saving");
+      try {
+        const saved = await api.saveSecuritySettings({ idle_timeout_minutes: autoSignOut ? Number(minutes) : null, local_network_bypass: bypass, login_backdrop_enabled: backdrop });
+        client.setQueryData(["security-settings"], saved);
+        reportSettingsSave("saved");
+        window.dispatchEvent(new Event("posterview:security-changed"));
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Could not save settings.");
+        reportSettingsSave("error");
+      } finally { setSaving(false); }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [autoSignOut, backdrop, bypass, client, minutes]);
+
+  return <div className="h-full rounded-2xl border border-border bg-surface p-4">
     <div><h2 className="text-lg font-semibold">Privacy / Security</h2>
       <p className="mt-1 text-sm text-faint">Session and network settings apply to all users and persist after container restarts. The container’s Require Login option overrides these controls: when false, all connections have password-free access and auto sign-out cannot lock the application.</p></div>
     <div className="mt-4 grid gap-3 xl:grid-cols-2">
@@ -60,7 +71,5 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
     </fieldset>
     </div>
     {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
-    {message && <p role="status" className="text-sm text-accent">{message}</p>}
-    <button disabled={saving} type="submit" className="mt-3 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-black disabled:opacity-50">{saving ? "Saving…" : "Save security settings"}</button>
-  </form>;
+  </div>;
 }
