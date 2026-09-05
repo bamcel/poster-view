@@ -98,7 +98,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   return (
     <main className="relative grid h-full overflow-hidden place-items-center bg-base px-4">
       <LoginBackdrop />
-      <form onSubmit={submit} className="relative z-10 w-full max-w-sm rounded-xl border border-white/10 bg-surface/15 p-6 shadow-xl backdrop-blur-md">
+      <form onSubmit={submit} className="relative z-10 w-full max-w-sm rounded-xl border border-white/10 bg-surface/15 p-6 shadow-xl backdrop-blur-sm">
         <Logo />
         <div className="mt-8 flex items-center gap-3">
           <div className="grid size-10 place-items-center rounded-lg bg-surface-2 text-accent"><LockKeyhole className="size-5" /></div>
