@@ -66,7 +66,7 @@ export default function Layout() {
       <aside className="hidden w-[14.75rem] shrink-0 flex-col border-r border-border bg-sidebar px-3 py-5 md:flex">
         <div className="mb-8 px-1">
           <Logo />
-          <div className="mt-1 pl-12 text-xs text-faint">Artwork management console</div>
+          <div className="mt-1 whitespace-nowrap text-left text-xs text-faint">Artwork Management Console</div>
         </div>
 
         <nav className="flex flex-col gap-1.5">
