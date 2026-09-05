@@ -34,7 +34,7 @@ export function Logo({ className = "" }: { className?: string }) {
   return (
     <div className={`h-11 shrink-0 ${className}`}>
       <img
-        src="/posterview-wordmark.svg?v=2"
+        src="/posterview-wordmark.png?v=3"
         alt="PosterView"
         className="h-11 max-w-none object-contain object-left"
       />
