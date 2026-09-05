@@ -1,6 +1,9 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import type { LoginBackdropManifest } from "../api/client";
 
+const POSTERS_PER_TRACK = 28;
+const BACKDROP_DURATION_SECONDS = 109.375;
+
 function shuffled<T>(values: T[]): T[] {
   const copy = [...values];
   for (let index = copy.length - 1; index > 0; index -= 1) {
@@ -42,8 +45,11 @@ export default function LoginBackdrop() {
   return <div className="login-backdrop" aria-hidden="true">
     <div className="login-backdrop-rows">
       {rows.map((posters, rowIndex) => {
-        const segment = Array.from({ length: Math.max(1, Math.ceil(24 / posters.length)) }, () => posters).flat();
-        const style = { "--backdrop-duration": `${Math.max(52.5, posters.length * 6.25)}s` } as CSSProperties;
+        const segment = Array.from(
+          { length: POSTERS_PER_TRACK },
+          (_, index) => posters[index % posters.length],
+        );
+        const style = { "--backdrop-duration": `${BACKDROP_DURATION_SECONDS}s` } as CSSProperties;
         return <div key={rowIndex} className={`login-backdrop-row ${rowIndex % 2 ? "login-backdrop-row-reverse" : ""}`} style={style}>
           {[0, 1].map((copy) => <div className="login-backdrop-segment" key={copy}>
             {segment.map((poster, index) => <img key={`${poster}-${index}`} src={`/api/login-backdrop/${encodeURIComponent(poster)}`} alt="" loading="eager" decoding="async" />)}
