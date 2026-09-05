@@ -32,23 +32,12 @@ export function EmptyState({
 
 export function Logo({ className = "" }: { className?: string }) {
   return (
-    <div
-      className={`flex items-center ${className}`}
-      role="img"
-      aria-label="PosterView"
-    >
+    <div className={`h-11 shrink-0 ${className}`}>
       <img
-        src="/posterview-logo.svg"
-        alt=""
-        aria-hidden="true"
-        className="h-11 w-auto shrink-0 object-contain"
+        src="/posterview-wordmark.svg"
+        alt="PosterView"
+        className="h-11 max-w-none object-contain object-left"
       />
-      <span
-        aria-hidden="true"
-        className="-ml-0.5 shrink-0 text-[1.65rem] font-semibold italic leading-none tracking-[-0.075em] text-white"
-      >
-        osterView
-      </span>
     </div>
   );
 }
