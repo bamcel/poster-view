@@ -106,27 +106,27 @@ select {
 }
 .login-backdrop-rows {
   position: absolute;
-  inset: -7rem -10rem;
+  inset: -5.6rem -8rem;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: clamp(0.8rem, 1.5vh, 1.35rem);
+  gap: clamp(0.64rem, 1.5vh, 1.08rem);
   transform: scale(1.05);
 }
 .login-backdrop-row {
   display: flex;
   width: max-content;
-  gap: clamp(0.6rem, 1vw, 1rem);
+  gap: clamp(0.48rem, 1vw, 0.8rem);
   animation: loginPostersLeft var(--backdrop-duration, 60s) linear infinite;
   will-change: transform;
 }
 .login-backdrop-row-reverse { animation-name: loginPostersRight; }
 .login-backdrop-segment {
   display: flex;
-  gap: clamp(0.6rem, 1vw, 1rem);
+  gap: clamp(0.48rem, 1vw, 0.8rem);
 }
 .login-backdrop-row img {
-  width: clamp(8.25rem, 12vw, 12.75rem);
+  width: clamp(6.6rem, 12vw, 10.2rem);
   aspect-ratio: 2 / 3;
   flex: none;
   border-radius: 0.65rem;
