@@ -91,7 +91,7 @@ def main() -> int:
             fail("templates/: at least one Docker template XML file is required")
         for template in templates:
             validate_template(template)
-        validate_png(ROOT / "unraid-icon.png", 512)
+        validate_png(ROOT / "icon.png", 512)
     except (ET.ParseError, OSError, ValueError) as error:
         print(f"Unraid metadata validation failed: {error}", file=sys.stderr)
         return 1
