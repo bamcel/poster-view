@@ -51,11 +51,18 @@ pub async fn test_connection(config: ConnectionConfig<'_>) -> Result<(String, St
 
 pub async fn get_libraries(config: ConnectionConfig<'_>) -> Result<Vec<Library>, String> {
     let client = media_client(&config)?;
-    match config.server_type {
+    let mut libraries = match config.server_type {
         ServerType::Plex => plex_libraries(&client, &config).await,
         ServerType::Jellyfin => emby_libraries(&client, &config, "Jellyfin").await,
         ServerType::Emby => emby_libraries(&client, &config, "Emby").await,
-    }
+    }?;
+    libraries.sort_by_key(|library| {
+        (
+            library.library_type == LibraryType::Collection,
+            library.title.to_lowercase(),
+        )
+    });
+    Ok(libraries)
 }
 
 pub async fn get_items(
@@ -875,6 +882,15 @@ async fn emby_libraries(
         .into_iter()
         .flatten()
         .filter_map(|item| {
+            if matches!(
+                item.get("CollectionType").and_then(Value::as_str),
+                Some("boxsets")
+            ) {
+                // PosterView exposes one synthetic Collections library that gathers
+                // box sets across the whole server. Emby may also return its native
+                // Collections folder here, which would otherwise create a duplicate.
+                return None;
+            }
             Some(Library {
                 id: item.get("Id")?.as_str()?.to_owned(),
                 title: item

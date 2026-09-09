@@ -438,7 +438,9 @@ async fn jellyfin_library_discovery_is_normalized() {
             axum::routing::get(|| async {
                 axum::Json(serde_json::json!({"Items": [
                     {"Id": "movies", "Name": "Movies", "CollectionType": "movies"},
-                    {"Id": "shows", "Name": "TV Shows", "CollectionType": "tvshows"}
+                    {"Id": "shows", "Name": "TV Shows", "CollectionType": "tvshows"},
+                    {"Id": "anime", "Name": "Anime", "CollectionType": "tvshows"},
+                    {"Id": "native-collections", "Name": "Collections", "CollectionType": "boxsets"}
                 ]}))
             }),
         )
@@ -486,6 +488,7 @@ async fn jellyfin_library_discovery_is_normalized() {
     assert_eq!(
         body,
         serde_json::json!([
+            {"id":"anime","title":"Anime","type":"show"},
             {"id":"movies","title":"Movies","type":"movie"},
             {"id":"shows","title":"TV Shows","type":"show"},
             {"id":"collections","title":"Collections","type":"collection"}
@@ -516,8 +519,8 @@ async fn jellyfin_library_discovery_is_normalized() {
     let visibility_body: serde_json::Value =
         serde_json::from_slice(&visibility.into_body().collect().await.unwrap().to_bytes())
             .unwrap();
-    assert_eq!(visibility_body["libraries"][1]["id"], "shows");
-    assert_eq!(visibility_body["libraries"][1]["visible"], false);
+    assert_eq!(visibility_body["libraries"][2]["id"], "shows");
+    assert_eq!(visibility_body["libraries"][2]["visible"], false);
 
     let visible_libraries = app
         .oneshot(
