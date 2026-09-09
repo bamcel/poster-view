@@ -98,6 +98,24 @@ pub struct Library {
     pub library_type: LibraryType,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LibraryVisibility {
+    pub libraries: Vec<LibraryVisibilityItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LibraryVisibilityItem {
+    #[serde(flatten)]
+    pub library: Library,
+    pub visible: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct LibraryVisibilityUpdate {
+    #[serde(default)]
+    pub hidden_library_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ItemType {

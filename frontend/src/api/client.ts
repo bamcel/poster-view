@@ -20,6 +20,7 @@ import type {
   ImageTarget,
   ItemDetail,
   Library,
+  LibraryVisibility,
   MediaItem,
   PosterDBStatus,
   PosterSearchResults,
@@ -115,6 +116,13 @@ export const api = {
 
   // -- libraries / items --
   getLibraries: (serverId: number) => request<Library[]>(`/servers/${serverId}/libraries`),
+  getLibraryVisibility: (serverId: number) =>
+    request<LibraryVisibility>(`/servers/${serverId}/library-visibility`),
+  setLibraryVisibility: (serverId: number, hiddenLibraryIds: string[]) =>
+    request<void>(`/servers/${serverId}/library-visibility`, {
+      method: "PUT",
+      body: JSON.stringify({ hidden_library_ids: hiddenLibraryIds }),
+    }),
   getItems: (serverId: number, libraryId: string, groupCollections = true) =>
     request<MediaItem[]>(
       `/servers/${serverId}/libraries/${encodeURIComponent(libraryId)}/items?group_collections=${groupCollections}`,

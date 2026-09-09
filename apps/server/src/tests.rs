@@ -472,6 +472,7 @@ async fn jellyfin_library_discovery_is_normalized() {
         serde_json::from_slice(&create.into_body().collect().await.unwrap().to_bytes()).unwrap();
     let id = created["id"].as_i64().unwrap();
     let response = app
+        .clone()
         .oneshot(
             Request::get(format!("/api/servers/{id}/libraries"))
                 .body(Body::empty())
@@ -489,6 +490,58 @@ async fn jellyfin_library_discovery_is_normalized() {
             {"id":"shows","title":"TV Shows","type":"show"},
             {"id":"collections","title":"Collections","type":"collection"}
         ])
+    );
+
+    let update = app
+        .clone()
+        .oneshot(
+            Request::put(format!("/api/servers/{id}/library-visibility"))
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"hidden_library_ids":["shows"]}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(update.status(), StatusCode::NO_CONTENT);
+
+    let visibility = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/api/servers/{id}/library-visibility"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let visibility_body: serde_json::Value =
+        serde_json::from_slice(&visibility.into_body().collect().await.unwrap().to_bytes())
+            .unwrap();
+    assert_eq!(visibility_body["libraries"][1]["id"], "shows");
+    assert_eq!(visibility_body["libraries"][1]["visible"], false);
+
+    let visible_libraries = app
+        .oneshot(
+            Request::get(format!("/api/servers/{id}/libraries"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let visible_body: serde_json::Value = serde_json::from_slice(
+        &visible_libraries
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes(),
+    )
+    .unwrap();
+    assert!(
+        visible_body
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|library| library["id"] != "shows")
     );
     media_server.abort();
 }

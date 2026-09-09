@@ -11,8 +11,8 @@ use axum::{
 use posterview_contracts::{
     ApiErrorResponse, ApplyRequest, ArtworkCacheSettings, ArtworkProviderTestRequest,
     ArtworkRefreshRequest, ArtworkRefreshResult, ArtworkSettingsUpdate, HistoryPurgeResult,
-    HistorySettings, ImageTarget, PosterDbCredentials, ServerCreate, ServerUpdate,
-    VerifyTitlesRequest,
+    HistorySettings, ImageTarget, LibraryVisibilityUpdate, PosterDbCredentials, ServerCreate,
+    ServerUpdate, VerifyTitlesRequest,
 };
 use posterview_runtime::Runtime;
 use posterview_url_security::media_server_base;
@@ -70,6 +70,10 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             axum::routing::post(test_saved_server),
         )
         .route("/api/servers/{id}/libraries", get(get_libraries))
+        .route(
+            "/api/servers/{id}/library-visibility",
+            get(get_library_visibility).put(set_library_visibility),
+        )
         .route("/api/servers/{id}/image", get(proxy_image))
         .route(
             "/api/servers/{id}/libraries/{library_id}/items",
@@ -382,13 +386,42 @@ async fn get_libraries(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, HttpError> {
-    match state.runtime.get_libraries(id).await? {
+    match state.runtime.get_visible_libraries(id).await? {
         None => Err(HttpError::not_found()),
         Some(Ok(libraries)) => Ok(Json(libraries)),
         Some(Err(detail)) => Err(HttpError {
             status: StatusCode::BAD_GATEWAY,
             detail,
         }),
+    }
+}
+
+async fn get_library_visibility(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, HttpError> {
+    match state.runtime.library_visibility(id).await? {
+        None => Err(HttpError::not_found()),
+        Some(Ok(visibility)) => Ok(Json(visibility)),
+        Some(Err(detail)) => Err(HttpError {
+            status: StatusCode::BAD_GATEWAY,
+            detail,
+        }),
+    }
+}
+
+async fn set_library_visibility(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(input): Json<LibraryVisibilityUpdate>,
+) -> Result<StatusCode, HttpError> {
+    if state
+        .runtime
+        .set_hidden_library_ids(id, &input.hidden_library_ids)?
+    {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(HttpError::not_found())
     }
 }
 

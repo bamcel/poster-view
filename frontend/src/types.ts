@@ -27,6 +27,14 @@ export interface Library {
   type: "movie" | "show" | "collection" | "other";
 }
 
+export interface LibraryVisibilityItem extends Library {
+  visible: boolean;
+}
+
+export interface LibraryVisibility {
+  libraries: LibraryVisibilityItem[];
+}
+
 export interface MediaItem {
   id: string;
   title: string;

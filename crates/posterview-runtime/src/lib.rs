@@ -8,8 +8,9 @@ use std::{
 };
 
 use posterview_contracts::{
-    ApplyResult, ConnectionTest, HealthResponse, ImageTarget, ItemDetail, Library, MediaItem,
-    PosterSearchResults, Server, ServerCreate, ServerUpdate, StatusResponse,
+    ApplyResult, ConnectionTest, HealthResponse, ImageTarget, ItemDetail, Library,
+    LibraryVisibility, LibraryVisibilityItem, MediaItem, PosterSearchResults, Server, ServerCreate,
+    ServerUpdate, StatusResponse,
 };
 use posterview_infra_artwork::ArtworkService;
 use posterview_infra_media_servers::{
@@ -172,6 +173,70 @@ impl Runtime {
             })
             .await,
         ))
+    }
+
+    pub async fn get_visible_libraries(
+        &self,
+        id: i64,
+    ) -> Result<Option<Result<Vec<Library>, String>>, RuntimeError> {
+        let hidden = self.hidden_library_ids(id)?;
+        Ok(self.get_libraries(id).await?.map(|result| {
+            result.map(|libraries| {
+                libraries
+                    .into_iter()
+                    .filter(|library| !hidden.contains(&library.id))
+                    .collect()
+            })
+        }))
+    }
+
+    pub async fn library_visibility(
+        &self,
+        id: i64,
+    ) -> Result<Option<Result<LibraryVisibility, String>>, RuntimeError> {
+        let hidden = self.hidden_library_ids(id)?;
+        Ok(self.get_libraries(id).await?.map(|result| {
+            result.map(|libraries| LibraryVisibility {
+                libraries: libraries
+                    .into_iter()
+                    .map(|library| LibraryVisibilityItem {
+                        visible: !hidden.contains(&library.id),
+                        library,
+                    })
+                    .collect(),
+            })
+        }))
+    }
+
+    pub fn set_hidden_library_ids(
+        &self,
+        id: i64,
+        hidden_library_ids: &[String],
+    ) -> Result<bool, RuntimeError> {
+        if self.server_store()?.get_server(id)?.is_none() {
+            return Ok(false);
+        }
+        let mut ids = hidden_library_ids.to_vec();
+        ids.sort();
+        ids.dedup();
+        self.server_store()?.set_setting(
+            &library_visibility_key(id),
+            &serde_json::to_string(&ids).unwrap_or_else(|_| "[]".to_owned()),
+        )?;
+        Ok(true)
+    }
+
+    fn hidden_library_ids(
+        &self,
+        id: i64,
+    ) -> Result<std::collections::HashSet<String>, RuntimeError> {
+        let raw = self
+            .server_store()?
+            .get_setting(&library_visibility_key(id))?;
+        Ok(serde_json::from_str::<Vec<String>>(&raw)
+            .unwrap_or_default()
+            .into_iter()
+            .collect())
     }
 
     pub async fn get_items(
@@ -367,6 +432,10 @@ impl Runtime {
 
 fn media_image_cache_key(server_id: i64, reference: &str) -> String {
     format!("media:{server_id}:{reference}")
+}
+
+fn library_visibility_key(server_id: i64) -> String {
+    format!("hidden_libraries:{server_id}")
 }
 
 fn image_reference<'a>(detail: &'a ItemDetail, target: &ImageTarget) -> Option<&'a String> {

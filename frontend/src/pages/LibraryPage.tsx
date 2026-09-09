@@ -63,6 +63,16 @@ export default function LibraryPage() {
       { replace: true },
     );
 
+  const clearLibrary = () =>
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.delete("lib");
+        return p;
+      },
+      { replace: true },
+    );
+
   const librariesQ = useQuery({
     queryKey: ["libraries", serverId],
     queryFn: () => api.getLibraries(serverId!),
@@ -75,8 +85,11 @@ export default function LibraryPage() {
     const libs = librariesQ.data;
     if (!libs) return;
     const browseable = libs.filter((l) => l.type !== "other");
-    if (!browseable.length) return;
-    const valid = libraryId != null && libs.some((l) => l.id === libraryId);
+    if (!browseable.length) {
+      if (libraryId != null) clearLibrary();
+      return;
+    }
+    const valid = libraryId != null && browseable.some((l) => l.id === libraryId);
     if (!valid) selectLibrary(browseable[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [librariesQ.data, libraryId]);
@@ -199,6 +212,11 @@ export default function LibraryPage() {
         {librariesQ.isError && (
           <EmptyState icon={<ServerCrash className="size-10" />} title="Couldn't reach the server">
             {(librariesQ.error as Error).message}
+          </EmptyState>
+        )}
+        {librariesQ.data && browseableLibs.length === 0 && (
+          <EmptyState title="No libraries are shown">
+            Choose which libraries to display in Settings → Server Setup.
           </EmptyState>
         )}
         {itemsQ.isLoading && <Spinner label="Loading titles…" />}

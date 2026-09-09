@@ -21,7 +21,7 @@ import {
 import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
 import { ServerTypeBadge } from "../components/ui";
-import type { ConnectionTest, Server, ServerType } from "../types";
+import type { ConnectionTest, LibraryVisibility, Server, ServerType } from "../types";
 import { applyTheme, THEMES } from "../lib/theme";
 import SecuritySection from "../components/SecuritySection";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
@@ -232,42 +232,21 @@ function ServersSection() {
       </p>
 
       {/* Existing servers */}
-      <div className="mb-4 max-h-52 space-y-2 overflow-y-auto pr-1 xl:max-h-44">
+      <div className="mb-4 max-h-80 space-y-2 overflow-y-auto pr-1 xl:max-h-72">
         {serversQ.data?.length === 0 && (
           <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-faint">
             No servers yet — add one below.
           </p>
         )}
         {serversQ.data?.map((s) => (
-          <div
+          <ServerCard
             key={s.id}
-            className="flex items-center gap-3 rounded-lg border border-border bg-surface-2 px-4 py-3"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate font-medium">{s.name}</span>
-                <ServerTypeBadge type={s.type} />
-                {s.is_default && (
-                  <span className="flex items-center gap-1 text-xs text-accent">
-                    <Star className="size-3 fill-accent" /> default
-                  </span>
-                )}
-              </div>
-              <p className="truncate text-xs text-faint">{s.base_url}</p>
-            </div>
-            <IconBtn title="Edit" onClick={() => startEdit(s)}>
-              <Pencil className="size-4" />
-            </IconBtn>
-            <IconBtn
-              title="Delete"
-              danger
-              onClick={() => {
-                if (confirm(`Remove "${s.name}"?`)) deleteMut.mutate(s.id);
-              }}
-            >
-              <Trash2 className="size-4" />
-            </IconBtn>
-          </div>
+            server={s}
+            onEdit={() => startEdit(s)}
+            onDelete={() => {
+              if (confirm(`Remove "${s.name}"?`)) deleteMut.mutate(s.id);
+            }}
+          />
         ))}
       </div>
 
@@ -365,6 +344,108 @@ function ServersSection() {
         </div>
       </div>
     </section>
+  );
+}
+
+function ServerCard({
+  server,
+  onEdit,
+  onDelete,
+}: {
+  server: Server;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const visibilityQ = useQuery({
+    queryKey: ["library-visibility", server.id],
+    queryFn: () => api.getLibraryVisibility(server.id),
+  });
+  const visibilityMut = useMutation({
+    mutationFn: (next: LibraryVisibility) =>
+      api.setLibraryVisibility(
+        server.id,
+        next.libraries.filter((library) => !library.visible).map((library) => library.id),
+      ),
+    onMutate: async (next) => {
+      reportSettingsSave("saving");
+      await queryClient.cancelQueries({ queryKey: ["library-visibility", server.id] });
+      const previous = queryClient.getQueryData<LibraryVisibility>(["library-visibility", server.id]);
+      queryClient.setQueryData(["library-visibility", server.id], next);
+      return { previous };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["libraries", server.id] });
+      reportSettingsSave("saved");
+    },
+    onError: (error: Error, _next, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["library-visibility", server.id], context.previous);
+      }
+      reportSettingsSave("error");
+      toast.push("error", error.message);
+    },
+  });
+
+  const toggleLibrary = (libraryId: string) => {
+    const current = visibilityQ.data;
+    if (!current) return;
+    visibilityMut.mutate({
+      libraries: current.libraries.map((library) =>
+        library.id === libraryId ? { ...library, visible: !library.visible } : library,
+      ),
+    });
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-surface-2 px-4 py-3">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate font-medium">{server.name}</span>
+            <ServerTypeBadge type={server.type} />
+            {server.is_default && (
+              <span className="flex items-center gap-1 text-xs text-accent">
+                <Star className="size-3 fill-accent" /> default
+              </span>
+            )}
+          </div>
+          <p className="truncate text-xs text-faint">{server.base_url}</p>
+        </div>
+        <IconBtn title="Edit" onClick={onEdit}>
+          <Pencil className="size-4" />
+        </IconBtn>
+        <IconBtn title="Delete" danger onClick={onDelete}>
+          <Trash2 className="size-4" />
+        </IconBtn>
+      </div>
+
+      <div className="mt-3 border-t border-border pt-3">
+        <p className="mb-2 text-xs font-medium text-muted">Libraries shown on the Libraries page</p>
+        {visibilityQ.isLoading && <p className="text-xs text-faint">Loading libraries…</p>}
+        {visibilityQ.isError && (
+          <p className="text-xs text-danger">Could not load libraries from this server.</p>
+        )}
+        {visibilityQ.data?.libraries.length === 0 && (
+          <p className="text-xs text-faint">No libraries were found.</p>
+        )}
+        <div className="flex flex-wrap gap-x-5 gap-y-2">
+          {visibilityQ.data?.libraries.map((library) => (
+            <label key={library.id} className="flex items-center gap-2 text-sm text-muted">
+              <input
+                type="checkbox"
+                checked={library.visible}
+                disabled={visibilityMut.isPending}
+                onChange={() => toggleLibrary(library.id)}
+                className="size-4 accent-[var(--color-accent)]"
+              />
+              {library.title}
+            </label>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
