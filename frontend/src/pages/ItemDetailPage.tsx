@@ -97,120 +97,148 @@ export default function ItemDetailPage() {
           )}
 
           <div className="relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-8">
-          {detailQ.isLoading && <Spinner label="Loading…" />}
-          {detailQ.isError && (
-            <EmptyState title="Couldn't load this title">
-              {(detailQ.error as Error).message}
-            </EmptyState>
-          )}
+            {detailQ.isLoading && <Spinner label="Loading…" />}
+            {detailQ.isError && (
+              <EmptyState title="Couldn't load this title">
+                {(detailQ.error as Error).message}
+              </EmptyState>
+            )}
 
-          {item && (
-            <>
-              <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6">
-                {/* Poster */}
-                <div className="w-40 shrink-0 min-[390px]:w-44 sm:w-48 lg:w-56">
-                  <div className="aspect-[2/3] overflow-hidden rounded-xl bg-surface-2 shadow-2xl shadow-black/50 ring-1 ring-white/10">
-                    {poster ? (
-                      <img src={poster} alt={item.title} className="h-full w-full object-cover" />
-                    ) : null}
+            {item && (
+              <>
+                <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6">
+                  {/* Poster */}
+                  <div className="w-40 shrink-0 min-[390px]:w-44 sm:w-48 lg:w-56">
+                    <div className="aspect-[2/3] overflow-hidden rounded-xl bg-surface-2 shadow-2xl shadow-black/50 ring-1 ring-white/10">
+                      {poster ? (
+                        <img
+                          src={poster}
+                          alt={item.title}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : null}
+                    </div>
                   </div>
-                </div>
 
-                {/* Metadata — a text-shadow (not just the gradient) keeps this
+                  {/* Metadata — a text-shadow (not just the gradient) keeps this
                     legible over a vivid/bright backdrop image, since the exact
                     gradient fade point can't account for every image. */}
-                <div className="min-w-0 flex-1 pt-2 text-center [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] sm:text-left">
-                  {logo ? (
-                    <img
-                      src={logo}
-                      alt={item.title}
-                      className="mx-auto max-h-24 max-w-full object-contain drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)] sm:mx-0 sm:max-h-28 sm:object-left"
-                    />
-                  ) : (
-                    <h1 className="text-3xl font-bold leading-tight sm:text-4xl">{item.title}</h1>
-                  )}
-                  <p className="mt-2 text-sm text-white/70">
-                    {item.type === "show"
-                      ? `${item.season_count ?? item.seasons.length} Season${
-                          (item.season_count ?? item.seasons.length) === 1 ? "" : "s"
-                        }`
-                      : item.type === "collection"
-                        ? "Collection"
-                        : item.type === "book" ? "Book"
-                        : item.type === "audiobook" ? "Audiobook"
-                        : item.year}
-                  </p>
-
-                  <div className="mt-5 flex items-center justify-center gap-3 sm:justify-start">
-                    <button
-                      onClick={() => detailQ.refetch()}
-                      className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-white/40 hover:text-white"
-                      title="Refresh from server"
-                    >
-                      <RefreshCw className={`size-4 ${detailQ.isFetching ? "animate-spin" : ""}`} /> Refresh
-                    </button>
-                  </div>
-
-                  {item.summary && (
-                    <p className="mt-5 max-w-2xl text-sm leading-relaxed text-white/80">
-                      {item.summary}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Seasons */}
-              {item.seasons.length > 0 && (
-                <section className="mt-10">
-                  <h2 className="mb-4 text-lg font-semibold">Seasons</h2>
-                  <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(120px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
-                    {item.seasons.map((s) => (
-                      <PosterCard
-                        key={s.id}
-                        image={imageUrl(serverId, s.poster)}
-                        title={s.title}
-                        subtitle={s.index != null ? `Season ${s.index}` : undefined}
-                        kind="show"
-                        badge={s.episode_count ?? undefined}
+                  <div className="min-w-0 flex-1 pt-2 text-center [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] sm:text-left">
+                    {logo ? (
+                      <img
+                        src={logo}
+                        alt={item.title}
+                        className="mx-auto max-h-24 max-w-full object-contain drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)] sm:mx-0 sm:max-h-28 sm:object-left"
                       />
-                    ))}
-                  </div>
-                </section>
-              )}
+                    ) : (
+                      <h1 className="text-3xl font-bold leading-tight sm:text-4xl">
+                        {item.title}
+                      </h1>
+                    )}
+                    <p className="mt-2 text-sm text-white/70">
+                      {item.type === "show"
+                        ? `${item.season_count ?? item.seasons.length} Season${
+                            (item.season_count ?? item.seasons.length) === 1
+                              ? ""
+                              : "s"
+                          }`
+                        : item.type === "collection"
+                          ? "Collection"
+                          : item.type === "book"
+                            ? "Book"
+                            : item.type === "audiobook"
+                              ? "Audiobook"
+                              : item.type === "folder"
+                                ? `${item.members.length} Volumes`
+                                : item.year}
+                    </p>
 
-              {/* Collection members — each is a full library item with its own
+                    <div className="mt-5 flex items-center justify-center gap-3 sm:justify-start">
+                      <button
+                        onClick={() => detailQ.refetch()}
+                        className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-white/40 hover:text-white"
+                        title="Refresh from server"
+                      >
+                        <RefreshCw
+                          className={`size-4 ${detailQ.isFetching ? "animate-spin" : ""}`}
+                        />{" "}
+                        Refresh
+                      </button>
+                    </div>
+
+                    {item.summary && (
+                      <p className="mt-5 max-w-2xl text-sm leading-relaxed text-white/80">
+                        {item.summary}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Seasons */}
+                {item.seasons.length > 0 && (
+                  <section className="mt-10">
+                    <h2 className="mb-4 text-lg font-semibold">Seasons</h2>
+                    <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(120px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
+                      {item.seasons.map((s) => (
+                        <PosterCard
+                          key={s.id}
+                          image={imageUrl(serverId, s.poster)}
+                          title={s.title}
+                          subtitle={
+                            s.index != null ? `Season ${s.index}` : undefined
+                          }
+                          kind="show"
+                          badge={s.episode_count ?? undefined}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {/* Collection members — each is a full library item with its own
                   detail page/artwork panel, so cards navigate there rather than
                   editing inline (unlike seasons, which have no page of their own). */}
-              {item.members.length > 0 && (
-                <section className="mt-10">
-                  <h2 className="mb-4 text-lg font-semibold">Titles in this collection</h2>
-                  <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(120px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
-                    {item.members.map((m) => (
-                      <PosterCard
-                        key={m.id}
-                        image={imageUrl(serverId, m.poster)}
-                        title={m.title}
-                        subtitle={m.year ? String(m.year) : undefined}
-                        kind={m.type}
-                        onOpen={() => navigate(`/server/${serverId}/item/${m.id}`)}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
-            </>
-          )}
+                {item.members.length > 0 && (
+                  <section className="mt-10">
+                    <h2 className="mb-4 text-lg font-semibold">
+                      {item.type === "folder"
+                        ? "Volumes"
+                        : "Titles in this collection"}
+                    </h2>
+                    <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(120px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
+                      {item.members.map((m) => (
+                        <PosterCard
+                          key={m.id}
+                          image={imageUrl(serverId, m.poster)}
+                          title={m.title}
+                          subtitle={m.year ? String(m.year) : undefined}
+                          kind={m.type}
+                          onOpen={() =>
+                            navigate(`/server/${serverId}/item/${m.id}`)
+                          }
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </>
+            )}
           </div>
         </div>
       </div>
 
       {/* Right: dock only when both columns have enough room. */}
       <div className="relative z-[1] hidden h-full w-[clamp(20rem,25vw,23.75rem)] shrink-0 xl:block">
-        {item && <ArtworkPanel serverId={serverId} item={item} prefill={prefill} />}
+        {item && (
+          <ArtworkPanel serverId={serverId} item={item} prefill={prefill} />
+        )}
       </div>
 
       {artworkOpen && item && (
-        <div className="fixed inset-0 z-50 bg-black/65 xl:hidden" onClick={() => setArtworkOpen(false)}>
+        <div
+          className="fixed inset-0 z-50 bg-black/65 xl:hidden"
+          onClick={() => setArtworkOpen(false)}
+        >
           <section
             role="dialog"
             aria-modal="true"

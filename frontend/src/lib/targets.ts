@@ -13,11 +13,14 @@ export interface ApplyTarget {
 }
 
 export function buildApplyTargets(item: ItemDetail): ApplyTarget[] {
-  const base: ApplyTarget[] = [
-    { label: "Poster", itemId: item.id, target: "poster" },
-    { label: "Background", itemId: item.id, target: "background" },
-    { label: "Logo", itemId: item.id, target: "logo" },
-  ];
+  const base: ApplyTarget[] =
+    item.type === "folder"
+      ? []
+      : [
+          { label: "Poster", itemId: item.id, target: "poster" },
+          { label: "Background", itemId: item.id, target: "background" },
+          { label: "Logo", itemId: item.id, target: "logo" },
+        ];
   const seasons: ApplyTarget[] = item.seasons.map((s) => ({
     label: `${s.title || `Season ${s.index}`}${
       s.index === 0 && !/special/i.test(s.title) ? " (Specials)" : ""

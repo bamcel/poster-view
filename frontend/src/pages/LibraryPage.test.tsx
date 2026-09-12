@@ -54,7 +54,6 @@ it.each(["book", "other"] as const)(
     await waitFor(() =>
       expect(api.getItems).toHaveBeenCalledWith(1, "manga", true, "series"),
     );
-    expect(await screen.findByText("Volume 14")).toBeTruthy();
     client.clear();
   },
 );

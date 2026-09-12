@@ -28,6 +28,7 @@ export default function LibraryPage() {
   const folderId = searchParams.get("folder");
   const folderTitle = searchParams.get("folder_title");
   const [filter, setFilter] = useState("");
+  const [automaticRootId, setAutomaticRootId] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
 
   const refreshMut = useMutation({
@@ -94,7 +95,8 @@ export default function LibraryPage() {
     selectedLibrary?.type === "audiobook" ||
     (selectedLibrary?.type === "other" &&
       /manga|comic|book/i.test(selectedLibrary.title));
-  const parentId = folderId ?? (browsesFolders ? libraryId : null);
+  const parentId =
+    folderId ?? automaticRootId ?? (browsesFolders ? libraryId : null);
 
   // Default to the first browseable library, or reset if the URL points at a
   // library that doesn't exist on the current server (e.g. after switching).
@@ -123,6 +125,30 @@ export default function LibraryPage() {
       ),
     enabled: serverId != null && libraryId != null,
   });
+
+  // Some servers expose a book library named "Manga" whose only meaningful
+  // content is another folder named "manga". Treat that same-name folder as
+  // the library root so users land on series instead of traversing a duplicate level.
+  useEffect(() => {
+    if (
+      !browsesFolders ||
+      folderId ||
+      automaticRootId ||
+      !itemsQ.data ||
+      !selectedLibrary
+    )
+      return;
+    const sameName = itemsQ.data.find(
+      (item) =>
+        item.type === "folder" &&
+        item.title.localeCompare(selectedLibrary.title, undefined, {
+          sensitivity: "accent",
+        }) === 0,
+    );
+    if (sameName) setAutomaticRootId(sameName.id);
+  }, [automaticRootId, browsesFolders, folderId, itemsQ.data, selectedLibrary]);
+
+  useEffect(() => setAutomaticRootId(null), [serverId, libraryId]);
 
   const items = useMemo(() => {
     const all = itemsQ.data ?? [];
@@ -173,12 +199,23 @@ export default function LibraryPage() {
       navigate(`/server/${serverId}/item/${item.id}`);
       return;
     }
-    setSearchParams((previous) => {
-      const next = new URLSearchParams(previous);
-      next.set("folder", item.id);
-      next.set("folder_title", item.title);
-      return next;
-    });
+    // A folder whose immediate children are media items is a manga series.
+    // Open its detail/artwork page; deeper category folders remain browseable.
+    api
+      .getItems(serverId!, libraryId!, groupCollections, item.id)
+      .then((children) => {
+        if (children.some((child) => child.type !== "folder")) {
+          navigate(`/server/${serverId}/item/${item.id}`);
+        } else {
+          setSearchParams((previous) => {
+            const next = new URLSearchParams(previous);
+            next.set("folder", item.id);
+            next.set("folder_title", item.title);
+            return next;
+          });
+        }
+      })
+      .catch((error: Error) => toast.push("error", error.message));
   };
 
   return (

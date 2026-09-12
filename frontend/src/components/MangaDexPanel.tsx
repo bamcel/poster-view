@@ -45,6 +45,10 @@ export default function MangaDexPanel({
   const [imageFailed, setImageFailed] = useState(false);
   const [imageRetry, setImageRetry] = useState(0);
   const [refresh, setRefresh] = useState(0);
+  const [batchProgress, setBatchProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
   const selected = saved.data;
   const seriesId = selected?.mangadex_id || item.external_ids.mangadex || "";
   const searching = changing || !seriesId;
@@ -105,15 +109,31 @@ export default function MangaDexPanel({
       volume: volume || null,
       cover: null,
     });
+  const memberForCover = (art: ArtworkItem) =>
+    item.type === "folder"
+      ? item.members.find(
+          (member) =>
+            normalizeVolume(detectManga(member).volume) ===
+            normalizeVolume(art.manga?.volume),
+        )
+      : undefined;
   const apply = useMutation({
-    mutationFn: async (art: ArtworkItem) => {
+    mutationFn: async ({
+      art,
+      targetId,
+      targetTitle,
+    }: {
+      art: ArtworkItem;
+      targetId: string;
+      targetTitle: string;
+    }) => {
       const result = await api.applyPoster({
         server_id: serverId,
-        item_id: item.id,
+        item_id: targetId,
         target: "poster",
         provider: "mangadex",
         download_url: art.download_url,
-        item_title: item.title,
+        item_title: targetTitle,
       });
       if (!result.ok) throw new Error(result.message);
       // The existing apply endpoint owns image storage, media-server upload, and revert history.
@@ -167,6 +187,52 @@ export default function MangaDexPanel({
         ) ||
         a.id.localeCompare(b.id),
     );
+  const assignments =
+    item.type === "folder"
+      ? item.members.flatMap((member) => {
+          const memberVolume = normalizeVolume(detectManga(member).volume);
+          if (!memberVolume) return [];
+          const art = all.find(
+            (candidate) =>
+              (!locale || (candidate.manga?.locale ?? "unknown") === locale) &&
+              normalizeVolume(candidate.manga?.volume) === memberVolume,
+          );
+          return art ? [{ member, art }] : [];
+        })
+      : [];
+  const applyAll = async () => {
+    setBatchProgress({ current: 0, total: assignments.length });
+    let completed = 0;
+    try {
+      for (const { member, art } of assignments) {
+        const result = await api.applyPoster({
+          server_id: serverId,
+          item_id: member.id,
+          target: "poster",
+          provider: "mangadex",
+          download_url: art.download_url,
+          item_title: `${item.title} — ${member.title}`,
+        });
+        if (!result.ok) throw new Error(`${member.title}: ${result.message}`);
+        completed += 1;
+        setBatchProgress({ current: completed, total: assignments.length });
+      }
+      await Promise.all([
+        client.invalidateQueries({
+          queryKey: ["item-detail", serverId, item.id],
+        }),
+        client.invalidateQueries({ queryKey: ["items", serverId] }),
+      ]);
+      toast.push("success", `Updated ${completed} volume covers successfully.`);
+    } catch (error) {
+      toast.push(
+        "error",
+        `Updated ${completed} covers. ${(error as Error).message}`,
+      );
+    } finally {
+      setBatchProgress(null);
+    }
+  };
   const error =
     saved.error?.message ||
     (searching
@@ -362,6 +428,17 @@ export default function MangaDexPanel({
               </button>
             </p>
           )}
+          {item.type === "folder" && assignments.length > 0 && !preview && (
+            <button
+              className="w-full rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-black disabled:opacity-60"
+              disabled={batchProgress != null || apply.isPending}
+              onClick={() => void applyAll()}
+            >
+              {batchProgress
+                ? `Applying ${batchProgress.current} of ${batchProgress.total}…`
+                : `Apply matching covers to ${assignments.length} volumes`}
+            </button>
+          )}
           {preview ? (
             <div className="space-y-3 rounded-lg border border-accent/40 bg-surface-2 p-3">
               <button className={button} onClick={() => setPreview(null)}>
@@ -401,9 +478,27 @@ export default function MangaDexPanel({
                 </p>
               )}
               <ApplyBtn
-                label={apply.isPending ? "Applying…" : "Use Cover"}
+                label={
+                  apply.isPending
+                    ? "Applying…"
+                    : memberForCover(preview)
+                      ? `Use for ${memberForCover(preview)!.title}`
+                      : item.type === "folder"
+                        ? "No matching library volume"
+                        : "Use Cover"
+                }
                 busy={apply.isPending}
-                onClick={() => apply.mutate(preview)}
+                onClick={() => {
+                  const member = memberForCover(preview);
+                  if (item.type === "folder" && !member) return;
+                  apply.mutate({
+                    art: preview,
+                    targetId: member?.id ?? item.id,
+                    targetTitle: member
+                      ? `${item.title} — ${member.title}`
+                      : item.title,
+                  });
+                }}
               />
             </div>
           ) : (

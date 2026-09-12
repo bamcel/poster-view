@@ -44,7 +44,16 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
     let app = Router::new()
         .route("/Users", get(|| async { Json(json!([{"Id":"reader"}])) }))
         .route("/Items", get(|axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>| async move {
+            if query.contains_key("Ids") {
+                return Json(json!({"Items":[{"Id":"food-wars","Name":"Food Wars!","Type":"Folder","IsFolder":true}]}));
+            }
             assert_eq!(query.get("Recursive").map(String::as_str), Some("false"));
+            if query.get("ParentId").map(String::as_str) == Some("food-wars") {
+                return Json(json!({"Items":[
+                    {"Id":"volume-1","Name":"Volume 01","Type":"Book"},
+                    {"Id":"volume-2","Name":"Volume 02","Type":"Book"}
+                ]}));
+            }
             assert_eq!(query.get("ParentId").map(String::as_str), Some("manga"));
             assert!(!query.contains_key("IncludeItemTypes"));
             Json(json!({"Items":[
@@ -63,10 +72,22 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
     )
     .await
     .unwrap();
-    task.abort();
     assert_eq!(items.len(), 2);
     assert!(items.iter().all(|item| item.item_type == ItemType::Folder));
     assert_eq!(items[0].title, "Food Wars!");
+    let detail = get_item_detail(
+        ConnectionConfig {
+            server_type: ServerType::Emby,
+            base_url: &base_url,
+            token: "test",
+        },
+        "food-wars",
+    )
+    .await
+    .unwrap();
+    task.abort();
+    assert_eq!(detail.item_type, ItemType::Folder);
+    assert_eq!(detail.members.len(), 2);
 }
 
 async fn serve(app: Router) -> (String, tokio::task::JoinHandle<()>) {

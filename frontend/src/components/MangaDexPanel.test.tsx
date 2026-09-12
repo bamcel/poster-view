@@ -203,3 +203,58 @@ it("allows retry after a cover lookup failure without losing the saved series", 
     true,
   );
 });
+
+it("applies matched covers across every volume from a series page", async () => {
+  const series: ItemDetail = {
+    ...item,
+    id: "series",
+    title: "Food Wars!",
+    type: "folder",
+    members: [
+      { id: "v1", title: "Volume 01", type: "book" },
+      { id: "v2", title: "Volume 02", type: "book" },
+    ],
+  };
+  const volume1 = { ...art, manga: { ...art.manga!, volume: "1" } };
+  const volume2 = {
+    ...art,
+    id: "cover2",
+    download_url: "https://uploads.mangadex.org/covers/volume2.jpg",
+    manga: { ...art.manga!, volume: "2" },
+  };
+  vi.mocked(api.mangaSelection).mockResolvedValue({
+    mangadex_id: id,
+    title: "Food Wars!",
+    volume: null,
+    cover: null,
+  });
+  vi.mocked(api.getArtwork).mockResolvedValue({
+    provider: "mangadex",
+    items: [volume1, volume2],
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <MangaDexPanel serverId={1} item={series} onManual={vi.fn()} />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Apply matching covers to 2 volumes",
+    }),
+  );
+  await waitFor(() => expect(api.applyPoster).toHaveBeenCalledTimes(2));
+  expect(api.applyPoster).toHaveBeenNthCalledWith(
+    1,
+    expect.objectContaining({
+      item_id: "v1",
+      download_url: volume1.download_url,
+    }),
+  );
+  expect(api.applyPoster).toHaveBeenNthCalledWith(
+    2,
+    expect.objectContaining({
+      item_id: "v2",
+      download_url: volume2.download_url,
+    }),
+  );
+});

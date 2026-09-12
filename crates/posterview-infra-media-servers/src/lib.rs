@@ -109,7 +109,10 @@ async fn emby_item_detail(
         &[
             ("Ids", item_id),
             ("userId", user_id.as_str()),
-            ("IncludeItemTypes", "Movie,Series,BoxSet,Book,AudioBook"),
+            (
+                "IncludeItemTypes",
+                "Movie,Series,BoxSet,Book,AudioBook,Folder,CollectionFolder",
+            ),
             (
                 "Fields",
                 "Overview,ChildCount,ProductionYear,ProviderIds,Path",
@@ -153,7 +156,7 @@ async fn emby_item_detail(
     } else {
         Vec::new()
     };
-    let members = if item_type == ItemType::Collection {
+    let members = if matches!(item_type, ItemType::Collection | ItemType::Folder) {
         let data = emby_json(
             client,
             config,
@@ -161,7 +164,11 @@ async fn emby_item_detail(
             "/Items",
             &[
                 ("ParentId", item_id),
-                ("IncludeItemTypes", "Movie,Series,Book,AudioBook"),
+                (
+                    "IncludeItemTypes",
+                    "Movie,Series,Book,AudioBook,Folder,CollectionFolder",
+                ),
+                ("Recursive", "false"),
                 ("Fields", "ProductionYear"),
                 ("SortBy", "SortName"),
                 ("SortOrder", "Ascending"),
