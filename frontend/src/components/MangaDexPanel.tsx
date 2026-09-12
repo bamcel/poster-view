@@ -542,14 +542,14 @@ export default function MangaDexPanel({
                         </p>
                       )}
                     </button>
-                    <div className="mt-2 grid grid-cols-2 gap-1">
+                    <div className="mt-2 flex items-stretch gap-1">
                       {(() => {
                         const member = memberForCover(art);
                         const automaticTarget =
                           item.type === "folder" ? member : item;
                         return (
                           <ApplyBtn
-                            label={member ? `→ ${member.title}` : "Auto select"}
+                            label="Auto"
                             busy={apply.isPending}
                             disabled={!automaticTarget}
                             onClick={() => {
@@ -568,7 +568,7 @@ export default function MangaDexPanel({
                       <CustomTargetButton
                         item={item}
                         busy={apply.isPending}
-                        className="w-full justify-center"
+                        className="shrink-0 justify-center"
                         onPick={(_target, targetId, label) =>
                           apply.mutate({
                             art,

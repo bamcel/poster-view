@@ -247,9 +247,9 @@ export default function VizPanel({
               <p className="mt-2 truncate text-sm">
                 Volume {art.manga?.volume ?? "unknown"}
               </p>
-              <div className="mt-2 grid grid-cols-2 gap-1">
+              <div className="mt-2 flex items-stretch gap-1">
                 <ApplyBtn
-                  label={member ? `→ ${member.title}` : "Auto select"}
+                  label="Auto"
                   busy={apply.isPending}
                   disabled={!automaticTarget}
                   onClick={() =>
@@ -266,7 +266,7 @@ export default function VizPanel({
                 <CustomTargetButton
                   item={item}
                   busy={apply.isPending}
-                  className="w-full justify-center"
+                  className="shrink-0 justify-center"
                   onPick={(target, targetId, label) =>
                     apply.mutate({
                       art,

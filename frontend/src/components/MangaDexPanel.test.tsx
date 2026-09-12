@@ -237,9 +237,9 @@ it("applies matched covers across every volume from a series page", async () => 
       <MangaDexPanel serverId={1} item={series} onManual={vi.fn()} />
     </QueryClientProvider>,
   );
-  expect(
-    await screen.findByRole("button", { name: "→ Volume 01" }),
-  ).toBeTruthy();
+  expect(await screen.findAllByRole("button", { name: "Auto" })).toHaveLength(
+    2,
+  );
   expect(screen.getAllByRole("button", { name: /Custom/ })).toHaveLength(2);
   fireEvent.click(screen.getAllByRole("button", { name: /Custom/ })[0]);
   fireEvent.click(screen.getByRole("button", { name: "Series cover" }));
