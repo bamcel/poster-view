@@ -197,6 +197,11 @@ async fn emby_item_detail(
             Some((key.to_lowercase(), value.to_owned()))
         })
         .collect();
+    let poster = emby_image_ref(item, "Primary").or_else(|| {
+        (item_type == ItemType::Folder)
+            .then(|| members.iter().find_map(|member| member.poster.clone()))
+            .flatten()
+    });
     Ok(ItemDetail {
         source_path: item.get("Path").and_then(Value::as_str).map(str::to_owned),
         file_name: item
@@ -217,7 +222,7 @@ async fn emby_item_detail(
             .to_owned(),
         year: item.get("ProductionYear").and_then(Value::as_i64),
         item_type,
-        poster: emby_image_ref(item, "Primary"),
+        poster,
         background: emby_image_ref(item, "Backdrop"),
         added_at: None,
         summary: item

@@ -58,7 +58,7 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
             assert_eq!(query.get("Recursive").map(String::as_str), Some("false"));
             if query.get("ParentId").map(String::as_str) == Some("food-wars") {
                 return Json(json!({"Items":[
-                    {"Id":"volume-1","Name":"Volume 01","Type":"Book"},
+                    {"Id":"volume-1","Name":"Volume 01","Type":"Book","ImageTags":{"Primary":"cover-1"}},
                     {"Id":"volume-2","Name":"Volume 02","Type":"Book"}
                 ]}));
             }
@@ -100,6 +100,10 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
     task.abort();
     assert_eq!(detail.item_type, ItemType::Folder);
     assert_eq!(detail.members.len(), 2);
+    assert_eq!(
+        detail.poster.as_deref(),
+        Some("Items/volume-1/Images/Primary?tag=cover-1")
+    );
 }
 
 async fn serve(app: Router) -> (String, tokio::task::JoinHandle<()>) {
