@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, Search } from "lucide-react";
+import { ArrowLeft, ExternalLink, Search } from "lucide-react";
 import { api } from "../api/client";
 import { detectManga, normalizeVolume } from "../lib/manga";
 import { useToast } from "../lib/toast";
@@ -151,6 +151,15 @@ export default function VizPanel({
       setDebounced(value);
     }
   };
+  const backToResults = () => {
+    localStorage.removeItem(storageKey);
+    setCatalogUrl("");
+    const query = input.trim().startsWith("http") || input === savedCatalog
+      ? detectManga(item).series || item.title
+      : input.trim();
+    setInput(query);
+    setDebounced(query);
+  };
 
   return (
     <div className="space-y-3">
@@ -189,6 +198,15 @@ export default function VizPanel({
           <ExternalLink className="size-4" />
         </a>
       </form>
+      {catalogUrl && (
+        <button
+          type="button"
+          onClick={backToResults}
+          className="flex items-center gap-1 text-sm text-muted transition-colors hover:text-white"
+        >
+          <ArrowLeft className="size-4" /> Back
+        </button>
+      )}
       {(search.isFetching || covers.isFetching) && (
         <p role="status" className="text-sm text-muted">
           Searching {providerLabel}…
