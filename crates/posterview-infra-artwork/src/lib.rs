@@ -162,6 +162,8 @@ impl ArtworkService {
                 Some(ArtworkSearchResult {
                     alternate_titles: Vec::new(),
                     status: None,
+                    volume_count: None,
+                    publisher: None,
                     id,
                     name: candidate
                         .get("name")

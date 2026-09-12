@@ -45,6 +45,8 @@ fn parse_viz_search(html: &str) -> Result<Vec<ArtworkSearchResult>, String> {
             name: suffix.replace(&title, "").trim().to_owned(),
             year: None,
             thumb_url: Some(product[1].to_owned()),
+            volume_count: None,
+            publisher: None,
         });
     }
     Ok(results)

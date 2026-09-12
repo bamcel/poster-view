@@ -78,6 +78,8 @@ fn series(value: &Value) -> Option<ArtworkSearchResult> {
         thumb_url,
         year: attr["year"].as_i64().map(|v| v.to_string()),
         status: text(&attr["status"]),
+        volume_count: None,
+        publisher: None,
     })
 }
 

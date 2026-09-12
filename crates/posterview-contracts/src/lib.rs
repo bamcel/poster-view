@@ -285,6 +285,10 @@ pub struct ArtworkSearchResult {
     pub name: String,
     pub year: Option<String>,
     pub thumb_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]

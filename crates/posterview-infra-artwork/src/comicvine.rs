@@ -32,7 +32,10 @@ pub async fn search(
         &[
             ("query", query),
             ("resources", "volume"),
-            ("field_list", "id,name,start_year,image,site_detail_url"),
+            (
+                "field_list",
+                "id,name,start_year,image,site_detail_url,count_of_issues,publisher",
+            ),
             ("limit", "25"),
         ],
     )
@@ -41,20 +44,28 @@ pub async fn search(
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|value| {
-            Some(ArtworkSearchResult {
-                alternate_titles: Vec::new(),
-                status: None,
-                id: value.get("id")?.as_i64()?.to_string(),
-                name: value.get("name")?.as_str()?.to_owned(),
-                year: value
-                    .get("start_year")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-                thumb_url: image_url(value, "small_url"),
-            })
-        })
+        .filter_map(parse_search_result)
         .collect())
+}
+
+fn parse_search_result(value: &Value) -> Option<ArtworkSearchResult> {
+    Some(ArtworkSearchResult {
+        alternate_titles: Vec::new(),
+        status: None,
+        id: value.get("id")?.as_i64()?.to_string(),
+        name: value.get("name")?.as_str()?.to_owned(),
+        year: value
+            .get("start_year")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        thumb_url: image_url(value, "small_url"),
+        volume_count: value.get("count_of_issues").and_then(Value::as_u64),
+        publisher: value
+            .get("publisher")
+            .and_then(|publisher| publisher.get("name"))
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+    })
 }
 
 pub async fn fetch(
@@ -174,10 +185,13 @@ mod tests {
     use super::*;
     #[test]
     fn parses_comicvine_volume_search_results() {
-        let data = serde_json::json!({"id":123,"name":"Plunderer","start_year":"2014","image":{"small_url":"https://comicvine.gamespot.com/a/uploads/scale_small/test.jpg"}});
+        let data = serde_json::json!({"id":123,"name":"Plunderer","start_year":"2014","count_of_issues":24,"publisher":{"name":"Yen Press"},"image":{"small_url":"https://comicvine.gamespot.com/a/uploads/scale_small/test.jpg"}});
         assert_eq!(
             image_url(&data, "small_url").as_deref(),
             Some("https://comicvine.gamespot.com/a/uploads/scale_small/test.jpg")
         );
+        let result = parse_search_result(&data).expect("valid ComicVine search result");
+        assert_eq!(result.volume_count, Some(24));
+        assert_eq!(result.publisher.as_deref(), Some("Yen Press"));
     }
 }

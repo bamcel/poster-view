@@ -98,6 +98,8 @@ export interface ArtworkSearchResult {
   name: string;
   year?: string | null;
   thumb_url?: string | null;
+  volume_count?: number | null;
+  publisher?: string | null;
 }
 
 export interface ArtworkSearchResults {

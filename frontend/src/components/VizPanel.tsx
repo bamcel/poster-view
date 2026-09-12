@@ -223,6 +223,13 @@ export default function VizPanel({
             )}
             <span>
               <strong className="block text-sm">{result.name}</strong>
+              {isComicVine && (result.volume_count != null || result.publisher) && (
+                <span className="mt-1 block text-xs text-muted">
+                  {result.volume_count != null && `${result.volume_count} ${result.volume_count === 1 ? "Volume" : "Volumes"}`}
+                  {result.volume_count != null && result.publisher && " · "}
+                  {result.publisher}
+                </span>
+              )}
               <span className="mt-1 block text-xs text-accent">
                 Select series
               </span>
