@@ -4,12 +4,14 @@ import { api } from "../api/client";
 import type {
   ArtworkItem,
   ArtworkSearchResult,
+  ImageTarget,
   ItemDetail,
   MangaSelection,
 } from "../types";
 import { detectManga, normalizeVolume } from "../lib/manga";
 import { useToast } from "../lib/toast";
 import { ArtImg, ApplyBtn } from "./ArtworkBrowser";
+import CustomTargetButton from "./CustomTargetButton";
 
 const field =
   "w-full rounded-lg border border-border bg-surface-2 p-2 text-sm outline-none focus:border-accent";
@@ -122,15 +124,17 @@ export default function MangaDexPanel({
       art,
       targetId,
       targetTitle,
+      target = "poster",
     }: {
       art: ArtworkItem;
       targetId: string;
       targetTitle: string;
+      target?: ImageTarget;
     }) => {
       const result = await api.applyPoster({
         server_id: serverId,
         item_id: targetId,
-        target: "poster",
+        target,
         provider: "mangadex",
         download_url: art.download_url,
         item_title: targetTitle,
@@ -512,24 +516,65 @@ export default function MangaDexPanel({
             <>
               <div className="grid grid-cols-2 gap-3">
                 {gallery.slice(0, count).map((art) => (
-                  <button
+                  <div
                     key={art.id}
-                    onClick={() => setPreview(art)}
                     className={`rounded-lg border bg-surface-2 p-2 text-left ${matching(art) ? "border-accent" : "border-border"}`}
                   >
-                    <ArtImg art={art} />
-                    <p className="mt-2 text-sm">
-                      Volume {art.manga?.volume ?? "unknown"}
-                    </p>
-                    <p className="text-xs text-faint">
-                      {art.manga?.locale ?? "Unknown language"}
-                    </p>
-                    {matching(art) && (
-                      <p className="text-xs text-accent">
-                        Suggested volume match
+                    <button
+                      onClick={() => setPreview(art)}
+                      className="w-full text-left"
+                    >
+                      <ArtImg art={art} />
+                      <p className="mt-2 text-sm">
+                        Volume {art.manga?.volume ?? "unknown"}
                       </p>
-                    )}
-                  </button>
+                      <p className="text-xs text-faint">
+                        {art.manga?.locale ?? "Unknown language"}
+                      </p>
+                      {matching(art) && (
+                        <p className="text-xs text-accent">
+                          Suggested volume match
+                        </p>
+                      )}
+                    </button>
+                    <div className="mt-2 grid grid-cols-2 gap-1">
+                      {(() => {
+                        const member = memberForCover(art);
+                        const automaticTarget =
+                          item.type === "folder" ? member : item;
+                        return (
+                          <ApplyBtn
+                            label={member ? `→ ${member.title}` : "Auto select"}
+                            busy={apply.isPending}
+                            disabled={!automaticTarget}
+                            onClick={() => {
+                              if (!automaticTarget) return;
+                              apply.mutate({
+                                art,
+                                targetId: automaticTarget.id,
+                                targetTitle: member
+                                  ? `${item.title} — ${member.title}`
+                                  : item.title,
+                              });
+                            }}
+                          />
+                        );
+                      })()}
+                      <CustomTargetButton
+                        item={item}
+                        busy={apply.isPending}
+                        className="w-full justify-center"
+                        onPick={(_target, targetId, label) =>
+                          apply.mutate({
+                            art,
+                            targetId,
+                            targetTitle: `${item.title} — ${label}`,
+                            target: _target,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
                 ))}
               </div>
               {count < gallery.length && (

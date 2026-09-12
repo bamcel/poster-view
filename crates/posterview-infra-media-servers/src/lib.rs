@@ -576,13 +576,56 @@ pub async fn get_folder_items(
         ],
     )
     .await?;
-    Ok(data
+    let mut items: Vec<MediaItem> = data
         .get("Items")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(emby_media_item)
-        .collect())
+        .collect();
+    if items
+        .iter()
+        .any(|item| item.item_type == ItemType::Folder && item.poster.is_none())
+    {
+        let descendants = emby_json(
+            &client,
+            &config,
+            label,
+            "/Items",
+            &[
+                ("ParentId", parent_id),
+                ("Recursive", "true"),
+                ("IncludeItemTypes", "Book,AudioBook"),
+                ("Fields", "ParentId"),
+                ("SortBy", "SortName"),
+                ("SortOrder", "Ascending"),
+                ("ImageTypeLimit", "1"),
+                ("EnableImageTypes", "Primary"),
+                ("userId", &user_id),
+            ],
+        )
+        .await?;
+        let mut representative_posters = HashMap::new();
+        for descendant in descendants
+            .get("Items")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(parent) = descendant.get("ParentId").and_then(Value::as_str) else {
+                continue;
+            };
+            if let Some(poster) = emby_image_ref(descendant, "Primary") {
+                representative_posters.entry(parent).or_insert(poster);
+            }
+        }
+        for item in &mut items {
+            if item.poster.is_none() {
+                item.poster = representative_posters.get(item.id.as_str()).cloned();
+            }
+        }
+    }
+    Ok(items)
 }
 
 async fn collapse_emby_collections(

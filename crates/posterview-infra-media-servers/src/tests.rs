@@ -47,6 +47,14 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
             if query.contains_key("Ids") {
                 return Json(json!({"Items":[{"Id":"food-wars","Name":"Food Wars!","Type":"Folder","IsFolder":true}]}));
             }
+            if query.get("Recursive").map(String::as_str) == Some("true") {
+                assert_eq!(query.get("ParentId").map(String::as_str), Some("manga"));
+                assert_eq!(query.get("IncludeItemTypes").map(String::as_str), Some("Book,AudioBook"));
+                return Json(json!({"Items":[
+                    {"Id":"volume-1","ParentId":"food-wars","Name":"Volume 01","Type":"Book","ImageTags":{"Primary":"cover-1"}},
+                    {"Id":"one-piece-1","ParentId":"one-piece","Name":"Volume 01","Type":"Book","ImageTags":{"Primary":"cover-2"}}
+                ]}));
+            }
             assert_eq!(query.get("Recursive").map(String::as_str), Some("false"));
             if query.get("ParentId").map(String::as_str) == Some("food-wars") {
                 return Json(json!({"Items":[
@@ -75,6 +83,10 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
     assert_eq!(items.len(), 2);
     assert!(items.iter().all(|item| item.item_type == ItemType::Folder));
     assert_eq!(items[0].title, "Food Wars!");
+    assert_eq!(
+        items[0].poster.as_deref(),
+        Some("Items/volume-1/Images/Primary?tag=cover-1")
+    );
     let detail = get_item_detail(
         ConnectionConfig {
             server_type: ServerType::Emby,

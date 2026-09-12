@@ -15,7 +15,7 @@ export interface ApplyTarget {
 export function buildApplyTargets(item: ItemDetail): ApplyTarget[] {
   const base: ApplyTarget[] =
     item.type === "folder"
-      ? []
+      ? [{ label: "Series cover", itemId: item.id, target: "poster" }]
       : [
           { label: "Poster", itemId: item.id, target: "poster" },
           { label: "Background", itemId: item.id, target: "background" },

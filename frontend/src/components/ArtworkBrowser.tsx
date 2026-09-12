@@ -404,11 +404,11 @@ export function ArtImg({ art }: { art: ArtworkItem }) {
   );
 }
 
-export function ApplyBtn({ label, onClick, busy }: { label: string; onClick: () => void; busy?: boolean }) {
+export function ApplyBtn({ label, onClick, busy, disabled }: { label: string; onClick: () => void; busy?: boolean; disabled?: boolean }) {
   return (
     <button
       onClick={onClick}
-      disabled={busy}
+      disabled={busy || disabled}
       className="flex w-full min-w-0 items-center justify-center gap-1 rounded bg-accent/15 px-2 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/25 disabled:opacity-60"
     >
       {busy && <Loader2 className="size-3 animate-spin" />}
