@@ -344,11 +344,7 @@ export default function LibraryPage() {
                 kind={item.type}
                 badge={newMissingIds.has(item.id) ? "NEW" : undefined}
                 onOpen={() => openItem(item)}
-                onRefresh={
-                  item.type === "folder"
-                    ? undefined
-                    : () => refreshMut.mutate({ itemId: item.id })
-                }
+                onRefresh={() => refreshMut.mutate({ itemId: item.id })}
                 refreshing={refreshingId === item.id}
               />
             ))}

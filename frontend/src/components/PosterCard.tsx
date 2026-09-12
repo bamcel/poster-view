@@ -27,7 +27,14 @@ export default function PosterCard({
   onRefresh,
   refreshing,
 }: PosterCardProps) {
-  const Placeholder = (kind === "book" || kind === "audiobook") ? BookOpen : kind === "show" ? Tv : (kind === "collection" || kind === "folder") ? Library : Film;
+  const Placeholder =
+    kind === "book" || kind === "audiobook"
+      ? BookOpen
+      : kind === "show"
+        ? Tv
+        : kind === "collection" || kind === "folder"
+          ? Library
+          : Film;
   // Many libraries have artwork records whose image files are missing on the
   // server; fall back to a clean placeholder instead of a broken-image glyph.
   const [failed, setFailed] = useState(false);
@@ -43,10 +50,10 @@ export default function PosterCard({
     <>
       <div
         className={`relative aspect-[2/3] overflow-hidden rounded-xl bg-surface-2 ring-1 transition-all duration-150 ${
-          onOpen ? "group-hover:-translate-y-1 group-hover:ring-2 group-hover:ring-accent" : ""
-        } ${
-          selected ? "ring-2 ring-accent" : "ring-white/5"
-        }`}
+          onOpen
+            ? "group-hover:-translate-y-1 group-hover:ring-2 group-hover:ring-accent"
+            : ""
+        } ${selected ? "ring-2 ring-accent" : "ring-white/5"}`}
       >
         {image && !failed ? (
           <img
@@ -71,7 +78,9 @@ export default function PosterCard({
 
         {onOpen && (
           <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-            <span className="m-3 rounded-md bg-white/15 px-2 py-1 text-xs font-medium backdrop-blur">Open</span>
+            <span className="m-3 rounded-md bg-white/15 px-2 py-1 text-xs font-medium backdrop-blur">
+              Open
+            </span>
           </div>
         )}
       </div>
@@ -103,7 +112,7 @@ export default function PosterCard({
       </button>
       {menuOpen && onRefresh && (
         <div
-          className="absolute left-2 top-2 z-30 min-w-48 rounded-lg border border-border bg-elevated p-1 shadow-2xl"
+          className="absolute left-2 top-2 z-30 w-max rounded-lg border border-border bg-elevated p-1 shadow-2xl"
           onClick={(event) => event.stopPropagation()}
         >
           <button
@@ -113,15 +122,19 @@ export default function PosterCard({
               onRefresh();
             }}
             disabled={refreshing}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-muted hover:bg-surface-2 hover:text-white disabled:opacity-50"
+            className="flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-left text-sm leading-none text-muted hover:bg-surface-2 hover:text-white disabled:opacity-50"
           >
-            <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`size-4 ${refreshing ? "animate-spin" : ""}`}
+            />
             Refresh artwork data
           </button>
         </div>
       )}
     </div>
   ) : (
-    <div title={title} className="select-none">{content}</div>
+    <div title={title} className="select-none">
+      {content}
+    </div>
   );
 }
