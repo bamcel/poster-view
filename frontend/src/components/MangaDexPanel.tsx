@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, ExternalLink } from "lucide-react";
 import { api } from "../api/client";
 import type {
   ArtworkItem,
@@ -17,6 +18,8 @@ const field =
   "w-full rounded-lg border border-border bg-surface-2 p-2 text-sm outline-none focus:border-accent";
 const button =
   "rounded-lg border border-border px-3 py-2 text-xs text-muted hover:text-white disabled:opacity-50";
+const backButton =
+  "flex min-w-0 items-center gap-1 text-xs text-muted hover:text-white";
 
 export default function MangaDexPanel({
   serverId,
@@ -286,8 +289,8 @@ export default function MangaDexPanel({
               Refresh search
             </button>
             {seriesId && (
-              <button className={button} onClick={() => setChanging(false)}>
-                Back to covers
+              <button className={backButton} onClick={() => setChanging(false)}>
+                <ArrowLeft className="size-3.5 shrink-0" /> Back
               </button>
             )}
           </div>
@@ -340,30 +343,32 @@ export default function MangaDexPanel({
         </>
       ) : (
         <>
-          <div className="rounded-lg border border-border bg-surface-2 p-3">
-            <p className="text-sm font-medium">
-              {selected?.title || all[0]?.title || "Selected series"}
-            </p>
-            <a
-              className="break-all text-[10px] text-faint"
-              href={`https://mangadex.org/title/${seriesId}?tab=art`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {seriesId}
-            </a>
-          </div>
-          <div className="flex gap-2">
+          <div className="flex items-center justify-between gap-2">
             <button
-              className={button}
-              disabled={apply.isPending}
+              className={backButton}
               onClick={() => {
                 setChanging(true);
                 setPreview(null);
               }}
             >
-              Change series
+              <ArrowLeft className="size-3.5 shrink-0" /> Back
             </button>
+            <a
+              className="flex items-center gap-1 text-xs text-muted hover:text-white"
+              href={`https://mangadex.org/title/${seriesId}?tab=art`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              MangaDex <ExternalLink className="size-3" />
+            </a>
+          </div>
+          <div className="rounded-lg border border-border bg-surface-2 p-3">
+            <p className="text-sm font-medium">
+              {selected?.title || all[0]?.title || "Selected series"}
+            </p>
+            <p className="break-all text-[10px] text-faint">{seriesId}</p>
+          </div>
+          <div className="flex gap-2">
             <button className={button} onClick={() => setRefresh((v) => v + 1)}>
               Refresh covers
             </button>
@@ -452,8 +457,8 @@ export default function MangaDexPanel({
           )}
           {preview ? (
             <div className="space-y-3 rounded-lg border border-accent/40 bg-surface-2 p-3">
-              <button className={button} onClick={() => setPreview(null)}>
-                Back to covers
+              <button className={backButton} onClick={() => setPreview(null)}>
+                <ArrowLeft className="size-3.5 shrink-0" /> Back
               </button>
               <p className="text-sm font-semibold">
                 {preview.title} · Volume {preview.manga?.volume ?? "unknown"}
