@@ -122,6 +122,9 @@ impl ArtworkService {
         if provider == "mangadex" {
             return self.search_mangadex(query).await;
         }
+        if provider == "viz" {
+            return viz::search_viz(&self.client, query).await;
+        }
         if !matches!(provider, "tvdb" | "fanart" | "mediux") {
             return Err(format!("Title search isn't available for {provider}."));
         }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { detectManga, normalizeVolume } from "../lib/manga";
@@ -20,12 +20,12 @@ export default function VizPanel({
   item: ItemDetail;
 }) {
   const storageKey = `viz-catalog:${serverId}:${item.id}`;
+  const savedCatalog = localStorage.getItem(storageKey) ?? "";
   const [input, setInput] = useState(
-    () => localStorage.getItem(storageKey) ?? "",
+    () => savedCatalog || detectManga(item).series || item.title,
   );
-  const [catalogUrl, setCatalogUrl] = useState(
-    () => localStorage.getItem(storageKey) ?? "",
-  );
+  const [catalogUrl, setCatalogUrl] = useState(savedCatalog);
+  const [debounced, setDebounced] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [batchProgress, setBatchProgress] = useState<{
     current: number;
@@ -33,6 +33,18 @@ export default function VizPanel({
   } | null>(null);
   const client = useQueryClient();
   const toast = useToast();
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (!input.trim().startsWith("http")) setDebounced(input.trim());
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [input]);
+  const search = useQuery({
+    queryKey: ["artwork-search", "viz", serverId, item.id, debounced],
+    queryFn: () => api.searchArtwork("viz", serverId, item.id, debounced),
+    enabled: !catalogUrl && debounced.length > 0,
+    retry: false,
+  });
   const covers = useQuery({
     queryKey: ["artwork", "viz", serverId, item.id, catalogUrl, refresh],
     queryFn: () =>
@@ -133,12 +145,12 @@ export default function VizPanel({
     <div className="space-y-3">
       <h3 className="text-sm font-semibold">Manga Covers · VIZ</h3>
       <label className="block text-xs text-muted">
-        VIZ series catalog URL
+        Search VIZ or paste a series catalog URL
         <input
           className={`${field} mt-1`}
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="https://www.viz.com/manga-books/manga/series-name/all"
+          placeholder="Series title or https://www.viz.com/.../all"
         />
       </label>
       <button
@@ -146,13 +158,55 @@ export default function VizPanel({
         disabled={!input.trim() || covers.isFetching}
         onClick={() => {
           const value = input.trim();
-          localStorage.setItem(storageKey, value);
-          setCatalogUrl(value);
-          if (value === catalogUrl) setRefresh((current) => current + 1);
+          if (value.startsWith("http")) {
+            localStorage.setItem(storageKey, value);
+            setCatalogUrl(value);
+            if (value === catalogUrl) setRefresh((current) => current + 1);
+          } else {
+            setCatalogUrl("");
+            setDebounced(value);
+          }
         }}
       >
-        {covers.isFetching ? "Loading VIZ covers…" : "Grab volume covers"}
+        {search.isFetching || covers.isFetching
+          ? "Searching VIZ…"
+          : "Search VIZ"}
       </button>
+      {search.error && (
+        <p role="alert" className="text-sm text-danger">
+          {search.error.message}
+        </p>
+      )}
+      {!catalogUrl && search.isSuccess && !search.data.results.length && (
+        <p className="text-sm text-muted">
+          No VIZ manga series found for “{debounced}”.
+        </p>
+      )}
+      {!catalogUrl &&
+        search.data?.results.map((result) => (
+          <button
+            key={result.id}
+            className="flex w-full gap-3 rounded-lg border border-border bg-surface-2 p-3 text-left hover:border-accent"
+            onClick={() => {
+              localStorage.setItem(storageKey, result.id);
+              setCatalogUrl(result.id);
+            }}
+          >
+            {result.thumb_url && (
+              <img
+                src={result.thumb_url}
+                alt=""
+                className="h-24 w-20 rounded object-cover"
+              />
+            )}
+            <span>
+              <strong className="block text-sm">{result.name}</strong>
+              <span className="mt-1 block text-xs text-accent">
+                Select series
+              </span>
+            </span>
+          </button>
+        ))}
       {covers.data?.message && (
         <p role="alert" className="text-sm text-danger">
           {covers.data.message}

@@ -718,7 +718,7 @@ async fn search_artwork(
     }
     if !matches!(
         query.provider.as_str(),
-        "tvdb" | "fanart" | "mediux" | "mangadex"
+        "tvdb" | "fanart" | "mediux" | "mangadex" | "viz"
     ) {
         return Err(HttpError::bad_request(format!(
             "Title search isn't available for {}.",

@@ -1,9 +1,54 @@
-use posterview_contracts::{ArtworkItem, ItemDetail, ItemType, MangaCoverMetadata};
+use posterview_contracts::{
+    ArtworkItem, ArtworkSearchResult, ItemDetail, ItemType, MangaCoverMetadata,
+};
 use posterview_url_security::provider_https;
 use regex::Regex;
 use reqwest::Client;
 
 const VIZ_DOMAINS: &[&str] = &["viz.com", "www.viz.com"];
+
+pub async fn search_viz(client: &Client, query: &str) -> Result<Vec<ArtworkSearchResult>, String> {
+    let response = client
+        .get("https://www.viz.com/search")
+        .query(&[("search", query)])
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "VIZ search failed ({}).",
+            response.status().as_u16()
+        ));
+    }
+    parse_viz_search(&response.text().await.map_err(|error| error.to_string())?)
+}
+
+fn parse_viz_search(html: &str) -> Result<Vec<ArtworkSearchResult>, String> {
+    let products = Regex::new(
+        r#"(?s)<article\b.*?<img[^>]+data-original=["'](https://dw9to29mmj727\.cloudfront\.net/products/[^"']+)["'][^>]*>.*?<a[^>]+href=["']/manga-books/manga/([^"']+?)-volume-[0-9]+(?:-[0-9]+)?/product/[0-9]+["'][^>]*>([^<]+)</a>.*?</article>"#,
+    )
+    .map_err(|error| error.to_string())?;
+    let suffix = Regex::new(r"(?i),?\s*Vol(?:ume)?\.?\s*[0-9]+(?:\.[0-9]+)?\s*$")
+        .map_err(|error| error.to_string())?;
+    let mut seen = std::collections::HashSet::new();
+    let mut results = Vec::new();
+    for product in products.captures_iter(html) {
+        let slug = product[2].to_owned();
+        if !seen.insert(slug.clone()) {
+            continue;
+        }
+        let title = decode_html(product[3].trim());
+        results.push(ArtworkSearchResult {
+            alternate_titles: Vec::new(),
+            status: None,
+            id: format!("https://www.viz.com/manga-books/manga/{slug}/all"),
+            name: suffix.replace(&title, "").trim().to_owned(),
+            year: None,
+            thumb_url: Some(product[1].to_owned()),
+        });
+    }
+    Ok(results)
+}
 
 pub async fn fetch_viz(
     client: &Client,
@@ -123,6 +168,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn search_results_collapse_volumes_into_a_series_catalog() {
+        let html = r#"<article><img data-original="https://dw9to29mmj727.cloudfront.net/products/one.jpg" /><a href="/manga-books/manga/food-wars-shokugeki-no-soma-volume-1-0/product/3612">Food Wars!: Shokugeki no Soma, Vol. 1</a></article><article><img data-original="https://dw9to29mmj727.cloudfront.net/products/two.jpg" /><a href="/manga-books/manga/food-wars-shokugeki-no-soma-volume-2-0/product/3613">Food Wars!: Shokugeki no Soma, Vol. 2</a></article>"#;
+        let results = parse_viz_search(html).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "Food Wars!: Shokugeki no Soma");
+        assert_eq!(
+            results[0].id,
+            "https://www.viz.com/manga-books/manga/food-wars-shokugeki-no-soma/all"
+        );
+    }
+
     #[tokio::test]
     #[ignore = "requires live VIZ access"]
     async fn live_food_wars_catalog_contains_all_volumes() {
@@ -167,5 +224,17 @@ mod tests {
                 .as_deref(),
             Some("36")
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live VIZ access"]
+    async fn live_food_wars_search_finds_the_catalog() {
+        let client = Client::builder()
+            .user_agent("PosterView/0.1")
+            .build()
+            .unwrap();
+        let results = search_viz(&client, "food wars").await.unwrap();
+        assert!(results.iter().any(|result| result.id
+            == "https://www.viz.com/manga-books/manga/food-wars-shokugeki-no-soma/all"));
     }
 }
