@@ -1,16 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ExternalLink, Search } from "lucide-react";
 import { api } from "../api/client";
 import { detectManga, normalizeVolume } from "../lib/manga";
 import { useToast } from "../lib/toast";
 import type { ArtworkItem, ImageTarget, ItemDetail } from "../types";
 import { ArtImg, ApplyBtn } from "./ArtworkBrowser";
 import CustomTargetButton from "./CustomTargetButton";
-
-const field =
-  "w-full rounded-lg border border-border bg-surface-2 p-2 text-sm outline-none focus:border-accent";
-const button =
-  "rounded-lg border border-border px-3 py-2 text-xs text-muted hover:text-white disabled:opacity-50";
 
 export default function VizPanel({
   serverId,
@@ -140,38 +136,55 @@ export default function VizPanel({
       setBatchProgress(null);
     }
   };
+  const submitSearch = () => {
+    const value = input.trim();
+    if (value.startsWith("http")) {
+      localStorage.setItem(storageKey, value);
+      setCatalogUrl(value);
+      if (value === catalogUrl) setRefresh((current) => current + 1);
+    } else {
+      setCatalogUrl("");
+      setDebounced(value);
+    }
+  };
 
   return (
     <div className="space-y-3">
       <h3 className="text-sm font-semibold">Manga Covers · VIZ</h3>
-      <label className="block text-xs text-muted">
-        Search VIZ or paste a series catalog URL
-        <input
-          className={`${field} mt-1`}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder="Series title or https://www.viz.com/.../all"
-        />
-      </label>
-      <button
-        className={button}
-        disabled={!input.trim() || covers.isFetching}
-        onClick={() => {
-          const value = input.trim();
-          if (value.startsWith("http")) {
-            localStorage.setItem(storageKey, value);
-            setCatalogUrl(value);
-            if (value === catalogUrl) setRefresh((current) => current + 1);
-          } else {
-            setCatalogUrl("");
-            setDebounced(value);
-          }
+      <form
+        className="relative"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submitSearch();
         }}
       >
-        {search.isFetching || covers.isFetching
-          ? "Searching VIZ…"
-          : "Search VIZ"}
-      </button>
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
+        <input
+          aria-label="Search VIZ"
+          className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-9 text-sm outline-none focus:border-accent"
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          placeholder="Search a title or paste a VIZ catalog URL…"
+        />
+        <a
+          href={
+            input.trim().startsWith("http")
+              ? input.trim()
+              : `https://www.viz.com/search?search=${encodeURIComponent(input.trim())}`
+          }
+          target="_blank"
+          rel="noreferrer"
+          title="Search VIZ"
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-faint transition-colors hover:text-white"
+        >
+          <ExternalLink className="size-4" />
+        </a>
+      </form>
+      {(search.isFetching || covers.isFetching) && (
+        <p role="status" className="text-sm text-muted">
+          Searching VIZ…
+        </p>
+      )}
       {search.error && (
         <p role="alert" className="text-sm text-danger">
           {search.error.message}
