@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, Search } from "lucide-react";
+import { ArrowLeft, ExternalLink, RefreshCw, Search } from "lucide-react";
 import { api } from "../api/client";
 import type {
   ArtworkItem,
@@ -365,15 +365,24 @@ export default function MangaDexPanel({
               MangaDex <ExternalLink className="size-3" />
             </a>
           </div>
-          <div className="rounded-lg border border-border bg-surface-2 p-3">
-            <p className="text-sm font-medium">
-              {selected?.title || all[0]?.title || "Selected series"}
-            </p>
-            <p className="break-all text-[10px] text-faint">{seriesId}</p>
-          </div>
-          <div className="flex gap-2">
-            <button className={button} onClick={() => setRefresh((v) => v + 1)}>
-              Refresh covers
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-surface-2 p-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">
+                {selected?.title || all[0]?.title || "Selected series"}
+              </p>
+              <p className="truncate text-[10px] text-faint">{seriesId}</p>
+            </div>
+            <button
+              type="button"
+              aria-label="Refresh covers"
+              title="Refresh covers"
+              disabled={covers.isFetching}
+              onClick={() => setRefresh((v) => v + 1)}
+              className="shrink-0 rounded-md p-2 text-muted transition-colors hover:bg-elevated hover:text-white disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`size-4 ${covers.isFetching ? "animate-spin" : ""}`}
+              />
             </button>
           </div>
           <label className="block text-xs text-muted">
