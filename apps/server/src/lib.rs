@@ -671,7 +671,7 @@ async fn get_artwork(
     }
     if !matches!(
         query.provider.as_str(),
-        "fanart" | "tvdb" | "anilist" | "mediux" | "mangadex" | "viz"
+        "fanart" | "tvdb" | "anilist" | "mediux" | "mangadex" | "viz" | "comicvine"
     ) {
         return Err(HttpError {
             status: StatusCode::NOT_FOUND,
@@ -718,7 +718,7 @@ async fn search_artwork(
     }
     if !matches!(
         query.provider.as_str(),
-        "tvdb" | "fanart" | "mediux" | "mangadex" | "viz"
+        "tvdb" | "fanart" | "mediux" | "mangadex" | "viz" | "comicvine"
     ) {
         return Err(HttpError::bad_request(format!(
             "Title search isn't available for {}.",

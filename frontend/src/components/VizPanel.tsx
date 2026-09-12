@@ -11,11 +11,15 @@ import CustomTargetButton from "./CustomTargetButton";
 export default function VizPanel({
   serverId,
   item,
+  database = "viz",
 }: {
   serverId: number;
   item: ItemDetail;
+  database?: "viz" | "comicvine";
 }) {
-  const storageKey = `viz-catalog:${serverId}:${item.id}`;
+  const isComicVine = database === "comicvine";
+  const providerLabel = isComicVine ? "ComicVine" : "VIZ";
+  const storageKey = `${database}-catalog:${serverId}:${item.id}`;
   const savedCatalog = localStorage.getItem(storageKey) ?? "";
   const [input, setInput] = useState(
     () => savedCatalog || detectManga(item).series || item.title,
@@ -36,15 +40,15 @@ export default function VizPanel({
     return () => window.clearTimeout(timer);
   }, [input]);
   const search = useQuery({
-    queryKey: ["artwork-search", "viz", serverId, item.id, debounced],
-    queryFn: () => api.searchArtwork("viz", serverId, item.id, debounced),
+    queryKey: ["artwork-search", database, serverId, item.id, debounced],
+    queryFn: () => api.searchArtwork(database, serverId, item.id, debounced),
     enabled: !catalogUrl && debounced.length > 0,
     retry: false,
   });
   const covers = useQuery({
-    queryKey: ["artwork", "viz", serverId, item.id, catalogUrl, refresh],
+    queryKey: ["artwork", database, serverId, item.id, catalogUrl, refresh],
     queryFn: () =>
-      api.getArtwork("viz", serverId, item.id, catalogUrl, refresh > 0),
+      api.getArtwork(database, serverId, item.id, catalogUrl, refresh > 0),
     enabled: catalogUrl.length > 0,
     retry: false,
   });
@@ -72,7 +76,7 @@ export default function VizPanel({
         server_id: serverId,
         item_id: targetId,
         target,
-        provider: "viz",
+        provider: database,
         download_url: art.download_url,
         item_title: targetTitle,
       }),
@@ -112,7 +116,7 @@ export default function VizPanel({
           server_id: serverId,
           item_id: member.id,
           target: "poster",
-          provider: "viz",
+          provider: database,
           download_url: art.download_url,
           item_title: `${item.title} — ${member.title}`,
         });
@@ -159,21 +163,27 @@ export default function VizPanel({
       >
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
         <input
-          aria-label="Search VIZ"
+          aria-label={`Search ${providerLabel}`}
           className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-9 text-sm outline-none focus:border-accent"
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Search a title or paste a VIZ catalog URL…"
+          placeholder={
+            isComicVine
+              ? "Search a comic or manga title…"
+              : "Search a title or paste a VIZ catalog URL…"
+          }
         />
         <a
           href={
             input.trim().startsWith("http")
               ? input.trim()
-              : `https://www.viz.com/search?search=${encodeURIComponent(input.trim())}`
+              : isComicVine
+                ? `https://comicvine.gamespot.com/search/?q=${encodeURIComponent(input.trim())}`
+                : `https://www.viz.com/search?search=${encodeURIComponent(input.trim())}`
           }
           target="_blank"
           rel="noreferrer"
-          title="Search VIZ"
+          title={`Search ${providerLabel}`}
           className="absolute right-3 top-1/2 -translate-y-1/2 text-faint transition-colors hover:text-white"
         >
           <ExternalLink className="size-4" />
@@ -181,7 +191,7 @@ export default function VizPanel({
       </form>
       {(search.isFetching || covers.isFetching) && (
         <p role="status" className="text-sm text-muted">
-          Searching VIZ…
+          Searching {providerLabel}…
         </p>
       )}
       {search.error && (
@@ -191,7 +201,7 @@ export default function VizPanel({
       )}
       {!catalogUrl && search.isSuccess && !search.data.results.length && (
         <p className="text-sm text-muted">
-          No VIZ manga series found for “{debounced}”.
+          No {providerLabel} series found for “{debounced}”.
         </p>
       )}
       {!catalogUrl &&

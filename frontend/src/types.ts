@@ -124,6 +124,7 @@ export interface ArtworkProviderInfo {
 export interface ArtworkSettings {
   fanart_configured: boolean;
   tvdb_configured: boolean;
+  comicvine_configured: boolean;
   default_provider: string;
   enabled_providers: string[];
 }
@@ -158,10 +159,11 @@ export interface ArtworkRefreshResult {
 }
 
 export interface ArtworkProviderTestRequest {
-  provider: "fanart" | "tvdb";
+  provider: "fanart" | "tvdb" | "comicvine";
   fanart_api_key?: string;
   tvdb_api_key?: string;
   tvdb_pin?: string;
+  comicvine_api_key?: string;
 }
 
 export interface ArtworkProviderTestResult {

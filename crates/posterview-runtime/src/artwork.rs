@@ -75,6 +75,7 @@ impl Runtime {
         Ok(self.artwork.provider_infos(
             &store.get_setting("fanart_api_key")?,
             &store.get_setting("tvdb_api_key")?,
+            &store.get_setting("comicvine_api_key")?,
             &enabled,
         ))
     }
@@ -93,6 +94,7 @@ impl Runtime {
         Ok(ArtworkSettings {
             fanart_configured: !store.get_setting("fanart_api_key")?.is_empty(),
             tvdb_configured: !store.get_setting("tvdb_api_key")?.is_empty(),
+            comicvine_configured: !store.get_setting("comicvine_api_key")?.is_empty(),
             default_provider,
             enabled_providers: ARTWORK_PROVIDERS
                 .iter()
@@ -135,6 +137,23 @@ impl Runtime {
         }
         if store.get_setting("artwork_viz_migrated")?.is_empty() {
             store.set_setting("artwork_viz_migrated", "true")?;
+        }
+        let pre_comicvine = [
+            "posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex", "viz",
+        ];
+        if store.get_setting("artwork_comicvine_migrated")?.is_empty()
+            && pre_comicvine
+                .iter()
+                .all(|provider| values.contains(*provider))
+        {
+            values.insert("comicvine".to_owned());
+            store.set_setting(
+                "artwork_enabled_providers",
+                &values.iter().cloned().collect::<Vec<_>>().join(","),
+            )?;
+        }
+        if store.get_setting("artwork_comicvine_migrated")?.is_empty() {
+            store.set_setting("artwork_comicvine_migrated", "true")?;
         }
         Ok(values)
     }
@@ -301,6 +320,7 @@ impl Runtime {
         let fanart_key = store.get_setting("fanart_api_key")?;
         let tvdb_key = store.get_setting("tvdb_api_key")?;
         let tvdb_pin = store.get_setting("tvdb_pin")?;
+        let comicvine_key = store.get_setting("comicvine_api_key")?;
         let settings = self.artwork_cache_settings()?;
         let enabled = self.enabled_artwork_providers()?;
         let providers = ["fanart", "tvdb", "anilist", "mediux"];
@@ -316,7 +336,15 @@ impl Runtime {
             }
             if let Ok(items) = self
                 .artwork
-                .fetch(provider, &detail, None, &fanart_key, &tvdb_key, &tvdb_pin)
+                .fetch(
+                    provider,
+                    &detail,
+                    None,
+                    &fanart_key,
+                    &tvdb_key,
+                    &tvdb_pin,
+                    &comicvine_key,
+                )
                 .await
             {
                 let response = ArtworkResults {
@@ -550,11 +578,19 @@ impl Runtime {
         if let Some(value) = &input.tvdb_pin {
             store.set_setting("tvdb_pin", value.trim())?;
         }
+        if let Some(value) = input
+            .comicvine_api_key
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            store.set_setting("comicvine_api_key", value.trim())?;
+        }
         if input
             .tvdb_api_key
             .as_deref()
             .is_some_and(|value| !value.is_empty())
             || input.tvdb_pin.is_some()
+            || input.comicvine_api_key.is_some()
         {
             self.artwork.reset_tvdb_cache().await;
         }
@@ -634,6 +670,16 @@ impl Runtime {
                 };
                 self.artwork.test_tvdb(&key, &pin).await
             }
+            "comicvine" => {
+                let key = input
+                    .comicvine_api_key
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::trim)
+                    .map(str::to_owned)
+                    .unwrap_or(store.get_setting("comicvine_api_key")?);
+                self.artwork.test_comicvine(&key).await
+            }
             _ => Err(format!("Unknown artwork provider: {}", input.provider)),
         };
         Ok(match result {
@@ -642,6 +688,7 @@ impl Runtime {
                 message: match input.provider.as_str() {
                     "fanart" => "Fanart.tv API connection succeeded.",
                     "tvdb" => "TheTVDB API connection succeeded.",
+                    "comicvine" => "ComicVine API connection succeeded.",
                     _ => "Artwork provider connection succeeded.",
                 }
                 .to_owned(),
@@ -700,6 +747,7 @@ impl Runtime {
                 &store.get_setting("fanart_api_key")?,
                 &store.get_setting("tvdb_api_key")?,
                 &store.get_setting("tvdb_pin")?,
+                &store.get_setting("comicvine_api_key")?,
             )
             .await;
         let response = match result {
@@ -773,6 +821,7 @@ impl Runtime {
                 kind,
                 &store.get_setting("tvdb_api_key")?,
                 &store.get_setting("tvdb_pin")?,
+                &store.get_setting("comicvine_api_key")?,
             )
             .await;
         let response = match result {

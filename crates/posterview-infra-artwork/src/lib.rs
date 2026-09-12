@@ -1,3 +1,4 @@
+mod comicvine;
 mod mangadex;
 mod posterdb;
 mod viz;
@@ -43,6 +44,10 @@ impl Default for ArtworkService {
 }
 
 impl ArtworkService {
+    pub async fn test_comicvine(&self, key: &str) -> Result<(), String> {
+        comicvine::test(&self.client, key).await
+    }
+
     pub async fn test_fanart(&self, key: &str) -> Result<(), String> {
         if key.is_empty() {
             return Err("Fanart.tv API key is not configured (add it in Settings).".to_owned());
@@ -79,6 +84,7 @@ impl ArtworkService {
         &self,
         fanart_key: &str,
         tvdb_key: &str,
+        comicvine_key: &str,
         enabled: &std::collections::HashSet<String>,
     ) -> Vec<ArtworkProviderInfo> {
         vec![
@@ -88,9 +94,17 @@ impl ArtworkService {
             provider("mediux", "MediUX", true, false, enabled),
             provider("mangadex", "MangaDex", true, false, enabled),
             provider("viz", "VIZ", true, false, enabled),
+            provider(
+                "comicvine",
+                "ComicVine",
+                !comicvine_key.is_empty(),
+                true,
+                enabled,
+            ),
         ]
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch(
         &self,
         provider: &str,
@@ -99,10 +113,12 @@ impl ArtworkService {
         fanart_key: &str,
         tvdb_key: &str,
         tvdb_pin: &str,
+        comicvine_key: &str,
     ) -> Result<Vec<ArtworkItem>, String> {
         match provider {
             "mangadex" => self.fetch_mangadex(item, id_override).await,
             "viz" => viz::fetch_viz(&self.client, item, id_override).await,
+            "comicvine" => comicvine::fetch(&self.client, comicvine_key, item, id_override).await,
             "fanart" => fetch_fanart(item, id_override, fanart_key).await,
             "anilist" => fetch_anilist(item, id_override).await,
             "tvdb" => self.fetch_tvdb(item, id_override, tvdb_key, tvdb_pin).await,
@@ -118,12 +134,16 @@ impl ArtworkService {
         kind: &str,
         tvdb_key: &str,
         tvdb_pin: &str,
+        comicvine_key: &str,
     ) -> Result<Vec<ArtworkSearchResult>, String> {
         if provider == "mangadex" {
             return self.search_mangadex(query).await;
         }
         if provider == "viz" {
             return viz::search_viz(&self.client, query).await;
+        }
+        if provider == "comicvine" {
+            return comicvine::search(&self.client, comicvine_key, query).await;
         }
         if !matches!(provider, "tvdb" | "fanart" | "mediux") {
             return Err(format!("Title search isn't available for {provider}."));
@@ -357,6 +377,11 @@ pub async fn download_public_image(provider: &str, url: &str) -> Result<(Vec<u8>
         "mediux" => &["mediux.pro"],
         "mangadex" => &["uploads.mangadex.org"],
         "viz" => &["dw9to29mmj727.cloudfront.net"],
+        "comicvine" => &[
+            "comicvine.gamespot.com",
+            "comicvine1.cbsistatic.com",
+            "static.comicvine.com",
+        ],
         _ => return Err(format!("Unknown artwork provider: {provider}")),
     };
     let url = provider_https(url, domains)?;
@@ -700,6 +725,7 @@ fn http_client() -> Result<Client, String> {
         "mediux.pro",
         "viz.com",
         "www.viz.com",
+        "comicvine.gamespot.com",
     ])
 }
 

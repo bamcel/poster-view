@@ -323,6 +323,7 @@ pub struct ArtworkProviderInfo {
 pub struct ArtworkSettings {
     pub fanart_configured: bool,
     pub tvdb_configured: bool,
+    pub comicvine_configured: bool,
     pub default_provider: String,
     pub enabled_providers: Vec<String>,
 }
@@ -332,6 +333,7 @@ pub struct ArtworkSettingsUpdate {
     pub fanart_api_key: Option<String>,
     pub tvdb_api_key: Option<String>,
     pub tvdb_pin: Option<String>,
+    pub comicvine_api_key: Option<String>,
     pub default_provider: Option<String>,
     pub enabled_providers: Option<Vec<String>>,
 }
@@ -342,6 +344,7 @@ pub struct ArtworkProviderTestRequest {
     pub fanart_api_key: Option<String>,
     pub tvdb_api_key: Option<String>,
     pub tvdb_pin: Option<String>,
+    pub comicvine_api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

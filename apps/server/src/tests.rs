@@ -925,7 +925,7 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
         .unwrap();
     let providers: serde_json::Value =
         serde_json::from_slice(&providers.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(providers.as_array().unwrap().len(), 6);
+    assert_eq!(providers.as_array().unwrap().len(), 7);
     assert!(
         providers
             .as_array()
@@ -984,8 +984,9 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
         serde_json::json!({
             "fanart_configured": true,
             "tvdb_configured": true,
+            "comicvine_configured": false,
             "default_provider": "posterdb",
-            "enabled_providers": ["posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex", "viz"]
+            "enabled_providers": ["posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex", "viz", "comicvine"]
         })
     );
 

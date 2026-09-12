@@ -498,6 +498,7 @@ const ARTWORK_DATABASES = [
   { name: "posterdb", label: "ThePosterDB" },
   { name: "mangadex", label: "MangaDex" },
   { name: "viz", label: "VIZ" },
+  { name: "comicvine", label: "ComicVine" },
   { name: "fanart", label: "Fanart.tv" },
   { name: "tvdb", label: "TheTVDB" },
   { name: "anilist", label: "AniList" },
@@ -805,15 +806,17 @@ function ArtworkCredentialsFields() {
   const [fanart, setFanart] = useState("");
   const [tvdbKey, setTvdbKey] = useState("");
   const [tvdbPin, setTvdbPin] = useState("");
+  const [comicvine, setComicvine] = useState("");
 
   useEffect(() => {
     if (statusQ.data?.email) setEmail(statusQ.data.email);
   }, [statusQ.data?.email]);
 
   const saveMut = useMutation({
-    mutationFn: async (kind: "posterdb" | "fanart" | "tvdb") => {
+    mutationFn: async (kind: "posterdb" | "fanart" | "tvdb" | "comicvine") => {
       if (kind === "posterdb") return api.setPosterdbCredentials(email.trim(), password);
       if (kind === "fanart") return api.setArtworkSettings({ fanart_api_key: fanart });
+      if (kind === "comicvine") return api.setArtworkSettings({ comicvine_api_key: comicvine });
       return api.setArtworkSettings({
         tvdb_api_key: tvdbKey || undefined,
         tvdb_pin: tvdbPin || undefined,
@@ -826,6 +829,7 @@ function ArtworkCredentialsFields() {
       if (kind === "posterdb") setPassword("");
       if (kind === "fanart") setFanart("");
       if (kind === "tvdb") { setTvdbKey(""); setTvdbPin(""); }
+      if (kind === "comicvine") setComicvine("");
       reportSettingsSave("saved");
     },
     onError: (e: Error) => {
@@ -905,6 +909,8 @@ function ArtworkCredentialsFields() {
           setTvdbKey={setTvdbKey}
           tvdbPin={tvdbPin}
           setTvdbPin={setTvdbPin}
+          comicvine={comicvine}
+          setComicvine={setComicvine}
           configured={settingsQ.data}
           onAutoSave={(kind) => saveMut.mutate(kind)}
         />
@@ -920,6 +926,8 @@ function FanartTvdbFields({
   setTvdbKey,
   tvdbPin,
   setTvdbPin,
+  comicvine,
+  setComicvine,
   configured: cfg,
   onAutoSave,
 }: {
@@ -929,8 +937,10 @@ function FanartTvdbFields({
   setTvdbKey: (value: string) => void;
   tvdbPin: string;
   setTvdbPin: (value: string) => void;
-  configured?: { fanart_configured: boolean; tvdb_configured: boolean };
-  onAutoSave: (kind: "fanart" | "tvdb") => void;
+  comicvine: string;
+  setComicvine: (value: string) => void;
+  configured?: { fanart_configured: boolean; tvdb_configured: boolean; comicvine_configured: boolean };
+  onAutoSave: (kind: "fanart" | "tvdb" | "comicvine") => void;
 }) {
   const toast = useToast();
 
@@ -947,6 +957,11 @@ function FanartTvdbFields({
         tvdb_api_key: tvdbKey || undefined,
         tvdb_pin: tvdbPin || undefined,
       }),
+    onSuccess: (result) => toast.push(result.ok ? "success" : "error", result.message),
+    onError: (e: Error) => toast.push("error", e.message),
+  });
+  const comicvineTestMut = useMutation({
+    mutationFn: () => api.testArtworkProvider({ provider: "comicvine", comicvine_api_key: comicvine }),
     onSuccess: (result) => toast.push(result.ok ? "success" : "error", result.message),
     onError: (e: Error) => toast.push("error", e.message),
   });
@@ -1029,6 +1044,17 @@ function FanartTvdbFields({
         >
           {tvdbTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
           Test API
+        </button>
+      </div>
+      <div className="mt-6 border-t border-border pt-5">
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+          <ImageIcon className="size-4 text-accent" /> ComicVine
+        </h3>
+        <Field label={<><span>ComicVine API key</span>{cfg?.comicvine_configured && <ConfiguredTag />} <a href="https://comicvine.gamespot.com/api/" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">(request a free key ↗)</a></>}>
+          <input className={inputCls} type="password" value={comicvine} onChange={(e) => setComicvine(e.target.value)} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
+        </Field>
+        <button onClick={() => comicvineTestMut.mutate()} disabled={comicvineTestMut.isPending || (!comicvine && !cfg?.comicvine_configured)} className="mt-3 flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50">
+          {comicvineTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test API
         </button>
       </div>
     </div>

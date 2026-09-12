@@ -24,7 +24,7 @@ interface Props {
 const ARTWORK_LAYOUT_KEY = "posterview.artworkSourceLayout";
 const PROVIDER_GROUPS = [
   { label: "General", names: ["posterdb", "fanart", "tvdb", "mediux"] },
-  { label: "Anime & Manga", names: ["anilist", "mangadex", "viz"] },
+  { label: "Anime & Manga", names: ["anilist", "mangadex", "viz", "comicvine"] },
   { label: "Local", names: ["manual"] },
 ];
 
@@ -112,7 +112,7 @@ export default function ArtworkPanel({ serverId, item, prefill }: Props) {
                 key={t.name}
                 onClick={() => setProvider(t.name)}
                 onMouseEnter={() => {
-                  if (!["posterdb", "manual", "mangadex", "viz"].includes(t.name) && t.configured) {
+                  if (!["posterdb", "manual", "mangadex", "viz", "comicvine"].includes(t.name) && t.configured) {
                     queryClient.prefetchQuery({
                       queryKey: ["artwork", t.name, serverId, item.id, undefined],
                       queryFn: () => api.getArtwork(t.name, serverId, item.id),
@@ -182,6 +182,8 @@ export default function ArtworkPanel({ serverId, item, prefill }: Props) {
           <MangaDexPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} onManual={() => setProvider("manual")} />
         ) : provider === "viz" ? (
           <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} />
+        ) : provider === "comicvine" ? (
+          <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} database="comicvine" />
         ) : provider === "manual" ? (
           <ManualUpload serverId={serverId} item={item} />
         ) : (
