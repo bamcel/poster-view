@@ -24,7 +24,7 @@ interface Props {
 const ARTWORK_LAYOUT_KEY = "posterview.artworkSourceLayout";
 const PROVIDER_GROUPS = [
   { label: "General", names: ["posterdb", "fanart", "tvdb", "mediux"] },
-  { label: "Anime & Manga", names: ["anilist", "mangadex", "viz", "comicvine"] },
+  { label: "Comics & Manga", names: ["anilist", "mangadex", "viz", "comicvine"] },
   { label: "Local", names: ["manual"] },
 ];
 
