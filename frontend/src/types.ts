@@ -24,7 +24,7 @@ export interface ConnectionTest {
 export interface Library {
   id: string;
   title: string;
-  type: "movie" | "show" | "collection" | "other";
+  type: "movie" | "show" | "collection" | "book" | "audiobook" | "other";
 }
 
 export interface LibraryVisibilityItem extends Library {
@@ -39,7 +39,7 @@ export interface MediaItem {
   id: string;
   title: string;
   year?: number | null;
-  type: "movie" | "show" | "collection";
+  type: "movie" | "show" | "collection" | "book" | "audiobook";
   poster?: string | null;
   background?: string | null;
   added_at?: string | null;
@@ -54,6 +54,8 @@ export interface Season {
 }
 
 export interface ItemDetail extends MediaItem {
+  file_name?: string | null;
+  volume?: string | null;
   summary?: string | null;
   season_count?: number | null;
   seasons: Season[];
@@ -67,10 +69,11 @@ export interface ItemDetail extends MediaItem {
 export type ArtworkType = "poster" | "background" | "banner" | "logo";
 
 export interface ArtworkItem {
+  manga?: { mangadex_id: string; volume: string | null; locale: string | null; description: string | null };
   id: string;
   provider: string;
   type: ArtworkType;
-  kind: "movie" | "show" | "season" | "collection";
+  kind: "movie" | "show" | "season" | "collection" | "book" | "audiobook";
   season_number?: number | null;
   title?: string | null;
   lang?: string | null;
@@ -89,6 +92,8 @@ export interface ArtworkResults {
 }
 
 export interface ArtworkSearchResult {
+  alternate_titles?: string[];
+  status?: string | null;
   id: string;
   name: string;
   year?: string | null;
@@ -99,6 +104,13 @@ export interface ArtworkSearchResults {
   provider: string;
   results: ArtworkSearchResult[];
   message?: string | null;
+}
+
+export interface MangaSelection {
+  mangadex_id: string;
+  title: string;
+  volume: string | null;
+  cover: ArtworkItem | null;
 }
 
 export interface ArtworkProviderInfo {

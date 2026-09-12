@@ -380,7 +380,7 @@ export default function ArtworkBrowser({
   );
 }
 
-function ArtImg({ art }: { art: ArtworkItem }) {
+export function ArtImg({ art }: { art: ArtworkItem }) {
   const [failed, setFailed] = useState(false);
   const shape =
     art.type === "poster"
@@ -404,7 +404,7 @@ function ArtImg({ art }: { art: ArtworkItem }) {
   );
 }
 
-function ApplyBtn({ label, onClick, busy }: { label: string; onClick: () => void; busy?: boolean }) {
+export function ApplyBtn({ label, onClick, busy }: { label: string; onClick: () => void; busy?: boolean }) {
   return (
     <button
       onClick={onClick}

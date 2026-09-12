@@ -11,6 +11,7 @@ import type { ItemDetail } from "../types";
 import PosterDBBody from "./PosterDBPanel";
 import ArtworkBrowser from "./ArtworkBrowser";
 import ManualUpload from "./ManualUpload";
+import MangaDexPanel from "./MangaDexPanel";
 
 interface Props {
   serverId: number;
@@ -54,7 +55,7 @@ export default function ArtworkPanel({ serverId, item, prefill }: Props) {
               key={t.name}
               onClick={() => setProvider(t.name)}
               onMouseEnter={() => {
-                if (!["posterdb", "manual"].includes(t.name) && t.configured) {
+                if (!["posterdb", "manual", "mangadex"].includes(t.name) && t.configured) {
                   queryClient.prefetchQuery({
                     queryKey: ["artwork", t.name, serverId, item.id, undefined],
                     queryFn: () => api.getArtwork(t.name, serverId, item.id),
@@ -79,6 +80,8 @@ export default function ArtworkPanel({ serverId, item, prefill }: Props) {
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {provider === "posterdb" ? (
           <PosterDBBody serverId={serverId} item={item} prefill={prefill} />
+        ) : provider === "mangadex" ? (
+          <MangaDexPanel key={`${serverId}:${item.id}`} serverId={serverId} item={item} onManual={() => setProvider("manual")} />
         ) : provider === "manual" ? (
           <ManualUpload serverId={serverId} item={item} />
         ) : (

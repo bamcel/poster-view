@@ -190,14 +190,18 @@ export const api = {
     }),
   runArtworkWatchdog: () =>
     request<ArtworkRefreshResult>("/artwork/cache/watchdog/run", { method: "POST" }),
-  getArtwork: (provider: string, serverId: number, itemId: string, idOverride?: string) =>
+  mangaSelection: (serverId: number, itemId: string) =>
+    request<import("../types").MangaSelection>(`/artwork/mangadex/selection?server_id=${serverId}&item_id=${encodeURIComponent(itemId)}`),
+  saveMangaSelection: (serverId: number, itemId: string, selection: import("../types").MangaSelection) =>
+    request<import("../types").MangaSelection>(`/artwork/mangadex/selection?server_id=${serverId}&item_id=${encodeURIComponent(itemId)}`, { method: "PUT", body: JSON.stringify(selection) }),
+  getArtwork: (provider: string, serverId: number, itemId: string, idOverride?: string, refresh = false) =>
     request<ArtworkResults>(
       `/artwork?provider=${provider}&server_id=${serverId}&item_id=${encodeURIComponent(itemId)}` +
-        (idOverride ? `&id_override=${encodeURIComponent(idOverride)}` : ""),
+        (idOverride ? `&id_override=${encodeURIComponent(idOverride)}` : "") + (refresh ? "&refresh=true" : ""),
     ),
-  searchArtwork: (provider: string, serverId: number, itemId: string, query: string) =>
+  searchArtwork: (provider: string, serverId: number, itemId: string, query: string, refresh = false) =>
     request<ArtworkSearchResults>(
-      `/artwork/search?provider=${provider}&server_id=${serverId}&item_id=${encodeURIComponent(itemId)}&query=${encodeURIComponent(query)}`,
+      `/artwork/search?provider=${provider}&server_id=${serverId}&item_id=${encodeURIComponent(itemId)}&query=${encodeURIComponent(query)}` + (refresh ? "&refresh=true" : ""),
     ),
 
   // Manual image upload (multipart — let the browser set the boundary).

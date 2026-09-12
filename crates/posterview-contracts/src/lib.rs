@@ -87,6 +87,8 @@ pub enum LibraryType {
     Movie,
     Show,
     Collection,
+    Book,
+    Audiobook,
     Other,
 }
 
@@ -122,6 +124,8 @@ pub enum ItemType {
     Movie,
     Show,
     Collection,
+    Book,
+    Audiobook,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -147,6 +151,8 @@ pub struct Season {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ItemDetail {
+    pub file_name: Option<String>,
+    pub volume: Option<String>,
     pub id: String,
     pub title: String,
     pub year: Option<i64>,
@@ -241,6 +247,8 @@ pub struct HistoryPurgeResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ArtworkItem {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manga: Option<MangaCoverMetadata>,
     pub id: String,
     pub provider: String,
     #[serde(rename = "type")]
@@ -266,10 +274,30 @@ pub struct ArtworkResults {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ArtworkSearchResult {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternate_titles: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
     pub id: String,
     pub name: String,
     pub year: Option<String>,
     pub thumb_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct MangaCoverMetadata {
+    pub mangadex_id: String,
+    pub volume: Option<String>,
+    pub locale: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct MangaSelection {
+    pub mangadex_id: String,
+    pub title: String,
+    pub volume: Option<String>,
+    pub cover: Option<ArtworkItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]

@@ -1,4 +1,6 @@
+mod mangadex;
 mod posterdb;
+pub use mangadex::valid_manga_id;
 
 use posterview_contracts::{
     ArtworkItem, ArtworkProviderInfo, ArtworkSearchResult, ItemDetail, ItemType,
@@ -83,6 +85,7 @@ impl ArtworkService {
             provider("tvdb", "TheTVDB", !tvdb_key.is_empty(), true, enabled),
             provider("anilist", "AniList", true, false, enabled),
             provider("mediux", "MediUX", true, false, enabled),
+            provider("mangadex", "MangaDex", true, false, enabled),
         ]
     }
 
@@ -96,6 +99,7 @@ impl ArtworkService {
         tvdb_pin: &str,
     ) -> Result<Vec<ArtworkItem>, String> {
         match provider {
+            "mangadex" => self.fetch_mangadex(item, id_override).await,
             "fanart" => fetch_fanart(item, id_override, fanart_key).await,
             "anilist" => fetch_anilist(item, id_override).await,
             "tvdb" => self.fetch_tvdb(item, id_override, tvdb_key, tvdb_pin).await,
@@ -112,6 +116,9 @@ impl ArtworkService {
         tvdb_key: &str,
         tvdb_pin: &str,
     ) -> Result<Vec<ArtworkSearchResult>, String> {
+        if provider == "mangadex" {
+            return self.search_mangadex(query).await;
+        }
         if !matches!(provider, "tvdb" | "fanart" | "mediux") {
             return Err(format!("Title search isn't available for {provider}."));
         }
@@ -127,6 +134,8 @@ impl ArtworkService {
                         .or_else(|| remote_id(&candidate, "IMDB")),
                 }?;
                 Some(ArtworkSearchResult {
+                    alternate_titles: Vec::new(),
+                    status: None,
                     id,
                     name: candidate
                         .get("name")
@@ -301,6 +310,7 @@ impl ArtworkService {
                 let artwork_type = slug_type(slug)?;
                 let url = absolute_tvdb(art.get("image")?.as_str()?);
                 Some(ArtworkItem {
+                    manga: None,
                     id: value_string(art.get("id")).unwrap_or_else(|| url.clone()),
                     provider: "tvdb".to_owned(),
                     artwork_type: artwork_type.to_owned(),
@@ -339,6 +349,7 @@ pub async fn download_public_image(provider: &str, url: &str) -> Result<(Vec<u8>
         "tvdb" => &["thetvdb.com"],
         "anilist" => &["anilist.co"],
         "mediux" => &["mediux.pro"],
+        "mangadex" => &["uploads.mangadex.org"],
         _ => return Err(format!("Unknown artwork provider: {provider}")),
     };
     let url = provider_https(url, domains)?;
@@ -450,6 +461,7 @@ async fn fetch_fanart(
                 })
                 .flatten();
             items.push(ArtworkItem {
+                manga: None,
                 id: value_string(entry.get("id")).unwrap_or_else(|| url.clone()),
                 provider: "fanart".to_owned(),
                 artwork_type: (*artwork_type).to_owned(),
@@ -511,6 +523,7 @@ async fn fetch_anilist(
         .and_then(Value::as_str)
     {
         items.push(ArtworkItem {
+            manga: None,
             id: format!("anilist-{id}-poster"),
             provider: "anilist".to_owned(),
             artwork_type: "poster".to_owned(),
@@ -527,6 +540,7 @@ async fn fetch_anilist(
     }
     if let Some(url) = media.get("bannerImage").and_then(Value::as_str) {
         items.push(ArtworkItem {
+            manga: None,
             id: format!("anilist-{id}-banner"),
             provider: "anilist".to_owned(),
             artwork_type: "banner".to_owned(),
@@ -555,6 +569,9 @@ async fn fetch_mediux(
         ItemType::Show => "shows",
         ItemType::Collection => "collections",
         ItemType::Movie => "movies",
+        ItemType::Book | ItemType::Audiobook => {
+            return Err("Use MangaDex to find book covers.".to_owned());
+        }
     };
     let response = http_client()?
         .get(format!("{MEDIUX_BASE}/{path}/{id}"))
@@ -617,6 +634,7 @@ fn parse_mediux(html: &str, item: &ItemDetail) -> Result<Vec<ArtworkItem>, Strin
             percent_encode(&asset_url)
         );
         items.push(ArtworkItem {
+            manga: None,
             id: asset_url.clone(),
             provider: "mediux".to_owned(),
             artwork_type: artwork_type.to_owned(),
@@ -712,6 +730,8 @@ fn item_kind(item: &ItemDetail) -> String {
         ItemType::Movie => "movie",
         ItemType::Show => "show",
         ItemType::Collection => "collection",
+        ItemType::Book => "book",
+        ItemType::Audiobook => "audiobook",
     }
     .to_owned()
 }

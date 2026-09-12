@@ -136,6 +136,8 @@ export default function ItemDetailPage() {
                         }`
                       : item.type === "collection"
                         ? "Collection"
+                        : item.type === "book" ? "Book"
+                        : item.type === "audiobook" ? "Audiobook"
                         : item.year}
                   </p>
 

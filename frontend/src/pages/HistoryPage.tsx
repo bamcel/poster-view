@@ -27,6 +27,7 @@ function providerLabel(name: string): string {
       anilist: "AniList",
       mediux: "MediUX",
       posterdb: "ThePosterDB",
+      mangadex: "MangaDex",
       manual: "Manual",
       url: "URL",
     }[name] ?? name

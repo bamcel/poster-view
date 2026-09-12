@@ -2,14 +2,14 @@
 // Opens on a single click (and Enter for keyboard users) when `onOpen` is set.
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Film, Tv, Library, RefreshCw } from "lucide-react";
+import { Film, Tv, Library, RefreshCw, BookOpen } from "lucide-react";
 
 interface PosterCardProps {
   image?: string;
   title: string;
   subtitle?: string;
   badge?: ReactNode;
-  kind?: "movie" | "show" | "collection";
+  kind?: "movie" | "show" | "collection" | "book" | "audiobook";
   selected?: boolean;
   onOpen?: () => void;
   onRefresh?: () => void;
@@ -27,7 +27,7 @@ export default function PosterCard({
   onRefresh,
   refreshing,
 }: PosterCardProps) {
-  const Placeholder = kind === "show" ? Tv : kind === "collection" ? Library : Film;
+  const Placeholder = (kind === "book" || kind === "audiobook") ? BookOpen : kind === "show" ? Tv : kind === "collection" ? Library : Film;
   // Many libraries have artwork records whose image files are missing on the
   // server; fall back to a clean placeholder instead of a broken-image glyph.
   const [failed, setFailed] = useState(false);

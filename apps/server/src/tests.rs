@@ -14,6 +14,240 @@ fn router(runtime: Arc<Runtime>, ui_dir: PathBuf) -> axum::Router {
 }
 
 #[tokio::test]
+async fn manga_selection_persists_across_restart_and_is_scoped_to_the_library_item() {
+    let directory = tempdir().unwrap();
+    let runtime = Arc::new(Runtime::new(directory.path()));
+    runtime.initialize().unwrap();
+    let server = runtime
+        .create_server(&posterview_contracts::ServerCreate {
+            name: "Books".to_owned(),
+            server_type: posterview_contracts::ServerType::Emby,
+            base_url: "http://127.0.0.1:9".to_owned(),
+            token: "test".to_owned(),
+            is_default: true,
+        })
+        .unwrap();
+    let app = router(runtime, PathBuf::from("missing-ui"));
+    let path = format!(
+        "/api/artwork/mangadex/selection?server_id={}&item_id=volume14",
+        server.id
+    );
+    let selection = serde_json::json!({"mangadex_id":"5f20891f-0136-4fa8-afb7-d72f2af23c65","title":"Food Wars!","volume":"14","cover":null});
+    let response = app
+        .clone()
+        .oneshot(
+            Request::put(&path)
+                .header("content-type", "application/json")
+                .body(Body::from(selection.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = app
+        .oneshot(
+            Request::put(&path)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"mangadex_id":"../bad","title":"Bad"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let restarted = Arc::new(Runtime::new(directory.path()));
+    restarted.initialize().unwrap();
+    let app = router(restarted.clone(), PathBuf::from("missing-ui"));
+    let response = app
+        .oneshot(Request::get(&path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let body: serde_json::Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(body, selection);
+    assert!(
+        restarted
+            .manga_selection(server.id, "volume15")
+            .unwrap()
+            .mangadex_id
+            .is_empty()
+    );
+}
+
+// Opt-in acceptance: reads the live MangaDex API, but writes artwork only to a local mock media server.
+#[tokio::test]
+#[ignore = "requires live MangaDex access"]
+async fn live_mangadex_food_wars_search_cover_apply_and_history() {
+    use serde_json::{Value, json};
+    let uploads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = uploads.clone();
+    let media_app = axum::Router::new()
+        .route(
+            "/Users",
+            axum::routing::get(|| async { axum::Json(json!([{"Id":"reader"}])) }),
+        )
+        .route(
+            "/Library/MediaFolders",
+            axum::routing::get(|| async { axum::Json(json!({"Items":[]})) }),
+        )
+        .route(
+            "/Items",
+            axum::routing::get(|| async {
+                axum::Json(json!({"Items":[{"Id":"book","Name":"Food Wars Vol 14","Type":"Book"}]}))
+            }),
+        )
+        .route(
+            "/Items/book/Images/Primary",
+            axum::routing::post(move |body: String| async move {
+                assert!(body.len() > 1000);
+                count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                StatusCode::NO_CONTENT
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let media_server = tokio::spawn(async move {
+        axum::serve(listener, media_app).await.unwrap();
+    });
+    let directory = tempdir().unwrap();
+    let runtime = Arc::new(Runtime::new(directory.path()));
+    runtime.initialize().unwrap();
+    let server = runtime
+        .create_server(&posterview_contracts::ServerCreate {
+            name: "Test books".to_owned(),
+            server_type: posterview_contracts::ServerType::Emby,
+            base_url: format!("http://{address}"),
+            token: "test".to_owned(),
+            is_default: true,
+        })
+        .unwrap();
+    let app = router(runtime.clone(), PathBuf::from("missing-ui"));
+    let results = runtime
+        .search_artwork("mangadex", server.id, "book", "Food Wars")
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(results.message.is_none(), "{:?}", results.message);
+    assert!(results.results.len() > 1, "Search should include spin-offs");
+    let title = results
+        .results
+        .iter()
+        .find(|r| r.id == "5f20891f-0136-4fa8-afb7-d72f2af23c65")
+        .unwrap();
+    assert!(title.alternate_titles.iter().any(|t| t == "食戟のソーマ"));
+    let mut selection = posterview_contracts::MangaSelection {
+        mangadex_id: title.id.clone(),
+        title: title.name.clone(),
+        volume: Some("14".to_owned()),
+        cover: None,
+    };
+    runtime
+        .save_manga_selection(server.id, "book", &selection)
+        .unwrap();
+    // No id override: ensure persistent identity is used for the gallery lookup.
+    let covers = runtime
+        .get_artwork("mangadex", server.id, "book", None)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(covers.message.is_none(), "{:?}", covers.message);
+    assert!(covers.items.len() > 24);
+    let cover = covers
+        .items
+        .iter()
+        .find(|a| {
+            a.manga
+                .as_ref()
+                .is_some_and(|m| m.volume.as_deref() == Some("14"))
+        })
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(Request::get(&cover.thumb_url).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert!(
+        image::load_from_memory(&bytes).is_ok(),
+        "Thumbnail must decode as an image"
+    );
+    let applied = runtime
+        .apply_download(&posterview_contracts::ApplyRequest {
+            server_id: server.id,
+            item_id: "book".to_owned(),
+            target: posterview_contracts::ImageTarget::Poster,
+            provider: "mangadex".to_owned(),
+            download_url: cover.download_url.clone(),
+            item_title: "Food Wars Vol 14".to_owned(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(applied.ok, "{}", applied.message);
+    assert_eq!(uploads.load(std::sync::atomic::Ordering::SeqCst), 1);
+    selection.cover = Some(cover.clone());
+    runtime
+        .save_manga_selection(server.id, "book", &selection)
+        .unwrap();
+    assert_eq!(
+        runtime
+            .manga_selection(server.id, "book")
+            .unwrap()
+            .cover
+            .unwrap(),
+        *cover
+    );
+    let response = app
+        .oneshot(Request::get("/api/history").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let entries: Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(entries[0]["provider"], "mangadex");
+    assert_eq!(entries[0]["item_id"], "book");
+    println!(
+        "Food Wars: {} search results, {} covers, volume 14 image decoded and applied, history recorded",
+        results.results.len(),
+        covers.items.len()
+    );
+    let results = runtime
+        .search_artwork("mangadex", server.id, "book", "One Piece")
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let title = results
+        .results
+        .iter()
+        .find(|r| r.name.eq_ignore_ascii_case("One Piece"))
+        .unwrap();
+    let covers = runtime
+        .get_artwork("mangadex", server.id, "book", Some(&title.id))
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(covers.message.is_none(), "{:?}", covers.message);
+    assert!(
+        covers.items.len() > 100,
+        "Expected a gallery spanning multiple MangaDex pages"
+    );
+    let unique: std::collections::HashSet<_> = covers.items.iter().map(|a| &a.id).collect();
+    assert_eq!(
+        unique.len(),
+        covers.items.len(),
+        "No duplicated covers across pages"
+    );
+    println!(
+        "One Piece: {} covers fetched across multiple API pages",
+        covers.items.len()
+    );
+    media_server.abort();
+}
+
+#[tokio::test]
 async fn security_routes_require_auth_and_local_bypass_uses_connection_info() {
     let data = tempdir().unwrap();
     let runtime = Arc::new(Runtime::new(data.path()));
@@ -691,7 +925,14 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
         .unwrap();
     let providers: serde_json::Value =
         serde_json::from_slice(&providers.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(providers.as_array().unwrap().len(), 4);
+    assert_eq!(providers.as_array().unwrap().len(), 5);
+    assert!(
+        providers
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["name"] == "mangadex" && p["configured"] == true && p["needs_key"] == false)
+    );
 
     for provider in ["fanart", "tvdb"] {
         let tested = app
@@ -737,7 +978,7 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
             "fanart_configured": true,
             "tvdb_configured": true,
             "default_provider": "posterdb",
-            "enabled_providers": ["posterdb", "fanart", "tvdb", "anilist", "mediux"]
+            "enabled_providers": ["posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex"]
         })
     );
 

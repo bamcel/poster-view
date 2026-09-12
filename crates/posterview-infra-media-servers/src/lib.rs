@@ -109,8 +109,11 @@ async fn emby_item_detail(
         &[
             ("Ids", item_id),
             ("userId", user_id.as_str()),
-            ("IncludeItemTypes", "Movie,Series,BoxSet"),
-            ("Fields", "Overview,ChildCount,ProductionYear,ProviderIds"),
+            ("IncludeItemTypes", "Movie,Series,BoxSet,Book,AudioBook"),
+            (
+                "Fields",
+                "Overview,ChildCount,ProductionYear,ProviderIds,Path",
+            ),
         ],
     )
     .await?;
@@ -158,7 +161,7 @@ async fn emby_item_detail(
             "/Items",
             &[
                 ("ParentId", item_id),
-                ("IncludeItemTypes", "Movie,Series"),
+                ("IncludeItemTypes", "Movie,Series,Book,AudioBook"),
                 ("Fields", "ProductionYear"),
                 ("SortBy", "SortName"),
                 ("SortOrder", "Ascending"),
@@ -188,6 +191,12 @@ async fn emby_item_detail(
         })
         .collect();
     Ok(ItemDetail {
+        file_name: item
+            .get("Path")
+            .and_then(Value::as_str)
+            .and_then(|path| path.rsplit(['/', '\\']).next())
+            .map(str::to_owned),
+        volume: item.get("IndexNumber").and_then(value_as_string),
         id: item
             .get("Id")
             .and_then(Value::as_str)
@@ -293,6 +302,12 @@ async fn plex_item_detail(
         .find(|image| image.get("type").and_then(Value::as_str) == Some("clearLogo"))
         .and_then(|image| relative_ref(image.get("url")));
     Ok(ItemDetail {
+        file_name: item
+            .pointer("/Media/0/Part/0/file")
+            .and_then(Value::as_str)
+            .and_then(|path| path.rsplit(['/', '\\']).next())
+            .map(str::to_owned),
+        volume: None,
         id: item
             .get("ratingKey")
             .and_then(value_as_string)
@@ -491,7 +506,7 @@ async fn emby_items(
             if is_collections {
                 "BoxSet"
             } else {
-                "Movie,Series"
+                "Movie,Series,Book,AudioBook"
             },
         ),
         ("Fields", "ProductionYear,DateCreated"),
@@ -555,7 +570,7 @@ async fn collapse_emby_collections(
             "/Items",
             &[
                 ("ParentId", id),
-                ("IncludeItemTypes", "Movie,Series"),
+                ("IncludeItemTypes", "Movie,Series,Book,AudioBook"),
                 ("userId", user_id),
             ],
         )
@@ -768,6 +783,8 @@ fn emby_item_type(item: &Value) -> ItemType {
     match item.get("Type").and_then(Value::as_str) {
         Some("BoxSet") => ItemType::Collection,
         Some("Series") => ItemType::Show,
+        Some("Book") => ItemType::Book,
+        Some("AudioBook") => ItemType::Audiobook,
         _ => ItemType::Movie,
     }
 }
@@ -901,6 +918,8 @@ async fn emby_libraries(
                 library_type: match item.get("CollectionType").and_then(Value::as_str) {
                     Some("movies" | "homevideos") => LibraryType::Movie,
                     Some("tvshows") => LibraryType::Show,
+                    Some("books") => LibraryType::Book,
+                    Some("audiobooks") => LibraryType::Audiobook,
                     _ => LibraryType::Other,
                 },
             })

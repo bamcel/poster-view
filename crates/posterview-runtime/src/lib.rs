@@ -13,6 +13,7 @@ use posterview_contracts::{
     ServerUpdate, StatusResponse,
 };
 use posterview_infra_artwork::ArtworkService;
+pub use posterview_infra_artwork::valid_manga_id;
 use posterview_infra_media_servers::{
     ConnectionConfig, fetch_image, get_item_detail, get_items, get_libraries, set_image,
     test_connection,
@@ -23,7 +24,9 @@ use thiserror::Error;
 use artwork_cache::ArtworkCache;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-const ARTWORK_PROVIDERS: [&str; 5] = ["posterdb", "fanart", "tvdb", "anilist", "mediux"];
+const ARTWORK_PROVIDERS: [&str; 6] = [
+    "posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex",
+];
 const MEDIA_CACHE_MAX_MB: i64 = 10_240;
 const MEDIA_CACHE_TTL_DAYS: i64 = 365;
 

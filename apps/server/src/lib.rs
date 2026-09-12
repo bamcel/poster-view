@@ -108,6 +108,11 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/artwork/mediux/image", get(mediux_image))
         .route("/api/artwork", get(get_artwork))
         .route("/api/posterdb/status", get(posterdb_status))
+        .route("/api/artwork/mangadex/image", get(mangadex_image))
+        .route(
+            "/api/artwork/mangadex/selection",
+            get(manga_selection).put(save_manga_selection),
+        )
         .route(
             "/api/posterdb/credentials",
             axum::routing::put(set_posterdb_credentials),
@@ -640,15 +645,22 @@ struct ArtworkQuery {
     server_id: i64,
     item_id: String,
     id_override: Option<String>,
+    #[serde(default)]
+    refresh: bool,
 }
 
 async fn get_artwork(
     State(state): State<AppState>,
     Query(query): Query<ArtworkQuery>,
 ) -> Result<impl IntoResponse, HttpError> {
+    if query.refresh && query.provider == "mangadex" {
+        state
+            .runtime
+            .refresh_mangadex_cache(query.server_id, &query.item_id);
+    }
     if !matches!(
         query.provider.as_str(),
-        "fanart" | "tvdb" | "anilist" | "mediux"
+        "fanart" | "tvdb" | "anilist" | "mediux" | "mangadex"
     ) {
         return Err(HttpError {
             status: StatusCode::NOT_FOUND,
@@ -677,16 +689,26 @@ struct ArtworkSearchQuery {
     server_id: i64,
     item_id: String,
     query: String,
+    #[serde(default)]
+    refresh: bool,
 }
 
 async fn search_artwork(
     State(state): State<AppState>,
     Query(query): Query<ArtworkSearchQuery>,
 ) -> Result<impl IntoResponse, HttpError> {
+    if query.refresh && query.provider == "mangadex" {
+        state
+            .runtime
+            .refresh_mangadex_cache(query.server_id, &query.item_id);
+    }
     if query.query.is_empty() {
         return Err(HttpError::bad_request("query must not be empty"));
     }
-    if !matches!(query.provider.as_str(), "tvdb" | "fanart" | "mediux") {
+    if !matches!(
+        query.provider.as_str(),
+        "tvdb" | "fanart" | "mediux" | "mangadex"
+    ) {
         return Err(HttpError::bad_request(format!(
             "Title search isn't available for {}.",
             query.provider
@@ -711,6 +733,61 @@ async fn search_artwork(
 #[derive(Debug, Deserialize)]
 struct UrlQuery {
     url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MangaItemQuery {
+    server_id: i64,
+    item_id: String,
+}
+
+async fn manga_selection(
+    State(state): State<AppState>,
+    Query(query): Query<MangaItemQuery>,
+) -> Result<impl IntoResponse, HttpError> {
+    state
+        .runtime
+        .get_server(query.server_id)?
+        .ok_or_else(HttpError::not_found)?;
+    Ok(Json(
+        state
+            .runtime
+            .manga_selection(query.server_id, &query.item_id)?,
+    ))
+}
+
+async fn save_manga_selection(
+    State(state): State<AppState>,
+    Query(query): Query<MangaItemQuery>,
+    Json(selection): Json<posterview_contracts::MangaSelection>,
+) -> Result<impl IntoResponse, HttpError> {
+    state
+        .runtime
+        .get_server(query.server_id)?
+        .ok_or_else(HttpError::not_found)?;
+    if (!selection.mangadex_id.is_empty()
+        && !posterview_runtime::valid_manga_id(&selection.mangadex_id))
+        || selection.title.len() > 1000
+        || selection.volume.as_ref().is_some_and(|v| v.len() > 100)
+    {
+        return Err(HttpError::bad_request("Invalid MangaDex series or volume."));
+    }
+    state
+        .runtime
+        .save_manga_selection(query.server_id, &query.item_id, &selection)?;
+    Ok(Json(selection))
+}
+
+async fn mangadex_image(
+    State(state): State<AppState>,
+    Query(query): Query<UrlQuery>,
+) -> Result<axum::response::Response, HttpError> {
+    let (bytes, content_type) = state
+        .runtime
+        .mangadex_image(&query.url)
+        .await
+        .map_err(HttpError::bad_gateway)?;
+    Ok(cached_image_response(bytes, &content_type))
 }
 
 async fn mediux_image(

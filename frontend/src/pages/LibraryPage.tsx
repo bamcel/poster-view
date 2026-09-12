@@ -84,7 +84,7 @@ export default function LibraryPage() {
   useEffect(() => {
     const libs = librariesQ.data;
     if (!libs) return;
-    const browseable = libs.filter((l) => l.type !== "other");
+    const browseable = libs;
     if (!browseable.length) {
       if (libraryId != null) clearLibrary();
       return;
@@ -142,7 +142,7 @@ export default function LibraryPage() {
     );
   }
 
-  const browseableLibs = (librariesQ.data ?? []).filter((l) => l.type !== "other");
+  const browseableLibs = (librariesQ.data ?? []);
 
   return (
     <div className="flex h-full flex-col">

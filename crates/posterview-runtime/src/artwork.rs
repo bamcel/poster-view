@@ -13,6 +13,56 @@ use posterview_contracts::{
 use posterview_infra_artwork::{download_public_image, fetch_mediux_thumb};
 
 impl Runtime {
+    pub fn manga_selection(
+        &self,
+        server_id: i64,
+        item_id: &str,
+    ) -> Result<posterview_contracts::MangaSelection, RuntimeError> {
+        let value = self
+            .server_store()?
+            .get_setting(&format!("mangadex-selection:{server_id}:{item_id}"))?;
+        Ok(serde_json::from_str(&value).unwrap_or_default())
+    }
+
+    pub fn save_manga_selection(
+        &self,
+        server_id: i64,
+        item_id: &str,
+        selection: &posterview_contracts::MangaSelection,
+    ) -> Result<(), RuntimeError> {
+        let value = serde_json::to_string(selection).map_err(std::io::Error::other)?;
+        self.server_store()?
+            .set_setting(&format!("mangadex-selection:{server_id}:{item_id}"), &value)?;
+        self.refresh_mangadex_cache(server_id, item_id);
+        Ok(())
+    }
+
+    pub fn refresh_mangadex_cache(&self, server_id: i64, item_id: &str) {
+        let _ = self
+            .artwork_cache
+            .remove_matching(&format!("artwork:mangadex:{server_id}:{item_id}:"));
+        let _ = self
+            .artwork_cache
+            .remove_matching(&format!("artwork-search:mangadex:{server_id}:{item_id}:"));
+    }
+
+    pub async fn mangadex_image(&self, url: &str) -> Result<(Vec<u8>, String), String> {
+        let settings = self.artwork_cache_settings().map_err(|e| e.to_string())?;
+        let key = format!("mangadex-image:{url}");
+        if let Some(image) = self.artwork_cache.get_image(&key, settings.ttl_days) {
+            return Ok(image);
+        }
+        let image = download_public_image("mangadex", url).await?;
+        let _ = self.artwork_cache.put_image(
+            &key,
+            &image.0,
+            &image.1,
+            settings.max_mb,
+            settings.ttl_days,
+        );
+        Ok(image)
+    }
+
     pub fn artwork_providers(&self) -> Result<Vec<ArtworkProviderInfo>, RuntimeError> {
         let store = self.server_store()?;
         let enabled = self.enabled_artwork_providers()?;
@@ -585,6 +635,14 @@ impl Runtime {
         item_id: &str,
         id_override: Option<&str>,
     ) -> Result<Option<Result<ArtworkResults, String>>, RuntimeError> {
+        let selection = self.manga_selection(server_id, item_id)?;
+        let id_override = if provider == "mangadex" {
+            id_override.or_else(|| {
+                (!selection.mangadex_id.is_empty()).then_some(selection.mangadex_id.as_str())
+            })
+        } else {
+            id_override
+        };
         if !self.enabled_artwork_providers()?.contains(provider) {
             return Ok(Some(Err(format!(
                 "{provider} is disabled in Database settings."
@@ -928,7 +986,9 @@ impl Runtime {
         if self.server_store()?.get_server(input.server_id)?.is_none() {
             return Ok(None);
         }
-        let downloaded = if input.provider == "posterdb" {
+        let downloaded = if input.provider == "mangadex" {
+            self.mangadex_image(&input.download_url).await
+        } else if input.provider == "posterdb" {
             let store = self.server_store()?;
             self.artwork
                 .posterdb()

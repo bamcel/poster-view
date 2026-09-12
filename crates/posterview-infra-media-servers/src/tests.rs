@@ -4,6 +4,41 @@ use tokio::net::TcpListener;
 
 use super::*;
 
+#[tokio::test]
+async fn book_libraries_and_items_are_browseable_in_emby_family_servers() {
+    let app = Router::new()
+        .route("/Users", get(|| async { Json(json!([{"Id":"reader"}])) }))
+        .route("/Library/MediaFolders", get(|| async { Json(json!({"Items":[
+            {"Id":"manga","Name":"Manga","CollectionType":"books"},
+            {"Id":"audio","Name":"Audiobooks","CollectionType":"audiobooks"}
+        ]})) }))
+        .route("/Items", get(|axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>| async move {
+            if query.get("IncludeItemTypes").is_some_and(|value| value == "BoxSet") { return Json(json!({"Items":[],"TotalRecordCount":0})); }
+            assert!(query["IncludeItemTypes"].split(',').any(|kind| kind == "Book"));
+            assert!(query["IncludeItemTypes"].split(',').any(|kind| kind == "AudioBook"));
+            Json(json!({"Items":[{"Id":"book","Name":"Food Wars Vol 14","Type":"Book","Path":"/manga/Food Wars v14.epub","IndexNumber":14,"ProviderIds":{}}]}))
+        }));
+    let (base_url, task) = serve(app).await;
+    for server_type in [ServerType::Jellyfin, ServerType::Emby] {
+        let config = ConnectionConfig {
+            server_type,
+            base_url: &base_url,
+            token: "test",
+        };
+        let libs = get_libraries(config.clone()).await.unwrap();
+        assert!(
+            libs.iter()
+                .any(|lib| lib.id == "manga" && lib.library_type == LibraryType::Book)
+        );
+        let items = get_items(config.clone(), "manga", true).await.unwrap();
+        assert_eq!(items[0].item_type, ItemType::Book);
+        let detail = get_item_detail(config, "book").await.unwrap();
+        assert_eq!(detail.file_name.as_deref(), Some("Food Wars v14.epub"));
+        assert_eq!(detail.volume.as_deref(), Some("14"));
+    }
+    task.abort();
+}
+
 async fn serve(app: Router) -> (String, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
