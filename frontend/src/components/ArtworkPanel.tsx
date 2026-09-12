@@ -87,18 +87,22 @@ export default function ArtworkPanel({ serverId, item, prefill }: Props) {
           <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted">
             <Images className="size-4 text-accent" /> Artwork
           </h2>
-          <div className="flex rounded-lg bg-surface-2 p-0.5 text-[10px] font-semibold uppercase tracking-wide">
-            {(["list", "compact"] as const).map((layout) => (
-              <button
-                key={layout}
-                type="button"
-                aria-pressed={sourceLayout === layout}
-                onClick={() => chooseLayout(layout)}
-                className={`rounded-md px-2 py-1 transition-colors ${sourceLayout === layout ? "bg-accent text-black" : "text-faint hover:text-white"}`}
-              >
-                {layout}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-muted">
+              {sourceLayout === "list" ? "List" : "Compact"}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-label="Compact artwork sources"
+              aria-checked={sourceLayout === "compact"}
+              onClick={() => chooseLayout(sourceLayout === "list" ? "compact" : "list")}
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${sourceLayout === "compact" ? "bg-accent" : "bg-surface-2"}`}
+            >
+              <span
+                className={`inline-block size-3.5 rounded-full bg-white shadow-sm transition-transform ${sourceLayout === "compact" ? "translate-x-[1.125rem]" : "translate-x-1"}`}
+              />
+            </button>
           </div>
         </div>
         {sourceLayout === "list" ? (
