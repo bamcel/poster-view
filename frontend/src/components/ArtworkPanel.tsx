@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Images } from "lucide-react";
+import { Images, RefreshCw } from "lucide-react";
 import { api } from "../api/client";
 import type { ItemDetail } from "../types";
 import PosterDBBody from "./PosterDBPanel";
@@ -13,6 +13,7 @@ import ArtworkBrowser from "./ArtworkBrowser";
 import ManualUpload from "./ManualUpload";
 import MangaDexPanel from "./MangaDexPanel";
 import VizPanel from "./VizPanel";
+import { useToast } from "../lib/toast";
 
 interface Props {
   serverId: number;
@@ -22,7 +23,10 @@ interface Props {
 
 export default function ArtworkPanel({ serverId, item, prefill }: Props) {
   const [provider, setProvider] = useState("posterdb");
+  const [refreshing, setRefreshing] = useState(false);
+  const [panelVersion, setPanelVersion] = useState(0);
   const queryClient = useQueryClient();
+  const toast = useToast();
   const providersQ = useQuery({ queryKey: ["artwork-providers"], queryFn: api.artworkProviders });
   const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
   const enabled = settingsQ.data?.enabled_providers ?? [];
@@ -43,6 +47,24 @@ export default function ArtworkPanel({ serverId, item, prefill }: Props) {
     // Reset to the configured default when a different library item opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id, settingsQ.data?.default_provider, enabled.join(","), providersQ.data]);
+
+  const refreshProvider = async () => {
+    setRefreshing(true);
+    try {
+      const result = await api.refreshArtworkItem(serverId, item.id);
+      queryClient.removeQueries({
+        predicate: (query) =>
+          query.queryKey.includes("artwork") && query.queryKey.includes(item.id),
+      });
+      queryClient.invalidateQueries({ queryKey: ["artwork-cache"] });
+      setPanelVersion((value) => value + 1);
+      toast.push(result.ok ? "success" : "error", result.message);
+    } catch (error) {
+      toast.push("error", (error as Error).message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-surface/90 backdrop-blur-xl">
@@ -79,16 +101,33 @@ export default function ArtworkPanel({ serverId, item, prefill }: Props) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {provider !== "manual" && (
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold">
+              {tabs.find((tab) => tab.name === provider)?.label ?? provider}
+            </h3>
+            <button
+              type="button"
+              aria-label={`Refresh ${tabs.find((tab) => tab.name === provider)?.label ?? provider} cache`}
+              title="Refresh artwork cache"
+              disabled={refreshing}
+              onClick={() => void refreshProvider()}
+              className="shrink-0 rounded-md p-2 text-muted transition-colors hover:bg-elevated hover:text-white disabled:opacity-50"
+            >
+              <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+        )}
         {provider === "posterdb" ? (
-          <PosterDBBody serverId={serverId} item={item} prefill={prefill} />
+          <PosterDBBody key={panelVersion} serverId={serverId} item={item} prefill={prefill} />
         ) : provider === "mangadex" ? (
-          <MangaDexPanel key={`${serverId}:${item.id}`} serverId={serverId} item={item} onManual={() => setProvider("manual")} />
+          <MangaDexPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} onManual={() => setProvider("manual")} />
         ) : provider === "viz" ? (
-          <VizPanel key={`${serverId}:${item.id}`} serverId={serverId} item={item} />
+          <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} />
         ) : provider === "manual" ? (
           <ManualUpload serverId={serverId} item={item} />
         ) : (
-          <ArtworkBrowser provider={provider} serverId={serverId} item={item} />
+          <ArtworkBrowser key={panelVersion} provider={provider} serverId={serverId} item={item} />
         )}
       </div>
     </div>
