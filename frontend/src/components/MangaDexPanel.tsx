@@ -46,7 +46,6 @@ export default function MangaDexPanel({
   const [onlyVolume, setOnlyVolume] = useState(false);
   const [count, setCount] = useState(24);
   const [preview, setPreview] = useState<ArtworkItem | null>(null);
-  const [pendingCover, setPendingCover] = useState<ArtworkItem | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
   const [imageRetry, setImageRetry] = useState(0);
   const [refresh, setRefresh] = useState(0);
@@ -102,7 +101,6 @@ export default function MangaDexPanel({
       api.saveMangaSelection(serverId, item.id, selection),
     onSuccess: (selection) => {
       client.setQueryData(key, selection);
-      setPendingCover(null);
       setChanging(false);
     },
     onError: (error: Error) => toast.push("error", error.message),
@@ -158,12 +156,10 @@ export default function MangaDexPanel({
           cover: art,
         });
         client.setQueryData(key, selection);
-        setPendingCover(null);
       } catch {
-        setPendingCover(art);
         toast.push(
           "error",
-          "Cover applied, but its MangaDex details could not be saved. Use Retry saving cover details.",
+          "Cover applied, but its MangaDex details could not be saved.",
         );
       }
       return result;
@@ -380,29 +376,6 @@ export default function MangaDexPanel({
               Refresh covers
             </button>
           </div>
-          <label className="block text-xs text-muted">
-            Volume {detected.volume && `(detected: ${detected.volume})`}
-            <input
-              className={`${field} mt-1`}
-              value={volume}
-              onChange={(e) => setVolume(e.target.value)}
-              placeholder="Unknown volume"
-            />
-          </label>
-          <button
-            className={button}
-            disabled={save.isPending || apply.isPending}
-            onClick={() =>
-              save.mutate({
-                mangadex_id: seriesId,
-                title: selected?.title || all[0]?.title || item.title,
-                volume: volume || null,
-                cover: pendingCover ?? selected?.cover ?? null,
-              })
-            }
-          >
-            {pendingCover ? "Retry saving cover details" : "Save volume"}
-          </button>
           <label className="block text-xs text-muted">
             Language
             <select
