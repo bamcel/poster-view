@@ -39,6 +39,36 @@ async fn book_libraries_and_items_are_browseable_in_emby_family_servers() {
     task.abort();
 }
 
+#[tokio::test]
+async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children() {
+    let app = Router::new()
+        .route("/Users", get(|| async { Json(json!([{"Id":"reader"}])) }))
+        .route("/Items", get(|axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>| async move {
+            assert_eq!(query.get("Recursive").map(String::as_str), Some("false"));
+            assert_eq!(query.get("ParentId").map(String::as_str), Some("manga"));
+            assert!(!query.contains_key("IncludeItemTypes"));
+            Json(json!({"Items":[
+                {"Id":"food-wars","Name":"Food Wars!","Type":"Folder","IsFolder":true},
+                {"Id":"one-piece","Name":"One Piece","Type":"Folder","IsFolder":true}
+            ]}))
+        }));
+    let (base_url, task) = serve(app).await;
+    let items = get_folder_items(
+        ConnectionConfig {
+            server_type: ServerType::Emby,
+            base_url: &base_url,
+            token: "test",
+        },
+        "manga",
+    )
+    .await
+    .unwrap();
+    task.abort();
+    assert_eq!(items.len(), 2);
+    assert!(items.iter().all(|item| item.item_type == ItemType::Folder));
+    assert_eq!(items[0].title, "Food Wars!");
+}
+
 async fn serve(app: Router) -> (String, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

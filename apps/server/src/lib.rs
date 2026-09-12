@@ -432,6 +432,7 @@ async fn set_library_visibility(
 
 #[derive(Debug, Deserialize)]
 struct ItemsQuery {
+    parent_id: Option<String>,
     #[serde(default = "default_true")]
     group_collections: bool,
 }
@@ -477,11 +478,15 @@ async fn get_items(
     Path((id, library_id)): Path<(i64, String)>,
     Query(query): Query<ItemsQuery>,
 ) -> Result<impl IntoResponse, HttpError> {
-    match state
-        .runtime
-        .get_items(id, &library_id, query.group_collections)
-        .await?
-    {
+    let result = if let Some(parent_id) = query.parent_id.as_deref() {
+        state.runtime.get_folder_items(id, parent_id).await?
+    } else {
+        state
+            .runtime
+            .get_items(id, &library_id, query.group_collections)
+            .await?
+    };
+    match result {
         None => Err(HttpError::not_found()),
         Some(Ok(items)) => Ok(Json(items)),
         Some(Err(detail)) => Err(HttpError {

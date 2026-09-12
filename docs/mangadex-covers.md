@@ -14,8 +14,11 @@ thumbnails at a time; **Load more** reveals the next batch. **Refresh search** a
 **Refresh covers** bypass metadata caches. Manual artwork selection remains available.
 
 Book and audiobook libraries returned by Emby/Jellyfin are included in discovery,
-item listing, and item detail. The Library page respects Settings visibility for
-every library type, including libraries reported as `other`.
+item listing, and item detail. Manga/book libraries browse their real folder hierarchy:
+the library grid shows immediate series folders such as **Food Wars!**, opening a
+series shows its volume folders, and opening a volume reaches the book item. The
+Library page respects Settings visibility for every library type, including manga
+libraries reported as `other`.
 
 ## Implementation
 

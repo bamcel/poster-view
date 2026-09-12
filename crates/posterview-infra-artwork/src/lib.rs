@@ -569,7 +569,7 @@ async fn fetch_mediux(
         ItemType::Show => "shows",
         ItemType::Collection => "collections",
         ItemType::Movie => "movies",
-        ItemType::Book | ItemType::Audiobook => {
+        ItemType::Book | ItemType::Audiobook | ItemType::Folder => {
             return Err("Use MangaDex to find book covers.".to_owned());
         }
     };
@@ -732,6 +732,7 @@ fn item_kind(item: &ItemDetail) -> String {
         ItemType::Collection => "collection",
         ItemType::Book => "book",
         ItemType::Audiobook => "audiobook",
+        ItemType::Folder => "folder",
     }
     .to_owned()
 }

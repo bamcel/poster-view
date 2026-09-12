@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search, ServerCrash, Sparkles } from "lucide-react";
+import { ArrowLeft, Search, ServerCrash, Sparkles } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import { useServers } from "../lib/serverContext";
 import PosterCard from "../components/PosterCard";
@@ -25,14 +25,20 @@ export default function LibraryPage() {
   // title and pressing Back returns you to the same library, not the first one.
   const [searchParams, setSearchParams] = useSearchParams();
   const libraryId = searchParams.get("lib");
+  const folderId = searchParams.get("folder");
+  const folderTitle = searchParams.get("folder_title");
   const [filter, setFilter] = useState("");
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
 
   const refreshMut = useMutation({
-    mutationFn: ({ itemId }: { itemId: string }) => api.refreshArtworkItem(serverId!, itemId),
+    mutationFn: ({ itemId }: { itemId: string }) =>
+      api.refreshArtworkItem(serverId!, itemId),
     onMutate: ({ itemId }) => setRefreshingId(itemId),
     onSuccess: (result, { itemId }) => {
-      queryClient.removeQueries({ queryKey: ["artwork"], predicate: (query) => query.queryKey.includes(itemId) });
+      queryClient.removeQueries({
+        queryKey: ["artwork"],
+        predicate: (query) => query.queryKey.includes(itemId),
+      });
       queryClient.invalidateQueries({ queryKey: ["artwork-cache"] });
       toast.push(result.ok ? "success" : "error", result.message);
     },
@@ -58,6 +64,8 @@ export default function LibraryPage() {
       (prev) => {
         const p = new URLSearchParams(prev);
         p.set("lib", id);
+        p.delete("folder");
+        p.delete("folder_title");
         return p;
       },
       { replace: true },
@@ -78,6 +86,15 @@ export default function LibraryPage() {
     queryFn: () => api.getLibraries(serverId!),
     enabled: serverId != null,
   });
+  const selectedLibrary = librariesQ.data?.find(
+    (library) => library.id === libraryId,
+  );
+  const browsesFolders =
+    selectedLibrary?.type === "book" ||
+    selectedLibrary?.type === "audiobook" ||
+    (selectedLibrary?.type === "other" &&
+      /manga|comic|book/i.test(selectedLibrary.title));
+  const parentId = folderId ?? (browsesFolders ? libraryId : null);
 
   // Default to the first browseable library, or reset if the URL points at a
   // library that doesn't exist on the current server (e.g. after switching).
@@ -89,14 +106,21 @@ export default function LibraryPage() {
       if (libraryId != null) clearLibrary();
       return;
     }
-    const valid = libraryId != null && browseable.some((l) => l.id === libraryId);
+    const valid =
+      libraryId != null && browseable.some((l) => l.id === libraryId);
     if (!valid) selectLibrary(browseable[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [librariesQ.data, libraryId]);
 
   const itemsQ = useQuery({
-    queryKey: ["items", serverId, libraryId, groupCollections],
-    queryFn: () => api.getItems(serverId!, libraryId!, groupCollections),
+    queryKey: ["items", serverId, libraryId, groupCollections, parentId],
+    queryFn: () =>
+      api.getItems(
+        serverId!,
+        libraryId!,
+        groupCollections,
+        parentId ?? undefined,
+      ),
     enabled: serverId != null && libraryId != null,
   });
 
@@ -136,13 +160,26 @@ export default function LibraryPage() {
     return (
       <div className="grid h-full place-items-center p-8">
         <EmptyState title="No media server yet">
-          Add your Plex, Jellyfin, or Emby server in Settings to start browsing your libraries.
+          Add your Plex, Jellyfin, or Emby server in Settings to start browsing
+          your libraries.
         </EmptyState>
       </div>
     );
   }
 
-  const browseableLibs = (librariesQ.data ?? []);
+  const browseableLibs = librariesQ.data ?? [];
+  const openItem = (item: (typeof items)[number]) => {
+    if (item.type !== "folder") {
+      navigate(`/server/${serverId}/item/${item.id}`);
+      return;
+    }
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set("folder", item.id);
+      next.set("folder_title", item.title);
+      return next;
+    });
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -151,7 +188,9 @@ export default function LibraryPage() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold">{selectedServer.name}</h1>
-            <p className="text-sm text-faint">Browse your libraries and update artwork</p>
+            <p className="text-sm text-faint">
+              Browse your libraries and update artwork
+            </p>
           </div>
           <div className="relative w-full sm:w-auto">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
@@ -167,7 +206,11 @@ export default function LibraryPage() {
         {/* Library tabs */}
         <div className="mt-4 flex flex-col items-stretch gap-3 sm:mt-5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="flex gap-1 overflow-x-auto pb-px">
-            {librariesQ.isLoading && <span className="py-2 text-sm text-faint">Loading libraries…</span>}
+            {librariesQ.isLoading && (
+              <span className="py-2 text-sm text-faint">
+                Loading libraries…
+              </span>
+            )}
             {browseableLibs.map((lib) => (
               <button
                 key={lib.id}
@@ -183,7 +226,7 @@ export default function LibraryPage() {
             ))}
           </div>
 
-          {libraryId !== "collections" && (
+          {libraryId !== "collections" && !browsesFolders && (
             <label className="flex shrink-0 items-center justify-end gap-2 pb-2 text-sm text-muted sm:pb-px">
               Group Collections
               <button
@@ -209,8 +252,21 @@ export default function LibraryPage() {
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
+        {folderId && (
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="mb-5 flex items-center gap-2 text-sm text-muted hover:text-white"
+          >
+            <ArrowLeft className="size-4" /> Back
+            {folderTitle ? ` from ${folderTitle}` : ""}
+          </button>
+        )}
         {librariesQ.isError && (
-          <EmptyState icon={<ServerCrash className="size-10" />} title="Couldn't reach the server">
+          <EmptyState
+            icon={<ServerCrash className="size-10" />}
+            title="Couldn't reach the server"
+          >
             {(librariesQ.error as Error).message}
           </EmptyState>
         )}
@@ -221,7 +277,10 @@ export default function LibraryPage() {
         )}
         {itemsQ.isLoading && <Spinner label="Loading titles…" />}
         {itemsQ.isError && (
-          <EmptyState icon={<ServerCrash className="size-10" />} title="Couldn't load titles">
+          <EmptyState
+            icon={<ServerCrash className="size-10" />}
+            title="Couldn't load titles"
+          >
             {(itemsQ.error as Error).message}
           </EmptyState>
         )}
@@ -232,8 +291,8 @@ export default function LibraryPage() {
         {newMissingIds.size > 0 && (
           <div className="mb-5 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-4 py-2 text-sm text-accent">
             <Sparkles className="size-4 shrink-0" />
-            {newMissingIds.size} new title{newMissingIds.size === 1 ? "" : "s"} missing artwork
-            since your last visit
+            {newMissingIds.size} new title{newMissingIds.size === 1 ? "" : "s"}{" "}
+            missing artwork since your last visit
           </div>
         )}
 
@@ -247,8 +306,12 @@ export default function LibraryPage() {
                 subtitle={item.year ? String(item.year) : undefined}
                 kind={item.type}
                 badge={newMissingIds.has(item.id) ? "NEW" : undefined}
-                onOpen={() => navigate(`/server/${serverId}/item/${item.id}`)}
-                onRefresh={() => refreshMut.mutate({ itemId: item.id })}
+                onOpen={() => openItem(item)}
+                onRefresh={
+                  item.type === "folder"
+                    ? undefined
+                    : () => refreshMut.mutate({ itemId: item.id })
+                }
                 refreshing={refreshingId === item.id}
               />
             ))}

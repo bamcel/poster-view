@@ -123,9 +123,9 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ hidden_library_ids: hiddenLibraryIds }),
     }),
-  getItems: (serverId: number, libraryId: string, groupCollections = true) =>
+  getItems: (serverId: number, libraryId: string, groupCollections = true, parentId?: string) =>
     request<MediaItem[]>(
-      `/servers/${serverId}/libraries/${encodeURIComponent(libraryId)}/items?group_collections=${groupCollections}`,
+      `/servers/${serverId}/libraries/${encodeURIComponent(libraryId)}/items?group_collections=${groupCollections}` + (parentId ? `&parent_id=${encodeURIComponent(parentId)}` : ""),
     ),
   getItemDetail: (serverId: number, itemId: string) =>
     request<ItemDetail>(`/servers/${serverId}/items/${encodeURIComponent(itemId)}`),

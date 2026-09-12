@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
@@ -23,9 +29,13 @@ it.each(["book", "other"] as const)(
     vi.mocked(api.getLibraries).mockResolvedValue([
       { id: "manga", title: "Manga", type },
     ]);
-    vi.mocked(api.getItems).mockResolvedValue([
-      { id: "book", title: "Food Wars Vol 14", type: "book" },
-    ]);
+    vi.mocked(api.getItems)
+      .mockResolvedValueOnce([
+        { id: "series", title: "Food Wars!", type: "folder" },
+      ])
+      .mockResolvedValueOnce([
+        { id: "book", title: "Volume 14", type: "book" },
+      ]);
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -38,9 +48,13 @@ it.each(["book", "other"] as const)(
     );
     expect(await screen.findByRole("button", { name: "Manga" })).toBeTruthy();
     await waitFor(() =>
-      expect(api.getItems).toHaveBeenCalledWith(1, "manga", true),
+      expect(api.getItems).toHaveBeenCalledWith(1, "manga", true, "manga"),
     );
-    expect(await screen.findByText("Food Wars Vol 14")).toBeTruthy();
+    fireEvent.click(await screen.findByText("Food Wars!"));
+    await waitFor(() =>
+      expect(api.getItems).toHaveBeenCalledWith(1, "manga", true, "series"),
+    );
+    expect(await screen.findByText("Volume 14")).toBeTruthy();
     client.clear();
   },
 );

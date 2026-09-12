@@ -531,6 +531,48 @@ async fn emby_items(
     Ok(raw.iter().filter_map(emby_media_item).collect())
 }
 
+/// Browse actual folder children rather than flattening every volume in a library.
+pub async fn get_folder_items(
+    config: ConnectionConfig<'_>,
+    parent_id: &str,
+) -> Result<Vec<MediaItem>, String> {
+    let client = media_client(&config)?;
+    let label = match config.server_type {
+        ServerType::Emby => "Emby",
+        ServerType::Jellyfin => "Jellyfin",
+        ServerType::Plex => {
+            return Err(
+                "Folder browsing is available for Emby and Jellyfin book libraries.".to_owned(),
+            );
+        }
+    };
+    let user_id = emby_user_id(&client, &config, label).await?;
+    let data = emby_json(
+        &client,
+        &config,
+        label,
+        "/Items",
+        &[
+            ("ParentId", parent_id),
+            ("Recursive", "false"),
+            ("Fields", "ProductionYear,DateCreated"),
+            ("SortBy", "SortName"),
+            ("SortOrder", "Ascending"),
+            ("ImageTypeLimit", "1"),
+            ("EnableImageTypes", "Primary"),
+            ("userId", &user_id),
+        ],
+    )
+    .await?;
+    Ok(data
+        .get("Items")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(emby_media_item)
+        .collect())
+}
+
 async fn collapse_emby_collections(
     client: &Client,
     config: &ConnectionConfig<'_>,
@@ -785,6 +827,14 @@ fn emby_item_type(item: &Value) -> ItemType {
         Some("Series") => ItemType::Show,
         Some("Book") => ItemType::Book,
         Some("AudioBook") => ItemType::Audiobook,
+        _ if item.get("IsFolder").and_then(Value::as_bool) == Some(true)
+            || matches!(
+                item.get("Type").and_then(Value::as_str),
+                Some("Folder" | "CollectionFolder")
+            ) =>
+        {
+            ItemType::Folder
+        }
         _ => ItemType::Movie,
     }
 }

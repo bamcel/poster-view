@@ -269,6 +269,31 @@ impl Runtime {
         ))
     }
 
+    pub async fn get_folder_items(
+        &self,
+        id: i64,
+        parent_id: &str,
+    ) -> Result<Option<Result<Vec<MediaItem>, String>>, RuntimeError> {
+        let Some(server) = self.server_store()?.get_server(id)? else {
+            return Ok(None);
+        };
+        let token = self
+            .server_store()?
+            .decrypted_token(id)?
+            .unwrap_or_default();
+        Ok(Some(
+            posterview_infra_media_servers::get_folder_items(
+                ConnectionConfig {
+                    server_type: server.server_type,
+                    base_url: &server.base_url,
+                    token: &token,
+                },
+                parent_id,
+            )
+            .await,
+        ))
+    }
+
     pub async fn fetch_image(
         &self,
         id: i64,

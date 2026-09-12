@@ -39,7 +39,7 @@ export interface MediaItem {
   id: string;
   title: string;
   year?: number | null;
-  type: "movie" | "show" | "collection" | "book" | "audiobook";
+  type: "movie" | "show" | "collection" | "book" | "audiobook" | "folder";
   poster?: string | null;
   background?: string | null;
   added_at?: string | null;
