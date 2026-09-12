@@ -21,8 +21,18 @@ interface Props {
   prefill?: { term: string; nonce: number };
 }
 
+const ARTWORK_LAYOUT_KEY = "posterview.artworkSourceLayout";
+const PROVIDER_GROUPS = [
+  { label: "General", names: ["posterdb", "fanart", "tvdb", "mediux"] },
+  { label: "Anime & Manga", names: ["anilist", "mangadex", "viz"] },
+  { label: "Local", names: ["manual"] },
+];
+
 export default function ArtworkPanel({ serverId, item, prefill }: Props) {
   const [provider, setProvider] = useState("posterdb");
+  const [sourceLayout, setSourceLayout] = useState<"list" | "compact">(() =>
+    localStorage.getItem(ARTWORK_LAYOUT_KEY) === "compact" ? "compact" : "list",
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [panelVersion, setPanelVersion] = useState(0);
   const queryClient = useQueryClient();
@@ -65,39 +75,83 @@ export default function ArtworkPanel({ serverId, item, prefill }: Props) {
       setRefreshing(false);
     }
   };
+  const chooseLayout = (layout: "list" | "compact") => {
+    localStorage.setItem(ARTWORK_LAYOUT_KEY, layout);
+    setSourceLayout(layout);
+  };
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-surface/90 backdrop-blur-xl">
       <div className="border-b border-border p-3">
-        <h2 className="mb-2 flex items-center gap-2 px-1 text-sm font-semibold uppercase tracking-wide text-muted">
-          <Images className="size-4 text-accent" /> Artwork
-        </h2>
-        <div className="flex flex-wrap gap-1">
-          {tabs.map((t) => (
-            <button
-              key={t.name}
-              onClick={() => setProvider(t.name)}
-              onMouseEnter={() => {
-                if (!["posterdb", "manual", "mangadex", "viz"].includes(t.name) && t.configured) {
-                  queryClient.prefetchQuery({
-                    queryKey: ["artwork", t.name, serverId, item.id, undefined],
-                    queryFn: () => api.getArtwork(t.name, serverId, item.id),
-                    staleTime: 5 * 60_000,
-                  });
-                }
-              }}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                provider === t.name
-                  ? "bg-accent text-black"
-                  : "bg-surface-2 text-muted hover:text-white"
-              }`}
-              title={t.needs_key && !t.configured ? "Add an API key in Settings" : undefined}
-            >
-              {t.label}
-              {t.needs_key && !t.configured && <span className="ml-1 text-amber-400">•</span>}
-            </button>
-          ))}
+        <div className="mb-2 flex items-center justify-between gap-3 px-1">
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted">
+            <Images className="size-4 text-accent" /> Artwork
+          </h2>
+          <div className="flex rounded-lg bg-surface-2 p-0.5 text-[10px] font-semibold uppercase tracking-wide">
+            {(["list", "compact"] as const).map((layout) => (
+              <button
+                key={layout}
+                type="button"
+                aria-pressed={sourceLayout === layout}
+                onClick={() => chooseLayout(layout)}
+                className={`rounded-md px-2 py-1 transition-colors ${sourceLayout === layout ? "bg-accent text-black" : "text-faint hover:text-white"}`}
+              >
+                {layout}
+              </button>
+            ))}
+          </div>
         </div>
+        {sourceLayout === "list" ? (
+          <div className="flex flex-wrap gap-1">
+            {tabs.map((t) => (
+              <button
+                key={t.name}
+                onClick={() => setProvider(t.name)}
+                onMouseEnter={() => {
+                  if (!["posterdb", "manual", "mangadex", "viz"].includes(t.name) && t.configured) {
+                    queryClient.prefetchQuery({
+                      queryKey: ["artwork", t.name, serverId, item.id, undefined],
+                      queryFn: () => api.getArtwork(t.name, serverId, item.id),
+                      staleTime: 5 * 60_000,
+                    });
+                  }
+                }}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  provider === t.name
+                    ? "bg-accent text-black"
+                    : "bg-surface-2 text-muted hover:text-white"
+                }`}
+                title={t.needs_key && !t.configured ? "Add an API key in Settings" : undefined}
+              >
+                {t.label}
+                {t.needs_key && !t.configured && <span className="ml-1 text-amber-400">•</span>}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <label className="block text-xs text-faint">
+            <span className="sr-only">Artwork source</span>
+            <select
+              aria-label="Artwork source"
+              value={provider}
+              onChange={(event) => setProvider(event.target.value)}
+              className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-white outline-none focus:border-accent"
+            >
+              {PROVIDER_GROUPS.map((group) => {
+                const options = group.names.flatMap((name) => tabs.filter((tab) => tab.name === name));
+                return options.length ? (
+                  <optgroup key={group.label} label={group.label}>
+                    {options.map((option) => (
+                      <option key={option.name} value={option.name}>
+                        {option.label}{option.needs_key && !option.configured ? " · setup required" : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null;
+              })}
+            </select>
+          </label>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
