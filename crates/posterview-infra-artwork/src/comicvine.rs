@@ -40,12 +40,42 @@ pub async fn search(
         ],
     )
     .await?;
-    Ok(data["results"]
+    let mut results: Vec<_> = data["results"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(parse_search_result)
-        .collect())
+        .collect();
+    for result in &mut results {
+        if result.volume_count.is_some() && result.publisher.is_some() {
+            continue;
+        }
+        let path = format!("/volume/4050-{}/", result.id);
+        if let Ok(detail) = request(
+            client,
+            &path,
+            key,
+            &[("field_list", "count_of_issues,publisher")],
+        )
+        .await
+        {
+            merge_volume_details(result, &detail["results"]);
+        }
+    }
+    Ok(results)
+}
+
+fn merge_volume_details(result: &mut ArtworkSearchResult, detail: &Value) {
+    if result.volume_count.is_none() {
+        result.volume_count = detail.get("count_of_issues").and_then(Value::as_u64);
+    }
+    if result.publisher.is_none() {
+        result.publisher = detail
+            .get("publisher")
+            .and_then(|publisher| publisher.get("name"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+    }
 }
 
 fn parse_search_result(value: &Value) -> Option<ArtworkSearchResult> {
@@ -193,5 +223,23 @@ mod tests {
         let result = parse_search_result(&data).expect("valid ComicVine search result");
         assert_eq!(result.volume_count, Some(24));
         assert_eq!(result.publisher.as_deref(), Some("Yen Press"));
+    }
+
+    #[test]
+    fn fills_metadata_omitted_by_the_search_endpoint() {
+        let mut result = parse_search_result(&serde_json::json!({
+            "id": 86327,
+            "name": "Parasyte"
+        }))
+        .expect("valid search result");
+        merge_volume_details(
+            &mut result,
+            &serde_json::json!({
+                "count_of_issues": 8,
+                "publisher": {"name": "Kodansha Comics USA"}
+            }),
+        );
+        assert_eq!(result.volume_count, Some(8));
+        assert_eq!(result.publisher.as_deref(), Some("Kodansha Comics USA"));
     }
 }

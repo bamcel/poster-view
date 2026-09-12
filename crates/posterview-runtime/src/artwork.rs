@@ -788,7 +788,7 @@ impl Runtime {
             ))));
         }
         let cache_key = format!(
-            "artwork-search:{provider}:{server_id}:{item_id}:{}",
+            "artwork-search:{provider}:{server_id}:{item_id}:v2:{}",
             query.trim().to_lowercase()
         );
         let cache_settings = self.artwork_cache_settings()?;
