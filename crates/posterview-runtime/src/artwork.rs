@@ -46,6 +46,12 @@ impl Runtime {
             .remove_matching(&format!("artwork-search:mangadex:{server_id}:{item_id}:"));
     }
 
+    pub fn refresh_artwork_provider_cache(&self, provider: &str, server_id: i64, item_id: &str) {
+        let _ = self
+            .artwork_cache
+            .remove_matching(&format!("artwork:{provider}:{server_id}:{item_id}:"));
+    }
+
     pub async fn mangadex_image(&self, url: &str) -> Result<(Vec<u8>, String), String> {
         let settings = self.artwork_cache_settings().map_err(|e| e.to_string())?;
         let key = format!("mangadex-image:{url}");
@@ -97,10 +103,9 @@ impl Runtime {
     }
 
     fn enabled_artwork_providers(&self) -> Result<std::collections::HashSet<String>, RuntimeError> {
-        let stored = self
-            .server_store()?
-            .get_setting("artwork_enabled_providers")?;
-        let values = if stored.trim().is_empty() {
+        let store = self.server_store()?;
+        let stored = store.get_setting("artwork_enabled_providers")?;
+        let mut values = if stored.trim().is_empty() {
             ARTWORK_PROVIDERS
                 .iter()
                 .map(|value| (*value).to_owned())
@@ -114,6 +119,23 @@ impl Runtime {
                 .map(str::to_owned)
                 .collect()
         };
+        let legacy_providers = [
+            "posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex",
+        ];
+        if store.get_setting("artwork_viz_migrated")?.is_empty()
+            && legacy_providers
+                .iter()
+                .all(|provider| values.contains(*provider))
+        {
+            values.insert("viz".to_owned());
+            store.set_setting(
+                "artwork_enabled_providers",
+                &values.iter().cloned().collect::<Vec<_>>().join(","),
+            )?;
+        }
+        if store.get_setting("artwork_viz_migrated")?.is_empty() {
+            store.set_setting("artwork_viz_migrated", "true")?;
+        }
         Ok(values)
     }
 

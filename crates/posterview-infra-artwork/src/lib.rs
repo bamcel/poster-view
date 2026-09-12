@@ -1,5 +1,6 @@
 mod mangadex;
 mod posterdb;
+mod viz;
 pub use mangadex::valid_manga_id;
 
 use posterview_contracts::{
@@ -86,6 +87,7 @@ impl ArtworkService {
             provider("anilist", "AniList", true, false, enabled),
             provider("mediux", "MediUX", true, false, enabled),
             provider("mangadex", "MangaDex", true, false, enabled),
+            provider("viz", "VIZ", true, false, enabled),
         ]
     }
 
@@ -100,6 +102,7 @@ impl ArtworkService {
     ) -> Result<Vec<ArtworkItem>, String> {
         match provider {
             "mangadex" => self.fetch_mangadex(item, id_override).await,
+            "viz" => viz::fetch_viz(&self.client, item, id_override).await,
             "fanart" => fetch_fanart(item, id_override, fanart_key).await,
             "anilist" => fetch_anilist(item, id_override).await,
             "tvdb" => self.fetch_tvdb(item, id_override, tvdb_key, tvdb_pin).await,
@@ -350,6 +353,7 @@ pub async fn download_public_image(provider: &str, url: &str) -> Result<(Vec<u8>
         "anilist" => &["anilist.co"],
         "mediux" => &["mediux.pro"],
         "mangadex" => &["uploads.mangadex.org"],
+        "viz" => &["dw9to29mmj727.cloudfront.net"],
         _ => return Err(format!("Unknown artwork provider: {provider}")),
     };
     let url = provider_https(url, domains)?;
@@ -686,7 +690,14 @@ fn provider(
 }
 
 fn http_client() -> Result<Client, String> {
-    provider_client(&["fanart.tv", "anilist.co", "thetvdb.com", "mediux.pro"])
+    provider_client(&[
+        "fanart.tv",
+        "anilist.co",
+        "thetvdb.com",
+        "mediux.pro",
+        "viz.com",
+        "www.viz.com",
+    ])
 }
 
 fn provider_client(domains: &[&str]) -> Result<Client, String> {

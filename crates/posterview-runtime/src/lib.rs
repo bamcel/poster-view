@@ -24,8 +24,8 @@ use thiserror::Error;
 use artwork_cache::ArtworkCache;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-const ARTWORK_PROVIDERS: [&str; 6] = [
-    "posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex",
+const ARTWORK_PROVIDERS: [&str; 7] = [
+    "posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex", "viz",
 ];
 const MEDIA_CACHE_MAX_MB: i64 = 10_240;
 const MEDIA_CACHE_TTL_DAYS: i64 = 365;
@@ -408,19 +408,20 @@ impl Runtime {
             provider,
             item_title,
         )?;
-        let companion = if provider == "mangadex" && matches!(target, ImageTarget::Poster) {
-            Some(
-                detail
-                    .as_ref()
-                    .and_then(|detail| detail.source_path.as_deref())
-                    .map_or_else(
-                        || Err("the media server did not provide a file path".to_owned()),
-                        |path| save_companion_cover(path, data, content_type),
-                    ),
-            )
-        } else {
-            None
-        };
+        let companion =
+            if matches!(provider, "mangadex" | "viz") && matches!(target, ImageTarget::Poster) {
+                Some(
+                    detail
+                        .as_ref()
+                        .and_then(|detail| detail.source_path.as_deref())
+                        .map_or_else(
+                            || Err("the media server did not provide a file path".to_owned()),
+                            |path| save_companion_cover(path, data, content_type),
+                        ),
+                )
+            } else {
+                None
+            };
         Ok(Some(ApplyResult {
             ok: true,
             message: if let Some(Ok(file_name)) = companion {

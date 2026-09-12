@@ -662,10 +662,16 @@ async fn get_artwork(
         state
             .runtime
             .refresh_mangadex_cache(query.server_id, &query.item_id);
+    } else if query.refresh && query.provider == "viz" {
+        state.runtime.refresh_artwork_provider_cache(
+            &query.provider,
+            query.server_id,
+            &query.item_id,
+        );
     }
     if !matches!(
         query.provider.as_str(),
-        "fanart" | "tvdb" | "anilist" | "mediux" | "mangadex"
+        "fanart" | "tvdb" | "anilist" | "mediux" | "mangadex" | "viz"
     ) {
         return Err(HttpError {
             status: StatusCode::NOT_FOUND,

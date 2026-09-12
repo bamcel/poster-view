@@ -497,6 +497,7 @@ function DatabaseSection() {
 const ARTWORK_DATABASES = [
   { name: "posterdb", label: "ThePosterDB" },
   { name: "mangadex", label: "MangaDex" },
+  { name: "viz", label: "VIZ" },
   { name: "fanart", label: "Fanart.tv" },
   { name: "tvdb", label: "TheTVDB" },
   { name: "anilist", label: "AniList" },

@@ -925,13 +925,20 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
         .unwrap();
     let providers: serde_json::Value =
         serde_json::from_slice(&providers.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(providers.as_array().unwrap().len(), 5);
+    assert_eq!(providers.as_array().unwrap().len(), 6);
     assert!(
         providers
             .as_array()
             .unwrap()
             .iter()
             .any(|p| p["name"] == "mangadex" && p["configured"] == true && p["needs_key"] == false)
+    );
+    assert!(
+        providers
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["name"] == "viz" && p["configured"] == true && p["needs_key"] == false)
     );
 
     for provider in ["fanart", "tvdb"] {
@@ -978,7 +985,7 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
             "fanart_configured": true,
             "tvdb_configured": true,
             "default_provider": "posterdb",
-            "enabled_providers": ["posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex"]
+            "enabled_providers": ["posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex", "viz"]
         })
     );
 
