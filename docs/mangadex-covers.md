@@ -59,3 +59,26 @@ cargo test -p posterview-server live_mangadex_food_wars_search_cover_apply_and_h
 Normal tests cover book-library browsing, alternate titles, incomplete cover
 metadata, source URL validation, selection persistence/isolation, volume parsing,
 debouncing, explicit application, saved-series restoration, filtering and retries.
+
+## Companion cover files
+
+When MangaDex applies a poster to a book or audiobook, PosterView also writes the
+downloaded image beside the source media using the source file's exact stem. For
+example, `/manga/Plunderer/Plunderer - Volume 01.cbz` produces
+`/manga/Plunderer/Plunderer - Volume 01.jpg`. The image extension follows its
+actual JPEG, PNG, or WebP content type. Reapplying a cover replaces an existing
+companion image with that name.
+
+This requires the media directory to be visible at the same path inside the
+PosterView container and mounted writable. For example, if Emby reports paths
+under `/manga`, add the same bind mount to PosterView:
+
+```yaml
+services:
+  posterview:
+    volumes:
+      - /mnt/user/media/manga:/manga
+```
+
+Poster assignment through Emby/Jellyfin remains successful when that mount is
+missing or read-only; the result reports that the companion file was not saved.

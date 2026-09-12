@@ -152,6 +152,8 @@ pub struct Season {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ItemDetail {
+    #[serde(skip_serializing)]
+    pub source_path: Option<String>,
     pub file_name: Option<String>,
     pub volume: Option<String>,
     pub id: String,

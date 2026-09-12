@@ -198,6 +198,7 @@ async fn emby_item_detail(
         })
         .collect();
     Ok(ItemDetail {
+        source_path: item.get("Path").and_then(Value::as_str).map(str::to_owned),
         file_name: item
             .get("Path")
             .and_then(Value::as_str)
@@ -309,6 +310,10 @@ async fn plex_item_detail(
         .find(|image| image.get("type").and_then(Value::as_str) == Some("clearLogo"))
         .and_then(|image| relative_ref(image.get("url")));
     Ok(ItemDetail {
+        source_path: item
+            .pointer("/Media/0/Part/0/file")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         file_name: item
             .pointer("/Media/0/Part/0/file")
             .and_then(Value::as_str)

@@ -384,10 +384,10 @@ impl Runtime {
             base_url: &server.base_url,
             token: &token,
         };
-        let current_reference = get_item_detail(config.clone(), item_id)
-            .await
-            .ok()
-            .and_then(|detail| image_reference(&detail, target).cloned());
+        let detail = get_item_detail(config.clone(), item_id).await.ok();
+        let current_reference = detail
+            .as_ref()
+            .and_then(|detail| image_reference(detail, target).cloned());
         if let Err(message) = set_image(config, item_id, target.as_str(), data, content_type).await
         {
             return Ok(Some(ApplyResult {
@@ -408,9 +408,26 @@ impl Runtime {
             provider,
             item_title,
         )?;
+        let companion = if provider == "mangadex" && matches!(target, ImageTarget::Poster) {
+            Some(
+                detail
+                    .as_ref()
+                    .and_then(|detail| detail.source_path.as_deref())
+                    .map_or_else(
+                        || Err("the media server did not provide a file path".to_owned()),
+                        |path| save_companion_cover(path, data, content_type),
+                    ),
+            )
+        } else {
+            None
+        };
         Ok(Some(ApplyResult {
             ok: true,
-            message: if provider == "manual" {
+            message: if let Some(Ok(file_name)) = companion {
+                format!("Updated poster and saved {file_name} beside the media file.")
+            } else if let Some(Err(reason)) = companion {
+                format!("Updated poster successfully. Companion file was not saved: {reason}")
+            } else if provider == "manual" {
                 "Applied your image successfully.".to_owned()
             } else {
                 format!("Updated {} successfully.", target.as_str())
@@ -456,6 +473,34 @@ impl Runtime {
             tracing::warn!(%error, "could not update a media-server image in the cache");
         }
     }
+}
+
+fn save_companion_cover(source: &str, data: &[u8], content_type: &str) -> Result<String, String> {
+    let source = Path::new(source);
+    let parent = source
+        .parent()
+        .filter(|parent| parent.is_dir())
+        .ok_or("the media directory is not mounted in PosterView")?;
+    let stem = source
+        .file_stem()
+        .filter(|stem| !stem.is_empty())
+        .ok_or("the media filename has no usable name")?;
+    let extension = match content_type.split(';').next().unwrap_or("").trim() {
+        "image/jpeg" | "image/jpg" => "jpg",
+        "image/png" => "png",
+        "image/webp" => "webp",
+        _ => return Err("the downloaded image format is unsupported".to_owned()),
+    };
+    let destination = parent.join(stem).with_extension(extension);
+    std::fs::write(&destination, data).map_err(|error| match error.kind() {
+        std::io::ErrorKind::PermissionDenied => "the media directory is read-only".to_owned(),
+        _ => format!("the media directory is unavailable ({error})"),
+    })?;
+    destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+        .ok_or_else(|| "the saved filename is not valid UTF-8".to_owned())
 }
 
 fn media_image_cache_key(server_id: i64, reference: &str) -> String {
@@ -526,9 +571,32 @@ async fn connection_test(config: ConnectionConfig<'_>) -> ConnectionTest {
 
 #[cfg(test)]
 mod tests {
-    use super::{Runtime, posterdb_top_three, watchdog_inventory_diff};
+    use super::{Runtime, posterdb_top_three, save_companion_cover, watchdog_inventory_diff};
     use posterview_contracts::{PosterCategory, PosterSearchResults, PosterTitleResult};
     use std::collections::BTreeMap;
+
+    #[test]
+    fn companion_cover_uses_the_media_files_exact_stem() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let media = directory.path().join("Plunderer - Volume 01.cbz");
+        std::fs::write(&media, b"book").expect("write media fixture");
+        let name = save_companion_cover(
+            media.to_str().expect("utf-8 path"),
+            b"first cover",
+            "image/jpeg",
+        )
+        .expect("save companion cover");
+        assert_eq!(name, "Plunderer - Volume 01.jpg");
+        let cover = directory.path().join(&name);
+        assert_eq!(std::fs::read(&cover).unwrap(), b"first cover");
+        save_companion_cover(
+            media.to_str().expect("utf-8 path"),
+            b"replacement cover",
+            "image/jpeg; charset=binary",
+        )
+        .expect("replace companion cover");
+        assert_eq!(std::fs::read(cover).unwrap(), b"replacement cover");
+    }
 
     #[test]
     fn watchdog_inventory_finds_only_added_and_removed_items() {

@@ -203,6 +203,7 @@ export default function MangaDexPanel({
   const applyAll = async () => {
     setBatchProgress({ current: 0, total: assignments.length });
     let completed = 0;
+    let savedFiles = 0;
     try {
       for (const { member, art } of assignments) {
         const result = await api.applyPoster({
@@ -214,6 +215,7 @@ export default function MangaDexPanel({
           item_title: `${item.title} — ${member.title}`,
         });
         if (!result.ok) throw new Error(`${member.title}: ${result.message}`);
+        if (result.message.includes(" and saved ")) savedFiles += 1;
         completed += 1;
         setBatchProgress({ current: completed, total: assignments.length });
       }
@@ -223,7 +225,12 @@ export default function MangaDexPanel({
         }),
         client.invalidateQueries({ queryKey: ["items", serverId] }),
       ]);
-      toast.push("success", `Updated ${completed} volume covers successfully.`);
+      toast.push(
+        "success",
+        savedFiles === completed
+          ? `Updated ${completed} volume covers and saved ${savedFiles} companion files.`
+          : `Updated ${completed} volume covers; saved ${savedFiles} companion files. Mount the media directory writable in PosterView to save the rest.`,
+      );
     } catch (error) {
       toast.push(
         "error",
