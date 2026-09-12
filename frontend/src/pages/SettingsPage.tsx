@@ -456,17 +456,17 @@ function ServerCard({
 
 function ArtworkSourcesSection() {
   return (
-    <section className="h-full rounded-2xl border border-border bg-surface p-4">
+    <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-3.5">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
         <ImageIcon className="size-5 text-accent" /> Artwork sources
       </h2>
-      <p className="mb-3 text-sm text-faint">
+      <p className="mb-2 text-sm text-faint">
         Accounts and API keys used to search and download posters, backgrounds, banners, and logos.
       </p>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(15rem,0.55fr)_minmax(0,2fr)]">
+      <div className="grid gap-3 xl:grid-cols-[minmax(15rem,0.55fr)_minmax(0,2fr)]">
         <DefaultArtworkSourceFields />
-        <div className="border-t border-border pt-4 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+        <div className="border-t border-border pt-3 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
           <ArtworkCredentialsFields />
         </div>
       </div>
@@ -530,7 +530,7 @@ function DefaultArtworkSourceFields() {
       <h3 className="mb-1 text-sm font-semibold">Default database lookup</h3>
       <p className="mb-3 text-xs text-faint">This source opens first whenever you select a movie, series, or collection.</p>
       <select
-        className={inputCls}
+        className={compactInputCls}
         value={settingsQ.data?.default_provider ?? ""}
         onChange={(event) => saveMut.mutate(event.target.value)}
         disabled={settingsQ.isLoading || saveMut.isPending || enabled.length === 0}
@@ -851,9 +851,7 @@ function ArtworkCredentialsFields() {
 
   return (
     <div>
-      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-        <KeyRound className="size-4 text-accent" /> ThePosterDB
-      </h3>
+      <ProviderHeading icon={<KeyRound className="size-4 text-accent" />} name="ThePosterDB" connected={statusQ.data?.logged_in === true} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field
@@ -867,7 +865,7 @@ function ArtworkCredentialsFields() {
           }
         >
           <input
-            className={inputCls}
+            className={compactInputCls}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
@@ -875,7 +873,7 @@ function ArtworkCredentialsFields() {
         </Field>
         <Field label="Password">
           <input
-            className={inputCls}
+            className={compactInputCls}
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -885,11 +883,11 @@ function ArtworkCredentialsFields() {
         </Field>
       </div>
 
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-2 flex items-center gap-2">
         <button
           onClick={() => loginMut.mutate()}
           disabled={loginMut.isPending || !configured}
-          className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
         >
           {loginMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
           Test login
@@ -901,7 +899,7 @@ function ArtworkCredentialsFields() {
         )}
       </div>
 
-      <div className="mt-6 border-t border-border pt-5">
+      <div className="mt-3 border-t border-border pt-3">
         <FanartTvdbFields
           fanart={fanart}
           setFanart={setFanart}
@@ -969,9 +967,7 @@ function FanartTvdbFields({
   return (
     <div>
       <div>
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <ImageIcon className="size-4 text-accent" /> Fanart.tv
-        </h3>
+        <ProviderHeading name="Fanart.tv" connected={fanartTestMut.data?.ok === true} />
         <Field
           label={
             <>
@@ -984,7 +980,7 @@ function FanartTvdbFields({
           }
         >
           <input
-            className={inputCls}
+            className={compactInputCls}
             type="password"
             value={fanart}
             onChange={(e) => setFanart(e.target.value)}
@@ -995,17 +991,15 @@ function FanartTvdbFields({
         <button
           onClick={() => fanartTestMut.mutate()}
           disabled={fanartTestMut.isPending || (!fanart && !cfg?.fanart_configured)}
-          className="mt-3 flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
+          className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
         >
           {fanartTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
           Test API
         </button>
       </div>
 
-      <div className="mt-6 border-t border-border pt-5">
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <ImageIcon className="size-4 text-accent" /> TheTVDB
-        </h3>
+      <div className="mt-3 border-t border-border pt-3">
+        <ProviderHeading name="TheTVDB" connected={tvdbTestMut.data?.ok === true} />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field
             label={
@@ -1019,7 +1013,7 @@ function FanartTvdbFields({
             }
           >
             <input
-              className={inputCls}
+              className={compactInputCls}
               type="password"
               value={tvdbKey}
               onChange={(e) => setTvdbKey(e.target.value)}
@@ -1029,7 +1023,7 @@ function FanartTvdbFields({
           </Field>
           <Field label="TheTVDB subscriber PIN (optional)">
             <input
-              className={inputCls}
+              className={compactInputCls}
               value={tvdbPin}
               onChange={(e) => setTvdbPin(e.target.value)}
               placeholder="only for user-supported keys"
@@ -1040,24 +1034,32 @@ function FanartTvdbFields({
         <button
           onClick={() => tvdbTestMut.mutate()}
           disabled={tvdbTestMut.isPending || (!tvdbKey && !cfg?.tvdb_configured)}
-          className="mt-3 flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
+          className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
         >
           {tvdbTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
           Test API
         </button>
       </div>
-      <div className="mt-6 border-t border-border pt-5">
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <ImageIcon className="size-4 text-accent" /> ComicVine
-        </h3>
+      <div className="mt-3 border-t border-border pt-3">
+        <ProviderHeading name="ComicVine" connected={comicvineTestMut.data?.ok === true} />
         <Field label={<><span>ComicVine API key</span>{cfg?.comicvine_configured && <ConfiguredTag />} <a href="https://comicvine.gamespot.com/api/" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">(request a free key ↗)</a></>}>
-          <input className={inputCls} type="password" value={comicvine} onChange={(e) => setComicvine(e.target.value)} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
+          <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => setComicvine(e.target.value)} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
         </Field>
-        <button onClick={() => comicvineTestMut.mutate()} disabled={comicvineTestMut.isPending || (!comicvine && !cfg?.comicvine_configured)} className="mt-3 flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50">
+        <button onClick={() => comicvineTestMut.mutate()} disabled={comicvineTestMut.isPending || (!comicvine && !cfg?.comicvine_configured)} className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50">
           {comicvineTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test API
         </button>
       </div>
     </div>
+  );
+}
+
+function ProviderHeading({ name, connected, icon }: { name: string; connected: boolean; icon?: ReactNode }) {
+  return (
+    <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+      {icon ?? <ImageIcon className="size-4 text-accent" />}
+      <span>{name}</span>
+      {connected && <CheckCircle2 className="size-4 text-green-500" aria-label="Connection successful" />}
+    </h3>
   );
 }
 
@@ -1075,6 +1077,9 @@ function ConfiguredTag() {
 
 const inputCls =
   "w-full rounded-lg border border-border bg-input px-3 py-2 text-sm outline-none transition-colors hover:bg-input-hover focus:border-accent";
+
+const compactInputCls =
+  "w-full rounded-lg border border-border bg-input px-3 py-1.5 text-sm outline-none transition-colors hover:bg-input-hover focus:border-accent";
 
 function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
