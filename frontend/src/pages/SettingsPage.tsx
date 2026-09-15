@@ -97,7 +97,7 @@ export default function SettingsPage() {
 
   return (
     <div className="h-full overflow-y-auto px-4 py-4 sm:px-6 lg:px-8 xl:overflow-hidden">
-      <div className="mx-auto flex min-h-full w-full max-w-[110rem] flex-col gap-4 xl:h-full xl:min-h-0">
+      <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col gap-4 xl:h-full xl:min-h-0">
         <h1 className="text-2xl font-semibold">Settings</h1>
 
         <div className="flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -208,8 +208,9 @@ function AppearanceSection() {
   }
 
   return (
-    <section className="grid h-full min-h-0 gap-3 overflow-y-auto xl:grid-cols-2 xl:overflow-hidden">
-      <div className="flex min-h-[32rem] flex-col rounded-2xl border border-border bg-surface p-4 xl:min-h-0">
+    <section className="h-full min-h-0 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
+      <div className="grid min-h-full gap-4 xl:grid-cols-2">
+      <div className="flex min-h-[32rem] flex-col xl:min-h-0 xl:pr-2">
         <h2 className="text-lg font-semibold">Theme JSON</h2>
         <p className="mt-1 text-sm text-faint">Edit or paste a complete PosterView theme definition.</p>
         <label className="mt-4 flex min-h-0 flex-1 flex-col text-xs font-semibold text-muted">
@@ -224,8 +225,8 @@ function AppearanceSection() {
         </label>
       </div>
 
-      <div className="grid min-h-0 gap-3 xl:grid-rows-[auto_1fr]">
-        <div className="rounded-2xl border border-border bg-surface p-4">
+      <div className="min-h-0 border-t border-border pt-4 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+        <div>
           <h2 className="text-lg font-semibold">Theme</h2>
           <p className="mt-1 text-sm text-faint">Select a palette or preview an individual color.</p>
           <div className="mt-4 flex items-end gap-2">
@@ -252,7 +253,7 @@ function AppearanceSection() {
           <p className="mt-2 text-xs text-faint">Color changes preview immediately. Save them as a custom theme to keep them.</p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-surface p-4">
+        <div className="mt-4 border-t border-border pt-4">
           <h2 className="text-lg font-semibold">Custom theme</h2>
           <p className="mt-1 text-sm text-faint">Save the edited JSON under a unique name or remove a selected custom theme.</p>
           <label className="mt-4 block text-xs font-semibold text-muted">
@@ -263,6 +264,7 @@ function AppearanceSection() {
           <button type="button" onClick={remove} disabled={!selectedIsCustom} className="mt-2 h-10 w-full rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted hover:bg-button-hover hover:text-white disabled:cursor-not-allowed disabled:text-disabled">Remove custom theme</button>
           {message && <p role="status" className="mt-3 text-xs text-faint">{message}</p>}
         </div>
+      </div>
       </div>
     </section>
   );
@@ -373,7 +375,7 @@ function ServersSection() {
   const canSubmit = form.name.trim() && form.base_url.trim() && (editingId != null || form.token);
 
   return (
-    <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-3.5">
+    <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
         <ServerIcon className="size-5 text-accent" /> Server setup
       </h2>
@@ -381,8 +383,8 @@ function ServersSection() {
         Connect your media servers and choose which artwork databases PosterView can search.
       </p>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(16rem,0.7fr)]">
-        <div className="rounded-xl border border-border bg-surface-2 p-3">
+      <div>
+        <div>
           <h3 className="mb-1 text-sm font-semibold">Media servers</h3>
           <p className="mb-3 text-xs text-faint">
             Connect Plex, Jellyfin, or Emby. Tokens are encrypted before they're stored.
@@ -502,9 +504,9 @@ function ServersSection() {
           </div>
         </div>
 
-        <aside className="rounded-xl border border-border bg-surface-2 p-3">
+        <div className="mt-4 border-t border-border pt-4">
           <EnabledArtworkSourcesFields />
-        </aside>
+        </div>
       </div>
     </section>
   );
@@ -632,7 +634,7 @@ function ServerCard({
 
 function ArtworkSourcesSection() {
   return (
-    <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-3.5">
+    <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
         <ImageIcon className="size-5 text-accent" /> Search providers
       </h2>
@@ -653,7 +655,7 @@ function ArtworkSourcesSection() {
 
 function DatabaseSection() {
   return (
-    <section className="h-full rounded-2xl border border-border bg-surface p-4">
+    <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
         <Database className="size-5 text-accent" /> Cache services
       </h2>
@@ -743,7 +745,7 @@ function EnabledArtworkSourcesFields() {
     <div>
       <h3 className="mb-1 text-sm font-semibold">Enabled artwork databases</h3>
       <p className="mb-3 text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Watchdog, and removed from the local cache.</p>
-      <div className="space-y-2">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {ARTWORK_DATABASES.map((source) => {
           const checked = enabled.includes(source.name);
           return (

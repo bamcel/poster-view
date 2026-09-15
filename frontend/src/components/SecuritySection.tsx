@@ -57,7 +57,7 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
     return () => clearTimeout(timer);
   }, [autoSignOut, backdrop, bypass, client, minutes]);
 
-  return <div className="h-full rounded-2xl border border-border bg-surface p-3">
+  return <div className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
     <div><h2 className="text-lg font-semibold">Privacy / Security</h2>
       <p className="mt-0.5 text-xs leading-5 text-faint">Session and network settings apply to all users and persist after container restarts. The container’s Require Login option overrides these controls: when false, all connections have password-free access and auto sign-out cannot lock the application.</p></div>
     <div className="mt-2 divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface-2">
