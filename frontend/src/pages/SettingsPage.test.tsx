@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import SettingsPage from "./SettingsPage";
 import { api } from "../api/client";
@@ -20,9 +21,11 @@ afterEach(() => {
 it("previews a palette color and saves it as a selectable custom theme", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={client}>
-      <SettingsPage />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <SettingsPage />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 
   fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
@@ -37,5 +40,20 @@ it("previews a palette color and saves it as a selectable custom theme", async (
 
   fireEvent.click(screen.getByLabelText("Select theme"));
   expect(screen.getByRole("button", { name: "Movie Night" })).toBeTruthy();
+  client.clear();
+});
+
+it("restores the active settings tab from the URL", () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <MemoryRouter initialEntries={["/settings?tab=appearance"]}>
+      <QueryClientProvider client={client}>
+        <SettingsPage />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+
+  expect(screen.getByRole("button", { name: "Appearance", pressed: true })).toBeTruthy();
+  expect(screen.getByLabelText("Theme JSON")).toBeTruthy();
   client.clear();
 });

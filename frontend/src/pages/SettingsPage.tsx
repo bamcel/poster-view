@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import {
   Plus,
   Trash2,
@@ -71,8 +72,21 @@ const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
 ];
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState<SettingsTab>("servers");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const tab: SettingsTab = TABS.some((candidate) => candidate.id === requestedTab)
+    ? (requestedTab as SettingsTab)
+    : "servers";
   const [saveStatus, setSaveStatus] = useState<SettingsSaveStatus>("saved");
+
+  const selectTab = (nextTab: SettingsTab) => {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      if (nextTab === "servers") next.delete("tab");
+      else next.set("tab", nextTab);
+      return next;
+    }, { replace: true });
+  };
 
   useEffect(() => {
     const update = (event: Event) => setSaveStatus((event as CustomEvent<SettingsSaveStatus>).detail);
@@ -89,7 +103,8 @@ export default function SettingsPage() {
           <div className="flex flex-wrap gap-2">{TABS.map((t) => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => selectTab(t.id)}
+              aria-pressed={tab === t.id}
               className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
                 tab === t.id
                   ? "border-accent bg-surface-2 text-white"
