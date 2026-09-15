@@ -293,7 +293,7 @@ cookie behavior with `POSTERVIEW_BIND`, `POSTERVIEW_DATA_DIR`, `POSTERVIEW_UI_DI
    - **Jellyfin / Emby API key**: Dashboard → *API Keys* → add one.
    - Use **Test connection** to confirm before saving.
 3. **Add your ThePosterDB account** (email + password) and hit **Test login**.
-4. *(Optional)* Under **Settings → Artwork Sources**, add a free
+4. *(Optional)* Under **Settings → Search Providers**, add a free
    [Fanart.tv personal API key](https://fanart.tv/get-an-api-key/) and/or a
    [TheTVDB v4 API key](https://thetvdb.com/dashboard/account/apikey) to enable those tabs.
    Use each provider's **Test API** button to verify the key. AniList and MediUX need no key or

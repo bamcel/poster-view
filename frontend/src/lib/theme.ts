@@ -21,6 +21,30 @@ export interface AppTheme {
   warning: string;
 }
 
+export type ThemeColorKey = Exclude<keyof AppTheme, "name">;
+
+export const THEME_COLOR_OPTIONS: { key: ThemeColorKey; label: string }[] = [
+  { key: "window", label: "Window" },
+  { key: "card", label: "Card" },
+  { key: "panel", label: "Panel" },
+  { key: "sidebar", label: "Sidebar" },
+  { key: "input", label: "Input" },
+  { key: "inputHover", label: "Input Hover" },
+  { key: "button", label: "Button" },
+  { key: "buttonHover", label: "Button Hover" },
+  { key: "selected", label: "Selected" },
+  { key: "border", label: "Border" },
+  { key: "borderStrong", label: "Strong Border" },
+  { key: "text", label: "Text" },
+  { key: "muted", label: "Muted Text" },
+  { key: "subtle", label: "Subtle Text" },
+  { key: "disabled", label: "Disabled" },
+  { key: "accent", label: "Accent" },
+  { key: "accentHover", label: "Accent Hover" },
+  { key: "success", label: "Success" },
+  { key: "warning", label: "Warning" },
+];
+
 // Shared with MKV Orchestrator's semantic palette. PosterView-specific Tailwind
 // tokens are assigned from these roles by applyTheme below.
 export const THEMES: AppTheme[] = [
@@ -46,12 +70,126 @@ export const THEMES: AppTheme[] = [
 ];
 
 const STORAGE_KEY = "posterview.theme";
+const CUSTOM_STORAGE_KEY = "posterview.customThemes";
+const DEFAULT_THEME_NAME = "Gotham";
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
-export function applyTheme(name: string) {
-  const theme = THEMES.find((candidate) => candidate.name === name) ?? THEMES.find((candidate) => candidate.name === "Gotham")!;
+export function loadCustomThemes(): AppTheme[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(CUSTOM_STORAGE_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isAppTheme).map(normalizeTheme);
+  } catch {
+    return [];
+  }
+}
+
+export function getAllThemes() {
+  const builtInNames = new Set(THEMES.map((theme) => theme.name.toLowerCase()));
+  return [
+    ...THEMES,
+    ...loadCustomThemes().filter((theme) => !builtInNames.has(theme.name.toLowerCase())),
+  ];
+}
+
+export function getTheme(name: string | null | undefined) {
+  return (
+    getAllThemes().find((theme) => theme.name === name) ??
+    THEMES.find((theme) => theme.name === DEFAULT_THEME_NAME)!
+  );
+}
+
+export function getStoredThemeName() {
+  return getTheme(localStorage.getItem(STORAGE_KEY)).name;
+}
+
+export function serializeTheme(theme: AppTheme) {
+  return JSON.stringify(
+    {
+      name: theme.name,
+      colors: Object.fromEntries(
+        THEME_COLOR_OPTIONS.map(({ key, label }) => [label, theme[key].toUpperCase()]),
+      ),
+    },
+    null,
+    2,
+  );
+}
+
+export function parseThemeJson(value: string): AppTheme {
+  const parsed: unknown = JSON.parse(value);
+  if (!parsed || typeof parsed !== "object") throw new Error("Theme JSON must be an object.");
+  const record = parsed as Record<string, unknown>;
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  if (!name) throw new Error("Theme JSON needs a name.");
+  if (!record.colors || typeof record.colors !== "object") {
+    throw new Error("Theme JSON needs a colors object.");
+  }
+
+  const colors = record.colors as Record<string, unknown>;
+  const theme = { name } as AppTheme;
+  for (const { key, label } of THEME_COLOR_OPTIONS) {
+    const color = colors[label];
+    if (typeof color !== "string" || !HEX_COLOR.test(color)) {
+      throw new Error(`${label} must be a six-digit hex color, such as #BD93F9.`);
+    }
+    theme[key] = color.toUpperCase();
+  }
+  return theme;
+}
+
+export function saveCustomTheme(theme: AppTheme) {
+  const cleanTheme = normalizeTheme(theme);
+  if (THEMES.some((candidate) => candidate.name.toLowerCase() === cleanTheme.name.toLowerCase())) {
+    throw new Error("Choose a name that is not used by a built-in theme.");
+  }
+  const customThemes = [
+    ...loadCustomThemes().filter(
+      (candidate) => candidate.name.toLowerCase() !== cleanTheme.name.toLowerCase(),
+    ),
+    cleanTheme,
+  ].sort((left, right) => left.name.localeCompare(right.name));
+  localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(customThemes));
+  applyTheme(cleanTheme);
+  return customThemes;
+}
+
+export function removeCustomTheme(name: string) {
+  const customThemes = loadCustomThemes().filter(
+    (theme) => theme.name.toLowerCase() !== name.toLowerCase(),
+  );
+  localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(customThemes));
+  if (localStorage.getItem(STORAGE_KEY)?.toLowerCase() === name.toLowerCase()) {
+    applyTheme(DEFAULT_THEME_NAME);
+  }
+  return customThemes;
+}
+
+function isAppTheme(value: unknown): value is AppTheme {
+  if (!value || typeof value !== "object") return false;
+  const theme = value as Record<string, unknown>;
+  return (
+    typeof theme.name === "string" &&
+    theme.name.trim().length > 0 &&
+    THEME_COLOR_OPTIONS.every(({ key }) => typeof theme[key] === "string" && HEX_COLOR.test(theme[key]))
+  );
+}
+
+function normalizeTheme(theme: AppTheme): AppTheme {
+  return Object.fromEntries(
+    Object.entries(theme).map(([key, value]) => [key, typeof value === "string" ? value.trim() : value]),
+  ) as unknown as AppTheme;
+}
+
+function isLightColor(color: string) {
+  const [red, green, blue] = [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16));
+  return red * 0.299 + green * 0.587 + blue * 0.114 > 160;
+}
+
+function applyThemeValues(theme: AppTheme) {
   const root = document.documentElement;
   root.dataset.theme = theme.name;
-  root.style.colorScheme = ["Absolutely", "Mercy", "Notion", "Proof", "Solarized", "Xcode"].includes(theme.name) ? "light" : "dark";
+  root.style.colorScheme = isLightColor(theme.window) ? "light" : "dark";
   const values: Record<string, string> = {
     base: theme.window, surface: theme.card, "surface-2": theme.panel, sidebar: theme.sidebar,
     input: theme.input, "input-hover": theme.inputHover, button: theme.button,
@@ -61,10 +199,20 @@ export function applyTheme(name: string) {
     "accent-hover": theme.accentHover, success: theme.success, warning: theme.warning,
   };
   for (const [token, value] of Object.entries(values)) root.style.setProperty(`--color-${token}`, value);
+}
+
+export function previewTheme(theme: AppTheme) {
+  applyThemeValues(theme);
+  return theme;
+}
+
+export function applyTheme(themeOrName: AppTheme | string) {
+  const theme = typeof themeOrName === "string" ? getTheme(themeOrName) : normalizeTheme(themeOrName);
+  applyThemeValues(theme);
   localStorage.setItem(STORAGE_KEY, theme.name);
   return theme.name;
 }
 
 export function initializeTheme() {
-  return applyTheme(localStorage.getItem(STORAGE_KEY) ?? "Gotham");
+  return applyTheme(getStoredThemeName());
 }

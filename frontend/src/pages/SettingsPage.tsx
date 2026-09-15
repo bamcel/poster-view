@@ -1,6 +1,6 @@
 // Settings: manage media servers (add/edit/test/delete) and ThePosterDB login.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
@@ -22,7 +22,21 @@ import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
 import { ServerTypeBadge } from "../components/ui";
 import type { ConnectionTest, LibraryVisibility, Server, ServerType } from "../types";
-import { applyTheme, THEMES } from "../lib/theme";
+import {
+  applyTheme,
+  getAllThemes,
+  getStoredThemeName,
+  getTheme,
+  loadCustomThemes,
+  parseThemeJson,
+  previewTheme,
+  removeCustomTheme,
+  saveCustomTheme,
+  serializeTheme,
+  THEME_COLOR_OPTIONS,
+  type AppTheme,
+  type ThemeColorKey,
+} from "../lib/theme";
 import SecuritySection from "../components/SecuritySection";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
 
@@ -50,8 +64,8 @@ type SettingsTab = "servers" | "sources" | "database" | "appearance" | "security
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   { id: "servers", label: "Server Setup", icon: <ServerIcon className="size-4" /> },
-  { id: "sources", label: "Artwork Sources", icon: <ImageIcon className="size-4" /> },
-  { id: "database", label: "Database", icon: <Database className="size-4" /> },
+  { id: "sources", label: "Search Providers", icon: <ImageIcon className="size-4" /> },
+  { id: "database", label: "Cache Services", icon: <Database className="size-4" /> },
   { id: "appearance", label: "Appearance", icon: <Palette className="size-4" /> },
   { id: "security", label: "Privacy / Security", icon: <KeyRound className="size-4" /> },
 ];
@@ -104,55 +118,172 @@ export default function SettingsPage() {
 }
 
 function AppearanceSection() {
-  const [selected, setSelected] = useState(() => document.documentElement.dataset.theme ?? "Gotham");
+  const [themes, setThemes] = useState(getAllThemes);
+  const [selected, setSelected] = useState(getStoredThemeName);
+  const [themeJson, setThemeJson] = useState(() => serializeTheme(getTheme(getStoredThemeName())));
+  const [selectedColor, setSelectedColor] = useState<ThemeColorKey>("accent");
+  const [customName, setCustomName] = useState("");
+  const [message, setMessage] = useState("");
 
   const choose = (name: string) => {
-    setSelected(applyTheme(name));
+    const theme = getTheme(name);
+    setSelected(applyTheme(theme));
+    setThemeJson(serializeTheme(theme));
+    setCustomName(loadCustomThemes().some((candidate) => candidate.name === name) ? name : "");
+    setMessage(`Theme applied: ${name}`);
     reportSettingsSave("saved");
   };
 
-  return (
-    <section className="h-full rounded-2xl border border-border bg-surface p-4">
-      <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <Palette className="size-5 text-accent" /> Color theme
-      </h2>
-      <p className="mb-3 text-sm text-faint">
-        Choose a shared interface palette. Your selection is saved in this browser.
-      </p>
+  const reload = () => {
+    const theme = getTheme(selected);
+    applyTheme(theme);
+    setThemeJson(serializeTheme(theme));
+    setMessage(`Theme reloaded: ${theme.name}`);
+  };
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
-        {THEMES.map((theme) => (
-          <button
-            key={theme.name}
-            type="button"
-            onClick={() => choose(theme.name)}
-            aria-pressed={selected === theme.name}
-            className={`flex min-h-16 items-center gap-3 rounded-xl border p-2.5 text-left transition-colors ${
-              selected === theme.name
-                ? "border-accent bg-elevated"
-                : "border-border bg-surface-2 hover:border-border-strong"
-            }`}
-          >
-            <span
-              className="grid size-11 shrink-0 grid-cols-2 overflow-hidden rounded-lg border"
-              style={{ borderColor: theme.border }}
-              aria-hidden="true"
-            >
-              <span style={{ background: theme.window }} />
-              <span style={{ background: theme.card }} />
-              <span style={{ background: theme.sidebar }} />
-              <span style={{ background: theme.accent }} />
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium">{theme.name}</span>
-              <span className="mt-1 block text-xs text-faint">
-                {theme.window.toUpperCase()}
+  const updateColor = (color: string) => {
+    try {
+      const theme = parseThemeJson(themeJson);
+      theme[selectedColor] = color.toUpperCase();
+      setThemeJson(serializeTheme(theme));
+      previewTheme(theme);
+      setMessage("Previewing unsaved changes");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Theme JSON is invalid.");
+    }
+  };
+
+  const save = () => {
+    try {
+      const theme = parseThemeJson(themeJson);
+      theme.name = customName.trim() || theme.name;
+      saveCustomTheme(theme);
+      setThemes(getAllThemes());
+      setSelected(theme.name);
+      setCustomName(theme.name);
+      setThemeJson(serializeTheme(theme));
+      setMessage(`Custom theme saved: ${theme.name}`);
+      reportSettingsSave("saved");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Theme JSON is invalid.");
+      reportSettingsSave("error");
+    }
+  };
+
+  const selectedIsCustom = loadCustomThemes().some((theme) => theme.name === selected);
+  const remove = () => {
+    if (!selectedIsCustom) return;
+    const removedName = selected;
+    removeCustomTheme(removedName);
+    const fallback = getTheme(getStoredThemeName());
+    setThemes(getAllThemes());
+    setSelected(fallback.name);
+    setCustomName("");
+    setThemeJson(serializeTheme(fallback));
+    setMessage(`Custom theme removed: ${removedName}`);
+    reportSettingsSave("saved");
+  };
+
+  let selectedColorValue = "#000000";
+  try {
+    selectedColorValue = parseThemeJson(themeJson)[selectedColor];
+  } catch {
+    selectedColorValue = getTheme(selected)[selectedColor];
+  }
+
+  return (
+    <section className="grid h-full min-h-0 gap-3 overflow-y-auto xl:grid-cols-2 xl:overflow-hidden">
+      <div className="flex min-h-[32rem] flex-col rounded-2xl border border-border bg-surface p-4 xl:min-h-0">
+        <h2 className="text-lg font-semibold">Theme JSON</h2>
+        <p className="mt-1 text-sm text-faint">Edit or paste a complete PosterView theme definition.</p>
+        <label className="mt-4 flex min-h-0 flex-1 flex-col text-xs font-semibold text-muted">
+          Theme JSON
+          <textarea
+            value={themeJson}
+            onChange={(event) => setThemeJson(event.target.value)}
+            spellCheck={false}
+            className="mt-2 min-h-80 flex-1 resize-none rounded-lg border border-border bg-input p-3 font-mono text-xs font-normal leading-5 text-white outline-none focus:border-accent xl:min-h-0"
+          />
+        </label>
+      </div>
+
+      <div className="grid min-h-0 gap-3 xl:grid-rows-[auto_1fr]">
+        <div className="rounded-2xl border border-border bg-surface p-4">
+          <h2 className="text-lg font-semibold">Theme</h2>
+          <p className="mt-1 text-sm text-faint">Select a palette or preview an individual color.</p>
+          <div className="mt-4 flex items-end gap-2">
+            <ThemePicker themes={themes} selected={selected} onSelect={choose} />
+            <button type="button" onClick={reload} className="h-10 shrink-0 rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted hover:bg-button-hover hover:text-white">
+              Reload theme
+            </button>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-xs font-semibold text-muted">
+              Color label
+              <select value={selectedColor} onChange={(event) => setSelectedColor(event.target.value as ThemeColorKey)} className={`${compactInputCls} mt-2`}>
+                {THEME_COLOR_OPTIONS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-muted">
+              {THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)?.label}
+              <span className="mt-2 flex h-10 items-center gap-3 rounded-lg border border-border bg-input px-3">
+                <input aria-label={`Choose ${THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)?.label} color`} type="color" value={selectedColorValue} onChange={(event) => updateColor(event.target.value)} className="h-7 w-9 cursor-pointer border-0 bg-transparent p-0" />
+                <span className="font-mono text-xs text-white">{selectedColorValue.toUpperCase()}</span>
               </span>
-            </span>
-          </button>
-        ))}
+            </label>
+          </div>
+          <p className="mt-2 text-xs text-faint">Color changes preview immediately. Save them as a custom theme to keep them.</p>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-surface p-4">
+          <h2 className="text-lg font-semibold">Custom theme</h2>
+          <p className="mt-1 text-sm text-faint">Save the edited JSON under a unique name or remove a selected custom theme.</p>
+          <label className="mt-4 block text-xs font-semibold text-muted">
+            Custom theme name
+            <input value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="My theme" className={`${compactInputCls} mt-2`} />
+          </label>
+          <button type="button" onClick={save} className="mt-4 h-10 w-full rounded-lg bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-hover">Save custom theme</button>
+          <button type="button" onClick={remove} disabled={!selectedIsCustom} className="mt-2 h-10 w-full rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted hover:bg-button-hover hover:text-white disabled:cursor-not-allowed disabled:text-disabled">Remove custom theme</button>
+          {message && <p role="status" className="mt-3 text-xs text-faint">{message}</p>}
+        </div>
       </div>
     </section>
+  );
+}
+
+function ThemePicker({ themes, selected, onSelect }: { themes: AppTheme[]; selected: string; onSelect: (name: string) => void }) {
+  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const selectedTheme = themes.find((theme) => theme.name === selected) ?? themes[0];
+  return (
+    <div className="min-w-0 flex-1 text-xs font-semibold text-muted">
+      <span>Theme</span>
+      <details ref={detailsRef} className="group relative mt-2">
+        <summary aria-label="Select theme" className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-input px-3 text-sm font-normal text-white outline-none marker:hidden focus-visible:border-accent">
+          <ThemePaletteIcon theme={selectedTheme} />
+          <span className="min-w-0 flex-1 truncate">{selectedTheme.name}</span>
+          <span className="text-faint transition-transform group-open:rotate-180">⌄</span>
+        </summary>
+        <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-elevated p-1 shadow-2xl">
+          {themes.map((theme) => (
+            <button key={theme.name} type="button" onClick={() => { onSelect(theme.name); detailsRef.current?.removeAttribute("open"); }} className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-surface-2 ${theme.name === selected ? "text-accent" : "text-white"}`}>
+              <ThemePaletteIcon theme={theme} />
+              <span className="truncate">{theme.name}</span>
+            </button>
+          ))}
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function ThemePaletteIcon({ theme }: { theme: AppTheme }) {
+  return (
+    <span className="grid size-6 shrink-0 grid-cols-2 overflow-hidden rounded-md border" style={{ borderColor: theme.border }} aria-hidden="true">
+      <span style={{ background: theme.window }} />
+      <span style={{ background: theme.card }} />
+      <span style={{ background: theme.sidebar }} />
+      <span style={{ background: theme.accent }} />
+    </span>
   );
 }
 
@@ -450,7 +581,7 @@ function ServerCard({
 }
 
 // ---------------------------------------------------------------------------
-// Artwork sources — ThePosterDB login + Fanart.tv/TheTVDB API keys, grouped
+// Search providers — ThePosterDB login + Fanart.tv/TheTVDB API keys, grouped
 // into one card since they're all just "credentials for an artwork source".
 // ---------------------------------------------------------------------------
 
@@ -458,7 +589,7 @@ function ArtworkSourcesSection() {
   return (
     <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-3.5">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <ImageIcon className="size-5 text-accent" /> Artwork sources
+        <ImageIcon className="size-5 text-accent" /> Search providers
       </h2>
       <p className="mb-2 text-sm text-faint">
         Accounts and API keys used to search and download posters, backgrounds, banners, and logos.
@@ -479,7 +610,7 @@ function DatabaseSection() {
   return (
     <section className="h-full rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <Database className="size-5 text-accent" /> Database
+        <Database className="size-5 text-accent" /> Cache services
       </h2>
       <p className="mb-3 text-sm text-faint">
         Choose which databases PosterView uses, manage cached artwork, and control background preloading.
