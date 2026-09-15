@@ -389,7 +389,7 @@ function ServersSection() {
           </p>
 
           {/* Existing servers */}
-          <div className="mb-3 max-h-56 space-y-2 overflow-y-auto pr-1 xl:max-h-52">
+          <div className="mb-3 max-h-56 divide-y divide-border overflow-y-auto pr-1 xl:max-h-52">
             {serversQ.data?.length === 0 && (
               <p className="rounded-lg border border-dashed border-border px-4 py-4 text-center text-sm text-faint">
                 No servers yet — add one below.
@@ -408,7 +408,7 @@ function ServersSection() {
           </div>
 
           {/* Add / edit form */}
-          <div className="rounded-lg border border-border bg-window p-3">
+          <div className="border-t border-border px-1 pt-3">
             <h3 className="mb-3 text-sm font-semibold">
               {editingId == null ? "Add a server" : "Edit server"}
             </h3>
@@ -562,7 +562,7 @@ function ServerCard({
   };
 
   return (
-    <div className="rounded-lg border border-border bg-surface-2 px-4 py-3">
+    <div className="px-1 py-3 first:pt-0 last:pb-0">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
