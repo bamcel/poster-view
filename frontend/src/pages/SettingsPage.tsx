@@ -217,7 +217,7 @@ function AppearanceSection() {
             value={themeJson}
             onChange={(event) => setThemeJson(event.target.value)}
             spellCheck={false}
-            className="mt-2 min-h-80 w-full flex-1 resize-none rounded-lg border border-border bg-input p-4 font-mono text-[2rem] font-normal leading-[2.75rem] text-white outline-none focus:border-accent xl:min-h-0"
+            className="mt-2 min-h-80 w-full flex-1 resize-none rounded-lg border border-border bg-input p-4 font-mono text-[4rem] font-normal leading-[5.5rem] text-white outline-none focus:border-accent xl:min-h-0"
           />
         </label>
       </div>
