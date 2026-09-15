@@ -1,7 +1,7 @@
 // Browse the active server: pick a library, then a searchable grid of titles.
 // Double-clicking a poster opens the item detail.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Search, ServerCrash, Sparkles } from "lucide-react";
@@ -13,6 +13,7 @@ import { useToast } from "../lib/toast";
 
 const GROUP_COLLECTIONS_KEY = "posterview.groupCollections";
 const LAST_VISIT_PREFIX = "posterview.lastVisit.";
+const SCROLL_POSITION_PREFIX = "posterview.libraryScroll.";
 
 export default function LibraryPage() {
   const navigate = useNavigate();
@@ -30,6 +31,8 @@ export default function LibraryPage() {
   const [filter, setFilter] = useState("");
   const [automaticRootId, setAutomaticRootId] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const libraryBodyRef = useRef<HTMLDivElement>(null);
+  const restoredScrollKeyRef = useRef<string | null>(null);
 
   const refreshMut = useMutation({
     mutationFn: ({ itemId }: { itemId: string }) =>
@@ -155,6 +158,35 @@ export default function LibraryPage() {
     const q = filter.trim().toLowerCase();
     return q ? all.filter((i) => i.title.toLowerCase().includes(q)) : all;
   }, [itemsQ.data, filter]);
+
+  const scrollPositionKey =
+    serverId != null && libraryId != null
+      ? `${SCROLL_POSITION_PREFIX}${serverId}.${libraryId}.${folderId ?? "root"}`
+      : null;
+
+  // Restore only after this browsing context's items render. Tracking the key
+  // prevents filters and background query refreshes from moving the user again.
+  useLayoutEffect(() => {
+    if (
+      !scrollPositionKey ||
+      !itemsQ.data ||
+      restoredScrollKeyRef.current === scrollPositionKey
+    )
+      return;
+
+    const storedPosition = sessionStorage.getItem(scrollPositionKey);
+    const savedPosition = storedPosition == null ? 0 : Number(storedPosition);
+    if (Number.isFinite(savedPosition) && libraryBodyRef.current) {
+      libraryBodyRef.current.scrollTop = savedPosition;
+    }
+    restoredScrollKeyRef.current = scrollPositionKey;
+  }, [itemsQ.data, scrollPositionKey]);
+
+  const rememberScrollPosition = () => {
+    if (scrollPositionKey && libraryBodyRef.current) {
+      sessionStorage.setItem(scrollPositionKey, String(libraryBodyRef.current.scrollTop));
+    }
+  };
 
   // "Since last visit": read the stored timestamp for this library BEFORE
   // overwriting it with now, so this render can still flag anything added
@@ -288,7 +320,11 @@ export default function LibraryPage() {
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
+      <div
+        ref={libraryBodyRef}
+        onScroll={rememberScrollPosition}
+        className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-6"
+      >
         {folderId && (
           <button
             type="button"
