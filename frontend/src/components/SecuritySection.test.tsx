@@ -17,6 +17,11 @@ it("saves timeout and local bypass with a reverse-proxy warning", async () => {
   fireEvent.change(screen.getByLabelText("Minutes of inactivity"), { target: { value: "10" } });
   fireEvent.click(screen.getByLabelText("Skip password authentication on local networks"));
   expect(screen.getByText(/A reverse proxy or Docker networking/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Hide warning" }));
+  expect(screen.queryByText(/A reverse proxy or Docker networking/)).toBeNull();
+  expect(localStorage.getItem("posterview.localBypassWarningHidden")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "Show warning" }));
+  expect(screen.getByText(/A reverse proxy or Docker networking/)).toBeTruthy();
   await waitFor(() => expect(api.saveSecuritySettings).toHaveBeenCalledWith({ idle_timeout_minutes: 10, local_network_bypass: true, login_backdrop_enabled: true }));
   rememberUsername("curator");
   expect(initialUsername()).toBe("curator");
