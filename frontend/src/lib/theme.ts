@@ -24,25 +24,25 @@ export interface AppTheme {
 export type ThemeColorKey = Exclude<keyof AppTheme, "name">;
 
 export const THEME_COLOR_OPTIONS: { key: ThemeColorKey; label: string }[] = [
-  { key: "window", label: "Window" },
-  { key: "card", label: "Card" },
-  { key: "panel", label: "Panel" },
-  { key: "sidebar", label: "Sidebar" },
-  { key: "input", label: "Input" },
-  { key: "inputHover", label: "Input Hover" },
-  { key: "button", label: "Button" },
-  { key: "buttonHover", label: "Button Hover" },
-  { key: "selected", label: "Selected" },
-  { key: "border", label: "Border" },
-  { key: "borderStrong", label: "Strong Border" },
-  { key: "text", label: "Text" },
-  { key: "muted", label: "Muted Text" },
-  { key: "subtle", label: "Subtle Text" },
-  { key: "disabled", label: "Disabled" },
   { key: "accent", label: "Accent" },
   { key: "accentHover", label: "Accent Hover" },
+  { key: "border", label: "Border" },
+  { key: "button", label: "Button" },
+  { key: "buttonHover", label: "Button Hover" },
+  { key: "card", label: "Card" },
+  { key: "disabled", label: "Disabled" },
+  { key: "input", label: "Input" },
+  { key: "inputHover", label: "Input Hover" },
+  { key: "muted", label: "Muted Text" },
+  { key: "panel", label: "Panel" },
+  { key: "selected", label: "Selected" },
+  { key: "sidebar", label: "Sidebar" },
+  { key: "borderStrong", label: "Strong Border" },
+  { key: "subtle", label: "Subtle Text" },
   { key: "success", label: "Success" },
+  { key: "text", label: "Text" },
   { key: "warning", label: "Warning" },
+  { key: "window", label: "Window" },
 ];
 
 // Shared with MKV Orchestrator's semantic palette. PosterView-specific Tailwind
@@ -89,7 +89,7 @@ export function getAllThemes() {
   return [
     ...THEMES,
     ...loadCustomThemes().filter((theme) => !builtInNames.has(theme.name.toLowerCase())),
-  ];
+  ].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export function getTheme(name: string | null | undefined) {

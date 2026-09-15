@@ -39,3 +39,21 @@ it("previews a palette color and saves it as a selectable custom theme", async (
   expect(screen.getByRole("button", { name: "Movie Night" })).toBeTruthy();
   client.clear();
 });
+
+it("lists provider credits and links to authoritative usage policies", () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <SettingsPage />
+    </QueryClientProvider>,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "About" }));
+  expect(screen.getByRole("heading", { name: "Provider credits & usage" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "TheTVDB" }).getAttribute("href")).toBe(
+    "https://thetvdb.com/api-information",
+  );
+  expect(screen.getByText(/Metadata provided by TheTVDB/)).toBeTruthy();
+  expect(screen.getAllByText("Review required")).toHaveLength(3);
+  client.clear();
+});

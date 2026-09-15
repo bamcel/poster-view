@@ -29,7 +29,7 @@ describe("custom themes", () => {
     saveCustomTheme(custom);
 
     expect(loadCustomThemes()).toEqual([custom]);
-    expect(getAllThemes().at(-1)?.name).toBe("Movie Night");
+    expect(getAllThemes().some((theme) => theme.name === "Movie Night")).toBe(true);
     expect(getStoredThemeName()).toBe("Movie Night");
     expect(document.documentElement.style.getPropertyValue("--color-accent")).toBe("#FF3366");
   });

@@ -17,6 +17,8 @@ import {
   Database,
   Palette,
   HardDrive,
+  Info,
+  ExternalLink,
 } from "lucide-react";
 import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
@@ -60,7 +62,7 @@ const TOKEN_LABEL: Record<ServerType, string> = {
   emby: "API key",
 };
 
-type SettingsTab = "servers" | "sources" | "database" | "appearance" | "security";
+type SettingsTab = "servers" | "sources" | "database" | "appearance" | "security" | "about";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   { id: "servers", label: "Server Setup", icon: <ServerIcon className="size-4" /> },
@@ -68,6 +70,7 @@ const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   { id: "database", label: "Cache Services", icon: <Database className="size-4" /> },
   { id: "appearance", label: "Appearance", icon: <Palette className="size-4" /> },
   { id: "security", label: "Privacy / Security", icon: <KeyRound className="size-4" /> },
+  { id: "about", label: "About", icon: <Info className="size-4" /> },
 ];
 
 export default function SettingsPage() {
@@ -111,6 +114,7 @@ export default function SettingsPage() {
           {tab === "database" && <DatabaseSection />}
           {tab === "appearance" && <AppearanceSection />}
           {tab === "security" && <SecuritySection />}
+          {tab === "about" && <AboutSection />}
         </div>
       </div>
     </div>
@@ -202,7 +206,7 @@ function AppearanceSection() {
             value={themeJson}
             onChange={(event) => setThemeJson(event.target.value)}
             spellCheck={false}
-            className="mt-2 min-h-80 flex-1 resize-none rounded-lg border border-border bg-input p-3 font-mono text-xs font-normal leading-5 text-white outline-none focus:border-accent xl:min-h-0"
+            className="mt-2 min-h-80 w-full flex-1 resize-none rounded-lg border border-border bg-input p-4 font-mono text-base font-normal leading-7 text-white outline-none focus:border-accent xl:min-h-0"
           />
         </label>
       </div>
@@ -263,7 +267,7 @@ function ThemePicker({ themes, selected, onSelect }: { themes: AppTheme[]; selec
           <span className="min-w-0 flex-1 truncate">{selectedTheme.name}</span>
           <span className="text-faint transition-transform group-open:rotate-180">⌄</span>
         </summary>
-        <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-elevated p-1 shadow-2xl">
+        <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-sidebar p-1 shadow-2xl">
           {themes.map((theme) => (
             <button key={theme.name} type="button" onClick={() => { onSelect(theme.name); detailsRef.current?.removeAttribute("open"); }} className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-surface-2 ${theme.name === selected ? "text-accent" : "text-white"}`}>
               <ThemePaletteIcon theme={theme} />
@@ -284,6 +288,98 @@ function ThemePaletteIcon({ theme }: { theme: AppTheme }) {
       <span style={{ background: theme.sidebar }} />
       <span style={{ background: theme.accent }} />
     </span>
+  );
+}
+
+const PROVIDER_NOTICES = [
+  {
+    name: "AniList",
+    credit: "Anime and manga metadata provided by AniList.",
+    requirement: "The API terms prohibit backup, hoarding, and mass collection. Commercial products above AniList’s published revenue threshold require a license.",
+    href: "https://docs.anilist.co/guide/terms-of-use",
+  },
+  {
+    name: "Comic Vine",
+    credit: "Comic information provided by Comic Vine.",
+    requirement: "Comic Vine requires a link back wherever its data is used, limits the API to non-commercial use, and asks clients to cache responses within its rate limits.",
+    href: "https://comicvine.gamespot.com/api/",
+  },
+  {
+    name: "Fanart.tv",
+    credit: "Artwork provided by Fanart.tv.",
+    requirement: "The Fanart.tv API is published under Creative Commons Attribution 3.0. Keep this credit and link visible when its artwork is used.",
+    href: "https://api.fanart.tv/",
+  },
+  {
+    name: "MangaDex",
+    credit: "Manga information and cover metadata provided by MangaDex.",
+    requirement: "MangaDex requires credit and prohibits ads or paid services in clients using its API. Scanlation-group credit is additionally required when chapter reading is offered.",
+    href: "https://api.mangadex.org/docs/",
+  },
+  {
+    name: "MediUX",
+    credit: "Artwork sourced from MediUX.",
+    requirement: "MediUX does not publish a public API attribution guide. Review its current terms before distributing or commercializing an integration.",
+    href: "https://mediux.pro/",
+    review: true,
+  },
+  {
+    name: "ThePosterDB",
+    credit: "Artwork provided by The Poster Database.",
+    requirement: "This is an unofficial account-based integration. The published site terms restrict automated collection and limit site content to personal use; confirm permission before broader distribution.",
+    href: "https://theposterdb.com/",
+    review: true,
+  },
+  {
+    name: "TheTVDB",
+    credit: "Metadata provided by TheTVDB. Please consider adding missing information or subscribing.",
+    requirement: "TheTVDB requires this attribution with a direct link for free API use. API access and image-display rights remain subject to the project’s selected license.",
+    href: "https://thetvdb.com/api-information",
+  },
+  {
+    name: "VIZ",
+    credit: "Cover imagery sourced from VIZ Media catalog pages.",
+    requirement: "VIZ’s site terms restrict automated retrieval and copying of site materials. Attribution alone does not grant reuse rights; obtain permission for distribution or non-personal use.",
+    href: "https://www.viz.com/terms",
+    review: true,
+  },
+] as const;
+
+function AboutSection() {
+  return (
+    <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
+      <h2 className="flex items-center gap-2 text-lg font-semibold">
+        <Info className="size-5 text-accent" /> About PosterView
+      </h2>
+      <p className="mt-1 text-sm text-faint">
+        PosterView is an independent project and is not endorsed by the services below. Provider names and content remain the property of their respective owners.
+      </p>
+
+      <div className="mt-4">
+        <h3 className="font-semibold">Provider credits &amp; usage</h3>
+        <p className="mt-1 text-sm text-faint">
+          These notices summarize published requirements for convenience. Provider policies and licenses are authoritative and may change.
+        </p>
+        <div className="mt-3 overflow-hidden rounded-xl border border-border bg-surface-2">
+          {PROVIDER_NOTICES.map((provider, index) => (
+            <article key={provider.name} className={`grid gap-2 p-4 lg:grid-cols-[11rem_minmax(0,1fr)] ${index > 0 ? "border-t border-border" : ""}`}>
+              <div>
+                <a href={provider.href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-semibold text-white hover:text-accent">
+                  {provider.name} <ExternalLink className="size-3.5" aria-hidden="true" />
+                </a>
+                {"review" in provider && provider.review && (
+                  <span className="mt-2 block w-fit rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-200">Review required</span>
+                )}
+              </div>
+              <div className="space-y-1 text-sm">
+                <p className="font-medium text-white">{provider.credit}</p>
+                <p className="leading-6 text-faint">{provider.requirement}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
