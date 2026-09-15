@@ -98,6 +98,7 @@ export default function LibraryPage() {
     selectedLibrary?.type === "audiobook" ||
     (selectedLibrary?.type === "other" &&
       /manga|comic|book/i.test(selectedLibrary.title));
+  const showGroupCollections = libraryId !== "collections" && !browsesFolders;
   const parentId =
     folderId ?? automaticRootId ?? (browsesFolders ? libraryId : null);
 
@@ -254,26 +255,47 @@ export default function LibraryPage() {
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="border-b border-border px-4 pt-4 sm:px-6 sm:pt-5 lg:px-8 lg:pt-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
           <div>
             <h1 className="text-2xl font-semibold">{selectedServer.name}</h1>
             <p className="text-sm text-faint">
               Browse your libraries and update artwork
             </p>
           </div>
-          <div className="relative w-full sm:w-auto">
+          <div className="relative col-span-2 row-start-2 w-full sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:w-64">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filter titles…"
-              className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-3 text-sm outline-none focus:border-accent sm:w-64"
+              className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-3 text-sm outline-none focus:border-accent"
             />
           </div>
+          {showGroupCollections && (
+            <label className="col-start-2 row-start-1 flex shrink-0 items-center justify-end gap-2 text-sm text-muted sm:col-start-3">
+              Group Collections
+              <button
+                type="button"
+                role="switch"
+                aria-checked={groupCollections}
+                onClick={toggleGroupCollections}
+                title="Replace a collection's movies/shows with a single tile"
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                  groupCollections ? "bg-accent" : "bg-surface-2"
+                }`}
+              >
+                <span
+                  className={`inline-block size-4 transform rounded-full bg-white transition-transform ${
+                    groupCollections ? "translate-x-6" : "translate-x-1"
+                  }`}
+                />
+              </button>
+            </label>
+          )}
         </div>
 
         {/* Library tabs */}
-        <div className="mt-4 flex flex-col items-stretch gap-3 sm:mt-5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="mt-4 sm:mt-5">
           <div className="flex gap-1 overflow-x-auto pb-px">
             {librariesQ.isLoading && (
               <span className="py-2 text-sm text-faint">
@@ -294,28 +316,6 @@ export default function LibraryPage() {
               </button>
             ))}
           </div>
-
-          {libraryId !== "collections" && !browsesFolders && (
-            <label className="flex shrink-0 items-center justify-end gap-2 pb-2 text-sm text-muted sm:pb-px">
-              Group Collections
-              <button
-                type="button"
-                role="switch"
-                aria-checked={groupCollections}
-                onClick={toggleGroupCollections}
-                title="Replace a collection's movies/shows with a single tile"
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
-                  groupCollections ? "bg-accent" : "bg-surface-2"
-                }`}
-              >
-                <span
-                  className={`inline-block size-4 transform rounded-full bg-white transition-transform ${
-                    groupCollections ? "translate-x-6" : "translate-x-1"
-                  }`}
-                />
-              </button>
-            </label>
-          )}
         </div>
       </div>
 
