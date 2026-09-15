@@ -18,6 +18,7 @@ import {
   Database,
   Palette,
   HardDrive,
+  ChevronDown,
 } from "lucide-react";
 import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
@@ -100,7 +101,7 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-semibold">Settings</h1>
 
         <div className="flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-          <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1">{TABS.map((t) => (
+          <div className="flex flex-nowrap gap-3 overflow-x-auto px-1 pb-3">{TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => selectTab(t.id)}
@@ -568,30 +569,43 @@ function ServerCard({
         </IconBtn>
       </div>
 
-      <div className="mt-3 border-t border-border pt-3">
-        <p className="mb-2 text-xs font-medium text-muted">Libraries shown on the Libraries page</p>
-        {visibilityQ.isLoading && <p className="text-xs text-faint">Loading libraries…</p>}
-        {visibilityQ.isError && (
-          <p className="text-xs text-danger">Could not load libraries from this server.</p>
-        )}
-        {visibilityQ.data?.libraries.length === 0 && (
-          <p className="text-xs text-faint">No libraries were found.</p>
-        )}
-        <div className="flex flex-wrap gap-x-5 gap-y-2">
-          {visibilityQ.data?.libraries.map((library) => (
-            <label key={library.id} className="flex items-center gap-2 text-sm text-muted">
-              <input
-                type="checkbox"
-                checked={library.visible}
-                disabled={visibilityMut.isPending}
-                onChange={() => toggleLibrary(library.id)}
-                className="size-4 accent-[var(--color-accent)]"
-              />
-              {library.title}
-            </label>
-          ))}
+      <details className="group mt-3 border-t border-border pt-3">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg border border-border bg-window px-3 py-2 text-sm text-muted transition-colors hover:text-white [&::-webkit-details-marker]:hidden">
+          <span className="min-w-0">
+            <span className="block font-medium text-white">Libraries shown on the Libraries page</span>
+            <span className="block text-xs text-faint">
+              {visibilityQ.isLoading
+                ? "Loading libraries…"
+                : visibilityQ.isError
+                  ? "Could not load libraries"
+                  : `${visibilityQ.data?.libraries.filter((library) => library.visible).length ?? 0} of ${visibilityQ.data?.libraries.length ?? 0} shown`}
+            </span>
+          </span>
+          <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="mt-2 rounded-lg border border-border bg-window p-3">
+          {visibilityQ.isError && (
+            <p className="text-xs text-danger">Could not load libraries from this server.</p>
+          )}
+          {visibilityQ.data?.libraries.length === 0 && (
+            <p className="text-xs text-faint">No libraries were found.</p>
+          )}
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {visibilityQ.data?.libraries.map((library) => (
+              <label key={library.id} className="flex items-center gap-2 text-sm text-muted">
+                <input
+                  type="checkbox"
+                  checked={library.visible}
+                  disabled={visibilityMut.isPending}
+                  onChange={() => toggleLibrary(library.id)}
+                  className="size-4 accent-[var(--color-accent)]"
+                />
+                <span className="truncate">{library.title}</span>
+              </label>
+            ))}
+          </div>
         </div>
-      </div>
+      </details>
     </div>
   );
 }

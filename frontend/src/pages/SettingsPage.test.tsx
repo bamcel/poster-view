@@ -1,11 +1,17 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import SettingsPage from "./SettingsPage";
 import { api } from "../api/client";
 
-vi.mock("../api/client", () => ({ api: { listServers: vi.fn() } }));
+vi.mock("../api/client", () => ({
+  api: {
+    listServers: vi.fn(),
+    getLibraryVisibility: vi.fn(),
+    setLibraryVisibility: vi.fn(),
+  },
+}));
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 
 beforeEach(() => {
@@ -57,5 +63,43 @@ it("restores the active settings tab from the URL", () => {
 
   expect(screen.getByRole("button", { name: "Appearance", pressed: true })).toBeTruthy();
   expect(screen.getByLabelText("Theme JSON")).toBeTruthy();
+  client.clear();
+});
+
+it("keeps server libraries in a checkbox dropdown", async () => {
+  vi.mocked(api.listServers).mockResolvedValue([
+    {
+      id: 1,
+      name: "Jellyfin",
+      type: "jellyfin",
+      base_url: "http://jellyfin:8096",
+      is_default: true,
+      has_token: true,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    },
+  ]);
+  vi.mocked(api.getLibraryVisibility).mockResolvedValue({
+    libraries: [
+      { id: "movies", title: "Movies", type: "movie", visible: true },
+      { id: "shows", title: "TV Shows", type: "show", visible: false },
+    ],
+  });
+  vi.mocked(api.setLibraryVisibility).mockResolvedValue();
+
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <SettingsPage />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByText("1 of 2 shown")).toBeTruthy();
+  fireEvent.click(screen.getByText("Libraries shown on the Libraries page"));
+  fireEvent.click(screen.getByRole("checkbox", { name: "TV Shows" }));
+
+  await waitFor(() => expect(api.setLibraryVisibility).toHaveBeenCalledWith(1, []));
   client.clear();
 });
