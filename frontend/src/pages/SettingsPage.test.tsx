@@ -10,6 +10,8 @@ vi.mock("../api/client", () => ({
     listServers: vi.fn(),
     getLibraryVisibility: vi.fn(),
     setLibraryVisibility: vi.fn(),
+    getArtworkSettings: vi.fn(),
+    setArtworkSettings: vi.fn(),
   },
 }));
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
@@ -17,6 +19,13 @@ vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 beforeEach(() => {
   localStorage.clear();
   vi.mocked(api.listServers).mockResolvedValue([]);
+  vi.mocked(api.getArtworkSettings).mockResolvedValue({
+    fanart_configured: false,
+    tvdb_configured: false,
+    comicvine_configured: false,
+    default_provider: "posterdb",
+    enabled_providers: ["posterdb"],
+  });
 });
 
 afterEach(() => {
@@ -101,5 +110,21 @@ it("keeps server libraries in a checkbox dropdown", async () => {
   fireEvent.click(screen.getByRole("checkbox", { name: "TV Shows" }));
 
   await waitFor(() => expect(api.setLibraryVisibility).toHaveBeenCalledWith(1, []));
+  client.clear();
+});
+
+it("places artwork database controls in Server Setup instead of Cache Services", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <SettingsPage />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByText("Enabled artwork databases")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cache Services" }));
+  expect(screen.queryByText("Enabled artwork databases")).toBeNull();
   client.clear();
 });

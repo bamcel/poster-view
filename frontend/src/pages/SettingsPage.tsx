@@ -373,37 +373,46 @@ function ServersSection() {
   const canSubmit = form.name.trim() && form.base_url.trim() && (editingId != null || form.token);
 
   return (
-    <section className="h-full rounded-2xl border border-border bg-surface p-4">
-      <h2 className="mb-1 text-lg font-semibold">Media servers</h2>
+    <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-3.5">
+      <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
+        <ServerIcon className="size-5 text-accent" /> Server setup
+      </h2>
       <p className="mb-3 text-sm text-faint">
-        Connect Plex, Jellyfin, or Emby. Tokens are encrypted before they're stored.
+        Connect your media servers and choose which artwork databases PosterView can search.
       </p>
 
-      {/* Existing servers */}
-      <div className="mb-4 max-h-80 space-y-2 overflow-y-auto pr-1 xl:max-h-72">
-        {serversQ.data?.length === 0 && (
-          <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-faint">
-            No servers yet — add one below.
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(16rem,0.7fr)]">
+        <div className="rounded-xl border border-border bg-surface-2 p-3">
+          <h3 className="mb-1 text-sm font-semibold">Media servers</h3>
+          <p className="mb-3 text-xs text-faint">
+            Connect Plex, Jellyfin, or Emby. Tokens are encrypted before they're stored.
           </p>
-        )}
-        {serversQ.data?.map((s) => (
-          <ServerCard
-            key={s.id}
-            server={s}
-            onEdit={() => startEdit(s)}
-            onDelete={() => {
-              if (confirm(`Remove "${s.name}"?`)) deleteMut.mutate(s.id);
-            }}
-          />
-        ))}
-      </div>
 
-      {/* Add / edit form */}
-      <div className="rounded-xl border border-border bg-surface-2 p-4">
-        <h3 className="mb-3 text-sm font-semibold">
-          {editingId == null ? "Add a server" : "Edit server"}
-        </h3>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/* Existing servers */}
+          <div className="mb-3 max-h-56 space-y-2 overflow-y-auto pr-1 xl:max-h-52">
+            {serversQ.data?.length === 0 && (
+              <p className="rounded-lg border border-dashed border-border px-4 py-4 text-center text-sm text-faint">
+                No servers yet — add one below.
+              </p>
+            )}
+            {serversQ.data?.map((s) => (
+              <ServerCard
+                key={s.id}
+                server={s}
+                onEdit={() => startEdit(s)}
+                onDelete={() => {
+                  if (confirm(`Remove "${s.name}"?`)) deleteMut.mutate(s.id);
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Add / edit form */}
+          <div className="rounded-lg border border-border bg-window p-3">
+            <h3 className="mb-3 text-sm font-semibold">
+              {editingId == null ? "Add a server" : "Edit server"}
+            </h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Name">
             <input
               className={inputCls}
@@ -440,9 +449,9 @@ function ServersSection() {
               placeholder={editingId != null ? "•••••• (leave blank to keep)" : ""}
             />
           </Field>
-        </div>
+            </div>
 
-        <label className="mt-3 flex items-center gap-2 text-sm text-muted">
+            <label className="mt-3 flex items-center gap-2 text-sm text-muted">
           <input
             type="checkbox"
             checked={form.is_default}
@@ -450,9 +459,9 @@ function ServersSection() {
             className="size-4 accent-[var(--color-accent)]"
           />
           Use as default server
-        </label>
+            </label>
 
-        {testResult && (
+            {testResult && (
           <div
             className={`mt-3 flex items-center gap-2 text-sm ${
               testResult.ok ? "text-accent" : "text-danger"
@@ -465,9 +474,9 @@ function ServersSection() {
                 }`
               : testResult.message}
           </div>
-        )}
+            )}
 
-        <div className="mt-4 flex items-center gap-2">
+            <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             onClick={() => saveMut.mutate()}
             disabled={!canSubmit || saveMut.isPending}
@@ -489,7 +498,13 @@ function ServersSection() {
               Cancel
             </button>
           )}
+            </div>
+          </div>
         </div>
+
+        <aside className="rounded-xl border border-border bg-surface-2 p-3">
+          <EnabledArtworkSourcesFields />
+        </aside>
       </div>
     </section>
   );
@@ -643,14 +658,9 @@ function DatabaseSection() {
         <Database className="size-5 text-accent" /> Cache services
       </h2>
       <p className="mb-3 text-sm text-faint">
-        Choose which databases PosterView uses, manage cached artwork, and control background preloading.
+        Manage cached artwork and control background preloading.
       </p>
-      <div className="grid gap-4 xl:grid-cols-[minmax(15rem,0.65fr)_minmax(0,2fr)]">
-        <EnabledArtworkSourcesFields />
-        <div className="border-t border-border pt-4 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
-          <ArtworkCacheFields />
-        </div>
-      </div>
+      <ArtworkCacheFields />
     </section>
   );
 }
@@ -742,7 +752,7 @@ function EnabledArtworkSourcesFields() {
                 checked={checked}
                 disabled={settingsQ.isLoading || toggleMut.isPending}
                 onChange={() => toggleMut.mutate(checked ? enabled.filter((name) => name !== source.name) : [...enabled, source.name])}
-                className="size-4 accent-[var(--accent)]"
+                className="size-4 accent-[var(--color-accent)]"
               />
             </label>
           );
