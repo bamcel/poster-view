@@ -598,7 +598,7 @@ function ServerCard({
           </span>
           <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" />
         </summary>
-        <div className="border-t border-border p-3">
+        <div className="p-3 pt-1">
           {visibilityQ.isError && (
             <p className="text-xs text-danger">Could not load libraries from this server.</p>
           )}
