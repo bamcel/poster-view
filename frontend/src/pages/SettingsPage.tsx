@@ -99,13 +99,13 @@ export default function SettingsPage() {
       <div className="mx-auto flex min-h-full w-full max-w-[110rem] flex-col gap-4 xl:h-full xl:min-h-0">
         <h1 className="text-2xl font-semibold">Settings</h1>
 
-        <div className="flex items-center justify-between gap-4 border-b border-border pb-3">
-          <div className="flex flex-wrap gap-2">{TABS.map((t) => (
+        <div className="flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1">{TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => selectTab(t.id)}
               aria-pressed={tab === t.id}
-              className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+              className={`flex shrink-0 items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
                 tab === t.id
                   ? "border-accent bg-surface-2 text-white"
                   : "border-transparent text-muted hover:text-white"
@@ -115,7 +115,7 @@ export default function SettingsPage() {
               {t.label}
             </button>
           ))}</div>
-          <span role="status" className={`shrink-0 text-xs ${saveStatus === "error" ? "text-danger" : "text-accent"}`}>
+          <span role="status" className={`shrink-0 self-end text-xs sm:self-auto ${saveStatus === "error" ? "text-danger" : "text-accent"}`}>
             {saveStatus === "saving" ? "Saving settings…" : saveStatus === "error" ? "Settings could not be saved." : "Settings saved automatically."}
           </span>
         </div>
