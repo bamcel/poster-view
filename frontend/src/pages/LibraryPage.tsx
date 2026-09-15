@@ -255,14 +255,14 @@ export default function LibraryPage() {
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="border-b border-border px-4 pt-4 sm:px-6 sm:pt-5 lg:px-8 lg:pt-6">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-4 sm:items-center">
           <div>
             <h1 className="text-2xl font-semibold">{selectedServer.name}</h1>
             <p className="text-sm text-faint">
               Browse your libraries and update artwork
             </p>
           </div>
-          <div className="relative col-span-2 row-start-2 w-full sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:w-64">
+          <div className="relative col-span-2 row-start-2 w-full sm:col-span-1 sm:col-start-2 sm:w-64">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
             <input
               value={filter}
@@ -272,7 +272,7 @@ export default function LibraryPage() {
             />
           </div>
           {showGroupCollections && (
-            <label className="col-start-2 row-start-1 flex shrink-0 items-center justify-end gap-2 text-sm text-muted sm:col-start-3">
+            <label className="col-start-2 row-start-1 flex shrink-0 items-center justify-end gap-2 text-sm text-muted">
               Group Collections
               <button
                 type="button"
@@ -292,29 +292,28 @@ export default function LibraryPage() {
               </button>
             </label>
           )}
-        </div>
-
-        {/* Library tabs */}
-        <div className="mt-4 sm:mt-5">
-          <div className="flex gap-1 overflow-x-auto pb-px">
-            {librariesQ.isLoading && (
-              <span className="py-2 text-sm text-faint">
-                Loading libraries…
-              </span>
-            )}
-            {browseableLibs.map((lib) => (
-              <button
-                key={lib.id}
-                onClick={() => selectLibrary(lib.id)}
-                className={`whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-                  libraryId === lib.id
-                    ? "border-accent text-white"
-                    : "border-transparent text-muted hover:text-white"
-                }`}
-              >
-                {lib.title}
-              </button>
-            ))}
+          {/* Library tabs */}
+          <div className="col-span-2 row-start-3 min-w-0 sm:col-span-1 sm:col-start-1 sm:row-start-2">
+            <div className="flex gap-1 overflow-x-auto pb-px">
+              {librariesQ.isLoading && (
+                <span className="py-2 text-sm text-faint">
+                  Loading libraries…
+                </span>
+              )}
+              {browseableLibs.map((lib) => (
+                <button
+                  key={lib.id}
+                  onClick={() => selectLibrary(lib.id)}
+                  className={`whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+                    libraryId === lib.id
+                      ? "border-accent text-white"
+                      : "border-transparent text-muted hover:text-white"
+                  }`}
+                >
+                  {lib.title}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
