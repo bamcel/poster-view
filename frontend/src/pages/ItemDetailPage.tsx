@@ -55,10 +55,14 @@ export default function ItemDetailPage() {
             className="h-full w-full scale-[1.02] object-cover"
           />
         )}
+        {/* Keep the baseline dimming attached to the fixed backdrop rather than
+            the scrolling content. Mobile rubber-band scrolling can temporarily
+            pull the content layer down, but must never expose the raw image. */}
+        <div className="absolute inset-0 bg-black/55" />
       </div>
 
       {/* Left: hero + seasons */}
-      <div className="relative z-[1] h-full flex-1 overflow-y-auto">
+      <div className="relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain">
         {/* min-h-full lets this wrapper be at least a viewport tall but grow to
             the full scrolled content height. The darkening layer below is
             absolute inset-0 against THIS wrapper, so it covers every season row
@@ -67,12 +71,9 @@ export default function ItemDetailPage() {
             away, leaving multi-season shows showing the raw, undarkened backdrop
             at the bottom.) */}
         <div className="relative min-h-full">
-          {/* Darkening gradients: scoped to just the hero column (not the fixed
-              image above) for text contrast — a uniform dark wash, with extra
-              darkening on the left (behind the poster/title/logo) and at the
-              bottom (behind the seasons row). */}
+          {/* Extra gradients move with the hero column to strengthen contrast
+              behind the poster/title/logo and at the end of long content. */}
           <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute inset-0 bg-black/55" />
             <div className="absolute inset-0 bg-gradient-to-r from-base/95 via-base/60 via-50% to-transparent to-90%" />
             <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent via-50% to-base/85" />
           </div>
