@@ -317,6 +317,7 @@ function ServersSection() {
 
   const [form, setForm] = useState<ServerInput>(BLANK);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionTest | null>(null);
 
@@ -324,12 +325,21 @@ function ServersSection() {
     setForm(BLANK);
     setEditingId(null);
     setTestResult(null);
+    setFormOpen(false);
+  };
+
+  const startAdd = () => {
+    setForm(BLANK);
+    setEditingId(null);
+    setTestResult(null);
+    setFormOpen(true);
   };
 
   const startEdit = (s: Server) => {
     setEditingId(s.id);
     setForm({ name: s.name, type: s.type, base_url: s.base_url, token: "", is_default: s.is_default });
     setTestResult(null);
+    setFormOpen(true);
   };
 
   const saveMut = useMutation({
@@ -411,6 +421,16 @@ function ServersSection() {
 
           {/* Add / edit form */}
           <div className="border-t border-border px-1 pt-3">
+            {!formOpen ? (
+              <button
+                type="button"
+                onClick={startAdd}
+                className="flex items-center gap-2 rounded-lg border border-border bg-button px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-button-hover"
+              >
+                <Plus className="size-4 text-accent" /> Add server
+              </button>
+            ) : (
+              <>
             <h3 className="mb-3 text-sm font-semibold">
               {editingId == null ? "Add a server" : "Edit server"}
             </h3>
@@ -495,12 +515,12 @@ function ServersSection() {
             {testing ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
             Test connection
           </button>
-          {editingId != null && (
             <button onClick={reset} className="px-3 py-2 text-sm text-faint hover:text-white">
               Cancel
             </button>
-          )}
             </div>
+              </>
+            )}
           </div>
         </div>
 

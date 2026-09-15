@@ -75,6 +75,24 @@ it("restores the active settings tab from the URL", () => {
   client.clear();
 });
 
+it("keeps the add server form collapsed until requested", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <SettingsPage />
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+
+  expect(screen.queryByPlaceholderText("Living Room Jellyfin")).toBeNull();
+  fireEvent.click(await screen.findByRole("button", { name: "Add server" }));
+  expect(screen.getByPlaceholderText("Living Room Jellyfin")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByPlaceholderText("Living Room Jellyfin")).toBeNull();
+  client.clear();
+});
+
 it("keeps server libraries in a checkbox dropdown", async () => {
   vi.mocked(api.listServers).mockResolvedValue([
     {
