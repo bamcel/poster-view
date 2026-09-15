@@ -640,11 +640,11 @@ function ArtworkSourcesSection() {
         Accounts and API keys used to search and download posters, backgrounds, banners, and logos.
       </p>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(15rem,0.55fr)_minmax(0,2fr)]">
+      <div className="border-b border-border pb-3">
         <DefaultArtworkSourceFields />
-        <div className="border-t border-border pt-3 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
-          <ArtworkCredentialsFields />
-        </div>
+      </div>
+      <div className="pt-3">
+        <ArtworkCredentialsFields />
       </div>
 
     </section>
@@ -697,11 +697,13 @@ function DefaultArtworkSourceFields() {
   });
 
   return (
-    <div>
-      <h3 className="mb-1 text-sm font-semibold">Default database lookup</h3>
-      <p className="mb-3 text-xs text-faint">This source opens first whenever you select a movie, series, or collection.</p>
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+      <div>
+        <h3 className="mb-1 text-sm font-semibold">Default database lookup</h3>
+        <p className="text-xs text-faint">This source opens first whenever you select a movie, series, or collection.</p>
+      </div>
       <select
-        className={compactInputCls}
+        className={`${compactInputCls} sm:max-w-sm`}
         value={settingsQ.data?.default_provider ?? ""}
         onChange={(event) => saveMut.mutate(event.target.value)}
         disabled={settingsQ.isLoading || saveMut.isPending || enabled.length === 0}
