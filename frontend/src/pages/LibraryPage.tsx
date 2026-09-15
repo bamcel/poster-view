@@ -262,7 +262,7 @@ export default function LibraryPage() {
               Browse your libraries and update artwork
             </p>
           </div>
-          <div className="relative col-span-2 row-start-2 w-full sm:col-span-1 sm:col-start-2 sm:w-64">
+          <div className="relative col-span-2 row-start-2 w-full sm:col-span-1 sm:col-start-2 sm:-mr-6 sm:w-64 sm:-translate-y-2 sm:justify-self-end lg:-mr-8">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
             <input
               value={filter}
