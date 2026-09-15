@@ -1,4 +1,8 @@
+mod comicvine;
+mod mangadex;
 mod posterdb;
+mod viz;
+pub use mangadex::valid_manga_id;
 
 use posterview_contracts::{
     ArtworkItem, ArtworkProviderInfo, ArtworkSearchResult, ItemDetail, ItemType,
@@ -40,6 +44,10 @@ impl Default for ArtworkService {
 }
 
 impl ArtworkService {
+    pub async fn test_comicvine(&self, key: &str) -> Result<(), String> {
+        comicvine::test(&self.client, key).await
+    }
+
     pub async fn test_fanart(&self, key: &str) -> Result<(), String> {
         if key.is_empty() {
             return Err("Fanart.tv API key is not configured (add it in Settings).".to_owned());
@@ -76,6 +84,7 @@ impl ArtworkService {
         &self,
         fanart_key: &str,
         tvdb_key: &str,
+        comicvine_key: &str,
         enabled: &std::collections::HashSet<String>,
     ) -> Vec<ArtworkProviderInfo> {
         vec![
@@ -83,9 +92,19 @@ impl ArtworkService {
             provider("tvdb", "TheTVDB", !tvdb_key.is_empty(), true, enabled),
             provider("anilist", "AniList", true, false, enabled),
             provider("mediux", "MediUX", true, false, enabled),
+            provider("mangadex", "MangaDex", true, false, enabled),
+            provider("viz", "VIZ", true, false, enabled),
+            provider(
+                "comicvine",
+                "ComicVine",
+                !comicvine_key.is_empty(),
+                true,
+                enabled,
+            ),
         ]
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch(
         &self,
         provider: &str,
@@ -94,8 +113,12 @@ impl ArtworkService {
         fanart_key: &str,
         tvdb_key: &str,
         tvdb_pin: &str,
+        comicvine_key: &str,
     ) -> Result<Vec<ArtworkItem>, String> {
         match provider {
+            "mangadex" => self.fetch_mangadex(item, id_override).await,
+            "viz" => viz::fetch_viz(&self.client, item, id_override).await,
+            "comicvine" => comicvine::fetch(&self.client, comicvine_key, item, id_override).await,
             "fanart" => fetch_fanart(item, id_override, fanart_key).await,
             "anilist" => fetch_anilist(item, id_override).await,
             "tvdb" => self.fetch_tvdb(item, id_override, tvdb_key, tvdb_pin).await,
@@ -111,7 +134,17 @@ impl ArtworkService {
         kind: &str,
         tvdb_key: &str,
         tvdb_pin: &str,
+        comicvine_key: &str,
     ) -> Result<Vec<ArtworkSearchResult>, String> {
+        if provider == "mangadex" {
+            return self.search_mangadex(query).await;
+        }
+        if provider == "viz" {
+            return viz::search_viz(&self.client, query).await;
+        }
+        if provider == "comicvine" {
+            return comicvine::search(&self.client, comicvine_key, query).await;
+        }
         if !matches!(provider, "tvdb" | "fanart" | "mediux") {
             return Err(format!("Title search isn't available for {provider}."));
         }
@@ -127,6 +160,10 @@ impl ArtworkService {
                         .or_else(|| remote_id(&candidate, "IMDB")),
                 }?;
                 Some(ArtworkSearchResult {
+                    alternate_titles: Vec::new(),
+                    status: None,
+                    volume_count: None,
+                    publisher: None,
                     id,
                     name: candidate
                         .get("name")
@@ -301,6 +338,7 @@ impl ArtworkService {
                 let artwork_type = slug_type(slug)?;
                 let url = absolute_tvdb(art.get("image")?.as_str()?);
                 Some(ArtworkItem {
+                    manga: None,
                     id: value_string(art.get("id")).unwrap_or_else(|| url.clone()),
                     provider: "tvdb".to_owned(),
                     artwork_type: artwork_type.to_owned(),
@@ -339,6 +377,13 @@ pub async fn download_public_image(provider: &str, url: &str) -> Result<(Vec<u8>
         "tvdb" => &["thetvdb.com"],
         "anilist" => &["anilist.co"],
         "mediux" => &["mediux.pro"],
+        "mangadex" => &["uploads.mangadex.org"],
+        "viz" => &["dw9to29mmj727.cloudfront.net"],
+        "comicvine" => &[
+            "comicvine.gamespot.com",
+            "comicvine1.cbsistatic.com",
+            "static.comicvine.com",
+        ],
         _ => return Err(format!("Unknown artwork provider: {provider}")),
     };
     let url = provider_https(url, domains)?;
@@ -450,6 +495,7 @@ async fn fetch_fanart(
                 })
                 .flatten();
             items.push(ArtworkItem {
+                manga: None,
                 id: value_string(entry.get("id")).unwrap_or_else(|| url.clone()),
                 provider: "fanart".to_owned(),
                 artwork_type: (*artwork_type).to_owned(),
@@ -511,6 +557,7 @@ async fn fetch_anilist(
         .and_then(Value::as_str)
     {
         items.push(ArtworkItem {
+            manga: None,
             id: format!("anilist-{id}-poster"),
             provider: "anilist".to_owned(),
             artwork_type: "poster".to_owned(),
@@ -527,6 +574,7 @@ async fn fetch_anilist(
     }
     if let Some(url) = media.get("bannerImage").and_then(Value::as_str) {
         items.push(ArtworkItem {
+            manga: None,
             id: format!("anilist-{id}-banner"),
             provider: "anilist".to_owned(),
             artwork_type: "banner".to_owned(),
@@ -555,6 +603,9 @@ async fn fetch_mediux(
         ItemType::Show => "shows",
         ItemType::Collection => "collections",
         ItemType::Movie => "movies",
+        ItemType::Book | ItemType::Audiobook | ItemType::Folder => {
+            return Err("Use MangaDex to find book covers.".to_owned());
+        }
     };
     let response = http_client()?
         .get(format!("{MEDIUX_BASE}/{path}/{id}"))
@@ -617,6 +668,7 @@ fn parse_mediux(html: &str, item: &ItemDetail) -> Result<Vec<ArtworkItem>, Strin
             percent_encode(&asset_url)
         );
         items.push(ArtworkItem {
+            manga: None,
             id: asset_url.clone(),
             provider: "mediux".to_owned(),
             artwork_type: artwork_type.to_owned(),
@@ -668,7 +720,15 @@ fn provider(
 }
 
 fn http_client() -> Result<Client, String> {
-    provider_client(&["fanart.tv", "anilist.co", "thetvdb.com", "mediux.pro"])
+    provider_client(&[
+        "fanart.tv",
+        "anilist.co",
+        "thetvdb.com",
+        "mediux.pro",
+        "viz.com",
+        "www.viz.com",
+        "comicvine.gamespot.com",
+    ])
 }
 
 fn provider_client(domains: &[&str]) -> Result<Client, String> {
@@ -712,6 +772,9 @@ fn item_kind(item: &ItemDetail) -> String {
         ItemType::Movie => "movie",
         ItemType::Show => "show",
         ItemType::Collection => "collection",
+        ItemType::Book => "book",
+        ItemType::Audiobook => "audiobook",
+        ItemType::Folder => "folder",
     }
     .to_owned()
 }

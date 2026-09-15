@@ -13,12 +13,69 @@ use posterview_contracts::{
 use posterview_infra_artwork::{download_public_image, fetch_mediux_thumb};
 
 impl Runtime {
+    pub fn manga_selection(
+        &self,
+        server_id: i64,
+        item_id: &str,
+    ) -> Result<posterview_contracts::MangaSelection, RuntimeError> {
+        let value = self
+            .server_store()?
+            .get_setting(&format!("mangadex-selection:{server_id}:{item_id}"))?;
+        Ok(serde_json::from_str(&value).unwrap_or_default())
+    }
+
+    pub fn save_manga_selection(
+        &self,
+        server_id: i64,
+        item_id: &str,
+        selection: &posterview_contracts::MangaSelection,
+    ) -> Result<(), RuntimeError> {
+        let value = serde_json::to_string(selection).map_err(std::io::Error::other)?;
+        self.server_store()?
+            .set_setting(&format!("mangadex-selection:{server_id}:{item_id}"), &value)?;
+        self.refresh_mangadex_cache(server_id, item_id);
+        Ok(())
+    }
+
+    pub fn refresh_mangadex_cache(&self, server_id: i64, item_id: &str) {
+        let _ = self
+            .artwork_cache
+            .remove_matching(&format!("artwork:mangadex:{server_id}:{item_id}:"));
+        let _ = self
+            .artwork_cache
+            .remove_matching(&format!("artwork-search:mangadex:{server_id}:{item_id}:"));
+    }
+
+    pub fn refresh_artwork_provider_cache(&self, provider: &str, server_id: i64, item_id: &str) {
+        let _ = self
+            .artwork_cache
+            .remove_matching(&format!("artwork:{provider}:{server_id}:{item_id}:"));
+    }
+
+    pub async fn mangadex_image(&self, url: &str) -> Result<(Vec<u8>, String), String> {
+        let settings = self.artwork_cache_settings().map_err(|e| e.to_string())?;
+        let key = format!("mangadex-image:{url}");
+        if let Some(image) = self.artwork_cache.get_image(&key, settings.ttl_days) {
+            return Ok(image);
+        }
+        let image = download_public_image("mangadex", url).await?;
+        let _ = self.artwork_cache.put_image(
+            &key,
+            &image.0,
+            &image.1,
+            settings.max_mb,
+            settings.ttl_days,
+        );
+        Ok(image)
+    }
+
     pub fn artwork_providers(&self) -> Result<Vec<ArtworkProviderInfo>, RuntimeError> {
         let store = self.server_store()?;
         let enabled = self.enabled_artwork_providers()?;
         Ok(self.artwork.provider_infos(
             &store.get_setting("fanart_api_key")?,
             &store.get_setting("tvdb_api_key")?,
+            &store.get_setting("comicvine_api_key")?,
             &enabled,
         ))
     }
@@ -37,6 +94,7 @@ impl Runtime {
         Ok(ArtworkSettings {
             fanart_configured: !store.get_setting("fanart_api_key")?.is_empty(),
             tvdb_configured: !store.get_setting("tvdb_api_key")?.is_empty(),
+            comicvine_configured: !store.get_setting("comicvine_api_key")?.is_empty(),
             default_provider,
             enabled_providers: ARTWORK_PROVIDERS
                 .iter()
@@ -47,10 +105,9 @@ impl Runtime {
     }
 
     fn enabled_artwork_providers(&self) -> Result<std::collections::HashSet<String>, RuntimeError> {
-        let stored = self
-            .server_store()?
-            .get_setting("artwork_enabled_providers")?;
-        let values = if stored.trim().is_empty() {
+        let store = self.server_store()?;
+        let stored = store.get_setting("artwork_enabled_providers")?;
+        let mut values = if stored.trim().is_empty() {
             ARTWORK_PROVIDERS
                 .iter()
                 .map(|value| (*value).to_owned())
@@ -64,6 +121,40 @@ impl Runtime {
                 .map(str::to_owned)
                 .collect()
         };
+        let legacy_providers = [
+            "posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex",
+        ];
+        if store.get_setting("artwork_viz_migrated")?.is_empty()
+            && legacy_providers
+                .iter()
+                .all(|provider| values.contains(*provider))
+        {
+            values.insert("viz".to_owned());
+            store.set_setting(
+                "artwork_enabled_providers",
+                &values.iter().cloned().collect::<Vec<_>>().join(","),
+            )?;
+        }
+        if store.get_setting("artwork_viz_migrated")?.is_empty() {
+            store.set_setting("artwork_viz_migrated", "true")?;
+        }
+        let pre_comicvine = [
+            "posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex", "viz",
+        ];
+        if store.get_setting("artwork_comicvine_migrated")?.is_empty()
+            && pre_comicvine
+                .iter()
+                .all(|provider| values.contains(*provider))
+        {
+            values.insert("comicvine".to_owned());
+            store.set_setting(
+                "artwork_enabled_providers",
+                &values.iter().cloned().collect::<Vec<_>>().join(","),
+            )?;
+        }
+        if store.get_setting("artwork_comicvine_migrated")?.is_empty() {
+            store.set_setting("artwork_comicvine_migrated", "true")?;
+        }
         Ok(values)
     }
 
@@ -229,6 +320,7 @@ impl Runtime {
         let fanart_key = store.get_setting("fanart_api_key")?;
         let tvdb_key = store.get_setting("tvdb_api_key")?;
         let tvdb_pin = store.get_setting("tvdb_pin")?;
+        let comicvine_key = store.get_setting("comicvine_api_key")?;
         let settings = self.artwork_cache_settings()?;
         let enabled = self.enabled_artwork_providers()?;
         let providers = ["fanart", "tvdb", "anilist", "mediux"];
@@ -244,7 +336,15 @@ impl Runtime {
             }
             if let Ok(items) = self
                 .artwork
-                .fetch(provider, &detail, None, &fanart_key, &tvdb_key, &tvdb_pin)
+                .fetch(
+                    provider,
+                    &detail,
+                    None,
+                    &fanart_key,
+                    &tvdb_key,
+                    &tvdb_pin,
+                    &comicvine_key,
+                )
                 .await
             {
                 let response = ArtworkResults {
@@ -478,11 +578,19 @@ impl Runtime {
         if let Some(value) = &input.tvdb_pin {
             store.set_setting("tvdb_pin", value.trim())?;
         }
+        if let Some(value) = input
+            .comicvine_api_key
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            store.set_setting("comicvine_api_key", value.trim())?;
+        }
         if input
             .tvdb_api_key
             .as_deref()
             .is_some_and(|value| !value.is_empty())
             || input.tvdb_pin.is_some()
+            || input.comicvine_api_key.is_some()
         {
             self.artwork.reset_tvdb_cache().await;
         }
@@ -562,6 +670,16 @@ impl Runtime {
                 };
                 self.artwork.test_tvdb(&key, &pin).await
             }
+            "comicvine" => {
+                let key = input
+                    .comicvine_api_key
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::trim)
+                    .map(str::to_owned)
+                    .unwrap_or(store.get_setting("comicvine_api_key")?);
+                self.artwork.test_comicvine(&key).await
+            }
             _ => Err(format!("Unknown artwork provider: {}", input.provider)),
         };
         Ok(match result {
@@ -570,6 +688,7 @@ impl Runtime {
                 message: match input.provider.as_str() {
                     "fanart" => "Fanart.tv API connection succeeded.",
                     "tvdb" => "TheTVDB API connection succeeded.",
+                    "comicvine" => "ComicVine API connection succeeded.",
                     _ => "Artwork provider connection succeeded.",
                 }
                 .to_owned(),
@@ -585,6 +704,14 @@ impl Runtime {
         item_id: &str,
         id_override: Option<&str>,
     ) -> Result<Option<Result<ArtworkResults, String>>, RuntimeError> {
+        let selection = self.manga_selection(server_id, item_id)?;
+        let id_override = if provider == "mangadex" {
+            id_override.or_else(|| {
+                (!selection.mangadex_id.is_empty()).then_some(selection.mangadex_id.as_str())
+            })
+        } else {
+            id_override
+        };
         if !self.enabled_artwork_providers()?.contains(provider) {
             return Ok(Some(Err(format!(
                 "{provider} is disabled in Database settings."
@@ -620,6 +747,7 @@ impl Runtime {
                 &store.get_setting("fanart_api_key")?,
                 &store.get_setting("tvdb_api_key")?,
                 &store.get_setting("tvdb_pin")?,
+                &store.get_setting("comicvine_api_key")?,
             )
             .await;
         let response = match result {
@@ -660,7 +788,7 @@ impl Runtime {
             ))));
         }
         let cache_key = format!(
-            "artwork-search:{provider}:{server_id}:{item_id}:{}",
+            "artwork-search:{provider}:{server_id}:{item_id}:v2:{}",
             query.trim().to_lowercase()
         );
         let cache_settings = self.artwork_cache_settings()?;
@@ -693,6 +821,7 @@ impl Runtime {
                 kind,
                 &store.get_setting("tvdb_api_key")?,
                 &store.get_setting("tvdb_pin")?,
+                &store.get_setting("comicvine_api_key")?,
             )
             .await;
         let response = match result {
@@ -928,7 +1057,9 @@ impl Runtime {
         if self.server_store()?.get_server(input.server_id)?.is_none() {
             return Ok(None);
         }
-        let downloaded = if input.provider == "posterdb" {
+        let downloaded = if input.provider == "mangadex" {
+            self.mangadex_image(&input.download_url).await
+        } else if input.provider == "posterdb" {
             let store = self.server_store()?;
             self.artwork
                 .posterdb()

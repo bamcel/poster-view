@@ -51,11 +51,18 @@ pub async fn test_connection(config: ConnectionConfig<'_>) -> Result<(String, St
 
 pub async fn get_libraries(config: ConnectionConfig<'_>) -> Result<Vec<Library>, String> {
     let client = media_client(&config)?;
-    match config.server_type {
+    let mut libraries = match config.server_type {
         ServerType::Plex => plex_libraries(&client, &config).await,
         ServerType::Jellyfin => emby_libraries(&client, &config, "Jellyfin").await,
         ServerType::Emby => emby_libraries(&client, &config, "Emby").await,
-    }
+    }?;
+    libraries.sort_by_key(|library| {
+        (
+            library.library_type == LibraryType::Collection,
+            library.title.to_lowercase(),
+        )
+    });
+    Ok(libraries)
 }
 
 pub async fn get_items(
@@ -102,8 +109,14 @@ async fn emby_item_detail(
         &[
             ("Ids", item_id),
             ("userId", user_id.as_str()),
-            ("IncludeItemTypes", "Movie,Series,BoxSet"),
-            ("Fields", "Overview,ChildCount,ProductionYear,ProviderIds"),
+            (
+                "IncludeItemTypes",
+                "Movie,Series,BoxSet,Book,AudioBook,Folder,CollectionFolder",
+            ),
+            (
+                "Fields",
+                "Overview,ChildCount,ProductionYear,ProviderIds,Path",
+            ),
         ],
     )
     .await?;
@@ -143,7 +156,7 @@ async fn emby_item_detail(
     } else {
         Vec::new()
     };
-    let members = if item_type == ItemType::Collection {
+    let members = if matches!(item_type, ItemType::Collection | ItemType::Folder) {
         let data = emby_json(
             client,
             config,
@@ -151,7 +164,11 @@ async fn emby_item_detail(
             "/Items",
             &[
                 ("ParentId", item_id),
-                ("IncludeItemTypes", "Movie,Series"),
+                (
+                    "IncludeItemTypes",
+                    "Movie,Series,Book,AudioBook,Folder,CollectionFolder",
+                ),
+                ("Recursive", "false"),
                 ("Fields", "ProductionYear"),
                 ("SortBy", "SortName"),
                 ("SortOrder", "Ascending"),
@@ -180,7 +197,19 @@ async fn emby_item_detail(
             Some((key.to_lowercase(), value.to_owned()))
         })
         .collect();
+    let poster = emby_image_ref(item, "Primary").or_else(|| {
+        (item_type == ItemType::Folder)
+            .then(|| members.iter().find_map(|member| member.poster.clone()))
+            .flatten()
+    });
     Ok(ItemDetail {
+        source_path: item.get("Path").and_then(Value::as_str).map(str::to_owned),
+        file_name: item
+            .get("Path")
+            .and_then(Value::as_str)
+            .and_then(|path| path.rsplit(['/', '\\']).next())
+            .map(str::to_owned),
+        volume: item.get("IndexNumber").and_then(value_as_string),
         id: item
             .get("Id")
             .and_then(Value::as_str)
@@ -193,7 +222,7 @@ async fn emby_item_detail(
             .to_owned(),
         year: item.get("ProductionYear").and_then(Value::as_i64),
         item_type,
-        poster: emby_image_ref(item, "Primary"),
+        poster,
         background: emby_image_ref(item, "Backdrop"),
         added_at: None,
         summary: item
@@ -286,6 +315,16 @@ async fn plex_item_detail(
         .find(|image| image.get("type").and_then(Value::as_str) == Some("clearLogo"))
         .and_then(|image| relative_ref(image.get("url")));
     Ok(ItemDetail {
+        source_path: item
+            .pointer("/Media/0/Part/0/file")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        file_name: item
+            .pointer("/Media/0/Part/0/file")
+            .and_then(Value::as_str)
+            .and_then(|path| path.rsplit(['/', '\\']).next())
+            .map(str::to_owned),
+        volume: None,
         id: item
             .get("ratingKey")
             .and_then(value_as_string)
@@ -484,7 +523,7 @@ async fn emby_items(
             if is_collections {
                 "BoxSet"
             } else {
-                "Movie,Series"
+                "Movie,Series,Book,AudioBook"
             },
         ),
         ("Fields", "ProductionYear,DateCreated"),
@@ -507,6 +546,91 @@ async fn emby_items(
         raw = collapse_emby_collections(client, config, label, &user_id, raw).await?;
     }
     Ok(raw.iter().filter_map(emby_media_item).collect())
+}
+
+/// Browse actual folder children rather than flattening every volume in a library.
+pub async fn get_folder_items(
+    config: ConnectionConfig<'_>,
+    parent_id: &str,
+) -> Result<Vec<MediaItem>, String> {
+    let client = media_client(&config)?;
+    let label = match config.server_type {
+        ServerType::Emby => "Emby",
+        ServerType::Jellyfin => "Jellyfin",
+        ServerType::Plex => {
+            return Err(
+                "Folder browsing is available for Emby and Jellyfin book libraries.".to_owned(),
+            );
+        }
+    };
+    let user_id = emby_user_id(&client, &config, label).await?;
+    let data = emby_json(
+        &client,
+        &config,
+        label,
+        "/Items",
+        &[
+            ("ParentId", parent_id),
+            ("Recursive", "false"),
+            ("Fields", "ProductionYear,DateCreated"),
+            ("SortBy", "SortName"),
+            ("SortOrder", "Ascending"),
+            ("ImageTypeLimit", "1"),
+            ("EnableImageTypes", "Primary"),
+            ("userId", &user_id),
+        ],
+    )
+    .await?;
+    let mut items: Vec<MediaItem> = data
+        .get("Items")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(emby_media_item)
+        .collect();
+    if items
+        .iter()
+        .any(|item| item.item_type == ItemType::Folder && item.poster.is_none())
+    {
+        let descendants = emby_json(
+            &client,
+            &config,
+            label,
+            "/Items",
+            &[
+                ("ParentId", parent_id),
+                ("Recursive", "true"),
+                ("IncludeItemTypes", "Book,AudioBook"),
+                ("Fields", "ParentId"),
+                ("SortBy", "SortName"),
+                ("SortOrder", "Ascending"),
+                ("ImageTypeLimit", "1"),
+                ("EnableImageTypes", "Primary"),
+                ("userId", &user_id),
+            ],
+        )
+        .await?;
+        let mut representative_posters = HashMap::new();
+        for descendant in descendants
+            .get("Items")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(parent) = descendant.get("ParentId").and_then(Value::as_str) else {
+                continue;
+            };
+            if let Some(poster) = emby_image_ref(descendant, "Primary") {
+                representative_posters.entry(parent).or_insert(poster);
+            }
+        }
+        for item in &mut items {
+            if item.poster.is_none() {
+                item.poster = representative_posters.get(item.id.as_str()).cloned();
+            }
+        }
+    }
+    Ok(items)
 }
 
 async fn collapse_emby_collections(
@@ -548,7 +672,7 @@ async fn collapse_emby_collections(
             "/Items",
             &[
                 ("ParentId", id),
-                ("IncludeItemTypes", "Movie,Series"),
+                ("IncludeItemTypes", "Movie,Series,Book,AudioBook"),
                 ("userId", user_id),
             ],
         )
@@ -761,6 +885,16 @@ fn emby_item_type(item: &Value) -> ItemType {
     match item.get("Type").and_then(Value::as_str) {
         Some("BoxSet") => ItemType::Collection,
         Some("Series") => ItemType::Show,
+        Some("Book") => ItemType::Book,
+        Some("AudioBook") => ItemType::Audiobook,
+        _ if item.get("IsFolder").and_then(Value::as_bool) == Some(true)
+            || matches!(
+                item.get("Type").and_then(Value::as_str),
+                Some("Folder" | "CollectionFolder")
+            ) =>
+        {
+            ItemType::Folder
+        }
         _ => ItemType::Movie,
     }
 }
@@ -875,6 +1009,15 @@ async fn emby_libraries(
         .into_iter()
         .flatten()
         .filter_map(|item| {
+            if matches!(
+                item.get("CollectionType").and_then(Value::as_str),
+                Some("boxsets")
+            ) {
+                // PosterView exposes one synthetic Collections library that gathers
+                // box sets across the whole server. Emby may also return its native
+                // Collections folder here, which would otherwise create a duplicate.
+                return None;
+            }
             Some(Library {
                 id: item.get("Id")?.as_str()?.to_owned(),
                 title: item
@@ -885,6 +1028,8 @@ async fn emby_libraries(
                 library_type: match item.get("CollectionType").and_then(Value::as_str) {
                     Some("movies" | "homevideos") => LibraryType::Movie,
                     Some("tvshows") => LibraryType::Show,
+                    Some("books") => LibraryType::Book,
+                    Some("audiobooks") => LibraryType::Audiobook,
                     _ => LibraryType::Other,
                 },
             })

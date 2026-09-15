@@ -386,7 +386,7 @@ impl ServerStore {
 fn is_secret_setting(key: &str) -> bool {
     matches!(
         key,
-        "posterdb_password" | "fanart_api_key" | "tvdb_api_key" | "tvdb_pin"
+        "posterdb_password" | "fanart_api_key" | "tvdb_api_key" | "tvdb_pin" | "comicvine_api_key"
     )
 }
 

@@ -11,8 +11,8 @@ use axum::{
 use posterview_contracts::{
     ApiErrorResponse, ApplyRequest, ArtworkCacheSettings, ArtworkProviderTestRequest,
     ArtworkRefreshRequest, ArtworkRefreshResult, ArtworkSettingsUpdate, HistoryPurgeResult,
-    HistorySettings, ImageTarget, PosterDbCredentials, ServerCreate, ServerUpdate,
-    VerifyTitlesRequest,
+    HistorySettings, ImageTarget, LibraryVisibilityUpdate, PosterDbCredentials, ServerCreate,
+    ServerUpdate, VerifyTitlesRequest,
 };
 use posterview_runtime::Runtime;
 use posterview_url_security::media_server_base;
@@ -70,6 +70,10 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             axum::routing::post(test_saved_server),
         )
         .route("/api/servers/{id}/libraries", get(get_libraries))
+        .route(
+            "/api/servers/{id}/library-visibility",
+            get(get_library_visibility).put(set_library_visibility),
+        )
         .route("/api/servers/{id}/image", get(proxy_image))
         .route(
             "/api/servers/{id}/libraries/{library_id}/items",
@@ -104,6 +108,11 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/artwork/mediux/image", get(mediux_image))
         .route("/api/artwork", get(get_artwork))
         .route("/api/posterdb/status", get(posterdb_status))
+        .route("/api/artwork/mangadex/image", get(mangadex_image))
+        .route(
+            "/api/artwork/mangadex/selection",
+            get(manga_selection).put(save_manga_selection),
+        )
         .route(
             "/api/posterdb/credentials",
             axum::routing::put(set_posterdb_credentials),
@@ -382,7 +391,7 @@ async fn get_libraries(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, HttpError> {
-    match state.runtime.get_libraries(id).await? {
+    match state.runtime.get_visible_libraries(id).await? {
         None => Err(HttpError::not_found()),
         Some(Ok(libraries)) => Ok(Json(libraries)),
         Some(Err(detail)) => Err(HttpError {
@@ -392,8 +401,38 @@ async fn get_libraries(
     }
 }
 
+async fn get_library_visibility(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, HttpError> {
+    match state.runtime.library_visibility(id).await? {
+        None => Err(HttpError::not_found()),
+        Some(Ok(visibility)) => Ok(Json(visibility)),
+        Some(Err(detail)) => Err(HttpError {
+            status: StatusCode::BAD_GATEWAY,
+            detail,
+        }),
+    }
+}
+
+async fn set_library_visibility(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(input): Json<LibraryVisibilityUpdate>,
+) -> Result<StatusCode, HttpError> {
+    if state
+        .runtime
+        .set_hidden_library_ids(id, &input.hidden_library_ids)?
+    {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(HttpError::not_found())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct ItemsQuery {
+    parent_id: Option<String>,
     #[serde(default = "default_true")]
     group_collections: bool,
 }
@@ -439,11 +478,15 @@ async fn get_items(
     Path((id, library_id)): Path<(i64, String)>,
     Query(query): Query<ItemsQuery>,
 ) -> Result<impl IntoResponse, HttpError> {
-    match state
-        .runtime
-        .get_items(id, &library_id, query.group_collections)
-        .await?
-    {
+    let result = if let Some(parent_id) = query.parent_id.as_deref() {
+        state.runtime.get_folder_items(id, parent_id).await?
+    } else {
+        state
+            .runtime
+            .get_items(id, &library_id, query.group_collections)
+            .await?
+    };
+    match result {
         None => Err(HttpError::not_found()),
         Some(Ok(items)) => Ok(Json(items)),
         Some(Err(detail)) => Err(HttpError {
@@ -607,15 +650,28 @@ struct ArtworkQuery {
     server_id: i64,
     item_id: String,
     id_override: Option<String>,
+    #[serde(default)]
+    refresh: bool,
 }
 
 async fn get_artwork(
     State(state): State<AppState>,
     Query(query): Query<ArtworkQuery>,
 ) -> Result<impl IntoResponse, HttpError> {
+    if query.refresh && query.provider == "mangadex" {
+        state
+            .runtime
+            .refresh_mangadex_cache(query.server_id, &query.item_id);
+    } else if query.refresh && query.provider == "viz" {
+        state.runtime.refresh_artwork_provider_cache(
+            &query.provider,
+            query.server_id,
+            &query.item_id,
+        );
+    }
     if !matches!(
         query.provider.as_str(),
-        "fanart" | "tvdb" | "anilist" | "mediux"
+        "fanart" | "tvdb" | "anilist" | "mediux" | "mangadex" | "viz" | "comicvine"
     ) {
         return Err(HttpError {
             status: StatusCode::NOT_FOUND,
@@ -644,16 +700,26 @@ struct ArtworkSearchQuery {
     server_id: i64,
     item_id: String,
     query: String,
+    #[serde(default)]
+    refresh: bool,
 }
 
 async fn search_artwork(
     State(state): State<AppState>,
     Query(query): Query<ArtworkSearchQuery>,
 ) -> Result<impl IntoResponse, HttpError> {
+    if query.refresh && query.provider == "mangadex" {
+        state
+            .runtime
+            .refresh_mangadex_cache(query.server_id, &query.item_id);
+    }
     if query.query.is_empty() {
         return Err(HttpError::bad_request("query must not be empty"));
     }
-    if !matches!(query.provider.as_str(), "tvdb" | "fanart" | "mediux") {
+    if !matches!(
+        query.provider.as_str(),
+        "tvdb" | "fanart" | "mediux" | "mangadex" | "viz" | "comicvine"
+    ) {
         return Err(HttpError::bad_request(format!(
             "Title search isn't available for {}.",
             query.provider
@@ -678,6 +744,61 @@ async fn search_artwork(
 #[derive(Debug, Deserialize)]
 struct UrlQuery {
     url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MangaItemQuery {
+    server_id: i64,
+    item_id: String,
+}
+
+async fn manga_selection(
+    State(state): State<AppState>,
+    Query(query): Query<MangaItemQuery>,
+) -> Result<impl IntoResponse, HttpError> {
+    state
+        .runtime
+        .get_server(query.server_id)?
+        .ok_or_else(HttpError::not_found)?;
+    Ok(Json(
+        state
+            .runtime
+            .manga_selection(query.server_id, &query.item_id)?,
+    ))
+}
+
+async fn save_manga_selection(
+    State(state): State<AppState>,
+    Query(query): Query<MangaItemQuery>,
+    Json(selection): Json<posterview_contracts::MangaSelection>,
+) -> Result<impl IntoResponse, HttpError> {
+    state
+        .runtime
+        .get_server(query.server_id)?
+        .ok_or_else(HttpError::not_found)?;
+    if (!selection.mangadex_id.is_empty()
+        && !posterview_runtime::valid_manga_id(&selection.mangadex_id))
+        || selection.title.len() > 1000
+        || selection.volume.as_ref().is_some_and(|v| v.len() > 100)
+    {
+        return Err(HttpError::bad_request("Invalid MangaDex series or volume."));
+    }
+    state
+        .runtime
+        .save_manga_selection(query.server_id, &query.item_id, &selection)?;
+    Ok(Json(selection))
+}
+
+async fn mangadex_image(
+    State(state): State<AppState>,
+    Query(query): Query<UrlQuery>,
+) -> Result<axum::response::Response, HttpError> {
+    let (bytes, content_type) = state
+        .runtime
+        .mangadex_image(&query.url)
+        .await
+        .map_err(HttpError::bad_gateway)?;
+    Ok(cached_image_response(bytes, &content_type))
 }
 
 async fn mediux_image(

@@ -21,7 +21,7 @@ import {
 import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
 import { ServerTypeBadge } from "../components/ui";
-import type { ConnectionTest, Server, ServerType } from "../types";
+import type { ConnectionTest, LibraryVisibility, Server, ServerType } from "../types";
 import { applyTheme, THEMES } from "../lib/theme";
 import SecuritySection from "../components/SecuritySection";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
@@ -232,42 +232,21 @@ function ServersSection() {
       </p>
 
       {/* Existing servers */}
-      <div className="mb-4 max-h-52 space-y-2 overflow-y-auto pr-1 xl:max-h-44">
+      <div className="mb-4 max-h-80 space-y-2 overflow-y-auto pr-1 xl:max-h-72">
         {serversQ.data?.length === 0 && (
           <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-faint">
             No servers yet — add one below.
           </p>
         )}
         {serversQ.data?.map((s) => (
-          <div
+          <ServerCard
             key={s.id}
-            className="flex items-center gap-3 rounded-lg border border-border bg-surface-2 px-4 py-3"
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate font-medium">{s.name}</span>
-                <ServerTypeBadge type={s.type} />
-                {s.is_default && (
-                  <span className="flex items-center gap-1 text-xs text-accent">
-                    <Star className="size-3 fill-accent" /> default
-                  </span>
-                )}
-              </div>
-              <p className="truncate text-xs text-faint">{s.base_url}</p>
-            </div>
-            <IconBtn title="Edit" onClick={() => startEdit(s)}>
-              <Pencil className="size-4" />
-            </IconBtn>
-            <IconBtn
-              title="Delete"
-              danger
-              onClick={() => {
-                if (confirm(`Remove "${s.name}"?`)) deleteMut.mutate(s.id);
-              }}
-            >
-              <Trash2 className="size-4" />
-            </IconBtn>
-          </div>
+            server={s}
+            onEdit={() => startEdit(s)}
+            onDelete={() => {
+              if (confirm(`Remove "${s.name}"?`)) deleteMut.mutate(s.id);
+            }}
+          />
         ))}
       </div>
 
@@ -368,6 +347,108 @@ function ServersSection() {
   );
 }
 
+function ServerCard({
+  server,
+  onEdit,
+  onDelete,
+}: {
+  server: Server;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const visibilityQ = useQuery({
+    queryKey: ["library-visibility", server.id],
+    queryFn: () => api.getLibraryVisibility(server.id),
+  });
+  const visibilityMut = useMutation({
+    mutationFn: (next: LibraryVisibility) =>
+      api.setLibraryVisibility(
+        server.id,
+        next.libraries.filter((library) => !library.visible).map((library) => library.id),
+      ),
+    onMutate: async (next) => {
+      reportSettingsSave("saving");
+      await queryClient.cancelQueries({ queryKey: ["library-visibility", server.id] });
+      const previous = queryClient.getQueryData<LibraryVisibility>(["library-visibility", server.id]);
+      queryClient.setQueryData(["library-visibility", server.id], next);
+      return { previous };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["libraries", server.id] });
+      reportSettingsSave("saved");
+    },
+    onError: (error: Error, _next, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["library-visibility", server.id], context.previous);
+      }
+      reportSettingsSave("error");
+      toast.push("error", error.message);
+    },
+  });
+
+  const toggleLibrary = (libraryId: string) => {
+    const current = visibilityQ.data;
+    if (!current) return;
+    visibilityMut.mutate({
+      libraries: current.libraries.map((library) =>
+        library.id === libraryId ? { ...library, visible: !library.visible } : library,
+      ),
+    });
+  };
+
+  return (
+    <div className="rounded-lg border border-border bg-surface-2 px-4 py-3">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate font-medium">{server.name}</span>
+            <ServerTypeBadge type={server.type} />
+            {server.is_default && (
+              <span className="flex items-center gap-1 text-xs text-accent">
+                <Star className="size-3 fill-accent" /> default
+              </span>
+            )}
+          </div>
+          <p className="truncate text-xs text-faint">{server.base_url}</p>
+        </div>
+        <IconBtn title="Edit" onClick={onEdit}>
+          <Pencil className="size-4" />
+        </IconBtn>
+        <IconBtn title="Delete" danger onClick={onDelete}>
+          <Trash2 className="size-4" />
+        </IconBtn>
+      </div>
+
+      <div className="mt-3 border-t border-border pt-3">
+        <p className="mb-2 text-xs font-medium text-muted">Libraries shown on the Libraries page</p>
+        {visibilityQ.isLoading && <p className="text-xs text-faint">Loading libraries…</p>}
+        {visibilityQ.isError && (
+          <p className="text-xs text-danger">Could not load libraries from this server.</p>
+        )}
+        {visibilityQ.data?.libraries.length === 0 && (
+          <p className="text-xs text-faint">No libraries were found.</p>
+        )}
+        <div className="flex flex-wrap gap-x-5 gap-y-2">
+          {visibilityQ.data?.libraries.map((library) => (
+            <label key={library.id} className="flex items-center gap-2 text-sm text-muted">
+              <input
+                type="checkbox"
+                checked={library.visible}
+                disabled={visibilityMut.isPending}
+                onChange={() => toggleLibrary(library.id)}
+                className="size-4 accent-[var(--color-accent)]"
+              />
+              {library.title}
+            </label>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Artwork sources — ThePosterDB login + Fanart.tv/TheTVDB API keys, grouped
 // into one card since they're all just "credentials for an artwork source".
@@ -375,17 +456,17 @@ function ServersSection() {
 
 function ArtworkSourcesSection() {
   return (
-    <section className="h-full rounded-2xl border border-border bg-surface p-4">
+    <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-3.5">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
         <ImageIcon className="size-5 text-accent" /> Artwork sources
       </h2>
-      <p className="mb-3 text-sm text-faint">
+      <p className="mb-2 text-sm text-faint">
         Accounts and API keys used to search and download posters, backgrounds, banners, and logos.
       </p>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(15rem,0.55fr)_minmax(0,2fr)]">
+      <div className="grid gap-3 xl:grid-cols-[minmax(15rem,0.55fr)_minmax(0,2fr)]">
         <DefaultArtworkSourceFields />
-        <div className="border-t border-border pt-4 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+        <div className="border-t border-border pt-3 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
           <ArtworkCredentialsFields />
         </div>
       </div>
@@ -415,6 +496,9 @@ function DatabaseSection() {
 
 const ARTWORK_DATABASES = [
   { name: "posterdb", label: "ThePosterDB" },
+  { name: "mangadex", label: "MangaDex" },
+  { name: "viz", label: "VIZ" },
+  { name: "comicvine", label: "ComicVine" },
   { name: "fanart", label: "Fanart.tv" },
   { name: "tvdb", label: "TheTVDB" },
   { name: "anilist", label: "AniList" },
@@ -446,7 +530,7 @@ function DefaultArtworkSourceFields() {
       <h3 className="mb-1 text-sm font-semibold">Default database lookup</h3>
       <p className="mb-3 text-xs text-faint">This source opens first whenever you select a movie, series, or collection.</p>
       <select
-        className={inputCls}
+        className={compactInputCls}
         value={settingsQ.data?.default_provider ?? ""}
         onChange={(event) => saveMut.mutate(event.target.value)}
         disabled={settingsQ.isLoading || saveMut.isPending || enabled.length === 0}
@@ -722,15 +806,17 @@ function ArtworkCredentialsFields() {
   const [fanart, setFanart] = useState("");
   const [tvdbKey, setTvdbKey] = useState("");
   const [tvdbPin, setTvdbPin] = useState("");
+  const [comicvine, setComicvine] = useState("");
 
   useEffect(() => {
     if (statusQ.data?.email) setEmail(statusQ.data.email);
   }, [statusQ.data?.email]);
 
   const saveMut = useMutation({
-    mutationFn: async (kind: "posterdb" | "fanart" | "tvdb") => {
+    mutationFn: async (kind: "posterdb" | "fanart" | "tvdb" | "comicvine") => {
       if (kind === "posterdb") return api.setPosterdbCredentials(email.trim(), password);
       if (kind === "fanart") return api.setArtworkSettings({ fanart_api_key: fanart });
+      if (kind === "comicvine") return api.setArtworkSettings({ comicvine_api_key: comicvine });
       return api.setArtworkSettings({
         tvdb_api_key: tvdbKey || undefined,
         tvdb_pin: tvdbPin || undefined,
@@ -743,6 +829,7 @@ function ArtworkCredentialsFields() {
       if (kind === "posterdb") setPassword("");
       if (kind === "fanart") setFanart("");
       if (kind === "tvdb") { setTvdbKey(""); setTvdbPin(""); }
+      if (kind === "comicvine") setComicvine("");
       reportSettingsSave("saved");
     },
     onError: (e: Error) => {
@@ -764,9 +851,7 @@ function ArtworkCredentialsFields() {
 
   return (
     <div>
-      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-        <KeyRound className="size-4 text-accent" /> ThePosterDB
-      </h3>
+      <ProviderHeading icon={<KeyRound className="size-4 text-accent" />} name="ThePosterDB" connected={statusQ.data?.logged_in === true} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field
@@ -780,7 +865,7 @@ function ArtworkCredentialsFields() {
           }
         >
           <input
-            className={inputCls}
+            className={compactInputCls}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
@@ -788,7 +873,7 @@ function ArtworkCredentialsFields() {
         </Field>
         <Field label="Password">
           <input
-            className={inputCls}
+            className={compactInputCls}
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -798,11 +883,11 @@ function ArtworkCredentialsFields() {
         </Field>
       </div>
 
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-2 flex items-center gap-2">
         <button
           onClick={() => loginMut.mutate()}
           disabled={loginMut.isPending || !configured}
-          className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
         >
           {loginMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
           Test login
@@ -814,7 +899,7 @@ function ArtworkCredentialsFields() {
         )}
       </div>
 
-      <div className="mt-6 border-t border-border pt-5">
+      <div className="mt-3 border-t border-border pt-3">
         <FanartTvdbFields
           fanart={fanart}
           setFanart={setFanart}
@@ -822,6 +907,8 @@ function ArtworkCredentialsFields() {
           setTvdbKey={setTvdbKey}
           tvdbPin={tvdbPin}
           setTvdbPin={setTvdbPin}
+          comicvine={comicvine}
+          setComicvine={setComicvine}
           configured={settingsQ.data}
           onAutoSave={(kind) => saveMut.mutate(kind)}
         />
@@ -837,6 +924,8 @@ function FanartTvdbFields({
   setTvdbKey,
   tvdbPin,
   setTvdbPin,
+  comicvine,
+  setComicvine,
   configured: cfg,
   onAutoSave,
 }: {
@@ -846,8 +935,10 @@ function FanartTvdbFields({
   setTvdbKey: (value: string) => void;
   tvdbPin: string;
   setTvdbPin: (value: string) => void;
-  configured?: { fanart_configured: boolean; tvdb_configured: boolean };
-  onAutoSave: (kind: "fanart" | "tvdb") => void;
+  comicvine: string;
+  setComicvine: (value: string) => void;
+  configured?: { fanart_configured: boolean; tvdb_configured: boolean; comicvine_configured: boolean };
+  onAutoSave: (kind: "fanart" | "tvdb" | "comicvine") => void;
 }) {
   const toast = useToast();
 
@@ -867,13 +958,16 @@ function FanartTvdbFields({
     onSuccess: (result) => toast.push(result.ok ? "success" : "error", result.message),
     onError: (e: Error) => toast.push("error", e.message),
   });
+  const comicvineTestMut = useMutation({
+    mutationFn: () => api.testArtworkProvider({ provider: "comicvine", comicvine_api_key: comicvine }),
+    onSuccess: (result) => toast.push(result.ok ? "success" : "error", result.message),
+    onError: (e: Error) => toast.push("error", e.message),
+  });
 
   return (
     <div>
       <div>
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <ImageIcon className="size-4 text-accent" /> Fanart.tv
-        </h3>
+        <ProviderHeading name="Fanart.tv" connected={fanartTestMut.data?.ok === true} />
         <Field
           label={
             <>
@@ -886,7 +980,7 @@ function FanartTvdbFields({
           }
         >
           <input
-            className={inputCls}
+            className={compactInputCls}
             type="password"
             value={fanart}
             onChange={(e) => setFanart(e.target.value)}
@@ -897,17 +991,15 @@ function FanartTvdbFields({
         <button
           onClick={() => fanartTestMut.mutate()}
           disabled={fanartTestMut.isPending || (!fanart && !cfg?.fanart_configured)}
-          className="mt-3 flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
+          className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
         >
           {fanartTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
           Test API
         </button>
       </div>
 
-      <div className="mt-6 border-t border-border pt-5">
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <ImageIcon className="size-4 text-accent" /> TheTVDB
-        </h3>
+      <div className="mt-3 border-t border-border pt-3">
+        <ProviderHeading name="TheTVDB" connected={tvdbTestMut.data?.ok === true} />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field
             label={
@@ -921,7 +1013,7 @@ function FanartTvdbFields({
             }
           >
             <input
-              className={inputCls}
+              className={compactInputCls}
               type="password"
               value={tvdbKey}
               onChange={(e) => setTvdbKey(e.target.value)}
@@ -931,7 +1023,7 @@ function FanartTvdbFields({
           </Field>
           <Field label="TheTVDB subscriber PIN (optional)">
             <input
-              className={inputCls}
+              className={compactInputCls}
               value={tvdbPin}
               onChange={(e) => setTvdbPin(e.target.value)}
               placeholder="only for user-supported keys"
@@ -942,13 +1034,32 @@ function FanartTvdbFields({
         <button
           onClick={() => tvdbTestMut.mutate()}
           disabled={tvdbTestMut.isPending || (!tvdbKey && !cfg?.tvdb_configured)}
-          className="mt-3 flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
+          className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
         >
           {tvdbTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
           Test API
         </button>
       </div>
+      <div className="mt-3 border-t border-border pt-3">
+        <ProviderHeading name="ComicVine" connected={comicvineTestMut.data?.ok === true} />
+        <Field label={<><span>ComicVine API key</span>{cfg?.comicvine_configured && <ConfiguredTag />} <a href="https://comicvine.gamespot.com/api/" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">(request a free key ↗)</a></>}>
+          <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => setComicvine(e.target.value)} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
+        </Field>
+        <button onClick={() => comicvineTestMut.mutate()} disabled={comicvineTestMut.isPending || (!comicvine && !cfg?.comicvine_configured)} className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50">
+          {comicvineTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test API
+        </button>
+      </div>
     </div>
+  );
+}
+
+function ProviderHeading({ name, connected, icon }: { name: string; connected: boolean; icon?: ReactNode }) {
+  return (
+    <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+      {icon ?? <ImageIcon className="size-4 text-accent" />}
+      <span>{name}</span>
+      {connected && <CheckCircle2 className="size-4 text-green-500" aria-label="Connection successful" />}
+    </h3>
   );
 }
 
@@ -966,6 +1077,9 @@ function ConfiguredTag() {
 
 const inputCls =
   "w-full rounded-lg border border-border bg-input px-3 py-2 text-sm outline-none transition-colors hover:bg-input-hover focus:border-accent";
+
+const compactInputCls =
+  "w-full rounded-lg border border-border bg-input px-3 py-1.5 text-sm outline-none transition-colors hover:bg-input-hover focus:border-accent";
 
 function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (

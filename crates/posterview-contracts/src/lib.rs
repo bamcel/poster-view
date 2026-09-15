@@ -87,6 +87,8 @@ pub enum LibraryType {
     Movie,
     Show,
     Collection,
+    Book,
+    Audiobook,
     Other,
 }
 
@@ -98,12 +100,33 @@ pub struct Library {
     pub library_type: LibraryType,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LibraryVisibility {
+    pub libraries: Vec<LibraryVisibilityItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LibraryVisibilityItem {
+    #[serde(flatten)]
+    pub library: Library,
+    pub visible: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct LibraryVisibilityUpdate {
+    #[serde(default)]
+    pub hidden_library_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ItemType {
+    Folder,
     Movie,
     Show,
     Collection,
+    Book,
+    Audiobook,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -129,6 +152,10 @@ pub struct Season {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ItemDetail {
+    #[serde(skip_serializing)]
+    pub source_path: Option<String>,
+    pub file_name: Option<String>,
+    pub volume: Option<String>,
     pub id: String,
     pub title: String,
     pub year: Option<i64>,
@@ -223,6 +250,8 @@ pub struct HistoryPurgeResult {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ArtworkItem {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manga: Option<MangaCoverMetadata>,
     pub id: String,
     pub provider: String,
     #[serde(rename = "type")]
@@ -248,10 +277,34 @@ pub struct ArtworkResults {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ArtworkSearchResult {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternate_titles: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
     pub id: String,
     pub name: String,
     pub year: Option<String>,
     pub thumb_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct MangaCoverMetadata {
+    pub mangadex_id: String,
+    pub volume: Option<String>,
+    pub locale: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct MangaSelection {
+    pub mangadex_id: String,
+    pub title: String,
+    pub volume: Option<String>,
+    pub cover: Option<ArtworkItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -274,6 +327,7 @@ pub struct ArtworkProviderInfo {
 pub struct ArtworkSettings {
     pub fanart_configured: bool,
     pub tvdb_configured: bool,
+    pub comicvine_configured: bool,
     pub default_provider: String,
     pub enabled_providers: Vec<String>,
 }
@@ -283,6 +337,7 @@ pub struct ArtworkSettingsUpdate {
     pub fanart_api_key: Option<String>,
     pub tvdb_api_key: Option<String>,
     pub tvdb_pin: Option<String>,
+    pub comicvine_api_key: Option<String>,
     pub default_provider: Option<String>,
     pub enabled_providers: Option<Vec<String>>,
 }
@@ -293,6 +348,7 @@ pub struct ArtworkProviderTestRequest {
     pub fanart_api_key: Option<String>,
     pub tvdb_api_key: Option<String>,
     pub tvdb_pin: Option<String>,
+    pub comicvine_api_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
