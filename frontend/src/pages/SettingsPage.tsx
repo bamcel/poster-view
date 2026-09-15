@@ -389,7 +389,7 @@ function ServersSection() {
           </p>
 
           {/* Existing servers */}
-          <div className="mb-3 max-h-56 divide-y divide-border overflow-y-auto pr-1 xl:max-h-52">
+          <div className="mb-3 divide-y divide-border">
             {serversQ.data?.length === 0 && (
               <p className="rounded-lg border border-dashed border-border px-4 py-4 text-center text-sm text-faint">
                 No servers yet — add one below.
@@ -584,8 +584,8 @@ function ServerCard({
         </IconBtn>
       </div>
 
-      <details className="group mt-3 border-t border-border pt-3">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg border border-border bg-window px-3 py-2 text-sm text-muted transition-colors hover:text-white [&::-webkit-details-marker]:hidden">
+      <details className="group mt-3 overflow-hidden rounded-lg border border-border bg-window">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm text-muted transition-colors hover:text-white [&::-webkit-details-marker]:hidden">
           <span className="min-w-0">
             <span className="block font-medium text-white">Libraries shown on the Libraries page</span>
             <span className="block text-xs text-faint">
@@ -598,7 +598,7 @@ function ServerCard({
           </span>
           <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" />
         </summary>
-        <div className="mt-2 rounded-lg border border-border bg-window p-3">
+        <div className="border-t border-border p-3">
           {visibilityQ.isError && (
             <p className="text-xs text-danger">Could not load libraries from this server.</p>
           )}
