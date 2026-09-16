@@ -397,7 +397,7 @@ function ServersSection() {
         <div className="rounded-xl border border-border bg-surface-2 p-3">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="mb-1 text-sm font-semibold">Media servers</h3>
+              <h3 className="mb-1 text-sm font-semibold">Media Servers</h3>
               <p className="text-xs text-faint">
                 Connect Plex, Jellyfin, or Emby. Tokens are encrypted before they're stored.
               </p>
