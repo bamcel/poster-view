@@ -674,6 +674,7 @@ function ArtworkSourcesSection() {
 }
 
 function DatabaseSection() {
+  const serversQ = useQuery({ queryKey: ["servers"], queryFn: api.listServers });
   return (
     <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
@@ -682,7 +683,14 @@ function DatabaseSection() {
       <p className="mb-3 text-sm text-faint">
         Manage cached artwork and control background preloading.
       </p>
-      <ArtworkCacheFields />
+      <div className="space-y-4">
+        {serversQ.data?.map((server) => <ArtworkCacheFields key={server.id} server={server} />)}
+        {!serversQ.isLoading && serversQ.data?.length === 0 && (
+          <p className="rounded-xl border border-border bg-surface-2 p-4 text-sm text-faint">
+            Add a media server before configuring cache services.
+          </p>
+        )}
+      </div>
     </section>
   );
 }
@@ -786,12 +794,12 @@ function EnabledArtworkSourcesFields() {
   );
 }
 
-function ArtworkCacheFields() {
+function ArtworkCacheFields({ server }: { server: Server }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const cacheQ = useQuery({
-    queryKey: ["artwork-cache"],
-    queryFn: api.getArtworkCache,
+    queryKey: ["artwork-cache", server.id],
+    queryFn: () => api.getArtworkCache(server.id),
     refetchInterval: (query) => query.state.data?.watchdog_running ? 1500 : false,
   });
   const [maxMb, setMaxMb] = useState(250);
@@ -808,7 +816,7 @@ function ArtworkCacheFields() {
   }, [cacheQ.data]);
 
   const saveMut = useMutation({
-    mutationFn: (next: Partial<{ max_mb: number; ttl_days: number; watchdog_enabled: boolean; watchdog_interval_hours: number }>) => api.setArtworkCache({
+    mutationFn: (next: Partial<{ max_mb: number; ttl_days: number; watchdog_enabled: boolean; watchdog_interval_hours: number }>) => api.setArtworkCache(server.id, {
       max_mb: next.max_mb ?? maxMb,
       ttl_days: next.ttl_days ?? ttlDays,
       watchdog_enabled: next.watchdog_enabled ?? watchdogEnabled,
@@ -816,20 +824,20 @@ function ArtworkCacheFields() {
     }),
     onMutate: () => reportSettingsSave("saving"),
     onSuccess: (status) => {
-      queryClient.setQueryData(["artwork-cache"], status);
+      queryClient.setQueryData(["artwork-cache", server.id], status);
       reportSettingsSave("saved");
     },
     onError: (e: Error) => {
       reportSettingsSave("error");
-      queryClient.invalidateQueries({ queryKey: ["artwork-cache"] });
+      queryClient.invalidateQueries({ queryKey: ["artwork-cache", server.id] });
       toast.push("error", e.message);
     },
   });
 
   const clearMut = useMutation({
-    mutationFn: api.clearArtworkCache,
+    mutationFn: () => api.clearArtworkCache(server.id),
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["artwork-cache"] });
+      queryClient.invalidateQueries({ queryKey: ["artwork-cache", server.id] });
       queryClient.removeQueries({ queryKey: ["artwork"] });
       queryClient.removeQueries({ queryKey: ["artwork-search"] });
       queryClient.removeQueries({ queryKey: ["posterdb-verify"] });
@@ -839,9 +847,18 @@ function ArtworkCacheFields() {
   });
 
   const watchdogMut = useMutation({
-    mutationFn: api.runArtworkWatchdog,
+    mutationFn: () => api.runArtworkWatchdog(server.id),
     onSuccess: (result) => {
-      queryClient.setQueryData(["artwork-cache"], (current: typeof cacheQ.data) => current ? { ...current, watchdog_running: true } : current);
+      queryClient.setQueryData(["artwork-cache", server.id], (current: typeof cacheQ.data) => current ? { ...current, watchdog_running: true } : current);
+      toast.push("info", result.message);
+    },
+    onError: (e: Error) => toast.push("error", e.message),
+  });
+
+  const cancelMut = useMutation({
+    mutationFn: () => api.cancelArtworkWatchdog(server.id),
+    onSuccess: (result) => {
+      queryClient.setQueryData(["artwork-cache", server.id], (current: typeof cacheQ.data) => current ? { ...current, watchdog_cancel_requested: true } : current);
       toast.push("info", result.message);
     },
     onError: (e: Error) => toast.push("error", e.message),
@@ -852,15 +869,15 @@ function ArtworkCacheFields() {
   const percent = Math.min(100, (used / limitBytes) * 100);
 
   return (
-    <div>
-      <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold">
-        <HardDrive className="size-4 text-accent" /> Artwork cache
+    <div className="rounded-xl border border-border bg-surface-2 p-4">
+      <h3 className="mb-1 flex items-center gap-2 text-base font-semibold">
+        <HardDrive className="size-4 text-accent" /> {cacheQ.data?.server_name ?? server.name} Cache
       </h3>
       <p className="mb-4 text-xs text-faint">
         Keeps recent search results and thumbnails in the persistent Docker data volume so revisits load quickly.
       </p>
 
-      <div className="mb-4 rounded-lg border border-border bg-surface-2 p-3">
+      <div className="mb-4 rounded-lg border border-border bg-base/30 p-3">
         <div className="mb-2 flex items-center justify-between text-xs">
           <span className="text-muted">{formatBytes(used)} used</span>
           <span className="text-faint">{cacheQ.data?.file_count ?? 0} cached items</span>
@@ -899,7 +916,7 @@ function ArtworkCacheFields() {
         </Field>
       </div>
 
-      <div className="mt-5 rounded-xl border border-border bg-surface-2 p-4">
+      <div className="mt-5 border-t border-border pt-4">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h4 className="text-sm font-semibold">Artwork Watchdog</h4>
@@ -936,7 +953,7 @@ function ArtworkCacheFields() {
               <option value={168}>7 days</option>
             </select>
           </Field>
-          <div className="flex items-end">
+          <div className="flex items-end gap-2">
             <button
               type="button"
               onClick={() => watchdogMut.mutate()}
@@ -946,6 +963,17 @@ function ArtworkCacheFields() {
               {(watchdogMut.isPending || cacheQ.data?.watchdog_running) && <Loader2 className="size-4 animate-spin" />}
               Run Watchdog now
             </button>
+            {cacheQ.data?.watchdog_running && (
+              <button
+                type="button"
+                onClick={() => cancelMut.mutate()}
+                disabled={cancelMut.isPending || cacheQ.data.watchdog_cancel_requested}
+                className="flex shrink-0 items-center justify-center gap-2 rounded-lg border border-danger px-4 py-2 text-sm font-medium text-danger hover:bg-danger/10 disabled:opacity-50"
+              >
+                {cancelMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
+                {cacheQ.data.watchdog_cancel_requested ? "Stopping…" : "Cancel"}
+              </button>
+            )}
           </div>
         </div>
         {(cacheQ.data?.watchdog_last_message || cacheQ.data?.watchdog_running) && (

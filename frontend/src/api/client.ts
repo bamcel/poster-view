@@ -176,21 +176,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  getArtworkCache: () => request<ArtworkCacheStatus>("/artwork/cache"),
-  setArtworkCache: (data: ArtworkCacheSettings) =>
-    request<ArtworkCacheStatus>("/artwork/cache", {
+  getArtworkCache: (serverId: number) => request<ArtworkCacheStatus>(`/artwork/cache/${serverId}`),
+  setArtworkCache: (serverId: number, data: ArtworkCacheSettings) =>
+    request<ArtworkCacheStatus>(`/artwork/cache/${serverId}`, {
       method: "PUT",
       body: JSON.stringify(data),
     }),
-  clearArtworkCache: () =>
-    request<ArtworkCacheClearResult>("/artwork/cache", { method: "DELETE" }),
+  clearArtworkCache: (serverId: number) =>
+    request<ArtworkCacheClearResult>(`/artwork/cache/${serverId}`, { method: "DELETE" }),
   refreshArtworkItem: (serverId: number, itemId: string) =>
     request<ArtworkRefreshResult>("/artwork/cache/refresh", {
       method: "POST",
       body: JSON.stringify({ server_id: serverId, item_id: itemId }),
     }),
-  runArtworkWatchdog: () =>
-    request<ArtworkRefreshResult>("/artwork/cache/watchdog/run", { method: "POST" }),
+  runArtworkWatchdog: (serverId: number) =>
+    request<ArtworkRefreshResult>(`/artwork/cache/${serverId}/watchdog/run`, { method: "POST" }),
+  cancelArtworkWatchdog: (serverId: number) =>
+    request<ArtworkRefreshResult>(`/artwork/cache/${serverId}/watchdog/cancel`, { method: "POST" }),
   mangaSelection: (serverId: number, itemId: string) =>
     request<import("../types").MangaSelection>(`/artwork/mangadex/selection?server_id=${serverId}&item_id=${encodeURIComponent(itemId)}`),
   saveMangaSelection: (serverId: number, itemId: string, selection: import("../types").MangaSelection) =>

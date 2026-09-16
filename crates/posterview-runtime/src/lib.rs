@@ -3,8 +3,9 @@ mod artwork_cache;
 mod history;
 
 use std::{
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{OnceLock, atomic::AtomicBool},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use posterview_contracts::{
@@ -43,8 +44,10 @@ pub struct Runtime {
     servers: OnceLock<ServerStore>,
     artwork: ArtworkService,
     artwork_cache: ArtworkCache,
+    server_artwork_caches: Mutex<HashMap<i64, Arc<ArtworkCache>>>,
     media_image_cache: ArtworkCache,
-    watchdog_running: AtomicBool,
+    watchdog_running: Mutex<HashSet<i64>>,
+    watchdog_cancelled: Mutex<HashSet<i64>>,
 }
 
 #[derive(Debug, Error)]
@@ -65,11 +68,13 @@ impl Runtime {
         let data_dir = data_dir.into();
         Self {
             artwork_cache: ArtworkCache::new(&data_dir),
+            server_artwork_caches: Mutex::new(HashMap::new()),
             media_image_cache: ArtworkCache::at(data_dir.join("media-image-cache")),
             data_dir,
             servers: OnceLock::new(),
             artwork: ArtworkService::default(),
-            watchdog_running: AtomicBool::new(false),
+            watchdog_running: Mutex::new(HashSet::new()),
+            watchdog_cancelled: Mutex::new(HashSet::new()),
         }
     }
 
@@ -133,6 +138,25 @@ impl Runtime {
         let deleted = self.server_store()?.delete_server(id)?;
         if deleted {
             self.invalidate_media_images(id)?;
+            if let Ok(mut caches) = self.server_artwork_caches.lock()
+                && let Some(cache) = caches.remove(&id)
+            {
+                let _ = cache.clear();
+            }
+            let cache_dir = self
+                .data_dir
+                .join("artwork-cache")
+                .join("servers")
+                .join(id.to_string());
+            if cache_dir.exists() {
+                std::fs::remove_dir_all(cache_dir)?;
+            }
+            if let Ok(mut running) = self.watchdog_running.lock() {
+                running.remove(&id);
+            }
+            if let Ok(mut cancelled) = self.watchdog_cancelled.lock() {
+                cancelled.remove(&id);
+            }
         }
         Ok(deleted)
     }
@@ -581,7 +605,9 @@ async fn connection_test(config: ConnectionConfig<'_>) -> ConnectionTest {
 #[cfg(test)]
 mod tests {
     use super::{Runtime, posterdb_top_three, save_companion_cover, watchdog_inventory_diff};
-    use posterview_contracts::{PosterCategory, PosterSearchResults, PosterTitleResult};
+    use posterview_contracts::{
+        PosterCategory, PosterSearchResults, PosterTitleResult, ServerCreate, ServerType,
+    };
     use std::collections::BTreeMap;
 
     #[test]
@@ -631,12 +657,24 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary directory");
         let runtime = Runtime::new(directory.path());
         runtime.initialize().expect("initialize runtime");
+        let server = runtime
+            .create_server(&ServerCreate {
+                name: "Test".to_owned(),
+                server_type: ServerType::Jellyfin,
+                base_url: "http://localhost:8096".to_owned(),
+                token: "test".to_owned(),
+                is_default: true,
+            })
+            .expect("create server");
         runtime
             .server_store()
             .expect("server store")
-            .set_setting("artwork_watchdog_checkpoint", "1:item")
+            .set_setting(
+                &format!("artwork_watchdog_checkpoint:{}", server.id),
+                "1:item",
+            )
             .expect("save checkpoint");
-        assert!(runtime.watchdog_due().expect("watchdog status"));
+        assert!(runtime.watchdog_due(server.id).expect("watchdog status"));
     }
 
     #[test]
@@ -682,7 +720,7 @@ mod tests {
             }],
         };
         let settings = runtime
-            .artwork_cache_settings()
+            .shared_artwork_cache_settings()
             .expect("artwork cache settings");
         runtime
             .artwork_cache

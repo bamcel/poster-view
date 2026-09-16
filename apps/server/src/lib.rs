@@ -91,7 +91,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             get(get_artwork_settings).put(set_artwork_settings),
         )
         .route(
-            "/api/artwork/cache",
+            "/api/artwork/cache/{server_id}",
             get(get_artwork_cache)
                 .put(set_artwork_cache)
                 .delete(clear_artwork_cache),
@@ -101,8 +101,12 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             axum::routing::post(refresh_artwork_item),
         )
         .route(
-            "/api/artwork/cache/watchdog/run",
+            "/api/artwork/cache/{server_id}/watchdog/run",
             axum::routing::post(run_artwork_watchdog),
+        )
+        .route(
+            "/api/artwork/cache/{server_id}/watchdog/cancel",
+            axum::routing::post(cancel_artwork_watchdog),
         )
         .route("/api/artwork/search", get(search_artwork))
         .route("/api/artwork/mediux/image", get(mediux_image))
@@ -594,21 +598,30 @@ async fn set_artwork_settings(
     Ok(Json(state.runtime.set_artwork_settings(&input).await?))
 }
 
-async fn get_artwork_cache(State(state): State<AppState>) -> Result<impl IntoResponse, HttpError> {
-    Ok(Json(state.runtime.artwork_cache_status()?))
+async fn get_artwork_cache(
+    State(state): State<AppState>,
+    Path(server_id): Path<i64>,
+) -> Result<impl IntoResponse, HttpError> {
+    Ok(Json(state.runtime.artwork_cache_status(server_id)?))
 }
 
 async fn set_artwork_cache(
     State(state): State<AppState>,
+    Path(server_id): Path<i64>,
     Json(input): Json<ArtworkCacheSettings>,
 ) -> Result<impl IntoResponse, HttpError> {
-    Ok(Json(state.runtime.set_artwork_cache_settings(&input)?))
+    Ok(Json(
+        state
+            .runtime
+            .set_artwork_cache_settings(server_id, &input)?,
+    ))
 }
 
 async fn clear_artwork_cache(
     State(state): State<AppState>,
+    Path(server_id): Path<i64>,
 ) -> Result<impl IntoResponse, HttpError> {
-    Ok(Json(state.runtime.clear_artwork_cache()?))
+    Ok(Json(state.runtime.clear_artwork_cache(server_id)?))
 }
 
 async fn refresh_artwork_item(
@@ -625,16 +638,24 @@ async fn refresh_artwork_item(
 
 async fn run_artwork_watchdog(
     State(state): State<AppState>,
+    Path(server_id): Path<i64>,
 ) -> Result<impl IntoResponse, HttpError> {
     let runtime = Arc::clone(&state.runtime);
     tokio::spawn(async move {
-        let _ = runtime.run_watchdog().await;
+        let _ = runtime.run_watchdog(server_id).await;
     });
     Ok(Json(ArtworkRefreshResult {
         ok: true,
         message: "Watchdog started in the background.".to_owned(),
         providers_warmed: 0,
     }))
+}
+
+async fn cancel_artwork_watchdog(
+    State(state): State<AppState>,
+    Path(server_id): Path<i64>,
+) -> Result<impl IntoResponse, HttpError> {
+    Ok(Json(state.runtime.cancel_watchdog(server_id)?))
 }
 
 async fn test_artwork_provider(

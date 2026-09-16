@@ -49,8 +49,13 @@ async fn watchdog_loop(runtime: Arc<Runtime>) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
     loop {
         interval.tick().await;
-        if runtime.watchdog_due().unwrap_or(false) {
-            let _ = runtime.run_watchdog().await;
+        for server in runtime.list_servers().unwrap_or_default() {
+            if runtime.watchdog_due(server.id).unwrap_or(false) {
+                let runtime = Arc::clone(&runtime);
+                tokio::spawn(async move {
+                    let _ = runtime.run_watchdog(server.id).await;
+                });
+            }
         }
     }
 }

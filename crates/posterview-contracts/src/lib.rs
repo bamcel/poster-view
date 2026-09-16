@@ -394,6 +394,8 @@ impl Default for ArtworkCacheSettings {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ArtworkCacheStatus {
+    pub server_id: i64,
+    pub server_name: String,
     pub max_mb: i64,
     pub ttl_days: i64,
     pub used_bytes: u64,
@@ -406,6 +408,7 @@ pub struct ArtworkCacheStatus {
     pub watchdog_progress_current: usize,
     pub watchdog_progress_total: usize,
     pub watchdog_current_title: Option<String>,
+    pub watchdog_cancel_requested: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

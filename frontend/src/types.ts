@@ -139,6 +139,8 @@ export interface ArtworkCacheSettings {
 }
 
 export interface ArtworkCacheStatus extends ArtworkCacheSettings {
+  server_id: number;
+  server_name: string;
   used_bytes: number;
   file_count: number;
   watchdog_running: boolean;
@@ -147,6 +149,7 @@ export interface ArtworkCacheStatus extends ArtworkCacheSettings {
   watchdog_progress_current: number;
   watchdog_progress_total: number;
   watchdog_current_title?: string | null;
+  watchdog_cancel_requested: boolean;
 }
 
 export interface ArtworkCacheClearResult {
