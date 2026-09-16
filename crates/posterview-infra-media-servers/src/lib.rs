@@ -4,7 +4,7 @@ use posterview_contracts::{
     ItemDetail, ItemType, Library, LibraryType, MediaItem, Season, ServerType,
 };
 use posterview_url_security::media_server_base;
-use reqwest::{Client, StatusCode};
+use reqwest::{Client, RequestBuilder, StatusCode};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -38,6 +38,20 @@ fn media_client(config: &ConnectionConfig<'_>) -> Result<Client, String> {
         .redirect(redirects)
         .build()
         .map_err(|error| format!("Could not configure HTTP client: {error}"))
+}
+
+fn emby_family_auth(
+    request: RequestBuilder,
+    config: &ConnectionConfig<'_>,
+) -> RequestBuilder {
+    match config.server_type {
+        ServerType::Jellyfin => request.header(
+            reqwest::header::AUTHORIZATION,
+            format!("MediaBrowser Token=\"{}\"", config.token),
+        ),
+        ServerType::Emby => request.header("X-Emby-Token", config.token),
+        ServerType::Plex => request,
+    }
 }
 
 pub async fn test_connection(config: ConnectionConfig<'_>) -> Result<(String, String), String> {
@@ -365,7 +379,7 @@ pub async fn fetch_image(
     ));
     request = match config.server_type {
         ServerType::Plex => request.header("X-Plex-Token", config.token),
-        ServerType::Jellyfin | ServerType::Emby => request.header("X-Emby-Token", config.token),
+        ServerType::Jellyfin | ServerType::Emby => emby_family_auth(request, &config),
     };
     let response = request
         .send()
@@ -457,12 +471,11 @@ async fn set_emby_image(
     };
     if image_type == "Backdrop" {
         for _ in 0..25 {
-            let response = client
-                .delete(format!(
+            let request = client.delete(format!(
                     "{}/Items/{item_id}/Images/Backdrop/0",
                     config.base_url.trim_end_matches('/')
-                ))
-                .header("X-Emby-Token", config.token)
+                ));
+            let response = emby_family_auth(request, config)
                 .send()
                 .await
                 .map_err(|error| format!("{label} upload failed: {error}"))?;
@@ -471,12 +484,11 @@ async fn set_emby_image(
             }
         }
     }
-    let response = client
-        .post(format!(
+    let request = client.post(format!(
             "{}/Items/{item_id}/Images/{image_type}",
             config.base_url.trim_end_matches('/')
-        ))
-        .header("X-Emby-Token", config.token)
+        ));
+    let response = emby_family_auth(request, config)
         .header(reqwest::header::CONTENT_TYPE, content_type)
         .body(BASE64.encode(data))
         .send()
@@ -1097,9 +1109,8 @@ async fn emby_json(
     path: &str,
     query: &[(&str, &str)],
 ) -> Result<Value, String> {
-    let response = client
-        .get(format!("{}{}", config.base_url.trim_end_matches('/'), path))
-        .header("X-Emby-Token", config.token)
+    let request = client.get(format!("{}{}", config.base_url.trim_end_matches('/'), path));
+    let response = emby_family_auth(request, config)
         .header("Accept", "application/json")
         .query(query)
         .send()
@@ -1163,12 +1174,11 @@ async fn test_emby_family(
     config: &ConnectionConfig<'_>,
     label: &str,
 ) -> Result<(String, String), String> {
-    let response = client
-        .get(format!(
+    let request = client.get(format!(
             "{}/System/Info",
             config.base_url.trim_end_matches('/')
-        ))
-        .header("X-Emby-Token", config.token)
+        ));
+    let response = emby_family_auth(request, config)
         .header("Accept", "application/json")
         .send()
         .await

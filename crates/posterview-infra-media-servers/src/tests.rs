@@ -4,6 +4,40 @@ use tokio::net::TcpListener;
 
 use super::*;
 
+#[test]
+fn jellyfin_uses_current_auth_scheme_while_emby_keeps_its_token_header() {
+    let client = Client::new();
+    let jellyfin = ConnectionConfig {
+        server_type: ServerType::Jellyfin,
+        base_url: "http://localhost",
+        token: "jellyfin-key",
+    };
+    let request = emby_family_auth(client.get(jellyfin.base_url), &jellyfin)
+        .build()
+        .unwrap();
+    assert_eq!(
+        request
+            .headers()
+            .get(reqwest::header::AUTHORIZATION)
+            .unwrap(),
+        "MediaBrowser Token=\"jellyfin-key\""
+    );
+    assert!(!request.headers().contains_key("X-Emby-Token"));
+
+    let emby = ConnectionConfig {
+        server_type: ServerType::Emby,
+        base_url: "http://localhost",
+        token: "emby-key",
+    };
+    let request = emby_family_auth(client.get(emby.base_url), &emby)
+        .build()
+        .unwrap();
+    assert_eq!(request.headers().get("X-Emby-Token").unwrap(), "emby-key");
+    assert!(!request
+        .headers()
+        .contains_key(reqwest::header::AUTHORIZATION));
+}
+
 #[tokio::test]
 async fn book_libraries_and_items_are_browseable_in_emby_family_servers() {
     let app = Router::new()
