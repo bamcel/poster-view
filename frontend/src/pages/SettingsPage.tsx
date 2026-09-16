@@ -880,7 +880,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
         <HardDrive className="size-4 text-accent" /> {cacheQ.data?.server_name ?? server.name} Cache
       </h3>
       <p className="mb-4 text-xs text-faint">
-        Keeps recent search results and thumbnails in the persistent Docker data volume so revisits load quickly.
+        Stores artwork for this server and uses Watchdog to preload new titles automatically.
       </p>
 
       <div className="mb-4 rounded-lg border border-border bg-base/30 p-3">
@@ -893,7 +893,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Field label="Maximum storage">
           <select className={inputCls} value={maxMb} disabled={saveMut.isPending} onChange={(e) => {
             const value = Number(e.target.value);
@@ -920,19 +920,13 @@ function ArtworkCacheFields({ server }: { server: Server }) {
             <option value={90}>90 days</option>
           </select>
         </Field>
-      </div>
-
-      <div className="mt-5 border-t border-border pt-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h4 className="text-sm font-semibold">Artwork Watchdog</h4>
-            <p className="mt-1 text-xs text-faint">
-              Builds the current library once, then caches only newly added movies, series, and collections. Removed titles are cleaned up after a complete library scan.
-            </p>
-          </div>
-          <button
+        <div>
+          <div className="mb-1 flex items-center justify-between gap-2 text-xs font-medium text-muted">
+            <span>Automatic preloading</span>
+            <button
             type="button"
             role="switch"
+            aria-label={`Enable Watchdog for ${server.name}`}
             aria-checked={watchdogEnabled}
             onClick={() => {
               const enabled = !watchdogEnabled;
@@ -944,10 +938,8 @@ function ArtworkCacheFields({ server }: { server: Server }) {
           >
             <span className={`inline-block size-4 rounded-full bg-white transition-transform ${watchdogEnabled ? "translate-x-6" : "translate-x-1"}`} />
           </button>
-        </div>
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Run automatically every">
-            <select className={inputCls} value={watchdogInterval} onChange={(e) => {
+          </div>
+            <select aria-label="Run automatically every" className={inputCls} value={watchdogInterval} onChange={(e) => {
               const value = Number(e.target.value);
               setWatchdogInterval(value);
               saveMut.mutate({ watchdog_interval_hours: value });
@@ -958,13 +950,15 @@ function ArtworkCacheFields({ server }: { server: Server }) {
               <option value={72}>3 days</option>
               <option value={168}>7 days</option>
             </select>
-          </Field>
-          <div className="flex items-end gap-2">
+        </div>
+      </div>
+      <p className="mt-2 text-xs text-faint">Watchdog scans this server’s libraries, preloads newly added titles, and cleans up removed titles after a complete scan.</p>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => watchdogMut.mutate()}
               disabled={watchdogMut.isPending || cacheQ.data?.watchdog_running}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:text-white disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-lg border border-border bg-button px-4 py-2 text-sm font-medium text-white hover:bg-button-hover disabled:opacity-50"
             >
               {(watchdogMut.isPending || cacheQ.data?.watchdog_running) && <Loader2 className="size-4 animate-spin" />}
               Run Watchdog now
@@ -980,8 +974,17 @@ function ArtworkCacheFields({ server }: { server: Server }) {
                 {cacheQ.data.watchdog_cancel_requested ? "Stopping…" : "Cancel"}
               </button>
             )}
-          </div>
-        </div>
+        <button
+          onClick={() => {
+            if (confirm(`Clear cached artwork for ${server.name}?`)) clearMut.mutate();
+          }}
+          disabled={clearMut.isPending || used === 0}
+          className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
+        >
+          {clearMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+          Clear cache
+        </button>
+      </div>
         {(cacheQ.data?.watchdog_last_message || cacheQ.data?.watchdog_running) && (
           <div className="mt-3 space-y-2 text-xs text-faint">
             <p>{cacheQ.data?.watchdog_running
@@ -1000,20 +1003,6 @@ function ArtworkCacheFields({ server }: { server: Server }) {
             )}
           </div>
         )}
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => {
-            if (confirm("Clear all cached artwork results and thumbnails?")) clearMut.mutate();
-          }}
-          disabled={clearMut.isPending || used === 0}
-          className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
-        >
-          {clearMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-          Clear cache
-        </button>
-      </div>
     </div>
   );
 }
