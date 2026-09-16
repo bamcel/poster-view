@@ -789,9 +789,17 @@ function EnabledArtworkSourcesFields() {
           { label: "Poster", names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
           { label: "eReader", names: ["comicvine", "mangadex", "viz"] },
         ].map((group) => (
-          <fieldset key={group.label}>
-            <legend className="mb-2 text-xs font-semibold text-muted">{group.label}</legend>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <details key={group.label} className="group overflow-hidden rounded-lg bg-window">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm text-muted transition-colors hover:text-white [&::-webkit-details-marker]:hidden">
+              <span>
+                <span className="block font-medium text-white">{group.label}</span>
+                <span className="block text-xs text-faint">
+                  {settingsQ.isLoading ? "Loading databases…" : `${group.names.filter((name) => enabled.includes(name)).length} of ${group.names.length} shown`}
+                </span>
+              </span>
+              <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="grid gap-2 p-3 pt-1 sm:grid-cols-2 xl:grid-cols-3">
         {ARTWORK_DATABASES.filter((source) => group.names.includes(source.name))
           .sort((a, b) => a.label.localeCompare(b.label))
           .map((source) => {
@@ -810,7 +818,7 @@ function EnabledArtworkSourcesFields() {
           );
         })}
             </div>
-          </fieldset>
+          </details>
         ))}
       </div>
     </div>
