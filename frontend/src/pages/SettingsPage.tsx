@@ -402,13 +402,21 @@ function ServersSection() {
                 Connect Plex, Jellyfin, or Emby. Tokens are encrypted before they're stored.
               </p>
             </div>
-            {!formOpen && (
+            {!formOpen ? (
               <button
                 type="button"
                 onClick={startAdd}
                 className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-button-hover"
               >
                 <Plus className="size-4 text-accent" /> Add server
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={reset}
+                className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-button-hover"
+              >
+                <XCircle className="size-4" /> Cancel
               </button>
             )}
           </div>
@@ -520,9 +528,6 @@ function ServersSection() {
             {testing ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
             Test connection
           </button>
-            <button onClick={reset} className="px-3 py-2 text-sm text-faint hover:text-white">
-              Cancel
-            </button>
             </div>
               </>
             )}
