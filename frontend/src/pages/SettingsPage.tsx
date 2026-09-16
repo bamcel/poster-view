@@ -394,7 +394,7 @@ function ServersSection() {
       </p>
 
       <div>
-        <div>
+        <div className="rounded-xl border border-border bg-surface-2 p-3">
           <h3 className="mb-1 text-sm font-semibold">Media servers</h3>
           <p className="mb-3 text-xs text-faint">
             Connect Plex, Jellyfin, or Emby. Tokens are encrypted before they're stored.
@@ -420,7 +420,7 @@ function ServersSection() {
           </div>
 
           {/* Add / edit form */}
-          <div className="border-t border-border px-1 pt-3">
+          <div className="px-1 pt-1">
             {!formOpen ? (
               <button
                 type="button"
@@ -524,7 +524,7 @@ function ServersSection() {
           </div>
         </div>
 
-        <div className="mt-4 border-t border-border pt-4">
+        <div className="mt-3 rounded-xl border border-border bg-surface-2 p-3">
           <EnabledArtworkSourcesFields />
         </div>
       </div>
