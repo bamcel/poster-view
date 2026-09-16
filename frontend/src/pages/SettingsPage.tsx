@@ -401,7 +401,7 @@ function ServersSection() {
           </p>
 
           {/* Existing servers */}
-          <div className="mb-3 divide-y divide-border">
+          <div className="mb-3 space-y-3">
             {serversQ.data?.length === 0 && (
               <p className="rounded-lg border border-dashed border-border px-4 py-4 text-center text-sm text-faint">
                 No servers yet — add one below.
@@ -584,8 +584,8 @@ function ServerCard({
   };
 
   return (
-    <div className="px-1 py-3 first:pt-0 last:pb-0">
-      <div className="flex items-center gap-3">
+    <div className="rounded-xl border border-border bg-surface p-3">
+      <div className="flex items-center gap-3 px-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate font-medium">{server.name}</span>
