@@ -784,7 +784,7 @@ function EnabledArtworkSourcesFields() {
     <div>
       <h3 className="mb-1 text-sm font-semibold">Show Databases</h3>
       <p className="mb-3 text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Watchdog, and removed from the local cache.</p>
-      <div className="space-y-3">
+      <div className="space-y-3 rounded-xl border border-border bg-surface p-3">
         {[
           { label: "Poster", names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
           { label: "eReader", names: ["comicvine", "mangadex", "viz"] },
