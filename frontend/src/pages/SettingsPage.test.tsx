@@ -129,7 +129,7 @@ it("keeps server libraries in a checkbox dropdown", async () => {
   );
 
   expect(await screen.findByText("1 of 2 shown")).toBeTruthy();
-  fireEvent.click(screen.getByText("Libraries shown on the Libraries page"));
+  fireEvent.click(screen.getByText("Show Libraries"));
   fireEvent.click(screen.getByRole("checkbox", { name: "TV Shows" }));
 
   await waitFor(() => expect(api.setLibraryVisibility).toHaveBeenCalledWith(1, []));

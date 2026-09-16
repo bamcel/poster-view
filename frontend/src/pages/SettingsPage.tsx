@@ -619,7 +619,7 @@ function ServerCard({
       <details className="group mt-3 overflow-hidden rounded-lg bg-window">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm text-muted transition-colors hover:text-white [&::-webkit-details-marker]:hidden">
           <span className="min-w-0">
-            <span className="block font-medium text-white">Libraries shown on the Libraries page</span>
+            <span className="block font-medium text-white">Show Libraries</span>
             <span className="block text-xs text-faint">
               {visibilityQ.isLoading
                 ? "Loading libraries…"
