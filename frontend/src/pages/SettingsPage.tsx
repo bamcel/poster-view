@@ -870,7 +870,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
 
   return (
     <div className="rounded-xl border border-border bg-surface-2 p-4">
-      <h3 className="mb-1 flex items-center gap-2 text-base font-semibold">
+      <h3 className="mb-1 flex items-center gap-2 text-base font-semibold text-white">
         <HardDrive className="size-4 text-accent" /> {cacheQ.data?.server_name ?? server.name} Cache
       </h3>
       <p className="mb-4 text-xs text-faint">

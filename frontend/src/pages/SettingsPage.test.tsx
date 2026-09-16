@@ -195,7 +195,7 @@ it("shows an independent cache panel and cancellation control for each server", 
     </MemoryRouter>,
   );
 
-  expect(await screen.findByText("Jellyfin Cache")).toBeTruthy();
+  expect((await screen.findByText("Jellyfin Cache")).classList.contains("text-white")).toBe(true);
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(api.cancelArtworkWatchdog).toHaveBeenCalledWith(7));
   client.clear();
