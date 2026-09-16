@@ -395,16 +395,29 @@ function ServersSection() {
 
       <div>
         <div className="rounded-xl border border-border bg-surface-2 p-3">
-          <h3 className="mb-1 text-sm font-semibold">Media servers</h3>
-          <p className="mb-3 text-xs text-faint">
-            Connect Plex, Jellyfin, or Emby. Tokens are encrypted before they're stored.
-          </p>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="mb-1 text-sm font-semibold">Media servers</h3>
+              <p className="text-xs text-faint">
+                Connect Plex, Jellyfin, or Emby. Tokens are encrypted before they're stored.
+              </p>
+            </div>
+            {!formOpen && (
+              <button
+                type="button"
+                onClick={startAdd}
+                className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-button-hover"
+              >
+                <Plus className="size-4 text-accent" /> Add server
+              </button>
+            )}
+          </div>
 
           {/* Existing servers */}
           <div className="mb-3 space-y-3">
             {serversQ.data?.length === 0 && (
               <p className="rounded-lg border border-dashed border-border px-4 py-4 text-center text-sm text-faint">
-                No servers yet — add one below.
+                No servers yet — use Add server to connect one.
               </p>
             )}
             {serversQ.data?.map((s) => (
@@ -421,15 +434,7 @@ function ServersSection() {
 
           {/* Add / edit form */}
           <div className="px-1 pt-1">
-            {!formOpen ? (
-              <button
-                type="button"
-                onClick={startAdd}
-                className="flex items-center gap-2 rounded-lg border border-border bg-button px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-button-hover"
-              >
-                <Plus className="size-4 text-accent" /> Add server
-              </button>
-            ) : (
+            {formOpen && (
               <>
             <h3 className="mb-3 text-sm font-semibold">
               {editingId == null ? "Add a server" : "Edit server"}
@@ -606,7 +611,7 @@ function ServerCard({
         </IconBtn>
       </div>
 
-      <details className="group mt-3 overflow-hidden rounded-lg border border-border bg-window">
+      <details className="group mt-3 overflow-hidden rounded-lg bg-window">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm text-muted transition-colors hover:text-white [&::-webkit-details-marker]:hidden">
           <span className="min-w-0">
             <span className="block font-medium text-white">Libraries shown on the Libraries page</span>
