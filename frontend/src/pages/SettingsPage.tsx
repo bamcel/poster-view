@@ -782,10 +782,19 @@ function EnabledArtworkSourcesFields() {
 
   return (
     <div>
-      <h3 className="mb-1 text-sm font-semibold">Enabled artwork databases</h3>
+      <h3 className="mb-1 text-sm font-semibold">Show Databases</h3>
       <p className="mb-3 text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Watchdog, and removed from the local cache.</p>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {ARTWORK_DATABASES.map((source) => {
+      <div className="space-y-3">
+        {[
+          { label: "Poster", names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
+          { label: "eReader", names: ["comicvine", "mangadex", "viz"] },
+        ].map((group) => (
+          <fieldset key={group.label}>
+            <legend className="mb-2 text-xs font-semibold text-muted">{group.label}</legend>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {ARTWORK_DATABASES.filter((source) => group.names.includes(source.name))
+          .sort((a, b) => a.label.localeCompare(b.label))
+          .map((source) => {
           const checked = enabled.includes(source.name);
           return (
             <label key={source.name} className="flex items-center justify-between rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm">
@@ -800,6 +809,9 @@ function EnabledArtworkSourcesFields() {
             </label>
           );
         })}
+            </div>
+          </fieldset>
+        ))}
       </div>
     </div>
   );

@@ -146,9 +146,9 @@ it("places artwork database controls in Server Setup instead of Cache Services",
     </MemoryRouter>,
   );
 
-  expect(await screen.findByText("Enabled artwork databases")).toBeTruthy();
+  expect(await screen.findByText("Show Databases")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Cache Services" }));
-  expect(screen.queryByText("Enabled artwork databases")).toBeNull();
+  expect(screen.queryByText("Show Databases")).toBeNull();
   client.clear();
 });
 
