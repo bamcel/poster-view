@@ -658,15 +658,16 @@ function ArtworkSourcesSection() {
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
         <ImageIcon className="size-5 text-accent" /> Search providers
       </h2>
-      <p className="mb-2 text-sm text-faint">
+      <p className="mb-4 text-sm text-faint">
         Accounts and API keys used to search and download posters, backgrounds, banners, and logos.
+        {" "}Leave saved key fields blank to keep existing values.
       </p>
 
-      <div className="border-b border-border pb-3">
+      <ArtworkCredentialsFields />
+      <div className="mt-3 rounded-xl border border-border bg-surface-2 p-3">
+        <h3 className="mb-1 text-sm font-semibold">Provider defaults</h3>
+        <p className="mb-3 text-xs text-faint">Choose the source used when opening artwork searches.</p>
         <DefaultArtworkSourceFields />
-      </div>
-      <div className="pt-3">
-        <ArtworkCredentialsFields />
       </div>
 
     </section>
@@ -1073,7 +1074,8 @@ function ArtworkCredentialsFields() {
   const configured = statusQ.data?.configured;
 
   return (
-    <div>
+    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div className="rounded-xl border border-border bg-surface-2 p-3">
       <ProviderHeading icon={<KeyRound className="size-4 text-accent" />} name="ThePosterDB" connected={statusQ.data?.logged_in === true} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1122,7 +1124,7 @@ function ArtworkCredentialsFields() {
         )}
       </div>
 
-      <div className="mt-3 border-t border-border pt-3">
+      </div>
         <FanartTvdbFields
           fanart={fanart}
           setFanart={setFanart}
@@ -1135,7 +1137,6 @@ function ArtworkCredentialsFields() {
           configured={settingsQ.data}
           onAutoSave={(kind) => saveMut.mutate(kind)}
         />
-      </div>
     </div>
   );
 }
@@ -1188,8 +1189,8 @@ function FanartTvdbFields({
   });
 
   return (
-    <div>
-      <div>
+    <>
+      <div className="rounded-xl border border-border bg-surface-2 p-3">
         <ProviderHeading name="Fanart.tv" connected={fanartTestMut.data?.ok === true} />
         <Field
           label={
@@ -1221,7 +1222,7 @@ function FanartTvdbFields({
         </button>
       </div>
 
-      <div className="mt-3 border-t border-border pt-3">
+      <div className="rounded-xl border border-border bg-surface-2 p-3">
         <ProviderHeading name="TheTVDB" connected={tvdbTestMut.data?.ok === true} />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field
@@ -1263,7 +1264,7 @@ function FanartTvdbFields({
           Test API
         </button>
       </div>
-      <div className="mt-3 border-t border-border pt-3">
+      <div className="rounded-xl border border-border bg-surface-2 p-3">
         <ProviderHeading name="ComicVine" connected={comicvineTestMut.data?.ok === true} />
         <Field label={<><span>ComicVine API key</span>{cfg?.comicvine_configured && <ConfiguredTag />} <a href="https://comicvine.gamespot.com/api/" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">(request a free key ↗)</a></>}>
           <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => setComicvine(e.target.value)} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
@@ -1272,7 +1273,7 @@ function FanartTvdbFields({
           {comicvineTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test API
         </button>
       </div>
-    </div>
+    </>
   );
 }
 
