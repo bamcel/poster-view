@@ -220,7 +220,7 @@ function AppearanceSection() {
             value={themeJson}
             onChange={(event) => setThemeJson(event.target.value)}
             spellCheck={false}
-            style={{ fontSize: "0.75rem", lineHeight: "1rem" }}
+            style={{ fontSize: "1.125rem", lineHeight: "1.5rem" }}
             className="mt-2 min-h-80 w-full flex-1 resize-none rounded-lg border border-border bg-input p-4 font-mono font-normal text-white outline-none focus:border-accent xl:min-h-0"
           />
         </label>
