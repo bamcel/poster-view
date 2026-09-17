@@ -676,9 +676,6 @@ function ArtworkSourcesSection() {
       <div className="mb-3 rounded-xl border border-border bg-surface-2 p-3">
         <EnabledArtworkSourcesFields />
       </div>
-      <div className="mb-3 rounded-xl border border-border bg-surface-2 p-3">
-        <DefaultArtworkSourceFields />
-      </div>
       <ArtworkCredentialsFields />
 
     </section>
@@ -739,14 +736,11 @@ function DefaultArtworkSourceFields() {
   });
 
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-      <div>
-        <h3 className="mb-1 text-sm font-semibold">Default database lookup</h3>
-        <p className="text-xs text-faint">This source opens first whenever you select a movie, series, or collection.</p>
-      </div>
+    <label className="flex w-full flex-col gap-1 text-xs font-medium text-muted sm:w-56 sm:shrink-0">
+      Default provider
       <select
-        aria-label="Default artwork database"
-        className={`${compactInputCls} sm:max-w-sm`}
+        title="Opens first whenever you select a movie, series, or collection."
+        className={compactInputCls}
         value={settingsQ.data?.default_provider ?? ""}
         onChange={(event) => saveMut.mutate(event.target.value)}
         disabled={settingsQ.isLoading || saveMut.isPending || enabled.length === 0}
@@ -755,7 +749,7 @@ function DefaultArtworkSourceFields() {
           <option key={source.name} value={source.name}>{source.label}</option>
         ))}
       </select>
-    </div>
+    </label>
   );
 }
 
@@ -784,8 +778,13 @@ function EnabledArtworkSourcesFields() {
 
   return (
     <div>
-      <h3 className="mb-1 text-sm font-semibold">Show Providers</h3>
-      <p className="mb-3 text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Sync, and removed from the local cache.</p>
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+        <div className="min-w-0">
+          <h3 className="mb-1 text-sm font-semibold">Show Providers</h3>
+          <p className="text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Sync, and removed from the local cache.</p>
+        </div>
+        <DefaultArtworkSourceFields />
+      </div>
       <div className="space-y-4">
         {[
           { label: "Poster", names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
