@@ -393,7 +393,7 @@ function ServersSection() {
         <ServerIcon className="size-5 text-accent" /> Server setup
       </h2>
       <p className="mb-3 text-sm text-faint">
-        Connect your media servers and choose which artwork databases PosterView can search.
+        Connect your media servers and choose which libraries PosterView shows.
       </p>
 
       <div>
@@ -537,9 +537,6 @@ function ServersSection() {
           </div>
         </div>
 
-        <div className="mt-3 rounded-xl border border-border bg-surface-2 p-3">
-          <EnabledArtworkSourcesFields />
-        </div>
       </div>
     </section>
   );
@@ -677,6 +674,9 @@ function ArtworkSourcesSection() {
       </p>
 
       <div className="mb-3 rounded-xl border border-border bg-surface-2 p-3">
+        <EnabledArtworkSourcesFields />
+      </div>
+      <div className="mb-3 rounded-xl border border-border bg-surface-2 p-3">
         <DefaultArtworkSourceFields />
       </div>
       <ArtworkCredentialsFields />
@@ -784,7 +784,7 @@ function EnabledArtworkSourcesFields() {
 
   return (
     <div>
-      <h3 className="mb-1 text-sm font-semibold">Show Databases</h3>
+      <h3 className="mb-1 text-sm font-semibold">Show Providers</h3>
       <p className="mb-3 text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Sync, and removed from the local cache.</p>
       <div className="space-y-3 rounded-xl border border-border bg-surface p-3">
         {[
@@ -796,7 +796,7 @@ function EnabledArtworkSourcesFields() {
               <span>
                 <span className="block font-medium text-white">{group.label}</span>
                 <span className="block text-xs text-faint">
-                  {settingsQ.isLoading ? "Loading databases…" : `${group.names.filter((name) => enabled.includes(name)).length} of ${group.names.length} shown`}
+                  {settingsQ.isLoading ? "Loading providers…" : `${group.names.filter((name) => enabled.includes(name)).length} of ${group.names.length} shown`}
                 </span>
               </span>
               <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" />

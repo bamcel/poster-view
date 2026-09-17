@@ -56,7 +56,7 @@ it("previews a palette color and saves it as a selectable custom theme", async (
   fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
   const themeEditor = screen.getByLabelText("Theme JSON") as HTMLTextAreaElement;
   expect(themeEditor.value).toContain('"name": "Gotham"');
-  expect(themeEditor.style.fontSize).toBe("0.75rem");
+  expect(themeEditor.style.fontSize).toBe("1.125rem");
 
   fireEvent.change(screen.getByLabelText("Choose Accent color"), { target: { value: "#ff3366" } });
   expect(document.documentElement.style.getPropertyValue("--color-accent")).toBe("#FF3366");
@@ -141,7 +141,7 @@ it("keeps server libraries in a checkbox dropdown", async () => {
   client.clear();
 });
 
-it("places artwork database controls in Server Setup instead of Cache Services", async () => {
+it("places Show Providers at the top of Search Providers instead of Server Setup or Cache Services", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <MemoryRouter>
@@ -151,9 +151,13 @@ it("places artwork database controls in Server Setup instead of Cache Services",
     </MemoryRouter>,
   );
 
-  expect(await screen.findByText("Show Databases")).toBeTruthy();
+  expect(screen.queryByText("Show Providers")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Search Providers" }));
+  const providers = await screen.findByRole("heading", { name: "Show Providers" });
+  const section = providers.closest("section")!;
+  expect(section.querySelector("h3")).toBe(providers);
   fireEvent.click(screen.getByRole("button", { name: "Cache Services" }));
-  expect(screen.queryByText("Show Databases")).toBeNull();
+  expect(screen.queryByText("Show Providers")).toBeNull();
   client.clear();
 });
 
