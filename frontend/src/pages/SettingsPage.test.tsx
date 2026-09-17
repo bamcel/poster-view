@@ -203,7 +203,7 @@ it("shows an independent cache panel and cancellation control for each server", 
   expect((await screen.findByText("Jellyfin Cache")).classList.contains("text-white")).toBe(true);
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(api.cancelArtworkWatchdog).toHaveBeenCalledWith(7));
-  expect(await screen.findByText("Watchdog: Stopping")).toBeTruthy();
+  expect(await screen.findByText("Syncing Artwork: Stopping")).toBeTruthy();
   client.clear();
 });
 

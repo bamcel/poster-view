@@ -690,7 +690,7 @@ function DatabaseSection() {
   return (
     <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <Database className="size-5 text-accent" /> Cache services
+        <Database className="size-5 text-accent" /> Cache Services
       </h2>
       <p className="mb-3 text-sm text-faint">
         Manage cached artwork and control background preloading.
@@ -785,7 +785,7 @@ function EnabledArtworkSourcesFields() {
   return (
     <div>
       <h3 className="mb-1 text-sm font-semibold">Show Databases</h3>
-      <p className="mb-3 text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Watchdog, and removed from the local cache.</p>
+      <p className="mb-3 text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Sync, and removed from the local cache.</p>
       <div className="space-y-3 rounded-xl border border-border bg-surface p-3">
         {[
           { label: "Poster", names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
@@ -883,7 +883,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
     mutationFn: () => api.runArtworkWatchdog(server.id),
     onSuccess: (result) => {
       queryClient.setQueryData(["artwork-cache", server.id], (current: typeof cacheQ.data) => current ? { ...current, watchdog_running: true, watchdog_state: "scanning", watchdog_current_title: null, watchdog_progress_current: 0, watchdog_progress_total: 0, watchdog_cancel_requested: false } : current);
-      toast.push("info", result.message);
+      toast.push("info", result.message.replace(/Watchdog/gi, "Sync"));
     },
     onError: (e: Error) => toast.push("error", e.message),
   });
@@ -892,7 +892,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
     mutationFn: () => api.cancelArtworkWatchdog(server.id),
     onSuccess: (result) => {
       queryClient.setQueryData(["artwork-cache", server.id], (current: typeof cacheQ.data) => current ? { ...current, watchdog_cancel_requested: true, watchdog_state: "stopping" } : current);
-      toast.push("info", result.message);
+      toast.push("info", result.message.replace(/Watchdog/gi, "Sync"));
     },
     onError: (e: Error) => toast.push("error", e.message),
   });
@@ -907,7 +907,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
         <HardDrive className="size-4 text-accent" /> {cacheQ.data?.server_name ?? server.name} Cache
       </h3>
       <p className="mb-4 text-xs text-faint">
-        Stores artwork for this server and uses Watchdog to preload new titles automatically.
+        Stores artwork for this server and uses Sync to preload new titles automatically.
       </p>
 
       <div className="mb-4 rounded-lg border border-border bg-base/30 p-3">
@@ -949,8 +949,8 @@ function ArtworkCacheFields({ server }: { server: Server }) {
         </Field>
         <div>
           <div className="mb-1 flex items-center justify-between gap-2 text-xs font-medium text-muted">
-            <span>Automatic preloading</span>
-            <Switch label={`Enable Watchdog for ${server.name}`} checked={watchdogEnabled} disabled={saveMut.isPending || cacheQ.isLoading}
+            <span>Automatic Sync</span>
+            <Switch label={`Enable Sync for ${server.name}`} checked={watchdogEnabled} disabled={saveMut.isPending || cacheQ.isLoading}
               onChange={() => {
                 const enabled = !watchdogEnabled;
                 setWatchdogEnabled(enabled);
@@ -970,7 +970,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
             </select>
         </div>
       </div>
-      <p className="mt-2 text-xs text-faint">Watchdog scans this server’s libraries, preloads newly added titles, and cleans up removed titles after a complete scan.</p>
+      <p className="mt-2 text-xs text-faint">Sync scans this server’s libraries, preloads newly added titles, and cleans up removed titles after a complete scan.</p>
       <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -979,7 +979,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
               className="flex items-center justify-center gap-2 rounded-lg border border-border bg-button px-4 py-2 text-sm font-medium text-white hover:bg-button-hover disabled:opacity-50"
             >
               {(watchdogMut.isPending || cacheQ.data?.watchdog_running) && <Loader2 className="size-4 animate-spin" />}
-              Run Watchdog now
+              {watchdogMut.isPending || cacheQ.data?.watchdog_running ? "Syncing Artwork" : "Sync"}
             </button>
             {cacheQ.data?.watchdog_running && (
               <button
@@ -1005,7 +1005,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
       </div>
       {cacheQ.data && <WatchdogStatus status={cacheQ.data} starting={watchdogMut.isPending} stopping={cancelMut.isPending}
         error={watchdogMut.error?.message || cancelMut.error?.message} />}
-      {cacheQ.isError && <p role="alert" className="mt-3 text-sm text-danger">Could not load Watchdog status. <button type="button" onClick={() => cacheQ.refetch()} className="underline">Retry</button></p>}
+      {cacheQ.isError && <p role="alert" className="mt-3 text-sm text-danger">Could not load Sync status. <button type="button" onClick={() => cacheQ.refetch()} className="underline">Retry</button></p>}
 
     </div>
   );

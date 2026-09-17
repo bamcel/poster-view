@@ -13,19 +13,19 @@ const status: ArtworkCacheStatus = {
 
 it("shows the actual phase and avoids showing stale preload progress during scanning", () => {
   const view = render(<WatchdogStatus status={status} />);
-  expect(screen.getByText("Watchdog: Idle")).toBeTruthy();
+  expect(screen.getByText("Sync: Idle")).toBeTruthy();
   expect(screen.getByText("No successful run yet")).toBeTruthy();
-  expect(screen.getByText("Automatic preloading is off")).toBeTruthy();
+  expect(screen.getByText("Automatic Sync is off")).toBeTruthy();
   view.rerender(<WatchdogStatus status={{ ...status, watchdog_running: true, watchdog_state: "scanning" }} />);
-  expect(screen.getByText("Watchdog: Scanning")).toBeTruthy();
+  expect(screen.getByText("Syncing Artwork: Scanning")).toBeTruthy();
   expect(screen.queryByRole("progressbar")).toBeNull();
   view.rerender(<WatchdogStatus status={{ ...status, watchdog_running: true, watchdog_state: "preloading", watchdog_current_title: "Movie" }} />);
-  expect(screen.getByText("Watchdog: Preloading")).toBeTruthy();
+  expect(screen.getByText("Syncing Artwork: Preloading")).toBeTruthy();
   expect(screen.getByRole("progressbar", { name: "Titles preloaded" }).getAttribute("value")).toBe("2");
   view.rerender(<WatchdogStatus status={{ ...status, watchdog_running: true, watchdog_cancel_requested: true }} />);
-  expect(screen.getByText("Watchdog: Stopping")).toBeTruthy();
+  expect(screen.getByText("Syncing Artwork: Stopping")).toBeTruthy();
   view.rerender(<WatchdogStatus status={{ ...status, watchdog_state: "failed", watchdog_last_message: "Invalid credentials" }} />);
-  expect(screen.getByText("Watchdog: Failed")).toBeTruthy();
+  expect(screen.getByText("Sync: Failed")).toBeTruthy();
   expect(screen.getByText("Invalid credentials")).toBeTruthy();
 });
 
