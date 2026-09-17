@@ -786,22 +786,19 @@ function EnabledArtworkSourcesFields() {
     <div>
       <h3 className="mb-1 text-sm font-semibold">Show Providers</h3>
       <p className="mb-3 text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Sync, and removed from the local cache.</p>
-      <div className="space-y-3 rounded-xl border border-border bg-surface p-3">
+      <div className="space-y-4">
         {[
           { label: "Poster", names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
           { label: "eReader", names: ["comicvine", "mangadex", "viz"] },
         ].map((group) => (
-          <details key={group.label} className="group overflow-hidden rounded-lg bg-window">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm text-muted transition-colors hover:text-white [&::-webkit-details-marker]:hidden">
-              <span>
+          <fieldset key={group.label} className="min-w-0">
+            <legend className="mb-2 text-sm">
                 <span className="block font-medium text-white">{group.label}</span>
                 <span className="block text-xs text-faint">
                   {settingsQ.isLoading ? "Loading providers…" : `${group.names.filter((name) => enabled.includes(name)).length} of ${group.names.length} shown`}
                 </span>
-              </span>
-              <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" />
-            </summary>
-            <div className="grid gap-2 p-3 pt-1 sm:grid-cols-2 xl:grid-cols-3">
+            </legend>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {ARTWORK_DATABASES.filter((source) => group.names.includes(source.name))
           .sort((a, b) => a.label.localeCompare(b.label))
           .map((source) => {
@@ -820,7 +817,7 @@ function EnabledArtworkSourcesFields() {
           );
         })}
             </div>
-          </details>
+          </fieldset>
         ))}
       </div>
     </div>
