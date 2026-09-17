@@ -7,7 +7,7 @@ Use this specification to make another app match PosterView's settings. Preserve
 ```text
 Centered settings workspace (maximum 72rem)
 ├── Settings title
-├── Horizontally scrolling tabs (hidden scrollbar)
+├── Horizontally scrolling tabs                 Save status
 │   └── Thin bottom rule
 └── Active page — rounded outer card
     ├── Icon + page heading
@@ -90,10 +90,10 @@ Use thin borders and subtle background changes, not large shadows. The floating 
 - Tab gap: .75rem. Tab padding: 1rem horizontally, .5rem vertically.
 - Selected tab: accent 1px border, secondary-card background, primary text.
 - Inactive tab: transparent border, muted text; primary text on hover.
-- Tab strip: 1px bottom border and .75rem bottom padding. The scrollable tab row has .25rem vertical padding and hides its scrollbar while retaining horizontal scrolling.
-- Tabs use the full row. Save feedback appears as a bottom-right toast, not inline beside the tabs.
+- Tab strip: 1px bottom border and .75rem bottom padding. The scrollable tab row also has .75rem bottom padding to keep its scrollbar off the selected tab outline.
+- Save status sits to the right on wider screens; below the tabs, right-aligned, on mobile.
 - Preserve active tab in the URL (`?tab=...`) so refresh does not reset the page.
-- Successful saves show “Settings saved automatically.” in a temporary success toast (4.2 seconds). Errors use existing error toasts. Do not show a success notification on initial page load or introduce an unnecessary Save Settings button.
+- Autosave status: “Saving settings…”, “Settings saved automatically.”, or an error message. Do not introduce an unnecessary Save Settings button.
 
 ## Per-page composition
 

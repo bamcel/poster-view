@@ -78,7 +78,7 @@ export default function SettingsPage() {
   const tab: SettingsTab = TABS.some((candidate) => candidate.id === requestedTab)
     ? (requestedTab as SettingsTab)
     : "servers";
-  const { push } = useToast();
+  const [saveStatus, setSaveStatus] = useState<SettingsSaveStatus>("saved");
 
   const selectTab = (nextTab: SettingsTab) => {
     setSearchParams((previous) => {
@@ -90,22 +90,18 @@ export default function SettingsPage() {
   };
 
   useEffect(() => {
-    const update = (event: Event) => {
-      if ((event as CustomEvent<SettingsSaveStatus>).detail === "saved") {
-        push("success", "Settings saved automatically.");
-      }
-    };
+    const update = (event: Event) => setSaveStatus((event as CustomEvent<SettingsSaveStatus>).detail);
     window.addEventListener("posterview:settings-save", update);
     return () => window.removeEventListener("posterview:settings-save", update);
-  }, [push]);
+  }, []);
 
   return (
     <div className="h-full overflow-y-auto px-4 py-4 sm:px-6 lg:px-8 xl:overflow-hidden">
       <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col gap-4 xl:h-full xl:min-h-0">
         <h1 className="text-2xl font-semibold">Settings</h1>
 
-        <div className="border-b border-border pb-3">
-          <div className="flex flex-nowrap gap-3 overflow-x-auto px-1 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{TABS.map((t) => (
+        <div className="flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="flex flex-nowrap gap-3 overflow-x-auto px-1 pb-3">{TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => selectTab(t.id)}
@@ -120,6 +116,9 @@ export default function SettingsPage() {
               {t.label}
             </button>
           ))}</div>
+          <span role="status" className={`shrink-0 self-end text-xs sm:self-auto ${saveStatus === "error" ? "text-danger" : "text-accent"}`}>
+            {saveStatus === "saving" ? "Saving settings…" : saveStatus === "error" ? "Settings could not be saved." : "Settings saved automatically."}
+          </span>
         </div>
 
         <div className="min-h-0 flex-1">

@@ -38,7 +38,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
-            role={t.type === "error" ? "alert" : "status"}
             className="animate-fade-in flex items-center gap-3 rounded-lg border border-border bg-elevated px-4 py-3 text-sm shadow-2xl shadow-black/40"
           >
             {ICONS[t.type]}
