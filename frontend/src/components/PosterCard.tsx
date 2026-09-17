@@ -43,8 +43,21 @@ export default function PosterCard({
   useEffect(() => {
     if (!menuOpen) return;
     const close = () => setMenuOpen(false);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
     window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
+    window.addEventListener("contextmenu", close, true);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("blur", close);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("contextmenu", close, true);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, [menuOpen]);
   const content = (
     <>
@@ -96,7 +109,7 @@ export default function PosterCard({
   );
 
   return onOpen ? (
-    <div className="relative">
+    <div className="relative" onMouseLeave={() => setMenuOpen(false)}>
       <button
         type="button"
         onClick={onOpen}
