@@ -1,3 +1,4 @@
+import { Switch } from "./ui";
 // The right-hand artwork panel. A provider selector across the top switches
 // between ThePosterDB (rich title/set search) and the API-based providers
 // (Fanart.tv / TheTVDB / AniList), which load the current item's artwork
@@ -91,18 +92,8 @@ export default function ArtworkPanel({ serverId, item, prefill }: Props) {
             <span className="text-xs font-medium text-muted">
               {sourceLayout === "list" ? "List" : "Compact"}
             </span>
-            <button
-              type="button"
-              role="switch"
-              aria-label="Compact artwork sources"
-              aria-checked={sourceLayout === "compact"}
-              onClick={() => chooseLayout(sourceLayout === "list" ? "compact" : "list")}
-              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${sourceLayout === "compact" ? "bg-accent" : "bg-surface-2"}`}
-            >
-              <span
-                className={`inline-block size-3.5 rounded-full bg-white shadow-sm transition-transform ${sourceLayout === "compact" ? "translate-x-[1.125rem]" : "translate-x-1"}`}
-              />
-            </button>
+            <Switch label="Compact artwork sources" checked={sourceLayout === "compact"}
+              onChange={() => chooseLayout(sourceLayout === "list" ? "compact" : "list")} />
           </div>
         </div>
         {sourceLayout === "list" ? (

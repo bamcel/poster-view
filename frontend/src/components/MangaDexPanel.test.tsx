@@ -242,7 +242,7 @@ it("applies matched covers across every volume from a series page", async () => 
   );
   expect(screen.getAllByRole("button", { name: /Custom/ })).toHaveLength(2);
   fireEvent.click(screen.getAllByRole("button", { name: /Custom/ })[0]);
-  fireEvent.click(screen.getByRole("button", { name: "Series cover" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Series cover" }));
   await waitFor(() =>
     expect(api.applyPoster).toHaveBeenCalledWith(
       expect.objectContaining({ item_id: "series", target: "poster" }),

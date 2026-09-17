@@ -393,6 +393,16 @@ impl Default for ArtworkCacheSettings {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WatchdogState {
+    Idle,
+    Scanning,
+    Preloading,
+    Stopping,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ArtworkCacheStatus {
     pub server_id: i64,
     pub server_name: String,
@@ -403,6 +413,9 @@ pub struct ArtworkCacheStatus {
     pub watchdog_enabled: bool,
     pub watchdog_interval_hours: i64,
     pub watchdog_running: bool,
+    pub watchdog_state: WatchdogState,
+    pub watchdog_last_successful_run: Option<String>,
+    pub watchdog_next_run: Option<String>,
     pub watchdog_last_run: Option<String>,
     pub watchdog_last_message: Option<String>,
     pub watchdog_progress_current: usize,

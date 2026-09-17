@@ -144,6 +144,9 @@ export interface ArtworkCacheStatus extends ArtworkCacheSettings {
   used_bytes: number;
   file_count: number;
   watchdog_running: boolean;
+  watchdog_state?: "idle" | "scanning" | "preloading" | "stopping" | "failed";
+  watchdog_last_successful_run?: string | null;
+  watchdog_next_run?: string | null;
   watchdog_last_run?: string | null;
   watchdog_last_message?: string | null;
   watchdog_progress_current: number;

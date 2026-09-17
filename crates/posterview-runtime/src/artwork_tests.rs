@@ -171,6 +171,15 @@ fn scheduling_uses_each_servers_interval_and_failure_delay() {
     }
     assert!(runtime.watchdog_due(a.id).unwrap());
     assert!(!runtime.watchdog_due(b.id).unwrap());
+    let next = chrono::DateTime::parse_from_rfc3339(
+        &runtime
+            .artwork_cache_status(b.id)
+            .unwrap()
+            .watchdog_next_run
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(next > chrono::Utc::now());
     runtime.watchdog_running.lock().unwrap().insert(a.id);
     assert!(!runtime.watchdog_due(a.id).unwrap());
     runtime.watchdog_running.lock().unwrap().remove(&a.id);
@@ -197,6 +206,41 @@ fn scheduling_uses_each_servers_interval_and_failure_delay() {
     assert!(runtime.watchdog_due(a.id).unwrap());
 }
 
+#[test]
+fn watchdog_phase_and_successful_run_are_reported_independently() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = Runtime::new(directory.path());
+    runtime.initialize().unwrap();
+    let server = add_server(&runtime, "Family", "http://localhost:8096");
+    assert_eq!(
+        runtime
+            .artwork_cache_status(server.id)
+            .unwrap()
+            .watchdog_state,
+        WatchdogState::Idle
+    );
+    runtime.watchdog_running.lock().unwrap().insert(server.id);
+    runtime
+        .server_store()
+        .unwrap()
+        .set_setting(
+            &Runtime::server_setting(server.id, "artwork_watchdog_state"),
+            "preloading",
+        )
+        .unwrap();
+    assert_eq!(
+        runtime
+            .artwork_cache_status(server.id)
+            .unwrap()
+            .watchdog_state,
+        WatchdogState::Preloading
+    );
+    runtime.cancel_watchdog(server.id).unwrap();
+    let status = runtime.artwork_cache_status(server.id).unwrap();
+    assert_eq!(status.watchdog_state, WatchdogState::Stopping);
+    assert!(status.watchdog_next_run.is_none());
+}
+
 #[tokio::test]
 async fn cancel_interrupts_an_in_flight_media_request_and_cleans_state() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -205,12 +249,28 @@ async fn cancel_interrupts_an_in_flight_media_request_and_cleans_state() {
     let runtime = Arc::new(Runtime::new(directory.path()));
     runtime.initialize().unwrap();
     let server = add_server(&runtime, "Stalled", &url);
+    let last_success = "2026-09-16T12:00:00+00:00";
+    runtime
+        .server_store()
+        .unwrap()
+        .set_setting(
+            &Runtime::server_setting(server.id, "artwork_watchdog_last_successful_run"),
+            last_success,
+        )
+        .unwrap();
     let worker_runtime = Arc::clone(&runtime);
     let worker = tokio::spawn(async move { worker_runtime.run_watchdog(server.id).await });
     let (_socket, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(
+        runtime
+            .artwork_cache_status(server.id)
+            .unwrap()
+            .watchdog_state,
+        WatchdogState::Scanning
+    );
     assert!(runtime.cancel_watchdog(server.id).unwrap().ok);
     let result = tokio::time::timeout(Duration::from_secs(1), worker)
         .await
@@ -223,6 +283,11 @@ async fn cancel_interrupts_an_in_flight_media_request_and_cleans_state() {
     assert!(!status.watchdog_running);
     assert!(!status.watchdog_cancel_requested);
     assert!(status.watchdog_current_title.is_none());
+    assert_eq!(status.watchdog_state, WatchdogState::Idle);
+    assert_eq!(
+        status.watchdog_last_successful_run.as_deref(),
+        Some(last_success)
+    );
     assert!(!runtime.watchdog_due(server.id).unwrap());
 }
 
@@ -333,6 +398,50 @@ async fn cancel_drops_pending_provider_work_without_cancelling_another_server() 
 }
 
 #[tokio::test]
+async fn successful_watchdog_records_success_and_next_scheduled_run() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let fixture = tokio::spawn(async move {
+        for _ in 0..3 {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(socket.read_u8().await.unwrap());
+            }
+            let body = if String::from_utf8_lossy(&request).contains("/Users") {
+                "[{\"Id\":\"reader\"}]"
+            } else {
+                "{\"Items\":[]}"
+            };
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        }
+    });
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = Runtime::new(directory.path());
+    runtime.initialize().unwrap();
+    let server = add_server(&runtime, "Family", &url);
+    runtime
+        .set_artwork_cache_settings(
+            server.id,
+            &ArtworkCacheSettings {
+                watchdog_enabled: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(runtime.run_watchdog(server.id).await.unwrap().ok);
+    fixture.await.unwrap();
+    let status = runtime.artwork_cache_status(server.id).unwrap();
+    assert_eq!(status.watchdog_state, WatchdogState::Idle);
+    let success =
+        chrono::DateTime::parse_from_rfc3339(&status.watchdog_last_successful_run.unwrap())
+            .unwrap();
+    let next = chrono::DateTime::parse_from_rfc3339(&status.watchdog_next_run.unwrap()).unwrap();
+    assert_eq!(next - success, chrono::Duration::hours(24));
+}
+
+#[tokio::test]
 async fn invalid_credentials_stop_scheduling_and_preserve_failure_details() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -370,6 +479,8 @@ async fn invalid_credentials_stop_scheduling_and_preserve_failure_details() {
     assert!(message.contains("rejected"), "{message}");
     let status = runtime.artwork_cache_status(server.id).unwrap();
     assert!(!status.watchdog_running);
+    assert_eq!(status.watchdog_state, WatchdogState::Failed);
+    assert!(status.watchdog_next_run.is_none());
     assert!(status.watchdog_last_message.unwrap().contains("rejected"));
     assert!(status.watchdog_last_run.is_none());
     assert!(!runtime.watchdog_due(server.id).unwrap());

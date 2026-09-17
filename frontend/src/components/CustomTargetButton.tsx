@@ -11,7 +11,8 @@
 // anchored inside it gets cut off sideways instead of overlapping neighboring
 // cards. Escaping to a portal sidesteps that entirely.
 
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { useActionMenu } from "../lib/actionMenu";
 import { createPortal } from "react-dom";
 import { Settings2, Loader2, ChevronDown } from "lucide-react";
 import { buildApplyTargets } from "../lib/targets";
@@ -33,6 +34,9 @@ export default function CustomTargetButton({
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const menuKeys = useActionMenu(open, () => setOpen(false), btnRef, menuRef);
   const targets = buildApplyTargets(item);
 
   const toggle = () => {
@@ -40,7 +44,8 @@ export default function CustomTargetButton({
       const r = btnRef.current.getBoundingClientRect();
       // Right-align to the button, but clamp so it always stays on-screen.
       const left = Math.max(8, Math.min(r.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8));
-      setPos({ top: r.bottom + 4, left });
+      const height = Math.min(224, targets.length * 44 + 8);
+      setPos({ top: Math.max(8, Math.min(r.bottom + 4, window.innerHeight - height - 8)), left });
     }
     setOpen((v) => !v);
   };
@@ -49,6 +54,8 @@ export default function CustomTargetButton({
     <>
       <button
         ref={btnRef}
+        type="button" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
+        onKeyDown={(event) => { if (event.key === "ArrowDown" && !open) { event.preventDefault(); toggle(); } }}
         onClick={toggle}
         disabled={busy}
         className={`flex min-w-0 items-center gap-1 rounded bg-elevated px-2 py-1 text-[11px] font-medium text-muted transition-colors hover:text-white disabled:opacity-60 ${className}`}
@@ -71,14 +78,17 @@ export default function CustomTargetButton({
               className="fixed inset-0 z-40 cursor-default"
             />
             <div
+              ref={menuRef} id={menuId} role="menu" aria-label="Apply artwork to" tabIndex={-1} onKeyDown={menuKeys}
               style={{ top: pos.top, left: pos.left, width: MENU_WIDTH }}
               className="fixed z-50 max-h-56 overflow-y-auto rounded-lg border border-border bg-elevated py-1 shadow-xl"
             >
               {targets.map((t, i) => (
                 <button
                   key={i}
+                  role="menuitem" tabIndex={-1} title={t.label}
                   onClick={() => {
                     setOpen(false);
+                    btnRef.current?.focus();
                     onPick(t.target, t.itemId, t.label);
                   }}
                   className="block w-full truncate px-3 py-1.5 text-left text-xs text-muted hover:bg-surface-2 hover:text-white"

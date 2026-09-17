@@ -145,3 +145,14 @@ select {
 @media (prefers-reduced-motion: reduce) {
   .login-backdrop-row { animation-play-state: paused; }
 }
+
+/* Keep a consistent keyboard indicator, including controls with outline-none. */
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+@media (max-width: 767px), (pointer: coarse) {
+  :where(button, select, summary, a[aria-label]) { min-height: 44px; }
+  :where(input:not([type="checkbox"]):not([type="radio"]):not([type="color"])) { min-height: 44px; }
+  label:has(> input[type="checkbox"]) { min-height: 44px; }
+}

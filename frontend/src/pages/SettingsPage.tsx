@@ -22,7 +22,8 @@ import {
 } from "lucide-react";
 import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
-import { ServerTypeBadge } from "../components/ui";
+import WatchdogStatus from "../components/WatchdogStatus";
+import { ServerTypeBadge, Switch } from "../components/ui";
 import type { ConnectionTest, LibraryVisibility, Server, ServerType } from "../types";
 import {
   applyTheme,
@@ -276,7 +277,9 @@ function ThemePicker({ themes, selected, onSelect }: { themes: AppTheme[]; selec
   return (
     <div className="min-w-0 flex-1 text-xs font-semibold text-muted">
       <span>Theme</span>
-      <details ref={detailsRef} className="group relative mt-2">
+      <details ref={detailsRef} className="group relative mt-2" onKeyDown={(event) => {
+        if (event.key === "Escape") { event.preventDefault(); detailsRef.current?.removeAttribute("open"); detailsRef.current?.querySelector("summary")?.focus(); }
+      }}>
         <summary aria-label="Select theme" className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-input px-3 text-sm font-normal text-white outline-none marker:hidden focus-visible:border-accent">
           <ThemePaletteIcon theme={selectedTheme} />
           <span className="min-w-0 flex-1 truncate">{selectedTheme.name}</span>
@@ -434,7 +437,7 @@ function ServersSection() {
                 server={s}
                 onEdit={() => startEdit(s)}
                 onDelete={() => {
-                  if (confirm(`Remove "${s.name}"?`)) deleteMut.mutate(s.id);
+                  if (confirm(`Delete server "${s.name}" (${s.base_url}, ID ${s.id}) from PosterView?\n\nThis removes its saved connection, artwork cache, and cached media-server images. Your media files and artwork on the server remain unchanged. Other servers’ caches are kept.`)) deleteMut.mutate(s.id);
                 }}
               />
             ))}
@@ -595,10 +598,10 @@ function ServerCard({
 
   return (
     <div className="rounded-xl border border-border bg-surface p-3">
-      <div className="flex items-center gap-3 px-3">
+      <div className="flex items-start gap-2 sm:gap-3 sm:px-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate font-medium">{server.name}</span>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="min-w-0 break-words font-medium">{server.name}</span>
             <ServerTypeBadge type={server.type} />
             {server.is_default && (
               <span className="flex items-center gap-1 text-xs text-accent">
@@ -608,10 +611,10 @@ function ServerCard({
           </div>
           <p className="truncate text-xs text-faint">{server.base_url}</p>
         </div>
-        <IconBtn title="Edit" onClick={onEdit}>
+        <IconBtn title={`Edit ${server.name}`} onClick={onEdit}>
           <Pencil className="size-4" />
         </IconBtn>
-        <IconBtn title="Delete" danger onClick={onDelete}>
+        <IconBtn title={`Delete ${server.name}`} danger onClick={onDelete}>
           <Trash2 className="size-4" />
         </IconBtn>
       </div>
@@ -639,7 +642,7 @@ function ServerCard({
           )}
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {visibilityQ.data?.libraries.map((library) => (
-              <label key={library.id} className="flex items-center gap-2 text-sm text-muted">
+              <label key={library.id} className="flex min-h-11 min-w-0 items-center gap-2 text-sm text-muted">
                 <input
                   type="checkbox"
                   checked={library.visible}
@@ -647,7 +650,7 @@ function ServerCard({
                   onChange={() => toggleLibrary(library.id)}
                   className="size-4 accent-[var(--color-accent)]"
                 />
-                <span className="truncate">{library.title}</span>
+                <span className="min-w-0 break-words">{library.title}</span>
               </label>
             ))}
           </div>
@@ -742,6 +745,7 @@ function DefaultArtworkSourceFields() {
         <p className="text-xs text-faint">This source opens first whenever you select a movie, series, or collection.</p>
       </div>
       <select
+        aria-label="Default artwork database"
         className={`${compactInputCls} sm:max-w-sm`}
         value={settingsQ.data?.default_provider ?? ""}
         onChange={(event) => saveMut.mutate(event.target.value)}
@@ -829,7 +833,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
   const cacheQ = useQuery({
     queryKey: ["artwork-cache", server.id],
     queryFn: () => api.getArtworkCache(server.id),
-    refetchInterval: (query) => query.state.data?.watchdog_running ? 1500 : false,
+    refetchInterval: (query) => query.state.data?.watchdog_running ? 1500 : 30000,
   });
   const [maxMb, setMaxMb] = useState(250);
   const [ttlDays, setTtlDays] = useState(30);
@@ -867,10 +871,10 @@ function ArtworkCacheFields({ server }: { server: Server }) {
     mutationFn: () => api.clearArtworkCache(server.id),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["artwork-cache", server.id] });
-      queryClient.removeQueries({ queryKey: ["artwork"] });
-      queryClient.removeQueries({ queryKey: ["artwork-search"] });
-      queryClient.removeQueries({ queryKey: ["posterdb-verify"] });
-      toast.push("info", `Cleared ${formatBytes(result.cleared_bytes)} of artwork cache.`);
+      queryClient.removeQueries({ queryKey: ["artwork"], predicate: (query) => query.queryKey[2] === server.id });
+      queryClient.removeQueries({ queryKey: ["artwork-search"], predicate: (query) => query.queryKey[2] === server.id });
+      queryClient.removeQueries({ queryKey: ["posterdb-verify"], predicate: (query) => query.queryKey[1] === server.id });
+      toast.push("info", `Cleared ${formatBytes(result.cleared_bytes)} of artwork cache for "${server.name}".`);
     },
     onError: (e: Error) => toast.push("error", e.message),
   });
@@ -878,7 +882,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
   const watchdogMut = useMutation({
     mutationFn: () => api.runArtworkWatchdog(server.id),
     onSuccess: (result) => {
-      queryClient.setQueryData(["artwork-cache", server.id], (current: typeof cacheQ.data) => current ? { ...current, watchdog_running: true } : current);
+      queryClient.setQueryData(["artwork-cache", server.id], (current: typeof cacheQ.data) => current ? { ...current, watchdog_running: true, watchdog_state: "scanning", watchdog_current_title: null, watchdog_progress_current: 0, watchdog_progress_total: 0, watchdog_cancel_requested: false } : current);
       toast.push("info", result.message);
     },
     onError: (e: Error) => toast.push("error", e.message),
@@ -887,7 +891,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
   const cancelMut = useMutation({
     mutationFn: () => api.cancelArtworkWatchdog(server.id),
     onSuccess: (result) => {
-      queryClient.setQueryData(["artwork-cache", server.id], (current: typeof cacheQ.data) => current ? { ...current, watchdog_cancel_requested: true } : current);
+      queryClient.setQueryData(["artwork-cache", server.id], (current: typeof cacheQ.data) => current ? { ...current, watchdog_cancel_requested: true, watchdog_state: "stopping" } : current);
       toast.push("info", result.message);
     },
     onError: (e: Error) => toast.push("error", e.message),
@@ -899,7 +903,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
 
   return (
     <div className="rounded-xl border border-border bg-surface-2 p-4">
-      <h3 className="mb-1 flex items-center gap-2 text-base font-semibold text-white">
+      <h3 className="mb-1 flex items-start gap-2 break-words text-base font-semibold text-white">
         <HardDrive className="size-4 text-accent" /> {cacheQ.data?.server_name ?? server.name} Cache
       </h3>
       <p className="mb-4 text-xs text-faint">
@@ -946,21 +950,12 @@ function ArtworkCacheFields({ server }: { server: Server }) {
         <div>
           <div className="mb-1 flex items-center justify-between gap-2 text-xs font-medium text-muted">
             <span>Automatic preloading</span>
-            <button
-            type="button"
-            role="switch"
-            aria-label={`Enable Watchdog for ${server.name}`}
-            aria-checked={watchdogEnabled}
-            onClick={() => {
-              const enabled = !watchdogEnabled;
-              setWatchdogEnabled(enabled);
-              saveMut.mutate({ watchdog_enabled: enabled });
-            }}
-            disabled={saveMut.isPending}
-            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${watchdogEnabled ? "bg-accent" : "bg-base"}`}
-          >
-            <span className={`inline-block size-4 rounded-full bg-white transition-transform ${watchdogEnabled ? "translate-x-6" : "translate-x-1"}`} />
-          </button>
+            <Switch label={`Enable Watchdog for ${server.name}`} checked={watchdogEnabled} disabled={saveMut.isPending || cacheQ.isLoading}
+              onChange={() => {
+                const enabled = !watchdogEnabled;
+                setWatchdogEnabled(enabled);
+                saveMut.mutate({ watchdog_enabled: enabled });
+              }} />
           </div>
             <select aria-label="Run automatically every" className={inputCls} value={watchdogInterval} onChange={(e) => {
               const value = Number(e.target.value);
@@ -999,33 +994,19 @@ function ArtworkCacheFields({ server }: { server: Server }) {
             )}
         <button
           onClick={() => {
-            if (confirm(`Clear cached artwork for ${server.name}?`)) clearMut.mutate();
+            if (confirm(`Clear the artwork cache for "${server.name}" (${server.base_url}, ID ${server.id})?\n\nThis removes ${formatBytes(used)} of cached provider results, PosterDB data, and provider thumbnails for this server. Artwork will be downloaded again when needed. Applied artwork, media files, and other servers’ caches are kept.`)) clearMut.mutate();
           }}
-          disabled={clearMut.isPending || used === 0}
+          disabled={clearMut.isPending || used === 0 || cacheQ.data?.watchdog_running}
           className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
         >
           {clearMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
           Clear cache
         </button>
       </div>
-        {(cacheQ.data?.watchdog_last_message || cacheQ.data?.watchdog_running) && (
-          <div className="mt-3 space-y-2 text-xs text-faint">
-            <p>{cacheQ.data?.watchdog_running
-              ? `Watchdog is running${cacheQ.data.watchdog_current_title ? `: ${cacheQ.data.watchdog_current_title}` : ""}…`
-              : cacheQ.data?.watchdog_last_message}</p>
-            {(cacheQ.data?.watchdog_progress_total ?? 0) > 0 && (
-              <>
-                <div className="h-1.5 overflow-hidden rounded-full bg-base">
-                  <div
-                    className="h-full rounded-full bg-accent transition-all"
-                    style={{ width: `${Math.min(100, (cacheQ.data?.watchdog_progress_current ?? 0) / (cacheQ.data?.watchdog_progress_total ?? 1) * 100)}%` }}
-                  />
-                </div>
-                <p>{cacheQ.data?.watchdog_progress_current} of {cacheQ.data?.watchdog_progress_total} titles</p>
-              </>
-            )}
-          </div>
-        )}
+      {cacheQ.data && <WatchdogStatus status={cacheQ.data} starting={watchdogMut.isPending} stopping={cancelMut.isPending}
+        error={watchdogMut.error?.message || cancelMut.error?.message} />}
+      {cacheQ.isError && <p role="alert" className="mt-3 text-sm text-danger">Could not load Watchdog status. <button type="button" onClick={() => cacheQ.refetch()} className="underline">Retry</button></p>}
+
     </div>
   );
 }
@@ -1109,7 +1090,7 @@ function ArtworkCredentialsFields() {
           <input
             className={compactInputCls}
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => { setEmail(e.target.value); loginMut.reset(); }}
             placeholder="you@example.com"
           />
         </Field>
@@ -1118,7 +1099,7 @@ function ArtworkCredentialsFields() {
             className={compactInputCls}
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => { setPassword(e.target.value); loginMut.reset(); }}
             placeholder={configured ? "••••••" : ""}
             onBlur={() => { if (password && email.trim()) saveMut.mutate("posterdb"); }}
           />
@@ -1140,7 +1121,8 @@ function ArtworkCredentialsFields() {
           </span>
         )}
       </div>
-
+      <ProviderFeedback name="ThePosterDB" pending={loginMut.isPending} error={loginMut.error?.message}
+        result={loginMut.data ? { ok: loginMut.data.logged_in, message: loginMut.data.message } : statusQ.data?.message ? { ok: statusQ.data.logged_in, message: statusQ.data.message } : undefined} />
       </div>
         <FanartTvdbFields
           fanart={fanart}
@@ -1181,12 +1163,9 @@ function FanartTvdbFields({
   configured?: { fanart_configured: boolean; tvdb_configured: boolean; comicvine_configured: boolean };
   onAutoSave: (kind: "fanart" | "tvdb" | "comicvine") => void;
 }) {
-  const toast = useToast();
 
   const fanartTestMut = useMutation({
     mutationFn: () => api.testArtworkProvider({ provider: "fanart", fanart_api_key: fanart }),
-    onSuccess: (result) => toast.push(result.ok ? "success" : "error", result.message),
-    onError: (e: Error) => toast.push("error", e.message),
   });
 
   const tvdbTestMut = useMutation({
@@ -1196,19 +1175,15 @@ function FanartTvdbFields({
         tvdb_api_key: tvdbKey || undefined,
         tvdb_pin: tvdbPin || undefined,
       }),
-    onSuccess: (result) => toast.push(result.ok ? "success" : "error", result.message),
-    onError: (e: Error) => toast.push("error", e.message),
   });
   const comicvineTestMut = useMutation({
     mutationFn: () => api.testArtworkProvider({ provider: "comicvine", comicvine_api_key: comicvine }),
-    onSuccess: (result) => toast.push(result.ok ? "success" : "error", result.message),
-    onError: (e: Error) => toast.push("error", e.message),
   });
 
   return (
     <>
       <div className="rounded-xl border border-border bg-surface-2 p-3">
-        <ProviderHeading name="Fanart.tv" connected={fanartTestMut.data?.ok === true} />
+        <ProviderHeading name="Fanart.tv" connected={!fanartTestMut.isPending && !fanartTestMut.error && fanartTestMut.data?.ok === true} />
         <Field
           label={
             <>
@@ -1224,7 +1199,7 @@ function FanartTvdbFields({
             className={compactInputCls}
             type="password"
             value={fanart}
-            onChange={(e) => setFanart(e.target.value)}
+            onChange={(e) => { setFanart(e.target.value); fanartTestMut.reset(); }}
             placeholder={cfg?.fanart_configured ? "••••••" : "your Fanart.tv personal API key"}
             onBlur={() => { if (fanart) onAutoSave("fanart"); }}
           />
@@ -1237,10 +1212,11 @@ function FanartTvdbFields({
           {fanartTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
           Test Connection
         </button>
+        <ProviderFeedback name="Fanart.tv" pending={fanartTestMut.isPending} result={fanartTestMut.data} error={fanartTestMut.error?.message} />
       </div>
 
       <div className="rounded-xl border border-border bg-surface-2 p-3">
-        <ProviderHeading name="TheTVDB" connected={tvdbTestMut.data?.ok === true} />
+        <ProviderHeading name="TheTVDB" connected={!tvdbTestMut.isPending && !tvdbTestMut.error && tvdbTestMut.data?.ok === true} />
         <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
           <Field
             label={
@@ -1257,7 +1233,7 @@ function FanartTvdbFields({
               className={compactInputCls}
               type="password"
               value={tvdbKey}
-              onChange={(e) => setTvdbKey(e.target.value)}
+              onChange={(e) => { setTvdbKey(e.target.value); tvdbTestMut.reset(); }}
               placeholder={cfg?.tvdb_configured ? "••••••" : "TheTVDB v4 API key"}
               onBlur={() => { if (tvdbKey) onAutoSave("tvdb"); }}
             />
@@ -1266,7 +1242,7 @@ function FanartTvdbFields({
             <input
               className={compactInputCls}
               value={tvdbPin}
-              onChange={(e) => setTvdbPin(e.target.value)}
+              onChange={(e) => { setTvdbPin(e.target.value); tvdbTestMut.reset(); }}
               placeholder="only for user-supported keys"
               onBlur={() => { if (tvdbPin) onAutoSave("tvdb"); }}
             />
@@ -1280,18 +1256,31 @@ function FanartTvdbFields({
           {tvdbTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
           Test Connection
         </button>
+        <ProviderFeedback name="TheTVDB" pending={tvdbTestMut.isPending} result={tvdbTestMut.data} error={tvdbTestMut.error?.message} />
       </div>
       <div className="rounded-xl border border-border bg-surface-2 p-3">
-        <ProviderHeading name="ComicVine" connected={comicvineTestMut.data?.ok === true} />
+        <ProviderHeading name="ComicVine" connected={!comicvineTestMut.isPending && !comicvineTestMut.error && comicvineTestMut.data?.ok === true} />
         <Field label={<><span>ComicVine API key</span>{cfg?.comicvine_configured && <ConfiguredTag />} <a href="https://comicvine.gamespot.com/api/" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">(request a free key ↗)</a></>}>
-          <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => setComicvine(e.target.value)} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
+          <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => { setComicvine(e.target.value); comicvineTestMut.reset(); }} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
         </Field>
         <button onClick={() => comicvineTestMut.mutate()} disabled={comicvineTestMut.isPending || (!comicvine && !cfg?.comicvine_configured)} className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50">
           {comicvineTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test Connection
         </button>
+        <ProviderFeedback name="ComicVine" pending={comicvineTestMut.isPending} result={comicvineTestMut.data} error={comicvineTestMut.error?.message} />
       </div>
     </>
   );
+}
+
+function ProviderFeedback({ name, pending, result, error }: {
+  name: string; pending: boolean; result?: { ok: boolean; message: string }; error?: string;
+}) {
+  if (!pending && !result && !error) return null;
+  const failed = !pending && (Boolean(error) || result?.ok === false);
+  return <p role="status" aria-live="polite" aria-atomic="true" className={`mt-3 break-words text-sm ${failed ? "text-danger" : "text-accent"}`}>
+    <span className="font-medium">{name}: {pending ? "Testing connection…" : failed ? "Connection failed. " : "Connection successful. "}</span>
+    {!pending && (error || result?.message)}
+  </p>;
 }
 
 function ProviderHeading({ name, connected, icon }: { name: string; connected: boolean; icon?: ReactNode }) {
@@ -1346,7 +1335,8 @@ function IconBtn({
     <button
       onClick={onClick}
       title={title}
-      className={`grid size-9 place-items-center rounded-lg border border-border transition-colors ${
+      aria-label={title}
+      className={`grid size-11 shrink-0 place-items-center rounded-lg border border-border transition-colors ${
         danger ? "text-muted hover:border-danger hover:text-danger" : "text-muted hover:text-white"
       }`}
     >

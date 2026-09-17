@@ -35,7 +35,7 @@ export default function Layout() {
               end={end}
               aria-label={label}
               className={({ isActive }) =>
-                `grid size-10 place-items-center rounded-lg transition-colors ${
+                `grid size-11 shrink-0 place-items-center rounded-lg transition-colors ${
                   isActive ? "bg-elevated text-white" : "text-muted hover:bg-surface-2 hover:text-white"
                 }`
               }
@@ -44,15 +44,19 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        {showSignOut && <button type="button" onClick={signOut} aria-label="Sign out" className="grid size-10 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white">
+        {showSignOut && <button type="button" onClick={signOut} aria-label="Sign out" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white">
           <LogOut className="size-[18px]" />
         </button>}
+
+      </header>
+      <div className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border bg-sidebar px-3 py-2 md:hidden">
+        <span className="shrink-0 text-xs text-faint">Active server</span>
         {servers.length > 0 ? (
           <select
             aria-label="Active server"
             value={selectedId ?? ""}
             onChange={(e) => setSelectedId(Number(e.target.value))}
-            className="min-w-0 max-w-28 rounded-lg border border-border bg-surface-2 px-2 py-2 text-sm outline-none focus:border-accent min-[480px]:max-w-40"
+            className="min-w-0 flex-1 w-full rounded-lg border border-border bg-surface-2 px-2 py-2 text-sm outline-none focus:border-accent"
           >
             {servers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
@@ -61,7 +65,7 @@ export default function Layout() {
             Add server
           </NavLink>
         )}
-      </header>
+      </div>
 
       <aside className="hidden w-[14.75rem] shrink-0 flex-col border-r border-border bg-sidebar px-3 py-5 md:flex">
         <div className="mb-8 px-1">
@@ -108,6 +112,7 @@ export default function Layout() {
           ) : (
             <div className="space-y-2">
               <select
+                aria-label="Active server"
                 value={selectedId ?? ""}
                 onChange={(e) => setSelectedId(Number(e.target.value))}
                 className="w-full rounded-md border border-border bg-input px-3 py-2 text-sm outline-none focus:border-accent"

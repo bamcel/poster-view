@@ -234,6 +234,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
       <form onSubmit={submit} className="relative mb-3">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
         <input
+          aria-label="Search ThePosterDB by title or poster/set URL"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search a title, or paste a poster/set URL…"

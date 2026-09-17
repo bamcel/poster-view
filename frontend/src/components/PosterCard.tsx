@@ -1,8 +1,9 @@
 // A poster tile: artwork on top, title/subtitle below, optional corner badge.
 // Opens on a single click (and Enter for keyboard users) when `onOpen` is set.
 
-import { useEffect, useState, type ReactNode } from "react";
-import { Film, Tv, Library, RefreshCw, BookOpen } from "lucide-react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Film, Tv, Library, RefreshCw, BookOpen, MoreHorizontal } from "lucide-react";
+import { useActionMenu } from "../lib/actionMenu";
 
 interface PosterCardProps {
   image?: string;
@@ -39,6 +40,10 @@ export default function PosterCard({
   // server; fall back to a clean placeholder instead of a broken-image glyph.
   const [failed, setFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const menuKeys = useActionMenu(menuOpen, () => setMenuOpen(false), triggerRef, menuRef);
   useEffect(() => setFailed(false), [image]);
   useEffect(() => {
     if (!menuOpen) return;
@@ -113,6 +118,12 @@ export default function PosterCard({
       <button
         type="button"
         onClick={onOpen}
+        onKeyDown={(event) => {
+          if (onRefresh && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+            event.preventDefault();
+            setMenuOpen(true);
+          }
+        }}
         onContextMenu={(event) => {
           if (!onRefresh) return;
           event.preventDefault();
@@ -123,22 +134,32 @@ export default function PosterCard({
       >
         {content}
       </button>
+      {onRefresh && <button ref={triggerRef} type="button" aria-label={`Artwork options for ${title}`}
+        aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuOpen ? menuId : undefined}
+        onClick={(event) => { event.stopPropagation(); setMenuOpen(!menuOpen); }}
+        onKeyDown={(event) => { if (event.key === "ArrowDown") { event.preventDefault(); setMenuOpen(true); } }}
+        className="absolute right-2 top-2 grid size-11 place-items-center rounded-lg bg-black/75 text-white hover:bg-black">
+        <MoreHorizontal className="size-5" />
+      </button>}
       {menuOpen && onRefresh && (
         <div
-          className="absolute left-2 top-2 z-30 w-max rounded-lg border border-border bg-elevated p-1 shadow-2xl"
+          ref={menuRef} id={menuId} role="menu" aria-label={`Artwork options for ${title}`} tabIndex={-1} onKeyDown={menuKeys}
+          className="absolute inset-x-0 top-14 z-30 rounded-lg border border-border bg-elevated p-1 shadow-2xl"
           onClick={(event) => event.stopPropagation()}
         >
           <button
             type="button"
+            role="menuitem" tabIndex={-1}
             onClick={() => {
               setMenuOpen(false);
+              triggerRef.current?.focus();
               onRefresh();
             }}
             disabled={refreshing}
-            className="flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-left text-sm leading-none text-muted hover:bg-surface-2 hover:text-white disabled:opacity-50"
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm leading-snug text-muted hover:bg-surface-2 hover:text-white disabled:opacity-50"
           >
             <RefreshCw
-              className={`size-4 ${refreshing ? "animate-spin" : ""}`}
+              className={`size-4 shrink-0 ${refreshing ? "animate-spin" : ""}`}
             />
             Refresh artwork data
           </button>

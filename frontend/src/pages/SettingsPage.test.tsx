@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -17,6 +17,10 @@ vi.mock("../api/client", () => ({
     clearArtworkCache: vi.fn(),
     runArtworkWatchdog: vi.fn(),
     cancelArtworkWatchdog: vi.fn(),
+    posterdbStatus: vi.fn(),
+    posterdbLogin: vi.fn(),
+    testArtworkProvider: vi.fn(),
+    deleteServer: vi.fn(),
   },
 }));
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
@@ -24,6 +28,7 @@ vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 beforeEach(() => {
   localStorage.clear();
   vi.mocked(api.listServers).mockResolvedValue([]);
+  vi.mocked(api.posterdbStatus).mockResolvedValue({ configured: true, logged_in: false, email: "test@example.test", message: "" });
   vi.mocked(api.getArtworkSettings).mockResolvedValue({
     fanart_configured: false,
     tvdb_configured: false,
@@ -198,5 +203,65 @@ it("shows an independent cache panel and cancellation control for each server", 
   expect((await screen.findByText("Jellyfin Cache")).classList.contains("text-white")).toBe(true);
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(api.cancelArtworkWatchdog).toHaveBeenCalledWith(7));
+  expect(await screen.findByText("Watchdog: Stopping")).toBeTruthy();
+  client.clear();
+});
+
+it("keeps each provider test result inside its own card", async () => {
+  vi.mocked(api.getArtworkSettings).mockResolvedValue({ fanart_configured: true, tvdb_configured: true, comicvine_configured: true, default_provider: "fanart", enabled_providers: ["fanart", "tvdb", "comicvine"] });
+  vi.mocked(api.testArtworkProvider).mockImplementation(async ({ provider }) => ({ ok: provider !== "tvdb", message: provider === "tvdb" ? "TheTVDB rejected the credentials." : `${provider} connected.` }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/settings?tab=sources"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  const fanart = (await screen.findByRole("heading", { name: "Fanart.tv" })).parentElement!;
+  const tvdb = screen.getByRole("heading", { name: "TheTVDB" }).parentElement!;
+  await waitFor(() => expect(within(fanart).getByRole("button", { name: "Test Connection" }).hasAttribute("disabled")).toBe(false));
+  fireEvent.click(within(fanart).getByRole("button", { name: "Test Connection" }));
+  expect(await within(fanart).findByText("fanart connected.", { exact: false })).toBeTruthy();
+  fireEvent.click(within(tvdb).getByRole("button", { name: "Test Connection" }));
+  expect(await within(tvdb).findByText("TheTVDB rejected the credentials.", { exact: false })).toBeTruthy();
+  expect(within(fanart).queryByText("TheTVDB rejected the credentials.", { exact: false })).toBeNull();
+  expect(within(fanart).getByText("fanart connected.", { exact: false })).toBeTruthy();
+  client.clear();
+});
+
+it("identifies the server and affected data before deleting its connection", async () => {
+  const server = { id: 19, name: "Family Movies", type: "jellyfin" as const, base_url: "http://family:8096", is_default: false, has_token: true, created_at: "", updated_at: "" };
+  vi.mocked(api.listServers).mockResolvedValue([server]);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("button", { name: "Delete Family Movies" }));
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('"Family Movies" (http://family:8096, ID 19)'));
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("artwork cache, and cached media-server images"));
+  expect(api.deleteServer).not.toHaveBeenCalled();
+  confirm.mockRestore();
+  client.clear();
+});
+
+it("confirms a specific server cache and keeps another server's browser cache intact", async () => {
+  const servers = [19, 31].map(id => ({ id, name: `Family ${id}`, type: "jellyfin" as const, base_url: `http://family-${id}:8096`, is_default: false, has_token: true, created_at: "", updated_at: "" }));
+  vi.mocked(api.listServers).mockResolvedValue(servers);
+  vi.mocked(api.getArtworkCache).mockImplementation(async id => ({ server_id: id, server_name: `Family ${id}`, max_mb: 250, ttl_days: 30, used_bytes: 2048, file_count: 2, watchdog_enabled: false, watchdog_interval_hours: 24, watchdog_running: false, watchdog_state: "idle", watchdog_progress_current: 0, watchdog_progress_total: 0, watchdog_cancel_requested: false }));
+  vi.mocked(api.clearArtworkCache).mockResolvedValue({ cleared_bytes: 2048, cleared_files: 2 });
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const artworkA = ["artwork", "mediux", 19, "one"];
+  const artworkB = ["artwork", "mediux", 31, "one"];
+  client.setQueryData(artworkA, "A");
+  client.setQueryData(artworkB, "B");
+  render(<MemoryRouter initialEntries={["/settings?tab=database"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  const card = (await screen.findByRole("heading", { name: "Family 19 Cache" })).parentElement!;
+  const clear = within(card).getByRole("button", { name: "Clear cache" });
+  await waitFor(() => expect(clear.hasAttribute("disabled")).toBe(false));
+  fireEvent.click(clear);
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('"Family 19" (http://family-19:8096, ID 19)'));
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("2.0 KB"));
+  expect(api.clearArtworkCache).not.toHaveBeenCalled();
+  confirm.mockReturnValue(true);
+  fireEvent.click(clear);
+  await waitFor(() => expect(api.clearArtworkCache).toHaveBeenCalledWith(19));
+  await waitFor(() => expect(client.getQueryData(artworkA)).toBeUndefined());
+  expect(client.getQueryData(artworkB)).toBe("B");
+  confirm.mockRestore();
   client.clear();
 });

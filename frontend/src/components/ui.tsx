@@ -3,6 +3,17 @@
 import type { ReactNode } from "react";
 import { Loader2, Clapperboard } from "lucide-react";
 
+export function Switch({ checked, onChange, label, disabled }: {
+  checked: boolean; onChange: () => void; label: string; disabled?: boolean;
+}) {
+  return <button type="button" role="switch" aria-label={label} aria-checked={checked} disabled={disabled}
+    onClick={onChange} className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md disabled:opacity-50">
+    <span aria-hidden="true" className={`inline-flex h-6 w-11 items-center rounded-full transition-colors ${checked ? "bg-accent" : "bg-base"}`}>
+      <span className={`size-4 rounded-full bg-white transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`} />
+    </span>
+  </button>;
+}
+
 export function Spinner({ label }: { label?: string }) {
   return (
     <div className="flex items-center justify-center gap-3 py-16 text-muted">

@@ -9,6 +9,7 @@ use posterview_contracts::{
     ArtworkProviderInfo, ArtworkProviderTestRequest, ArtworkProviderTestResult,
     ArtworkRefreshResult, ArtworkResults, ArtworkSearchResults, ArtworkSettings,
     ArtworkSettingsUpdate, PosterDbCredentials, PosterDbStatus, PosterSearchResults, PosterSet,
+    WatchdogState,
 };
 use posterview_infra_artwork::{download_public_image, fetch_mediux_thumb};
 
@@ -395,6 +396,63 @@ impl Runtime {
                 .get_setting(&Self::server_setting(server_id, name))
                 .map_err(RuntimeError::from)
         };
+        let running = self.watchdog_is_running(server_id);
+        let cancelled = self.watchdog_cancel_requested(server_id);
+        let phase = setting("artwork_watchdog_state")?;
+        let permanent_failure = setting("artwork_watchdog_failure_permanent")? == "true";
+        let last_run = optional_setting(setting("artwork_watchdog_last_run")?);
+        let last_message = optional_setting(setting("artwork_watchdog_last_message")?);
+        let last_success = optional_setting(setting("artwork_watchdog_last_successful_run")?)
+            .or_else(|| {
+                last_message
+                    .as_ref()
+                    .filter(|message| {
+                        message.starts_with("Watchdog initial build")
+                            || message.starts_with("Watchdog incremental scan")
+                    })
+                    .and(last_run.clone())
+            });
+        let state = if running {
+            if cancelled {
+                WatchdogState::Stopping
+            } else if phase == "preloading" {
+                WatchdogState::Preloading
+            } else {
+                WatchdogState::Scanning
+            }
+        } else if phase == "failed"
+            || permanent_failure
+            || last_message.as_ref().is_some_and(|message| {
+                message.starts_with("Watchdog paused") || message.starts_with("Watchdog stopped")
+            })
+        {
+            WatchdogState::Failed
+        } else {
+            WatchdogState::Idle
+        };
+        let next_run = if running || permanent_failure {
+            None
+        } else if let Ok(retry) =
+            chrono::DateTime::parse_from_rfc3339(&setting("artwork_watchdog_retry_after")?)
+        {
+            Some(retry.with_timezone(&chrono::Utc).to_rfc3339())
+        } else if !setting("artwork_watchdog_checkpoint")?.is_empty() {
+            Some(chrono::Utc::now().to_rfc3339())
+        } else if settings.watchdog_enabled {
+            Some(
+                last_run
+                    .as_ref()
+                    .and_then(|last| chrono::DateTime::parse_from_rfc3339(last).ok())
+                    .map(|last| {
+                        last.with_timezone(&chrono::Utc)
+                            + chrono::Duration::hours(settings.watchdog_interval_hours as i64)
+                    })
+                    .unwrap_or_else(chrono::Utc::now)
+                    .to_rfc3339(),
+            )
+        } else {
+            None
+        };
         Ok(ArtworkCacheStatus {
             server_id,
             server_name: server.name,
@@ -404,9 +462,12 @@ impl Runtime {
             file_count: usage.files,
             watchdog_enabled: settings.watchdog_enabled,
             watchdog_interval_hours: settings.watchdog_interval_hours,
-            watchdog_running: self.watchdog_is_running(server_id),
-            watchdog_last_run: optional_setting(setting("artwork_watchdog_last_run")?),
-            watchdog_last_message: optional_setting(setting("artwork_watchdog_last_message")?),
+            watchdog_running: running,
+            watchdog_state: state,
+            watchdog_last_successful_run: last_success,
+            watchdog_next_run: next_run,
+            watchdog_last_run: last_run,
+            watchdog_last_message: last_message,
             watchdog_progress_current: parse_nonnegative(
                 &self.server_store()?.get_setting(&Self::server_setting(
                     server_id,
@@ -667,6 +728,15 @@ impl Runtime {
             &Self::server_setting(server_id, "artwork_watchdog_failure_permanent"),
             "",
         )?;
+        for (name, value) in [
+            ("artwork_watchdog_state", "scanning"),
+            ("artwork_watchdog_current_title", ""),
+            ("artwork_watchdog_progress_current", "0"),
+            ("artwork_watchdog_progress_total", "0"),
+        ] {
+            self.server_store()?
+                .set_setting(&Self::server_setting(server_id, name), value)?;
+        }
         let result = self
             .cancellable_watchdog(server_id, self.run_watchdog_inner(server_id))
             .await;
@@ -674,10 +744,20 @@ impl Runtime {
         let store = self.server_store()?;
         if let Ok(summary) = &result {
             store.set_setting(
+                &Self::server_setting(server_id, "artwork_watchdog_state"),
+                "idle",
+            )?;
+            store.set_setting(
                 &Self::server_setting(server_id, "artwork_watchdog_retry_after"),
                 "",
             )?;
             let now = chrono::Utc::now().to_rfc3339();
+            if summary.ok {
+                store.set_setting(
+                    &Self::server_setting(server_id, "artwork_watchdog_last_successful_run"),
+                    &now,
+                )?;
+            }
             store.set_setting(
                 &Self::server_setting(server_id, "artwork_watchdog_last_run"),
                 &now,
@@ -687,6 +767,10 @@ impl Runtime {
                 &summary.message,
             )?;
         } else if let Err(error) = &result {
+            store.set_setting(
+                &Self::server_setting(server_id, "artwork_watchdog_state"),
+                "failed",
+            )?;
             let temporary = temporary_failure(&error.to_string());
             store.set_setting(
                 &Self::server_setting(server_id, "artwork_watchdog_failure_permanent"),
@@ -845,6 +929,10 @@ impl Runtime {
 
         let mut items_refreshed = 0;
         let mut providers_warmed = 0;
+        store.set_setting(
+            &Self::server_setting(server_id, "artwork_watchdog_state"),
+            "preloading",
+        )?;
         for (index, (server_id, item_id, title)) in queue.iter().enumerate().skip(start) {
             if self.watchdog_cancel_requested(*server_id) {
                 store.set_setting(
