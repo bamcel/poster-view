@@ -4,6 +4,40 @@ use tokio::net::TcpListener;
 
 use super::*;
 
+#[tokio::test]
+async fn failure_messages_distinguish_credentials_rate_limits_outages_and_unreachable_servers() {
+    for (status, expected) in [
+        (StatusCode::UNAUTHORIZED, "rejected"),
+        (StatusCode::FORBIDDEN, "credentials"),
+        (StatusCode::TOO_MANY_REQUESTS, "rate limiting"),
+        (StatusCode::SERVICE_UNAVAILABLE, "temporarily unavailable"),
+    ] {
+        let app = Router::new().route("/System/Info", get(move || async move { status }));
+        let (base_url, task) = serve(app).await;
+        let result = test_connection(ConnectionConfig {
+            server_type: ServerType::Jellyfin,
+            base_url: &base_url,
+            token: "secret",
+        })
+        .await;
+        let message = result.unwrap_err();
+        assert!(message.contains(expected), "{message}");
+        assert!(!message.contains("secret"));
+        task.abort();
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
+    let message = test_connection(ConnectionConfig {
+        server_type: ServerType::Jellyfin,
+        base_url: &base_url,
+        token: "secret",
+    })
+    .await
+    .unwrap_err();
+    assert!(message.contains("unreachable"), "{message}");
+}
+
 #[test]
 fn jellyfin_uses_current_auth_scheme_while_emby_keeps_its_token_header() {
     let client = Client::new();
@@ -33,9 +67,11 @@ fn jellyfin_uses_current_auth_scheme_while_emby_keeps_its_token_header() {
         .build()
         .unwrap();
     assert_eq!(request.headers().get("X-Emby-Token").unwrap(), "emby-key");
-    assert!(!request
-        .headers()
-        .contains_key(reqwest::header::AUTHORIZATION));
+    assert!(
+        !request
+            .headers()
+            .contains_key(reqwest::header::AUTHORIZATION)
+    );
 }
 
 #[tokio::test]

@@ -456,7 +456,7 @@ export default function MangaDexPanel({
                 <img
                   className="max-h-[60vh] w-full object-contain"
                   alt={`Volume ${preview.manga?.volume ?? "unknown"} cover preview`}
-                  src={`/api/artwork/mangadex/image?url=${encodeURIComponent(preview.download_url)}&retry=${imageRetry}`}
+                  src={`/api/artwork/mangadex/image?server_id=${serverId}&url=${encodeURIComponent(preview.download_url)}&retry=${imageRetry}`}
                   onError={() => setImageFailed(true)}
                 />
               )}

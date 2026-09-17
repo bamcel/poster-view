@@ -764,6 +764,7 @@ async fn search_artwork(
 
 #[derive(Debug, Deserialize)]
 struct UrlQuery {
+    server_id: i64,
     url: String,
 }
 
@@ -816,7 +817,7 @@ async fn mangadex_image(
 ) -> Result<axum::response::Response, HttpError> {
     let (bytes, content_type) = state
         .runtime
-        .mangadex_image(&query.url)
+        .mangadex_image(query.server_id, &query.url)
         .await
         .map_err(HttpError::bad_gateway)?;
     Ok(cached_image_response(bytes, &content_type))
@@ -828,7 +829,7 @@ async fn mediux_image(
 ) -> Result<axum::response::Response, HttpError> {
     let (bytes, content_type) = state
         .runtime
-        .mediux_image(&query.url)
+        .mediux_image(query.server_id, &query.url)
         .await
         .map_err(HttpError::bad_gateway)?;
     Ok(cached_image_response(bytes, &content_type))
@@ -850,7 +851,13 @@ async fn posterdb_login(State(state): State<AppState>) -> Result<impl IntoRespon
 }
 
 #[derive(Debug, Deserialize)]
+struct ServerQuery {
+    server_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
 struct SearchQuery {
+    server_id: i64,
     term: String,
 }
 
@@ -864,7 +871,7 @@ async fn posterdb_search(
     Ok(Json(
         state
             .runtime
-            .posterdb_search(&query.term)
+            .posterdb_search(query.server_id, &query.term)
             .await
             .map_err(HttpError::bad_gateway)?,
     ))
@@ -880,7 +887,7 @@ async fn posterdb_search_preview(
     Ok(Json(
         state
             .runtime
-            .posterdb_search_preview(&query.term)
+            .posterdb_search_preview(query.server_id, &query.term)
             .map_err(HttpError::bad_gateway)?,
     ))
 }
@@ -892,7 +899,7 @@ async fn posterdb_set(
     Ok(Json(
         state
             .runtime
-            .posterdb_set(&query.url)
+            .posterdb_set(query.server_id, &query.url)
             .await
             .map_err(HttpError::bad_gateway)?,
     ))
@@ -900,12 +907,13 @@ async fn posterdb_set(
 
 async fn posterdb_verify(
     State(state): State<AppState>,
+    Query(query): Query<ServerQuery>,
     Json(input): Json<VerifyTitlesRequest>,
 ) -> Result<impl IntoResponse, HttpError> {
     Ok(Json(
         state
             .runtime
-            .posterdb_verify(&input.ids)
+            .posterdb_verify(query.server_id, &input.ids)
             .await
             .map_err(HttpError::bad_gateway)?,
     ))
@@ -917,7 +925,7 @@ async fn posterdb_image(
 ) -> Result<axum::response::Response, HttpError> {
     let (bytes, content_type) = state
         .runtime
-        .posterdb_image(&query.url)
+        .posterdb_image(query.server_id, &query.url)
         .await
         .map_err(HttpError::bad_gateway)?;
     Ok(cached_image_response(bytes, &content_type))

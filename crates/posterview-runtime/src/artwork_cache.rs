@@ -200,6 +200,42 @@ impl ArtworkCache {
         self.remove_matching_all(&[pattern])
     }
 
+    // Keep the source until every server has completed migration. Preserve age
+    // and access times, and never overwrite entries already refreshed locally.
+    pub fn import_matching(&self, source: &Self, matches: impl Fn(&str) -> bool) -> io::Result<()> {
+        let _source_guard = source
+            .lock
+            .lock()
+            .map_err(|_| io::Error::other("cache lock poisoned"))?;
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| io::Error::other("cache lock poisoned"))?;
+        self.initialize()?;
+        for entry in cache_entries(&source.root)? {
+            if !matches(&entry.key) {
+                continue;
+            }
+            for path in entry.paths {
+                if !path.exists() {
+                    continue;
+                }
+                let directory = path
+                    .parent()
+                    .and_then(Path::file_name)
+                    .ok_or_else(|| io::Error::other("invalid cache path"))?;
+                let destination = self.root.join(directory).join(
+                    path.file_name()
+                        .ok_or_else(|| io::Error::other("invalid cache filename"))?,
+                );
+                if !destination.exists() {
+                    atomic_write(&destination, &fs::read(path)?)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn remove_matching_all(&self, patterns: &[&str]) -> io::Result<CacheUsage> {
         let _guard = self
             .lock
@@ -210,7 +246,7 @@ impl ArtworkCache {
             if patterns.iter().all(|pattern| entry.key.contains(pattern)) {
                 removed.bytes += entry.bytes;
                 removed.files += 1;
-                remove_entry(&entry);
+                remove_entry(&entry)?;
             }
         }
         Ok(removed)
@@ -220,7 +256,7 @@ impl ArtworkCache {
         let mut entries = cache_entries(&self.root)?;
         for entry in &entries {
             if expired(entry.accessed_at.max(entry.cached_at), ttl_days) {
-                remove_entry(entry);
+                remove_entry(entry)?;
             }
         }
         entries = cache_entries(&self.root)?;
@@ -231,7 +267,7 @@ impl ArtworkCache {
             if used <= limit {
                 break;
             }
-            remove_entry(&entry);
+            remove_entry(&entry)?;
             used = used.saturating_sub(entry.bytes);
         }
         Ok(())
@@ -333,10 +369,15 @@ fn usage_for(root: &Path) -> io::Result<CacheUsage> {
     })
 }
 
-fn remove_entry(entry: &CacheEntry) {
+fn remove_entry(entry: &CacheEntry) -> io::Result<()> {
     for path in &entry.paths {
-        let _ = fs::remove_file(path);
+        if let Err(error) = fs::remove_file(path) {
+            if error.kind() != io::ErrorKind::NotFound {
+                return Err(error);
+            }
+        }
     }
+    Ok(())
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {

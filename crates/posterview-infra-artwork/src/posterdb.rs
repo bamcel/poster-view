@@ -36,6 +36,8 @@ impl Default for PosterDbClient {
         let client = Client::builder()
             .user_agent(USER_AGENT)
             .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("PosterDB HTTP client configuration is valid");
         Self {
@@ -83,6 +85,9 @@ impl PosterDbClient {
         self.reset().await;
         let page = self.request(Method::GET, "/login", None, None).await?;
         let html = String::from_utf8_lossy(&page.body);
+        if !page.status.is_success() {
+            return Err(super::provider_status_error("ThePosterDB", page.status));
+        }
         if is_blocked(&html) {
             return Err("ThePosterDB blocked the login with a bot challenge (Cloudflare). Try again shortly; a browser mode may be needed if it persists.".to_owned());
         }
@@ -106,6 +111,9 @@ impl PosterDbClient {
                 Some("application/x-www-form-urlencoded"),
             )
             .await?;
+        if !response.status.is_success() {
+            return Err(super::provider_status_error("ThePosterDB", response.status));
+        }
         let body = String::from_utf8_lossy(&response.body).to_lowercase();
         let landed_on_login = response.url.trim_end_matches('/').ends_with("/login");
         if (landed_on_login && body.contains("password"))
@@ -153,7 +161,7 @@ impl PosterDbClient {
             if let Some(bytes) = current_body.clone() {
                 request = request.body(bytes);
             }
-            let response = request.send().await.map_err(|error| error.to_string())?;
+            let response = request.send().await.map_err(super::network_error)?;
             {
                 let mut state = self.state.lock().await;
                 merge_cookies(&mut state.cookie, response.headers());
@@ -182,7 +190,7 @@ impl PosterDbClient {
                 .and_then(|value| value.to_str().ok())
                 .unwrap_or("")
                 .to_owned();
-            let bytes = response.bytes().await.map_err(|error| error.to_string())?;
+            let bytes = response.bytes().await.map_err(super::network_error)?;
             return Ok(WebResponse {
                 status,
                 url: final_url,
@@ -223,14 +231,11 @@ impl PosterDbClient {
             response = self.request(Method::GET, path, None, None).await?;
         }
         let body = String::from_utf8_lossy(&response.body).into_owned();
-        if is_blocked(&body) || response.status == StatusCode::SERVICE_UNAVAILABLE {
+        if is_blocked(&body) {
             return Err("ThePosterDB blocked the request with a bot challenge (Cloudflare). Wait a moment and retry.".to_owned());
         }
         if !response.status.is_success() {
-            return Err(format!(
-                "ThePosterDB request failed ({}).",
-                response.status.as_u16()
-            ));
+            return Err(super::provider_status_error("ThePosterDB", response.status));
         }
         Ok(body)
     }

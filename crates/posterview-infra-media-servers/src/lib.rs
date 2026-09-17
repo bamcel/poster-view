@@ -36,14 +36,27 @@ fn media_client(config: &ConnectionConfig<'_>) -> Result<Client, String> {
     Client::builder()
         .danger_accept_invalid_certs(true)
         .redirect(redirects)
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|error| format!("Could not configure HTTP client: {error}"))
 }
 
-fn emby_family_auth(
-    request: RequestBuilder,
-    config: &ConnectionConfig<'_>,
-) -> RequestBuilder {
+fn media_error(label: &str, error: reqwest::Error) -> String {
+    match error.status().map(|status| status.as_u16()) {
+        Some(401 | 403) => {
+            format!("{label} rejected the credentials. Check the server token or API key.")
+        }
+        Some(429) => format!("{label} is rate limiting requests (429). Try again later."),
+        Some(status @ 500..=599) => format!("{label} is temporarily unavailable ({status})."),
+        Some(status) => format!("{label} request failed ({status})."),
+        None if error.is_timeout() => format!("{label} request timed out."),
+        None if error.is_connect() => format!("{label} server is unreachable."),
+        None => format!("{label} returned an invalid response."),
+    }
+}
+
+fn emby_family_auth(request: RequestBuilder, config: &ConnectionConfig<'_>) -> RequestBuilder {
     match config.server_type {
         ServerType::Jellyfin => request.header(
             reqwest::header::AUTHORIZATION,
@@ -472,9 +485,9 @@ async fn set_emby_image(
     if image_type == "Backdrop" {
         for _ in 0..25 {
             let request = client.delete(format!(
-                    "{}/Items/{item_id}/Images/Backdrop/0",
-                    config.base_url.trim_end_matches('/')
-                ));
+                "{}/Items/{item_id}/Images/Backdrop/0",
+                config.base_url.trim_end_matches('/')
+            ));
             let response = emby_family_auth(request, config)
                 .send()
                 .await
@@ -485,9 +498,9 @@ async fn set_emby_image(
         }
     }
     let request = client.post(format!(
-            "{}/Items/{item_id}/Images/{image_type}",
-            config.base_url.trim_end_matches('/')
-        ));
+        "{}/Items/{item_id}/Images/{image_type}",
+        config.base_url.trim_end_matches('/')
+    ));
     let response = emby_family_auth(request, config)
         .header(reqwest::header::CONTENT_TYPE, content_type)
         .body(BASE64.encode(data))
@@ -1089,16 +1102,16 @@ async fn plex_json(
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|error| format!("Could not reach Plex at {}: {error}", config.base_url))?;
+        .map_err(|error| media_error("Plex", error))?;
     if response.status() == StatusCode::UNAUTHORIZED {
         return Err("Plex rejected the token (401 Unauthorized).".to_owned());
     }
     let body: Value = response
         .error_for_status()
-        .map_err(|error| format!("Could not reach Plex at {}: {error}", config.base_url))?
+        .map_err(|error| media_error("Plex", error))?
         .json()
         .await
-        .map_err(|error| format!("Could not reach Plex at {}: {error}", config.base_url))?;
+        .map_err(|error| media_error("Plex", error))?;
     Ok(body.get("MediaContainer").cloned().unwrap_or(Value::Null))
 }
 
@@ -1115,16 +1128,16 @@ async fn emby_json(
         .query(query)
         .send()
         .await
-        .map_err(|error| format!("Could not reach {label} at {}: {error}", config.base_url))?;
+        .map_err(|error| media_error(label, error))?;
     if response.status() == StatusCode::UNAUTHORIZED {
         return Err(format!("{label} rejected the API key (401 Unauthorized)."));
     }
     response
         .error_for_status()
-        .map_err(|error| format!("Could not reach {label} at {}: {error}", config.base_url))?
+        .map_err(|error| media_error(label, error))?
         .json()
         .await
-        .map_err(|error| format!("Could not reach {label} at {}: {error}", config.base_url))
+        .map_err(|error| media_error(label, error))
 }
 
 fn value_as_string(value: &Value) -> Option<String> {
@@ -1152,16 +1165,16 @@ async fn test_plex(
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|error| format!("Could not reach Plex at {}: {error}", config.base_url))?;
+        .map_err(|error| media_error("Plex", error))?;
     if response.status() == StatusCode::UNAUTHORIZED {
         return Err("Plex rejected the token (401 Unauthorized).".to_owned());
     }
     let body: Value = response
         .error_for_status()
-        .map_err(|error| format!("Could not reach Plex at {}: {error}", config.base_url))?
+        .map_err(|error| media_error("Plex", error))?
         .json()
         .await
-        .map_err(|error| format!("Could not reach Plex at {}: {error}", config.base_url))?;
+        .map_err(|error| media_error("Plex", error))?;
     let container = body.get("MediaContainer").unwrap_or(&Value::Null);
     Ok((
         string_field(container, "friendlyName", "Plex"),
@@ -1175,23 +1188,23 @@ async fn test_emby_family(
     label: &str,
 ) -> Result<(String, String), String> {
     let request = client.get(format!(
-            "{}/System/Info",
-            config.base_url.trim_end_matches('/')
-        ));
+        "{}/System/Info",
+        config.base_url.trim_end_matches('/')
+    ));
     let response = emby_family_auth(request, config)
         .header("Accept", "application/json")
         .send()
         .await
-        .map_err(|error| format!("Could not reach {label} at {}: {error}", config.base_url))?;
+        .map_err(|error| media_error(label, error))?;
     if response.status() == StatusCode::UNAUTHORIZED {
         return Err(format!("{label} rejected the API key (401 Unauthorized)."));
     }
     let body: Value = response
         .error_for_status()
-        .map_err(|error| format!("Could not reach {label} at {}: {error}", config.base_url))?
+        .map_err(|error| media_error(label, error))?
         .json()
         .await
-        .map_err(|error| format!("Could not reach {label} at {}: {error}", config.base_url))?;
+        .map_err(|error| media_error(label, error))?;
     Ok((
         string_field(&body, "ServerName", label),
         string_field(&body, "Version", ""),

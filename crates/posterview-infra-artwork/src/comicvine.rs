@@ -184,14 +184,11 @@ async fn request(
         .query(query)
         .send()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(super::network_error)?;
     if !response.status().is_success() {
-        return Err(format!(
-            "ComicVine request failed ({}).",
-            response.status().as_u16()
-        ));
+        return Err(super::provider_status_error("ComicVine", response.status()));
     }
-    let data: Value = response.json().await.map_err(|error| error.to_string())?;
+    let data: Value = response.json().await.map_err(super::network_error)?;
     if data["status_code"].as_i64() != Some(1) {
         return Err(data["error"]
             .as_str()

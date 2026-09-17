@@ -12,8 +12,99 @@ use posterview_contracts::{
 };
 use posterview_infra_artwork::{download_public_image, fetch_mediux_thumb};
 
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
+
+fn temporary_failure(message: &str) -> bool {
+    let message = message.to_lowercase();
+    if message.contains("credentials")
+        || message.contains("rejected")
+        || message.contains("401")
+        || message.contains("403")
+    {
+        return false;
+    }
+    [
+        "timeout",
+        "timed out",
+        "unreachable",
+        "could not reach",
+        "unable to reach",
+        "rate limit",
+        "429",
+        "temporarily unavailable",
+        "500",
+        "502",
+        "503",
+        "504",
+        "outage",
+    ]
+    .iter()
+    .any(|part| message.contains(part))
+}
+
+async fn request_with_retry<T, F, Fut>(label: &str, mut request: F) -> Result<T, String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    for attempt in 0..3 {
+        let result = tokio::time::timeout(REQUEST_TIMEOUT, request())
+            .await
+            .unwrap_or_else(|_| Err(format!("{label} request timed out.")));
+        match result {
+            Err(message) if attempt < 2 && temporary_failure(&message) => {
+                tokio::time::sleep(Duration::from_secs(1 << attempt)).await;
+            }
+            Ok(value) => return Ok(value),
+            Err(message) => return Err(format!("{label}: {message}")),
+        }
+    }
+    unreachable!()
+}
+
+fn scoped_thumbnail(url: &mut String, server_id: i64) {
+    if (url.starts_with("/api/posterdb/image?")
+        || url.starts_with("/api/artwork/mediux/image?")
+        || url.starts_with("/api/artwork/mangadex/image?"))
+        && !url.contains("server_id=")
+    {
+        url.push_str(&format!("&server_id={server_id}"));
+    }
+}
+
+fn scoped_artwork(mut result: ArtworkResults, server_id: i64) -> ArtworkResults {
+    for item in &mut result.items {
+        scoped_thumbnail(&mut item.thumb_url, server_id);
+    }
+    result
+}
+
+fn scoped_set(mut result: PosterSet, server_id: i64) -> PosterSet {
+    for item in &mut result.posters {
+        scoped_thumbnail(&mut item.thumb_url, server_id);
+    }
+    result
+}
+
+struct WatchdogRunGuard<'a> {
+    runtime: &'a Runtime,
+    server_id: i64,
+}
+
+impl Drop for WatchdogRunGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut running) = self.runtime.watchdog_running.lock() {
+            // Use the same lock order as run registration.
+            if let Ok(mut cancelled) = self.runtime.watchdog_cancelled.lock() {
+                cancelled.remove(&self.server_id);
+            }
+            running.remove(&self.server_id);
+        }
+    }
+}
+
 impl Runtime {
-    fn server_artwork_cache(
+    pub(crate) fn server_artwork_cache(
         &self,
         server_id: i64,
     ) -> Result<Arc<crate::ArtworkCache>, RuntimeError> {
@@ -21,16 +112,79 @@ impl Runtime {
             .server_artwork_caches
             .lock()
             .map_err(|_| std::io::Error::other("server artwork cache lock poisoned"))?;
-        Ok(Arc::clone(caches.entry(server_id).or_insert_with(|| {
-            let cache = Arc::new(crate::ArtworkCache::at(
-                self.data_dir
-                    .join("artwork-cache")
-                    .join("servers")
-                    .join(server_id.to_string()),
-            ));
-            let _ = cache.initialize();
-            cache
-        })))
+        if let Some(cache) = caches.get(&server_id) {
+            return Ok(Arc::clone(cache));
+        }
+        self.artwork_cache_settings(server_id)?;
+        let cache = Arc::new(crate::ArtworkCache::at(
+            self.data_dir
+                .join("artwork-cache")
+                .join("servers")
+                .join(server_id.to_string()),
+        ));
+        cache.initialize()?;
+        let store = self.server_store()?;
+        let marker = Self::server_setting(server_id, "artwork_cache_migrated_v2");
+        if store.get_setting(&marker)?.is_empty() {
+            cache.import_matching(&self.artwork_cache, |key| {
+                if key.is_empty() {
+                    return true;
+                }
+                if key.starts_with("artwork:") || key.starts_with("artwork-search:") {
+                    key.split(':').nth(2) == Some(server_id.to_string().as_str())
+                } else {
+                    key.starts_with("posterdb-")
+                        || key.starts_with("mangadex-image:")
+                        || key.starts_with("mediux-image:")
+                }
+            })?;
+            let inventory_key = Self::server_setting(server_id, "artwork_watchdog_inventory");
+            if store.get_setting(&inventory_key)?.is_empty() {
+                let inventory = serde_json::from_str::<std::collections::BTreeMap<String, String>>(
+                    &store.get_setting("artwork_watchdog_inventory")?,
+                )
+                .unwrap_or_default();
+                let prefix = format!("{server_id}:");
+                let inventory = inventory
+                    .into_iter()
+                    .filter(|(key, _)| key.starts_with(&prefix))
+                    .collect::<std::collections::BTreeMap<_, _>>();
+                if !inventory.is_empty() {
+                    store.set_setting(
+                        &inventory_key,
+                        &serde_json::to_string(&inventory).map_err(std::io::Error::other)?,
+                    )?;
+                }
+            }
+            for name in [
+                "artwork_watchdog_last_run",
+                "artwork_watchdog_last_message",
+                "artwork_watchdog_checkpoint",
+            ] {
+                let target = Self::server_setting(server_id, name);
+                let legacy = store.get_setting(name)?;
+                if store.get_setting(&target)?.is_empty()
+                    && !legacy.is_empty()
+                    && (name != "artwork_watchdog_checkpoint"
+                        || legacy.starts_with(&format!("{server_id}:")))
+                {
+                    store.set_setting(&target, &legacy)?;
+                }
+            }
+            let settings = self.artwork_cache_settings(server_id)?;
+            cache.prune(settings.max_mb, settings.ttl_days)?;
+            store.set_setting(&marker, "true")?;
+        }
+        caches.insert(server_id, Arc::clone(&cache));
+        Ok(cache)
+    }
+
+    fn clear_all_artwork_caches(&self) -> Result<(), RuntimeError> {
+        for server in self.list_servers()? {
+            self.server_artwork_cache(server.id)?.clear()?;
+        }
+        self.artwork_cache.remove_matching("")?;
+        Ok(())
     }
 
     fn server_setting(server_id: i64, name: &str) -> String {
@@ -74,36 +228,36 @@ impl Runtime {
     }
 
     pub fn refresh_mangadex_cache(&self, server_id: i64, item_id: &str) {
-        let _ = self
-            .artwork_cache
-            .remove_matching(&format!("artwork:mangadex:{server_id}:{item_id}:"));
-        let _ = self
-            .artwork_cache
-            .remove_matching(&format!("artwork-search:mangadex:{server_id}:{item_id}:"));
+        if let Ok(cache) = self.server_artwork_cache(server_id) {
+            let _ = cache.remove_matching(&format!("artwork:mangadex:{server_id}:{item_id}:"));
+            let _ =
+                cache.remove_matching(&format!("artwork-search:mangadex:{server_id}:{item_id}:"));
+        }
     }
 
     pub fn refresh_artwork_provider_cache(&self, provider: &str, server_id: i64, item_id: &str) {
-        let _ = self
-            .artwork_cache
-            .remove_matching(&format!("artwork:{provider}:{server_id}:{item_id}:"));
+        if let Ok(cache) = self.server_artwork_cache(server_id) {
+            let _ = cache.remove_matching(&format!("artwork:{provider}:{server_id}:{item_id}:"));
+        }
     }
 
-    pub async fn mangadex_image(&self, url: &str) -> Result<(Vec<u8>, String), String> {
+    pub async fn mangadex_image(
+        &self,
+        server_id: i64,
+        url: &str,
+    ) -> Result<(Vec<u8>, String), String> {
         let settings = self
-            .shared_artwork_cache_settings()
+            .artwork_cache_settings(server_id)
             .map_err(|e| e.to_string())?;
+        let cache = self
+            .server_artwork_cache(server_id)
+            .map_err(|error| error.to_string())?;
         let key = format!("mangadex-image:{url}");
-        if let Some(image) = self.artwork_cache.get_image(&key, settings.ttl_days) {
+        if let Some(image) = cache.get_image(&key, settings.ttl_days) {
             return Ok(image);
         }
         let image = download_public_image("mangadex", url).await?;
-        let _ = self.artwork_cache.put_image(
-            &key,
-            &image.0,
-            &image.1,
-            settings.max_mb,
-            settings.ttl_days,
-        );
+        let _ = cache.put_image(&key, &image.0, &image.1, settings.max_mb, settings.ttl_days);
         Ok(image)
     }
 
@@ -320,9 +474,24 @@ impl Runtime {
     }
 
     pub fn watchdog_due(&self, server_id: i64) -> Result<bool, RuntimeError> {
+        self.server_artwork_cache(server_id)?;
         let settings = self.artwork_cache_settings(server_id)?;
         if self.watchdog_is_running(server_id) {
             return Ok(false);
+        }
+        if self.server_store()?.get_setting(&Self::server_setting(
+            server_id,
+            "artwork_watchdog_failure_permanent",
+        ))? == "true"
+        {
+            return Ok(false);
+        }
+        let retry_after = self.server_store()?.get_setting(&Self::server_setting(
+            server_id,
+            "artwork_watchdog_retry_after",
+        ))?;
+        if let Ok(value) = chrono::DateTime::parse_from_rfc3339(&retry_after) {
+            return Ok(value <= chrono::Utc::now());
         }
         if !self
             .server_store()?
@@ -369,9 +538,13 @@ impl Runtime {
         item_id: &str,
         force: bool,
     ) -> Result<Option<ArtworkRefreshResult>, RuntimeError> {
-        let Some(detail) = self.get_item_detail(server_id, item_id).await? else {
-            return Ok(None);
-        };
+        let detail = request_with_retry("Media server", || async {
+            self.get_item_detail(server_id, item_id)
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "Item not found.".to_owned())?
+        })
+        .await;
         let detail = match detail {
             Ok(value) => value,
             Err(message) => {
@@ -414,9 +587,8 @@ impl Runtime {
             {
                 continue;
             }
-            if let Ok(items) = self
-                .artwork
-                .fetch(
+            let items = request_with_retry(provider, || {
+                self.artwork.fetch(
                     provider,
                     &detail,
                     None,
@@ -425,7 +597,9 @@ impl Runtime {
                     &tvdb_pin,
                     &comicvine_key,
                 )
-                .await
+            })
+            .await
+            .map_err(RuntimeError::Watchdog)?;
             {
                 let response = ArtworkResults {
                     provider: provider.to_owned(),
@@ -433,7 +607,7 @@ impl Runtime {
                     items,
                     message: None,
                 };
-                let _ = cache.put_json(&key, &response, settings.max_mb, settings.ttl_days);
+                cache.put_json(&key, &response, settings.max_mb, settings.ttl_days)?;
                 warmed += 1;
             }
         }
@@ -442,23 +616,22 @@ impl Runtime {
             "posterdb-prewarm-search:{}",
             detail.title.trim().to_lowercase()
         );
+        let email = store.get_setting("posterdb_email")?;
+        let password = store.get_setting("posterdb_password")?;
         if enabled.contains("posterdb")
-            && (force
-                || !self
-                    .server_artwork_cache(server_id)?
-                    .has_fresh_json(&posterdb_key, settings.ttl_days))
-            && let Ok(results) = self
-                .artwork
-                .posterdb()
-                .search(
-                    &detail.title,
-                    &store.get_setting("posterdb_email")?,
-                    &store.get_setting("posterdb_password")?,
-                )
-                .await
+            && !email.is_empty()
+            && !password.is_empty()
+            && (force || !cache.has_fresh_json(&posterdb_key, settings.ttl_days))
         {
+            let results = request_with_retry("ThePosterDB", || {
+                self.artwork
+                    .posterdb()
+                    .search(&detail.title, &email, &password)
+            })
+            .await
+            .map_err(RuntimeError::Watchdog)?;
             let results = posterdb_top_three(results);
-            let _ = cache.put_json(&posterdb_key, &results, settings.max_mb, settings.ttl_days);
+            cache.put_json(&posterdb_key, &results, settings.max_mb, settings.ttl_days)?;
             warmed += 1;
         }
 
@@ -482,19 +655,28 @@ impl Runtime {
                     providers_warmed: 0,
                 });
             }
+            if let Ok(mut cancelled) = self.watchdog_cancelled.lock() {
+                cancelled.remove(&server_id);
+            }
         }
-        if let Ok(mut cancelled) = self.watchdog_cancelled.lock() {
-            cancelled.remove(&server_id);
-        }
-        let result = self.run_watchdog_inner(server_id).await;
-        if let Ok(mut running) = self.watchdog_running.lock() {
-            running.remove(&server_id);
-        }
-        if let Ok(mut cancelled) = self.watchdog_cancelled.lock() {
-            cancelled.remove(&server_id);
-        }
+        let guard = WatchdogRunGuard {
+            runtime: self,
+            server_id,
+        };
+        self.server_store()?.set_setting(
+            &Self::server_setting(server_id, "artwork_watchdog_failure_permanent"),
+            "",
+        )?;
+        let result = self
+            .cancellable_watchdog(server_id, self.run_watchdog_inner(server_id))
+            .await;
+        drop(guard);
         let store = self.server_store()?;
         if let Ok(summary) = &result {
+            store.set_setting(
+                &Self::server_setting(server_id, "artwork_watchdog_retry_after"),
+                "",
+            )?;
             let now = chrono::Utc::now().to_rfc3339();
             store.set_setting(
                 &Self::server_setting(server_id, "artwork_watchdog_last_run"),
@@ -505,12 +687,50 @@ impl Runtime {
                 &summary.message,
             )?;
         } else if let Err(error) = &result {
+            let temporary = temporary_failure(&error.to_string());
+            store.set_setting(
+                &Self::server_setting(server_id, "artwork_watchdog_failure_permanent"),
+                if temporary { "" } else { "true" },
+            )?;
+            store.set_setting(
+                &Self::server_setting(server_id, "artwork_watchdog_retry_after"),
+                &if temporary {
+                    (chrono::Utc::now() + chrono::Duration::minutes(5)).to_rfc3339()
+                } else {
+                    String::new()
+                },
+            )?;
             store.set_setting(
                 &Self::server_setting(server_id, "artwork_watchdog_last_message"),
-                &format!("Watchdog paused and will resume: {error}"),
+                &if temporary {
+                    format!("Watchdog paused and will resume: {error}")
+                } else {
+                    format!("Watchdog stopped; resolve the error and run it again: {error}")
+                },
             )?;
         }
         result
+    }
+
+    async fn cancellable_watchdog(
+        &self,
+        server_id: i64,
+        work: impl std::future::Future<Output = Result<ArtworkRefreshResult, RuntimeError>>,
+    ) -> Result<ArtworkRefreshResult, RuntimeError> {
+        tokio::select! {
+            result = work => result,
+            _ = async {
+                loop {
+                    if self.watchdog_cancel_requested(server_id) { break; }
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+            } => {
+                let store = self.server_store()?;
+                store.set_setting(&Self::server_setting(server_id, "artwork_watchdog_checkpoint"), "")?;
+                store.set_setting(&Self::server_setting(server_id, "artwork_watchdog_current_title"), "")?;
+                Ok(ArtworkRefreshResult { ok: false, message: "Watchdog cancelled.".to_owned(), providers_warmed: 0 })
+            }
+        }
     }
 
     pub fn cancel_watchdog(&self, server_id: i64) -> Result<ArtworkRefreshResult, RuntimeError> {
@@ -532,34 +752,25 @@ impl Runtime {
         })
     }
 
-    pub(crate) fn shared_artwork_cache_settings(
-        &self,
-    ) -> Result<ArtworkCacheSettings, RuntimeError> {
-        let store = self.server_store()?;
-        Ok(ArtworkCacheSettings {
-            max_mb: parse_nonnegative(&store.get_setting("artwork_cache_max_mb")?, 250).max(25),
-            ttl_days: parse_nonnegative(&store.get_setting("artwork_cache_ttl_days")?, 30).max(1),
-            watchdog_enabled: false,
-            watchdog_interval_hours: 24,
-        })
-    }
-
     async fn run_watchdog_inner(
         &self,
         server_id: i64,
     ) -> Result<ArtworkRefreshResult, RuntimeError> {
+        self.server_artwork_cache(server_id)?;
         let server = self
             .server_store()?
             .get_server(server_id)?
             .ok_or_else(|| RuntimeError::Watchdog("Media server not found.".to_owned()))?;
         let mut seen = std::collections::HashSet::new();
         let mut discovered = Vec::new();
-        let Some(Ok(libraries)) = self.get_libraries(server.id).await? else {
-            return Err(RuntimeError::Watchdog(format!(
-                "Watchdog could not read libraries from {}.",
-                server.name
-            )));
-        };
+        let libraries = request_with_retry(&server.name, || async {
+            self.get_libraries(server.id)
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "Media server not found.".to_owned())?
+        })
+        .await
+        .map_err(RuntimeError::Watchdog)?;
         for library in libraries {
             if self.watchdog_cancel_requested(server_id) {
                 let store = self.server_store()?;
@@ -580,12 +791,14 @@ impl Runtime {
             if library.library_type == posterview_contracts::LibraryType::Other {
                 continue;
             }
-            let Some(Ok(items)) = self.get_items(server.id, &library.id, false).await? else {
-                return Err(RuntimeError::Watchdog(format!(
-                    "Watchdog could not read {} from {}.",
-                    library.title, server.name
-                )));
-            };
+            let items = request_with_retry(&server.name, || async {
+                self.get_items(server.id, &library.id, false)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .ok_or_else(|| "Media server not found.".to_owned())?
+            })
+            .await
+            .map_err(RuntimeError::Watchdog)?;
             for item in items {
                 if seen.insert(item.id.clone()) {
                     discovered.push((server.id, item.id, item.title));
@@ -655,8 +868,10 @@ impl Runtime {
             if let Some(result) = self
                 .refresh_artwork_item_inner(*server_id, item_id, false)
                 .await?
-                && result.ok
             {
+                if !result.ok {
+                    return Err(RuntimeError::Watchdog(result.message));
+                }
                 items_refreshed += 1;
                 providers_warmed += result.providers_warmed;
             }
@@ -767,7 +982,7 @@ impl Runtime {
             || input.tvdb_api_key.is_some()
             || input.tvdb_pin.is_some()
         {
-            let _ = self.artwork_cache.clear();
+            self.clear_all_artwork_caches()?;
         }
         if let Some(providers) = &input.enabled_providers {
             let enabled = ARTWORK_PROVIDERS
@@ -788,7 +1003,11 @@ impl Runtime {
                     } else {
                         provider
                     };
-                    let _ = self.artwork_cache.remove_matching(pattern);
+                    for server in self.list_servers()? {
+                        self.server_artwork_cache(server.id)?
+                            .remove_matching(pattern)?;
+                    }
+                    self.artwork_cache.remove_matching(pattern)?;
                 }
             }
         }
@@ -893,7 +1112,7 @@ impl Runtime {
         let cache_settings = self.artwork_cache_settings(server_id)?;
         let cache = self.server_artwork_cache(server_id)?;
         if let Some(cached) = cache.get_json(&cache_key, cache_settings.ttl_days) {
-            return Ok(Some(Ok(cached)));
+            return Ok(Some(Ok(scoped_artwork(cached, server_id))));
         }
         let Some(detail) = self.get_item_detail(server_id, item_id).await? else {
             return Ok(None);
@@ -939,7 +1158,7 @@ impl Runtime {
                 cache_settings.ttl_days,
             );
         }
-        Ok(Some(Ok(response)))
+        Ok(Some(Ok(scoped_artwork(response, server_id))))
     }
 
     pub async fn search_artwork(
@@ -1012,16 +1231,23 @@ impl Runtime {
         Ok(Some(Ok(response)))
     }
 
-    pub async fn mediux_image(&self, url: &str) -> Result<(Vec<u8>, String), String> {
+    pub async fn mediux_image(
+        &self,
+        server_id: i64,
+        url: &str,
+    ) -> Result<(Vec<u8>, String), String> {
         let settings = self
-            .shared_artwork_cache_settings()
+            .artwork_cache_settings(server_id)
+            .map_err(|error| error.to_string())?;
+        let cache = self
+            .server_artwork_cache(server_id)
             .map_err(|error| error.to_string())?;
         let key = format!("mediux-image:{url}");
-        if let Some(cached) = self.artwork_cache.get_image(&key, settings.ttl_days) {
+        if let Some(cached) = cache.get_image(&key, settings.ttl_days) {
             return Ok(cached);
         }
         let fetched = fetch_mediux_thumb(url).await?;
-        let _ = self.artwork_cache.put_image(
+        let _ = cache.put_image(
             &key,
             &fetched.0,
             &fetched.1,
@@ -1054,7 +1280,7 @@ impl Runtime {
             store.set_setting("posterdb_password", &input.password)?;
         }
         self.artwork.posterdb().reset().await;
-        let _ = self.artwork_cache.clear();
+        self.clear_all_artwork_caches()?;
         self.posterdb_status("").await
     }
 
@@ -1070,7 +1296,11 @@ impl Runtime {
         self.posterdb_status(&message).await
     }
 
-    pub async fn posterdb_search(&self, term: &str) -> Result<PosterSearchResults, String> {
+    pub async fn posterdb_search(
+        &self,
+        server_id: i64,
+        term: &str,
+    ) -> Result<PosterSearchResults, String> {
         if !self
             .enabled_artwork_providers()
             .map_err(|error| error.to_string())?
@@ -1079,7 +1309,7 @@ impl Runtime {
             return Err("ThePosterDB is disabled in Database settings.".to_owned());
         }
         let settings = self
-            .shared_artwork_cache_settings()
+            .artwork_cache_settings(server_id)
             .map_err(|error| error.to_string())?;
         let store = self.server_store().map_err(|error| error.to_string())?;
         let result = self
@@ -1096,15 +1326,17 @@ impl Runtime {
             )
             .await?;
         let preview = posterdb_top_three(result.clone());
+        let cache = self
+            .server_artwork_cache(server_id)
+            .map_err(|error| error.to_string())?;
         let key = format!("posterdb-prewarm-search:{}", term.trim().to_lowercase());
-        let _ = self
-            .artwork_cache
-            .put_json(&key, &preview, settings.max_mb, settings.ttl_days);
+        let _ = cache.put_json(&key, &preview, settings.max_mb, settings.ttl_days);
         Ok(result)
     }
 
     pub fn posterdb_search_preview(
         &self,
+        server_id: i64,
         term: &str,
     ) -> Result<Option<PosterSearchResults>, String> {
         if !self
@@ -1115,19 +1347,25 @@ impl Runtime {
             return Ok(None);
         }
         let settings = self
-            .shared_artwork_cache_settings()
+            .artwork_cache_settings(server_id)
+            .map_err(|error| error.to_string())?;
+        let cache = self
+            .server_artwork_cache(server_id)
             .map_err(|error| error.to_string())?;
         let key = format!("posterdb-prewarm-search:{}", term.trim().to_lowercase());
-        Ok(self.artwork_cache.get_json(&key, settings.ttl_days))
+        Ok(cache.get_json(&key, settings.ttl_days))
     }
 
-    pub async fn posterdb_set(&self, url: &str) -> Result<PosterSet, String> {
+    pub async fn posterdb_set(&self, server_id: i64, url: &str) -> Result<PosterSet, String> {
         let settings = self
-            .shared_artwork_cache_settings()
+            .artwork_cache_settings(server_id)
+            .map_err(|error| error.to_string())?;
+        let cache = self
+            .server_artwork_cache(server_id)
             .map_err(|error| error.to_string())?;
         let key = format!("posterdb-set:{url}");
-        if let Some(cached) = self.artwork_cache.get_json(&key, settings.ttl_days) {
-            return Ok(cached);
+        if let Some(cached) = cache.get_json(&key, settings.ttl_days) {
+            return Ok(scoped_set(cached, server_id));
         }
         let store = self.server_store().map_err(|error| error.to_string())?;
         let result = self
@@ -1143,23 +1381,25 @@ impl Runtime {
                     .map_err(|error| error.to_string())?,
             )
             .await?;
-        let _ = self
-            .artwork_cache
-            .put_json(&key, &result, settings.max_mb, settings.ttl_days);
-        Ok(result)
+        let _ = cache.put_json(&key, &result, settings.max_mb, settings.ttl_days);
+        Ok(scoped_set(result, server_id))
     }
 
     pub async fn posterdb_verify(
         &self,
+        server_id: i64,
         ids: &[String],
     ) -> Result<std::collections::HashMap<String, i64>, String> {
         let settings = self
-            .shared_artwork_cache_settings()
+            .artwork_cache_settings(server_id)
             .map_err(|error| error.to_string())?;
         let mut sorted_ids = ids.to_vec();
         sorted_ids.sort();
+        let cache = self
+            .server_artwork_cache(server_id)
+            .map_err(|error| error.to_string())?;
         let key = format!("posterdb-verify:{}", sorted_ids.join(","));
-        if let Some(cached) = self.artwork_cache.get_json(&key, settings.ttl_days) {
+        if let Some(cached) = cache.get_json(&key, settings.ttl_days) {
             return Ok(cached);
         }
         let store = self.server_store().map_err(|error| error.to_string())?;
@@ -1176,18 +1416,23 @@ impl Runtime {
                     .map_err(|error| error.to_string())?,
             )
             .await?;
-        let _ = self
-            .artwork_cache
-            .put_json(&key, &result, settings.max_mb, settings.ttl_days);
+        let _ = cache.put_json(&key, &result, settings.max_mb, settings.ttl_days);
         Ok(result)
     }
 
-    pub async fn posterdb_image(&self, url: &str) -> Result<(Vec<u8>, String), String> {
+    pub async fn posterdb_image(
+        &self,
+        server_id: i64,
+        url: &str,
+    ) -> Result<(Vec<u8>, String), String> {
         let settings = self
-            .shared_artwork_cache_settings()
+            .artwork_cache_settings(server_id)
+            .map_err(|error| error.to_string())?;
+        let cache = self
+            .server_artwork_cache(server_id)
             .map_err(|error| error.to_string())?;
         let key = format!("posterdb-image:{url}");
-        if let Some(cached) = self.artwork_cache.get_image(&key, settings.ttl_days) {
+        if let Some(cached) = cache.get_image(&key, settings.ttl_days) {
             return Ok(cached);
         }
         let store = self.server_store().map_err(|error| error.to_string())?;
@@ -1205,7 +1450,7 @@ impl Runtime {
                 true,
             )
             .await?;
-        let _ = self.artwork_cache.put_image(
+        let _ = cache.put_image(
             &key,
             &result.0,
             &result.1,
@@ -1223,7 +1468,8 @@ impl Runtime {
             return Ok(None);
         }
         let downloaded = if input.provider == "mangadex" {
-            self.mangadex_image(&input.download_url).await
+            self.mangadex_image(input.server_id, &input.download_url)
+                .await
         } else if input.provider == "posterdb" {
             let store = self.server_store()?;
             self.artwork
@@ -1259,3 +1505,7 @@ impl Runtime {
         .await
     }
 }
+
+#[cfg(test)]
+#[path = "artwork_tests.rs"]
+mod regression_tests;

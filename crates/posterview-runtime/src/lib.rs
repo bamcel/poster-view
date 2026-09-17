@@ -84,6 +84,13 @@ impl Runtime {
         self.artwork_cache.initialize()?;
         self.media_image_cache.initialize()?;
         let _ = self.servers.set(store);
+        let servers = self.list_servers()?;
+        for server in &servers {
+            self.server_artwork_cache(server.id)?;
+        }
+        if !servers.is_empty() {
+            self.artwork_cache.remove_matching("")?;
+        }
         Ok(())
     }
 
@@ -705,6 +712,15 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary directory");
         let runtime = Runtime::new(directory.path());
         runtime.initialize().expect("initialize runtime");
+        let server = runtime
+            .create_server(&ServerCreate {
+                name: "Test".into(),
+                server_type: ServerType::Jellyfin,
+                base_url: "http://localhost:8096".into(),
+                token: "test".into(),
+                is_default: true,
+            })
+            .unwrap();
         let preview = PosterSearchResults {
             term: "Roseanne".to_owned(),
             categories: vec![PosterCategory {
@@ -720,7 +736,7 @@ mod tests {
             }],
         };
         let settings = runtime
-            .shared_artwork_cache_settings()
+            .artwork_cache_settings(server.id)
             .expect("artwork cache settings");
         runtime
             .artwork_cache
@@ -733,7 +749,7 @@ mod tests {
             .expect("store preview");
 
         let cached = runtime
-            .posterdb_search_preview("  ROSEANNE ")
+            .posterdb_search_preview(server.id, "  ROSEANNE ")
             .expect("read preview")
             .expect("preview exists");
         assert_eq!(cached, preview);

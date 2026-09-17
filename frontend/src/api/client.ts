@@ -138,16 +138,16 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   posterdbLogin: () => request<PosterDBStatus>("/posterdb/login", { method: "POST" }),
-  posterdbSearch: (term: string) =>
-    request<PosterSearchResults>(`/posterdb/search?term=${encodeURIComponent(term)}`),
-  posterdbSearchPreview: (term: string) =>
+  posterdbSearch: (serverId: number, term: string) =>
+    request<PosterSearchResults>(`/posterdb/search?server_id=${serverId}&term=${encodeURIComponent(term)}`),
+  posterdbSearchPreview: (serverId: number, term: string) =>
     request<PosterSearchResults | null>(
-      `/posterdb/search/preview?term=${encodeURIComponent(term)}`,
+      `/posterdb/search/preview?server_id=${serverId}&term=${encodeURIComponent(term)}`,
     ),
-  posterdbSet: (url: string) =>
-    request<PosterSet>(`/posterdb/set?url=${encodeURIComponent(url)}`),
-  posterdbVerify: (ids: string[]) =>
-    request<Record<string, number>>("/posterdb/verify", {
+  posterdbSet: (serverId: number, url: string) =>
+    request<PosterSet>(`/posterdb/set?server_id=${serverId}&url=${encodeURIComponent(url)}`),
+  posterdbVerify: (serverId: number, ids: string[]) =>
+    request<Record<string, number>>(`/posterdb/verify?server_id=${serverId}`, {
       method: "POST",
       body: JSON.stringify({ ids }),
     }),

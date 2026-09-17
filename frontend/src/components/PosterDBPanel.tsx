@@ -75,11 +75,11 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
   async function runSearch(term: string) {
     setBusyLoad(true);
     try {
-      const fullSearch = api.posterdbSearch(term).then(
+      const fullSearch = api.posterdbSearch(serverId, term).then(
         (result) => ({ result, error: null }),
         (error: unknown) => ({ result: null, error }),
       );
-      const preview = await api.posterdbSearchPreview(term).catch(() => null);
+      const preview = await api.posterdbSearchPreview(serverId, term).catch(() => null);
       if (preview) {
         setSearch(preview);
         setStack([]);
@@ -109,7 +109,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
   async function openGrid(url: string, opts: { replace?: boolean; label?: string } = {}) {
     setBusyLoad(true);
     try {
-      const set = await api.posterdbSet(url);
+      const set = await api.posterdbSet(serverId, url);
       const view: GridView = { set, isTitle: isTitleUrl(url), label: opts.label };
       setStack((prev) => (opts.replace ? [view] : [...prev, view]));
     } catch (e) {
@@ -274,7 +274,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
 
       {/* Categorized search results: pick a title to drill in */}
       {!busyLoad && !current && search && (
-        <SearchResults
+        <SearchResults serverId={serverId}
           search={search}
           activeCat={activeCat}
           setActiveCat={setActiveCat}
@@ -297,11 +297,13 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
 // ---------------------------------------------------------------------------
 
 function SearchResults({
+  serverId,
   search,
   activeCat,
   setActiveCat,
   onPick,
 }: {
+  serverId: number;
   search: PosterSearchResults;
   activeCat: string | null;
   setActiveCat: (c: string) => void;
@@ -318,8 +320,8 @@ function SearchResults({
     queries: cats.map((c) => {
       const ids = c.results.map((r) => r.media_id);
       return {
-        queryKey: ["posterdb-verify", ids],
-        queryFn: () => api.posterdbVerify(ids),
+        queryKey: ["posterdb-verify", serverId, ids],
+        queryFn: () => api.posterdbVerify(serverId, ids),
         enabled: ids.length > 0,
         staleTime: 5 * 60_000,
       };

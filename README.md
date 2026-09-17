@@ -69,8 +69,12 @@ encrypted at rest and never sent back to the browser._
 - **Connection checks**: Settings can verify saved or newly entered Fanart.tv and TheTVDB
   credentials before you depend on them for artwork searches.
 - **Persistent artwork cache**: provider results and proxied thumbnails are reused from the Docker
-  data volume. The default cap is 250 MB with 30-day expiry; Settings shows current usage and lets
-  you change the limit, retention period, or clear it. Oldest entries are removed automatically.
+  data volume under `/data/artwork-cache/servers/{server_id}`. Each server has an independent
+  250 MB default cap and 30-day expiry, including MangaDex/MediUX/PosterDB thumbnails and PosterDB
+  data. Settings shows each server's usage and lets you change its limits or clear its cache.
+  Existing cache entries and Watchdog inventories migrate automatically on startup, preserving
+  cache ages. Legacy previews without a server identifier are copied into each server's quota;
+  the shared files are removed only after every server migrates successfully.
 - **Persistent media-image cache**: posters, backgrounds, logos, and other media-server images are
   stored under `/data/media-image-cache` after their first request, so repeat page loads do not
   download them from Plex, Jellyfin, or Emby again. This separate cache is capped at 10 GB with a
@@ -80,7 +84,11 @@ encrypted at rest and never sent back to the browser._
   library to refresh its cached provider data. The optional Watchdog in Settings → Database walks
   current libraries on a schedule and records a persistent inventory. After its initial build, it
   caches only new titles and removes item-linked data for titles no longer present. Interrupted scans
-  resume from their checkpoint, and cleanup is skipped whenever any library cannot be read. Disabled
+  resume from their checkpoint, and cleanup is skipped whenever any library or provider fails.
+  Cancel interrupts in-flight requests. HTTP requests have 10-second connection and 30-second
+  total timeouts; each Watchdog lookup has a 45-second deadline. Temporary failures retry up to
+  twice after 1 and 2 seconds, then pause the run for five minutes. Invalid credentials and other
+  permanent failures stop scheduling until you resolve the error and start Watchdog again. Disabled
   databases are excluded from caching. ThePosterDB prewarming keeps only the top three Movies,
   Shows, and Collections matches per title. Those cached matches appear immediately during an
   interactive search, then PosterView replaces them with every result that has artwork when the
@@ -335,19 +343,22 @@ The frontend uses the following stable HTTP API endpoints:
 | `GET` | `/api/servers/{id}/items/{item}` | item detail: seasons, members (if a collection), logo, external ids |
 | `GET` | `/api/servers/{id}/image?ref=…` | auth'd media-server image proxy |
 | `PUT` | `/api/posterdb/credentials` | save ThePosterDB login |
-| `GET` | `/api/posterdb/search?term=` | categorized ThePosterDB search |
-| `POST` | `/api/posterdb/verify` | poster counts per title (hides empty results) |
-| `GET` | `/api/posterdb/set?url=` | scrape a set / poster / title page |
-| `GET` | `/api/posterdb/image?url=` | cached ThePosterDB thumbnail proxy |
+| `GET` | `/api/posterdb/search?server_id=&term=` | categorized ThePosterDB search |
+| `POST` | `/api/posterdb/verify?server_id=` | poster counts per title (hides empty results) |
+| `GET` | `/api/posterdb/set?server_id=&url=` | scrape a set / poster / title page |
+| `GET` | `/api/posterdb/image?server_id=&url=` | cached ThePosterDB thumbnail proxy |
 | `POST` | `/api/posterdb/apply` | download an image + apply to a server |
 | `GET` | `/api/artwork?provider=&server_id=&item_id=[&id_override=]` | Fanart/TVDB/AniList/MediUX artwork |
 | `GET` | `/api/artwork/search?provider=&server_id=&item_id=&query=` | title search + picker for Fanart/TVDB/MediUX when no id is known |
 | `GET/PUT` | `/api/artwork/settings` | API keys, default source, and enabled databases |
-| `GET/PUT/DELETE` | `/api/artwork/cache` | cache usage, limits, expiry, and clear |
+| `GET/PUT/DELETE` | `/api/artwork/cache/{server_id}` | cache usage, limits, expiry, and clear |
 | `POST` | `/api/artwork/cache/refresh` | refresh and prewarm one movie/show/collection |
-| `POST` | `/api/artwork/cache/watchdog/run` | start a full-library prewarm in the background |
+| `POST` | `/api/artwork/cache/{server_id}/watchdog/run` | start a full-library prewarm in the background |
+| `POST` | `/api/artwork/cache/{server_id}/watchdog/cancel` | cancel an active scan, including in-flight requests |
+| `GET` | `/api/artwork/mangadex/image?server_id=&url=` | cached MangaDex thumbnail proxy |
+| `GET` | `/api/posterdb/search/preview?server_id=&term=` | cached top-three matches per category |
 | `POST` | `/api/artwork/test` | verify saved or supplied Fanart/TVDB credentials |
-| `GET` | `/api/artwork/mediux/image?url=` | cached MediUX thumbnail proxy |
+| `GET` | `/api/artwork/mediux/image?server_id=&url=` | cached MediUX thumbnail proxy |
 | `POST` | `/api/artwork/upload` | apply a user-uploaded image file |
 | `GET` | `/api/history?server_id=[&item_id=&target=&limit=]` | apply history — global feed when `item_id` is omitted |
 | `GET` | `/api/history/{id}/image` | a history entry's stored image |

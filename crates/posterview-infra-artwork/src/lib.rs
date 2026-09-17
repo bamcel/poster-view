@@ -66,7 +66,7 @@ impl ArtworkService {
             return Err("Fanart.tv rejected the API key — double-check it in Settings.".to_owned());
         }
         if !response.status().is_success() && response.status() != StatusCode::NOT_FOUND {
-            return Err(format!("Fanart.tv error ({}).", response.status().as_u16()));
+            return Err(provider_status_error("Fanart.tv", response.status()));
         }
         Ok(())
     }
@@ -197,7 +197,7 @@ impl ArtworkService {
             .await
             .map_err(network_error)?;
         if !response.status().is_success() {
-            return Err("TheTVDB rejected the API key/PIN — check them in Settings.".to_owned());
+            return Err(provider_status_error("TheTVDB", response.status()));
         }
         let data: Value = response.json().await.map_err(network_error)?;
         let token = data
@@ -266,7 +266,7 @@ impl ArtworkService {
             .tvdb_get("/search", &[("query", query), ("type", kind)], key, pin)
             .await?;
         if !response.status().is_success() {
-            return Err(format!("TheTVDB error ({}).", response.status().as_u16()));
+            return Err(provider_status_error("TheTVDB", response.status()));
         }
         let body: Value = response.json().await.map_err(network_error)?;
         Ok(body
@@ -324,7 +324,7 @@ impl ArtworkService {
             return Ok(Vec::new());
         }
         if !response.status().is_success() {
-            return Err(format!("TheTVDB error ({}).", response.status().as_u16()));
+            return Err(provider_status_error("TheTVDB", response.status()));
         }
         let body: Value = response.json().await.map_err(network_error)?;
         let types = self.tvdb_types.lock().await.clone().unwrap_or_default();
@@ -469,7 +469,7 @@ async fn fetch_fanart(
         return Err("Fanart.tv rejected the API key — double-check it in Settings.".to_owned());
     }
     if !response.status().is_success() {
-        return Err(format!("Fanart.tv error ({}).", response.status().as_u16()));
+        return Err(provider_status_error("Fanart.tv", response.status()));
     }
     let body: Value = response.json().await.map_err(network_error)?;
     let mut items = Vec::new();
@@ -543,7 +543,7 @@ async fn fetch_anilist(
         return Ok(Vec::new());
     }
     if !response.status().is_success() {
-        return Err(format!("AniList error ({}).", response.status().as_u16()));
+        return Err(provider_status_error("AniList", response.status()));
     }
     let body: Value = response.json().await.map_err(network_error)?;
     let Some(media) = body.pointer("/data/Media") else {
@@ -620,7 +620,7 @@ async fn fetch_mediux(
         return Ok(Vec::new());
     }
     if !response.status().is_success() {
-        return Err(format!("MediUX error ({}).", response.status().as_u16()));
+        return Err(provider_status_error("MediUX", response.status()));
     }
     parse_mediux(&response.text().await.map_err(network_error)?, item)
 }
@@ -691,7 +691,7 @@ async fn image_response(
     label: &str,
 ) -> Result<(Vec<u8>, String), String> {
     if !response.status().is_success() {
-        return Err(format!("{label} error ({}).", response.status().as_u16()));
+        return Err(provider_status_error(label, response.status()));
     }
     let content_type = response
         .headers()
@@ -756,7 +756,30 @@ fn provider_client(domains: &[&str]) -> Result<Client, String> {
 }
 
 fn network_error(error: reqwest::Error) -> String {
-    error.to_string()
+    if error.is_timeout() {
+        "Artwork provider request timed out.".to_owned()
+    } else if error.is_connect() {
+        "Artwork provider is unreachable.".to_owned()
+    } else if let Some(status) = error.status() {
+        provider_status_error("Artwork provider", status)
+    } else {
+        "Artwork provider returned an invalid response.".to_owned()
+    }
+}
+
+fn provider_status_error(label: &str, status: StatusCode) -> String {
+    match status.as_u16() {
+        401 | 403 => format!(
+            "{label} rejected the credentials ({}). Check Database settings.",
+            status.as_u16()
+        ),
+        429 => format!("{label} is rate limiting requests (429). Try again later."),
+        500..=599 => format!(
+            "{label} has a temporary provider outage ({}).",
+            status.as_u16()
+        ),
+        _ => format!("{label} request failed ({}).", status.as_u16()),
+    }
 }
 fn value_string(value: Option<&Value>) -> Option<String> {
     value?
