@@ -673,12 +673,10 @@ function ArtworkSourcesSection() {
         {" "}Leave saved key fields blank to keep existing values.
       </p>
 
-      <ArtworkCredentialsFields />
-      <div className="mt-3 rounded-xl border border-border bg-surface-2 p-3">
-        <h3 className="mb-1 text-sm font-semibold">Provider defaults</h3>
-        <p className="mb-3 text-xs text-faint">Choose the source used when opening artwork searches.</p>
+      <div className="mb-3 rounded-xl border border-border bg-surface-2 p-3">
         <DefaultArtworkSourceFields />
       </div>
+      <ArtworkCredentialsFields />
 
     </section>
   );
