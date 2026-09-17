@@ -200,7 +200,7 @@ it("shows an independent cache panel and cancellation control for each server", 
     </MemoryRouter>,
   );
 
-  expect((await screen.findByText("Jellyfin Cache")).classList.contains("text-white")).toBe(true);
+  expect((await screen.findByRole("heading", { name: "Jellyfin" })).classList.contains("text-white")).toBe(true);
   fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(api.cancelArtworkWatchdog).toHaveBeenCalledWith(7));
   expect(await screen.findByText("Syncing Artwork: Stopping")).toBeTruthy();
@@ -250,7 +250,7 @@ it("confirms a specific server cache and keeps another server's browser cache in
   client.setQueryData(artworkA, "A");
   client.setQueryData(artworkB, "B");
   render(<MemoryRouter initialEntries={["/settings?tab=database"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
-  const card = (await screen.findByRole("heading", { name: "Family 19 Cache" })).parentElement!;
+  const card = (await screen.findByRole("heading", { name: "Family 19" })).parentElement!;
   const clear = within(card).getByRole("button", { name: "Clear cache" });
   await waitFor(() => expect(clear.hasAttribute("disabled")).toBe(false));
   fireEvent.click(clear);

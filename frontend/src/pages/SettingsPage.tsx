@@ -904,7 +904,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
   return (
     <div className="rounded-xl border border-border bg-surface-2 p-4">
       <h3 className="mb-1 flex items-start gap-2 break-words text-base font-semibold text-white">
-        <HardDrive className="size-4 text-accent" /> {cacheQ.data?.server_name ?? server.name} Cache
+        <HardDrive className="size-4 shrink-0 text-accent" /> {cacheQ.data?.server_name ?? server.name}
       </h3>
       <p className="mb-4 text-xs text-faint">
         Stores artwork for this server and uses Sync to preload new titles automatically.
@@ -971,7 +971,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
         </div>
       </div>
       <p className="mt-2 text-xs text-faint">Sync scans this server’s libraries, preloads newly added titles, and cleans up removed titles after a complete scan.</p>
-      <div className="mt-4 flex flex-wrap items-center gap-2">
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={() => watchdogMut.mutate()}
