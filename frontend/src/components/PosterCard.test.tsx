@@ -28,8 +28,8 @@ it("dismisses the menu when leaving the card without refreshing artwork", () => 
 
 it("opens options from the keyboard, focuses the action, and returns focus on Escape", () => {
   render(<PosterCard title="Movie" onOpen={vi.fn()} onRefresh={vi.fn()} />);
-  const trigger = screen.getByRole("button", { name: "Artwork options for Movie" });
-  fireEvent.keyDown(trigger, { key: "ArrowDown" });
+  const trigger = screen.getByTitle("Movie · right-click for options");
+  fireEvent.keyDown(trigger, { key: "F10", shiftKey: true });
   const action = screen.getByRole("menuitem", { name: "Refresh artwork data" });
   expect(document.activeElement).toBe(action);
   fireEvent.keyDown(action, { key: "Escape" });

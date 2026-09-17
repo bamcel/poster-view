@@ -2,7 +2,7 @@
 // Opens on a single click (and Enter for keyboard users) when `onOpen` is set.
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Film, Tv, Library, RefreshCw, BookOpen, MoreHorizontal } from "lucide-react";
+import { Film, Tv, Library, RefreshCw, BookOpen } from "lucide-react";
 import { useActionMenu } from "../lib/actionMenu";
 
 interface PosterCardProps {
@@ -116,7 +116,11 @@ export default function PosterCard({
   return onOpen ? (
     <div className="relative" onMouseLeave={() => setMenuOpen(false)}>
       <button
+        ref={triggerRef}
         type="button"
+        aria-haspopup={onRefresh ? "menu" : undefined}
+        aria-expanded={onRefresh ? menuOpen : undefined}
+        aria-controls={menuOpen ? menuId : undefined}
         onClick={onOpen}
         onKeyDown={(event) => {
           if (onRefresh && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
@@ -134,13 +138,6 @@ export default function PosterCard({
       >
         {content}
       </button>
-      {onRefresh && <button ref={triggerRef} type="button" aria-label={`Artwork options for ${title}`}
-        aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuOpen ? menuId : undefined}
-        onClick={(event) => { event.stopPropagation(); setMenuOpen(!menuOpen); }}
-        onKeyDown={(event) => { if (event.key === "ArrowDown") { event.preventDefault(); setMenuOpen(true); } }}
-        className="absolute right-2 top-2 grid size-11 place-items-center rounded-lg bg-black/75 text-white hover:bg-black">
-        <MoreHorizontal className="size-5" />
-      </button>}
       {menuOpen && onRefresh && (
         <div
           ref={menuRef} id={menuId} role="menu" aria-label={`Artwork options for ${title}`} tabIndex={-1} onKeyDown={menuKeys}
