@@ -14,6 +14,26 @@ fn router(runtime: Arc<Runtime>, ui_dir: PathBuf) -> axum::Router {
 }
 
 #[tokio::test]
+async fn manga_catalog_rejects_invalid_searches_before_contacting_provider() {
+    let directory = tempdir().unwrap();
+    let runtime = Arc::new(Runtime::new(directory.path()));
+    runtime.initialize().unwrap();
+    let app = router(runtime, PathBuf::from("missing-ui"));
+    for path in [
+        "/api/manga/catalog",
+        "/api/manga/catalog?id=-1",
+        "/api/manga/catalog?search=x",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+}
+
+#[tokio::test]
 async fn manga_selection_persists_across_restart_and_is_scoped_to_the_library_item() {
     let directory = tempdir().unwrap();
     let runtime = Arc::new(Runtime::new(directory.path()));

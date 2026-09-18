@@ -155,6 +155,15 @@ export interface ArtworkCacheStatus extends ArtworkCacheSettings {
   watchdog_cancel_requested: boolean;
 }
 
+export interface MangaCatalogEntry {
+  id: number;
+  title: { romaji: string | null; english: string | null; native: string | null };
+  status: string | null;
+  volumes: number | null;
+  siteUrl: string;
+  format: string | null;
+}
+
 export interface ArtworkCacheClearResult {
   cleared_bytes: number;
   cleared_files: number;

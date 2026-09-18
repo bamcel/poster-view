@@ -80,6 +80,10 @@ encrypted at rest and never sent back to the browser._
   download them from Plex, Jellyfin, or Emby again. This separate cache is capped at 10 GB with a
   365-day retention period. Applying or reverting artwork immediately replaces the affected
   title's cached image; editing or deleting a server clears that server's entries.
+- **Manga volume completeness**: manga folder details can match a finished series on AniList,
+  compare unique numbered volumes, and list missing volumes. Ambiguous editions stay Unknown;
+  manual edition and volume overrides are available. Matches and overrides are browser-local.
+  See [manga volume completeness](docs/manga-volume-completeness.md).
 - **Per-title refresh + Artwork Watchdog**: right-click any movie, series, or collection in a
   library to refresh its cached provider data. The optional Watchdog in Settings → Database walks
   current libraries on a schedule and records a persistent inventory. After its initial build, it

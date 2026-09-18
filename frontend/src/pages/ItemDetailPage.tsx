@@ -8,6 +8,7 @@ import { ArrowLeft, Images, RefreshCw, X } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import PosterCard from "../components/PosterCard";
 import ArtworkPanel from "../components/ArtworkPanel";
+import MangaCompleteness from "../components/MangaCompleteness";
 import { Spinner, EmptyState } from "../components/ui";
 
 export default function ItemDetailPage() {
@@ -198,6 +199,7 @@ export default function ItemDetailPage() {
                   </div>
                 </div>
 
+                {item.type === "folder" && <MangaCompleteness key={`${serverId}:${item.id}`} serverId={serverId} item={item} />}
                 {/* Seasons */}
                 {item.seasons.length > 0 && (
                   <section className="mt-10">

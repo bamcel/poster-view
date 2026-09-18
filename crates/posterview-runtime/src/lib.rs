@@ -14,6 +14,7 @@ use posterview_contracts::{
     ServerUpdate, StatusResponse,
 };
 use posterview_infra_artwork::ArtworkService;
+pub use posterview_infra_artwork::manga_catalog;
 pub use posterview_infra_artwork::valid_manga_id;
 use posterview_infra_media_servers::{
     ConnectionConfig, fetch_image, get_item_detail, get_items, get_libraries, set_image,
