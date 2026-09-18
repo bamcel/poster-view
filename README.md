@@ -81,7 +81,8 @@ encrypted at rest and never sent back to the browser._
   365-day retention period. Applying or reverting artwork immediately replaces the affected
   title's cached image; editing or deleting a server clears that server's entries.
 - **Manga volume completeness**: manga folder details can match a finished series on AniList,
-  compare unique numbered volumes, and list missing volumes. Ambiguous editions stay Unknown;
+  compare unique volumes from metadata/titles/filenames, and list missing volumes. Ongoing
+  editions support a manually confirmed released count and an Up to date status. Ambiguous editions stay Unknown;
   manual edition and volume overrides are available. Matches and overrides are browser-local.
   See [manga volume completeness](docs/manga-volume-completeness.md).
 - **Per-title refresh + Artwork Watchdog**: right-click any movie, series, or collection in a

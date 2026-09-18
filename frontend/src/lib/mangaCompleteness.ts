@@ -4,13 +4,24 @@ export function volumeInventory(items: MediaItem[], expected?: number, seriesTit
   const owned = new Set<number>();
   let uncertain = 0;
   for (const item of items) {
-    const match = /(?:^|[\s._-])(?:volume|vol\.?|v)\s*(\d+)(?=$|[\s._\-([)\]])/i.exec(item.title);
-    // Ranges, decimal numbering, and omnibus editions need an explicit override.
-    if (!match || /omnibus|\d+\s*[-–]\s*\d+/i.test(item.title)) { uncertain++; continue; }
     const normalize = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-    if (seriesTitle && normalize(item.title.slice(0, match.index)) !== normalize(seriesTitle)) { uncertain++; continue; }
-    const volume = Number(match[1]);
-    if (volume < 1 || (expected && volume > expected) || /\d+\.\d+/.test(item.title)) { uncertain++; continue; }
+    const names = [item.title, item.file_name ?? ""].map(name => name.replace(/\.(cbz|cbr|epub|pdf)$/i, ""));
+    if (names.some(name => /omnibus|\d+\s*[-–]\s*\d+/i.test(name))) { uncertain++; continue; }
+    const detected: number[] = [];
+    let conflict = false;
+    if (item.volume?.trim()) {
+      if (/^\d+$/.test(item.volume.trim())) detected.push(Number(item.volume));
+      else conflict = true;
+    }
+    for (const name of names) {
+      const match = /(?:^|[\s._-])(?:volume|vol\.?|v)\s*(\d+(?:\.\d+)?)(?=$|[\s._\-([)\]])/i.exec(name)
+        ?? /\s+(\d{1,3})$/.exec(name);
+      if (!match) continue;
+      if (seriesTitle && normalize(name.slice(0, match.index)) !== normalize(seriesTitle)) { conflict = true; continue; }
+      detected.push(Number(match[1]));
+    }
+    const volume = detected[0];
+    if (conflict || !volume || !Number.isInteger(volume) || volume < 1 || (expected && volume > expected) || detected.some(v => v !== volume)) { uncertain++; continue; }
     owned.add(volume);
   }
   const missing = expected ? Array.from({ length: expected }, (_, i) => i + 1).filter(v => !owned.has(v)) : [];

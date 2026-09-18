@@ -36,6 +36,8 @@ export interface LibraryVisibility {
 }
 
 export interface MediaItem {
+  file_name?: string | null;
+  volume?: string | null;
   id: string;
   title: string;
   year?: number | null;

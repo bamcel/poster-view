@@ -29,3 +29,17 @@ it("supports edition coverage overrides scoped to the server and folder", () => 
   expect(JSON.parse(localStorage.getItem("posterview.manga-completeness.7.series")!).owned).toBe("1-3");
   expect(localStorage.getItem("posterview.manga-completeness.8.series")).toBeNull();
 });
+it("reports ongoing editions up to date and then missing as the released count increases", () => {
+  mount();
+  fireEvent.click(screen.getByText("Edition and volume overrides"));
+  fireEvent.change(screen.getByLabelText(/Released volumes so far/), { target: { value: "3" } });
+  fireEvent.click(screen.getByLabelText("Specify owned volumes manually"));
+  fireEvent.change(screen.getByLabelText("Owned volumes"), { target: { value: "1-3" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save collection settings" }));
+  expect(screen.getByText("Up to date · 3 of 3 volumes")).toBeTruthy();
+  expect((screen.getByLabelText("This edition is finished") as HTMLInputElement).checked).toBe(false);
+  fireEvent.change(screen.getByLabelText(/Released volumes so far/), { target: { value: "4" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save collection settings" }));
+  expect(screen.getByText("Missing volumes · 3 of 4 volumes")).toBeTruthy();
+  expect(screen.getByText("Missing: 4")).toBeTruthy();
+});

@@ -12,3 +12,11 @@ it("parses explicit volume coverage and rejects invalid ranges", () => {
   expect(parseOwnedVolumes("1-3, 3, 5")).toEqual([1, 2, 3, 5]);
   for (const value of ["3-1", "0", "1-999999", "2.5", "one"]) expect(parseOwnedVolumes(value)).toBeNull();
 });
+it("uses metadata and filenames while rejecting conflicting numbers", () => {
+  const items = [
+    { ...files("Chapter title")[0], volume: "1" },
+    { ...files("Another title")[0], file_name: "Series 02.cbz" },
+    { ...files("Series Vol. 3")[0], volume: "4", file_name: "Series 03.cbz" },
+  ];
+  expect(volumeInventory(items, 4, "Series")).toEqual({ owned: [1, 2], missing: [3, 4], uncertain: 1 });
+});
