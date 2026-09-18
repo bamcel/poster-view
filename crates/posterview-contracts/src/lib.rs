@@ -131,8 +131,6 @@ pub enum ItemType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MediaItem {
-    pub file_name: Option<String>,
-    pub volume: Option<String>,
     pub id: String,
     pub title: String,
     pub year: Option<i64>,

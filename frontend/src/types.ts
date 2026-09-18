@@ -36,8 +36,6 @@ export interface LibraryVisibility {
 }
 
 export interface MediaItem {
-  file_name?: string | null;
-  volume?: string | null;
   id: string;
   title: string;
   year?: number | null;
@@ -155,15 +153,6 @@ export interface ArtworkCacheStatus extends ArtworkCacheSettings {
   watchdog_progress_total: number;
   watchdog_current_title?: string | null;
   watchdog_cancel_requested: boolean;
-}
-
-export interface MangaCatalogEntry {
-  id: number;
-  title: { romaji: string | null; english: string | null; native: string | null };
-  status: string | null;
-  volumes: number | null;
-  siteUrl: string;
-  format: string | null;
 }
 
 export interface ArtworkCacheClearResult {

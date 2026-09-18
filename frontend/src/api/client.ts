@@ -195,8 +195,6 @@ export const api = {
     request<ArtworkRefreshResult>(`/artwork/cache/${serverId}/watchdog/cancel`, { method: "POST" }),
   mangaSelection: (serverId: number, itemId: string) =>
     request<import("../types").MangaSelection>(`/artwork/mangadex/selection?server_id=${serverId}&item_id=${encodeURIComponent(itemId)}`),
-  mangaCatalog: (search: string, id?: number) =>
-    request<import("../types").MangaCatalogEntry[]>(`/manga/catalog?${id ? `id=${id}` : `search=${encodeURIComponent(search)}`}`),
   saveMangaSelection: (serverId: number, itemId: string, selection: import("../types").MangaSelection) =>
     request<import("../types").MangaSelection>(`/artwork/mangadex/selection?server_id=${serverId}&item_id=${encodeURIComponent(itemId)}`, { method: "PUT", body: JSON.stringify(selection) }),
   getArtwork: (provider: string, serverId: number, itemId: string, idOverride?: string, refresh = false) =>

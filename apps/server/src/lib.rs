@@ -117,7 +117,6 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             "/api/artwork/mangadex/selection",
             get(manga_selection).put(save_manga_selection),
         )
-        .route("/api/manga/catalog", get(manga_catalog))
         .route(
             "/api/posterdb/credentials",
             axum::routing::put(set_posterdb_credentials),
@@ -773,30 +772,6 @@ struct UrlQuery {
 struct MangaItemQuery {
     server_id: i64,
     item_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct MangaCatalogQuery {
-    search: Option<String>,
-    id: Option<i64>,
-}
-
-async fn manga_catalog(
-    Query(query): Query<MangaCatalogQuery>,
-) -> Result<impl IntoResponse, HttpError> {
-    let search = query.search.as_deref().unwrap_or("").trim();
-    if query.id.is_some_and(|id| id <= 0)
-        || search.len() > 200
-        || (query.id.is_none() && search.len() < 2)
-    {
-        return Err(HttpError::bad_request(
-            "Enter a manga title or a valid AniList ID.",
-        ));
-    }
-    let result = posterview_runtime::manga_catalog(search, query.id)
-        .await
-        .map_err(|error| HttpError::bad_request(&error))?;
-    Ok(Json(result))
 }
 
 async fn manga_selection(

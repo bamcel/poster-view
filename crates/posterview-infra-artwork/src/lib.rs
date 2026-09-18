@@ -519,33 +519,6 @@ async fn fetch_fanart(
     Ok(items)
 }
 
-/// Search manga explicitly; artwork's anime lookup must not supply manga totals.
-pub async fn manga_catalog(search: &str, id: Option<i64>) -> Result<Value, String> {
-    const QUERY: &str = "query ($search: String, $id: Int) { Page(perPage: 10) { media(search: $search, id: $id, type: MANGA, sort: SEARCH_MATCH) { id title { romaji english native } status volumes siteUrl format } } }";
-    let variables = if let Some(id) = id {
-        json!({"id": id})
-    } else {
-        json!({"search": search})
-    };
-    let response = http_client()?
-        .post(ANILIST_URL)
-        .json(&json!({"query": QUERY, "variables": variables}))
-        .send()
-        .await
-        .map_err(network_error)?;
-    if !response.status().is_success() {
-        return Err(provider_status_error("AniList", response.status()));
-    }
-    let body: Value = response.json().await.map_err(network_error)?;
-    if body.get("errors").is_some() {
-        return Err("AniList could not complete the manga lookup.".to_owned());
-    }
-    body.pointer("/data/Page/media")
-        .filter(|v| v.is_array())
-        .cloned()
-        .ok_or_else(|| "AniList returned an invalid manga response.".to_owned())
-}
-
 async fn fetch_anilist(
     item: &ItemDetail,
     id_override: Option<&str>,

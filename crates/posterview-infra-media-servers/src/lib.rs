@@ -196,7 +196,7 @@ async fn emby_item_detail(
                     "Movie,Series,Book,AudioBook,Folder,CollectionFolder",
                 ),
                 ("Recursive", "false"),
-                ("Fields", "ProductionYear,Path"),
+                ("Fields", "ProductionYear"),
                 ("SortBy", "SortName"),
                 ("SortOrder", "Ascending"),
                 ("ImageTypeLimit", "1"),
@@ -869,12 +869,6 @@ fn collapse_members(
 
 fn emby_media_item(item: &Value) -> Option<MediaItem> {
     Some(MediaItem {
-        file_name: item
-            .get("Path")
-            .and_then(Value::as_str)
-            .and_then(|path| path.rsplit(['/', '\\']).next())
-            .map(str::to_owned),
-        volume: item.get("IndexNumber").and_then(value_as_string),
         id: item.get("Id")?.as_str()?.to_owned(),
         title: item
             .get("Name")
@@ -894,12 +888,6 @@ fn emby_media_item(item: &Value) -> Option<MediaItem> {
 
 fn plex_media_item(item: &Value) -> Option<MediaItem> {
     Some(MediaItem {
-        file_name: item
-            .pointer("/Media/0/Part/0/file")
-            .and_then(Value::as_str)
-            .and_then(|path| path.rsplit(['/', '\\']).next())
-            .map(str::to_owned),
-        volume: None,
         id: value_as_string(item.get("ratingKey")?)?,
         title: item
             .get("title")
