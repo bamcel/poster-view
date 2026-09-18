@@ -778,11 +778,13 @@ function EnabledArtworkSourcesFields() {
 
   return (
     <div>
-      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+      <div className="mb-3">
         <div className="min-w-0">
           <h3 className="mb-1 text-sm font-semibold">Show Providers</h3>
           <p className="text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Sync, and removed from the local cache.</p>
         </div>
+      </div>
+      <div className="mb-4">
         <DefaultArtworkSourceFields />
       </div>
       <div className="space-y-4">
