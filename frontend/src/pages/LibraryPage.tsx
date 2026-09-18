@@ -255,14 +255,14 @@ export default function LibraryPage() {
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="border-b border-border px-4 pt-4 sm:px-6 sm:pt-5 lg:px-8 lg:pt-6">
-        <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-4 sm:items-center">
-          <div>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-4 sm:gap-x-4 sm:items-center">
+          <div className="min-w-0">
             <h1 className="break-words text-2xl font-semibold">{selectedServer.name}</h1>
             <p className="text-sm text-faint">
               Browse your libraries and update artwork
             </p>
           </div>
-          <div className="relative col-span-1 row-start-3 sm:row-start-2 w-full sm:col-span-1 sm:col-start-2 sm:-mr-6 sm:w-64 sm:-translate-y-2 sm:justify-self-end lg:-mr-8">
+          <div className="relative col-span-2 row-start-2 w-full sm:col-span-1 sm:col-start-2 sm:-mr-6 sm:w-64 sm:-translate-y-2 sm:justify-self-end lg:-mr-8">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
             <input
               value={filter}
@@ -273,13 +273,13 @@ export default function LibraryPage() {
             />
           </div>
           {showGroupCollections && (
-            <label className="col-start-1 row-start-2 flex shrink-0 sm:col-start-2 sm:row-start-1 items-center justify-end gap-2 text-sm text-muted">
-              Group Collections
+            <label className="col-start-2 row-start-1 flex flex-col items-center justify-end gap-1 text-xs text-muted sm:flex-row sm:gap-2 sm:text-sm">
+              <span className="max-w-20 text-center sm:max-w-none sm:text-left">Group Collections</span>
               <Switch label="Group Collections" checked={groupCollections} onChange={toggleGroupCollections} />
             </label>
           )}
           {/* Library tabs */}
-          <div className="col-span-1 row-start-4 min-w-0 sm:col-span-1 sm:col-start-1 sm:row-start-2">
+          <div className="col-span-2 row-start-3 min-w-0 sm:col-span-1 sm:col-start-1 sm:row-start-2">
             <div className="flex gap-1 overflow-x-auto pb-px">
               {librariesQ.isLoading && (
                 <span className="py-2 text-sm text-faint">
