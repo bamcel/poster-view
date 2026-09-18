@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Images, RefreshCw, X } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import PosterCard from "../components/PosterCard";
@@ -16,6 +16,16 @@ export default function ItemDetailPage() {
   const serverId = Number(serverIdParam);
   const [prefill, setPrefill] = useState<{ term: string; nonce: number }>();
   const [artworkOpen, setArtworkOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const refreshArtwork = useMutation({
+    mutationFn: () => api.refreshArtworkItem(serverId, itemId!),
+    onSuccess: (result) => {
+      if (!result.ok) return;
+      queryClient.invalidateQueries({ queryKey: ["artwork"], predicate: (query) => query.queryKey[2] === serverId && query.queryKey[3] === itemId });
+      queryClient.invalidateQueries({ queryKey: ["artwork-search"], predicate: (query) => query.queryKey[2] === serverId && query.queryKey[3] === itemId });
+      queryClient.invalidateQueries({ queryKey: ["artwork-cache", serverId] });
+    },
+  });
 
   const detailQ = useQuery({
     queryKey: ["item-detail", serverId, itemId],
@@ -154,7 +164,7 @@ export default function ItemDetailPage() {
                                 : item.year}
                     </p>
 
-                    <div className="mt-5 flex items-center justify-center gap-3 sm:justify-start">
+                    <div className="mt-5 flex flex-wrap items-center justify-center gap-3 sm:justify-start">
                       <button
                         onClick={() => detailQ.refetch()}
                         className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-white/40 hover:text-white"
@@ -165,6 +175,19 @@ export default function ItemDetailPage() {
                         />{" "}
                         Refresh
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => refreshArtwork.mutate()}
+                        disabled={refreshArtwork.isPending}
+                        className="flex min-h-11 items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-white/40 hover:text-white disabled:opacity-50 xl:hidden"
+                      >
+                        <RefreshCw className={`size-4 shrink-0 ${refreshArtwork.isPending ? "animate-spin" : ""}`} />
+                        {refreshArtwork.isPending ? "Refreshing artwork…" : "Refresh artwork"}
+                      </button>
+                    </div>
+                    <div role="status" aria-live="polite" className="mt-2 break-words text-sm xl:hidden">
+                      {refreshArtwork.isError ? <p className="text-danger">{refreshArtwork.error.message}</p>
+                        : refreshArtwork.data ? <p className={refreshArtwork.data.ok ? "text-success" : "text-danger"}>{refreshArtwork.data.message}</p> : null}
                     </div>
 
                     {item.summary && (
