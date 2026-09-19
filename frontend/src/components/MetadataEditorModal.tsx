@@ -42,7 +42,7 @@ export default function MetadataEditorModal({
           <label className="text-sm text-muted">Country<input className={input} value={fields.country} onChange={(e) => set("country", e.target.value)} /></label>
           <label className="text-sm text-muted">Source material<input className={input} value={fields.source_material} onChange={(e) => set("source_material", e.target.value)} /></label>
           <label className="text-sm text-muted sm:col-span-2">Description<textarea rows={6} className={input} value={fields.plot} onChange={(e) => set("plot", e.target.value)} /></label>
-          <details className="sm:col-span-2 rounded-xl border border-border bg-window p-3">
+          <details open className="sm:col-span-2 rounded-xl border border-border bg-window p-3">
             <summary className="cursor-pointer text-sm font-medium text-muted">Advanced fields</summary>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <label className="text-sm text-muted">Edition<input className={input} value={fields.edition} onChange={(e) => set("edition", e.target.value)} /></label>
