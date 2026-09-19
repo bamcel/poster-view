@@ -1,18 +1,25 @@
 #!/bin/sh
-# Runs as root just long enough to make /data writable by the posterview user,
-# then drops privileges for the actual app process.
-#
-# The image bakes in ownership of /data at build time (see Dockerfile), which
-# is enough for a Docker-managed named volume (docker-compose's posterview-data)
-# since Docker copies that ownership over on first creation. It's NOT enough
-# for a bind mount to a host path (e.g. Unraid's Path config, which maps to a
-# folder Unraid creates as root) — bind mounts always reflect the host
-# directory's own ownership, ignoring whatever the image had. Fixing it here,
-# at container start, works for both cases.
+# Prepare application state, then drop privileges. Never change media ownership.
 set -e
 
-mkdir -p /data
-# Never change ownership of mounted media. Only application state belongs to us.
-find /data -xdev -path /data/media -prune -o -exec chown -h posterview:posterview {} +
+# Explicit directory overrides always win. Otherwise prefer initialized /config,
+# then a legacy /data mount/state, then the new /config default. Do not move data.
+if [ -z "${POSTERVIEW_DATA_DIR:-}" ]; then
+    if [ -f /config/posterview.db ] || [ -f /config/secret.key ]; then
+        POSTERVIEW_DATA_DIR=/config
+    elif [ -f /data/posterview.db ] || [ -f /data/secret.key ] || mountpoint -q /data; then
+        POSTERVIEW_DATA_DIR=/data
+        echo "PosterView: using legacy /data configuration. To adopt /config, remap the same appdata host folder or named volume."
+    else
+        POSTERVIEW_DATA_DIR=/config
+    fi
+fi
+export POSTERVIEW_DATA_DIR
+POSTERVIEW_MEDIA_DIR=${POSTERVIEW_MEDIA_DIR:-/media}
+export POSTERVIEW_MEDIA_DIR
+
+mkdir -p "$POSTERVIEW_DATA_DIR"
+# Exclude standard and custom media roots, including on legacy installs.
+find "$POSTERVIEW_DATA_DIR" -xdev \( -path /data/media -o -path "$POSTERVIEW_MEDIA_DIR" \) -prune -o -exec chown -h posterview:posterview {} +
 
 exec setpriv --reuid=10001 --regid=10001 --init-groups "$@"

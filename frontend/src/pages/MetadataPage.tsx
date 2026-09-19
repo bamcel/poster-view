@@ -61,7 +61,7 @@ export default function MetadataPage() {
         <button className={button} disabled={busy} onClick={() => void folders.refetch()}><RefreshCw size={16} /> Refresh folders</button>
       </header>
       <div className="rounded-lg border border-border bg-surface-2 p-3 text-sm text-muted">
-        <p className="break-all">Media root: <code>{folders.data?.root ?? "/data/media"}</code></p>
+        <p className="break-all">Media root: <code>{folders.data?.root ?? "/media"}</code></p>
         <p className="mt-1">Mount your manga folder here with write access. These are local folders, independent of the selected media server. PosterView reads this NFO format; media-server support varies.</p>
       </div>
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.6fr)]">

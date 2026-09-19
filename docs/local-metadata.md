@@ -11,11 +11,11 @@ migrated, or removed automatically.
 
 ## Mount your library
 
-`/data` already stores PosterView's database, credentials and cache. Keep that
-volume and add a separate writable media bind mount at **`/data/media`**:
+`/config` stores PosterView's database, credentials and cache. Keep that
+volume and add a separate writable media bind mount at **`/media`**:
 
 ```text
-/data/media/
+/media/
   Chainsaw Man/
     Chainsaw Man.nfo
     Volume 01.cbz
@@ -40,8 +40,10 @@ docker compose -f docker-compose.yml -f docker-compose.media.yml up -d --build
 The directory must already exist. PosterView runs as UID/GID 10001 and needs
 read/traverse permissions on the folders and write permissions where NFOs are
 saved. The entrypoint does **not** change media ownership. Keep media mounts under
-`/data/media` or outside `/data`; other paths under `/data` are application state.
-You can mount several libraries beneath `/data/media` and browse into them.
+`/media` or outside `/config`; `/config` is for application state. Legacy
+installations can keep their application-state mount at `/data`; startup detects
+it and excludes media from ownership changes. Update any previous media mapping to `/media`; there is no automatic fallback for the old media path. An explicit `POSTERVIEW_MEDIA_DIR` always wins.
+You can mount several libraries beneath `/media` and browse into them.
 
 For a native installation set `POSTERVIEW_MEDIA_DIR` to the absolute local manga
 directory before starting the server. Without this variable, the default is

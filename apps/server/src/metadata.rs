@@ -120,7 +120,7 @@ impl MetadataStore {
             ));
         }
         let root = self.root.canonicalize().map_err(|_| invalid(format!(
-            "Media path is not available: {}. Mount your manga directory at /data/media, or set POSTERVIEW_MEDIA_DIR to its local path.", self.root.display())))?;
+            "Media path is not available: {}. Mount your manga directory at /media, or set POSTERVIEW_MEDIA_DIR to its local path.", self.root.display())))?;
         let mut directory = root.clone();
         for part in PathBuf::from(relative).components() {
             directory.push(part);

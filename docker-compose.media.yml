@@ -5,7 +5,7 @@ services:
     volumes:
       - type: bind
         source: ${POSTERVIEW_MANGA_PATH:?Set POSTERVIEW_MANGA_PATH to your manga folder}
-        target: /data/media
+        target: /media
         read_only: false
         bind:
           create_host_path: false
