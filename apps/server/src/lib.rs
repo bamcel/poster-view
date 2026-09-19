@@ -26,6 +26,7 @@ mod auth;
 mod config;
 mod error;
 mod login_backdrop;
+mod metadata;
 pub use auth::AuthState;
 pub use config::ServerConfig;
 use error::HttpError;
@@ -35,6 +36,7 @@ struct AppState {
     runtime: Arc<Runtime>,
     auth: AuthState,
     login_backdrop: login_backdrop::LoginBackdrop,
+    metadata: Arc<metadata::MetadataStore>,
 }
 
 pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router {
@@ -44,7 +46,11 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     tokio::spawn(async move {
         refresh_cache.refresh(&refresh_runtime).await;
     });
+    let media_dir = std::env::var_os("POSTERVIEW_MEDIA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| runtime.data_dir().join("media"));
     let state = AppState {
+        metadata: Arc::new(metadata::MetadataStore::new(media_dir)),
         runtime,
         auth: auth.clone(),
         login_backdrop,
@@ -53,6 +59,16 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 
     let protected = Router::new()
+        .route("/api/metadata/folders", get(metadata::folders))
+        .route(
+            "/api/metadata/document",
+            get(metadata::document).put(metadata::save),
+        )
+        .route(
+            "/api/metadata/preview",
+            axum::routing::post(metadata::preview),
+        )
+        .route("/api/metadata/search", get(metadata::search))
         .route(
             "/api/security/settings",
             get(security_settings).put(update_security_settings),

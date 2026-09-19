@@ -1,0 +1,11 @@
+# docker compose -f docker-compose.yml -f docker-compose.media.yml up -d --build
+# Set POSTERVIEW_MANGA_PATH to the host folder containing your manga series.
+services:
+  posterview:
+    volumes:
+      - type: bind
+        source: ${POSTERVIEW_MANGA_PATH:?Set POSTERVIEW_MANGA_PATH to your manga folder}
+        target: /data/media
+        read_only: false
+        bind:
+          create_host_path: false

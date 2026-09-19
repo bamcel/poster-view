@@ -12,6 +12,7 @@
 set -e
 
 mkdir -p /data
-chown -R posterview:posterview /data
+# Never change ownership of mounted media. Only application state belongs to us.
+find /data -xdev -path /data/media -prune -o -exec chown -h posterview:posterview {} +
 
 exec setpriv --reuid=10001 --regid=10001 --init-groups "$@"

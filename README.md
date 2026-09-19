@@ -35,6 +35,12 @@ encrypted at rest and never sent back to the browser._
 
 ## Features
 
+- **Local manga NFO metadata**: mount your manga folders at `/data/media`, browse
+  them in **Manga metadata**, search AniList or edit fields manually, and preview/save
+  `series.nfo` beside each series. Edition details are user-confirmed. Bulk creation
+  creates missing title-only sidecars; existing files are preserved. See
+  [setup and compatibility](docs/local-metadata.md).
+
 - **Five artwork sources** behind one panel: ThePosterDB (search → title → set drill-down,
   with per-set poster counts and empty results auto-hidden), plus Fanart.tv, TheTVDB, AniList,
   and MediUX, all looked up automatically by your items' TMDB/TVDB/IMDb/AniList ids. If an id
