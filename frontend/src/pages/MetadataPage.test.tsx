@@ -5,7 +5,7 @@ import MetadataPage from "./MetadataPage";
 import { metadataApi, type MetadataDocument } from "../api/metadata";
 
 vi.mock("../api/metadata", () => ({ metadataApi: { folders: vi.fn(), read: vi.fn(), preview: vi.fn(), save: vi.fn(), search: vi.fn() } }));
-const document: MetadataDocument = { path: "Manga", target: "/data/media/Manga/series.nfo", revision: null, xml: "<series><title>Manga</title></series>", fields: { title: "Manga", year: "", publisher: "", edition: "Color", volumes: "", status: "", plot: "", anilist_id: "" } };
+const document: MetadataDocument = { path: "Manga", target: "/data/media/Manga/Manga.nfo", revision: null, xml: "<series><title>Manga</title></series>", fields: { title: "Manga", year: "", publisher: "", edition: "Color", volumes: "", status: "", plot: "", anilist_id: "" } };
 beforeEach(() => {
   vi.mocked(metadataApi.folders).mockResolvedValue({ root: "/data/media", path: "", folders: [{ name: "Manga", path: "Manga", has_nfo: false }, { name: "Existing", path: "Existing", has_nfo: true }] });
   vi.mocked(metadataApi.read).mockResolvedValue(document);

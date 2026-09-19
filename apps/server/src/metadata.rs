@@ -138,17 +138,21 @@ impl MetadataStore {
         Ok(directory)
     }
 
+    fn target(directory: &std::path::Path) -> PathBuf {
+        let mut name = directory.file_name().unwrap_or_default().to_os_string();
+        name.push(".nfo");
+        directory.join(name)
+    }
+
     fn current(directory: &std::path::Path) -> Result<Option<String>, HttpError> {
-        let path = directory.join("series.nfo");
+        let path = Self::target(directory);
         let metadata = match fs::symlink_metadata(&path) {
             Ok(value) => value,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(io_error(error)),
         };
         if !metadata.is_file() || linked(&metadata) || metadata.len() > MAX_NFO {
-            return Err(invalid(
-                "series.nfo must be a regular file smaller than 1 MB.",
-            ));
+            return Err(invalid("The NFO must be a regular file smaller than 1 MB."));
         }
         let mut text = String::new();
         fs::File::open(path)
@@ -157,7 +161,7 @@ impl MetadataStore {
             .read_to_string(&mut text)
             .map_err(io_error)?;
         if text.len() as u64 > MAX_NFO {
-            return Err(invalid("series.nfo is too large."));
+            return Err(invalid("The NFO is too large."));
         }
         Ok(Some(text))
     }
@@ -182,7 +186,7 @@ impl MetadataStore {
                 } else {
                     format!("{path}/{name}")
                 },
-                has_nfo: entry.path().join("series.nfo").symlink_metadata().is_ok(),
+                has_nfo: Self::target(&entry.path()).symlink_metadata().is_ok(),
                 name,
             });
             if folders.len() > 10_000 {
@@ -225,7 +229,7 @@ impl MetadataStore {
         };
         Ok(Document {
             path: path.to_owned(),
-            target: directory.join("series.nfo").display().to_string(),
+            target: Self::target(&directory).display().to_string(),
             fields,
             revision,
             xml,
@@ -238,12 +242,12 @@ impl MetadataStore {
         if current != request.revision {
             return Err(HttpError {
                 status: StatusCode::CONFLICT,
-                detail: "series.nfo changed since you opened it. Reload before saving.".to_owned(),
+                detail: "The NFO changed since you opened it. Reload before saving.".to_owned(),
             });
         }
         Ok(Document {
             path: request.path.clone(),
-            target: directory.join("series.nfo").display().to_string(),
+            target: Self::target(&directory).display().to_string(),
             fields: request.fields.clone(),
             revision: current.clone(),
             xml: render(&request.fields, current.as_deref())?,
@@ -257,7 +261,7 @@ impl MetadataStore {
             .map_err(|_| invalid("Please retry this save."))?;
         let document = self.preview(request)?;
         let directory = self.directory(&request.path, false)?;
-        let target = directory.join("series.nfo");
+        let target = Self::target(&directory);
         let mut temporary = tempfile::NamedTempFile::new_in(&directory).map_err(io_error)?;
         temporary
             .write_all(document.xml.as_bytes())
@@ -280,7 +284,7 @@ impl MetadataStore {
         temporary.as_file().sync_all().map_err(io_error)?;
         if Self::current(&directory)? != request.revision {
             return Err(invalid(
-                "series.nfo changed during the save. Reload and try again.",
+                "The NFO changed during the save. Reload and try again.",
             ));
         }
         if request.revision.is_none() {
@@ -289,7 +293,9 @@ impl MetadataStore {
                 .map_err(|e| io_error(e.error))?;
         } else {
             // Keep the original bytes next to the file before any explicit update.
-            let backup = directory.join(format!("series.nfo.{}.bak", uuid::Uuid::new_v4()));
+            let mut backup_name = target.file_name().unwrap_or_default().to_os_string();
+            backup_name.push(format!(".{}.bak", uuid::Uuid::new_v4()));
+            let backup = directory.join(backup_name);
             fs::write(backup, request.revision.as_deref().unwrap_or_default()).map_err(io_error)?;
             temporary.persist(&target).map_err(|e| io_error(e.error))?;
         }
@@ -304,7 +310,7 @@ fn parse(xml: &str) -> Result<Element, HttpError> {
         ));
     }
     let element = Element::parse(xml.as_bytes())
-        .map_err(|_| invalid("Existing series.nfo is not valid XML. It has not been changed."))?;
+        .map_err(|_| invalid("The existing NFO is not valid XML. It has not been changed."))?;
     if !matches!(element.name.as_str(), "series" | "book" | "tvshow") {
         return Err(invalid(
             "Unsupported NFO root. Expected series, book, or tvshow; the file has not been changed.",
@@ -391,9 +397,7 @@ fn render(fields: &Fields, original: Option<&str>) -> Result<String, HttpError> 
     root.write_with_config(&mut output, EmitterConfig::new().perform_indent(true))
         .map_err(|_| invalid("Could not generate NFO XML."))?;
     if output.len() as u64 > MAX_NFO {
-        return Err(invalid(
-            "The resulting series.nfo would exceed the 1 MB limit.",
-        ));
+        return Err(invalid("The resulting NFO would exceed the 1 MB limit."));
     }
     String::from_utf8(output).map_err(|_| invalid("Could not encode NFO XML."))
 }
@@ -543,10 +547,51 @@ mod tests {
         (dir, store)
     }
     #[test]
+    fn filename_uses_folder_not_editable_title_and_ignores_old_sidecar() {
+        let (dir, store) = setup();
+        let folder = dir.path().join("Manga & Color");
+        fs::write(
+            folder.join("series.nfo"),
+            "<series><title>Legacy</title></series>",
+        )
+        .unwrap();
+        let doc = store.read("Manga & Color").ok().unwrap();
+        assert!(doc.revision.is_none());
+        assert!(!store.list("").ok().unwrap().folders[0].has_nfo);
+        assert_eq!(
+            doc.target,
+            folder
+                .canonicalize()
+                .unwrap()
+                .join("Manga & Color.nfo")
+                .display()
+                .to_string()
+        );
+        let saved = store
+            .save(&SaveRequest {
+                path: doc.path,
+                fields: Fields {
+                    title: "Different / title 日本語".into(),
+                    ..doc.fields
+                },
+                revision: None,
+            })
+            .ok()
+            .unwrap();
+        assert_eq!(saved.fields.title, "Different / title 日本語");
+        assert!(folder.join("Manga & Color.nfo").is_file());
+        assert!(store.list("").ok().unwrap().folders[0].has_nfo);
+        assert_eq!(
+            fs::read_to_string(folder.join("series.nfo")).unwrap(),
+            "<series><title>Legacy</title></series>"
+        );
+    }
+
+    #[test]
     fn roundtrip_preserves_unknown_fields_and_backs_up_original() {
         let (dir, store) = setup();
         let original = "<series><title>Old</title><custom value=\"yes\">keep</custom><publisher>Publisher</publisher></series>";
-        fs::write(dir.path().join("Manga & Color/series.nfo"), original).unwrap();
+        fs::write(dir.path().join("Manga & Color/Manga & Color.nfo"), original).unwrap();
         let mut doc = store.read("Manga & Color").ok().unwrap();
         doc.fields.title = "Manga & <Color> 日本語".into();
         let saved = store
@@ -594,7 +639,7 @@ mod tests {
     #[test]
     fn invalid_existing_nfo_is_never_replaced() {
         let (dir, store) = setup();
-        let path = dir.path().join("Manga & Color/series.nfo");
+        let path = dir.path().join("Manga & Color/Manga & Color.nfo");
         fs::write(&path, "not xml").unwrap();
         assert!(store.read("Manga & Color").is_err());
         assert_eq!(fs::read_to_string(path).unwrap(), "not xml");
@@ -615,7 +660,7 @@ mod tests {
         .unwrap();
         symlink(
             outside.path().join("secret"),
-            dir.path().join("Manga & Color/series.nfo"),
+            dir.path().join("Manga & Color/Manga & Color.nfo"),
         )
         .unwrap();
         assert!(store.read("Manga & Color").is_err());

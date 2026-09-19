@@ -1,8 +1,13 @@
 # Local manga metadata
 
 PosterView's **Manga metadata** page browses a mounted folder and reads/writes
-`series.nfo` beside each series. This is opt-in: opening or scanning folders never
+`<series folder name>.nfo` beside each series. This is opt-in: opening or scanning folders never
 writes files. It does not change Plex, Jellyfin, or Emby through their APIs.
+
+The filename uses the exact series folder name, including edition suffixes, not
+the editable metadata title. For example, `Hunter x Hunter/Hunter x Hunter.nfo`.
+Changing a title does not rename the file. The old generic sidecar is not read,
+migrated, or removed automatically.
 
 ## Mount your library
 
@@ -12,10 +17,10 @@ volume and add a separate writable media bind mount at **`/data/media`**:
 ```text
 /data/media/
   Chainsaw Man/
-    series.nfo
+    Chainsaw Man.nfo
     Volume 01.cbz
   Chainsaw Man (Colored)/
-    series.nfo
+    Chainsaw Man (Colored).nfo
     Volume 01.cbz
 ```
 
@@ -46,7 +51,7 @@ directory before starting the server. Without this variable, the default is
 
 1. Open **Manga metadata** in PosterView's navigation.
 2. Select a series folder. The folder icon browses into grouping folders.
-3. Existing `series.nfo` metadata loads automatically. For a new file only the
+3. Existing `<series folder name>.nfo` metadata loads automatically. For a new file only the
    title is prefilled from the folder name.
 4. Optionally search AniList and choose a match to fill title, first publication
    year, synopsis, status and AniList ID. Searches require internet access;
@@ -74,8 +79,8 @@ not the number owned and not a completeness assessment.
 Existing `series`, `book`, and `tvshow` roots are supported. Explicit updates retain
 the root and unrelated XML elements/attributes/comments (formatting may change).
 Before updating, PosterView saves the original bytes to a unique
-`series.nfo.<UUID>.bak` beside the file. Backups are not deleted automatically.
-To restore, stop editing and copy the chosen backup over `series.nfo`, then reload.
+`<series folder name>.nfo.<UUID>.bak` beside the file. Backups are not deleted automatically.
+To restore, stop editing and copy the chosen backup over `<series folder name>.nfo`, then reload.
 
 Files are written through temporary files in the same directory and renamed into
 place. A stale editor cannot overwrite a different revision detected before save;
@@ -83,7 +88,7 @@ new files use no-clobber creation. Avoid simultaneous edits from other programs:
 there is no cross-application filesystem lock. Invalid XML, DTD/entity declarations,
 linked paths, unsupported roots and files larger than 1 MB are rejected unchanged.
 
-**Compatibility:** `series.nfo` is the requested PosterView sidecar name. Do not
+**Compatibility:** `<series folder name>.nfo` is the requested PosterView sidecar name. Do not
 assume Emby/Plex/Jellyfin will import manga edition fields or this filename. Their
 library types, plugins and NFO conventions differ. This version guarantees the
 PosterView round trip; it does not promise automatic server-side ingestion.

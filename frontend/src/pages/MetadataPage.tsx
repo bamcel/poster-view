@@ -31,7 +31,7 @@ export default function MetadataPage() {
     setPath(next); setSelected(null); setChecked([]); setFilter(""); setDirty(false); setReport([]);
   };
   async function createMissing() {
-    if (!window.confirm(`Create ${checked.length} series.nfo file(s) in the selected folders using folder names as titles? Other metadata fields will be blank. Existing files will be skipped.`)) return;
+    if (!window.confirm(`Create ${checked.length} folder-named NFO file(s) in the selected folders using folder names as titles? Other metadata fields will be blank. Existing files will be skipped.`)) return;
     setBusy(true); setReport([]);
     const results: string[] = [];
     try {
@@ -43,7 +43,7 @@ export default function MetadataPage() {
             results.push(`${folder}: skipped — already exists.`);
           } else {
             await metadataApi.save({ path: folder, fields: document.fields, revision: null });
-            results.push(`${folder}: series.nfo created.`);
+            results.push(`${folder}: NFO created.`);
           }
         } catch (error) { results.push(`${folder}: ${(error as Error).message}`); }
         setReport([...results]);
@@ -57,7 +57,7 @@ export default function MetadataPage() {
   return <div className="h-full overflow-y-auto p-4 sm:p-6">
     <div className="mx-auto max-w-7xl space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-3">
-        <div><h1 className="text-xl font-semibold">Manga metadata</h1><p className="mt-1 text-sm text-muted">Read and save series.nfo beside your manga. Choose a folder containing one series and edition.</p></div>
+        <div><h1 className="text-xl font-semibold">Manga metadata</h1><p className="mt-1 text-sm text-muted">Read and save folder-named NFO files beside your manga. Choose a folder containing one series and edition.</p></div>
         <button className={button} disabled={busy} onClick={() => void folders.refetch()}><RefreshCw size={16} /> Refresh folders</button>
       </header>
       <div className="rounded-lg border border-border bg-surface-2 p-3 text-sm text-muted">
@@ -78,7 +78,7 @@ export default function MetadataPage() {
           <div className="mt-2 max-h-[32rem] space-y-2 overflow-y-auto">
             {folders.data?.folders.filter(f => f.name.toLowerCase().includes(filter.toLowerCase())).map(folder => <div key={folder.path} className={`flex items-center gap-2 rounded-lg border p-2 ${selected === folder.path ? "border-accent bg-selected" : "border-border"}`}>
               {!folder.has_nfo && <label className="grid min-h-11 min-w-8 place-items-center"><input aria-label={`Select ${folder.name}`} type="checkbox" disabled={busy} checked={checked.includes(folder.path)} onChange={e => setChecked(e.target.checked ? [...checked, folder.path] : checked.filter(p => p !== folder.path))} /></label>}
-              <button disabled={busy} className="min-h-11 min-w-0 flex-1 text-left" onClick={() => { if (selected === folder.path || !canLeave()) return; setSelected(folder.path); setDirty(false); }}><span className="block break-words text-sm font-medium">{folder.name}</span><span className="text-xs text-muted">{folder.has_nfo ? "series.nfo found" : "No series.nfo"}</span></button>
+              <button disabled={busy} className="min-h-11 min-w-0 flex-1 text-left" onClick={() => { if (selected === folder.path || !canLeave()) return; setSelected(folder.path); setDirty(false); }}><span className="block break-words text-sm font-medium">{folder.name}</span><span className="text-xs text-muted">{folder.has_nfo ? "NFO found" : "No NFO"}</span></button>
               <button disabled={busy} className="grid size-11 shrink-0 place-items-center rounded-lg hover:bg-elevated" aria-label={`Browse inside ${folder.name}`} onClick={() => browse(folder.path)}><FolderOpen size={18} /></button>
             </div>)}
           </div>
@@ -86,7 +86,7 @@ export default function MetadataPage() {
           <p className="mt-2 text-xs text-muted">Bulk creation uses folder titles only. Select series folders, not library or grouping folders. Review metadata individually before adding edition details.</p>
           {!!report.length && <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto break-words text-xs text-muted" aria-live="polite">{report.map(line => <li key={line}>{line}</li>)}</ul>}
         </section>
-        {selected ? <MetadataEditor key={selected} path={selected} onDirty={setDirty} /> : <section className={`${panel} py-14 text-center text-muted`}><FileText className="mx-auto mb-3" /><h2 className="font-semibold">Select a manga series</h2><p className="mt-2 text-sm">Review its metadata and preview exactly what will be saved in series.nfo.</p></section>}
+        {selected ? <MetadataEditor key={selected} path={selected} onDirty={setDirty} /> : <section className={`${panel} py-14 text-center text-muted`}><FileText className="mx-auto mb-3" /><h2 className="font-semibold">Select a manga series</h2><p className="mt-2 text-sm">Review its metadata and preview exactly what will be saved in its NFO file.</p></section>}
       </div>
     </div>
   </div>;
@@ -94,7 +94,7 @@ export default function MetadataPage() {
 
 function MetadataEditor({ path, onDirty }: { path: string; onDirty: (value: boolean) => void }) {
   const document = useQuery({ queryKey: ["metadata-document", path], queryFn: () => metadataApi.read(path), retry: false, staleTime: Infinity, refetchOnWindowFocus: false });
-  if (document.isPending) return <section className={panel} role="status">Reading series.nfo…</section>;
+  if (document.isPending) return <section className={panel} role="status">Reading metadata…</section>;
   if (document.error) return <section className={panel}><p role="alert">{document.error.message}</p><button className={`${button} mt-3`} onClick={() => void document.refetch()}>Reload metadata</button></section>;
   return <MetadataForm key={document.dataUpdatedAt} initial={document.data} onDirty={onDirty} />;
 }
@@ -115,7 +115,7 @@ function MetadataForm({ initial, onDirty }: { initial: MetadataDocument; onDirty
   } });
   const pending = save.isPending || prepare.isPending;
   return <section className={panel} aria-label="Series metadata editor">
-    <h2 className="text-lg font-semibold">{document.revision === null ? "Create series.nfo" : "Edit series.nfo"}</h2>
+    <h2 className="break-words text-lg font-semibold">{document.revision === null ? "Create" : "Edit"} {document.path.split("/").at(-1)}.nfo</h2>
     <p className="mt-1 break-all text-xs text-muted">{document.target}</p>
     <div className="my-4 rounded-lg border border-border p-3">
       <form className="flex flex-wrap items-end gap-2" onSubmit={e => { e.preventDefault(); lookup.mutate(); }}>
@@ -139,9 +139,9 @@ function MetadataForm({ initial, onDirty }: { initial: MetadataDocument; onDirty
     </form>
     {(prepare.error || save.error) && <p role="alert" className="mt-3 text-sm text-red-300">{(prepare.error || save.error)?.message} <button className="underline" onClick={() => { if (window.confirm("Reload from disk and discard unsaved edits?")) { onDirty(false); void client.invalidateQueries({ queryKey: ["metadata-document", document.path] }); } }}>Reload from disk</button></p>}
     {preview && <div className="mt-4 space-y-3">
-      <h3 className="font-medium">Ready to {preview.revision === null ? "create" : "update"} series.nfo</h3>
+      <h3 className="font-medium">Ready to {preview.revision === null ? "create" : "update"} NFO</h3>
       <pre className="max-h-80 overflow-auto rounded-lg border border-border bg-input p-3 text-xs">{preview.xml}</pre>
-      <p className="text-xs text-muted">{preview.revision === null ? "Creates a new file in the series folder shown above." : "Updates this series.nfo and keeps a uniquely named series.nfo backup beside it."}</p>
+      <p className="text-xs text-muted">{preview.revision === null ? "Creates a new file in the series folder shown above." : "Updates this NFO and keeps a uniquely named backup beside it."}</p>
       <button className={`${button} border-accent bg-accent text-black`} disabled={pending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save beside series"}</button>
     </div>}
     {saved && <p role="status" className="mt-4 text-sm text-green-300">Saved beside the series. PosterView will read this metadata next time you open this folder.</p>}

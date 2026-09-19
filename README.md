@@ -37,7 +37,7 @@ encrypted at rest and never sent back to the browser._
 
 - **Local manga NFO metadata**: mount your manga folders at `/data/media`, browse
   them in **Manga metadata**, search AniList or edit fields manually, and preview/save
-  `series.nfo` beside each series. Edition details are user-confirmed. Bulk creation
+  `<series folder name>.nfo` beside each series. Edition details are user-confirmed. Bulk creation
   creates missing title-only sidecars; existing files are preserved. See
   [setup and compatibility](docs/local-metadata.md).
 
