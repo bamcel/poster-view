@@ -1,9 +1,11 @@
 //! Opt-in sidecars on a mounted manga directory. No media-server mutations.
 use std::{
+    collections::HashMap,
     fs,
     io::{Read, Write},
     path::{Component, Path, PathBuf},
     sync::Mutex,
+    time::{Duration, Instant},
 };
 
 use crate::{AppState, error::HttpError};
@@ -16,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use xmltree::{Element, EmitterConfig, XMLNode};
 
 const MAX_NFO: u64 = 1_048_576;
+const SOURCE_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 
 fn linked(metadata: &fs::Metadata) -> bool {
     #[cfg(windows)]
@@ -32,6 +35,12 @@ fn linked(metadata: &fs::Metadata) -> bool {
 pub(crate) struct MetadataStore {
     root: PathBuf,
     writes: Mutex<()>,
+    sources: Mutex<HashMap<(i64, String), CachedSource>>,
+}
+
+struct CachedSource {
+    path: String,
+    resolved_at: Instant,
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -112,6 +121,32 @@ impl MetadataStore {
         Self {
             root,
             writes: Mutex::new(()),
+            sources: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn cached_source(&self, server_id: i64, item_id: &str) -> Option<String> {
+        let key = (server_id, item_id.to_owned());
+        let mut sources = self.sources.lock().ok()?;
+        if sources
+            .get(&key)
+            .is_some_and(|source| source.resolved_at.elapsed() < SOURCE_CACHE_TTL)
+        {
+            return sources.get(&key).map(|source| source.path.clone());
+        }
+        sources.remove(&key);
+        None
+    }
+
+    fn remember_source(&self, server_id: i64, item_id: &str, path: &str) {
+        if let Ok(mut sources) = self.sources.lock() {
+            sources.insert(
+                (server_id, item_id.to_owned()),
+                CachedSource {
+                    path: path.to_owned(),
+                    resolved_at: Instant::now(),
+                },
+            );
         }
     }
 
@@ -583,10 +618,15 @@ pub(crate) struct AniListMangaRequest {
 }
 
 async fn item_source(state: &AppState, server_id: i64, item_id: &str) -> Result<String, HttpError> {
+    if let Some(source) = state.metadata.cached_source(server_id, item_id) {
+        return Ok(source);
+    }
     let item = state.runtime.get_item_detail(server_id, item_id).await?
         .ok_or_else(HttpError::not_found)?
         .map_err(HttpError::bad_gateway)?;
-    item.source_path.ok_or_else(|| invalid("The media server did not provide a filesystem path for this item."))
+    let source = item.source_path.ok_or_else(|| invalid("The media server did not provide a filesystem path for this item."))?;
+    state.metadata.remember_source(server_id, item_id, &source);
+    Ok(source)
 }
 
 pub(crate) async fn item(
@@ -768,6 +808,20 @@ mod tests {
         let store = MetadataStore::new(dir.path().to_owned());
         (dir, store)
     }
+
+    #[test]
+    fn resolved_item_sources_are_reused_for_metadata_saves() {
+        let (_directory, store) = setup();
+        assert!(store.cached_source(7, "series").is_none());
+        store.remember_source(7, "series", "/mnt/user/Manga/Series");
+        assert_eq!(
+            store.cached_source(7, "series").as_deref(),
+            Some("/mnt/user/Manga/Series")
+        );
+        assert!(store.cached_source(8, "series").is_none());
+        assert!(store.cached_source(7, "other").is_none());
+    }
+
     #[test]
     fn filename_uses_folder_not_editable_title_and_ignores_old_sidecar() {
         let (dir, store) = setup();
