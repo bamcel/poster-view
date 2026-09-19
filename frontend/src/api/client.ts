@@ -135,6 +135,11 @@ export const api = {
     request<ItemDetail>(`/servers/${serverId}/items/${encodeURIComponent(itemId)}`),
   getNfoMetadata: (serverId: number, itemId: string) =>
     request<NfoMetadata | null>(`/metadata/item?server_id=${serverId}&item_id=${encodeURIComponent(itemId)}`),
+  updateNfoMetadata: (serverId: number, itemId: string, fields: NfoMetadata) =>
+    request<NfoMetadata>("/metadata/item", {
+      method: "PUT",
+      body: JSON.stringify({ server_id: serverId, item_id: itemId, fields }),
+    }),
   useComicVineMetadata: (serverId: number, itemId: string, volumeId: string) =>
     request<NfoMetadata>("/metadata/comicvine", {
       method: "POST",

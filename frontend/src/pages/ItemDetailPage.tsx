@@ -4,10 +4,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, Images, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, Images, Pencil, RefreshCw, X } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import PosterCard from "../components/PosterCard";
 import ArtworkPanel from "../components/ArtworkPanel";
+import MetadataEditorModal from "../components/MetadataEditorModal";
 import { Spinner, EmptyState } from "../components/ui";
 import type { Library } from "../types";
 
@@ -20,6 +21,7 @@ export default function ItemDetailPage() {
   const libraryTitle = searchParams.get("library_title") ?? undefined;
   const [prefill, setPrefill] = useState<{ term: string; nonce: number }>();
   const [artworkOpen, setArtworkOpen] = useState(false);
+  const [metadataEditorOpen, setMetadataEditorOpen] = useState(false);
   const queryClient = useQueryClient();
   const refreshArtwork = useMutation({
     mutationFn: () => api.refreshArtworkItem(serverId, itemId!),
@@ -41,6 +43,14 @@ export default function ItemDetailPage() {
     queryFn: () => api.getNfoMetadata(serverId, itemId!),
     enabled: Number.isFinite(serverId) && !!itemId,
     retry: false,
+  });
+  const saveMetadata = useMutation({
+    mutationFn: (fields: NonNullable<typeof metadataQ.data>) =>
+      api.updateNfoMetadata(serverId, itemId!, fields),
+    onSuccess: (fields) => {
+      queryClient.setQueryData(["nfo-metadata", serverId, itemId], fields);
+      setMetadataEditorOpen(false);
+    },
   });
 
   const item = detailQ.data;
@@ -145,39 +155,48 @@ export default function ItemDetailPage() {
                     legible over a vivid/bright backdrop image, since the exact
                     gradient fade point can't account for every image. */}
                   <div className="min-w-0 flex-1 pt-2 text-center [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] sm:text-left">
-                    {logo ? (
-                      <img
-                        src={logo}
-                        alt={item.title}
-                        className="mx-auto max-h-24 max-w-full object-contain drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)] sm:mx-0 sm:max-h-28 sm:object-left"
-                      />
-                    ) : (
-                      <h1 className="text-3xl font-bold leading-tight sm:text-4xl">
-                        {item.title}
-                      </h1>
-                    )}
-                    <p className="mt-2 text-sm text-white/70">
-                      {item.type === "show"
-                        ? `${item.season_count ?? item.seasons.length} Season${
-                            (item.season_count ?? item.seasons.length) === 1
-                              ? ""
-                              : "s"
-                          }`
-                        : item.type === "collection"
-                          ? "Collection"
-                          : item.type === "book"
-                            ? "Book"
-                            : item.type === "audiobook"
-                              ? "Audiobook"
-                              : item.type === "folder"
-                                ? `${item.members.length} Volumes`
-                                : item.year}
-                    </p>
-
-                    <div className="mt-5 flex flex-wrap items-center justify-center gap-3 sm:justify-start">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        {logo ? (
+                          <img
+                            src={logo}
+                            alt={item.title}
+                            className="mx-auto max-h-24 max-w-full object-contain drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)] sm:mx-0 sm:max-h-28 sm:object-left"
+                          />
+                        ) : (
+                          <h1 className="text-3xl font-bold leading-tight sm:text-4xl">
+                            {item.title}
+                          </h1>
+                        )}
+                        <p className="mt-2 text-sm text-white/70">
+                          {item.type === "show"
+                            ? `${item.season_count ?? item.seasons.length} Season${
+                                (item.season_count ?? item.seasons.length) === 1 ? "" : "s"
+                              }`
+                            : item.type === "collection"
+                              ? "Collection"
+                              : item.type === "book"
+                                ? "Book"
+                                : item.type === "audiobook"
+                                  ? "Audiobook"
+                                  : item.type === "folder"
+                                    ? `${item.members.length} Volumes`
+                                    : item.year}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 sm:justify-end">
+                        {metadataQ.data && (
+                          <button
+                            type="button"
+                            onClick={() => setMetadataEditorOpen(true)}
+                            className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white"
+                          >
+                            <Pencil className="size-4" /> Edit Metadata
+                          </button>
+                        )}
                       <button
-                        onClick={() => detailQ.refetch()}
-                        className="flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-white/40 hover:text-white"
+                        onClick={() => { void detailQ.refetch(); void metadataQ.refetch(); }}
+                        className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white"
                         title="Refresh from server"
                       >
                         <RefreshCw
@@ -185,6 +204,9 @@ export default function ItemDetailPage() {
                         />{" "}
                         Refresh
                       </button>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-center gap-3 sm:justify-start xl:hidden">
                       <button
                         type="button"
                         onClick={() => refreshArtwork.mutate()}
@@ -200,13 +222,13 @@ export default function ItemDetailPage() {
                         : refreshArtwork.data ? <p className={refreshArtwork.data.ok ? "text-success" : "text-danger"}>{refreshArtwork.data.message}</p> : null}
                     </div>
 
-                    {item.summary && (
-                      <p className="mt-5 max-w-2xl text-sm leading-relaxed text-white/80">
+                    {!metadataQ.data && item.summary && (
+                      <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/80">
                         {item.summary}
                       </p>
                     )}
                     {metadataQ.data && (
-                      <section className="mt-5 max-w-2xl text-left [text-shadow:0_2px_12px_rgba(0,0,0,0.8)]">
+                      <section className="mt-4 max-w-2xl text-left [text-shadow:0_2px_12px_rgba(0,0,0,0.8)]">
                         <div className="flex flex-wrap items-center gap-2">
                           {[
                             metadataQ.data.year && ["Year", metadataQ.data.year],
@@ -315,6 +337,15 @@ export default function ItemDetailPage() {
             <ArtworkPanel serverId={serverId} item={item} prefill={prefill} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} />
           </section>
         </div>
+      )}
+      {metadataEditorOpen && metadataQ.data && (
+        <MetadataEditorModal
+          metadata={metadataQ.data}
+          saving={saveMetadata.isPending}
+          error={saveMetadata.isError ? saveMetadata.error.message : undefined}
+          onClose={() => { saveMetadata.reset(); setMetadataEditorOpen(false); }}
+          onSave={(fields) => saveMetadata.mutate(fields)}
+        />
       )}
     </div>
   );

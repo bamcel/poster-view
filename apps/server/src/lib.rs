@@ -69,7 +69,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             axum::routing::post(metadata::preview),
         )
         .route("/api/metadata/search", get(metadata::search))
-        .route("/api/metadata/item", get(metadata::item))
+        .route("/api/metadata/item", get(metadata::item).put(metadata::update_item))
         .route("/api/metadata/comicvine", axum::routing::post(metadata::use_comicvine))
         .route("/api/metadata/anilist-manga", axum::routing::post(metadata::use_anilist_manga))
         .route(

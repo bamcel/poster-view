@@ -271,6 +271,22 @@ impl MetadataStore {
         Ok(document.revision.map(|_| document.fields))
     }
 
+    pub(crate) fn save_fields_for_source(
+        &self,
+        source: &str,
+        fields: Fields,
+    ) -> Result<Fields, HttpError> {
+        let relative = self.relative_directory_for_source(source)?;
+        let document = self.read(&relative)?;
+        Ok(self
+            .save(&SaveRequest {
+                path: relative,
+                fields,
+                revision: document.revision,
+            })?
+            .fields)
+    }
+
     pub(crate) fn save_comicvine_for_source(
         &self,
         source: &str,
@@ -546,6 +562,13 @@ pub(crate) struct ItemMetadataQuery {
 }
 
 #[derive(Deserialize)]
+pub(crate) struct ItemMetadataUpdate {
+    server_id: i64,
+    item_id: String,
+    fields: Fields,
+}
+
+#[derive(Deserialize)]
 pub(crate) struct ComicVineRequest {
     server_id: i64,
     item_id: String,
@@ -572,6 +595,28 @@ pub(crate) async fn item(
 ) -> Result<Json<Option<Fields>>, HttpError> {
     let source = item_source(&state, query.server_id, &query.item_id).await?;
     state.metadata.read_for_source(&source).map(Json)
+}
+
+pub(crate) async fn update_item(
+    State(state): State<AppState>,
+    Json(request): Json<ItemMetadataUpdate>,
+) -> Result<Json<Fields>, HttpError> {
+    let server = state
+        .runtime
+        .list_servers()?
+        .into_iter()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(HttpError::not_found)?;
+    if !server.nfo_metadata_enabled {
+        return Err(invalid(
+            "Enable NFO metadata for this server in Settings → Server Setup first.",
+        ));
+    }
+    let source = item_source(&state, request.server_id, &request.item_id).await?;
+    state
+        .metadata
+        .save_fields_for_source(&source, request.fields)
+        .map(Json)
 }
 
 pub(crate) async fn use_comicvine(
@@ -698,6 +743,7 @@ mod tests {
             ("POST", "/api/metadata/preview"),
             ("GET", "/api/metadata/search?query=Manga"),
             ("GET", "/api/metadata/item?server_id=1&item_id=manga"),
+            ("PUT", "/api/metadata/item"),
             ("POST", "/api/metadata/comicvine"),
             ("POST", "/api/metadata/anilist-manga"),
         ] {
