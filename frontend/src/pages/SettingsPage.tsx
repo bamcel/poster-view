@@ -49,6 +49,7 @@ const BLANK: ServerInput = {
   base_url: "",
   token: "",
   is_default: false,
+  nfo_metadata_enabled: false,
 };
 
 const URL_PLACEHOLDER: Record<ServerType, string> = {
@@ -340,7 +341,7 @@ function ServersSection() {
 
   const startEdit = (s: Server) => {
     setEditingId(s.id);
-    setForm({ name: s.name, type: s.type, base_url: s.base_url, token: "", is_default: s.is_default });
+    setForm({ name: s.name, type: s.type, base_url: s.base_url, token: "", is_default: s.is_default, nfo_metadata_enabled: s.nfo_metadata_enabled });
     setTestResult(null);
     setFormOpen(true);
   };
@@ -497,6 +498,21 @@ function ServersSection() {
             className="size-4 accent-[var(--color-accent)]"
           />
           Use as default server
+            </label>
+
+            <label className="mt-3 flex items-start gap-2 text-sm text-muted">
+          <input
+            type="checkbox"
+            checked={form.nfo_metadata_enabled}
+            onChange={(e) => setForm({ ...form, nfo_metadata_enabled: e.target.checked })}
+            className="mt-0.5 size-4 accent-[var(--color-accent)]"
+          />
+          <span>
+            <span className="block text-white">Enable NFO metadata</span>
+            <span className="block text-xs text-faint">
+              Allow PosterView to create and maintain NFO files for this server. The configured media path must be writable.
+            </span>
+          </span>
             </label>
 
             {testResult && (

@@ -9,6 +9,7 @@ export interface Server {
   type: ServerType;
   base_url: string;
   is_default: boolean;
+  nfo_metadata_enabled: boolean;
   has_token: boolean;
   created_at: string;
   updated_at: string;

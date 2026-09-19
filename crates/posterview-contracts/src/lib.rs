@@ -48,6 +48,8 @@ pub struct ServerCreate {
     pub token: String,
     #[serde(default)]
     pub is_default: bool,
+    #[serde(default)]
+    pub nfo_metadata_enabled: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -58,6 +60,7 @@ pub struct ServerUpdate {
     pub base_url: Option<String>,
     pub token: Option<String>,
     pub is_default: Option<bool>,
+    pub nfo_metadata_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -68,6 +71,7 @@ pub struct Server {
     pub server_type: ServerType,
     pub base_url: String,
     pub is_default: bool,
+    pub nfo_metadata_enabled: bool,
     pub has_token: bool,
     pub created_at: String,
     pub updated_at: String,

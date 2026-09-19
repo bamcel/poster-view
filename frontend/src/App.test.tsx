@@ -31,7 +31,7 @@ it("loads the saved server only after signing in following a restart", async () 
   vi.mocked(api.authLogin).mockResolvedValue({ authenticated: true });
   vi.mocked(api.listServers).mockResolvedValue([
     { id: 1, name: "Emby Tailscale", type: "emby", base_url: "http://media:8096",
-      is_default: true, has_token: true, created_at: "2026-09-03", updated_at: "2026-09-03" },
+      is_default: true, nfo_metadata_enabled: false, has_token: true, created_at: "2026-09-03", updated_at: "2026-09-03" },
   ]);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(

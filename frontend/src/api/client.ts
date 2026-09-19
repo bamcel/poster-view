@@ -71,6 +71,7 @@ export interface ServerInput {
   base_url: string;
   token: string;
   is_default: boolean;
+  nfo_metadata_enabled: boolean;
 }
 
 export interface SecuritySettings {

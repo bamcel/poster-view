@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS media_servers (
     base_url    TEXT    NOT NULL,
     token_enc   TEXT    NOT NULL DEFAULT '',
     is_default  INTEGER NOT NULL DEFAULT 0,
+    nfo_metadata_enabled INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -94,7 +95,7 @@ impl ServerStore {
     pub fn list_servers(&self) -> Result<Vec<Server>, StoreError> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
-            "SELECT id, name, type, base_url, is_default, token_enc, created_at, updated_at
+            "SELECT id, name, type, base_url, is_default, token_enc, created_at, updated_at, nfo_metadata_enabled
              FROM media_servers ORDER BY is_default DESC, name COLLATE NOCASE",
         )?;
         statement
@@ -106,7 +107,7 @@ impl ServerStore {
     pub fn get_server(&self, id: i64) -> Result<Option<Server>, StoreError> {
         self.connection()?
             .query_row(
-                "SELECT id, name, type, base_url, is_default, token_enc, created_at, updated_at
+                "SELECT id, name, type, base_url, is_default, token_enc, created_at, updated_at, nfo_metadata_enabled
                  FROM media_servers WHERE id = ?1",
                 [id],
                 server_from_row,
@@ -123,14 +124,15 @@ impl ServerStore {
             transaction.execute("UPDATE media_servers SET is_default = 0", [])?;
         }
         transaction.execute(
-            "INSERT INTO media_servers (name, type, base_url, token_enc, is_default)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO media_servers (name, type, base_url, token_enc, is_default, nfo_metadata_enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 input.name,
                 input.server_type.as_str(),
                 normalize_base_url(&input.base_url),
                 cipher.encrypt(input.token.as_bytes()),
                 input.is_default,
+                input.nfo_metadata_enabled,
             ],
         )?;
         let id = transaction.last_insert_rowid();
@@ -171,8 +173,9 @@ impl ServerStore {
                 base_url = COALESCE(?3, base_url),
                 token_enc = COALESCE(?4, token_enc),
                 is_default = COALESCE(?5, is_default),
+                nfo_metadata_enabled = COALESCE(?6, nfo_metadata_enabled),
                 updated_at = datetime('now')
-             WHERE id = ?6",
+             WHERE id = ?7",
             params![
                 input.name,
                 input.server_type.map(ServerType::as_str),
@@ -183,6 +186,7 @@ impl ServerStore {
                     .filter(|token| !token.is_empty())
                     .map(|token| cipher.encrypt(token.as_bytes())),
                 input.is_default,
+                input.nfo_metadata_enabled,
                 id,
             ],
         )?;
@@ -415,6 +419,16 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             [],
         )?;
     }
+    let mut statement = connection.prepare("PRAGMA table_info(media_servers)")?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if !columns.iter().any(|column| column == "nfo_metadata_enabled") {
+        connection.execute(
+            "ALTER TABLE media_servers ADD COLUMN nfo_metadata_enabled INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -446,6 +460,7 @@ fn server_from_row(row: &rusqlite::Row<'_>) -> Result<Server, rusqlite::Error> {
         has_token: !token.is_empty(),
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
+        nfo_metadata_enabled: row.get(8)?,
     })
 }
 
@@ -483,6 +498,7 @@ mod tests {
                 base_url: "http://jellyfin:8096///".into(),
                 token: "secret-one".into(),
                 is_default: false,
+                nfo_metadata_enabled: false,
             })
             .unwrap();
         assert!(first.is_default);
@@ -500,9 +516,11 @@ mod tests {
                 base_url: "http://plex:32400".into(),
                 token: "secret-two".into(),
                 is_default: true,
+                nfo_metadata_enabled: true,
             })
             .unwrap();
         assert!(second.is_default);
+        assert!(second.nfo_metadata_enabled);
         assert!(!store.get_server(first.id).unwrap().unwrap().is_default);
 
         let updated = store

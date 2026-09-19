@@ -1,7 +1,7 @@
 // App chrome: a left sidebar (logo, nav, active-server picker) + routed content.
 
 import { NavLink, Outlet } from "react-router-dom";
-import { LibraryBig, FileText, History, LogOut, Settings, Server as ServerIcon } from "lucide-react";
+import { LibraryBig, History, LogOut, Settings, Server as ServerIcon } from "lucide-react";
 import { useServers } from "../lib/serverContext";
 import { Logo, ServerTypeBadge } from "./ui";
 import { api } from "../api/client";
@@ -10,7 +10,6 @@ import { AuthSessionContext } from "../lib/authContext";
 
 const navItems = [
   { to: "/", label: "Libraries", icon: LibraryBig, end: true },
-  { to: "/metadata", label: "Manga metadata", icon: FileText, end: false },
   { to: "/history", label: "History", icon: History, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];

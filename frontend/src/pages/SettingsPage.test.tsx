@@ -8,6 +8,10 @@ import { api } from "../api/client";
 vi.mock("../api/client", () => ({
   api: {
     listServers: vi.fn(),
+    createServer: vi.fn(),
+    updateServer: vi.fn(),
+    testServerAdhoc: vi.fn(),
+    testServerSaved: vi.fn(),
     getLibraryVisibility: vi.fn(),
     setLibraryVisibility: vi.fn(),
     getArtworkSettings: vi.fn(),
@@ -103,6 +107,27 @@ it("keeps the add server form collapsed until requested", async () => {
   client.clear();
 });
 
+it("saves the per-server NFO metadata setting", async () => {
+  vi.mocked(api.createServer).mockResolvedValue({
+    id: 1, name: "Manga", type: "emby", base_url: "http://emby:8096",
+    is_default: true, nfo_metadata_enabled: true, has_token: true, created_at: "", updated_at: "",
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Add server" }));
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Manga" } });
+  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "http://emby:8096" } });
+  fireEvent.change(screen.getByLabelText("API key"), { target: { value: "secret" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: /Enable NFO metadata/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Add server" }));
+
+  await waitFor(() => expect(api.createServer).toHaveBeenCalledWith(expect.objectContaining({
+    nfo_metadata_enabled: true,
+  })));
+  client.clear();
+});
+
 it("keeps server libraries in a checkbox dropdown", async () => {
   vi.mocked(api.listServers).mockResolvedValue([
     {
@@ -111,6 +136,7 @@ it("keeps server libraries in a checkbox dropdown", async () => {
       type: "jellyfin",
       base_url: "http://jellyfin:8096",
       is_default: true,
+      nfo_metadata_enabled: false,
       has_token: true,
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
@@ -168,6 +194,7 @@ it("shows an independent cache panel and cancellation control for each server", 
     type: "jellyfin",
     base_url: "http://jellyfin:8096",
     is_default: true,
+    nfo_metadata_enabled: false,
     has_token: true,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
@@ -229,7 +256,7 @@ it("keeps each provider test result inside its own card", async () => {
 });
 
 it("identifies the server and affected data before deleting its connection", async () => {
-  const server = { id: 19, name: "Family Movies", type: "jellyfin" as const, base_url: "http://family:8096", is_default: false, has_token: true, created_at: "", updated_at: "" };
+  const server = { id: 19, name: "Family Movies", type: "jellyfin" as const, base_url: "http://family:8096", is_default: false, nfo_metadata_enabled: false, has_token: true, created_at: "", updated_at: "" };
   vi.mocked(api.listServers).mockResolvedValue([server]);
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -243,7 +270,7 @@ it("identifies the server and affected data before deleting its connection", asy
 });
 
 it("confirms a specific server cache and keeps another server's browser cache intact", async () => {
-  const servers = [19, 31].map(id => ({ id, name: `Family ${id}`, type: "jellyfin" as const, base_url: `http://family-${id}:8096`, is_default: false, has_token: true, created_at: "", updated_at: "" }));
+  const servers = [19, 31].map(id => ({ id, name: `Family ${id}`, type: "jellyfin" as const, base_url: `http://family-${id}:8096`, is_default: false, nfo_metadata_enabled: false, has_token: true, created_at: "", updated_at: "" }));
   vi.mocked(api.listServers).mockResolvedValue(servers);
   vi.mocked(api.getArtworkCache).mockImplementation(async id => ({ server_id: id, server_name: `Family ${id}`, max_mb: 250, ttl_days: 30, used_bytes: 2048, file_count: 2, watchdog_enabled: false, watchdog_interval_hours: 24, watchdog_running: false, watchdog_state: "idle", watchdog_progress_current: 0, watchdog_progress_total: 0, watchdog_cancel_requested: false }));
   vi.mocked(api.clearArtworkCache).mockResolvedValue({ cleared_bytes: 2048, cleared_files: 2 });

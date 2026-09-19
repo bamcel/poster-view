@@ -25,6 +25,7 @@ async fn manga_selection_persists_across_restart_and_is_scoped_to_the_library_it
             base_url: "http://127.0.0.1:9".to_owned(),
             token: "test".to_owned(),
             is_default: true,
+            nfo_metadata_enabled: false,
         })
         .unwrap();
     let app = router(runtime, PathBuf::from("missing-ui"));
@@ -118,6 +119,7 @@ async fn live_mangadex_food_wars_search_cover_apply_and_history() {
             base_url: format!("http://{address}"),
             token: "test".to_owned(),
             is_default: true,
+            nfo_metadata_enabled: false,
         })
         .unwrap();
     let app = router(runtime.clone(), PathBuf::from("missing-ui"));
@@ -1042,6 +1044,7 @@ async fn artwork_cache_defaults_to_250_mb_and_can_be_configured_and_cleared() {
             base_url: "http://127.0.0.1:8096".to_owned(),
             token: "test".to_owned(),
             is_default: true,
+            nfo_metadata_enabled: false,
         })
         .unwrap();
     let second_server = runtime
@@ -1051,6 +1054,7 @@ async fn artwork_cache_defaults_to_250_mb_and_can_be_configured_and_cleared() {
             base_url: "http://127.0.0.1:8097".to_owned(),
             token: "test".to_owned(),
             is_default: false,
+            nfo_metadata_enabled: false,
         })
         .unwrap();
     let app = router(runtime, PathBuf::from("missing-ui"));

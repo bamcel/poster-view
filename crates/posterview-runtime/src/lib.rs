@@ -671,6 +671,7 @@ mod tests {
                 base_url: "http://localhost:8096".to_owned(),
                 token: "test".to_owned(),
                 is_default: true,
+                nfo_metadata_enabled: false,
             })
             .expect("create server");
         runtime
@@ -719,6 +720,7 @@ mod tests {
                 base_url: "http://localhost:8096".into(),
                 token: "test".into(),
                 is_default: true,
+                nfo_metadata_enabled: false,
             })
             .unwrap();
         let preview = PosterSearchResults {
