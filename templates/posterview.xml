@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>PosterView</Name>
-  <Repository>ghcr.io/bamcel/poster-view:latest</Repository>
-  <DefaultTagDescription>Main (latest)</DefaultTagDescription>
+  <Repository>ghcr.io/bamcel/poster-view:experimental</Repository>
+  <DefaultTagDescription>Experimental</DefaultTagDescription>
   <Branch>
     <Tag>experimental</Tag>
     <TagDescription>Experimental builds. Use separate appdata for testing.</TagDescription>
@@ -18,7 +18,7 @@
   <Description>PosterView provides one interface for managing media artwork across Plex, Jellyfin, and Emby. Browse titles and collections; apply posters, backgrounds, banners, and logos from ThePosterDB, Fanart.tv, TheTVDB, AniList, and MediUX; upload custom artwork; and revert earlier changes from apply history. Credentials are encrypted at rest, and application data persists in the configured Data path.</Description>
   <Category>MediaApp:Other</Category>
   <WebUI>http://[IP]:[PORT:7979]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/bamcel/poster-view/main/templates/posterview.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/bamcel/poster-view/experimental/templates/posterview.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/bamcel/poster-view/main/icon.png</Icon>
   <License>MIT</License>
   <ExtraSearchTerms>poster artwork plex jellyfin emby theposterdb fanart tvdb anilist mediux</ExtraSearchTerms>
@@ -34,7 +34,7 @@
   <Requires/>
   <Config Name="WebUI Port" Target="7979" Default="7979" Mode="tcp" Description="Port for the PosterView web UI" Type="Port" Display="always" Required="true" Mask="false">7979</Config>
   <Config Name="Config" Target="/config" Default="/mnt/user/appdata/posterview" Mode="rw" Description="SQLite database, encryption key, settings, apply history, and persistent artwork caches" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/posterview</Config>
-  <Config Name="Media" Target="/media" Default="" Mode="rw" Description="Optional: Enables PosterView to read and manage metadata such as nfo files." Type="Path" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Media Path" Target="/media" Default="" Mode="rw" Description="Optional: Enables PosterView to read and manage metadata such as nfo files." Type="Path" Display="always" Required="false" Mask="false"></Config>
   <Config Name="Require Login" Target="POSTERVIEW_AUTH_ENABLED" Default="false|true" Mode="" Description="false disables login for ALL connections, including reverse proxies and remote access. true requires administrator login unless local-network bypass is enabled in Settings. Defaults to false. Use only on a trusted network when disabled." Type="Variable" Display="always" Required="false" Mask="false">false</Config>
   <Config Name="Administrator Username" Target="POSTERVIEW_USERNAME" Default="admin" Mode="" Description="Username when Require Login is true. Defaults to admin." Type="Variable" Display="always" Required="false" Mask="false">admin</Config>
   <Config Name="Administrator Password" Target="POSTERVIEW_PASSWORD" Default="" Mode="" Description="Password for the PosterView sign-in screen. Leave blank to generate one in /config/admin-password.txt." Type="Variable" Display="always-hide" Required="false" Mask="true"></Config>
