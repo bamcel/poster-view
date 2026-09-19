@@ -48,7 +48,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     });
     let media_dir = std::env::var_os("POSTERVIEW_MEDIA_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|| runtime.data_dir().join("media"));
+        .unwrap_or_else(|| PathBuf::from("/media"));
     let state = AppState {
         metadata: Arc::new(metadata::MetadataStore::new(media_dir)),
         runtime,
@@ -69,6 +69,8 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             axum::routing::post(metadata::preview),
         )
         .route("/api/metadata/search", get(metadata::search))
+        .route("/api/metadata/item", get(metadata::item))
+        .route("/api/metadata/comicvine", axum::routing::post(metadata::use_comicvine))
         .route(
             "/api/security/settings",
             get(security_settings).put(update_security_settings),

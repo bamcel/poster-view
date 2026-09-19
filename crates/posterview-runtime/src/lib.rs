@@ -13,7 +13,7 @@ use posterview_contracts::{
     LibraryVisibility, LibraryVisibilityItem, MediaItem, PosterSearchResults, Server, ServerCreate,
     ServerUpdate, StatusResponse,
 };
-use posterview_infra_artwork::ArtworkService;
+use posterview_infra_artwork::{ArtworkService, ComicVineMetadata};
 pub use posterview_infra_artwork::valid_manga_id;
 use posterview_infra_media_servers::{
     ConnectionConfig, fetch_image, get_item_detail, get_items, get_libraries, set_image,
@@ -63,6 +63,10 @@ pub enum RuntimeError {
 }
 
 impl Runtime {
+    pub async fn comicvine_metadata(&self, id: &str) -> Result<ComicVineMetadata, RuntimeError> {
+        let key = self.server_store()?.get_setting("comicvine_api_key")?;
+        self.artwork.comicvine_metadata(&key, id).await.map_err(RuntimeError::Watchdog)
+    }
     #[must_use]
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
         let data_dir = data_dir.into();

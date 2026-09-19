@@ -65,6 +65,19 @@ export interface ItemDetail extends MediaItem {
   members: MediaItem[];
 }
 
+export interface NfoMetadata {
+  title: string;
+  year: string;
+  publisher: string;
+  edition: string;
+  volumes: string;
+  status: string;
+  plot: string;
+  anilist_id: string;
+  comicvine_id: string;
+  source_url: string;
+}
+
 // --- Artwork providers (Fanart.tv / AniList / TheTVDB) ---
 
 export type ArtworkType = "poster" | "background" | "banner" | "logo";

@@ -6,6 +6,55 @@ use serde_json::Value;
 
 const API: &str = "https://comicvine.gamespot.com/api";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComicVineMetadata {
+    pub id: String,
+    pub title: String,
+    pub year: String,
+    pub publisher: String,
+    pub volumes: String,
+    pub plot: String,
+    pub source_url: String,
+}
+
+pub async fn metadata(client: &Client, key: &str, id: &str) -> Result<ComicVineMetadata, String> {
+    if !id.chars().all(|character| character.is_ascii_digit()) {
+        return Err("Select a valid ComicVine series first.".to_owned());
+    }
+    let data = request(
+        client,
+        &format!("/volume/4050-{id}/"),
+        key,
+        &[("field_list", "id,name,start_year,description,count_of_issues,publisher,site_detail_url")],
+    )
+    .await?;
+    let value = &data["results"];
+    Ok(ComicVineMetadata {
+        id: id.to_owned(),
+        title: value["name"].as_str().unwrap_or("Untitled").to_owned(),
+        year: value["start_year"].as_str().unwrap_or("").to_owned(),
+        publisher: value["publisher"]["name"].as_str().unwrap_or("").to_owned(),
+        volumes: value["count_of_issues"].as_u64().map(|count| count.to_string()).unwrap_or_default(),
+        plot: plain_text(value["description"].as_str().unwrap_or("")),
+        source_url: value["site_detail_url"].as_str().unwrap_or("").to_owned(),
+    })
+}
+
+fn plain_text(html: &str) -> String {
+    let mut output = String::new();
+    let mut inside_tag = false;
+    for character in html.chars() {
+        match character {
+            '<' => inside_tag = true,
+            '>' => { inside_tag = false; output.push(' '); }
+            _ if !inside_tag => output.push(character),
+            _ => {}
+        }
+    }
+    output.split_whitespace().collect::<Vec<_>>().join(" ")
+        .replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'")
+}
+
 pub async fn test(client: &Client, key: &str) -> Result<(), String> {
     if key.trim().is_empty() {
         return Err("ComicVine API key is not configured (add it in Settings).".to_owned());
@@ -238,5 +287,13 @@ mod tests {
         );
         assert_eq!(result.volume_count, Some(8));
         assert_eq!(result.publisher.as_deref(), Some("Kodansha Comics USA"));
+    }
+
+    #[test]
+    fn comicvine_description_html_becomes_readable_nfo_text() {
+        assert_eq!(
+            plain_text("<p>A hero &amp; friend.</p><br><b>Complete</b>"),
+            "A hero & friend. Complete"
+        );
     }
 }

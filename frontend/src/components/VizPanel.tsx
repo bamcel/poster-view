@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, Search } from "lucide-react";
+import { ArrowLeft, Database, ExternalLink, Search } from "lucide-react";
 import { api } from "../api/client";
 import { detectManga, normalizeVolume } from "../lib/manga";
 import { useToast } from "../lib/toast";
@@ -89,6 +89,14 @@ export default function VizPanel({
         client.invalidateQueries({ queryKey: ["items", serverId] }),
       ]);
       toast.push("success", result.message);
+    },
+    onError: (error: Error) => toast.push("error", error.message),
+  });
+  const useMetadata = useMutation({
+    mutationFn: () => api.useComicVineMetadata(serverId, item.id, catalogUrl),
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ["nfo-metadata", serverId, item.id] });
+      toast.push("success", "ComicVine metadata saved to the NFO file.");
     },
     onError: (error: Error) => toast.push("error", error.message),
   });
@@ -199,13 +207,25 @@ export default function VizPanel({
         </a>
       </form>
       {catalogUrl && (
-        <button
-          type="button"
-          onClick={backToResults}
-          className="flex items-center gap-1 text-sm text-muted transition-colors hover:text-white"
-        >
-          <ArrowLeft className="size-4" /> Back
-        </button>
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={backToResults}
+            className="flex items-center gap-1 text-sm text-muted transition-colors hover:text-white"
+          >
+            <ArrowLeft className="size-4" /> Back
+          </button>
+          {isComicVine && (
+            <button
+              type="button"
+              onClick={() => useMetadata.mutate()}
+              disabled={useMetadata.isPending}
+              className="flex items-center gap-1 text-sm text-muted transition-colors hover:text-white disabled:opacity-50"
+            >
+              <Database className="size-4" /> {useMetadata.isPending ? "Saving…" : "Use metadata"}
+            </button>
+          )}
+        </div>
       )}
       {(search.isFetching || covers.isFetching) && (
         <p role="status" className="text-sm text-muted">

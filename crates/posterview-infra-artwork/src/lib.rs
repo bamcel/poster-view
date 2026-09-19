@@ -3,6 +3,7 @@ mod mangadex;
 mod posterdb;
 mod viz;
 pub use mangadex::valid_manga_id;
+pub use comicvine::ComicVineMetadata;
 
 use posterview_contracts::{
     ArtworkItem, ArtworkProviderInfo, ArtworkSearchResult, ItemDetail, ItemType,
@@ -44,6 +45,9 @@ impl Default for ArtworkService {
 }
 
 impl ArtworkService {
+    pub async fn comicvine_metadata(&self, key: &str, id: &str) -> Result<ComicVineMetadata, String> {
+        comicvine::metadata(&self.client, key, id).await
+    }
     pub async fn test_comicvine(&self, key: &str) -> Result<(), String> {
         comicvine::test(&self.client, key).await
     }

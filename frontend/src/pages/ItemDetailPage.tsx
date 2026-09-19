@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Images, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, BookOpen, ExternalLink, Images, RefreshCw, X } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import PosterCard from "../components/PosterCard";
 import ArtworkPanel from "../components/ArtworkPanel";
@@ -31,6 +31,12 @@ export default function ItemDetailPage() {
     queryKey: ["item-detail", serverId, itemId],
     queryFn: () => api.getItemDetail(serverId, itemId!),
     enabled: Number.isFinite(serverId) && !!itemId,
+  });
+  const metadataQ = useQuery({
+    queryKey: ["nfo-metadata", serverId, itemId],
+    queryFn: () => api.getNfoMetadata(serverId, itemId!),
+    enabled: Number.isFinite(serverId) && !!itemId,
+    retry: false,
   });
 
   const item = detailQ.data;
@@ -194,6 +200,32 @@ export default function ItemDetailPage() {
                       <p className="mt-5 max-w-2xl text-sm leading-relaxed text-white/80">
                         {item.summary}
                       </p>
+                    )}
+                    {metadataQ.data && (
+                      <section className="mt-5 max-w-3xl rounded-xl border border-white/10 bg-black/25 p-4 text-left shadow-xl backdrop-blur-sm [text-shadow:none]">
+                        <div className="flex items-center justify-between gap-3">
+                          <h2 className="flex items-center gap-2 font-semibold text-white">
+                            <BookOpen className="size-4 text-accent" /> Series metadata
+                          </h2>
+                          {metadataQ.data.source_url && (
+                            <a href={metadataQ.data.source_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs text-accent hover:underline">
+                              ComicVine <ExternalLink className="size-3" />
+                            </a>
+                          )}
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {[
+                            metadataQ.data.year && ["Year", metadataQ.data.year],
+                            metadataQ.data.publisher && ["Publisher", metadataQ.data.publisher],
+                            metadataQ.data.volumes && ["Volumes", metadataQ.data.volumes],
+                            metadataQ.data.status && ["Status", metadataQ.data.status],
+                          ].filter(Boolean).map((entry) => {
+                            const [label, value] = entry as string[];
+                            return <span key={label} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80"><span className="text-white/50">{label}</span> · {value}</span>;
+                          })}
+                        </div>
+                        {metadataQ.data.plot && <p className="mt-3 text-sm leading-relaxed text-white/75">{metadataQ.data.plot}</p>}
+                      </section>
                     )}
                   </div>
                 </div>

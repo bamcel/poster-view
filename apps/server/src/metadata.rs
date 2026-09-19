@@ -2,7 +2,7 @@
 use std::{
     fs,
     io::{Read, Write},
-    path::{Component, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::Mutex,
 };
 
@@ -45,6 +45,8 @@ pub(crate) struct Fields {
     status: String,
     plot: String,
     anilist_id: String,
+    comicvine_id: String,
+    source_url: String,
 }
 
 #[derive(Deserialize)]
@@ -236,6 +238,56 @@ impl MetadataStore {
         })
     }
 
+    fn relative_directory_for_source(&self, source: &str) -> Result<String, HttpError> {
+        let root = self.root.canonicalize().map_err(|_| invalid(format!(
+            "Media path is not available: {}.", self.root.display())))?;
+        let normalized = source.replace('\\', "/");
+        let source_path = PathBuf::from(&normalized);
+        let canonical_source = source_path.canonicalize().unwrap_or_else(|_| source_path.clone());
+        let mapped = if canonical_source.starts_with(&root) {
+            canonical_source
+        } else if let Some(relative) = normalized.strip_prefix("/mnt/user/") {
+            root.join(relative)
+        } else if let Some(relative) = normalized.strip_prefix("/media/") {
+            root.join(relative)
+        } else {
+            return Err(invalid("The media server path is outside the configured Media Path."));
+        };
+        let directory = if mapped.is_dir() { mapped } else { mapped.parent().unwrap_or(Path::new("")).to_path_buf() };
+        let relative = directory.strip_prefix(&root).map_err(|_| invalid("The media item is outside the configured Media Path."))?;
+        Ok(relative.to_string_lossy().replace('\\', "/"))
+    }
+
+    pub(crate) fn read_for_source(&self, source: &str) -> Result<Option<Fields>, HttpError> {
+        let relative = self.relative_directory_for_source(source)?;
+        let document = self.read(&relative)?;
+        Ok(document.revision.map(|_| document.fields))
+    }
+
+    pub(crate) fn save_comicvine_for_source(
+        &self,
+        source: &str,
+        id: &str,
+        title: &str,
+        year: &str,
+        publisher: &str,
+        volumes: &str,
+        plot: &str,
+        source_url: &str,
+    ) -> Result<Fields, HttpError> {
+        let relative = self.relative_directory_for_source(source)?;
+        let document = self.read(&relative)?;
+        let mut fields = document.fields;
+        fields.title = title.to_owned();
+        fields.year = year.to_owned();
+        fields.publisher = publisher.to_owned();
+        fields.volumes = volumes.to_owned();
+        fields.plot = plot.to_owned();
+        fields.comicvine_id = id.to_owned();
+        fields.source_url = source_url.to_owned();
+        Ok(self.save(&SaveRequest { path: relative, fields, revision: document.revision })?.fields)
+    }
+
     fn preview(&self, request: &SaveRequest) -> Result<Document, HttpError> {
         let directory = self.directory(&request.path, false)?;
         let current = Self::current(&directory)?;
@@ -335,6 +387,8 @@ fn fields_from(root: &Element) -> Fields {
         status: text("status"),
         plot: text("plot"),
         anilist_id: text("anilistid"),
+        comicvine_id: text("comicvineid"),
+        source_url: text("source"),
     }
 }
 
@@ -366,6 +420,8 @@ fn render(fields: &Fields, original: Option<&str>) -> Result<String, HttpError> 
         ("status", &fields.status),
         ("plot", &fields.plot),
         ("anilistid", &fields.anilist_id),
+        ("comicvineid", &fields.comicvine_id),
+        ("source", &fields.source_url),
     ] {
         if value.len() > 32_768
             || value
@@ -437,6 +493,53 @@ pub(crate) async fn save(
         .await
         .map_err(|_| invalid("Could not save metadata."))?
         .map(Json)
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ItemMetadataQuery {
+    server_id: i64,
+    item_id: String,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ComicVineRequest {
+    server_id: i64,
+    item_id: String,
+    volume_id: String,
+}
+
+async fn item_source(state: &AppState, server_id: i64, item_id: &str) -> Result<String, HttpError> {
+    let item = state.runtime.get_item_detail(server_id, item_id).await?
+        .ok_or_else(HttpError::not_found)?
+        .map_err(HttpError::bad_gateway)?;
+    item.source_path.ok_or_else(|| invalid("The media server did not provide a filesystem path for this item."))
+}
+
+pub(crate) async fn item(
+    State(state): State<AppState>,
+    Query(query): Query<ItemMetadataQuery>,
+) -> Result<Json<Option<Fields>>, HttpError> {
+    let source = item_source(&state, query.server_id, &query.item_id).await?;
+    state.metadata.read_for_source(&source).map(Json)
+}
+
+pub(crate) async fn use_comicvine(
+    State(state): State<AppState>,
+    Json(request): Json<ComicVineRequest>,
+) -> Result<Json<Fields>, HttpError> {
+    let server = state.runtime.list_servers()?.into_iter()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(HttpError::not_found)?;
+    if !server.nfo_metadata_enabled {
+        return Err(invalid("Enable NFO metadata for this server in Settings → Server Setup first."));
+    }
+    let source = item_source(&state, request.server_id, &request.item_id).await?;
+    let metadata = state.runtime.comicvine_metadata(&request.volume_id).await
+        .map_err(|error| HttpError::bad_gateway(error.to_string()))?;
+    state.metadata.save_comicvine_for_source(
+        &source, &metadata.id, &metadata.title, &metadata.year, &metadata.publisher,
+        &metadata.volumes, &metadata.plot, &metadata.source_url,
+    ).map(Json)
 }
 
 #[derive(Deserialize)]
@@ -524,6 +627,8 @@ mod tests {
             ("PUT", "/api/metadata/document"),
             ("POST", "/api/metadata/preview"),
             ("GET", "/api/metadata/search?query=Manga"),
+            ("GET", "/api/metadata/item?server_id=1&item_id=manga"),
+            ("POST", "/api/metadata/comicvine"),
         ] {
             let response = app
                 .clone()
@@ -611,6 +716,21 @@ mod tests {
             .find(|e| e.path().extension().is_some_and(|v| v == "bak"))
             .unwrap();
         assert_eq!(fs::read_to_string(backup.path()).unwrap(), original);
+    }
+    #[test]
+    fn comicvine_metadata_creates_and_updates_the_series_nfo() {
+        let (dir, store) = setup();
+        let media = dir.path().join("Manga & Color/Volume 1.cbz");
+        fs::write(&media, b"comic").unwrap();
+        let fields = store.save_comicvine_for_source(
+            media.to_str().unwrap(), "132428", "The Apothecary Diaries", "2017",
+            "Square Enix", "14", "A palace mystery.", "https://comicvine.gamespot.com/example/",
+        ).unwrap_or_else(|error| panic!("{}", error.detail));
+        assert_eq!(fields.comicvine_id, "132428");
+        assert_eq!(fields.volumes, "14");
+        let xml = fs::read_to_string(dir.path().join("Manga & Color/Manga & Color.nfo")).unwrap();
+        assert!(xml.contains("<publisher>Square Enix</publisher>"));
+        assert!(xml.contains("<comicvineid>132428</comicvineid>"));
     }
     #[test]
     fn rejects_traversal_root_and_stale_writes() {

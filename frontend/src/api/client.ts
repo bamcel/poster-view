@@ -22,6 +22,7 @@ import type {
   Library,
   LibraryVisibility,
   MediaItem,
+  NfoMetadata,
   PosterDBStatus,
   PosterSearchResults,
   PosterSet,
@@ -132,6 +133,13 @@ export const api = {
     ),
   getItemDetail: (serverId: number, itemId: string) =>
     request<ItemDetail>(`/servers/${serverId}/items/${encodeURIComponent(itemId)}`),
+  getNfoMetadata: (serverId: number, itemId: string) =>
+    request<NfoMetadata | null>(`/metadata/item?server_id=${serverId}&item_id=${encodeURIComponent(itemId)}`),
+  useComicVineMetadata: (serverId: number, itemId: string, volumeId: string) =>
+    request<NfoMetadata>("/metadata/comicvine", {
+      method: "POST",
+      body: JSON.stringify({ server_id: serverId, item_id: itemId, volume_id: volumeId }),
+    }),
 
   // -- posterdb --
   posterdbStatus: () => request<PosterDBStatus>("/posterdb/status"),
