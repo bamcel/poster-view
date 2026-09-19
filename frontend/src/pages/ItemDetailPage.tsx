@@ -247,7 +247,6 @@ export default function ItemDetailPage() {
                             </a>
                           )}
                         </div>
-                        {metadataQ.data.native_title && <p className="mt-3 text-sm text-white/60">{metadataQ.data.native_title}</p>}
                         {metadataQ.data.plot && <p className="mt-3 text-sm leading-relaxed text-white/75">{metadataQ.data.plot}</p>}
                       </section>
                     )}
