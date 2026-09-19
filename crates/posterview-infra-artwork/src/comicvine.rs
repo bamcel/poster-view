@@ -35,12 +35,12 @@ pub async fn metadata(client: &Client, key: &str, id: &str) -> Result<ComicVineM
         year: value["start_year"].as_str().unwrap_or("").to_owned(),
         publisher: value["publisher"]["name"].as_str().unwrap_or("").to_owned(),
         volumes: value["count_of_issues"].as_u64().map(|count| count.to_string()).unwrap_or_default(),
-        plot: plain_text(value["description"].as_str().unwrap_or("")),
+        plot: plain_text_for_metadata(value["description"].as_str().unwrap_or("")),
         source_url: value["site_detail_url"].as_str().unwrap_or("").to_owned(),
     })
 }
 
-fn plain_text(html: &str) -> String {
+pub(crate) fn plain_text_for_metadata(html: &str) -> String {
     let mut output = String::new();
     let mut inside_tag = false;
     for character in html.chars() {
@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn comicvine_description_html_becomes_readable_nfo_text() {
         assert_eq!(
-            plain_text("<p>A hero &amp; friend.</p><br><b>Complete</b>"),
+            plain_text_for_metadata("<p>A hero &amp; friend.</p><br><b>Complete</b>"),
             "A hero & friend. Complete"
         );
     }

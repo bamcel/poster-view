@@ -728,6 +728,7 @@ const ARTWORK_DATABASES = [
   { name: "fanart", label: "Fanart.tv" },
   { name: "tvdb", label: "TheTVDB" },
   { name: "anilist", label: "AniList" },
+  { name: "anilist-manga", label: "AniList Manga" },
   { name: "mediux", label: "MediUX" },
 ];
 
@@ -806,7 +807,7 @@ function EnabledArtworkSourcesFields() {
       <div className="space-y-4">
         {[
           { label: "Poster", names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
-          { label: "eReader", names: ["comicvine", "mangadex", "viz"] },
+          { label: "eReader", names: ["anilist-manga", "comicvine", "mangadex", "viz"] },
         ].map((group) => (
           <fieldset key={group.label} className="min-w-0">
             <legend className="mb-2 text-sm">

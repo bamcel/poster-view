@@ -18,6 +18,7 @@ it("filters providers while keeping manual available everywhere", () => {
   expect(providerMatchesMediaKind("tvdb", "screen")).toBe(true);
   expect(providerMatchesMediaKind("mangadex", "screen")).toBe(false);
   expect(providerMatchesMediaKind("comicvine", "book")).toBe(true);
+  expect(providerMatchesMediaKind("anilist-manga", "book")).toBe(true);
   expect(providerMatchesMediaKind("anilist", "book")).toBe(false);
   expect(providerMatchesMediaKind("manual", "screen")).toBe(true);
   expect(providerMatchesMediaKind("manual", "book")).toBe(true);

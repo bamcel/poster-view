@@ -10,8 +10,8 @@
 // when none is.
 
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, AlertCircle, ExternalLink, ImageOff, Search } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Database, Loader2, AlertCircle, ExternalLink, ImageOff, Search } from "lucide-react";
 import { api } from "../api/client";
 import { useToast } from "../lib/toast";
 import CustomTargetButton from "./CustomTargetButton";
@@ -21,7 +21,7 @@ import type { ArtworkItem, ArtworkSearchResult, ArtworkType, ImageTarget, ItemDe
 // all three are backed by TheTVDB's search endpoint in the artwork adapter.
 // AniList doesn't need
 // this: its own fetch already accepts a free-text title directly.
-const TITLE_SEARCH_PROVIDERS = new Set(["fanart", "tvdb", "mediux"]);
+const TITLE_SEARCH_PROVIDERS = new Set(["fanart", "tvdb", "mediux", "anilist-manga"]);
 
 const TYPE_ORDER: ArtworkType[] = ["poster", "background", "banner", "logo"];
 const TYPE_LABEL: Record<ArtworkType, string> = {
@@ -37,6 +37,7 @@ function defaultIdFor(provider: string, item: ItemDetail): string {
   }
   if (provider === "tvdb") return item.external_ids.tvdb ?? "";
   if (provider === "anilist") return item.external_ids.anilist ?? "";
+  if (provider === "anilist-manga") return "";
   // MediUX addresses movies/shows/collections alike by TMDB id.
   if (provider === "mediux") return item.external_ids.tmdb ?? "";
   return "";
@@ -46,6 +47,7 @@ function idPlaceholder(provider: string, item: ItemDetail): string {
   if (provider === "fanart") return item.type === "movie" ? "TMDB/IMDb id or a title…" : "TVDB id or a title…";
   if (provider === "tvdb") return "TVDB id or a title…";
   if (provider === "anilist") return "AniList id or title…";
+  if (provider === "anilist-manga") return "AniList manga id or title…";
   if (provider === "mediux") return "TMDB id or a title…";
   return "id…";
 }
@@ -69,6 +71,12 @@ function externalSiteUrl(provider: string, item: ItemDetail, idInput: string): s
     return /^\d+$/.test(id)
       ? `https://anilist.co/anime/${encodeURIComponent(id)}`
       : `https://anilist.co/search/anime?search=${encodeURIComponent(id)}`;
+  }
+  if (provider === "anilist-manga") {
+    if (!id) return "https://anilist.co/search/manga";
+    return /^\d+$/.test(id)
+      ? `https://anilist.co/manga/${encodeURIComponent(id)}`
+      : `https://anilist.co/search/manga?search=${encodeURIComponent(id)}`;
   }
   if (provider === "mediux") {
     if (!id) return "https://mediux.pro/";
@@ -102,6 +110,14 @@ export default function ArtworkBrowser({
   // TheTVDB) triggers a title search instead of an id lookup; the results
   // are shown as a picker, and choosing one sets `override` as usual.
   const [searchTerm, setSearchTerm] = useState<string | undefined>(undefined);
+  const useMetadata = useMutation({
+    mutationFn: () => api.useAniListMangaMetadata(serverId, item.id, override!),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["nfo-metadata", serverId, item.id] });
+      toast.push("success", "AniList manga metadata saved to the NFO file.");
+    },
+    onError: (error: Error) => toast.push("error", error.message),
+  });
   useEffect(() => {
     setIdInput(defaultIdFor(provider, item));
     setOverride(undefined);
@@ -245,6 +261,17 @@ export default function ArtworkBrowser({
     </div>
   );
 
+  const metadataActions = provider === "anilist-manga" && override && /^\d+$/.test(override) && (
+    <div className="mb-3 flex items-center justify-between gap-3">
+      <button type="button" onClick={() => { setOverride(undefined); setIdInput(""); }} className="flex items-center gap-1 text-sm text-muted hover:text-white">
+        <ArrowLeft className="size-4" /> Back
+      </button>
+      <button type="button" disabled={useMetadata.isPending} onClick={() => useMetadata.mutate()} className="flex items-center gap-1 text-sm text-muted hover:text-white disabled:opacity-50">
+        <Database className="size-4" /> {useMetadata.isPending ? "Saving…" : "Use metadata"}
+      </button>
+    </div>
+  );
+
   let body: ReactNode;
   if (q.isLoading) {
     body = (
@@ -376,6 +403,7 @@ export default function ArtworkBrowser({
     <div>
       {searchBar}
       {searchPicker}
+      {metadataActions}
       {body}
     </div>
   );
@@ -419,5 +447,5 @@ export function ApplyBtn({ label, onClick, busy, disabled }: { label: string; on
 }
 
 function providerLabel(name: string): string {
-  return { fanart: "Fanart.tv", tvdb: "TheTVDB", anilist: "AniList", mediux: "MediUX" }[name] ?? name;
+  return { fanart: "Fanart.tv", tvdb: "TheTVDB", anilist: "AniList", "anilist-manga": "AniList Manga", mediux: "MediUX" }[name] ?? name;
 }

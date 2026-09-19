@@ -927,7 +927,10 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
         .unwrap();
     let providers: serde_json::Value =
         serde_json::from_slice(&providers.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(providers.as_array().unwrap().len(), 7);
+    assert_eq!(providers.as_array().unwrap().len(), 8);
+    assert!(providers.as_array().unwrap().iter().any(|provider|
+        provider["name"] == "anilist-manga" && provider["configured"] == true
+    ));
     assert!(
         providers
             .as_array()
@@ -988,7 +991,7 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
             "tvdb_configured": true,
             "comicvine_configured": false,
             "default_provider": "posterdb",
-            "enabled_providers": ["posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex", "viz", "comicvine"]
+            "enabled_providers": ["posterdb", "fanart", "tvdb", "anilist", "anilist-manga", "mediux", "mangadex", "viz", "comicvine"]
         })
     );
 

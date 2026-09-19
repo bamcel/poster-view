@@ -13,7 +13,7 @@ use posterview_contracts::{
     LibraryVisibility, LibraryVisibilityItem, MediaItem, PosterSearchResults, Server, ServerCreate,
     ServerUpdate, StatusResponse,
 };
-use posterview_infra_artwork::{ArtworkService, ComicVineMetadata};
+use posterview_infra_artwork::{AniListMangaMetadata, ArtworkService, ComicVineMetadata};
 pub use posterview_infra_artwork::valid_manga_id;
 use posterview_infra_media_servers::{
     ConnectionConfig, fetch_image, get_item_detail, get_items, get_libraries, set_image,
@@ -25,11 +25,12 @@ use thiserror::Error;
 use artwork_cache::ArtworkCache;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-const ARTWORK_PROVIDERS: [&str; 8] = [
+const ARTWORK_PROVIDERS: [&str; 9] = [
     "posterdb",
     "fanart",
     "tvdb",
     "anilist",
+    "anilist-manga",
     "mediux",
     "mangadex",
     "viz",
@@ -66,6 +67,10 @@ impl Runtime {
     pub async fn comicvine_metadata(&self, id: &str) -> Result<ComicVineMetadata, RuntimeError> {
         let key = self.server_store()?.get_setting("comicvine_api_key")?;
         self.artwork.comicvine_metadata(&key, id).await.map_err(RuntimeError::Watchdog)
+    }
+
+    pub async fn anilist_manga_metadata(&self, id: &str) -> Result<AniListMangaMetadata, RuntimeError> {
+        posterview_infra_artwork::anilist_manga_metadata(id).await.map_err(RuntimeError::Watchdog)
     }
     #[must_use]
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {

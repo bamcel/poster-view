@@ -47,6 +47,13 @@ pub(crate) struct Fields {
     anilist_id: String,
     comicvine_id: String,
     source_url: String,
+    native_title: String,
+    mal_id: String,
+    genres: String,
+    tags: String,
+    creators: String,
+    country: String,
+    source_material: String,
 }
 
 #[derive(Deserialize)]
@@ -288,6 +295,29 @@ impl MetadataStore {
         Ok(self.save(&SaveRequest { path: relative, fields, revision: document.revision })?.fields)
     }
 
+    pub(crate) fn save_anilist_manga_for_source(
+        &self,
+        source_path: &str,
+        id: &str, mal_id: &str, title: &str, native_title: &str, year: &str,
+        status: &str, plot: &str, genres: &str, tags: &str, creators: &str,
+        country: &str, source_material: &str, source_url: &str,
+    ) -> Result<Fields, HttpError> {
+        let relative = self.relative_directory_for_source(source_path)?;
+        let document = self.read(&relative)?;
+        let mut fields = document.fields;
+        for (target, incoming) in [
+            (&mut fields.title, title), (&mut fields.native_title, native_title),
+            (&mut fields.year, year), (&mut fields.status, status), (&mut fields.plot, plot),
+            (&mut fields.anilist_id, id), (&mut fields.mal_id, mal_id),
+            (&mut fields.genres, genres), (&mut fields.tags, tags),
+            (&mut fields.creators, creators), (&mut fields.country, country),
+            (&mut fields.source_material, source_material), (&mut fields.source_url, source_url),
+        ] {
+            if !incoming.trim().is_empty() { *target = incoming.to_owned(); }
+        }
+        Ok(self.save(&SaveRequest { path: relative, fields, revision: document.revision })?.fields)
+    }
+
     fn preview(&self, request: &SaveRequest) -> Result<Document, HttpError> {
         let directory = self.directory(&request.path, false)?;
         let current = Self::current(&directory)?;
@@ -389,6 +419,13 @@ fn fields_from(root: &Element) -> Fields {
         anilist_id: text("anilistid"),
         comicvine_id: text("comicvineid"),
         source_url: text("source"),
+        native_title: text("originaltitle"),
+        mal_id: text("malid"),
+        genres: text("genres"),
+        tags: text("tags"),
+        creators: text("creators"),
+        country: text("country"),
+        source_material: text("sourcematerial"),
     }
 }
 
@@ -422,6 +459,13 @@ fn render(fields: &Fields, original: Option<&str>) -> Result<String, HttpError> 
         ("anilistid", &fields.anilist_id),
         ("comicvineid", &fields.comicvine_id),
         ("source", &fields.source_url),
+        ("originaltitle", &fields.native_title),
+        ("malid", &fields.mal_id),
+        ("genres", &fields.genres),
+        ("tags", &fields.tags),
+        ("creators", &fields.creators),
+        ("country", &fields.country),
+        ("sourcematerial", &fields.source_material),
     ] {
         if value.len() > 32_768
             || value
@@ -508,6 +552,13 @@ pub(crate) struct ComicVineRequest {
     volume_id: String,
 }
 
+#[derive(Deserialize)]
+pub(crate) struct AniListMangaRequest {
+    server_id: i64,
+    item_id: String,
+    anilist_id: String,
+}
+
 async fn item_source(state: &AppState, server_id: i64, item_id: &str) -> Result<String, HttpError> {
     let item = state.runtime.get_item_detail(server_id, item_id).await?
         .ok_or_else(HttpError::not_found)?
@@ -539,6 +590,25 @@ pub(crate) async fn use_comicvine(
     state.metadata.save_comicvine_for_source(
         &source, &metadata.id, &metadata.title, &metadata.year, &metadata.publisher,
         &metadata.volumes, &metadata.plot, &metadata.source_url,
+    ).map(Json)
+}
+
+pub(crate) async fn use_anilist_manga(
+    State(state): State<AppState>,
+    Json(request): Json<AniListMangaRequest>,
+) -> Result<Json<Fields>, HttpError> {
+    let server = state.runtime.list_servers()?.into_iter()
+        .find(|server| server.id == request.server_id).ok_or_else(HttpError::not_found)?;
+    if !server.nfo_metadata_enabled {
+        return Err(invalid("Enable NFO metadata for this server in Settings → Server Setup first."));
+    }
+    let source = item_source(&state, request.server_id, &request.item_id).await?;
+    let metadata = state.runtime.anilist_manga_metadata(&request.anilist_id).await
+        .map_err(|error| HttpError::bad_gateway(error.to_string()))?;
+    state.metadata.save_anilist_manga_for_source(
+        &source, &metadata.id, &metadata.mal_id, &metadata.title, &metadata.native_title,
+        &metadata.year, &metadata.status, &metadata.plot, &metadata.genres, &metadata.tags,
+        &metadata.creators, &metadata.country, &metadata.source, &metadata.source_url,
     ).map(Json)
 }
 
@@ -629,6 +699,7 @@ mod tests {
             ("GET", "/api/metadata/search?query=Manga"),
             ("GET", "/api/metadata/item?server_id=1&item_id=manga"),
             ("POST", "/api/metadata/comicvine"),
+            ("POST", "/api/metadata/anilist-manga"),
         ] {
             let response = app
                 .clone()

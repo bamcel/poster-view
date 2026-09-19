@@ -5,6 +5,23 @@ mod viz;
 pub use mangadex::valid_manga_id;
 pub use comicvine::ComicVineMetadata;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AniListMangaMetadata {
+    pub id: String,
+    pub mal_id: String,
+    pub title: String,
+    pub native_title: String,
+    pub year: String,
+    pub status: String,
+    pub plot: String,
+    pub genres: String,
+    pub tags: String,
+    pub creators: String,
+    pub country: String,
+    pub source: String,
+    pub source_url: String,
+}
+
 use posterview_contracts::{
     ArtworkItem, ArtworkProviderInfo, ArtworkSearchResult, ItemDetail, ItemType,
 };
@@ -95,6 +112,7 @@ impl ArtworkService {
             provider("fanart", "Fanart.tv", !fanart_key.is_empty(), true, enabled),
             provider("tvdb", "TheTVDB", !tvdb_key.is_empty(), true, enabled),
             provider("anilist", "AniList", true, false, enabled),
+            provider("anilist-manga", "AniList Manga", true, false, enabled),
             provider("mediux", "MediUX", true, false, enabled),
             provider("mangadex", "MangaDex", true, false, enabled),
             provider("viz", "VIZ", true, false, enabled),
@@ -125,6 +143,7 @@ impl ArtworkService {
             "comicvine" => comicvine::fetch(&self.client, comicvine_key, item, id_override).await,
             "fanart" => fetch_fanart(item, id_override, fanart_key).await,
             "anilist" => fetch_anilist(item, id_override).await,
+            "anilist-manga" => fetch_anilist_manga(item, id_override).await,
             "tvdb" => self.fetch_tvdb(item, id_override, tvdb_key, tvdb_pin).await,
             "mediux" => fetch_mediux(item, id_override).await,
             _ => Err(format!("Unknown provider: {provider}")),
@@ -148,6 +167,9 @@ impl ArtworkService {
         }
         if provider == "comicvine" {
             return comicvine::search(&self.client, comicvine_key, query).await;
+        }
+        if provider == "anilist-manga" {
+            return search_anilist_manga(query).await;
         }
         if !matches!(provider, "tvdb" | "fanart" | "mediux") {
             return Err(format!("Title search isn't available for {provider}."));
@@ -380,6 +402,7 @@ pub async fn download_public_image(provider: &str, url: &str) -> Result<(Vec<u8>
         "fanart" => &["fanart.tv"],
         "tvdb" => &["thetvdb.com"],
         "anilist" => &["anilist.co"],
+        "anilist-manga" => &["anilist.co"],
         "mediux" => &["mediux.pro"],
         "mangadex" => &["uploads.mangadex.org"],
         "viz" => &["dw9to29mmj727.cloudfront.net"],
@@ -594,6 +617,91 @@ async fn fetch_anilist(
         });
     }
     Ok(items)
+}
+
+async fn fetch_anilist_manga(
+    item: &ItemDetail,
+    id_override: Option<&str>,
+) -> Result<Vec<ArtworkItem>, String> {
+    const QUERY: &str = "query ($search: String, $id: Int) { Media(search: $search, id: $id, type: MANGA, sort: SEARCH_MATCH) { id title { romaji english } coverImage { extraLarge large } bannerImage } }";
+    let raw = id_override.unwrap_or("").trim();
+    let variables = if let Ok(id) = raw.parse::<i64>() {
+        json!({"id": id})
+    } else {
+        json!({"search": if raw.is_empty() { strip_year(&item.title) } else { raw.to_owned() }})
+    };
+    let body: Value = http_client()?.post(ANILIST_URL)
+        .json(&json!({"query": QUERY, "variables": variables})).send().await
+        .map_err(network_error)?.error_for_status().map_err(network_error)?
+        .json().await.map_err(network_error)?;
+    let Some(media) = body.pointer("/data/Media") else { return Ok(Vec::new()); };
+    let id = value_string(media.get("id")).unwrap_or_default();
+    let source_url = format!("https://anilist.co/manga/{id}");
+    let mut items = Vec::new();
+    if let Some(url) = media.pointer("/coverImage/extraLarge").or_else(|| media.pointer("/coverImage/large")).and_then(Value::as_str) {
+        items.push(ArtworkItem {
+            manga: None, id: format!("anilist-manga-{id}-poster"), provider: "anilist-manga".to_owned(),
+            artwork_type: "poster".to_owned(), kind: item_kind(item), season_number: None,
+            title: Some(item.title.clone()), lang: None, likes: None, thumb_url: url.to_owned(),
+            download_url: url.to_owned(), applyable: true, source_url: Some(source_url.clone()),
+        });
+    }
+    if let Some(url) = media.get("bannerImage").and_then(Value::as_str) {
+        items.push(ArtworkItem {
+            manga: None, id: format!("anilist-manga-{id}-banner"), provider: "anilist-manga".to_owned(),
+            artwork_type: "banner".to_owned(), kind: item_kind(item), season_number: None,
+            title: Some(item.title.clone()), lang: None, likes: None, thumb_url: url.to_owned(),
+            download_url: url.to_owned(), applyable: false, source_url: Some(source_url),
+        });
+    }
+    Ok(items)
+}
+
+async fn search_anilist_manga(query: &str) -> Result<Vec<ArtworkSearchResult>, String> {
+    const QUERY: &str = "query ($search: String) { Page(perPage: 12) { media(search: $search, type: MANGA, sort: SEARCH_MATCH) { id title { english romaji } startDate { year } coverImage { medium } } } }";
+    let body: Value = http_client()?.post(ANILIST_URL)
+        .json(&json!({"query": QUERY, "variables": {"search": query}})).send().await
+        .map_err(network_error)?.error_for_status().map_err(network_error)?
+        .json().await.map_err(network_error)?;
+    Ok(body.pointer("/data/Page/media").and_then(Value::as_array).into_iter().flatten().filter_map(|media| {
+        Some(ArtworkSearchResult {
+            alternate_titles: Vec::new(), status: None, id: value_string(media.get("id"))?,
+            name: media.pointer("/title/english").or_else(|| media.pointer("/title/romaji")).and_then(Value::as_str)?.to_owned(),
+            year: media.pointer("/startDate/year").and_then(Value::as_i64).map(|year| year.to_string()),
+            thumb_url: media.pointer("/coverImage/medium").and_then(Value::as_str).map(str::to_owned),
+            volume_count: None, publisher: None,
+        })
+    }).collect())
+}
+
+pub async fn anilist_manga_metadata(id: &str) -> Result<AniListMangaMetadata, String> {
+    let id = id.parse::<i64>().map_err(|_| "Select a valid AniList manga first.".to_owned())?;
+    const QUERY: &str = "query ($id: Int) { Media(id: $id, type: MANGA) { id idMal title { english romaji native } description(asHtml: false) status startDate { year } countryOfOrigin source genres tags { name rank isMediaSpoiler } staff(sort: [RELEVANCE], perPage: 8) { edges { role node { name { full } } } } siteUrl } }";
+    let body: Value = http_client()?.post(ANILIST_URL)
+        .json(&json!({"query": QUERY, "variables": {"id": id}})).send().await
+        .map_err(network_error)?.error_for_status().map_err(network_error)?
+        .json().await.map_err(network_error)?;
+    let media = body.pointer("/data/Media").ok_or("AniList manga was not found.")?;
+    let text_list = |path: &str| media.pointer(path).and_then(Value::as_array).into_iter().flatten()
+        .filter_map(Value::as_str).collect::<Vec<_>>().join(", ");
+    let tags = media.get("tags").and_then(Value::as_array).into_iter().flatten()
+        .filter(|tag| !tag["isMediaSpoiler"].as_bool().unwrap_or(false) && tag["rank"].as_i64().unwrap_or(0) >= 60)
+        .filter_map(|tag| tag["name"].as_str()).collect::<Vec<_>>().join(", ");
+    let creators = media.pointer("/staff/edges").and_then(Value::as_array).into_iter().flatten()
+        .filter_map(|edge| Some(format!("{}: {}", edge["role"].as_str()?, edge.pointer("/node/name/full")?.as_str()?)))
+        .collect::<Vec<_>>().join("; ");
+    Ok(AniListMangaMetadata {
+        id: id.to_string(), mal_id: value_string(media.get("idMal")).unwrap_or_default(),
+        title: media.pointer("/title/english").or_else(|| media.pointer("/title/romaji")).and_then(Value::as_str).unwrap_or("Untitled").to_owned(),
+        native_title: media.pointer("/title/native").and_then(Value::as_str).unwrap_or("").to_owned(),
+        year: media.pointer("/startDate/year").and_then(Value::as_i64).map(|year| year.to_string()).unwrap_or_default(),
+        status: media["status"].as_str().unwrap_or("").replace('_', " "),
+        plot: comicvine::plain_text_for_metadata(media["description"].as_str().unwrap_or("")),
+        genres: text_list("/genres"), tags, creators,
+        country: media["countryOfOrigin"].as_str().unwrap_or("").to_owned(),
+        source: media["source"].as_str().unwrap_or("").replace('_', " "),
+        source_url: media["siteUrl"].as_str().unwrap_or("").to_owned(),
+    })
 }
 
 async fn fetch_mediux(

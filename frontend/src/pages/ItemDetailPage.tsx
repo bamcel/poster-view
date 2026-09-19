@@ -223,12 +223,23 @@ export default function ItemDetailPage() {
                             metadataQ.data.publisher && ["Publisher", metadataQ.data.publisher],
                             metadataQ.data.volumes && ["Volumes", metadataQ.data.volumes],
                             metadataQ.data.status && ["Status", metadataQ.data.status],
+                            metadataQ.data.country && ["Country", metadataQ.data.country],
+                            metadataQ.data.source_material && ["Source", metadataQ.data.source_material],
                           ].filter(Boolean).map((entry) => {
                             const [label, value] = entry as string[];
                             return <span key={label} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80"><span className="text-white/50">{label}</span> · {value}</span>;
                           })}
                         </div>
+                        {metadataQ.data.native_title && <p className="mt-3 text-sm text-white/60">{metadataQ.data.native_title}</p>}
                         {metadataQ.data.plot && <p className="mt-3 text-sm leading-relaxed text-white/75">{metadataQ.data.plot}</p>}
+                        {(metadataQ.data.genres || metadataQ.data.tags) && (
+                          <div className="mt-3 flex flex-wrap gap-1.5">
+                            {[metadataQ.data.genres, metadataQ.data.tags].filter(Boolean).flatMap((value) => value.split(", ")).slice(0, 10).map((value) => (
+                              <span key={value} className="rounded-full bg-accent/15 px-2.5 py-1 text-xs text-accent">{value}</span>
+                            ))}
+                          </div>
+                        )}
+                        {metadataQ.data.creators && <p className="mt-3 text-xs leading-relaxed text-white/60"><span className="font-medium text-white/80">Creators:</span> {metadataQ.data.creators}</p>}
                       </section>
                     )}
                   </div>

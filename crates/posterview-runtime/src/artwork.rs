@@ -348,6 +348,17 @@ impl Runtime {
         if store.get_setting("artwork_comicvine_migrated")?.is_empty() {
             store.set_setting("artwork_comicvine_migrated", "true")?;
         }
+        if store.get_setting("artwork_anilist_manga_migrated")?.is_empty() {
+            let previous = ["posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex", "viz", "comicvine"];
+            if previous.iter().all(|provider| values.contains(*provider)) {
+                values.insert("anilist-manga".to_owned());
+                store.set_setting(
+                    "artwork_enabled_providers",
+                    &values.iter().cloned().collect::<Vec<_>>().join(","),
+                )?;
+            }
+            store.set_setting("artwork_anilist_manga_migrated", "true")?;
+        }
         Ok(values)
     }
 
@@ -637,7 +648,7 @@ impl Runtime {
         let comicvine_key = store.get_setting("comicvine_api_key")?;
         let settings = self.artwork_cache_settings(server_id)?;
         let enabled = self.enabled_artwork_providers()?;
-        let providers = ["fanart", "tvdb", "anilist", "mediux"];
+        let providers = ["fanart", "tvdb", "anilist", "anilist-manga", "mediux"];
         let mut warmed = 0;
         for provider in providers {
             let key = format!("artwork:{provider}:{server_id}:{item_id}:");

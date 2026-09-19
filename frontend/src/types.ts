@@ -76,6 +76,13 @@ export interface NfoMetadata {
   anilist_id: string;
   comicvine_id: string;
   source_url: string;
+  native_title: string;
+  mal_id: string;
+  genres: string;
+  tags: string;
+  creators: string;
+  country: string;
+  source_material: string;
 }
 
 // --- Artwork providers (Fanart.tv / AniList / TheTVDB) ---

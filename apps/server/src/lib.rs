@@ -71,6 +71,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/metadata/search", get(metadata::search))
         .route("/api/metadata/item", get(metadata::item))
         .route("/api/metadata/comicvine", axum::routing::post(metadata::use_comicvine))
+        .route("/api/metadata/anilist-manga", axum::routing::post(metadata::use_anilist_manga))
         .route(
             "/api/security/settings",
             get(security_settings).put(update_security_settings),
@@ -710,7 +711,7 @@ async fn get_artwork(
     }
     if !matches!(
         query.provider.as_str(),
-        "fanart" | "tvdb" | "anilist" | "mediux" | "mangadex" | "viz" | "comicvine"
+        "fanart" | "tvdb" | "anilist" | "anilist-manga" | "mediux" | "mangadex" | "viz" | "comicvine"
     ) {
         return Err(HttpError {
             status: StatusCode::NOT_FOUND,
@@ -757,7 +758,7 @@ async fn search_artwork(
     }
     if !matches!(
         query.provider.as_str(),
-        "tvdb" | "fanart" | "mediux" | "mangadex" | "viz" | "comicvine"
+        "tvdb" | "fanart" | "mediux" | "anilist-manga" | "mangadex" | "viz" | "comicvine"
     ) {
         return Err(HttpError::bad_request(format!(
             "Title search isn't available for {}.",
