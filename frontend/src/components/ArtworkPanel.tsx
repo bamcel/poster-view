@@ -8,28 +8,31 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Images, RefreshCw } from "lucide-react";
 import { api } from "../api/client";
-import type { ItemDetail } from "../types";
+import type { ItemDetail, Library } from "../types";
 import PosterDBBody from "./PosterDBPanel";
 import ArtworkBrowser from "./ArtworkBrowser";
 import ManualUpload from "./ManualUpload";
 import MangaDexPanel from "./MangaDexPanel";
 import VizPanel from "./VizPanel";
 import { useToast } from "../lib/toast";
+import { artworkMediaKind, providerMatchesMediaKind } from "../lib/mediaKind";
 
 interface Props {
   serverId: number;
   item: ItemDetail;
   prefill?: { term: string; nonce: number };
+  libraryType?: Library["type"];
+  libraryTitle?: string;
 }
 
 const ARTWORK_LAYOUT_KEY = "posterview.artworkSourceLayout";
 const PROVIDER_GROUPS = [
-  { label: "General", names: ["posterdb", "fanart", "tvdb", "mediux"] },
-  { label: "Comics & Manga", names: ["anilist", "mangadex", "viz", "comicvine"] },
+  { label: "TV & Movies", names: ["posterdb", "fanart", "tvdb", "anilist", "mediux"] },
+  { label: "Comics & Manga", names: ["mangadex", "viz", "comicvine"] },
   { label: "Local", names: ["manual"] },
 ];
 
-export default function ArtworkPanel({ serverId, item, prefill }: Props) {
+export default function ArtworkPanel({ serverId, item, prefill, libraryType, libraryTitle }: Props) {
   const [provider, setProvider] = useState("posterdb");
   const [sourceLayout, setSourceLayout] = useState<"list" | "compact">(() =>
     localStorage.getItem(ARTWORK_LAYOUT_KEY) === "compact" ? "compact" : "list",
@@ -41,6 +44,7 @@ export default function ArtworkPanel({ serverId, item, prefill }: Props) {
   const providersQ = useQuery({ queryKey: ["artwork-providers"], queryFn: api.artworkProviders });
   const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
   const enabled = settingsQ.data?.enabled_providers ?? [];
+  const mediaKind = artworkMediaKind(item.type, libraryType, libraryTitle);
 
   // ThePosterDB first, the API providers from the backend, then Manual upload.
   // Apply history now lives on its own global page (see Layout's "History" nav
@@ -49,7 +53,8 @@ export default function ArtworkPanel({ serverId, item, prefill }: Props) {
     ...(enabled.includes("posterdb") ? [{ name: "posterdb", label: "ThePosterDB", configured: true, needs_key: false, enabled: true }] : []),
     ...(providersQ.data ?? []).filter((source) => source.enabled),
     { name: "manual", label: "Manual", configured: true, needs_key: false },
-  ].sort((left, right) => left.name === settingsQ.data?.default_provider ? -1 : right.name === settingsQ.data?.default_provider ? 1 : 0);
+  ].filter((source) => providerMatchesMediaKind(source.name, mediaKind))
+    .sort((left, right) => left.name === settingsQ.data?.default_provider ? -1 : right.name === settingsQ.data?.default_provider ? 1 : 0);
 
   useEffect(() => {
     const preferred = settingsQ.data?.default_provider;
@@ -57,7 +62,7 @@ export default function ArtworkPanel({ serverId, item, prefill }: Props) {
     else if (!tabs.some((tab) => tab.name === provider)) setProvider(tabs[0]?.name ?? "manual");
     // Reset to the configured default when a different library item opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.id, settingsQ.data?.default_provider, enabled.join(","), providersQ.data]);
+  }, [item.id, settingsQ.data?.default_provider, enabled.join(","), providersQ.data, mediaKind]);
 
   const refreshProvider = async () => {
     setRefreshing(true);

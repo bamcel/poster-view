@@ -10,6 +10,7 @@ import { useServers } from "../lib/serverContext";
 import PosterCard from "../components/PosterCard";
 import { EmptyState, Spinner, Switch } from "../components/ui";
 import { useToast } from "../lib/toast";
+import { isBookRelatedLibraryName } from "../lib/mediaKind";
 
 const GROUP_COLLECTIONS_KEY = "posterview.groupCollections";
 const LAST_VISIT_PREFIX = "posterview.lastVisit.";
@@ -97,7 +98,7 @@ export default function LibraryPage() {
     selectedLibrary?.type === "book" ||
     selectedLibrary?.type === "audiobook" ||
     (selectedLibrary?.type === "other" &&
-      /manga|comic|book/i.test(selectedLibrary.title));
+      isBookRelatedLibraryName(selectedLibrary.title));
   const showGroupCollections = libraryId !== "collections" && !browsesFolders;
   const parentId =
     folderId ?? automaticRootId ?? (browsesFolders ? libraryId : null);
@@ -227,9 +228,18 @@ export default function LibraryPage() {
   }
 
   const browseableLibs = librariesQ.data ?? [];
+  const itemDetailUrl = (itemId: string) => {
+    const context = new URLSearchParams();
+    if (selectedLibrary) {
+      context.set("library_type", selectedLibrary.type);
+      context.set("library_title", selectedLibrary.title);
+    }
+    const query = context.toString();
+    return `/server/${serverId}/item/${itemId}${query ? `?${query}` : ""}`;
+  };
   const openItem = (item: (typeof items)[number]) => {
     if (item.type !== "folder") {
-      navigate(`/server/${serverId}/item/${item.id}`);
+      navigate(itemDetailUrl(item.id));
       return;
     }
     // A folder whose immediate children are media items is a manga series.
@@ -238,7 +248,7 @@ export default function LibraryPage() {
       .getItems(serverId!, libraryId!, groupCollections, item.id)
       .then((children) => {
         if (children.some((child) => child.type !== "folder")) {
-          navigate(`/server/${serverId}/item/${item.id}`);
+          navigate(itemDetailUrl(item.id));
         } else {
           setSearchParams((previous) => {
             const next = new URLSearchParams(previous);

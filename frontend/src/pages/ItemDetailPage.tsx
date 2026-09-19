@@ -2,18 +2,22 @@
 // a seasons row, and the ThePosterDB panel docked on the right for swapping art.
 
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, BookOpen, ExternalLink, Images, RefreshCw, X } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import PosterCard from "../components/PosterCard";
 import ArtworkPanel from "../components/ArtworkPanel";
 import { Spinner, EmptyState } from "../components/ui";
+import type { Library } from "../types";
 
 export default function ItemDetailPage() {
   const navigate = useNavigate();
   const { serverId: serverIdParam, itemId } = useParams();
+  const [searchParams] = useSearchParams();
   const serverId = Number(serverIdParam);
+  const libraryType = searchParams.get("library_type") as Library["type"] | null;
+  const libraryTitle = searchParams.get("library_title") ?? undefined;
   const [prefill, setPrefill] = useState<{ term: string; nonce: number }>();
   const [artworkOpen, setArtworkOpen] = useState(false);
   const queryClient = useQueryClient();
@@ -270,7 +274,7 @@ export default function ItemDetailPage() {
                           subtitle={m.year ? String(m.year) : undefined}
                           kind={m.type}
                           onOpen={() =>
-                            navigate(`/server/${serverId}/item/${m.id}`)
+                            navigate(`/server/${serverId}/item/${m.id}?${searchParams.toString()}`)
                           }
                         />
                       ))}
@@ -286,7 +290,7 @@ export default function ItemDetailPage() {
       {/* Right: dock only when both columns have enough room. */}
       <div className="relative z-[1] hidden h-full w-[clamp(20rem,25vw,23.75rem)] shrink-0 xl:block">
         {item && (
-          <ArtworkPanel serverId={serverId} item={item} prefill={prefill} />
+          <ArtworkPanel serverId={serverId} item={item} prefill={prefill} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} />
         )}
       </div>
 
@@ -310,7 +314,7 @@ export default function ItemDetailPage() {
             >
               <X className="size-5" />
             </button>
-            <ArtworkPanel serverId={serverId} item={item} prefill={prefill} />
+            <ArtworkPanel serverId={serverId} item={item} prefill={prefill} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} />
           </section>
         </div>
       )}
