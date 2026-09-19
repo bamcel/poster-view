@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Images, RefreshCw } from "lucide-react";
 import { api } from "../api/client";
-import type { ItemDetail, Library } from "../types";
+import type { ItemDetail, Library, NfoMetadata } from "../types";
 import PosterDBBody from "./PosterDBPanel";
 import ArtworkBrowser from "./ArtworkBrowser";
 import ManualUpload from "./ManualUpload";
@@ -23,6 +23,7 @@ interface Props {
   prefill?: { term: string; nonce: number };
   libraryType?: Library["type"];
   libraryTitle?: string;
+  onReviewMetadata?: (metadata: NfoMetadata, sourceLabel: string) => void;
 }
 
 const ARTWORK_LAYOUT_KEY = "posterview.artworkSourceLayout";
@@ -32,7 +33,7 @@ const PROVIDER_GROUPS = [
   { label: "Local", names: ["manual"] },
 ];
 
-export default function ArtworkPanel({ serverId, item, prefill, libraryType, libraryTitle }: Props) {
+export default function ArtworkPanel({ serverId, item, prefill, libraryType, libraryTitle, onReviewMetadata }: Props) {
   const [provider, setProvider] = useState("posterdb");
   const [sourceLayout, setSourceLayout] = useState<"list" | "compact">(() =>
     localStorage.getItem(ARTWORK_LAYOUT_KEY) === "compact" ? "compact" : "list",
@@ -177,13 +178,13 @@ export default function ArtworkPanel({ serverId, item, prefill, libraryType, lib
         ) : provider === "mangadex" ? (
           <MangaDexPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} onManual={() => setProvider("manual")} />
         ) : provider === "viz" ? (
-          <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} />
+          <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} onReviewMetadata={onReviewMetadata} />
         ) : provider === "comicvine" ? (
-          <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} database="comicvine" />
+          <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} database="comicvine" onReviewMetadata={onReviewMetadata} />
         ) : provider === "manual" ? (
           <ManualUpload serverId={serverId} item={item} />
         ) : (
-          <ArtworkBrowser key={panelVersion} provider={provider} serverId={serverId} item={item} />
+          <ArtworkBrowser key={panelVersion} provider={provider} serverId={serverId} item={item} onReviewMetadata={onReviewMetadata} />
         )}
       </div>
     </div>

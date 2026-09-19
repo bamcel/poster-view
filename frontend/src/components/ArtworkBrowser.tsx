@@ -15,7 +15,7 @@ import { ArrowLeft, Database, Loader2, AlertCircle, ExternalLink, ImageOff, Sear
 import { api } from "../api/client";
 import { useToast } from "../lib/toast";
 import CustomTargetButton from "./CustomTargetButton";
-import type { ArtworkItem, ArtworkSearchResult, ArtworkType, ImageTarget, ItemDetail } from "../types";
+import type { ArtworkItem, ArtworkSearchResult, ArtworkType, ImageTarget, ItemDetail, NfoMetadata } from "../types";
 
 // Fanart.tv, TheTVDB, and MediUX have no title-search API of their own —
 // all three are backed by TheTVDB's search endpoint in the artwork adapter.
@@ -90,10 +90,12 @@ export default function ArtworkBrowser({
   provider,
   serverId,
   item,
+  onReviewMetadata,
 }: {
   provider: string;
   serverId: number;
   item: ItemDetail;
+  onReviewMetadata?: (metadata: NfoMetadata, sourceLabel: string) => void;
 }) {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -132,11 +134,8 @@ export default function ArtworkBrowser({
     ? (/^\d+$/.test(override ?? "") ? override : q.data?.items[0]?.source_url?.match(/\/manga\/(\d+)/)?.[1])
     : undefined;
   const useMetadata = useMutation({
-    mutationFn: () => api.useAniListMangaMetadata(serverId, item.id, resolvedAniListMangaId!),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["nfo-metadata", serverId, item.id] });
-      toast.push("success", "AniList manga metadata saved to the NFO file.");
-    },
+    mutationFn: () => api.previewAniListMangaMetadata(serverId, item.id, resolvedAniListMangaId!),
+    onSuccess: (metadata) => onReviewMetadata?.(metadata, "AniList"),
     onError: (error: Error) => toast.push("error", error.message),
   });
 
@@ -270,7 +269,7 @@ export default function ArtworkBrowser({
         <ArrowLeft className="size-4" /> Back
       </button>}
       <button type="button" disabled={useMetadata.isPending} onClick={() => useMetadata.mutate()} className="flex items-center gap-1 text-sm text-muted hover:text-white disabled:opacity-50">
-        <Database className="size-4" /> {useMetadata.isPending ? "Saving…" : "Use metadata"}
+        <Database className="size-4" /> {useMetadata.isPending ? "Loading…" : "Use metadata"}
       </button>
     </div>
   );

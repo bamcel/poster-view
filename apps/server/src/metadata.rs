@@ -678,6 +678,38 @@ pub(crate) async fn use_comicvine(
     ).map(Json)
 }
 
+pub(crate) async fn preview_comicvine(
+    State(state): State<AppState>,
+    Json(request): Json<ComicVineRequest>,
+) -> Result<Json<Fields>, HttpError> {
+    let server = state
+        .runtime
+        .list_servers()?
+        .into_iter()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(HttpError::not_found)?;
+    if !server.nfo_metadata_enabled {
+        return Err(invalid(
+            "Enable NFO metadata for this server in Settings → Server Setup first.",
+        ));
+    }
+    let metadata = state
+        .runtime
+        .comicvine_metadata(&request.volume_id)
+        .await
+        .map_err(|error| HttpError::bad_gateway(error.to_string()))?;
+    Ok(Json(Fields {
+        title: metadata.title,
+        year: metadata.year,
+        publisher: metadata.publisher,
+        volumes: metadata.volumes,
+        plot: metadata.plot,
+        comicvine_id: metadata.id,
+        source_url: metadata.source_url,
+        ..Fields::default()
+    }))
+}
+
 pub(crate) async fn use_anilist_manga(
     State(state): State<AppState>,
     Json(request): Json<AniListMangaRequest>,
@@ -695,6 +727,44 @@ pub(crate) async fn use_anilist_manga(
         &metadata.year, &metadata.status, &metadata.plot, &metadata.genres, &metadata.tags,
         &metadata.creators, &metadata.country, &metadata.source, &metadata.source_url,
     ).map(Json)
+}
+
+pub(crate) async fn preview_anilist_manga(
+    State(state): State<AppState>,
+    Json(request): Json<AniListMangaRequest>,
+) -> Result<Json<Fields>, HttpError> {
+    let server = state
+        .runtime
+        .list_servers()?
+        .into_iter()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(HttpError::not_found)?;
+    if !server.nfo_metadata_enabled {
+        return Err(invalid(
+            "Enable NFO metadata for this server in Settings → Server Setup first.",
+        ));
+    }
+    let metadata = state
+        .runtime
+        .anilist_manga_metadata(&request.anilist_id)
+        .await
+        .map_err(|error| HttpError::bad_gateway(error.to_string()))?;
+    Ok(Json(Fields {
+        title: metadata.title,
+        year: metadata.year,
+        status: metadata.status,
+        plot: metadata.plot,
+        anilist_id: metadata.id,
+        source_url: metadata.source_url,
+        native_title: metadata.native_title,
+        mal_id: metadata.mal_id,
+        genres: metadata.genres,
+        tags: metadata.tags,
+        creators: metadata.creators,
+        country: metadata.country,
+        source_material: metadata.source,
+        ..Fields::default()
+    }))
 }
 
 #[derive(Deserialize)]
@@ -785,7 +855,9 @@ mod tests {
             ("GET", "/api/metadata/item?server_id=1&item_id=manga"),
             ("PUT", "/api/metadata/item"),
             ("POST", "/api/metadata/comicvine"),
+            ("POST", "/api/metadata/comicvine/preview"),
             ("POST", "/api/metadata/anilist-manga"),
+            ("POST", "/api/metadata/anilist-manga/preview"),
         ] {
             let response = app
                 .clone()

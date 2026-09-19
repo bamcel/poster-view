@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { ExternalLink, Loader2, Save, X } from "lucide-react";
 import type { NfoMetadata } from "../types";
 
@@ -6,16 +6,34 @@ export default function MetadataEditorModal({
   metadata,
   saving,
   error,
+  incoming,
+  sourceLabel,
   onClose,
   onSave,
 }: {
   metadata: NfoMetadata;
   saving: boolean;
   error?: string;
+  incoming?: NfoMetadata;
+  sourceLabel?: string;
   onClose: () => void;
   onSave: (metadata: NfoMetadata) => void;
 }) {
-  const [fields, setFields] = useState(metadata);
+  const conflicts = useMemo(() => {
+    if (!incoming) return [] as Array<keyof NfoMetadata>;
+    return (Object.keys(incoming) as Array<keyof NfoMetadata>).filter(
+      (key) => incoming[key].trim() && metadata[key].trim() && incoming[key].trim() !== metadata[key].trim(),
+    );
+  }, [incoming, metadata]);
+  const [fields, setFields] = useState<NfoMetadata>(() => {
+    if (!incoming) return metadata;
+    const merged = { ...metadata };
+    for (const key of Object.keys(incoming) as Array<keyof NfoMetadata>) {
+      if (incoming[key].trim() && !metadata[key].trim()) merged[key] = incoming[key];
+    }
+    return merged;
+  });
+  const [overwrites, setOverwrites] = useState<Set<keyof NfoMetadata>>(new Set());
   useEffect(() => {
     const close = (event: KeyboardEvent) => event.key === "Escape" && !saving && onClose();
     window.addEventListener("keydown", close);
@@ -24,15 +42,48 @@ export default function MetadataEditorModal({
   const set = (key: keyof NfoMetadata, value: string) => setFields((current) => ({ ...current, [key]: value }));
   const submit = (event: FormEvent) => { event.preventDefault(); onSave(fields); };
   const input = "mt-1 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-white outline-none transition-colors focus:border-accent";
+  const labels: Partial<Record<keyof NfoMetadata, string>> = {
+    title: "Title", native_title: "Original title", year: "Year", publisher: "Publisher",
+    volumes: "Volumes", status: "Status", plot: "Description", anilist_id: "AniList ID",
+    mal_id: "MyAnimeList ID", comicvine_id: "ComicVine ID", source_url: "Source URL",
+    genres: "Genres", tags: "Tags", creators: "Creators", country: "Country",
+    source_material: "Source material", edition: "Edition",
+  };
+  const chooseImported = (key: keyof NfoMetadata, useImported: boolean) => {
+    setOverwrites((current) => {
+      const next = new Set(current);
+      if (useImported) next.add(key); else next.delete(key);
+      return next;
+    });
+    setFields((current) => ({ ...current, [key]: useImported ? incoming?.[key] ?? "" : metadata[key] }));
+  };
 
   return (
     <div className="fixed inset-0 z-[80] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && !saving && onClose()}>
       <form onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="metadata-editor-title" className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-surface shadow-2xl">
         <header className="flex items-center justify-between border-b border-border px-5 py-4">
-          <div><h2 id="metadata-editor-title" className="text-lg font-semibold">Edit metadata</h2><p className="text-xs text-faint">Changes are saved directly to this title’s NFO file.</p></div>
+          <div><h2 id="metadata-editor-title" className="text-lg font-semibold">{incoming ? `Review ${sourceLabel ?? "imported"} metadata` : "Edit metadata"}</h2><p className="text-xs text-faint">Review the fields below, then save changes to this title’s NFO file.</p></div>
           <button type="button" onClick={onClose} disabled={saving} aria-label="Close metadata editor" className="grid size-9 place-items-center rounded-lg text-muted hover:bg-elevated hover:text-white disabled:opacity-50"><X className="size-5" /></button>
         </header>
         <div className="grid gap-4 overflow-y-auto p-5 sm:grid-cols-2">
+          {incoming && conflicts.length > 0 && (
+            <section className="space-y-2 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 sm:col-span-2">
+              <div>
+                <h3 className="text-sm font-semibold text-amber-200">Choose fields to overwrite</h3>
+                <p className="text-xs text-faint">Existing NFO values are kept unless you select the imported value.</p>
+              </div>
+              {conflicts.map((key) => (
+                <label key={key} className="flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-black/10 p-3">
+                  <input type="checkbox" checked={overwrites.has(key)} onChange={(event) => chooseImported(key, event.target.checked)} className="mt-0.5 size-4 accent-[var(--color-accent)]" />
+                  <span className="min-w-0 text-xs">
+                    <strong className="block text-sm text-white">Overwrite {labels[key] ?? key}</strong>
+                    <span className="mt-1 block break-words text-faint">Current: {metadata[key]}</span>
+                    <span className="mt-1 block break-words text-amber-100">{sourceLabel ?? "Imported"}: {incoming[key]}</span>
+                  </span>
+                </label>
+              ))}
+            </section>
+          )}
           <label className="text-sm text-muted sm:col-span-2">Title<input required className={input} value={fields.title} onChange={(e) => set("title", e.target.value)} /></label>
           <label className="text-sm text-muted sm:col-span-2">Original title<input className={input} value={fields.native_title} onChange={(e) => set("native_title", e.target.value)} /></label>
           <label className="text-sm text-muted">Year<input inputMode="numeric" className={input} value={fields.year} onChange={(e) => set("year", e.target.value)} /></label>

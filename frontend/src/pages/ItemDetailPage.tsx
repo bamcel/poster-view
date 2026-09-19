@@ -10,7 +10,7 @@ import PosterCard from "../components/PosterCard";
 import ArtworkPanel from "../components/ArtworkPanel";
 import MetadataEditorModal from "../components/MetadataEditorModal";
 import { Spinner, EmptyState } from "../components/ui";
-import type { Library } from "../types";
+import type { Library, NfoMetadata } from "../types";
 import { seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
 import { useServers } from "../lib/serverContext";
 
@@ -28,6 +28,7 @@ export default function ItemDetailPage() {
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(
     () => searchParams.get("edit_metadata") === "1",
   );
+  const [metadataImport, setMetadataImport] = useState<{ fields: NfoMetadata; sourceLabel: string } | null>(null);
   const queryClient = useQueryClient();
   const refreshArtwork = useMutation({
     mutationFn: () => api.refreshArtworkItem(serverId, itemId!),
@@ -55,6 +56,7 @@ export default function ItemDetailPage() {
       api.updateNfoMetadata(serverId, itemId!, fields),
     onSuccess: (fields) => {
       queryClient.setQueryData(["nfo-metadata", serverId, itemId], fields);
+      setMetadataImport(null);
       setMetadataEditorOpen(false);
     },
   });
@@ -200,7 +202,7 @@ export default function ItemDetailPage() {
                         {metadataQ.data && (
                           <button
                             type="button"
-                            onClick={() => setMetadataEditorOpen(true)}
+                            onClick={() => { setMetadataImport(null); setMetadataEditorOpen(true); }}
                             className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white"
                           >
                             <Pencil className="size-4" /> Edit Metadata
@@ -321,7 +323,7 @@ export default function ItemDetailPage() {
       {/* Right: dock only when both columns have enough room. */}
       <div className="relative z-[1] hidden h-full w-[clamp(20rem,25vw,23.75rem)] shrink-0 xl:block">
         {item && (
-          <ArtworkPanel serverId={serverId} item={item} prefill={prefill} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} />
+          <ArtworkPanel serverId={serverId} item={item} prefill={prefill} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
         )}
       </div>
 
@@ -345,16 +347,22 @@ export default function ItemDetailPage() {
             >
               <X className="size-5" />
             </button>
-            <ArtworkPanel serverId={serverId} item={item} prefill={prefill} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} />
+            <ArtworkPanel serverId={serverId} item={item} prefill={prefill} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setArtworkOpen(false); setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
           </section>
         </div>
       )}
-      {metadataEditorOpen && metadataQ.data && (
+      {metadataEditorOpen && (metadataQ.data || metadataImport) && (
         <MetadataEditorModal
-          metadata={metadataQ.data}
+          metadata={metadataQ.data ?? {
+            title: "", year: "", publisher: "", edition: "", volumes: "", status: "", plot: "",
+            anilist_id: "", comicvine_id: "", source_url: "", native_title: "", mal_id: "",
+            genres: "", tags: "", creators: "", country: "", source_material: "",
+          }}
+          incoming={metadataImport?.fields}
+          sourceLabel={metadataImport?.sourceLabel}
           saving={saveMetadata.isPending}
           error={saveMetadata.isError ? saveMetadata.error.message : undefined}
-          onClose={() => { saveMetadata.reset(); setMetadataEditorOpen(false); }}
+          onClose={() => { saveMetadata.reset(); setMetadataImport(null); setMetadataEditorOpen(false); }}
           onSave={(fields) => saveMetadata.mutate(fields)}
         />
       )}

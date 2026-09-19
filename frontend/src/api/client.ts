@@ -146,8 +146,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ server_id: serverId, item_id: itemId, volume_id: volumeId }),
     }),
+  previewComicVineMetadata: (serverId: number, itemId: string, volumeId: string) =>
+    request<NfoMetadata>("/metadata/comicvine/preview", {
+      method: "POST",
+      body: JSON.stringify({ server_id: serverId, item_id: itemId, volume_id: volumeId }),
+    }),
   useAniListMangaMetadata: (serverId: number, itemId: string, anilistId: string) =>
     request<NfoMetadata>("/metadata/anilist-manga", {
+      method: "POST",
+      body: JSON.stringify({ server_id: serverId, item_id: itemId, anilist_id: anilistId }),
+    }),
+  previewAniListMangaMetadata: (serverId: number, itemId: string, anilistId: string) =>
+    request<NfoMetadata>("/metadata/anilist-manga/preview", {
       method: "POST",
       body: JSON.stringify({ server_id: serverId, item_id: itemId, anilist_id: anilistId }),
     }),

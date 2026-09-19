@@ -4,7 +4,7 @@ import { ArrowLeft, Database, ExternalLink, Search } from "lucide-react";
 import { api } from "../api/client";
 import { detectManga, normalizeVolume } from "../lib/manga";
 import { useToast } from "../lib/toast";
-import type { ArtworkItem, ImageTarget, ItemDetail } from "../types";
+import type { ArtworkItem, ImageTarget, ItemDetail, NfoMetadata } from "../types";
 import { ArtImg, ApplyBtn } from "./ArtworkBrowser";
 import CustomTargetButton from "./CustomTargetButton";
 
@@ -12,10 +12,12 @@ export default function VizPanel({
   serverId,
   item,
   database = "viz",
+  onReviewMetadata,
 }: {
   serverId: number;
   item: ItemDetail;
   database?: "viz" | "comicvine";
+  onReviewMetadata?: (metadata: NfoMetadata, sourceLabel: string) => void;
 }) {
   const isComicVine = database === "comicvine";
   const providerLabel = isComicVine ? "ComicVine" : "VIZ";
@@ -93,11 +95,8 @@ export default function VizPanel({
     onError: (error: Error) => toast.push("error", error.message),
   });
   const useMetadata = useMutation({
-    mutationFn: () => api.useComicVineMetadata(serverId, item.id, catalogUrl),
-    onSuccess: async () => {
-      await client.invalidateQueries({ queryKey: ["nfo-metadata", serverId, item.id] });
-      toast.push("success", "ComicVine metadata saved to the NFO file.");
-    },
+    mutationFn: () => api.previewComicVineMetadata(serverId, item.id, catalogUrl),
+    onSuccess: (metadata) => onReviewMetadata?.(metadata, "ComicVine"),
     onError: (error: Error) => toast.push("error", error.message),
   });
   const artwork = covers.data?.items ?? [];
@@ -222,7 +221,7 @@ export default function VizPanel({
               disabled={useMetadata.isPending}
               className="flex items-center gap-1 text-sm text-muted transition-colors hover:text-white disabled:opacity-50"
             >
-              <Database className="size-4" /> {useMetadata.isPending ? "Saving…" : "Use metadata"}
+              <Database className="size-4" /> {useMetadata.isPending ? "Loading…" : "Use metadata"}
             </button>
           )}
         </div>
