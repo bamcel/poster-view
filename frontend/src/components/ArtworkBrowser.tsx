@@ -110,14 +110,6 @@ export default function ArtworkBrowser({
   // TheTVDB) triggers a title search instead of an id lookup; the results
   // are shown as a picker, and choosing one sets `override` as usual.
   const [searchTerm, setSearchTerm] = useState<string | undefined>(undefined);
-  const useMetadata = useMutation({
-    mutationFn: () => api.useAniListMangaMetadata(serverId, item.id, override!),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["nfo-metadata", serverId, item.id] });
-      toast.push("success", "AniList manga metadata saved to the NFO file.");
-    },
-    onError: (error: Error) => toast.push("error", error.message),
-  });
   useEffect(() => {
     setIdInput(defaultIdFor(provider, item));
     setOverride(undefined);
@@ -135,6 +127,17 @@ export default function ArtworkBrowser({
     queryFn: () => api.searchArtwork(provider, serverId, item.id, searchTerm!),
     enabled: !!searchTerm,
     staleTime: 5 * 60_000,
+  });
+  const resolvedAniListMangaId = provider === "anilist-manga"
+    ? (/^\d+$/.test(override ?? "") ? override : q.data?.items[0]?.source_url?.match(/\/manga\/(\d+)/)?.[1])
+    : undefined;
+  const useMetadata = useMutation({
+    mutationFn: () => api.useAniListMangaMetadata(serverId, item.id, resolvedAniListMangaId!),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["nfo-metadata", serverId, item.id] });
+      toast.push("success", "AniList manga metadata saved to the NFO file.");
+    },
+    onError: (error: Error) => toast.push("error", error.message),
   });
 
   const submitId = (e: FormEvent) => {
@@ -261,11 +264,11 @@ export default function ArtworkBrowser({
     </div>
   );
 
-  const metadataActions = provider === "anilist-manga" && override && /^\d+$/.test(override) && (
-    <div className="mb-3 flex items-center justify-between gap-3">
-      <button type="button" onClick={() => { setOverride(undefined); setIdInput(""); }} className="flex items-center gap-1 text-sm text-muted hover:text-white">
+  const metadataActions = provider === "anilist-manga" && resolvedAniListMangaId && (
+    <div className={`mb-3 flex items-center gap-3 ${override ? "justify-between" : "justify-end"}`}>
+      {override && <button type="button" onClick={() => { setOverride(undefined); setIdInput(""); }} className="flex items-center gap-1 text-sm text-muted hover:text-white">
         <ArrowLeft className="size-4" /> Back
-      </button>
+      </button>}
       <button type="button" disabled={useMetadata.isPending} onClick={() => useMetadata.mutate()} className="flex items-center gap-1 text-sm text-muted hover:text-white disabled:opacity-50">
         <Database className="size-4" /> {useMetadata.isPending ? "Saving…" : "Use metadata"}
       </button>
