@@ -11,7 +11,7 @@ import ArtworkPanel from "../components/ArtworkPanel";
 import MetadataEditorModal from "../components/MetadataEditorModal";
 import { Spinner, EmptyState } from "../components/ui";
 import type { Library } from "../types";
-import { seriesInstallmentSummary } from "../lib/mediaKind";
+import { seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
 
 export default function ItemDetailPage() {
   const navigate = useNavigate();
@@ -60,6 +60,12 @@ export default function ItemDetailPage() {
   const backdrop = imageUrl(serverId, item?.background);
   const poster = imageUrl(serverId, item?.poster);
   const logo = imageUrl(serverId, item?.logo);
+  const installmentInfo = item?.type === "folder" ? seriesInstallmentInfo(item.members) : null;
+  const expectedInstallments = Number.parseInt(metadataQ.data?.volumes ?? "", 10);
+  const missingInstallments =
+    installmentInfo && Number.isFinite(expectedInstallments)
+      ? Math.max(0, expectedInstallments - installmentInfo.count)
+      : 0;
 
   // Auto-run the artwork search for this title when it loads (once per item).
   useEffect(() => {
@@ -244,6 +250,11 @@ export default function ItemDetailPage() {
                             const [label, value] = entry as string[];
                             return <span key={label} className="rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span className="text-white/50">{label}</span> · {value}</span>;
                           })}
+                          {missingInstallments > 0 && installmentInfo && (
+                            <span className="rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 text-xs font-medium text-amber-200">
+                              {missingInstallments} {installmentInfo.unit}{missingInstallments === 1 ? "" : "s"} Missing
+                            </span>
+                          )}
                         </div>
                         {metadataQ.data.plot && <p className="mt-3 text-sm leading-relaxed text-white/75">{metadataQ.data.plot}</p>}
                       </section>

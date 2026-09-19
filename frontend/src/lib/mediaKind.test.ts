@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { artworkMediaKind, providerMatchesMediaKind, seriesInstallmentSummary } from "./mediaKind";
+import { artworkMediaKind, providerMatchesMediaKind, seriesInstallmentInfo, seriesInstallmentSummary } from "./mediaKind";
 
 it("uses server types before folder naming conventions", () => {
   expect(artworkMediaKind("book", "other", "Television")).toBe("book");
@@ -32,6 +32,7 @@ it("counts actual series installments without companion folders", () => {
     item("_Art Book"),
   ])).toBe("13 Volumes");
   expect(seriesInstallmentSummary([item("Chapter 1"), item("Ch. 2"), item(".extras")])).toBe("2 Chapters");
+  expect(seriesInstallmentInfo([item("Chapter 1"), item("Ch. 2")])).toEqual({ count: 2, unit: "Chapter" });
 });
 
 it("recognizes volume and chapter markers throughout common title schemas", () => {

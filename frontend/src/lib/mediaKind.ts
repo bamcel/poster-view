@@ -30,7 +30,7 @@ export function providerMatchesMediaKind(provider: string, kind: ArtworkMediaKin
   return true;
 }
 
-export function seriesInstallmentSummary(members: MediaItem[]): string {
+export function seriesInstallmentInfo(members: MediaItem[]): { count: number; unit: "Volume" | "Chapter" } {
   // A leading underscore/dot is the library convention for companion content
   // (for example `_Art Book`) that belongs beside a series but is not one of
   // its numbered volumes or chapters.
@@ -50,5 +50,10 @@ export function seriesInstallmentSummary(members: MediaItem[]): string {
       ? volumeCount
       : installments.length;
   const unit = usesChapters ? "Chapter" : "Volume";
+  return { count, unit };
+}
+
+export function seriesInstallmentSummary(members: MediaItem[]): string {
+  const { count, unit } = seriesInstallmentInfo(members);
   return `${count} ${unit}${count === 1 ? "" : "s"}`;
 }
