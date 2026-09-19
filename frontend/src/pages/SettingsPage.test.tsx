@@ -120,7 +120,7 @@ it("saves the per-server NFO metadata and missing-title settings", async () => {
   fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "http://emby:8096" } });
   fireEvent.change(screen.getByLabelText("API key"), { target: { value: "secret" } });
   fireEvent.click(screen.getByRole("checkbox", { name: /Enable NFO metadata/ }));
-  fireEvent.click(screen.getByRole("checkbox", { name: /Show Missing Titles/ }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /Show missing titles/ }));
   fireEvent.click(screen.getByRole("button", { name: "Add server" }));
 
   await waitFor(() => expect(api.createServer).toHaveBeenCalledWith(expect.objectContaining({

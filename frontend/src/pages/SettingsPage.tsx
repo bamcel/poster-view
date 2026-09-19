@@ -524,7 +524,7 @@ function ServersSection() {
             className="mt-0.5 size-4 accent-[var(--color-accent)]"
           />
           <span>
-            <span className="block text-white">Show Missing Titles</span>
+            <span className="block text-white">Show missing titles</span>
             <span className="block text-xs text-faint">
               Show a warning when fewer volumes or chapters are present than the NFO metadata expects.
             </span>
