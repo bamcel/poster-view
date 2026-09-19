@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, Images, Pencil, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, Images, Pencil, RefreshCw, X } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import PosterCard from "../components/PosterCard";
 import ArtworkPanel from "../components/ArtworkPanel";
@@ -241,11 +241,6 @@ export default function ItemDetailPage() {
                             const [label, value] = entry as string[];
                             return <span key={label} className="rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span className="text-white/50">{label}</span> · {value}</span>;
                           })}
-                          {metadataQ.data.source_url && (
-                            <a href={metadataQ.data.source_url} target="_blank" rel="noreferrer" className="ml-auto flex items-center gap-1 text-xs text-accent hover:underline">
-                              {metadataQ.data.anilist_id ? "AniList" : "ComicVine"} <ExternalLink className="size-3" />
-                            </a>
-                          )}
                         </div>
                         {metadataQ.data.plot && <p className="mt-3 text-sm leading-relaxed text-white/75">{metadataQ.data.plot}</p>}
                       </section>

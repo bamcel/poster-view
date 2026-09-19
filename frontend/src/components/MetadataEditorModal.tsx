@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Loader2, Save, X } from "lucide-react";
+import { ExternalLink, Loader2, Save, X } from "lucide-react";
 import type { NfoMetadata } from "../types";
 
 export default function MetadataEditorModal({
@@ -46,7 +46,24 @@ export default function MetadataEditorModal({
             <summary className="cursor-pointer text-sm font-medium text-muted">Advanced fields</summary>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
               <label className="text-sm text-muted">Edition<input className={input} value={fields.edition} onChange={(e) => set("edition", e.target.value)} /></label>
-              <label className="text-sm text-muted">AniList ID<input className={input} value={fields.anilist_id} onChange={(e) => set("anilist_id", e.target.value)} /></label>
+              <label className="text-sm text-muted">
+                AniList ID
+                <span className="relative block">
+                  <input className={`${input} pr-10`} value={fields.anilist_id} onChange={(e) => set("anilist_id", e.target.value)} />
+                  {fields.anilist_id && (
+                    <a
+                      href={fields.source_url || `https://anilist.co/manga/${encodeURIComponent(fields.anilist_id)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="Open this title on AniList"
+                      title="Open on AniList"
+                      className="absolute right-2 top-1/2 mt-0.5 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted transition-colors hover:bg-elevated hover:text-accent"
+                    >
+                      <ExternalLink className="size-4" />
+                    </a>
+                  )}
+                </span>
+              </label>
               <label className="text-sm text-muted">MyAnimeList ID<input className={input} value={fields.mal_id} onChange={(e) => set("mal_id", e.target.value)} /></label>
               <label className="text-sm text-muted">ComicVine ID<input className={input} value={fields.comicvine_id} onChange={(e) => set("comicvine_id", e.target.value)} /></label>
               <label className="text-sm text-muted sm:col-span-2">Source URL<input className={input} value={fields.source_url} onChange={(e) => set("source_url", e.target.value)} /></label>
