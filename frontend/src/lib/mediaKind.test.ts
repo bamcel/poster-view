@@ -33,3 +33,21 @@ it("counts actual series installments without companion folders", () => {
   ])).toBe("13 Volumes");
   expect(seriesInstallmentSummary([item("Chapter 1"), item("Ch. 2"), item(".extras")])).toBe("2 Chapters");
 });
+
+it("recognizes volume and chapter markers throughout common title schemas", () => {
+  const item = (title: string) => ({ id: title, title, type: "book" as const });
+  expect(seriesInstallmentSummary([
+    item("Volume 01"),
+    item("The Apothecary Diaries - Volume 02"),
+    item("The Apothecary Diaries Vol. 03"),
+    item("The Apothecary Diaries_v04"),
+    item("Art Book"),
+  ])).toBe("4 Volumes");
+  expect(seriesInstallmentSummary([
+    item("Chapter 001"),
+    item("Series Name - Chapter 002"),
+    item("Series Name Chap. 003"),
+    item("Series Name - Ch. 004"),
+    item("Special"),
+  ])).toBe("4 Chapters");
+});

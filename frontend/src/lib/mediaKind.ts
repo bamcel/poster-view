@@ -35,9 +35,20 @@ export function seriesInstallmentSummary(members: MediaItem[]): string {
   // (for example `_Art Book`) that belongs beside a series but is not one of
   // its numbered volumes or chapters.
   const installments = members.filter((member) => !/^[_.]/.test(member.title.trimStart()));
-  const usesChapters =
-    installments.some((member) => /\b(?:chapter|ch\.?)[\s_-]*\d/i.test(member.title)) &&
-    !installments.some((member) => /\b(?:volume|vol\.?)[\s_-]*\d/i.test(member.title));
+  const volumePattern = /(?:^|[\s._-])(?:volume|vol\.?|v)[\s._-]*#?\d+(?=$|[\s._-])/i;
+  const chapterPattern = /(?:^|[\s._-])(?:chapter|chap\.?|ch\.?)[\s._-]*#?\d+(?=$|[\s._-])/i;
+  const volumeCount = installments.filter((member) => volumePattern.test(member.title)).length;
+  const chapterCount = installments.filter((member) => chapterPattern.test(member.title)).length;
+
+  // Once a naming scheme is detectable, count only matching installments so
+  // unprefixed extras (art books, specials, notes) cannot inflate the total.
+  // Unknown libraries retain the previous visible-child fallback.
+  const usesChapters = chapterCount > volumeCount;
+  const count = usesChapters
+    ? chapterCount
+    : volumeCount > 0
+      ? volumeCount
+      : installments.length;
   const unit = usesChapters ? "Chapter" : "Volume";
-  return `${installments.length} ${unit}${installments.length === 1 ? "" : "s"}`;
+  return `${count} ${unit}${count === 1 ? "" : "s"}`;
 }
