@@ -21,7 +21,9 @@ export default function ItemDetailPage() {
   const libraryTitle = searchParams.get("library_title") ?? undefined;
   const [prefill, setPrefill] = useState<{ term: string; nonce: number }>();
   const [artworkOpen, setArtworkOpen] = useState(false);
-  const [metadataEditorOpen, setMetadataEditorOpen] = useState(false);
+  const [metadataEditorOpen, setMetadataEditorOpen] = useState(
+    () => searchParams.get("edit_metadata") === "1",
+  );
   const queryClient = useQueryClient();
   const refreshArtwork = useMutation({
     mutationFn: () => api.refreshArtworkItem(serverId, itemId!),

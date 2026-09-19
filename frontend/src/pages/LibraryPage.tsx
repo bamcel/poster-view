@@ -228,12 +228,13 @@ export default function LibraryPage() {
   }
 
   const browseableLibs = librariesQ.data ?? [];
-  const itemDetailUrl = (itemId: string) => {
+  const itemDetailUrl = (itemId: string, editMetadata = false) => {
     const context = new URLSearchParams();
     if (selectedLibrary) {
       context.set("library_type", selectedLibrary.type);
       context.set("library_title", selectedLibrary.title);
     }
+    if (editMetadata) context.set("edit_metadata", "1");
     const query = context.toString();
     return `/server/${serverId}/item/${itemId}${query ? `?${query}` : ""}`;
   };
@@ -378,6 +379,7 @@ export default function LibraryPage() {
                 badge={newMissingIds.has(item.id) ? "NEW" : undefined}
                 onOpen={() => openItem(item)}
                 onRefresh={() => refreshMut.mutate({ itemId: item.id })}
+                onEditMetadata={() => navigate(itemDetailUrl(item.id, true))}
                 refreshing={refreshingId === item.id}
               />
             ))}

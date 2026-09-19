@@ -2,7 +2,7 @@
 // Opens on a single click (and Enter for keyboard users) when `onOpen` is set.
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Film, Tv, Library, RefreshCw, BookOpen } from "lucide-react";
+import { Film, Tv, Library, Pencil, RefreshCw, BookOpen } from "lucide-react";
 import { useActionMenu } from "../lib/actionMenu";
 
 interface PosterCardProps {
@@ -14,6 +14,7 @@ interface PosterCardProps {
   selected?: boolean;
   onOpen?: () => void;
   onRefresh?: () => void;
+  onEditMetadata?: () => void;
   refreshing?: boolean;
 }
 
@@ -26,6 +27,7 @@ export default function PosterCard({
   selected,
   onOpen,
   onRefresh,
+  onEditMetadata,
   refreshing,
 }: PosterCardProps) {
   const Placeholder =
@@ -118,33 +120,33 @@ export default function PosterCard({
       <button
         ref={triggerRef}
         type="button"
-        aria-haspopup={onRefresh ? "menu" : undefined}
-        aria-expanded={onRefresh ? menuOpen : undefined}
+        aria-haspopup={onRefresh || onEditMetadata ? "menu" : undefined}
+        aria-expanded={onRefresh || onEditMetadata ? menuOpen : undefined}
         aria-controls={menuOpen ? menuId : undefined}
         onClick={onOpen}
         onKeyDown={(event) => {
-          if (onRefresh && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+          if ((onRefresh || onEditMetadata) && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
             event.preventDefault();
             setMenuOpen(true);
           }
         }}
         onContextMenu={(event) => {
-          if (!onRefresh) return;
+          if (!onRefresh && !onEditMetadata) return;
           event.preventDefault();
           setMenuOpen(true);
         }}
-        title={onRefresh ? `${title} · right-click for options` : title}
+        title={onRefresh || onEditMetadata ? `${title} · right-click for options` : title}
         className="group block w-full select-none text-left"
       >
         {content}
       </button>
-      {menuOpen && onRefresh && (
+      {menuOpen && (onRefresh || onEditMetadata) && (
         <div
           ref={menuRef} id={menuId} role="menu" aria-label={`Artwork options for ${title}`} tabIndex={-1} onKeyDown={menuKeys}
-          className="absolute inset-x-0 top-14 z-30 rounded-lg border border-border bg-elevated p-1 shadow-2xl"
+          className="absolute left-2 top-14 z-30 w-max min-w-44 rounded-lg border border-border bg-elevated p-1 shadow-2xl"
           onClick={(event) => event.stopPropagation()}
         >
-          <button
+          {onRefresh && <button
             type="button"
             role="menuitem" tabIndex={-1}
             onClick={() => {
@@ -153,13 +155,26 @@ export default function PosterCard({
               onRefresh();
             }}
             disabled={refreshing}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm leading-snug text-muted hover:bg-surface-2 hover:text-white disabled:opacity-50"
+            className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-muted hover:bg-surface-2 hover:text-white disabled:opacity-50"
           >
             <RefreshCw
               className={`size-4 shrink-0 ${refreshing ? "animate-spin" : ""}`}
             />
             Refresh artwork data
-          </button>
+          </button>}
+          {onEditMetadata && <button
+            type="button"
+            role="menuitem"
+            tabIndex={-1}
+            onClick={() => {
+              setMenuOpen(false);
+              onEditMetadata();
+            }}
+            className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-muted hover:bg-surface-2 hover:text-white"
+          >
+            <Pencil className="size-4 shrink-0" />
+            Edit Metadata
+          </button>}
         </div>
       )}
     </div>

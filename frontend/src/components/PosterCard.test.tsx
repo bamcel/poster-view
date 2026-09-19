@@ -36,3 +36,12 @@ it("opens options from the keyboard, focuses the action, and returns focus on Es
   expect(screen.queryByRole("menu")).toBeNull();
   expect(document.activeElement).toBe(trigger);
 });
+
+it("shows compact refresh and metadata actions and opens the editor action", () => {
+  const editMetadata = vi.fn();
+  render(<PosterCard title="Manga" onOpen={vi.fn()} onRefresh={vi.fn()} onEditMetadata={editMetadata} />);
+  fireEvent.contextMenu(screen.getByTitle("Manga · right-click for options"));
+  expect(screen.getByRole("menuitem", { name: "Refresh artwork data" }).className).toContain("whitespace-nowrap");
+  fireEvent.click(screen.getByRole("menuitem", { name: "Edit Metadata" }));
+  expect(editMetadata).toHaveBeenCalledOnce();
+});
