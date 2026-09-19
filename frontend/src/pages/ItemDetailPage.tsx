@@ -11,6 +11,7 @@ import ArtworkPanel from "../components/ArtworkPanel";
 import MetadataEditorModal from "../components/MetadataEditorModal";
 import { Spinner, EmptyState } from "../components/ui";
 import type { Library } from "../types";
+import { seriesInstallmentSummary } from "../lib/mediaKind";
 
 export default function ItemDetailPage() {
   const navigate = useNavigate();
@@ -182,7 +183,7 @@ export default function ItemDetailPage() {
                                 : item.type === "audiobook"
                                   ? "Audiobook"
                                   : item.type === "folder"
-                                    ? `${item.members.length} Volumes`
+                                    ? seriesInstallmentSummary(item.members)
                                     : item.year}
                         </p>
                       </div>

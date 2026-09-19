@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { artworkMediaKind, providerMatchesMediaKind } from "./mediaKind";
+import { artworkMediaKind, providerMatchesMediaKind, seriesInstallmentSummary } from "./mediaKind";
 
 it("uses server types before folder naming conventions", () => {
   expect(artworkMediaKind("book", "other", "Television")).toBe("book");
@@ -23,4 +23,13 @@ it("filters providers while keeping manual available everywhere", () => {
   expect(providerMatchesMediaKind("manual", "screen")).toBe(true);
   expect(providerMatchesMediaKind("manual", "book")).toBe(true);
   expect(providerMatchesMediaKind("comicvine", "ambiguous")).toBe(true);
+});
+
+it("counts actual series installments without companion folders", () => {
+  const item = (title: string) => ({ id: title, title, type: "book" as const });
+  expect(seriesInstallmentSummary([
+    ...Array.from({ length: 13 }, (_, index) => item(`Volume ${index + 1}`)),
+    item("_Art Book"),
+  ])).toBe("13 Volumes");
+  expect(seriesInstallmentSummary([item("Chapter 1"), item("Ch. 2"), item(".extras")])).toBe("2 Chapters");
 });
