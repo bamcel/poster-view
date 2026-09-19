@@ -80,6 +80,15 @@ fn scoped_artwork(mut result: ArtworkResults, server_id: i64) -> ArtworkResults 
     result
 }
 
+fn scoped_search(mut result: ArtworkSearchResults, server_id: i64) -> ArtworkSearchResults {
+    for item in &mut result.results {
+        if let Some(url) = &mut item.thumb_url {
+            scoped_thumbnail(url, server_id);
+        }
+    }
+    result
+}
+
 fn scoped_set(mut result: PosterSet, server_id: i64) -> PosterSet {
     for item in &mut result.posters {
         scoped_thumbnail(&mut item.thumb_url, server_id);
@@ -1279,7 +1288,7 @@ impl Runtime {
         let cache_settings = self.artwork_cache_settings(server_id)?;
         let cache = self.server_artwork_cache(server_id)?;
         if let Some(cached) = cache.get_json(&cache_key, cache_settings.ttl_days) {
-            return Ok(Some(Ok(cached)));
+            return Ok(Some(Ok(scoped_search(cached, server_id))));
         }
         let Some(detail) = self.get_item_detail(server_id, item_id).await? else {
             return Ok(None);
@@ -1327,7 +1336,7 @@ impl Runtime {
                 cache_settings.ttl_days,
             );
         }
-        Ok(Some(Ok(response)))
+        Ok(Some(Ok(scoped_search(response, server_id))))
     }
 
     pub async fn mediux_image(

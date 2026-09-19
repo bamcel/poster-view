@@ -2,6 +2,37 @@ use super::*;
 use posterview_contracts::{Server, ServerCreate, ServerType};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+#[test]
+fn search_thumbnails_receive_the_server_scope_required_by_image_proxies() {
+    let result = scoped_search(
+        ArtworkSearchResults {
+            provider: "mangadex".into(),
+            results: vec![posterview_contracts::ArtworkSearchResult {
+                alternate_titles: Vec::new(),
+                status: None,
+                id: "manga".into(),
+                name: "Manga".into(),
+                year: None,
+                thumb_url: Some(
+                    "/api/artwork/mangadex/image?url=https://uploads.mangadex.org/cover.jpg"
+                        .into(),
+                ),
+                volume_count: None,
+                publisher: None,
+            }],
+            message: None,
+        },
+        42,
+    );
+    assert!(
+        result.results[0]
+            .thumb_url
+            .as_deref()
+            .unwrap()
+            .ends_with("&server_id=42")
+    );
+}
+
 fn add_server(runtime: &Runtime, name: &str, base_url: &str) -> Server {
     runtime
         .create_server(&ServerCreate {
