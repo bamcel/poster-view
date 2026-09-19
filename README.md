@@ -33,6 +33,27 @@ encrypted at rest and never sent back to the browser._
 
 ---
 
+## Experimental channel
+
+`main` publishes `ghcr.io/bamcel/poster-view:latest`. Experiments on `codex/experimental`
+publish `ghcr.io/bamcel/poster-view:experimental`; testing pushes never update `latest`.
+The testing branch starts from the current main version. Changes reach main only
+when deliberately merged. `experimental` is updated on pushes, not on a nightly schedule.
+
+In Unraid, select **experimental** from the app's branch options after the template
+refreshes, or edit the container's Repository to `ghcr.io/bamcel/poster-view:experimental`.
+For isolated testing, create a second container named `PosterView-Experimental`, choose
+a different host port (for example `7980` mapped to container port `7979`), and use
+`/mnt/user/appdata/posterview-experimental` for `/config`. Do not share the live appdata
+folder between containers. Leave `/media` unmounted or use sample media to avoid
+changing live NFO files or artwork. Testing with a connected media server can also
+change its artwork, so use a test library/server when exercising apply actions.
+
+Switching back to `:latest` changes the software, not the stored data. Keep a backup
+before testing with existing appdata: a future experimental database change may
+not be compatible with older versions. Local development for this channel uses
+`git switch codex/experimental`; reviewed work can be merged into main through a PR.
+
 ## Features
 
 - **Local manga NFO metadata**: mount your manga folders at `/media`, browse

@@ -5,8 +5,12 @@ name: Publish Docker image
 # source itself — Unraid's Docker template being the motivating case.
 on:
   push:
-    branches: [main]
+    branches: [main, codex/experimental]
   workflow_dispatch:
+
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -14,6 +18,7 @@ env:
 
 jobs:
   build-and-push:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/experimental'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,8 +38,10 @@ jobs:
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: latest=false
           tags: |
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=experimental,enable=${{ github.ref == 'refs/heads/codex/experimental' }}
             type=sha,format=short
 
       - uses: docker/build-push-action@v6

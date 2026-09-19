@@ -2,6 +2,11 @@
 <Container version="2">
   <Name>PosterView</Name>
   <Repository>ghcr.io/bamcel/poster-view:latest</Repository>
+  <DefaultTagDescription>Main (latest)</DefaultTagDescription>
+  <Branch>
+    <Tag>experimental</Tag>
+    <TagDescription>Experimental builds. Use separate appdata for testing.</TagDescription>
+  </Branch>
   <Registry>https://github.com/bamcel/poster-view/pkgs/container/poster-view</Registry>
   <Network>bridge</Network>
   <MyIP/>
