@@ -52,7 +52,7 @@ export default function MetadataEditorModal({
                   <input className={`${input} pr-10`} value={fields.anilist_id} onChange={(e) => set("anilist_id", e.target.value)} />
                   {fields.anilist_id && (
                     <a
-                      href={fields.source_url || `https://anilist.co/manga/${encodeURIComponent(fields.anilist_id)}`}
+                      href={`https://anilist.co/manga/${encodeURIComponent(fields.anilist_id)}`}
                       target="_blank"
                       rel="noreferrer"
                       aria-label="Open this title on AniList"
@@ -64,8 +64,42 @@ export default function MetadataEditorModal({
                   )}
                 </span>
               </label>
-              <label className="text-sm text-muted">MyAnimeList ID<input className={input} value={fields.mal_id} onChange={(e) => set("mal_id", e.target.value)} /></label>
-              <label className="text-sm text-muted">ComicVine ID<input className={input} value={fields.comicvine_id} onChange={(e) => set("comicvine_id", e.target.value)} /></label>
+              <label className="text-sm text-muted">
+                MyAnimeList ID
+                <span className="relative block">
+                  <input className={`${input} pr-10`} value={fields.mal_id} onChange={(e) => set("mal_id", e.target.value)} />
+                  {fields.mal_id && (
+                    <a
+                      href={`https://myanimelist.net/manga/${encodeURIComponent(fields.mal_id)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="Open this title on MyAnimeList"
+                      title="Open on MyAnimeList"
+                      className="absolute right-2 top-1/2 mt-0.5 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted transition-colors hover:bg-elevated hover:text-accent"
+                    >
+                      <ExternalLink className="size-4" />
+                    </a>
+                  )}
+                </span>
+              </label>
+              <label className="text-sm text-muted">
+                ComicVine ID
+                <span className="relative block">
+                  <input className={`${input} pr-10`} value={fields.comicvine_id} onChange={(e) => set("comicvine_id", e.target.value)} />
+                  {fields.comicvine_id && (
+                    <a
+                      href={`https://comicvine.gamespot.com/volume/4050-${encodeURIComponent(fields.comicvine_id)}/`}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="Open this title on ComicVine"
+                      title="Open on ComicVine"
+                      className="absolute right-2 top-1/2 mt-0.5 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted transition-colors hover:bg-elevated hover:text-accent"
+                    >
+                      <ExternalLink className="size-4" />
+                    </a>
+                  )}
+                </span>
+              </label>
               <label className="text-sm text-muted sm:col-span-2">Source URL<input className={input} value={fields.source_url} onChange={(e) => set("source_url", e.target.value)} /></label>
               <label className="text-sm text-muted sm:col-span-2">Genres<input className={input} value={fields.genres} onChange={(e) => set("genres", e.target.value)} /></label>
               <label className="text-sm text-muted sm:col-span-2">Tags<input className={input} value={fields.tags} onChange={(e) => set("tags", e.target.value)} /></label>
