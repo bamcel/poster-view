@@ -56,4 +56,3 @@ it("bulk creation skips files that appeared after listing", async () => {
   await waitFor(() => expect(screen.getByText(/skipped — already exists/)).toBeTruthy());
   expect(metadataApi.save).not.toHaveBeenCalled();
 });
-
