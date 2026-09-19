@@ -24,14 +24,15 @@ COPY --from=frontend /src/frontend/dist/ /app/frontend/
 COPY docker-entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r$//' /entrypoint.sh \
     && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin posterview \
-    && mkdir -p /config \
-    && chown -R posterview:posterview /config /app \
+    && mkdir -p /data \
+    && chown -R posterview:posterview /data /app \
     && chmod +x /entrypoint.sh
 
 ENV POSTERVIEW_BIND=0.0.0.0:7979 \
+    POSTERVIEW_DATA_DIR=/data \
     POSTERVIEW_UI_DIR=/app/frontend \
     RUST_LOG=posterview_server=info,tower_http=info
-VOLUME ["/config"]
+VOLUME ["/data"]
 EXPOSE 7979
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -fsS http://localhost:7979/api/health || exit 1

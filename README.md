@@ -33,34 +33,7 @@ encrypted at rest and never sent back to the browser._
 
 ---
 
-## Experimental channel
-
-`main` publishes `ghcr.io/bamcel/poster-view:latest`. Experiments on `experimental`
-publish `ghcr.io/bamcel/poster-view:experimental`; testing pushes never update `latest`.
-The testing branch starts from the current main version. Changes reach main only
-when deliberately merged. `experimental` is updated on pushes, not on a nightly schedule.
-
-In Unraid, select **experimental** from the app's branch options after the template
-refreshes, or edit the container's Repository to `ghcr.io/bamcel/poster-view:experimental`.
-For isolated testing, create a second container named `PosterView-Experimental`, choose
-a different host port (for example `7980` mapped to container port `7979`), and use
-`/mnt/user/appdata/posterview-experimental` for `/config`. Do not share the live appdata
-folder between containers. Leave `/media` unmounted or use sample media to avoid
-changing live NFO files or artwork. Testing with a connected media server can also
-change its artwork, so use a test library/server when exercising apply actions.
-
-Switching back to `:latest` changes the software, not the stored data. Keep a backup
-before testing with existing appdata: a future experimental database change may
-not be compatible with older versions. Local development for this channel uses
-`git switch experimental`; reviewed work can be merged into main through a PR.
-
 ## Features
-
-- **Local manga NFO metadata**: mount your manga folders at `/media`, browse
-  them in **Manga metadata**, search AniList or edit fields manually, and preview/save
-  `<series folder name>.nfo` beside each series. Edition details are user-confirmed. Bulk creation
-  creates missing title-only sidecars; existing files are preserved. See
-  [setup and compatibility](docs/local-metadata.md).
 
 - **Five artwork sources** behind one panel: ThePosterDB (search → title → set drill-down,
   with per-set poster counts and empty results auto-hidden), plus Fanart.tv, TheTVDB, AniList,
@@ -96,14 +69,14 @@ not be compatible with older versions. Local development for this channel uses
 - **Connection checks**: Settings can verify saved or newly entered Fanart.tv and TheTVDB
   credentials before you depend on them for artwork searches.
 - **Persistent artwork cache**: provider results and proxied thumbnails are reused from the Docker
-  data volume under `/config/artwork-cache/servers/{server_id}`. Each server has an independent
+  data volume under `/data/artwork-cache/servers/{server_id}`. Each server has an independent
   250 MB default cap and 30-day expiry, including MangaDex/MediUX/PosterDB thumbnails and PosterDB
   data. Settings shows each server's usage and lets you change its limits or clear its cache.
   Existing cache entries and Watchdog inventories migrate automatically on startup, preserving
   cache ages. Legacy previews without a server identifier are copied into each server's quota;
   the shared files are removed only after every server migrates successfully.
 - **Persistent media-image cache**: posters, backgrounds, logos, and other media-server images are
-  stored under `/config/media-image-cache` after their first request, so repeat page loads do not
+  stored under `/data/media-image-cache` after their first request, so repeat page loads do not
   download them from Plex, Jellyfin, or Emby again. This separate cache is capped at 10 GB with a
   365-day retention period. Applying or reverting artwork immediately replaces the affected
   title's cached image; editing or deleting a server clears that server's entries.
@@ -170,23 +143,12 @@ Or without Compose:
 
 ```bash
 docker build -t posterview .
-docker run -d --name posterview -p 7979:7979 -v posterview-data:/config posterview
+docker run -d --name posterview -p 7979:7979 -v posterview-data:/data posterview
 ```
 
 Open **http://localhost:7979**. The SQLite database and encryption key live in the
-`posterview-data` volume (`/config` in the container), so your servers and settings survive
+`posterview-data` volume (`/data` in the container), so your servers and settings survive
 restarts and image upgrades.
-
-**Existing Docker/Unraid installations:** the image still detects and uses a legacy
-`/data` application-state mount when `/config` has no database or encryption key.
-You can update the image without changing your existing template. To adopt the
-new **Config** path, change only the container destination from `/data` to `/config`;
-keep the same host folder (for example `/mnt/user/appdata/posterview`) or named
-volume. Do not delete or recreate the volume. Compose keeps the `posterview-data`
-volume name and mounts it at `/config`. An explicit `POSTERVIEW_DATA_DIR` overrides
-auto-detection; update that value too if you previously set it yourself. When both
-locations contain state, `/config` takes precedence. Nothing is moved or merged.
-The optional **Media** mount uses `/media`, separate from application state. Update any previous media mapping to `/media`. Explicit `POSTERVIEW_MEDIA_DIR` overrides take precedence.
 
 PosterView's administrator username defaults to `admin`. Change it with `POSTERVIEW_USERNAME`
 in your `.env` file or the **Administrator Username** field in the Unraid XML template, then
@@ -205,7 +167,7 @@ file before starting Compose, or let PosterView generate a strong password on fi
 retrieve it with:
 
 ```bash
-docker compose exec posterview cat /config/admin-password.txt
+docker compose exec posterview cat /data/admin-password.txt
 ```
 
 When an HTTPS reverse proxy terminates TLS, also set `POSTERVIEW_SECURE_COOKIES=true` so the
@@ -261,10 +223,10 @@ In **Settings → Privacy / Security**, you can configure:
   Auto sign-out and the Sign out button do not lock password-free local access. Disable this
   setting to require the existing password again.
 
-Preferences are saved in `/config/security-settings.json` and survive container restarts. To restore
+Preferences are saved in `/data/security-settings.json` and survive container restarts. To restore
 the defaults outside the UI, stop the container, remove only that settings file, then restart it.
 The password and media-server data are preserved. Sessions themselves are not persisted.
-The poster cache is stored separately under `/config/login-backdrop`, refreshes at startup, after a
+The poster cache is stored separately under `/data/login-backdrop`, refreshes at startup, after a
 successful login, when a server is added, or when the setting is enabled, and keeps the prior cache
 if the media server is temporarily unavailable. The login page has a clean themed fallback until
 the first cache is ready. Reduced-motion browser preferences pause the row animation.
@@ -280,7 +242,7 @@ To update after pulling new code: `docker compose up -d --build`.
 A ready-made Docker template is at [`templates/posterview.xml`](templates/posterview.xml) — it points at
 the pre-built image on GHCR (`ghcr.io/bamcel/poster-view:latest`, published automatically by
 [a GitHub Action](.github/workflows/docker-publish.yml) on every push to `main`), maps the web
-UI to port `7979`, persists `/config` to `/mnt/user/appdata/posterview`, and adds the same
+UI to port `7979`, persists `/data` to `/mnt/user/appdata/posterview`, and adds the same
 `host.docker.internal` mapping as the Compose file above.
 
 1. **Tools → Terminal** (or SSH in) and run:

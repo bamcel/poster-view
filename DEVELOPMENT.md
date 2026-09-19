@@ -42,7 +42,7 @@ the Unraid template explicitly defaults it to `false`. False bypasses authentica
 connections, not only LAN peers, and overrides inactivity and local-bypass settings. A startup
 warning is logged when disabled. Credentials are preserved so enabling login restores them.
 
-`GET/PUT /api/security/settings` manages `/config/security-settings.json` (or the configured data
+`GET/PUT /api/security/settings` manages `/data/security-settings.json` (or the configured data
 directory). `idle_timeout_minutes` is null for disabled, otherwise an integer from 1 to 1440.
 Sessions track monotonic last-activity time; only authenticated `POST /api/auth/activity` extends
 it. Normal API calls, status polling, and image loads never extend the session. The frontend sends
@@ -186,15 +186,15 @@ redirects are HTTPS-only and restricted to the selected provider's domain.
   explicit `ALTER TABLE ... ADD COLUMN` in `db._migrate()`, gated on a
   `PRAGMA table_info` check, run from `init_db()` on every startup.
 - **The container's non-root user doesn't survive a bind mount.** The Dockerfile
-  bakes in `chown -R posterview:posterview /config` at build time, which is enough for a
+  bakes in `chown -R posterview:posterview /data` at build time, which is enough for a
   Docker-managed named volume (docker-compose's `posterview-data`) since Docker
   copies that ownership over on first creation — but a bind mount to a host path
   (e.g. Unraid's `Type="Path"` config, which Unraid creates as root) always
   reflects the host directory's actual ownership and ignores the image, so
   `secret.key`/`posterview.db` writes previously failed with a permission error.
   Fixed by starting the container as root and using `docker-entrypoint.sh` to
-  repair ownership of the selected state directory at *runtime*, excluding media
-  roots (works for both bind mounts and named volumes), before dropping to uid 10001 via `setpriv --reuid=10001
+  `chown -R` `/data` at *runtime* (works for both bind mounts and named
+  volumes) before dropping to uid 10001 via `setpriv --reuid=10001
   --regid=10001 --init-groups`. Verified live: a fresh root-owned bind-mounted
   directory now starts cleanly and `docker top` confirms `posterview-server` runs
   as uid 10001, not root.

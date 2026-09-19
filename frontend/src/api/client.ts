@@ -57,8 +57,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-export { request as apiRequest };
-
 /** Build the proxied image URL for a normalized image ref. */
 export function imageUrl(serverId: number, ref?: string | null): string | undefined {
   if (!ref) return undefined;

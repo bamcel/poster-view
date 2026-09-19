@@ -4,7 +4,6 @@
 
 # Runtime data: SQLite db + encryption key + any cached state
 /data/
-/.env
 
 # --- Node / frontend ---
 node_modules/

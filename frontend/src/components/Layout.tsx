@@ -1,7 +1,7 @@
 // App chrome: a left sidebar (logo, nav, active-server picker) + routed content.
 
 import { NavLink, Outlet } from "react-router-dom";
-import { LibraryBig, FileText, History, LogOut, Settings, Server as ServerIcon } from "lucide-react";
+import { LibraryBig, History, LogOut, Settings, Server as ServerIcon } from "lucide-react";
 import { useServers } from "../lib/serverContext";
 import { Logo, ServerTypeBadge } from "./ui";
 import { api } from "../api/client";
@@ -10,7 +10,6 @@ import { AuthSessionContext } from "../lib/authContext";
 
 const navItems = [
   { to: "/", label: "Libraries", icon: LibraryBig, end: true },
-  { to: "/metadata", label: "Manga metadata", icon: FileText, end: false },
   { to: "/history", label: "History", icon: History, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];
@@ -27,7 +26,7 @@ export default function Layout() {
   return (
     <div className="flex h-full flex-col md:flex-row">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-sidebar/95 px-3 backdrop-blur-xl md:hidden">
-        <Logo className="mr-auto w-11 overflow-hidden min-[480px]:w-auto" />
+        <Logo className="mr-auto w-11 overflow-hidden min-[390px]:w-auto" />
         <nav className="flex items-center gap-1" aria-label="Primary navigation">
           {navItems.map(({ to, label, icon: Icon, end }) => (
             <NavLink
