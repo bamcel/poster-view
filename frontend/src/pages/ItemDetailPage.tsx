@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, BookOpen, ExternalLink, Images, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, Images, RefreshCw, X } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import PosterCard from "../components/PosterCard";
 import ArtworkPanel from "../components/ArtworkPanel";
@@ -206,18 +206,8 @@ export default function ItemDetailPage() {
                       </p>
                     )}
                     {metadataQ.data && (
-                      <section className="mt-5 max-w-3xl rounded-xl border border-white/10 bg-black/25 p-4 text-left shadow-xl backdrop-blur-sm [text-shadow:none]">
-                        <div className="flex items-center justify-between gap-3">
-                          <h2 className="flex items-center gap-2 font-semibold text-white">
-                            <BookOpen className="size-4 text-accent" /> Series metadata
-                          </h2>
-                          {metadataQ.data.source_url && (
-                            <a href={metadataQ.data.source_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs text-accent hover:underline">
-                              ComicVine <ExternalLink className="size-3" />
-                            </a>
-                          )}
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
+                      <section className="mt-5 max-w-2xl text-left [text-shadow:0_2px_12px_rgba(0,0,0,0.8)]">
+                        <div className="flex flex-wrap items-center gap-2">
                           {[
                             metadataQ.data.year && ["Year", metadataQ.data.year],
                             metadataQ.data.publisher && ["Publisher", metadataQ.data.publisher],
@@ -227,19 +217,16 @@ export default function ItemDetailPage() {
                             metadataQ.data.source_material && ["Source", metadataQ.data.source_material],
                           ].filter(Boolean).map((entry) => {
                             const [label, value] = entry as string[];
-                            return <span key={label} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80"><span className="text-white/50">{label}</span> · {value}</span>;
+                            return <span key={label} className="rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span className="text-white/50">{label}</span> · {value}</span>;
                           })}
+                          {metadataQ.data.source_url && (
+                            <a href={metadataQ.data.source_url} target="_blank" rel="noreferrer" className="ml-auto flex items-center gap-1 text-xs text-accent hover:underline">
+                              {metadataQ.data.anilist_id ? "AniList" : "ComicVine"} <ExternalLink className="size-3" />
+                            </a>
+                          )}
                         </div>
                         {metadataQ.data.native_title && <p className="mt-3 text-sm text-white/60">{metadataQ.data.native_title}</p>}
                         {metadataQ.data.plot && <p className="mt-3 text-sm leading-relaxed text-white/75">{metadataQ.data.plot}</p>}
-                        {(metadataQ.data.genres || metadataQ.data.tags) && (
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            {[metadataQ.data.genres, metadataQ.data.tags].filter(Boolean).flatMap((value) => value.split(", ")).slice(0, 10).map((value) => (
-                              <span key={value} className="rounded-full bg-accent/15 px-2.5 py-1 text-xs text-accent">{value}</span>
-                            ))}
-                          </div>
-                        )}
-                        {metadataQ.data.creators && <p className="mt-3 text-xs leading-relaxed text-white/60"><span className="font-medium text-white/80">Creators:</span> {metadataQ.data.creators}</p>}
                       </section>
                     )}
                   </div>
