@@ -50,6 +50,12 @@ pub struct ServerCreate {
     pub is_default: bool,
     #[serde(default)]
     pub nfo_metadata_enabled: bool,
+    #[serde(default = "default_true")]
+    pub show_missing_titles: bool,
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -61,6 +67,7 @@ pub struct ServerUpdate {
     pub token: Option<String>,
     pub is_default: Option<bool>,
     pub nfo_metadata_enabled: Option<bool>,
+    pub show_missing_titles: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -72,6 +79,7 @@ pub struct Server {
     pub base_url: String,
     pub is_default: bool,
     pub nfo_metadata_enabled: bool,
+    pub show_missing_titles: bool,
     pub has_token: bool,
     pub created_at: String,
     pub updated_at: String,

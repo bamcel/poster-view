@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS media_servers (
     token_enc   TEXT    NOT NULL DEFAULT '',
     is_default  INTEGER NOT NULL DEFAULT 0,
     nfo_metadata_enabled INTEGER NOT NULL DEFAULT 0,
+    show_missing_titles INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -95,7 +96,7 @@ impl ServerStore {
     pub fn list_servers(&self) -> Result<Vec<Server>, StoreError> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
-            "SELECT id, name, type, base_url, is_default, token_enc, created_at, updated_at, nfo_metadata_enabled
+            "SELECT id, name, type, base_url, is_default, token_enc, created_at, updated_at, nfo_metadata_enabled, show_missing_titles
              FROM media_servers ORDER BY is_default DESC, name COLLATE NOCASE",
         )?;
         statement
@@ -107,7 +108,7 @@ impl ServerStore {
     pub fn get_server(&self, id: i64) -> Result<Option<Server>, StoreError> {
         self.connection()?
             .query_row(
-                "SELECT id, name, type, base_url, is_default, token_enc, created_at, updated_at, nfo_metadata_enabled
+                "SELECT id, name, type, base_url, is_default, token_enc, created_at, updated_at, nfo_metadata_enabled, show_missing_titles
                  FROM media_servers WHERE id = ?1",
                 [id],
                 server_from_row,
@@ -124,8 +125,8 @@ impl ServerStore {
             transaction.execute("UPDATE media_servers SET is_default = 0", [])?;
         }
         transaction.execute(
-            "INSERT INTO media_servers (name, type, base_url, token_enc, is_default, nfo_metadata_enabled)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO media_servers (name, type, base_url, token_enc, is_default, nfo_metadata_enabled, show_missing_titles)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 input.name,
                 input.server_type.as_str(),
@@ -133,6 +134,7 @@ impl ServerStore {
                 cipher.encrypt(input.token.as_bytes()),
                 input.is_default,
                 input.nfo_metadata_enabled,
+                input.show_missing_titles,
             ],
         )?;
         let id = transaction.last_insert_rowid();
@@ -174,8 +176,9 @@ impl ServerStore {
                 token_enc = COALESCE(?4, token_enc),
                 is_default = COALESCE(?5, is_default),
                 nfo_metadata_enabled = COALESCE(?6, nfo_metadata_enabled),
+                show_missing_titles = COALESCE(?7, show_missing_titles),
                 updated_at = datetime('now')
-             WHERE id = ?7",
+             WHERE id = ?8",
             params![
                 input.name,
                 input.server_type.map(ServerType::as_str),
@@ -187,6 +190,7 @@ impl ServerStore {
                     .map(|token| cipher.encrypt(token.as_bytes())),
                 input.is_default,
                 input.nfo_metadata_enabled,
+                input.show_missing_titles,
                 id,
             ],
         )?;
@@ -429,6 +433,12 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             [],
         )?;
     }
+    if !columns.iter().any(|column| column == "show_missing_titles") {
+        connection.execute(
+            "ALTER TABLE media_servers ADD COLUMN show_missing_titles INTEGER NOT NULL DEFAULT 1",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -461,6 +471,7 @@ fn server_from_row(row: &rusqlite::Row<'_>) -> Result<Server, rusqlite::Error> {
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
         nfo_metadata_enabled: row.get(8)?,
+        show_missing_titles: row.get(9)?,
     })
 }
 
@@ -499,6 +510,7 @@ mod tests {
                 token: "secret-one".into(),
                 is_default: false,
                 nfo_metadata_enabled: false,
+                show_missing_titles: true,
             })
             .unwrap();
         assert!(first.is_default);
@@ -517,10 +529,12 @@ mod tests {
                 token: "secret-two".into(),
                 is_default: true,
                 nfo_metadata_enabled: true,
+                show_missing_titles: false,
             })
             .unwrap();
         assert!(second.is_default);
         assert!(second.nfo_metadata_enabled);
+        assert!(!second.show_missing_titles);
         assert!(!store.get_server(first.id).unwrap().unwrap().is_default);
 
         let updated = store

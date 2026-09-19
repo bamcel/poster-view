@@ -50,6 +50,7 @@ const BLANK: ServerInput = {
   token: "",
   is_default: false,
   nfo_metadata_enabled: false,
+  show_missing_titles: true,
 };
 
 const URL_PLACEHOLDER: Record<ServerType, string> = {
@@ -341,7 +342,7 @@ function ServersSection() {
 
   const startEdit = (s: Server) => {
     setEditingId(s.id);
-    setForm({ name: s.name, type: s.type, base_url: s.base_url, token: "", is_default: s.is_default, nfo_metadata_enabled: s.nfo_metadata_enabled });
+    setForm({ name: s.name, type: s.type, base_url: s.base_url, token: "", is_default: s.is_default, nfo_metadata_enabled: s.nfo_metadata_enabled, show_missing_titles: s.show_missing_titles !== false });
     setTestResult(null);
     setFormOpen(true);
   };
@@ -511,6 +512,21 @@ function ServersSection() {
             <span className="block text-white">Enable NFO metadata</span>
             <span className="block text-xs text-faint">
               Allow PosterView to create and maintain NFO files for this server. The configured media path must be writable.
+            </span>
+          </span>
+            </label>
+
+            <label className="mt-3 flex items-start gap-2 text-sm text-muted">
+          <input
+            type="checkbox"
+            checked={form.show_missing_titles}
+            onChange={(e) => setForm({ ...form, show_missing_titles: e.target.checked })}
+            className="mt-0.5 size-4 accent-[var(--color-accent)]"
+          />
+          <span>
+            <span className="block text-white">Show Missing Titles</span>
+            <span className="block text-xs text-faint">
+              Show a warning when fewer volumes or chapters are present than the NFO metadata expects.
             </span>
           </span>
             </label>

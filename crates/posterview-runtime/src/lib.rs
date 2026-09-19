@@ -681,6 +681,7 @@ mod tests {
                 token: "test".to_owned(),
                 is_default: true,
                 nfo_metadata_enabled: false,
+                show_missing_titles: true,
             })
             .expect("create server");
         runtime
@@ -730,6 +731,7 @@ mod tests {
                 token: "test".into(),
                 is_default: true,
                 nfo_metadata_enabled: false,
+                show_missing_titles: true,
             })
             .unwrap();
         let preview = PosterSearchResults {
