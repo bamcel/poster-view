@@ -35,7 +35,7 @@ encrypted at rest and never sent back to the browser._
 
 ## Experimental channel
 
-`main` publishes `ghcr.io/bamcel/poster-view:latest`. Experiments on `codex/experimental`
+`main` publishes `ghcr.io/bamcel/poster-view:latest`. Experiments on `experimental`
 publish `ghcr.io/bamcel/poster-view:experimental`; testing pushes never update `latest`.
 The testing branch starts from the current main version. Changes reach main only
 when deliberately merged. `experimental` is updated on pushes, not on a nightly schedule.
@@ -52,7 +52,7 @@ change its artwork, so use a test library/server when exercising apply actions.
 Switching back to `:latest` changes the software, not the stored data. Keep a backup
 before testing with existing appdata: a future experimental database change may
 not be compatible with older versions. Local development for this channel uses
-`git switch codex/experimental`; reviewed work can be merged into main through a PR.
+`git switch experimental`; reviewed work can be merged into main through a PR.
 
 ## Features
 
