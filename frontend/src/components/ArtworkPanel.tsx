@@ -111,7 +111,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
             <span className="text-xs font-medium text-muted">
               {sourceLayout === "list" ? "List" : "Compact"}
             </span>
-            <Switch label="Compact artwork sources" checked={sourceLayout === "compact"}
+            <Switch label="Compact artwork sources" checked={sourceLayout === "compact"} translucent
               onChange={() => chooseLayout(sourceLayout === "list" ? "compact" : "list")} />
           </div>
         </div>

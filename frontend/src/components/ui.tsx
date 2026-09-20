@@ -3,12 +3,12 @@
 import type { ReactNode } from "react";
 import { Loader2, Clapperboard } from "lucide-react";
 
-export function Switch({ checked, onChange, label, disabled }: {
-  checked: boolean; onChange: () => void; label: string; disabled?: boolean;
+export function Switch({ checked, onChange, label, disabled, translucent = false }: {
+  checked: boolean; onChange: () => void; label: string; disabled?: boolean; translucent?: boolean;
 }) {
   return <button type="button" role="switch" aria-label={label} aria-checked={checked} disabled={disabled}
     onClick={onChange} className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md disabled:opacity-50">
-    <span aria-hidden="true" className={`inline-flex h-6 w-11 items-center rounded-full transition-colors ${checked ? "bg-accent" : "bg-base"}`}>
+    <span aria-hidden="true" className={`inline-flex h-6 w-11 items-center rounded-full transition-colors ${translucent ? "backdrop-blur-sm" : ""} ${checked ? (translucent ? "bg-accent/50" : "bg-accent") : (translucent ? "bg-base/50" : "bg-base")}`}>
       <span className={`size-4 rounded-full bg-white transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`} />
     </span>
   </button>;
