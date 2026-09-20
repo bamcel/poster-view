@@ -1,4 +1,4 @@
-import type { ArtworkItem, ItemDetail } from "../types";
+import type { ItemDetail } from "../types";
 
 export function normalizeVolume(value?: string | null): string {
   const trimmed = value?.trim() ?? "";
@@ -26,20 +26,4 @@ export function detectManga(
       };
   }
   return { series: item.title, volume: normalizeVolume(item.volume) };
-}
-
-export function missingComicVineCoverAssignments(
-  item: ItemDetail,
-  artwork: ArtworkItem[],
-) {
-  if (item.type !== "folder") return [];
-  return item.members
-    .filter((member) => !member.poster)
-    .flatMap((member) => {
-      const volume = normalizeVolume(detectManga(member).volume);
-      const art = artwork.find(
-        (candidate) => normalizeVolume(candidate.manga?.volume) === volume,
-      );
-      return volume && art ? [{ member, art }] : [];
-    });
 }

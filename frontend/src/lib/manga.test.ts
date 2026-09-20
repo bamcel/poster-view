@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { detectManga, missingComicVineCoverAssignments, normalizeVolume } from "./manga";
+import { detectManga, normalizeVolume } from "./manga";
 
 it.each([
   "Food Wars - Volume 14.epub",
@@ -10,22 +10,6 @@ it.each([
   expect(detectManga({ title })).toEqual({ series: "Food Wars", volume: "14" });
 });
 
-it("matches ComicVine artwork only to volumes that are missing covers", () => {
-  const item = {
-    id: "series", title: "Series", type: "folder" as const, seasons: [], external_ids: {},
-    members: [
-      { id: "1", title: "Series - Volume 01", type: "book" as const, poster: null },
-      { id: "2", title: "Volume 02", type: "book" as const, poster: "cover" },
-      { id: "extra", title: "_Art Book", type: "book" as const, poster: null },
-    ],
-  };
-  const artwork = ["1", "2"].map((volume) => ({
-    id: volume, provider: "comicvine", type: "poster" as const, kind: "book" as const, title: null,
-    season_number: null, lang: "en", likes: null, thumb_url: "thumb", download_url: "cover",
-    applyable: true, source_url: null, manga: { mangadex_id: "", volume, locale: "en", description: null },
-  }));
-  expect(missingComicVineCoverAssignments(item, artwork).map(({ member }) => member.id)).toEqual(["1"]);
-});
 it("uses a filename when the title has no volume, with metadata taking precedence", () => {
   expect(
     detectManga({
