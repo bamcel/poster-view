@@ -12,10 +12,13 @@ export interface ApplyTarget {
   target: ImageTarget;
 }
 
-export function buildApplyTargets(item: ItemDetail): ApplyTarget[] {
+export function buildApplyTargets(item: ItemDetail, includeFolderBackdrop = false): ApplyTarget[] {
   const base: ApplyTarget[] =
     item.type === "folder"
-      ? [{ label: "Series cover", itemId: item.id, target: "poster" }]
+      ? [
+          { label: "Series cover", itemId: item.id, target: "poster" },
+          ...(includeFolderBackdrop ? [{ label: "Series backdrop", itemId: item.id, target: "background" as const }] : []),
+        ]
       : [
           { label: "Poster", itemId: item.id, target: "poster" },
           { label: "Background", itemId: item.id, target: "background" },

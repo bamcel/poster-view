@@ -212,7 +212,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
         ) : provider === "comicvine" ? (
           <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} database="comicvine" prefill={navigationTarget?.provider === "comicvine" ? navigationTarget : undefined} onReviewMetadata={onReviewMetadata} />
         ) : provider === "manual" ? (
-          <ManualUpload serverId={serverId} item={item} />
+          <ManualUpload serverId={serverId} item={item} includeFolderBackdrop={mediaKind === "book"} />
         ) : (
           <ArtworkBrowser key={panelVersion} provider={provider} serverId={serverId} item={item} metadataId={provider === "anilist-manga" ? anilistMangaId : undefined} prefill={navigationTarget?.provider === provider ? navigationTarget : undefined} onReviewMetadata={onReviewMetadata} />
         )}

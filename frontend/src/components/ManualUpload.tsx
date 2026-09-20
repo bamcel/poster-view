@@ -10,7 +10,7 @@ import { useToast } from "../lib/toast";
 import { buildApplyTargets } from "../lib/targets";
 import type { ItemDetail } from "../types";
 
-export default function ManualUpload({ serverId, item }: { serverId: number; item: ItemDetail }) {
+export default function ManualUpload({ serverId, item, includeFolderBackdrop = false }: { serverId: number; item: ItemDetail; includeFolderBackdrop?: boolean }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
@@ -18,7 +18,7 @@ export default function ManualUpload({ serverId, item }: { serverId: number; ite
   const [targetIndex, setTargetIndex] = useState(0);
   const [busy, setBusy] = useState(false);
 
-  const targets = useMemo(() => buildApplyTargets(item), [item]);
+  const targets = useMemo(() => buildApplyTargets(item, includeFolderBackdrop), [includeFolderBackdrop, item]);
 
   // Object URL for a chosen file (revoked on change).
   const [fileUrl, setFileUrl] = useState<string | null>(null);
