@@ -269,7 +269,7 @@ export default function LibraryPage() {
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="border-b border-border px-4 pt-1 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
           {/* Library tabs */}
           <div className="col-start-1 row-start-1 min-w-0">
             <div className="flex gap-1 overflow-x-auto pb-px">
@@ -295,22 +295,25 @@ export default function LibraryPage() {
               ))}
             </div>
           </div>
-          <div className="relative col-span-2 row-start-2 mx-auto mb-3 w-full max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
-            <input
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              aria-label="Search Titles"
-              placeholder="Search Titles…"
-              className="w-full rounded-full border border-border bg-surface-2 py-2 pl-9 pr-3 text-sm outline-none focus:border-accent"
-            />
-          </div>
           {showGroupCollections && (
             <label className="col-start-2 row-start-1 flex flex-col items-center justify-end gap-1 text-xs text-muted sm:flex-row sm:gap-2 sm:text-sm">
               <span className="max-w-20 text-center sm:max-w-none sm:text-left">Group Collections</span>
               <Switch label="Group Collections" checked={groupCollections} onChange={toggleGroupCollections} />
             </label>
           )}
+        </div>
+      </div>
+
+      <div className="shrink-0 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="relative mx-auto w-full max-w-md">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
+          <input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            aria-label="Search Titles"
+            placeholder="Search Titles…"
+            className="w-full rounded-full border border-border bg-surface-2 py-2 pl-9 pr-3 text-sm outline-none focus:border-accent"
+          />
         </div>
       </div>
 
