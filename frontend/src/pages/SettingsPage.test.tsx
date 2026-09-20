@@ -129,9 +129,9 @@ it("persists and resets Dashboard appearance controls", () => {
   fireEvent.click(backdropSwitch);
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("true");
   expect(localStorage.getItem("posterview.dashboardBackdropEnabled")).toBe("true");
-  fireEvent.change(screen.getByLabelText("Solid panel color"), { target: { value: "65" } });
-  fireEvent.change(screen.getByLabelText("Backdrop blur"), { target: { value: "20" } });
-  fireEvent.change(screen.getByLabelText("Dark overlay"), { target: { value: "80" } });
+  fireEvent.change(screen.getByLabelText("Panel Color"), { target: { value: "65" } });
+  fireEvent.change(screen.getByLabelText("Panel Blur"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("Panel Overlay"), { target: { value: "80" } });
   expect(localStorage.getItem("posterview.panelSolidity")).toBe("65");
   expect(localStorage.getItem("posterview.backdropBlur")).toBe("20");
   expect(localStorage.getItem("posterview.darkOverlay")).toBe("80");

@@ -250,9 +250,9 @@ function AppearanceSection() {
             </div>
             <Switch label="Show backdrops" checked={showBackdrops} onChange={() => changeBackdrops(!showBackdrops)} />
           </div>
-          <DashboardSlider label="Solid panel color" value={panelSolid} suffix="%" min={0} max={100} onChange={changePanelSolid} start="Transparent" end="Solid" />
-          <DashboardSlider label="Backdrop blur" value={blur} suffix="px" min={0} max={30} step={2} onChange={changeBlur} start="No blur" end="Blurred" />
-          <DashboardSlider label="Dark overlay" value={overlay} suffix="%" min={0} max={95} onChange={changeOverlay} start="Light" end="Dark" />
+          <DashboardSlider label="Panel Color" value={panelSolid} suffix="%" min={0} max={100} onChange={changePanelSolid} start="Transparent" end="Solid" />
+          <DashboardSlider label="Panel Blur" value={blur} suffix="px" min={0} max={30} step={2} onChange={changeBlur} start="No blur" end="Blurred" />
+          <DashboardSlider label="Panel Overlay" value={overlay} suffix="%" min={0} max={95} onChange={changeOverlay} start="Light" end="Dark" />
           <button type="button" onClick={resetDashboard} className="mt-4 h-10 rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted transition-colors hover:bg-button-hover hover:text-white">Reset to default</button>
         </div>
 
