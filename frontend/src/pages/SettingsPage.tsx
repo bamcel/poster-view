@@ -42,7 +42,7 @@ import {
 } from "../lib/theme";
 import SecuritySection from "../components/SecuritySection";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
-import { dashboardBackdropEnabled, setDashboardBackdropEnabled } from "../lib/dashboardSettings";
+import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROPS_ENABLED, DEFAULT_DARK_OVERLAY, DEFAULT_PANEL_SOLIDITY, backdropBlur, darkOverlay, dashboardBackdropEnabled, panelSolidity, setBackdropBlur, setDarkOverlay, setDashboardBackdropEnabled, setPanelSolidity } from "../lib/dashboardSettings";
 
 const BLANK: ServerInput = {
   name: "",
@@ -144,10 +144,27 @@ function AppearanceSection() {
   const [customName, setCustomName] = useState("");
   const [message, setMessage] = useState("");
   const [showBackdrops, setShowBackdrops] = useState(dashboardBackdropEnabled);
+  const [panelSolid, setPanelSolid] = useState(panelSolidity);
+  const [blur, setBlur] = useState(backdropBlur);
+  const [overlay, setOverlay] = useState(darkOverlay);
 
   const changeBackdrops = (enabled: boolean) => {
     setShowBackdrops(enabled);
     setDashboardBackdropEnabled(enabled);
+    reportSettingsSave("saved");
+  };
+  const changePanelSolid = (value: number) => { setPanelSolid(value); setPanelSolidity(value); reportSettingsSave("saved"); };
+  const changeBlur = (value: number) => { setBlur(value); setBackdropBlur(value); reportSettingsSave("saved"); };
+  const changeOverlay = (value: number) => { setOverlay(value); setDarkOverlay(value); reportSettingsSave("saved"); };
+  const resetDashboard = () => {
+    setShowBackdrops(DEFAULT_BACKDROPS_ENABLED);
+    setPanelSolid(DEFAULT_PANEL_SOLIDITY);
+    setBlur(DEFAULT_BACKDROP_BLUR);
+    setOverlay(DEFAULT_DARK_OVERLAY);
+    setDashboardBackdropEnabled(DEFAULT_BACKDROPS_ENABLED);
+    setPanelSolidity(DEFAULT_PANEL_SOLIDITY);
+    setBackdropBlur(DEFAULT_BACKDROP_BLUR);
+    setDarkOverlay(DEFAULT_DARK_OVERLAY);
     reportSettingsSave("saved");
   };
 
@@ -221,13 +238,19 @@ function AppearanceSection() {
     <section className="h-full min-h-0 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <div className="mx-auto min-h-full w-full max-w-4xl">
         <div className="rounded-xl border border-border bg-surface-2 p-4">
+          <h2 className="text-lg font-semibold">Dashboard</h2>
+          <p className="mt-1 text-sm text-faint">Customize dashboard artwork and panel visibility.</p>
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold">Backdrops</h2>
-              <p className="mt-1 text-sm text-faint">Show rotating Dashboard artwork and selected-series backgrounds.</p>
+              <p className="mt-4 text-sm font-medium text-white">Show backdrops</p>
+              <p className="mt-1 text-xs text-faint">Show rotating Dashboard artwork and selected-series backgrounds.</p>
             </div>
             <Switch label="Show backdrops" checked={showBackdrops} onChange={() => changeBackdrops(!showBackdrops)} />
           </div>
+          <DashboardSlider label="Solid panel color" value={panelSolid} suffix="%" min={0} max={100} onChange={changePanelSolid} start="Transparent" end="Solid" />
+          <DashboardSlider label="Backdrop blur" value={blur} suffix="px" min={0} max={30} step={2} onChange={changeBlur} start="No blur" end="Blurred" />
+          <DashboardSlider label="Dark overlay" value={overlay} suffix="%" min={0} max={95} onChange={changeOverlay} start="Light" end="Dark" />
+          <button type="button" onClick={resetDashboard} className="mt-4 h-10 rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted transition-colors hover:bg-button-hover hover:text-white">Reset to default</button>
         </div>
 
         <div className="mt-4 border-t border-border pt-4">
@@ -289,6 +312,19 @@ function AppearanceSection() {
         </div>
       </div>
     </section>
+  );
+}
+
+function DashboardSlider({ label, value, suffix, min, max, step = 1, onChange, start, end }: { label: string; value: number; suffix: string; min: number; max: number; step?: number; onChange: (value: number) => void; start: string; end: string }) {
+  return (
+    <label className="mt-4 block text-sm font-medium text-white">
+      <span className="flex items-center justify-between gap-3">
+        <span>{label}</span>
+        <span className="text-xs font-semibold text-accent">{value}{suffix}</span>
+      </span>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} aria-label={label} className="mt-3 w-full accent-[var(--color-accent)]" />
+      <span className="mt-1 flex justify-between text-xs font-normal text-faint"><span>{start}</span><span>{end}</span></span>
+    </label>
   );
 }
 

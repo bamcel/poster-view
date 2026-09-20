@@ -5,8 +5,9 @@ import { LayoutDashboard, History, LogOut, Settings, Server as ServerIcon } from
 import { useServers } from "../lib/serverContext";
 import { Logo, ServerTypeBadge } from "./ui";
 import { api } from "../api/client";
-import { useContext } from "react";
+import { useContext, useEffect, useState } from "react";
 import { AuthSessionContext } from "../lib/authContext";
+import { BACKDROP_BLUR_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -19,6 +20,19 @@ export default function Layout() {
   const { servers, selectedId, setSelectedId } = useServers();
   const showSignOut = useContext(AuthSessionContext)?.password_required !== false;
   const selectedTitleOpen = /^\/server\/[^/]+\/item\/[^/]+/.test(location.pathname);
+  const [panelSolid, setPanelSolid] = useState(panelSolidity);
+  const [panelBlur, setPanelBlur] = useState(backdropBlur);
+
+  useEffect(() => {
+    const updateSolidity = (event: Event) => setPanelSolid((event as CustomEvent<number>).detail);
+    const updateBlur = (event: Event) => setPanelBlur((event as CustomEvent<number>).detail);
+    window.addEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
+    window.addEventListener(BACKDROP_BLUR_EVENT, updateBlur);
+    return () => {
+      window.removeEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
+      window.removeEventListener(BACKDROP_BLUR_EVENT, updateBlur);
+    };
+  }, []);
 
   async function signOut() {
     await api.authLogout();
@@ -70,8 +84,8 @@ export default function Layout() {
       </div>
 
       <aside
-        className="relative z-20 hidden w-[14.75rem] shrink-0 flex-col border-r border-border bg-sidebar/40 px-3 py-5 backdrop-blur-md md:flex"
-        style={{ backgroundImage: selectedTitleOpen ? "linear-gradient(rgb(0 0 0 / 55%), rgb(0 0 0 / 55%))" : undefined }}
+        className="relative z-20 hidden w-[14.75rem] shrink-0 flex-col border-r border-border px-3 py-5 md:flex"
+        style={{ backgroundColor: translucentPanelColor("--color-sidebar", panelSolid), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)`, backgroundImage: selectedTitleOpen ? "linear-gradient(rgb(0 0 0 / 55%), rgb(0 0 0 / 55%))" : undefined }}
       >
         <div className="mb-8 px-1">
           <Logo />

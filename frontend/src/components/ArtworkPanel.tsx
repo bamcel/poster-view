@@ -16,6 +16,7 @@ import MangaDexPanel from "./MangaDexPanel";
 import VizPanel from "./VizPanel";
 import { useToast } from "../lib/toast";
 import { artworkMediaKind, providerMatchesMediaKind } from "../lib/mediaKind";
+import { BACKDROP_BLUR_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
 interface Props {
   serverId: number;
@@ -42,8 +43,21 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   );
   const [refreshing, setRefreshing] = useState(false);
   const [panelVersion, setPanelVersion] = useState(0);
+  const [panelSolid, setPanelSolid] = useState(panelSolidity);
+  const [panelBlur, setPanelBlur] = useState(backdropBlur);
   const queryClient = useQueryClient();
   const toast = useToast();
+
+  useEffect(() => {
+    const updateSolidity = (event: Event) => setPanelSolid((event as CustomEvent<number>).detail);
+    const updateBlur = (event: Event) => setPanelBlur((event as CustomEvent<number>).detail);
+    window.addEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
+    window.addEventListener(BACKDROP_BLUR_EVENT, updateBlur);
+    return () => {
+      window.removeEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
+      window.removeEventListener(BACKDROP_BLUR_EVENT, updateBlur);
+    };
+  }, []);
   const providersQ = useQuery({ queryKey: ["artwork-providers"], queryFn: api.artworkProviders });
   const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
   const enabled = settingsQ.data?.enabled_providers ?? [];
@@ -102,8 +116,8 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
 
   return (
     <div
-      className="flex h-full flex-col border-l border-border bg-surface/40 backdrop-blur-xl"
-      style={{ backgroundImage: "linear-gradient(rgb(0 0 0 / 55%), rgb(0 0 0 / 55%))" }}
+      className="flex h-full flex-col border-l border-border"
+      style={{ backgroundColor: translucentPanelColor("--color-surface", panelSolid), backdropFilter: `blur(${panelBlur * 2}px)`, WebkitBackdropFilter: `blur(${panelBlur * 2}px)`, backgroundImage: "linear-gradient(rgb(0 0 0 / 55%), rgb(0 0 0 / 55%))" }}
     >
       <div className="border-b border-border p-3">
         <div className="mb-2 flex items-center justify-between gap-3 px-1">

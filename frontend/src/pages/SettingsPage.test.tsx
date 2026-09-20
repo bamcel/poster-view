@@ -115,7 +115,7 @@ it("keeps the add server form collapsed until requested", async () => {
   client.clear();
 });
 
-it("places the backdrop option in Appearance and persists it", () => {
+it("persists and resets Dashboard appearance controls", () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
 
@@ -123,11 +123,23 @@ it("places the backdrop option in Appearance and persists it", () => {
   expect(screen.getByRole("heading", { name: "Server" })).toBeTruthy();
   expect(screen.queryByRole("switch", { name: "Show backdrops" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+  expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
   const backdropSwitch = screen.getByRole("switch", { name: "Show backdrops" });
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(backdropSwitch);
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("true");
   expect(localStorage.getItem("posterview.dashboardBackdropEnabled")).toBe("true");
+  fireEvent.change(screen.getByLabelText("Solid panel color"), { target: { value: "65" } });
+  fireEvent.change(screen.getByLabelText("Backdrop blur"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("Dark overlay"), { target: { value: "80" } });
+  expect(localStorage.getItem("posterview.panelSolidity")).toBe("65");
+  expect(localStorage.getItem("posterview.backdropBlur")).toBe("20");
+  expect(localStorage.getItem("posterview.darkOverlay")).toBe("80");
+  fireEvent.click(screen.getByRole("button", { name: "Reset to default" }));
+  expect(backdropSwitch.getAttribute("aria-checked")).toBe("false");
+  expect(localStorage.getItem("posterview.panelSolidity")).toBe("40");
+  expect(localStorage.getItem("posterview.backdropBlur")).toBe("12");
+  expect(localStorage.getItem("posterview.darkOverlay")).toBe("72");
   client.clear();
 });
 
