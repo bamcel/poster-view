@@ -122,8 +122,10 @@ it("applies live panel solidity and blur settings to search controls", async () 
 
   window.dispatchEvent(new CustomEvent("posterview:panel-solidity", { detail: 30 }));
   window.dispatchEvent(new CustomEvent("posterview:backdrop-blur", { detail: 6 }));
+  window.dispatchEvent(new CustomEvent("posterview:panel-overlay", { detail: 25 }));
   await waitFor(() => {
     expect(search.getAttribute("style")).toContain("30%");
+    expect(search.getAttribute("style")).toContain("75%");
     expect(filterButton.getAttribute("style")).toContain("blur(6px)");
   });
   client.clear();

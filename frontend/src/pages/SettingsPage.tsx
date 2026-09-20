@@ -43,7 +43,7 @@ import {
 } from "../lib/theme";
 import SecuritySection from "../components/SecuritySection";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
-import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROPS_ENABLED, DEFAULT_DARK_OVERLAY, DEFAULT_PANEL_SOLIDITY, backdropBlur, darkOverlay, dashboardBackdropEnabled, panelSolidity, setBackdropBlur, setDarkOverlay, setDashboardBackdropEnabled, setPanelSolidity } from "../lib/dashboardSettings";
+import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROP_OVERLAY, DEFAULT_BACKDROPS_ENABLED, DEFAULT_PANEL_OVERLAY, DEFAULT_PANEL_SOLIDITY, backdropBlur, backdropOverlay, dashboardBackdropEnabled, panelOverlay, panelSolidity, setBackdropBlur, setBackdropOverlay, setDashboardBackdropEnabled, setPanelOverlay, setPanelSolidity } from "../lib/dashboardSettings";
 
 const BLANK: ServerInput = {
   name: "",
@@ -147,7 +147,8 @@ function AppearanceSection() {
   const [showBackdrops, setShowBackdrops] = useState(dashboardBackdropEnabled);
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [blur, setBlur] = useState(backdropBlur);
-  const [overlay, setOverlay] = useState(darkOverlay);
+  const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
+  const [backdropOverlayStrength, setBackdropOverlayStrength] = useState(backdropOverlay);
 
   const changeBackdrops = (enabled: boolean) => {
     setShowBackdrops(enabled);
@@ -156,16 +157,19 @@ function AppearanceSection() {
   };
   const changePanelSolid = (value: number) => { setPanelSolid(value); setPanelSolidity(value); reportSettingsSave("saved"); };
   const changeBlur = (value: number) => { setBlur(value); setBackdropBlur(value); reportSettingsSave("saved"); };
-  const changeOverlay = (value: number) => { setOverlay(value); setDarkOverlay(value); reportSettingsSave("saved"); };
+  const changePanelOverlay = (value: number) => { setPanelOverlayStrength(value); setPanelOverlay(value); reportSettingsSave("saved"); };
+  const changeBackdropOverlay = (value: number) => { setBackdropOverlayStrength(value); setBackdropOverlay(value); reportSettingsSave("saved"); };
   const resetDashboard = () => {
     setShowBackdrops(DEFAULT_BACKDROPS_ENABLED);
     setPanelSolid(DEFAULT_PANEL_SOLIDITY);
     setBlur(DEFAULT_BACKDROP_BLUR);
-    setOverlay(DEFAULT_DARK_OVERLAY);
+    setPanelOverlayStrength(DEFAULT_PANEL_OVERLAY);
+    setBackdropOverlayStrength(DEFAULT_BACKDROP_OVERLAY);
     setDashboardBackdropEnabled(DEFAULT_BACKDROPS_ENABLED);
     setPanelSolidity(DEFAULT_PANEL_SOLIDITY);
     setBackdropBlur(DEFAULT_BACKDROP_BLUR);
-    setDarkOverlay(DEFAULT_DARK_OVERLAY);
+    setPanelOverlay(DEFAULT_PANEL_OVERLAY);
+    setBackdropOverlay(DEFAULT_BACKDROP_OVERLAY);
     reportSettingsSave("saved");
   };
 
@@ -252,7 +256,8 @@ function AppearanceSection() {
           </div>
           <DashboardSlider label="Panel Color" value={panelSolid} suffix="%" min={0} max={100} onChange={changePanelSolid} start="Transparent" end="Solid" />
           <DashboardSlider label="Panel Blur" value={blur} suffix="px" min={0} max={30} step={2} onChange={changeBlur} start="No blur" end="Blurred" />
-          <DashboardSlider label="Panel Overlay" value={overlay} suffix="%" min={0} max={95} onChange={changeOverlay} start="Light" end="Dark" />
+          <DashboardSlider label="Panel Overlay" value={panelOverlayStrength} suffix="%" min={0} max={95} onChange={changePanelOverlay} start="Light" end="Dark" />
+          <DashboardSlider label="Backdrop Overlay" value={backdropOverlayStrength} suffix="%" min={0} max={95} onChange={changeBackdropOverlay} start="Light" end="Dark" />
           <button type="button" onClick={resetDashboard} className="mt-4 h-10 rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted transition-colors hover:bg-button-hover hover:text-white">Reset to default</button>
         </div>
 

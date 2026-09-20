@@ -12,7 +12,7 @@ import PosterCard from "../components/PosterCard";
 import { EmptyState, Spinner, Switch } from "../components/ui";
 import { useToast } from "../lib/toast";
 import { isBookRelatedLibraryName } from "../lib/mediaKind";
-import { BACKDROP_BLUR_EVENT, DARK_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, backdropOverlayGradients, darkOverlay, dashboardBackdropEnabled, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
+import { BACKDROP_BLUR_EVENT, BACKDROP_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, backdropOverlay, backdropOverlayGradients, dashboardBackdropEnabled, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
 const GROUP_COLLECTIONS_KEY = "posterview.groupCollections";
 const LAST_VISIT_PREFIX = "posterview.lastVisit.";
@@ -39,9 +39,10 @@ export default function DashboardPage() {
   const [automaticRootId, setAutomaticRootId] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
-  const [overlayStrength, setOverlayStrength] = useState(darkOverlay);
+  const [overlayStrength, setOverlayStrength] = useState(backdropOverlay);
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
+  const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
   const libraryBodyRef = useRef<HTMLDivElement>(null);
   const filterMenuRef = useRef<HTMLDetailsElement>(null);
   const restoredScrollKeyRef = useRef<string | null>(null);
@@ -207,17 +208,20 @@ export default function DashboardPage() {
     const updateOverlay = (event: Event) => setOverlayStrength((event as CustomEvent<number>).detail);
     const updateSolidity = (event: Event) => setPanelSolid((event as CustomEvent<number>).detail);
     const updateBlur = (event: Event) => setPanelBlur((event as CustomEvent<number>).detail);
+    const updatePanelOverlay = (event: Event) => setPanelOverlayStrength((event as CustomEvent<number>).detail);
     const updateFromStorage = () => setShowBackdrop(dashboardBackdropEnabled());
     window.addEventListener(DASHBOARD_BACKDROP_EVENT, update);
-    window.addEventListener(DARK_OVERLAY_EVENT, updateOverlay);
+    window.addEventListener(BACKDROP_OVERLAY_EVENT, updateOverlay);
     window.addEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
     window.addEventListener(BACKDROP_BLUR_EVENT, updateBlur);
+    window.addEventListener(PANEL_OVERLAY_EVENT, updatePanelOverlay);
     window.addEventListener("storage", updateFromStorage);
     return () => {
       window.removeEventListener(DASHBOARD_BACKDROP_EVENT, update);
-      window.removeEventListener(DARK_OVERLAY_EVENT, updateOverlay);
+      window.removeEventListener(BACKDROP_OVERLAY_EVENT, updateOverlay);
       window.removeEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
       window.removeEventListener(BACKDROP_BLUR_EVENT, updateBlur);
+      window.removeEventListener(PANEL_OVERLAY_EVENT, updatePanelOverlay);
       window.removeEventListener("storage", updateFromStorage);
     };
   }, []);
@@ -398,14 +402,14 @@ export default function DashboardPage() {
               aria-label="Search titles"
               placeholder="Search titles"
               className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent focus:text-white md:text-sm"
-              style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
+              style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
             />
           </div>
           <details ref={filterMenuRef} className="group relative">
             <summary
               aria-label="Filter and sort titles"
               className={`grid size-10 cursor-pointer list-none place-items-center rounded-full border text-muted outline-none marker:hidden hover:text-white ${artworkFilter !== "all" || titleSort !== "title" ? "border-accent text-accent" : "border-border"}`}
-              style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
+              style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
             >
               <ListFilter className="size-4" />
             </summary>

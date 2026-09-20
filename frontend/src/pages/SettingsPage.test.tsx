@@ -132,13 +132,16 @@ it("persists and resets Dashboard appearance controls", () => {
   fireEvent.change(screen.getByLabelText("Panel Color"), { target: { value: "65" } });
   fireEvent.change(screen.getByLabelText("Panel Blur"), { target: { value: "20" } });
   fireEvent.change(screen.getByLabelText("Panel Overlay"), { target: { value: "80" } });
+  fireEvent.change(screen.getByLabelText("Backdrop Overlay"), { target: { value: "75" } });
   expect(localStorage.getItem("posterview.panelSolidity")).toBe("65");
   expect(localStorage.getItem("posterview.backdropBlur")).toBe("20");
-  expect(localStorage.getItem("posterview.darkOverlay")).toBe("80");
+  expect(localStorage.getItem("posterview.panelOverlay")).toBe("80");
+  expect(localStorage.getItem("posterview.darkOverlay")).toBe("75");
   fireEvent.click(screen.getByRole("button", { name: "Reset to default" }));
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("false");
   expect(localStorage.getItem("posterview.panelSolidity")).toBe("40");
   expect(localStorage.getItem("posterview.backdropBlur")).toBe("12");
+  expect(localStorage.getItem("posterview.panelOverlay")).toBe("0");
   expect(localStorage.getItem("posterview.darkOverlay")).toBe("72");
   client.clear();
 });

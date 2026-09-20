@@ -16,7 +16,7 @@ import MangaDexPanel from "./MangaDexPanel";
 import VizPanel from "./VizPanel";
 import { useToast } from "../lib/toast";
 import { artworkMediaKind, providerMatchesMediaKind } from "../lib/mediaKind";
-import { BACKDROP_BLUR_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
+import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
 interface Props {
   serverId: number;
@@ -45,6 +45,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   const [panelVersion, setPanelVersion] = useState(0);
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
+  const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
   const [otherSourcesOpen, setOtherSourcesOpen] = useState(false);
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -52,11 +53,14 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   useEffect(() => {
     const updateSolidity = (event: Event) => setPanelSolid((event as CustomEvent<number>).detail);
     const updateBlur = (event: Event) => setPanelBlur((event as CustomEvent<number>).detail);
+    const updateOverlay = (event: Event) => setPanelOverlayStrength((event as CustomEvent<number>).detail);
     window.addEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
     window.addEventListener(BACKDROP_BLUR_EVENT, updateBlur);
+    window.addEventListener(PANEL_OVERLAY_EVENT, updateOverlay);
     return () => {
       window.removeEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
       window.removeEventListener(BACKDROP_BLUR_EVENT, updateBlur);
+      window.removeEventListener(PANEL_OVERLAY_EVENT, updateOverlay);
     };
   }, []);
   const providersQ = useQuery({ queryKey: ["artwork-providers"], queryFn: api.artworkProviders });
@@ -147,7 +151,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   return (
     <div
       className="flex h-full flex-col border-l border-border"
-      style={{ backgroundColor: translucentPanelColor("--color-surface", panelSolid), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
+      style={{ backgroundColor: translucentPanelColor("--color-surface", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
     >
       <div className="border-b border-border p-3">
         <div className="mb-2 flex items-center justify-between gap-3 px-1">

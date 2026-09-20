@@ -7,7 +7,7 @@ import { Logo, ServerTypeBadge } from "./ui";
 import { api } from "../api/client";
 import { useContext, useEffect, useState } from "react";
 import { AuthSessionContext } from "../lib/authContext";
-import { BACKDROP_BLUR_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
+import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -20,15 +20,19 @@ export default function Layout() {
   const showSignOut = useContext(AuthSessionContext)?.password_required !== false;
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
+  const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
 
   useEffect(() => {
     const updateSolidity = (event: Event) => setPanelSolid((event as CustomEvent<number>).detail);
     const updateBlur = (event: Event) => setPanelBlur((event as CustomEvent<number>).detail);
+    const updateOverlay = (event: Event) => setPanelOverlayStrength((event as CustomEvent<number>).detail);
     window.addEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
     window.addEventListener(BACKDROP_BLUR_EVENT, updateBlur);
+    window.addEventListener(PANEL_OVERLAY_EVENT, updateOverlay);
     return () => {
       window.removeEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
       window.removeEventListener(BACKDROP_BLUR_EVENT, updateBlur);
+      window.removeEventListener(PANEL_OVERLAY_EVENT, updateOverlay);
     };
   }, []);
 
@@ -83,7 +87,7 @@ export default function Layout() {
 
       <aside
         className="relative z-20 hidden w-[14.75rem] shrink-0 flex-col border-r border-border px-3 py-5 md:flex"
-        style={{ backgroundColor: translucentPanelColor("--color-sidebar", panelSolid), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
+        style={{ backgroundColor: translucentPanelColor("--color-sidebar", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
       >
         <div className="mb-8 px-1">
           <Logo />
