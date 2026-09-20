@@ -342,7 +342,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="relative z-10 shrink-0 px-4 py-3 sm:px-6 lg:px-8">
+      <div className="relative z-30 shrink-0 px-4 py-3 sm:px-6 lg:px-8">
         <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
           {folderId && (
             <button
