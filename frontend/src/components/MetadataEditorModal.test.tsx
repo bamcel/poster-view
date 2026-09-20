@@ -50,6 +50,8 @@ it("keeps existing and imported provider source URLs together", () => {
 
   expect(screen.getByRole("link", { name: /AniList/ })).toBeTruthy();
   expect(screen.getByRole("link", { name: /ComicVine/ })).toBeTruthy();
+  expect(screen.getByLabelText("AniList URL")).toBeTruthy();
+  expect(screen.getByLabelText("ComicVine URL")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   expect(save).toHaveBeenCalledWith(expect.objectContaining({
     source_url: "https://anilist.co/manga/99022\nhttps://comicvine.gamespot.com/volume/4050-132428/",

@@ -51,6 +51,13 @@ export default function MetadataEditorModal({
     return () => window.removeEventListener("keydown", close);
   }, [onClose, saving]);
   const set = (key: keyof NfoMetadata, value: string) => setFields((current) => ({ ...current, [key]: value }));
+  const sourceUrls = fields.source_url.split(/\r?\n/).map((url) => url.trim()).filter(Boolean);
+  const displayedSourceUrls = sourceUrls.length ? sourceUrls : [""];
+  const setSourceUrl = (index: number, value: string) => {
+    const next = [...displayedSourceUrls];
+    next[index] = value;
+    set("source_url", next.map((url) => url.trim()).filter(Boolean).join("\n"));
+  };
   const submit = (event: FormEvent) => { event.preventDefault(); onSave(fields); };
   const input = "mt-1 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-white outline-none transition-colors focus:border-accent";
   const labels: Partial<Record<keyof NfoMetadata, string>> = {
@@ -162,18 +169,19 @@ export default function MetadataEditorModal({
                   )}
                 </span>
               </label>
-               <label className="text-sm text-muted sm:col-span-2">
-                 Source URLs
-                 <textarea rows={Math.max(2, fields.source_url.split(/\r?\n/).filter(Boolean).length)} className={input} value={fields.source_url} onChange={(e) => set("source_url", e.target.value)} placeholder="One URL per line" />
-                 <span className="mt-2 flex flex-wrap gap-2">
-                   {fields.source_url.split(/\r?\n/).map((url) => url.trim()).filter((url) => /^https?:\/\//i.test(url)).map((url) => (
-                     <a key={url} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs text-accent hover:border-accent/50 hover:bg-elevated">
-                       {sourceUrlLabel(url)}
-                       <ExternalLink className="size-3" />
-                     </a>
-                   ))}
-                 </span>
-               </label>
+              {displayedSourceUrls.map((url, index) => (
+                <label key={`${index}-${sourceUrlLabel(url)}`} className="text-sm text-muted sm:col-span-2">
+                  {url ? `${sourceUrlLabel(url)} URL` : "Database URL"}
+                  <span className="relative block">
+                    <input className={`${input} pr-10`} value={url} onChange={(event) => setSourceUrl(index, event.target.value)} />
+                    {/^https?:\/\//i.test(url) && (
+                      <a href={url} target="_blank" rel="noreferrer" aria-label={`Open ${sourceUrlLabel(url)} URL`} title={`Open ${sourceUrlLabel(url)}`} className="absolute right-2 top-1/2 mt-0.5 grid size-7 -translate-y-1/2 place-items-center rounded-md text-muted transition-colors hover:bg-elevated hover:text-accent">
+                        <ExternalLink className="size-4" />
+                      </a>
+                    )}
+                  </span>
+                </label>
+              ))}
               <label className="text-sm text-muted sm:col-span-2">Genres<input className={input} value={fields.genres} onChange={(e) => set("genres", e.target.value)} /></label>
               <label className="text-sm text-muted sm:col-span-2">Tags<input className={input} value={fields.tags} onChange={(e) => set("tags", e.target.value)} /></label>
               <label className="text-sm text-muted sm:col-span-2">Creators<textarea rows={3} className={input} value={fields.creators} onChange={(e) => set("creators", e.target.value)} /></label>
