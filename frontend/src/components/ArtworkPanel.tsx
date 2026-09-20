@@ -21,6 +21,7 @@ interface Props {
   serverId: number;
   item: ItemDetail;
   prefill?: { term: string; nonce: number };
+  navigationTarget?: { provider: string; value: string; nonce: number };
   libraryType?: Library["type"];
   libraryTitle?: string;
   onReviewMetadata?: (metadata: NfoMetadata, sourceLabel: string) => void;
@@ -33,7 +34,7 @@ const PROVIDER_GROUPS = [
   { label: "Local", names: ["manual"] },
 ];
 
-export default function ArtworkPanel({ serverId, item, prefill, libraryType, libraryTitle, onReviewMetadata }: Props) {
+export default function ArtworkPanel({ serverId, item, prefill, navigationTarget, libraryType, libraryTitle, onReviewMetadata }: Props) {
   const [provider, setProvider] = useState("posterdb");
   const [sourceLayout, setSourceLayout] = useState<"list" | "compact">(() =>
     localStorage.getItem(ARTWORK_LAYOUT_KEY) === "compact" ? "compact" : "list",
@@ -67,6 +68,14 @@ export default function ArtworkPanel({ serverId, item, prefill, libraryType, lib
     // Reset to the configured default when a different library item opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id, defaultProvider, enabled.join(","), providersQ.data, mediaKind]);
+
+  useEffect(() => {
+    if (navigationTarget && tabs.some((tab) => tab.name === navigationTarget.provider)) {
+      setProvider(navigationTarget.provider);
+    }
+    // The nonce intentionally makes repeated clicks reopen the requested provider.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigationTarget?.nonce]);
 
   const refreshProvider = async () => {
     setRefreshing(true);
@@ -181,13 +190,13 @@ export default function ArtworkPanel({ serverId, item, prefill, libraryType, lib
         ) : provider === "mangadex" ? (
           <MangaDexPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} onManual={() => setProvider("manual")} />
         ) : provider === "viz" ? (
-          <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} onReviewMetadata={onReviewMetadata} />
+          <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} prefill={navigationTarget?.provider === "viz" ? navigationTarget : undefined} onReviewMetadata={onReviewMetadata} />
         ) : provider === "comicvine" ? (
-          <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} database="comicvine" onReviewMetadata={onReviewMetadata} />
+          <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} database="comicvine" prefill={navigationTarget?.provider === "comicvine" ? navigationTarget : undefined} onReviewMetadata={onReviewMetadata} />
         ) : provider === "manual" ? (
           <ManualUpload serverId={serverId} item={item} />
         ) : (
-          <ArtworkBrowser key={panelVersion} provider={provider} serverId={serverId} item={item} onReviewMetadata={onReviewMetadata} />
+          <ArtworkBrowser key={panelVersion} provider={provider} serverId={serverId} item={item} prefill={navigationTarget?.provider === provider ? navigationTarget : undefined} onReviewMetadata={onReviewMetadata} />
         )}
       </div>
     </div>

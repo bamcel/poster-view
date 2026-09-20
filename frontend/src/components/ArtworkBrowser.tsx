@@ -90,11 +90,13 @@ export default function ArtworkBrowser({
   provider,
   serverId,
   item,
+  prefill,
   onReviewMetadata,
 }: {
   provider: string;
   serverId: number;
   item: ItemDetail;
+  prefill?: { value: string; nonce: number };
   onReviewMetadata?: (metadata: NfoMetadata, sourceLabel: string) => void;
 }) {
   const toast = useToast();
@@ -117,6 +119,12 @@ export default function ArtworkBrowser({
     setOverride(undefined);
     setSearchTerm(undefined);
   }, [provider, item.id]);
+  useEffect(() => {
+    if (!prefill?.nonce) return;
+    setIdInput(prefill.value);
+    setSearchTerm(undefined);
+    setOverride(prefill.value || undefined);
+  }, [prefill?.nonce, prefill?.value]);
 
   const q = useQuery({
     queryKey: ["artwork", provider, serverId, item.id, override],

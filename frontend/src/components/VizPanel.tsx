@@ -12,11 +12,13 @@ export default function VizPanel({
   serverId,
   item,
   database = "viz",
+  prefill,
   onReviewMetadata,
 }: {
   serverId: number;
   item: ItemDetail;
   database?: "viz" | "comicvine";
+  prefill?: { value: string; nonce: number };
   onReviewMetadata?: (metadata: NfoMetadata, sourceLabel: string) => void;
 }) {
   const isComicVine = database === "comicvine";
@@ -35,6 +37,18 @@ export default function VizPanel({
   } | null>(null);
   const client = useQueryClient();
   const toast = useToast();
+  useEffect(() => {
+    if (!prefill?.nonce) return;
+    const value = prefill.value.trim();
+    setInput(value);
+    if (value.startsWith("http") || (isComicVine && /^\d+$/.test(value))) {
+      localStorage.setItem(storageKey, value);
+      setCatalogUrl(value);
+    } else {
+      setCatalogUrl("");
+      setDebounced(value);
+    }
+  }, [prefill?.nonce, prefill?.value, storageKey, isComicVine]);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       if (!input.trim().startsWith("http")) setDebounced(input.trim());

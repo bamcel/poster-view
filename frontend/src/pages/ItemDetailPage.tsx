@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Images, Pencil, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, Images, Pencil, RefreshCw, X } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import PosterCard from "../components/PosterCard";
 import ArtworkPanel from "../components/ArtworkPanel";
@@ -39,6 +39,7 @@ export default function ItemDetailPage() {
     navigate(`/?${destination.toString()}`);
   };
   const [prefill, setPrefill] = useState<{ term: string; nonce: number }>();
+  const [artworkTarget, setArtworkTarget] = useState<{ provider: string; value: string; nonce: number }>();
   const [artworkOpen, setArtworkOpen] = useState(false);
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(
     () => searchParams.get("edit_metadata") === "1",
@@ -85,6 +86,20 @@ export default function ItemDetailPage() {
     installmentInfo && Number.isFinite(expectedInstallments)
       ? Math.max(0, expectedInstallments - installmentInfo.count)
       : 0;
+  const publisherArtworkTarget = metadataQ.data?.source_url
+    .split(/\r?\n/)
+    .map((url) => url.trim())
+    .filter(Boolean)
+    .map((url) => {
+      if (url.includes("comicvine.gamespot.com")) {
+        const comicVineId = metadataQ.data?.comicvine_id || url.match(/\/volume\/4050-(\d+)/i)?.[1];
+        return comicVineId ? { provider: "comicvine", value: comicVineId } : null;
+      }
+      const anilistId = url.match(/anilist\.co\/manga\/(\d+)/i)?.[1];
+      if (anilistId) return { provider: "anilist-manga", value: anilistId };
+      return null;
+    })
+    .find((target) => target !== null);
 
   // Auto-run the artwork search for this title when it loads (once per item).
   useEffect(() => {
@@ -269,7 +284,7 @@ export default function ItemDetailPage() {
                           ].filter(Boolean).map((entry) => {
                             const [label, value] = entry as string[];
                             const displayValue = label === "Status" || label === "Source" ? sentenceCaseMetadata(value) : value;
-                            return <span key={label} className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span><span className="text-white/50">{label}</span> · {displayValue}</span></span>;
+                            return <span key={label} className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span><span className="text-white/50">{label}</span> · {displayValue}</span>{label === "Publisher" && publisherArtworkTarget && <button type="button" onClick={() => { setArtworkTarget({ ...publisherArtworkTarget, nonce: Date.now() }); setArtworkOpen(true); }} aria-label={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} title={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} className="ml-1 rounded-full p-0.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white"><ExternalLink className="size-3.5" /></button>}</span>;
                           })}
                           {missingInstallments > 0 && installmentInfo && (
                             <span className="rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 text-xs font-medium text-amber-200">
@@ -339,7 +354,7 @@ export default function ItemDetailPage() {
       {/* Right: dock only when both columns have enough room. */}
       <div className="relative z-[1] hidden h-full w-[clamp(20rem,25vw,23.75rem)] shrink-0 xl:block">
         {item && (
-          <ArtworkPanel serverId={serverId} item={item} prefill={prefill} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
+          <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
         )}
       </div>
 
@@ -363,7 +378,7 @@ export default function ItemDetailPage() {
             >
               <X className="size-5" />
             </button>
-            <ArtworkPanel serverId={serverId} item={item} prefill={prefill} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setArtworkOpen(false); setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
+            <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setArtworkOpen(false); setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
           </section>
         </div>
       )}
