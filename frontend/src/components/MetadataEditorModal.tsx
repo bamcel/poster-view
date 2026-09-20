@@ -51,6 +51,7 @@ export default function MetadataEditorModal({
     return merged;
   });
   const [overwrites, setOverwrites] = useState<Set<keyof NfoMetadata>>(new Set());
+  const [appendDescription, setAppendDescription] = useState(false);
   useEffect(() => {
     const close = (event: KeyboardEvent) => event.key === "Escape" && !saving && onClose();
     window.addEventListener("keydown", close);
@@ -74,12 +75,27 @@ export default function MetadataEditorModal({
     source_material: "Source material", edition: "Edition",
   };
   const chooseImported = (key: keyof NfoMetadata, useImported: boolean) => {
+    if (key === "plot" && useImported) setAppendDescription(false);
     setOverwrites((current) => {
       const next = new Set(current);
       if (useImported) next.add(key); else next.delete(key);
       return next;
     });
     setFields((current) => ({ ...current, [key]: useImported ? incoming?.[key] ?? "" : metadata[key] }));
+  };
+  const chooseAppendedDescription = (append: boolean) => {
+    setAppendDescription(append);
+    setOverwrites((current) => {
+      const next = new Set(current);
+      next.delete("plot");
+      return next;
+    });
+    setFields((current) => ({
+      ...current,
+      plot: append
+        ? [metadata.plot.trim(), incoming?.plot.trim()].filter(Boolean).join("\n\n")
+        : metadata.plot,
+    }));
   };
 
   return (
@@ -97,14 +113,24 @@ export default function MetadataEditorModal({
                 <p className="text-xs text-faint">Existing NFO values are kept unless you select the imported value.</p>
               </div>
               {conflicts.map((key) => (
-                <label key={key} className="flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-black/10 p-3">
-                  <input type="checkbox" checked={overwrites.has(key)} onChange={(event) => chooseImported(key, event.target.checked)} className="mt-0.5 size-4 accent-[var(--color-accent)]" />
-                  <span className="min-w-0 text-xs">
-                    <strong className="block text-sm text-white">Overwrite {labels[key] ?? key}</strong>
-                    <span className="mt-1 block break-words text-faint">Current: {metadata[key]}</span>
+                <div key={key} className="rounded-lg border border-white/10 bg-black/10 p-3">
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-white">
+                      <input type="checkbox" checked={overwrites.has(key)} onChange={(event) => chooseImported(key, event.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+                      Overwrite {labels[key] ?? key}
+                    </label>
+                    {key === "plot" && (
+                      <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-white">
+                        <input type="checkbox" checked={appendDescription} onChange={(event) => chooseAppendedDescription(event.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+                        Append Description
+                      </label>
+                    )}
+                  </div>
+                  <span className="mt-2 block min-w-0 text-xs">
+                    <span className="block break-words text-faint">Current: {metadata[key]}</span>
                     <span className="mt-1 block break-words text-amber-100">{sourceLabel ?? "Imported"}: {incoming[key]}</span>
                   </span>
-                </label>
+                </div>
               ))}
             </section>
           )}

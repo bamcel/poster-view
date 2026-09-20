@@ -76,3 +76,25 @@ it("does not offer overwrites for equivalent AniList status and source values", 
   expect(screen.queryByRole("checkbox", { name: /Overwrite Source material/ })).toBeNull();
   expect(screen.queryByText("Choose fields to overwrite")).toBeNull();
 });
+
+it("can append an imported description instead of overwriting it", () => {
+  const save = vi.fn();
+  render(
+    <MetadataEditorModal
+      metadata={metadata({ title: "Series", plot: "Existing description." })}
+      incoming={metadata({ title: "Series", plot: "Imported description." })}
+      sourceLabel="ComicVine"
+      saving={false}
+      onClose={vi.fn()}
+      onSave={save}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("checkbox", { name: "Append Description" }));
+  expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe("Existing description.\n\nImported description.");
+  expect((screen.getByRole("checkbox", { name: "Overwrite Description" }) as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({
+    plot: "Existing description.\n\nImported description.",
+  }));
+});
