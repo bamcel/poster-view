@@ -141,7 +141,7 @@ function MetadataForm({ initial, onDirty }: { initial: MetadataDocument; onDirty
     {preview && <div className="mt-4 space-y-3">
       <h3 className="font-medium">Ready to {preview.revision === null ? "create" : "update"} NFO</h3>
       <pre className="max-h-80 overflow-auto rounded-lg border border-border bg-input p-3 text-xs">{preview.xml}</pre>
-      <p className="text-xs text-muted">{preview.revision === null ? "Creates a new file in the series folder shown above." : "Updates this NFO and keeps a uniquely named backup beside it."}</p>
+      <p className="text-xs text-muted">{preview.revision === null ? "Creates a new file in the series folder shown above." : "Updates the existing NFO file in place."}</p>
       <button className={`${button} border-accent bg-accent text-black`} disabled={pending} onClick={() => save.mutate()}>{save.isPending ? "Saving…" : "Save beside series"}</button>
     </div>}
     {saved && <p role="status" className="mt-4 text-sm text-green-300">Saved beside the series. PosterView will read this metadata next time you open this folder.</p>}

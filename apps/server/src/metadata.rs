@@ -427,11 +427,6 @@ impl MetadataStore {
                 .persist_noclobber(&target)
                 .map_err(|e| io_error(e.error))?;
         } else {
-            // Keep the original bytes next to the file before any explicit update.
-            let mut backup_name = target.file_name().unwrap_or_default().to_os_string();
-            backup_name.push(format!(".{}.bak", uuid::Uuid::new_v4()));
-            let backup = directory.join(backup_name);
-            fs::write(backup, request.revision.as_deref().unwrap_or_default()).map_err(io_error)?;
             temporary.persist(&target).map_err(|e| io_error(e.error))?;
         }
         self.read(&request.path)
@@ -1032,7 +1027,7 @@ mod tests {
     }
 
     #[test]
-    fn roundtrip_preserves_unknown_fields_and_backs_up_original() {
+    fn roundtrip_preserves_unknown_fields_without_leaving_backup_files() {
         let (dir, store) = setup();
         let original = "<series><title>Old</title><custom value=\"yes\">keep</custom><publisher>Publisher</publisher></series>";
         fs::write(dir.path().join("Manga & Color/Manga & Color.nfo"), original).unwrap();
@@ -1049,12 +1044,15 @@ mod tests {
         assert_eq!(saved.fields.title, "Manga & <Color> 日本語");
         assert!(saved.xml.contains("<custom value=\"yes\">keep</custom>"));
         assert_eq!(saved.fields.publisher, "Publisher");
-        let backup = fs::read_dir(dir.path().join("Manga & Color"))
+        let files = fs::read_dir(dir.path().join("Manga & Color"))
             .unwrap()
             .flatten()
-            .find(|e| e.path().extension().is_some_and(|v| v == "bak"))
-            .unwrap();
-        assert_eq!(fs::read_to_string(backup.path()).unwrap(), original);
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(files, vec!["Manga & Color.nfo"]);
+        assert!(!fs::read_to_string(dir.path().join("Manga & Color/Manga & Color.nfo"))
+            .unwrap()
+            .contains("<title>Old</title>"));
     }
     #[test]
     fn comicvine_metadata_creates_and_updates_the_series_nfo() {

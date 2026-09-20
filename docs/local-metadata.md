@@ -80,9 +80,8 @@ not the number owned and not a completeness assessment.
 
 Existing `series`, `book`, and `tvshow` roots are supported. Explicit updates retain
 the root and unrelated XML elements/attributes/comments (formatting may change).
-Before updating, PosterView saves the original bytes to a unique
-`<series folder name>.nfo.<UUID>.bak` beside the file. Backups are not deleted automatically.
-To restore, stop editing and copy the chosen backup over `<series folder name>.nfo`, then reload.
+PosterView updates the current `<series folder name>.nfo` in place and does not leave
+backup files in the media folder.
 
 Files are written through temporary files in the same directory and renamed into
 place. A stale editor cannot overwrite a different revision detected before save;
