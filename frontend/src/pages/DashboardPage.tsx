@@ -352,7 +352,7 @@ export default function DashboardPage() {
             </div>
           </div>
           {showGroupCollections && (
-            <label className="col-start-2 row-start-1 flex flex-col items-center justify-end gap-1 text-xs text-muted sm:flex-row sm:gap-2 sm:text-sm">
+            <label className="col-start-2 row-start-1 hidden items-center justify-end gap-2 text-sm text-muted md:flex">
               <span className="max-w-20 text-center sm:max-w-none sm:text-left">Group Collections</span>
               <Switch label="Group Collections" checked={groupCollections} onChange={toggleGroupCollections} />
             </label>
@@ -419,6 +419,12 @@ export default function DashboardPage() {
                   <option value="recently-added">Recently added</option>
                 </select>
               </label>
+              {showGroupCollections && (
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3 md:hidden">
+                  <span className="text-sm font-medium text-muted">Group Collections</span>
+                  <Switch label="Group Collections filter" checked={groupCollections} onChange={toggleGroupCollections} />
+                </div>
+              )}
             </div>
           </details>
           </div>

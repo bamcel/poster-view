@@ -26,7 +26,7 @@ export default function Layout() {
   return (
     <div className="flex h-full flex-col md:flex-row">
       <header className="relative z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-sidebar/90 px-3 backdrop-blur-xl md:hidden">
-        <Logo className="mr-auto w-11 overflow-hidden min-[480px]:w-auto" />
+        <Logo className="mr-auto w-36 overflow-hidden [&>img]:max-w-full sm:w-auto sm:[&>img]:max-w-none" />
         <nav className="flex items-center gap-1" aria-label="Primary navigation">
           {navItems.map(({ to, label, icon: Icon, end }) => (
             <NavLink
