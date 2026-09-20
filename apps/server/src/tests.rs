@@ -2,6 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use axum::{
     body::Body,
+    extract::DefaultBodyLimit,
     http::{Request, StatusCode},
 };
 use http_body_util::BodyExt;
@@ -850,10 +851,11 @@ async fn jellyfin_item_detail_is_normalized() {
 }
 
 #[tokio::test]
-async fn manual_upload_is_applied_and_recorded_in_history() {
+async fn large_png_manual_upload_is_applied_and_recorded_in_history() {
     let media_app = axum::Router::new().route(
         "/Items/movie-1/Images/Primary",
-        axum::routing::post(|| async { StatusCode::NO_CONTENT }),
+        axum::routing::post(|_: axum::body::Bytes| async { StatusCode::NO_CONTENT })
+            .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -871,9 +873,10 @@ async fn manual_upload_is_applied_and_recorded_in_history() {
     let server: serde_json::Value =
         serde_json::from_slice(&created.into_body().collect().await.unwrap().to_bytes()).unwrap();
     let boundary = "posterview-test";
+    let png = "x".repeat(3 * 1024 * 1024);
     let body = format!(
-        "--{boundary}\r\nContent-Disposition: form-data; name=\"server_id\"\r\n\r\n{}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"item_id\"\r\n\r\nmovie-1\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"target\"\r\n\r\nposter\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"item_title\"\r\n\r\nExample Movie\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"poster.jpg\"\r\nContent-Type: image/jpeg\r\n\r\nimage-bytes\r\n--{boundary}--\r\n",
-        server["id"]
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"server_id\"\r\n\r\n{}\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"item_id\"\r\n\r\nmovie-1\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"target\"\r\n\r\nposter\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"item_title\"\r\n\r\nExample Movie\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"poster.png\"\r\nContent-Type: image/png\r\n\r\n{png}\r\n--{boundary}--\r\n",
+        server["id"],
     );
     let applied = app
         .clone()

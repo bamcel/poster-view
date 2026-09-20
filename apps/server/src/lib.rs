@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, Multipart, Path, Query, Request, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Multipart, Path, Query, Request, State},
     http::{HeaderValue, StatusCode, Uri, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -30,6 +30,8 @@ mod metadata;
 pub use auth::AuthState;
 pub use config::ServerConfig;
 use error::HttpError;
+
+const MAX_MANUAL_IMAGE_BYTES: usize = 50 * 1024 * 1024;
 
 #[derive(Clone)]
 struct AppState {
@@ -101,7 +103,11 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             get(get_items),
         )
         .route("/api/servers/{id}/items/{item_id}", get(get_item_detail))
-        .route("/api/artwork/upload", axum::routing::post(upload_image))
+        .route(
+            "/api/artwork/upload",
+            axum::routing::post(upload_image)
+                .layer(DefaultBodyLimit::max(MAX_MANUAL_IMAGE_BYTES)),
+        )
         .route("/api/artwork/providers", get(artwork_providers))
         .route(
             "/api/artwork/test",
