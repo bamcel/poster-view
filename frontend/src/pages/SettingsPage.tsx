@@ -256,10 +256,13 @@ function AppearanceSection() {
           <button type="button" onClick={resetDashboard} className="mt-4 h-10 rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted transition-colors hover:bg-button-hover hover:text-white">Reset to default</button>
         </div>
 
-        <div className="mt-4 border-t border-border pt-4">
-          <h2 className="text-lg font-semibold">Theme</h2>
-          <p className="mt-1 text-sm text-faint">Select a palette or preview an individual color.</p>
-          <div className="mt-4 flex items-end gap-2">
+        <div className="mt-6">
+          <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
+            <Palette className="size-5 text-accent" /> Theme
+          </h2>
+          <p className="mb-3 text-sm text-faint">Select a palette or preview an individual color.</p>
+          <div className="rounded-xl border border-border bg-surface-2 p-4">
+          <div className="flex items-end gap-2">
             <ThemePicker themes={themes} selected={selected} onSelect={choose} />
             <button type="button" onClick={reload} className="h-10 shrink-0 rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted hover:bg-button-hover hover:text-white">
               Reload theme
@@ -281,7 +284,6 @@ function AppearanceSection() {
             </label>
           </div>
           <p className="mt-2 text-xs text-faint">Color changes preview immediately. Save them as a custom theme to keep them.</p>
-        </div>
 
         <div className="mt-4 border-t border-border pt-4">
           <h2 className="text-lg font-semibold">Custom theme</h2>
@@ -312,6 +314,8 @@ function AppearanceSection() {
           <button type="button" onClick={save} className="mt-4 h-10 w-full rounded-lg bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-hover">Save custom theme</button>
           <button type="button" onClick={remove} disabled={!selectedIsCustom} className="mt-2 h-10 w-full rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted hover:bg-button-hover hover:text-white disabled:cursor-not-allowed disabled:text-disabled">Remove custom theme</button>
           {message && <p role="status" className="mt-3 text-xs text-faint">{message}</p>}
+        </div>
+          </div>
         </div>
       </div>
     </section>
