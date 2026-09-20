@@ -6,7 +6,7 @@ import { Switch } from "./ui";
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Images, RefreshCw } from "lucide-react";
+import { ChevronDown, Images, RefreshCw } from "lucide-react";
 import { api } from "../api/client";
 import type { ItemDetail, Library, NfoMetadata } from "../types";
 import PosterDBBody from "./PosterDBPanel";
@@ -45,6 +45,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   const [panelVersion, setPanelVersion] = useState(0);
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
+  const [otherSourcesOpen, setOtherSourcesOpen] = useState(false);
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -69,24 +70,33 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   // ThePosterDB first, the API providers from the backend, then Manual upload.
   // Apply history now lives on its own global page (see Layout's "History" nav
   // link) rather than a per-item tab here.
-  const tabs = [
+  const allTabs = [
     ...(enabled.includes("posterdb") ? [{ name: "posterdb", label: "ThePosterDB", configured: true, needs_key: false, enabled: true }] : []),
     ...(providersQ.data ?? []).filter((source) => source.enabled),
     { name: "manual", label: "Manual", configured: true, needs_key: false },
-  ].filter((source) => providerMatchesMediaKind(source.name, mediaKind))
+  ];
+  const primaryTabs = allTabs.filter((source) => providerMatchesMediaKind(source.name, mediaKind))
     .sort((left, right) => left.name === defaultProvider ? -1 : right.name === defaultProvider ? 1 : 0);
+  const otherKind = mediaKind === "book" ? "screen" : mediaKind === "screen" ? "book" : null;
+  const otherTabs = otherKind
+    ? allTabs.filter((source) => source.name !== "manual" && providerMatchesMediaKind(source.name, otherKind))
+    : [];
+  const primaryProviderTabs = primaryTabs.filter((tab) => tab.name !== "manual");
+  const manualTab = primaryTabs.find((tab) => tab.name === "manual");
 
   useEffect(() => {
     const preferred = defaultProvider;
-    if (preferred && tabs.some((tab) => tab.name === preferred)) setProvider(preferred);
-    else if (!tabs.some((tab) => tab.name === provider)) setProvider(tabs[0]?.name ?? "manual");
+    if (preferred && primaryTabs.some((tab) => tab.name === preferred)) setProvider(preferred);
+    else if (!allTabs.some((tab) => tab.name === provider)) setProvider(primaryTabs[0]?.name ?? "manual");
+    setOtherSourcesOpen(false);
     // Reset to the configured default when a different library item opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id, defaultProvider, enabled.join(","), providersQ.data, mediaKind]);
 
   useEffect(() => {
-    if (navigationTarget && tabs.some((tab) => tab.name === navigationTarget.provider)) {
+    if (navigationTarget && allTabs.some((tab) => tab.name === navigationTarget.provider)) {
       setProvider(navigationTarget.provider);
+      if (otherTabs.some((tab) => tab.name === navigationTarget.provider)) setOtherSourcesOpen(true);
     }
     // The nonce intentionally makes repeated clicks reopen the requested provider.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -113,6 +123,26 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
     localStorage.setItem(ARTWORK_LAYOUT_KEY, layout);
     setSourceLayout(layout);
   };
+  const sourceButton = (tab: (typeof allTabs)[number]) => (
+    <button
+      key={tab.name}
+      onClick={() => setProvider(tab.name)}
+      onMouseEnter={() => {
+        if (!["posterdb", "manual", "mangadex", "viz", "comicvine"].includes(tab.name) && tab.configured) {
+          queryClient.prefetchQuery({
+            queryKey: ["artwork", tab.name, serverId, item.id, undefined],
+            queryFn: () => api.getArtwork(tab.name, serverId, item.id),
+            staleTime: 5 * 60_000,
+          });
+        }
+      }}
+      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${provider === tab.name ? "bg-accent text-black" : "bg-surface-2 text-muted hover:text-white"}`}
+      title={tab.needs_key && !tab.configured ? "Add an API key in Settings" : undefined}
+    >
+      {tab.label}
+      {tab.needs_key && !tab.configured && <span className="ml-1 text-amber-400">•</span>}
+    </button>
+  );
 
   return (
     <div
@@ -133,31 +163,17 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
           </div>
         </div>
         {sourceLayout === "list" ? (
-          <div className="flex flex-wrap gap-1">
-            {tabs.map((t) => (
-              <button
-                key={t.name}
-                onClick={() => setProvider(t.name)}
-                onMouseEnter={() => {
-                  if (!["posterdb", "manual", "mangadex", "viz", "comicvine"].includes(t.name) && t.configured) {
-                    queryClient.prefetchQuery({
-                      queryKey: ["artwork", t.name, serverId, item.id, undefined],
-                      queryFn: () => api.getArtwork(t.name, serverId, item.id),
-                      staleTime: 5 * 60_000,
-                    });
-                  }
-                }}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  provider === t.name
-                    ? "bg-accent text-black"
-                    : "bg-surface-2 text-muted hover:text-white"
-                }`}
-                title={t.needs_key && !t.configured ? "Add an API key in Settings" : undefined}
-              >
-                {t.label}
-                {t.needs_key && !t.configured && <span className="ml-1 text-amber-400">•</span>}
-              </button>
-            ))}
+          <div>
+            <div className="flex flex-wrap gap-1">
+              {primaryProviderTabs.map(sourceButton)}
+              {manualTab && sourceButton(manualTab)}
+              {otherTabs.length > 0 && <button type="button" aria-label="Show other artwork databases" aria-expanded={otherSourcesOpen} onClick={() => setOtherSourcesOpen((open) => !open)} className="grid size-6 place-items-center rounded-full bg-surface-2 text-muted transition-colors hover:text-white">
+                <ChevronDown className={`size-4 transition-transform ${otherSourcesOpen ? "rotate-180" : ""}`} />
+              </button>}
+            </div>
+            {otherSourcesOpen && otherTabs.length > 0 && <div className="mt-2 border-t border-border pt-2">
+              <div className="flex flex-wrap gap-1">{otherTabs.map(sourceButton)}</div>
+            </div>}
           </div>
         ) : (
           <label className="block text-xs text-faint">
@@ -169,7 +185,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
               className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-white outline-none focus:border-accent"
             >
               {PROVIDER_GROUPS.map((group) => {
-                const options = group.names.flatMap((name) => tabs.filter((tab) => tab.name === name));
+                const options = group.names.flatMap((name) => allTabs.filter((tab) => tab.name === name));
                 return options.length ? (
                   <optgroup key={group.label} label={group.label}>
                     {options.map((option) => (
@@ -189,11 +205,11 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
         {provider !== "manual" && (
           <div className="mb-3 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">
-              {tabs.find((tab) => tab.name === provider)?.label ?? provider}
+              {allTabs.find((tab) => tab.name === provider)?.label ?? provider}
             </h3>
             <button
               type="button"
-              aria-label={`Refresh ${tabs.find((tab) => tab.name === provider)?.label ?? provider} cache`}
+              aria-label={`Refresh ${allTabs.find((tab) => tab.name === provider)?.label ?? provider} cache`}
               title="Refresh artwork cache"
               disabled={refreshing}
               onClick={() => void refreshProvider()}
