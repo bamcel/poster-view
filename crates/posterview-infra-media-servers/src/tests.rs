@@ -110,6 +110,62 @@ async fn book_libraries_and_items_are_browseable_in_emby_family_servers() {
 }
 
 #[tokio::test]
+async fn emby_family_library_items_include_backdrops() {
+    let app = Router::new()
+        .route("/Users", get(|| async { Json(json!([{"Id":"viewer"}])) }))
+        .route(
+            "/Items",
+            get(
+                |axum::extract::Query(query): axum::extract::Query<
+                    HashMap<String, String>,
+                >| async move {
+                    assert!(query["Fields"].contains("BackdropImageTags"));
+                    assert!(query["EnableImageTypes"].contains("Backdrop"));
+                    Json(json!({"Items":[{
+                        "Id":"anime-1",
+                        "Name":"Anime",
+                        "Type":"Series",
+                        "BackdropImageTags":["backdrop-tag"]
+                    }]}))
+                },
+            ),
+        );
+    let (base_url, task) = serve(app).await;
+    let items = get_items(
+        ConnectionConfig {
+            server_type: ServerType::Emby,
+            base_url: &base_url,
+            token: "test",
+        },
+        "anime",
+        false,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        items[0].background.as_deref(),
+        Some("Items/anime-1/Images/Backdrop?tag=backdrop-tag")
+    );
+    task.abort();
+}
+
+#[test]
+fn plex_library_items_include_backdrops() {
+    let item = json!({
+        "ratingKey": "anime-1",
+        "title": "Anime",
+        "type": "show",
+        "art": "/library/metadata/anime-1/art/1"
+    });
+
+    assert_eq!(
+        plex_media_item(&item).unwrap().background.as_deref(),
+        Some("library/metadata/anime-1/art/1")
+    );
+}
+
+#[tokio::test]
 async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children() {
     let app = Router::new()
         .route("/Users", get(|| async { Json(json!([{"Id":"reader"}])) }))

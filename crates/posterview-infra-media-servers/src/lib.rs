@@ -551,11 +551,11 @@ async fn emby_items(
                 "Movie,Series,Book,AudioBook"
             },
         ),
-        ("Fields", "ProductionYear,DateCreated"),
+        ("Fields", "ProductionYear,DateCreated,BackdropImageTags"),
         ("SortBy", "SortName"),
         ("SortOrder", "Ascending"),
         ("ImageTypeLimit", "1"),
-        ("EnableImageTypes", "Primary"),
+        ("EnableImageTypes", "Primary,Backdrop"),
         ("userId", user_id.as_str()),
     ];
     if !is_collections {
@@ -878,7 +878,7 @@ fn emby_media_item(item: &Value) -> Option<MediaItem> {
         year: item.get("ProductionYear").and_then(Value::as_i64),
         item_type: emby_item_type(item),
         poster: emby_image_ref(item, "Primary"),
-        background: None,
+        background: emby_image_ref(item, "Backdrop"),
         added_at: item
             .get("DateCreated")
             .and_then(Value::as_str)
@@ -897,7 +897,7 @@ fn plex_media_item(item: &Value) -> Option<MediaItem> {
         year: item.get("year").and_then(Value::as_i64),
         item_type: plex_item_type(item),
         poster: relative_ref(item.get("thumb")),
-        background: None,
+        background: relative_ref(item.get("art")),
         added_at: item
             .get("addedAt")
             .and_then(Value::as_i64)
