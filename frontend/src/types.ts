@@ -78,6 +78,7 @@ export interface NfoMetadata {
   comicvine_id: string;
   source_url: string;
   native_title: string;
+  translation: string;
   mal_id: string;
   genres: string;
   tags: string;

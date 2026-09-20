@@ -61,7 +61,7 @@ export default function MetadataEditorModal({
   const submit = (event: FormEvent) => { event.preventDefault(); onSave(fields); };
   const input = "mt-1 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-white outline-none transition-colors focus:border-accent";
   const labels: Partial<Record<keyof NfoMetadata, string>> = {
-    title: "Title", native_title: "Original title", year: "Year", publisher: "Publisher",
+    title: "Title", native_title: "Original title", translation: "Translation", year: "Year", publisher: "Publisher",
     volumes: "Volumes", status: "Status", plot: "Description", anilist_id: "AniList ID",
     mal_id: "MyAnimeList ID", comicvine_id: "ComicVine ID", source_url: "Source URLs",
     genres: "Genres", tags: "Tags", creators: "Creators", country: "Country",
@@ -104,6 +104,7 @@ export default function MetadataEditorModal({
           )}
           <label className="text-sm text-muted sm:col-span-2">Title<input required className={input} value={fields.title} onChange={(e) => set("title", e.target.value)} /></label>
           <label className="text-sm text-muted sm:col-span-2">Original title<input className={input} value={fields.native_title} onChange={(e) => set("native_title", e.target.value)} /></label>
+          <label className="text-sm text-muted sm:col-span-2">Translation<input className={input} value={fields.translation} onChange={(e) => set("translation", e.target.value)} /></label>
           <label className="text-sm text-muted">Year<input inputMode="numeric" className={input} value={fields.year} onChange={(e) => set("year", e.target.value)} /></label>
           <label className="text-sm text-muted">Status<input className={input} value={fields.status} onChange={(e) => set("status", e.target.value)} /></label>
           <label className="text-sm text-muted">Publisher<input className={input} value={fields.publisher} onChange={(e) => set("publisher", e.target.value)} /></label>

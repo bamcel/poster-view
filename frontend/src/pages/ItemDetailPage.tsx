@@ -279,6 +279,7 @@ export default function ItemDetailPage() {
                             </span>
                           )}
                         </div>
+                        {metadataQ.data.translation && <p className="mt-3 text-sm font-medium text-white/85">{metadataQ.data.translation}</p>}
                         {metadataQ.data.plot && <p className="mt-3 text-sm leading-relaxed text-white/75">{metadataQ.data.plot}</p>}
                       </section>
                     )}
@@ -373,7 +374,7 @@ export default function ItemDetailPage() {
         <MetadataEditorModal
           metadata={metadataQ.data ?? {
             title: "", year: "", publisher: "", edition: "", volumes: "", status: "", plot: "",
-            anilist_id: "", comicvine_id: "", source_url: "", native_title: "", mal_id: "",
+            anilist_id: "", comicvine_id: "", source_url: "", native_title: "", translation: "", mal_id: "",
             genres: "", tags: "", creators: "", country: "", source_material: "",
           }}
           incoming={metadataImport?.fields}

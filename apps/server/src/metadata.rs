@@ -57,6 +57,7 @@ pub(crate) struct Fields {
     comicvine_id: String,
     source_url: String,
     native_title: String,
+    translation: String,
     mal_id: String,
     genres: String,
     tags: String,
@@ -488,6 +489,7 @@ fn fields_from(root: &Element) -> Fields {
             .collect::<Vec<_>>()
             .join("\n"),
         native_title: text("originaltitle"),
+        translation: text("translatedtitle"),
         mal_id: text("malid"),
         genres: text("genres"),
         tags: text("tags"),
@@ -527,6 +529,7 @@ fn render(fields: &Fields, original: Option<&str>) -> Result<String, HttpError> 
         ("anilistid", &fields.anilist_id),
         ("comicvineid", &fields.comicvine_id),
         ("originaltitle", &fields.native_title),
+        ("translatedtitle", &fields.translation),
         ("malid", &fields.mal_id),
         ("genres", &fields.genres),
         ("tags", &fields.tags),
@@ -913,6 +916,7 @@ mod tests {
         let xml = render(
             &Fields {
                 title: "The Apothecary Diaries".to_owned(),
+                translation: "Kusuriya no Hitorigoto".to_owned(),
                 source_url: urls.clone(),
                 ..Fields::default()
             },
@@ -921,7 +925,9 @@ mod tests {
         .ok()
         .unwrap();
         assert_eq!(xml.matches("<source>").count(), 2);
-        assert_eq!(fields_from(&parse(&xml).ok().unwrap()).source_url, urls);
+        let fields = fields_from(&parse(&xml).ok().unwrap());
+        assert_eq!(fields.source_url, urls);
+        assert_eq!(fields.translation, "Kusuriya no Hitorigoto");
     }
 
     #[tokio::test]
