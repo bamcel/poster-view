@@ -59,6 +59,7 @@ it("previews a palette color and saves it as a selectable custom theme", async (
   );
 
   fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+  fireEvent.click(screen.getByLabelText("Toggle Theme JSON"));
   const themeEditor = screen.getByLabelText("Theme JSON") as HTMLTextAreaElement;
   expect(themeEditor.value).toContain('"name": "Gotham"');
   expect(themeEditor.style.fontSize).toBe("1.125rem");
@@ -86,6 +87,10 @@ it("restores the active settings tab from the URL", () => {
   );
 
   expect(screen.getByRole("button", { name: "Appearance", pressed: true })).toBeTruthy();
+  const themeJsonToggle = screen.getByLabelText("Toggle Theme JSON");
+  expect(themeJsonToggle.closest("details")?.open).toBe(false);
+  fireEvent.click(themeJsonToggle);
+  expect(themeJsonToggle.closest("details")?.open).toBe(true);
   expect(screen.getByLabelText("Theme JSON")).toBeTruthy();
   client.clear();
 });

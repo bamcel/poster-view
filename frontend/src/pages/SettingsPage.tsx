@@ -211,23 +211,7 @@ function AppearanceSection() {
 
   return (
     <section className="h-full min-h-0 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
-      <div className="grid min-h-full gap-4 xl:grid-cols-2">
-      <div className="flex min-h-[32rem] flex-col xl:min-h-0 xl:pr-2">
-        <h2 className="text-lg font-semibold">Theme JSON</h2>
-        <p className="mt-1 text-sm text-faint">Edit or paste a complete PosterView theme definition.</p>
-        <label className="mt-4 flex min-h-0 flex-1 flex-col text-xs font-semibold text-muted">
-          Theme JSON
-          <textarea
-            value={themeJson}
-            onChange={(event) => setThemeJson(event.target.value)}
-            spellCheck={false}
-            style={{ fontSize: "1.125rem", lineHeight: "1.5rem" }}
-            className="mt-2 min-h-80 w-full flex-1 resize-none rounded-lg border border-border bg-input p-4 font-mono font-normal text-white outline-none focus:border-accent xl:min-h-0"
-          />
-        </label>
-      </div>
-
-      <div className="min-h-0 border-t border-border pt-4 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+      <div className="mx-auto min-h-full w-full max-w-4xl">
         <div>
           <h2 className="text-lg font-semibold">Theme</h2>
           <p className="mt-1 text-sm text-faint">Select a palette or preview an individual color.</p>
@@ -258,6 +242,25 @@ function AppearanceSection() {
         <div className="mt-4 border-t border-border pt-4">
           <h2 className="text-lg font-semibold">Custom theme</h2>
           <p className="mt-1 text-sm text-faint">Save the edited JSON under a unique name or remove a selected custom theme.</p>
+          <details className="group mt-4 rounded-xl border border-border bg-panel">
+            <summary aria-label="Toggle Theme JSON" className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-muted outline-none marker:hidden hover:text-white focus-visible:text-white">
+              <span>Theme JSON</span>
+              <span className="text-faint transition-transform group-open:rotate-180">⌄</span>
+            </summary>
+            <div className="border-t border-border p-4">
+              <p className="text-sm text-faint">Edit or paste a complete PosterView theme definition.</p>
+              <label className="mt-4 block text-xs font-semibold text-muted">
+                Theme JSON
+                <textarea
+                  value={themeJson}
+                  onChange={(event) => setThemeJson(event.target.value)}
+                  spellCheck={false}
+                  style={{ fontSize: "1.125rem", lineHeight: "1.5rem" }}
+                  className="mt-2 min-h-80 w-full resize-y rounded-lg border border-border bg-input p-4 font-mono font-normal text-white outline-none focus:border-accent"
+                />
+              </label>
+            </div>
+          </details>
           <label className="mt-4 block text-xs font-semibold text-muted">
             Custom theme name
             <input value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="My theme" className={`${compactInputCls} mt-2`} />
@@ -266,7 +269,6 @@ function AppearanceSection() {
           <button type="button" onClick={remove} disabled={!selectedIsCustom} className="mt-2 h-10 w-full rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted hover:bg-button-hover hover:text-white disabled:cursor-not-allowed disabled:text-disabled">Remove custom theme</button>
           {message && <p role="status" className="mt-3 text-xs text-faint">{message}</p>}
         </div>
-      </div>
       </div>
     </section>
   );
