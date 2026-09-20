@@ -242,7 +242,7 @@ function AppearanceSection() {
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-semibold text-muted">
               Color label
-              <select value={selectedColor} onChange={(event) => setSelectedColor(event.target.value as ThemeColorKey)} className={`${compactInputCls} mt-2`}>
+              <select value={selectedColor} onChange={(event) => setSelectedColor(event.target.value as ThemeColorKey)} className={`${compactInputCls} mt-2 h-10`}>
                 {THEME_COLOR_OPTIONS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
               </select>
             </label>
@@ -261,14 +261,14 @@ function AppearanceSection() {
           <h2 className="text-lg font-semibold">Custom theme</h2>
           <p className="mt-1 text-sm text-faint">Save the edited JSON under a unique name or remove a selected custom theme.</p>
           <details className="group mt-4 rounded-xl border border-border bg-panel">
-            <summary aria-label="Toggle Theme JSON" className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-muted outline-none marker:hidden hover:text-white focus-visible:text-white">
-              <span>Theme JSON</span>
+            <summary aria-label="Toggle JSON Editor" className="flex h-10 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-semibold text-muted outline-none marker:hidden hover:text-white focus-visible:text-white">
+              <span>JSON Editor</span>
               <span className="text-faint transition-transform group-open:rotate-180">⌄</span>
             </summary>
             <div className="border-t border-border p-4">
               <p className="text-sm text-faint">Edit or paste a complete PosterView theme definition.</p>
               <label className="mt-4 block text-xs font-semibold text-muted">
-                Theme JSON
+                JSON Editor
                 <textarea
                   value={themeJson}
                   onChange={(event) => setThemeJson(event.target.value)}
@@ -281,7 +281,7 @@ function AppearanceSection() {
           </details>
           <label className="mt-4 block text-xs font-semibold text-muted">
             Custom theme name
-            <input value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="My theme" className={`${compactInputCls} mt-2`} />
+            <input value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="My theme" className={`${compactInputCls} mt-2 h-10`} />
           </label>
           <button type="button" onClick={save} className="mt-4 h-10 w-full rounded-lg bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-hover">Save custom theme</button>
           <button type="button" onClick={remove} disabled={!selectedIsCustom} className="mt-2 h-10 w-full rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted hover:bg-button-hover hover:text-white disabled:cursor-not-allowed disabled:text-disabled">Remove custom theme</button>
