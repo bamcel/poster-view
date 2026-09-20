@@ -34,3 +34,24 @@ it("keeps existing conflicts until the user chooses imported fields", () => {
     publisher: "Publisher",
   }));
 });
+
+it("keeps existing and imported provider source URLs together", () => {
+  const save = vi.fn();
+  render(
+    <MetadataEditorModal
+      metadata={metadata({ title: "The Apothecary Diaries", source_url: "https://anilist.co/manga/99022" })}
+      incoming={metadata({ source_url: "https://comicvine.gamespot.com/volume/4050-132428/" })}
+      sourceLabel="ComicVine"
+      saving={false}
+      onClose={vi.fn()}
+      onSave={save}
+    />,
+  );
+
+  expect(screen.getByRole("link", { name: /AniList/ })).toBeTruthy();
+  expect(screen.getByRole("link", { name: /ComicVine/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({
+    source_url: "https://anilist.co/manga/99022\nhttps://comicvine.gamespot.com/volume/4050-132428/",
+  }));
+});

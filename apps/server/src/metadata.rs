@@ -342,7 +342,7 @@ impl MetadataStore {
         fields.volumes = volumes.to_owned();
         fields.plot = plot.to_owned();
         fields.comicvine_id = id.to_owned();
-        fields.source_url = source_url.to_owned();
+        fields.source_url = merge_source_urls(&fields.source_url, source_url);
         Ok(self.save(&SaveRequest { path: relative, fields, revision: document.revision })?.fields)
     }
 
@@ -362,10 +362,11 @@ impl MetadataStore {
             (&mut fields.anilist_id, id), (&mut fields.mal_id, mal_id),
             (&mut fields.genres, genres), (&mut fields.tags, tags),
             (&mut fields.creators, creators), (&mut fields.country, country),
-            (&mut fields.source_material, source_material), (&mut fields.source_url, source_url),
+            (&mut fields.source_material, source_material),
         ] {
             if !incoming.trim().is_empty() { *target = incoming.to_owned(); }
         }
+        fields.source_url = merge_source_urls(&fields.source_url, source_url);
         Ok(self.save(&SaveRequest { path: relative, fields, revision: document.revision })?.fields)
     }
 
@@ -469,7 +470,23 @@ fn fields_from(root: &Element) -> Fields {
         plot: text("plot"),
         anilist_id: text("anilistid"),
         comicvine_id: text("comicvineid"),
-        source_url: text("source"),
+        source_url: root
+            .children
+            .iter()
+            .filter_map(|node| match node {
+                XMLNode::Element(element) if element.name == "source" => element.get_text(),
+                _ => None,
+            })
+            .flat_map(|value| {
+                value
+                    .lines()
+                    .map(str::trim)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
         native_title: text("originaltitle"),
         mal_id: text("malid"),
         genres: text("genres"),
@@ -509,7 +526,6 @@ fn render(fields: &Fields, original: Option<&str>) -> Result<String, HttpError> 
         ("plot", &fields.plot),
         ("anilistid", &fields.anilist_id),
         ("comicvineid", &fields.comicvine_id),
-        ("source", &fields.source_url),
         ("originaltitle", &fields.native_title),
         ("malid", &fields.mal_id),
         ("genres", &fields.genres),
@@ -543,6 +559,30 @@ fn render(fields: &Fields, original: Option<&str>) -> Result<String, HttpError> 
             element.children.push(XMLNode::Text(value.clone()));
             root.children.push(XMLNode::Element(element));
         }
+    }
+    if fields.source_url.len() > 32_768
+        || fields
+            .source_url
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
+    {
+        return Err(invalid(
+            "Metadata contains invalid characters or an oversized field.",
+        ));
+    }
+    root.children
+        .retain(|node| !matches!(node, XMLNode::Element(element) if element.name == "source"));
+    for source_url in fields
+        .source_url
+        .lines()
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    {
+        let mut element = Element::new("source");
+        element
+            .children
+            .push(XMLNode::Text(source_url.to_owned()));
+        root.children.push(XMLNode::Element(element));
     }
     let mut output = Vec::new();
     root.write_with_config(&mut output, EmitterConfig::new().perform_indent(true))
@@ -603,6 +643,16 @@ fn sentence_case(value: &str) -> String {
         .next()
         .map(|first| first.to_uppercase().collect::<String>() + characters.as_str())
         .unwrap_or_default()
+}
+
+fn merge_source_urls(existing: &str, incoming: &str) -> String {
+    let mut urls = Vec::new();
+    for url in existing.lines().chain(incoming.lines()).map(str::trim) {
+        if !url.is_empty() && !urls.iter().any(|saved| *saved == url) {
+            urls.push(url);
+        }
+    }
+    urls.join("\n")
 }
 
 #[derive(Deserialize)]
@@ -851,6 +901,27 @@ mod tests {
         assert_eq!(sentence_case("FINISHED"), "Finished");
         assert_eq!(sentence_case("LIGHT_NOVEL"), "Light novel");
         assert_eq!(sentence_case("NOT YET RELEASED"), "Not yet released");
+    }
+
+    #[test]
+    fn source_urls_merge_and_roundtrip_as_separate_nfo_elements() {
+        let urls = merge_source_urls(
+            "https://anilist.co/manga/99022",
+            "https://comicvine.gamespot.com/volume/4050-132428/\nhttps://anilist.co/manga/99022",
+        );
+        assert_eq!(urls.lines().count(), 2);
+        let xml = render(
+            &Fields {
+                title: "The Apothecary Diaries".to_owned(),
+                source_url: urls.clone(),
+                ..Fields::default()
+            },
+            None,
+        )
+        .ok()
+        .unwrap();
+        assert_eq!(xml.matches("<source>").count(), 2);
+        assert_eq!(fields_from(&parse(&xml).ok().unwrap()).source_url, urls);
     }
 
     #[tokio::test]

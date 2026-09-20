@@ -2,6 +2,16 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { ExternalLink, Loader2, Save, X } from "lucide-react";
 import type { NfoMetadata } from "../types";
 
+function mergeSourceUrls(existing: string, incoming: string): string {
+  return [...new Set(`${existing}\n${incoming}`.split(/\r?\n/).map((url) => url.trim()).filter(Boolean))].join("\n");
+}
+
+function sourceUrlLabel(url: string): string {
+  if (url.includes("anilist.co")) return "AniList";
+  if (url.includes("comicvine.gamespot.com")) return "ComicVine";
+  try { return new URL(url).hostname; } catch { return "Source"; }
+}
+
 export default function MetadataEditorModal({
   metadata,
   saving,
@@ -22,13 +32,14 @@ export default function MetadataEditorModal({
   const conflicts = useMemo(() => {
     if (!incoming) return [] as Array<keyof NfoMetadata>;
     return (Object.keys(incoming) as Array<keyof NfoMetadata>).filter(
-      (key) => incoming[key].trim() && metadata[key].trim() && incoming[key].trim() !== metadata[key].trim(),
+      (key) => key !== "source_url" && incoming[key].trim() && metadata[key].trim() && incoming[key].trim() !== metadata[key].trim(),
     );
   }, [incoming, metadata]);
   const [fields, setFields] = useState<NfoMetadata>(() => {
     if (!incoming) return metadata;
-    const merged = { ...metadata };
+    const merged = { ...metadata, source_url: mergeSourceUrls(metadata.source_url, incoming.source_url) };
     for (const key of Object.keys(incoming) as Array<keyof NfoMetadata>) {
+      if (key === "source_url") continue;
       if (incoming[key].trim() && !metadata[key].trim()) merged[key] = incoming[key];
     }
     return merged;
@@ -45,7 +56,7 @@ export default function MetadataEditorModal({
   const labels: Partial<Record<keyof NfoMetadata, string>> = {
     title: "Title", native_title: "Original title", year: "Year", publisher: "Publisher",
     volumes: "Volumes", status: "Status", plot: "Description", anilist_id: "AniList ID",
-    mal_id: "MyAnimeList ID", comicvine_id: "ComicVine ID", source_url: "Source URL",
+    mal_id: "MyAnimeList ID", comicvine_id: "ComicVine ID", source_url: "Source URLs",
     genres: "Genres", tags: "Tags", creators: "Creators", country: "Country",
     source_material: "Source material", edition: "Edition",
   };
@@ -151,7 +162,18 @@ export default function MetadataEditorModal({
                   )}
                 </span>
               </label>
-              <label className="text-sm text-muted sm:col-span-2">Source URL<input className={input} value={fields.source_url} onChange={(e) => set("source_url", e.target.value)} /></label>
+               <label className="text-sm text-muted sm:col-span-2">
+                 Source URLs
+                 <textarea rows={Math.max(2, fields.source_url.split(/\r?\n/).filter(Boolean).length)} className={input} value={fields.source_url} onChange={(e) => set("source_url", e.target.value)} placeholder="One URL per line" />
+                 <span className="mt-2 flex flex-wrap gap-2">
+                   {fields.source_url.split(/\r?\n/).map((url) => url.trim()).filter((url) => /^https?:\/\//i.test(url)).map((url) => (
+                     <a key={url} href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs text-accent hover:border-accent/50 hover:bg-elevated">
+                       {sourceUrlLabel(url)}
+                       <ExternalLink className="size-3" />
+                     </a>
+                   ))}
+                 </span>
+               </label>
               <label className="text-sm text-muted sm:col-span-2">Genres<input className={input} value={fields.genres} onChange={(e) => set("genres", e.target.value)} /></label>
               <label className="text-sm text-muted sm:col-span-2">Tags<input className={input} value={fields.tags} onChange={(e) => set("tags", e.target.value)} /></label>
               <label className="text-sm text-muted sm:col-span-2">Creators<textarea rows={3} className={input} value={fields.creators} onChange={(e) => set("creators", e.target.value)} /></label>
