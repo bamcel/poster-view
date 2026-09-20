@@ -25,7 +25,8 @@ it("renders a selected title backdrop across the viewport", async () => {
   const backdrop = screen.getByTestId("item-backdrop");
   expect(backdrop.parentElement).toBe(document.body);
   expect(backdrop.querySelector("img")?.getAttribute("src")).toBe("/api/image/movie-backdrop");
-  expect(screen.getByTestId("item-backdrop-mobile-shading").parentElement).toBe(backdrop);
+  expect(screen.getByTestId("item-backdrop-overlay-mobile").parentElement).toBe(backdrop);
+  expect(screen.getByTestId("item-backdrop-overlay-desktop").parentElement).toBe(backdrop);
   client.clear();
 });
 

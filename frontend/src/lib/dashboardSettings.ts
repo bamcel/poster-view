@@ -52,6 +52,14 @@ export function setDarkOverlay(value: number) {
   window.dispatchEvent(new CustomEvent(DARK_OVERLAY_EVENT, { detail: next }));
 }
 
+export function backdropOverlayGradients(strength: number) {
+  const base = strength / 100;
+  return {
+    mobile: `linear-gradient(to bottom, rgba(8,9,12,${Math.max(0, base - 0.24)}), rgba(8,9,12,${base}) 45%, rgba(8,9,12,${Math.min(1, base + 0.16)}))`,
+    desktop: `linear-gradient(to bottom, rgba(8,9,12,${base}), rgba(8,9,12,${Math.min(1, base + 0.18)}) 45%, rgba(8,9,12,${Math.min(1, base + 0.25)}))`,
+  };
+}
+
 export function translucentPanelColor(colorVariable: string, solidity: number) {
   return `color-mix(in srgb, var(${colorVariable}) ${solidity}%, transparent)`;
 }

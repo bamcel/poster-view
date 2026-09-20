@@ -12,7 +12,7 @@ import PosterCard from "../components/PosterCard";
 import { EmptyState, Spinner, Switch } from "../components/ui";
 import { useToast } from "../lib/toast";
 import { isBookRelatedLibraryName } from "../lib/mediaKind";
-import { DARK_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, darkOverlay, dashboardBackdropEnabled } from "../lib/dashboardSettings";
+import { DARK_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, backdropOverlayGradients, darkOverlay, dashboardBackdropEnabled } from "../lib/dashboardSettings";
 
 const GROUP_COLLECTIONS_KEY = "posterview.groupCollections";
 const LAST_VISIT_PREFIX = "posterview.lastVisit.";
@@ -531,15 +531,13 @@ function BackdropLayers({ urls, className, source }: { urls: string[]; className
 }
 
 function DashboardBackdrop({ desktopUrls, mobileUrls, overlayStrength }: { desktopUrls: string[]; mobileUrls: string[]; overlayStrength: number }) {
-  const base = overlayStrength / 100;
-  const mobileGradient = `linear-gradient(to bottom, rgba(8,9,12,${Math.max(0, base - 0.24)}), rgba(8,9,12,${base}) 45%, rgba(8,9,12,${Math.min(1, base + 0.16)}))`;
-  const desktopGradient = `linear-gradient(to bottom, rgba(8,9,12,${base}), rgba(8,9,12,${Math.min(1, base + 0.18)}) 45%, rgba(8,9,12,${Math.min(1, base + 0.25)}))`;
+  const gradients = backdropOverlayGradients(overlayStrength);
   return createPortal(
     <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true" data-testid="dashboard-backdrop">
       {mobileUrls.length > 0 && <BackdropLayers urls={mobileUrls} className="absolute inset-0 md:hidden" source="mobile" />}
       {desktopUrls.length > 0 && <BackdropLayers urls={desktopUrls} className="absolute inset-0 hidden md:block" source="desktop" />}
-      <div className="absolute inset-0 md:hidden" style={{ backgroundImage: mobileGradient }} />
-      <div className="absolute inset-0 hidden md:block" style={{ backgroundImage: desktopGradient }} />
+      <div className="absolute inset-0 md:hidden" style={{ backgroundImage: gradients.mobile }} />
+      <div className="absolute inset-0 hidden md:block" style={{ backgroundImage: gradients.desktop }} />
     </div>,
     document.body,
   );

@@ -13,7 +13,7 @@ import MetadataEditorModal from "../components/MetadataEditorModal";
 import { Spinner, EmptyState } from "../components/ui";
 import type { Library, NfoMetadata } from "../types";
 import { seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
-import { DASHBOARD_BACKDROP_EVENT, dashboardBackdropEnabled } from "../lib/dashboardSettings";
+import { DARK_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, backdropOverlayGradients, darkOverlay, dashboardBackdropEnabled } from "../lib/dashboardSettings";
 
 function sentenceCaseMetadata(value: string): string {
   const normalized = value.trim().replaceAll("_", " ").toLowerCase();
@@ -44,6 +44,7 @@ export default function ItemDetailPage() {
   const [artworkTarget, setArtworkTarget] = useState<{ provider: string; value: string; nonce: number }>();
   const [artworkOpen, setArtworkOpen] = useState(false);
   const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
+  const [overlayStrength, setOverlayStrength] = useState(darkOverlay);
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(
     () => searchParams.get("edit_metadata") === "1",
   );
@@ -111,8 +112,13 @@ export default function ItemDetailPage() {
 
   useEffect(() => {
     const update = (event: Event) => setShowBackdrop((event as CustomEvent<boolean>).detail);
+    const updateOverlay = (event: Event) => setOverlayStrength((event as CustomEvent<number>).detail);
     window.addEventListener(DASHBOARD_BACKDROP_EVENT, update);
-    return () => window.removeEventListener(DASHBOARD_BACKDROP_EVENT, update);
+    window.addEventListener(DARK_OVERLAY_EVENT, updateOverlay);
+    return () => {
+      window.removeEventListener(DASHBOARD_BACKDROP_EVENT, update);
+      window.removeEventListener(DARK_OVERLAY_EVENT, updateOverlay);
+    };
   }, []);
 
   useEffect(() => {
@@ -135,11 +141,8 @@ export default function ItemDetailPage() {
               className="h-full w-full scale-[1.02] object-cover"
             />
           )}
-          <div className="absolute inset-0 bg-black/55" />
-          <div className="absolute inset-0 md:hidden" data-testid="item-backdrop-mobile-shading">
-            <div className="absolute inset-0 bg-gradient-to-r from-base/95 via-base/60 via-50% to-transparent to-90%" />
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent via-50% to-base/85" />
-          </div>
+          <div className="absolute inset-0 md:hidden" data-testid="item-backdrop-overlay-mobile" style={{ backgroundImage: backdropOverlayGradients(overlayStrength).mobile }} />
+          <div className="absolute inset-0 hidden md:block" data-testid="item-backdrop-overlay-desktop" style={{ backgroundImage: backdropOverlayGradients(overlayStrength).desktop }} />
         </div>,
         document.body,
       )}
@@ -154,13 +157,6 @@ export default function ItemDetailPage() {
             away, leaving multi-season shows showing the raw, undarkened backdrop
             at the bottom.) */}
         <div className="relative min-h-full">
-          {/* Extra gradients move with the hero column to strengthen contrast
-              behind the poster/title/logo and at the end of long content. */}
-          <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute inset-0 hidden bg-gradient-to-r from-base/95 via-base/60 via-50% to-transparent to-90% md:block" />
-            <div className="absolute inset-0 hidden bg-gradient-to-b from-transparent via-transparent via-50% to-base/85 md:block" />
-          </div>
-
           {/* Back button */}
           <button
             onClick={goBack}
