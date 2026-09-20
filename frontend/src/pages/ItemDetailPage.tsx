@@ -13,9 +13,12 @@ import { Spinner, EmptyState } from "../components/ui";
 import type { Library, NfoMetadata } from "../types";
 import { seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
 import { useServers } from "../lib/serverContext";
+import { detectManga, missingComicVineCoverAssignments } from "../lib/manga";
+import { useToast } from "../lib/toast";
 
 export default function ItemDetailPage() {
   const navigate = useNavigate();
+  const toast = useToast();
   const { serverId: serverIdParam, itemId } = useParams();
   const [searchParams] = useSearchParams();
   const serverId = Number(serverIdParam);
@@ -59,6 +62,40 @@ export default function ItemDetailPage() {
       setMetadataImport(null);
       setMetadataEditorOpen(false);
     },
+  });
+  const updateMissingCovers = useMutation({
+    mutationFn: async () => {
+      if (!item || !metadataQ.data?.comicvine_id) throw new Error("Add a ComicVine ID to this title’s metadata first.");
+      const result = await api.getArtwork("comicvine", serverId, item.id, metadataQ.data.comicvine_id, true);
+      if (result.message) throw new Error(result.message);
+      const missingMembers = item.members.filter(
+        (member) => !member.poster && Boolean(detectManga(member).volume),
+      );
+      const assignments = missingComicVineCoverAssignments(item, result.items);
+      let updated = 0;
+      for (const { member, art } of assignments) {
+        const applied = await api.applyPoster({
+          server_id: serverId,
+          item_id: member.id,
+          target: "poster",
+          provider: "comicvine",
+          download_url: art.download_url,
+          item_title: `${item.title} — ${member.title}`,
+        });
+        if (!applied.ok) throw new Error(`${member.title}: ${applied.message}`);
+        updated += 1;
+      }
+      return { updated, unmatched: Math.max(0, missingMembers.length - assignments.length) };
+    },
+    onSuccess: async ({ updated, unmatched }) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, itemId] }),
+        queryClient.invalidateQueries({ queryKey: ["items", serverId] }),
+      ]);
+      const suffix = unmatched ? ` ${unmatched} missing title${unmatched === 1 ? "" : "s"} had no matching ComicVine cover.` : "";
+      toast.push("success", updated ? `Added ${updated} missing cover${updated === 1 ? "" : "s"}.${suffix}` : `No matching missing covers were found.${suffix}`);
+    },
+    onError: (error: Error) => toast.push("error", error.message),
   });
 
   const item = detailQ.data;
@@ -253,7 +290,7 @@ export default function ItemDetailPage() {
                             metadataQ.data.source_material && ["Source", metadataQ.data.source_material],
                           ].filter(Boolean).map((entry) => {
                             const [label, value] = entry as string[];
-                            return <span key={label} className="rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span className="text-white/50">{label}</span> · {value}</span>;
+                            return <span key={label} className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span><span className="text-white/50">{label}</span> · {value}</span>{label === "Publisher" && metadataQ.data?.comicvine_id && item.type === "folder" && <button type="button" onClick={() => updateMissingCovers.mutate()} disabled={updateMissingCovers.isPending} aria-label="Add missing ComicVine covers" title="Add missing covers from ComicVine" className="ml-1 rounded-full p-0.5 text-amber-300 transition-colors hover:bg-white/10 hover:text-amber-100 disabled:opacity-50"><RefreshCw className={`size-3.5 ${updateMissingCovers.isPending ? "animate-spin" : ""}`} /></button>}</span>;
                           })}
                           {showMissingTitles && missingInstallments > 0 && installmentInfo && (
                             <span className="rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 text-xs font-medium text-amber-200">

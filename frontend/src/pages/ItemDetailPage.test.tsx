@@ -8,6 +8,7 @@ import ItemDetailPage from "./ItemDetailPage";
 vi.mock("../components/ArtworkPanel", () => ({ default: () => null }));
 vi.mock("../api/client", () => ({ imageUrl: () => undefined, api: { getItemDetail: vi.fn(), refreshArtworkItem: vi.fn() } }));
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [{ id: 7, show_missing_titles: true }] }) }));
+vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 it("refreshes artwork for the current server and title, prevents duplicate requests, and displays failures", async () => {
