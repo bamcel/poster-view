@@ -82,6 +82,21 @@ it("filters by artwork and sorts titles from the compact filter menu", async () 
   client.clear();
 });
 
+it("closes the title filter menu when pressing outside it", async () => {
+  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
+  vi.mocked(api.getItems).mockResolvedValue([{ id: "alien", title: "Alien", type: "movie" }]);
+
+  const { client } = renderDashboard();
+  await screen.findByText("Alien");
+  const toggle = screen.getByLabelText("Filter and sort titles");
+  const menu = toggle.closest("details")!;
+  fireEvent.click(toggle);
+  expect(menu.open).toBe(true);
+  fireEvent.pointerDown(document.body);
+  expect(menu.open).toBe(false);
+  client.clear();
+});
+
 it("restores a library's scroll position once without jumping during filtering", async () => {
   vi.mocked(api.getLibraries).mockResolvedValue([
     { id: "movies", title: "Movies", type: "movie" },

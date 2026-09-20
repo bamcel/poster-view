@@ -40,7 +40,25 @@ export default function DashboardPage() {
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
   const libraryBodyRef = useRef<HTMLDivElement>(null);
+  const filterMenuRef = useRef<HTMLDetailsElement>(null);
   const restoredScrollKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!filterMenuRef.current?.contains(event.target as Node)) {
+        filterMenuRef.current?.removeAttribute("open");
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") filterMenuRef.current?.removeAttribute("open");
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
 
   const refreshMut = useMutation({
     mutationFn: ({ itemId }: { itemId: string }) =>
@@ -365,7 +383,7 @@ export default function DashboardPage() {
               className="w-full rounded-full border border-border bg-surface-2 py-2 pl-9 pr-3 text-[16px] outline-none focus:border-accent md:text-sm"
             />
           </div>
-          <details className="group relative">
+          <details ref={filterMenuRef} className="group relative">
             <summary
               aria-label="Filter and sort titles"
               className={`grid size-10 cursor-pointer list-none place-items-center rounded-full border bg-surface-2 text-muted outline-none marker:hidden hover:text-white ${artworkFilter !== "all" || titleSort !== "title" ? "border-accent text-accent" : "border-border"}`}
