@@ -39,7 +39,7 @@ describe("custom themes", () => {
     expect(loadCustomThemes()).toEqual([]);
   });
 
-  it("falls back to Gotham when the selected custom theme is removed", () => {
+  it("falls back to Everforest when the selected custom theme is removed", () => {
     const custom = { ...getTheme("Gotham"), name: "Temporary" };
     saveCustomTheme(custom);
     applyTheme(custom.name);
@@ -47,7 +47,13 @@ describe("custom themes", () => {
     removeCustomTheme(custom.name);
 
     expect(loadCustomThemes()).toEqual([]);
+    expect(getStoredThemeName()).toBe("Everforest");
+    expect(document.documentElement.dataset.theme).toBe("Everforest");
+  });
+
+  it("uses Everforest by default without replacing a saved selection", () => {
+    expect(getStoredThemeName()).toBe("Everforest");
+    applyTheme("Gotham");
     expect(getStoredThemeName()).toBe("Gotham");
-    expect(document.documentElement.dataset.theme).toBe("Gotham");
   });
 });

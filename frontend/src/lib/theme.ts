@@ -71,7 +71,7 @@ export const THEMES: AppTheme[] = [
 
 const STORAGE_KEY = "posterview.theme";
 const CUSTOM_STORAGE_KEY = "posterview.customThemes";
-const DEFAULT_THEME_NAME = "Gotham";
+const DEFAULT_THEME_NAME = "Everforest";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 export function loadCustomThemes(): AppTheme[] {

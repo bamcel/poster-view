@@ -61,7 +61,7 @@ it("previews a palette color and saves it as a selectable custom theme", async (
   fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
   fireEvent.click(screen.getByLabelText("Toggle JSON Editor"));
   const themeEditor = screen.getByLabelText("JSON Editor") as HTMLTextAreaElement;
-  expect(themeEditor.value).toContain('"name": "Gotham"');
+  expect(themeEditor.value).toContain('"name": "Everforest"');
   expect(themeEditor.style.fontSize).toBe("0.5625rem");
   expect(themeEditor.style.lineHeight).toBe("0.75rem");
 
