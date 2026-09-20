@@ -59,3 +59,20 @@ it("keeps existing and imported provider source URLs together", () => {
     source_url: "https://anilist.co/manga/99022\nhttps://comicvine.gamespot.com/volume/4050-132428/",
   }));
 });
+
+it("does not offer overwrites for equivalent AniList status and source values", () => {
+  render(
+    <MetadataEditorModal
+      metadata={metadata({ title: "Series", status: "FINISHED", source_material: "LIGHT_NOVEL" })}
+      incoming={metadata({ title: "Series", status: "Finished", source_material: "Light novel" })}
+      sourceLabel="AniList"
+      saving={false}
+      onClose={vi.fn()}
+      onSave={vi.fn()}
+    />,
+  );
+
+  expect(screen.queryByRole("checkbox", { name: /Overwrite Status/ })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: /Overwrite Source material/ })).toBeNull();
+  expect(screen.queryByText("Choose fields to overwrite")).toBeNull();
+});

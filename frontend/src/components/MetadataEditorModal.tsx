@@ -12,6 +12,12 @@ function sourceUrlLabel(url: string): string {
   try { return new URL(url).hostname; } catch { return "Source"; }
 }
 
+function metadataValuesMatch(key: keyof NfoMetadata, current: string, incoming: string): boolean {
+  if (key !== "status" && key !== "source_material") return current.trim() === incoming.trim();
+  const normalize = (value: string) => value.trim().replaceAll("_", " ").replace(/\s+/g, " ").toLowerCase();
+  return normalize(current) === normalize(incoming);
+}
+
 export default function MetadataEditorModal({
   metadata,
   saving,
@@ -32,7 +38,7 @@ export default function MetadataEditorModal({
   const conflicts = useMemo(() => {
     if (!incoming) return [] as Array<keyof NfoMetadata>;
     return (Object.keys(incoming) as Array<keyof NfoMetadata>).filter(
-      (key) => key !== "source_url" && incoming[key].trim() && metadata[key].trim() && incoming[key].trim() !== metadata[key].trim(),
+      (key) => key !== "source_url" && incoming[key].trim() && metadata[key].trim() && !metadataValuesMatch(key, metadata[key], incoming[key]),
     );
   }, [incoming, metadata]);
   const [fields, setFields] = useState<NfoMetadata>(() => {
