@@ -596,6 +596,15 @@ pub(crate) struct ItemMetadataQuery {
     item_id: String,
 }
 
+fn sentence_case(value: &str) -> String {
+    let normalized = value.trim().replace('_', " ").to_lowercase();
+    let mut characters = normalized.chars();
+    characters
+        .next()
+        .map(|first| first.to_uppercase().collect::<String>() + characters.as_str())
+        .unwrap_or_default()
+}
+
 #[derive(Deserialize)]
 pub(crate) struct ItemMetadataUpdate {
     server_id: i64,
@@ -719,13 +728,15 @@ pub(crate) async fn use_anilist_manga(
     if !server.nfo_metadata_enabled {
         return Err(invalid("Enable NFO metadata for this server in Settings → Server Setup first."));
     }
-    let source = item_source(&state, request.server_id, &request.item_id).await?;
+    let source_path = item_source(&state, request.server_id, &request.item_id).await?;
     let metadata = state.runtime.anilist_manga_metadata(&request.anilist_id).await
         .map_err(|error| HttpError::bad_gateway(error.to_string()))?;
+    let status = sentence_case(&metadata.status);
+    let source_material = sentence_case(&metadata.source);
     state.metadata.save_anilist_manga_for_source(
-        &source, &metadata.id, &metadata.mal_id, &metadata.title, &metadata.native_title,
-        &metadata.year, &metadata.status, &metadata.plot, &metadata.genres, &metadata.tags,
-        &metadata.creators, &metadata.country, &metadata.source, &metadata.source_url,
+        &source_path, &metadata.id, &metadata.mal_id, &metadata.title, &metadata.native_title,
+        &metadata.year, &status, &metadata.plot, &metadata.genres, &metadata.tags,
+        &metadata.creators, &metadata.country, &source_material, &metadata.source_url,
     ).map(Json)
 }
 
@@ -752,7 +763,7 @@ pub(crate) async fn preview_anilist_manga(
     Ok(Json(Fields {
         title: metadata.title,
         year: metadata.year,
-        status: metadata.status,
+        status: sentence_case(&metadata.status),
         plot: metadata.plot,
         anilist_id: metadata.id,
         source_url: metadata.source_url,
@@ -762,7 +773,7 @@ pub(crate) async fn preview_anilist_manga(
         tags: metadata.tags,
         creators: metadata.creators,
         country: metadata.country,
-        source_material: metadata.source,
+        source_material: sentence_case(&metadata.source),
         ..Fields::default()
     }))
 }
@@ -834,6 +845,14 @@ pub(crate) async fn search(Query(search): Query<Search>) -> Result<Json<Vec<Fiel
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn anilist_enum_values_are_sentence_cased() {
+        assert_eq!(sentence_case("FINISHED"), "Finished");
+        assert_eq!(sentence_case("LIGHT_NOVEL"), "Light novel");
+        assert_eq!(sentence_case("NOT YET RELEASED"), "Not yet released");
+    }
+
     #[tokio::test]
     async fn metadata_routes_require_authentication() {
         use axum::{body::Body, http::Request};

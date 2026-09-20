@@ -16,6 +16,11 @@ import { useServers } from "../lib/serverContext";
 import { detectManga, missingComicVineCoverAssignments } from "../lib/manga";
 import { useToast } from "../lib/toast";
 
+function sentenceCaseMetadata(value: string): string {
+  const normalized = value.trim().replaceAll("_", " ").toLowerCase();
+  return normalized ? normalized[0].toUpperCase() + normalized.slice(1) : normalized;
+}
+
 export default function ItemDetailPage() {
   const navigate = useNavigate();
   const toast = useToast();
@@ -290,7 +295,8 @@ export default function ItemDetailPage() {
                             metadataQ.data.source_material && ["Source", metadataQ.data.source_material],
                           ].filter(Boolean).map((entry) => {
                             const [label, value] = entry as string[];
-                            return <span key={label} className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span><span className="text-white/50">{label}</span> · {value}</span>{label === "Publisher" && metadataQ.data?.comicvine_id && item.type === "folder" && <button type="button" onClick={() => updateMissingCovers.mutate()} disabled={updateMissingCovers.isPending} aria-label="Fill in missing artwork" title="Fill in missing artwork" className="ml-1 rounded-full p-0.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50"><RefreshCw className={`size-3.5 ${updateMissingCovers.isPending ? "animate-spin" : ""}`} /></button>}</span>;
+                            const displayValue = label === "Status" || label === "Source" ? sentenceCaseMetadata(value) : value;
+                            return <span key={label} className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span><span className="text-white/50">{label}</span> · {displayValue}</span>{label === "Publisher" && metadataQ.data?.comicvine_id && item.type === "folder" && <button type="button" onClick={() => updateMissingCovers.mutate()} disabled={updateMissingCovers.isPending} aria-label="Fill in missing artwork" title="Fill in missing artwork" className="ml-1 rounded-full p-0.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50"><RefreshCw className={`size-3.5 ${updateMissingCovers.isPending ? "animate-spin" : ""}`} /></button>}</span>;
                           })}
                           {showMissingTitles && missingInstallments > 0 && installmentInfo && (
                             <span className="rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 text-xs font-medium text-amber-200">
