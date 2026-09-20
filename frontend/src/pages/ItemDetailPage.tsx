@@ -262,12 +262,13 @@ export default function ItemDetailPage() {
                     <div className="mt-3 flex flex-wrap items-center justify-center gap-3 sm:justify-start xl:hidden">
                       <button
                         type="button"
+                        aria-label="Refresh artwork"
                         onClick={() => refreshArtwork.mutate()}
                         disabled={refreshArtwork.isPending}
                         className="flex min-h-11 items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-white/40 hover:text-white disabled:opacity-50 xl:hidden"
                       >
                         <RefreshCw className={`size-4 shrink-0 ${refreshArtwork.isPending ? "animate-spin" : ""}`} />
-                        {refreshArtwork.isPending ? "Refreshing artwork…" : "Refresh artwork"}
+                        {refreshArtwork.isPending ? "Refreshing…" : "Refresh"}
                       </button>
                     </div>
                     <div role="status" aria-live="polite" className="mt-2 break-words text-sm xl:hidden">

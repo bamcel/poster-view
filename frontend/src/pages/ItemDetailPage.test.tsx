@@ -57,7 +57,7 @@ it("refreshes artwork for the current server and title, prevents duplicate reque
   expect(screen.getByTitle("Refresh from server").className).toContain("sm:flex");
   fireEvent.click(await screen.findByRole("button", { name: "Refresh artwork" }));
   await waitFor(() => expect(api.refreshArtworkItem).toHaveBeenCalledWith(7, "movie"));
-  expect((await screen.findByRole("button", { name: "Refreshing artwork…" })).hasAttribute("disabled")).toBe(true);
+  expect((await screen.findByRole("button", { name: "Refresh artwork" })).hasAttribute("disabled")).toBe(true);
   finish({ ok: false, message: "Provider unavailable", providers_warmed: 0 });
   expect(await screen.findByText("Provider unavailable")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Refresh artwork" }).hasAttribute("disabled")).toBe(false);
