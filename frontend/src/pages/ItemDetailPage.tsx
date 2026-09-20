@@ -31,6 +31,19 @@ export default function ItemDetailPage() {
   const showMissingTitles = servers.find((server) => server.id === serverId)?.show_missing_titles !== false;
   const libraryType = searchParams.get("library_type") as Library["type"] | null;
   const libraryTitle = searchParams.get("library_title") ?? undefined;
+  const returnLibrary = searchParams.get("return_library");
+  const returnFolder = searchParams.get("return_folder");
+  const returnFolderTitle = searchParams.get("return_folder_title");
+  const goBack = () => {
+    if (!returnLibrary) {
+      navigate(-1);
+      return;
+    }
+    const destination = new URLSearchParams({ lib: returnLibrary });
+    if (returnFolder) destination.set("folder", returnFolder);
+    if (returnFolderTitle) destination.set("folder_title", returnFolderTitle);
+    navigate(`/?${destination.toString()}`);
+  };
   const [prefill, setPrefill] = useState<{ term: string; nonce: number }>();
   const [artworkOpen, setArtworkOpen] = useState(false);
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(
@@ -166,7 +179,7 @@ export default function ItemDetailPage() {
 
           {/* Back button */}
           <button
-            onClick={() => navigate(-1)}
+            onClick={goBack}
             className="absolute left-5 top-5 z-10 grid size-9 place-items-center rounded-full bg-black/40 text-white backdrop-blur transition-colors hover:bg-black/70"
             aria-label="Back"
           >

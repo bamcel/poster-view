@@ -234,6 +234,9 @@ export default function LibraryPage() {
       context.set("library_type", selectedLibrary.type);
       context.set("library_title", selectedLibrary.title);
     }
+    if (libraryId) context.set("return_library", libraryId);
+    if (folderId) context.set("return_folder", folderId);
+    if (folderTitle) context.set("return_folder_title", folderTitle);
     if (editMetadata) context.set("edit_metadata", "1");
     const query = context.toString();
     return `/server/${serverId}/item/${itemId}${query ? `?${query}` : ""}`;

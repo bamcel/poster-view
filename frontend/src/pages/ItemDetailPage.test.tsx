@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "../api/client";
 import ItemDetailPage from "./ItemDetailPage";
 
@@ -10,6 +10,29 @@ vi.mock("../api/client", () => ({ imageUrl: () => undefined, api: { getItemDetai
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [{ id: 7, show_missing_titles: true }] }) }));
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div>{location.pathname}{location.search}</div>;
+}
+
+it("returns directly to the manga series parent folder", async () => {
+  vi.mocked(api.getItemDetail).mockResolvedValue({ id: "dragon-ball", title: "Dragon Ball", type: "folder", seasons: [], external_ids: {}, members: [] });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <MemoryRouter initialEntries={["/server/7/item/dragon-ball?return_library=manga&return_folder=jump-comics&return_folder_title=Jump+Comics"]}>
+      <QueryClientProvider client={client}>
+        <Routes>
+          <Route path="/server/:serverId/item/:itemId" element={<ItemDetailPage />} />
+          <Route path="/" element={<LocationProbe />} />
+        </Routes>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Back" }));
+  expect(await screen.findByText("/?lib=manga&folder=jump-comics&folder_title=Jump+Comics")).toBeTruthy();
+  client.clear();
+});
 
 it("refreshes artwork for the current server and title, prevents duplicate requests, and displays failures", async () => {
   vi.mocked(api.getItemDetail).mockResolvedValue({ id: "movie", title: "Movie", type: "movie", seasons: [], external_ids: {}, members: [] });
