@@ -261,6 +261,7 @@ export default function ItemDetailPage() {
                           {[
                             metadataQ.data.year && ["Year", metadataQ.data.year],
                             metadataQ.data.publisher && ["Publisher", metadataQ.data.publisher],
+                            metadataQ.data.translation && ["Translation", metadataQ.data.translation],
                             metadataQ.data.volumes && ["Volumes", metadataQ.data.volumes],
                             metadataQ.data.status && ["Status", metadataQ.data.status],
                             metadataQ.data.country && ["Country", metadataQ.data.country],
@@ -276,7 +277,6 @@ export default function ItemDetailPage() {
                             </span>
                           )}
                         </div>
-                        {metadataQ.data.translation && <p className="mt-3 text-sm font-medium text-white/85">{metadataQ.data.translation}</p>}
                         {metadataQ.data.plot && <p className="mt-3 text-sm leading-relaxed text-white/75">{metadataQ.data.plot}</p>}
                       </section>
                     )}
