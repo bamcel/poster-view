@@ -306,7 +306,7 @@ export default function DashboardPage() {
     <div className="relative flex h-full flex-col overflow-hidden">
       {showBackdrop && backdropUrls.length > 0 && <DashboardBackdrop urls={backdropUrls} />}
       {/* Header */}
-      <div className="relative z-10 border-b border-border px-4 pt-[75px] sm:px-6 lg:px-8">
+      <div className="relative z-10 border-b border-border px-4 pt-0 sm:px-6 md:pt-[75px] lg:px-8">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
           {/* Library tabs */}
           <div className="col-start-1 row-start-1 min-w-0">
@@ -362,7 +362,7 @@ export default function DashboardPage() {
               onChange={(e) => setFilter(e.target.value)}
               aria-label="Search Titles"
               placeholder="Search Titles…"
-              className="w-full rounded-full border border-border bg-surface-2 py-2 pl-9 pr-3 text-sm outline-none focus:border-accent"
+              className="w-full rounded-full border border-border bg-surface-2 py-2 pl-9 pr-3 text-[16px] outline-none focus:border-accent md:text-sm"
             />
           </div>
           <details className="group relative">
