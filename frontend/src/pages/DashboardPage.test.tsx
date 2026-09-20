@@ -143,6 +143,7 @@ it("restores a library's scroll position once without jumping during filtering",
   await screen.findByText("Alien");
   const scrollContainer = container.querySelector(".overflow-y-auto");
   expect(scrollContainer).toBeTruthy();
+  expect(scrollContainer!.classList.contains("scrollbar-hidden")).toBe(true);
   expect(scrollContainer!.scrollTop).toBe(240);
 
   scrollContainer!.scrollTop = 360;

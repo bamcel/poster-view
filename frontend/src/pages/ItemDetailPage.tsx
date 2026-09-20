@@ -148,7 +148,7 @@ export default function ItemDetailPage() {
       )}
 
       {/* Left: hero + seasons */}
-      <div className="relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain">
+      <div className="scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain">
         {/* min-h-full lets this wrapper be at least a viewport tall but grow to
             the full scrolled content height. The darkening layer below is
             absolute inset-0 against THIS wrapper, so it covers every season row

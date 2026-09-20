@@ -201,7 +201,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto p-4">
         {provider !== "manual" && (
           <div className="mb-3 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">

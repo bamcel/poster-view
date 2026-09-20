@@ -84,6 +84,16 @@ select {
   border-radius: 9999px;
 }
 
+/* Keep scrolling available while removing visual scrollbar gutters from
+   artwork-first browsing views. */
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

@@ -15,7 +15,7 @@ function LocationProbe() {
   return <div>{location.pathname}{location.search}</div>;
 }
 
-it("renders a selected title backdrop across the viewport", async () => {
+it("renders a selected title backdrop across the viewport without a visible scrollbar", async () => {
   localStorage.setItem("posterview.dashboardBackdropEnabled", "true");
   vi.mocked(api.getItemDetail).mockResolvedValue({ id: "movie", title: "Movie", type: "movie", background: "movie-backdrop", seasons: [], external_ids: {}, members: [] });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -27,6 +27,7 @@ it("renders a selected title backdrop across the viewport", async () => {
   expect(backdrop.querySelector("img")?.getAttribute("src")).toBe("/api/image/movie-backdrop");
   expect(screen.getByTestId("item-backdrop-overlay-mobile").parentElement).toBe(backdrop);
   expect(screen.getByTestId("item-backdrop-overlay-desktop").parentElement).toBe(backdrop);
+  expect(document.querySelector(".overflow-y-auto")?.classList.contains("scrollbar-hidden")).toBe(true);
   client.clear();
 });
 
