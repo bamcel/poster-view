@@ -76,6 +76,7 @@ it("filters by artwork and sorts titles from the compact filter menu", async () 
   await screen.findByText("Older");
   fireEvent.click(screen.getByLabelText("Filter and sort titles"));
   fireEvent.change(screen.getByLabelText("Filter by artwork"), { target: { value: "missing-poster" } });
+  expect(screen.queryByRole("option", { name: "Has backdrop" })).toBeNull();
   expect(screen.queryByText("Older")).toBeNull();
   expect(screen.getByText("Newer")).toBeTruthy();
 

@@ -17,7 +17,7 @@ import { DASHBOARD_BACKDROP_EVENT, dashboardBackdropEnabled } from "../lib/dashb
 const GROUP_COLLECTIONS_KEY = "posterview.groupCollections";
 const LAST_VISIT_PREFIX = "posterview.lastVisit.";
 const SCROLL_POSITION_PREFIX = "posterview.libraryScroll.";
-type ArtworkFilter = "all" | "missing-poster" | "has-backdrop" | "missing-backdrop";
+type ArtworkFilter = "all" | "missing-poster" | "missing-backdrop";
 type TitleSort = "title" | "newest" | "oldest" | "recently-added";
 
 export default function DashboardPage() {
@@ -186,7 +186,6 @@ export default function DashboardPage() {
     const filtered = all.filter((item) => {
       if (q && !item.title.toLowerCase().includes(q)) return false;
       if (artworkFilter === "missing-poster") return !item.poster;
-      if (artworkFilter === "has-backdrop") return Boolean(item.background);
       if (artworkFilter === "missing-backdrop") return !item.background;
       return true;
     });
@@ -407,7 +406,6 @@ export default function DashboardPage() {
                 >
                   <option value="all">All titles</option>
                   <option value="missing-poster">Missing poster</option>
-                  <option value="has-backdrop">Has backdrop</option>
                   <option value="missing-backdrop">Missing backdrop</option>
                 </select>
               </label>
