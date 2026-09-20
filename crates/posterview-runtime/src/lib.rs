@@ -528,21 +528,25 @@ impl Runtime {
 
 fn save_companion_cover(source: &str, data: &[u8], content_type: &str) -> Result<String, String> {
     let source = Path::new(source);
-    let parent = source
-        .parent()
-        .filter(|parent| parent.is_dir())
-        .ok_or("the media directory is not mounted in PosterView")?;
-    let stem = source
-        .file_stem()
-        .filter(|stem| !stem.is_empty())
-        .ok_or("the media filename has no usable name")?;
     let extension = match content_type.split(';').next().unwrap_or("").trim() {
         "image/jpeg" | "image/jpg" => "jpg",
         "image/png" => "png",
         "image/webp" => "webp",
         _ => return Err("the downloaded image format is unsupported".to_owned()),
     };
-    let destination = parent.join(stem).with_extension(extension);
+    let destination = if source.is_dir() {
+        source.join("poster").with_extension(extension)
+    } else {
+        let parent = source
+            .parent()
+            .filter(|parent| parent.is_dir())
+            .ok_or("the media directory is not mounted in PosterView")?;
+        let stem = source
+            .file_stem()
+            .filter(|stem| !stem.is_empty())
+            .ok_or("the media filename has no usable name")?;
+        parent.join(stem).with_extension(extension)
+    };
     std::fs::write(&destination, data).map_err(|error| match error.kind() {
         std::io::ErrorKind::PermissionDenied => "the media directory is read-only".to_owned(),
         _ => format!("the media directory is unavailable ({error})"),
@@ -658,6 +662,27 @@ mod tests {
         )
         .expect("replace companion cover");
         assert_eq!(std::fs::read(cover).unwrap(), b"replacement cover");
+    }
+
+    #[test]
+    fn companion_cover_for_a_series_folder_stays_inside_that_folder() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let series = directory.path().join("Dragon Ball");
+        std::fs::create_dir(&series).expect("create series directory");
+
+        let name = save_companion_cover(
+            series.to_str().expect("utf-8 path"),
+            b"series cover",
+            "image/png",
+        )
+        .expect("save series cover");
+
+        assert_eq!(name, "poster.png");
+        assert_eq!(
+            std::fs::read(series.join("poster.png")).unwrap(),
+            b"series cover"
+        );
+        assert!(!directory.path().join("Dragon Ball.png").exists());
     }
 
     #[test]
