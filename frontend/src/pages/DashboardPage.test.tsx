@@ -105,6 +105,30 @@ it("closes the title filter menu when pressing outside it", async () => {
   client.clear();
 });
 
+it("applies live panel solidity and blur settings to search controls", async () => {
+  localStorage.setItem("posterview.panelSolidity", "65");
+  localStorage.setItem("posterview.backdropBlur", "20");
+  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
+  vi.mocked(api.getItems).mockResolvedValue([{ id: "alien", title: "Alien", type: "movie" }]);
+
+  const { client } = renderDashboard();
+  await screen.findByText("Alien");
+  const search = screen.getByLabelText("Search Titles");
+  const filterButton = screen.getByLabelText("Filter and sort titles");
+  for (const control of [search, filterButton]) {
+    expect(control.getAttribute("style")).toContain("65%");
+    expect(control.getAttribute("style")).toContain("blur(20px)");
+  }
+
+  window.dispatchEvent(new CustomEvent("posterview:panel-solidity", { detail: 30 }));
+  window.dispatchEvent(new CustomEvent("posterview:backdrop-blur", { detail: 6 }));
+  await waitFor(() => {
+    expect(search.getAttribute("style")).toContain("30%");
+    expect(filterButton.getAttribute("style")).toContain("blur(6px)");
+  });
+  client.clear();
+});
+
 it("restores a library's scroll position once without jumping during filtering", async () => {
   vi.mocked(api.getLibraries).mockResolvedValue([
     { id: "movies", title: "Movies", type: "movie" },

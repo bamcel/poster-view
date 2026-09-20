@@ -12,7 +12,7 @@ import PosterCard from "../components/PosterCard";
 import { EmptyState, Spinner, Switch } from "../components/ui";
 import { useToast } from "../lib/toast";
 import { isBookRelatedLibraryName } from "../lib/mediaKind";
-import { DARK_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, backdropOverlayGradients, darkOverlay, dashboardBackdropEnabled } from "../lib/dashboardSettings";
+import { BACKDROP_BLUR_EVENT, DARK_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, backdropOverlayGradients, darkOverlay, dashboardBackdropEnabled, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
 const GROUP_COLLECTIONS_KEY = "posterview.groupCollections";
 const LAST_VISIT_PREFIX = "posterview.lastVisit.";
@@ -40,6 +40,8 @@ export default function DashboardPage() {
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
   const [overlayStrength, setOverlayStrength] = useState(darkOverlay);
+  const [panelSolid, setPanelSolid] = useState(panelSolidity);
+  const [panelBlur, setPanelBlur] = useState(backdropBlur);
   const libraryBodyRef = useRef<HTMLDivElement>(null);
   const filterMenuRef = useRef<HTMLDetailsElement>(null);
   const restoredScrollKeyRef = useRef<string | null>(null);
@@ -203,13 +205,19 @@ export default function DashboardPage() {
   useEffect(() => {
     const update = (event: Event) => setShowBackdrop((event as CustomEvent<boolean>).detail);
     const updateOverlay = (event: Event) => setOverlayStrength((event as CustomEvent<number>).detail);
+    const updateSolidity = (event: Event) => setPanelSolid((event as CustomEvent<number>).detail);
+    const updateBlur = (event: Event) => setPanelBlur((event as CustomEvent<number>).detail);
     const updateFromStorage = () => setShowBackdrop(dashboardBackdropEnabled());
     window.addEventListener(DASHBOARD_BACKDROP_EVENT, update);
     window.addEventListener(DARK_OVERLAY_EVENT, updateOverlay);
+    window.addEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
+    window.addEventListener(BACKDROP_BLUR_EVENT, updateBlur);
     window.addEventListener("storage", updateFromStorage);
     return () => {
       window.removeEventListener(DASHBOARD_BACKDROP_EVENT, update);
       window.removeEventListener(DARK_OVERLAY_EVENT, updateOverlay);
+      window.removeEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
+      window.removeEventListener(BACKDROP_BLUR_EVENT, updateBlur);
       window.removeEventListener("storage", updateFromStorage);
     };
   }, []);
@@ -389,13 +397,15 @@ export default function DashboardPage() {
               onChange={(e) => setFilter(e.target.value)}
               aria-label="Search Titles"
               placeholder="Search Titles…"
-              className="w-full rounded-full border border-border bg-surface-2/50 py-2 pl-9 pr-3 text-[16px] backdrop-blur-md outline-none focus:border-accent md:text-sm"
+              className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] outline-none focus:border-accent md:text-sm"
+              style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
             />
           </div>
           <details ref={filterMenuRef} className="group relative">
             <summary
               aria-label="Filter and sort titles"
-              className={`grid size-10 cursor-pointer list-none place-items-center rounded-full border bg-surface-2/50 text-muted backdrop-blur-md outline-none marker:hidden hover:text-white ${artworkFilter !== "all" || titleSort !== "title" ? "border-accent text-accent" : "border-border"}`}
+              className={`grid size-10 cursor-pointer list-none place-items-center rounded-full border text-muted outline-none marker:hidden hover:text-white ${artworkFilter !== "all" || titleSort !== "title" ? "border-accent text-accent" : "border-border"}`}
+              style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
             >
               <ListFilter className="size-4" />
             </summary>
