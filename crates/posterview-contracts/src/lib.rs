@@ -341,6 +341,7 @@ pub struct ArtworkSettings {
     pub tvdb_configured: bool,
     pub comicvine_configured: bool,
     pub default_provider: String,
+    pub ereader_default_provider: String,
     pub enabled_providers: Vec<String>,
 }
 
@@ -351,6 +352,7 @@ pub struct ArtworkSettingsUpdate {
     pub tvdb_pin: Option<String>,
     pub comicvine_api_key: Option<String>,
     pub default_provider: Option<String>,
+    pub ereader_default_provider: Option<String>,
     pub enabled_providers: Option<Vec<String>>,
 }
 

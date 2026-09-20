@@ -286,8 +286,22 @@ impl Runtime {
         let store = self.server_store()?;
         let enabled = self.enabled_artwork_providers()?;
         let mut default_provider = store.get_setting("artwork_default_provider")?;
-        if !enabled.contains(&default_provider) {
-            default_provider = ARTWORK_PROVIDERS
+        let poster_providers = ["posterdb", "fanart", "tvdb", "anilist", "mediux"];
+        let ereader_providers = ["anilist-manga", "mangadex", "viz", "comicvine"];
+        if !enabled.contains(&default_provider)
+            || !poster_providers.contains(&default_provider.as_str())
+        {
+            default_provider = poster_providers
+                .iter()
+                .find(|provider| enabled.contains(**provider))
+                .unwrap_or(&"manual")
+                .to_string();
+        }
+        let mut ereader_default_provider = store.get_setting("artwork_ereader_default_provider")?;
+        if !enabled.contains(&ereader_default_provider)
+            || !ereader_providers.contains(&ereader_default_provider.as_str())
+        {
+            ereader_default_provider = ereader_providers
                 .iter()
                 .find(|provider| enabled.contains(**provider))
                 .unwrap_or(&"manual")
@@ -298,6 +312,7 @@ impl Runtime {
             tvdb_configured: !store.get_setting("tvdb_api_key")?.is_empty(),
             comicvine_configured: !store.get_setting("comicvine_api_key")?.is_empty(),
             default_provider,
+            ereader_default_provider,
             enabled_providers: ARTWORK_PROVIDERS
                 .iter()
                 .filter(|provider| enabled.contains(**provider))
@@ -1120,9 +1135,16 @@ impl Runtime {
             }
         }
         if let Some(provider) = input.default_provider.as_deref()
-            && (ARTWORK_PROVIDERS.contains(&provider) || provider == "manual")
+            && (["posterdb", "fanart", "tvdb", "anilist", "mediux"].contains(&provider)
+                || provider == "manual")
         {
             store.set_setting("artwork_default_provider", provider)?;
+        }
+        if let Some(provider) = input.ereader_default_provider.as_deref()
+            && (["anilist-manga", "mangadex", "viz", "comicvine"].contains(&provider)
+                || provider == "manual")
+        {
+            store.set_setting("artwork_ereader_default_provider", provider)?;
         }
         self.artwork_settings()
     }

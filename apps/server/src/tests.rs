@@ -993,6 +993,7 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
             "tvdb_configured": true,
             "comicvine_configured": false,
             "default_provider": "posterdb",
+            "ereader_default_provider": "anilist-manga",
             "enabled_providers": ["posterdb", "fanart", "tvdb", "anilist", "anilist-manga", "mediux", "mangadex", "viz", "comicvine"]
         })
     );
@@ -1003,7 +1004,7 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
             Request::put("/api/artwork/settings")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"default_provider":"tvdb","enabled_providers":["tvdb","mediux"]}"#,
+                    r#"{"default_provider":"tvdb","ereader_default_provider":"comicvine","enabled_providers":["tvdb","mediux","comicvine"]}"#,
                 ))
                 .unwrap(),
         )
@@ -1013,9 +1014,10 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
         serde_json::from_slice(&preferences.into_body().collect().await.unwrap().to_bytes())
             .unwrap();
     assert_eq!(preferences["default_provider"], "tvdb");
+    assert_eq!(preferences["ereader_default_provider"], "comicvine");
     assert_eq!(
         preferences["enabled_providers"],
-        serde_json::json!(["tvdb", "mediux"])
+        serde_json::json!(["tvdb", "mediux", "comicvine"])
     );
 
     let credentials = app

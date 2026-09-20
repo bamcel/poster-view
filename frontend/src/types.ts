@@ -150,6 +150,7 @@ export interface ArtworkSettings {
   tvdb_configured: boolean;
   comicvine_configured: boolean;
   default_provider: string;
+  ereader_default_provider: string;
   enabled_providers: string[];
 }
 

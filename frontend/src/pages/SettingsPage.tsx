@@ -748,17 +748,19 @@ const ARTWORK_DATABASES = [
   { name: "mediux", label: "MediUX" },
 ];
 
-function DefaultArtworkSourceFields() {
+function DefaultArtworkSourceFields({ kind, names }: { kind: "poster" | "ereader"; names: string[] }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
   const enabled = settingsQ.data?.enabled_providers ?? [];
   const saveMut = useMutation({
-    mutationFn: (provider: string) => api.setArtworkSettings({ default_provider: provider }),
+    mutationFn: (provider: string) => api.setArtworkSettings(
+      kind === "poster" ? { default_provider: provider } : { ereader_default_provider: provider },
+    ),
     onMutate: () => reportSettingsSave("saving"),
     onSuccess: (settings) => {
       queryClient.setQueryData(["artwork-settings"], settings);
-      toast.push("success", "Default artwork source saved.");
+      toast.push("success", `Default ${kind === "poster" ? "poster" : "eReader"} source saved.`);
       reportSettingsSave("saved");
     },
     onError: (e: Error) => {
@@ -772,13 +774,15 @@ function DefaultArtworkSourceFields() {
     <label className="flex w-full flex-col gap-1 text-xs font-medium text-muted sm:w-56 sm:shrink-0">
       Default provider
       <select
-        title="Opens first whenever you select a movie, series, or collection."
+        title={kind === "poster"
+          ? "Opens first whenever you select a movie, series, or collection."
+          : "Opens first whenever you select book-related media."}
         className={compactInputCls}
-        value={settingsQ.data?.default_provider ?? ""}
+        value={(kind === "poster" ? settingsQ.data?.default_provider : settingsQ.data?.ereader_default_provider) ?? ""}
         onChange={(event) => saveMut.mutate(event.target.value)}
-        disabled={settingsQ.isLoading || saveMut.isPending || enabled.length === 0}
+        disabled={settingsQ.isLoading || saveMut.isPending || !names.some((name) => enabled.includes(name))}
       >
-        {ARTWORK_DATABASES.filter((source) => enabled.includes(source.name)).map((source) => (
+        {ARTWORK_DATABASES.filter((source) => names.includes(source.name) && enabled.includes(source.name)).map((source) => (
           <option key={source.name} value={source.name}>{source.label}</option>
         ))}
       </select>
@@ -817,13 +821,10 @@ function EnabledArtworkSourcesFields() {
           <p className="text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Sync, and removed from the local cache.</p>
         </div>
       </div>
-      <div className="mb-4">
-        <DefaultArtworkSourceFields />
-      </div>
       <div className="space-y-4">
         {[
-          { label: "Poster", names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
-          { label: "eReader", names: ["anilist-manga", "comicvine", "mangadex", "viz"] },
+          { label: "Poster", kind: "poster" as const, names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
+          { label: "eReader", kind: "ereader" as const, names: ["anilist-manga", "comicvine", "mangadex", "viz"] },
         ].map((group) => (
           <fieldset key={group.label} className="min-w-0">
             <legend className="mb-2 text-sm">
@@ -832,6 +833,9 @@ function EnabledArtworkSourcesFields() {
                   {settingsQ.isLoading ? "Loading providers…" : `${group.names.filter((name) => enabled.includes(name)).length} of ${group.names.length} shown`}
                 </span>
             </legend>
+            <div className="mb-3">
+              <DefaultArtworkSourceFields kind={group.kind} names={group.names} />
+            </div>
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {ARTWORK_DATABASES.filter((source) => group.names.includes(source.name))
           .sort((a, b) => a.label.localeCompare(b.label))

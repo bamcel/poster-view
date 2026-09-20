@@ -46,6 +46,9 @@ export default function ArtworkPanel({ serverId, item, prefill, libraryType, lib
   const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
   const enabled = settingsQ.data?.enabled_providers ?? [];
   const mediaKind = artworkMediaKind(item.type, libraryType, libraryTitle);
+  const defaultProvider = mediaKind === "book"
+    ? settingsQ.data?.ereader_default_provider
+    : settingsQ.data?.default_provider;
 
   // ThePosterDB first, the API providers from the backend, then Manual upload.
   // Apply history now lives on its own global page (see Layout's "History" nav
@@ -55,15 +58,15 @@ export default function ArtworkPanel({ serverId, item, prefill, libraryType, lib
     ...(providersQ.data ?? []).filter((source) => source.enabled),
     { name: "manual", label: "Manual", configured: true, needs_key: false },
   ].filter((source) => providerMatchesMediaKind(source.name, mediaKind))
-    .sort((left, right) => left.name === settingsQ.data?.default_provider ? -1 : right.name === settingsQ.data?.default_provider ? 1 : 0);
+    .sort((left, right) => left.name === defaultProvider ? -1 : right.name === defaultProvider ? 1 : 0);
 
   useEffect(() => {
-    const preferred = settingsQ.data?.default_provider;
+    const preferred = defaultProvider;
     if (preferred && tabs.some((tab) => tab.name === preferred)) setProvider(preferred);
     else if (!tabs.some((tab) => tab.name === provider)) setProvider(tabs[0]?.name ?? "manual");
     // Reset to the configured default when a different library item opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.id, settingsQ.data?.default_provider, enabled.join(","), providersQ.data, mediaKind]);
+  }, [item.id, defaultProvider, enabled.join(","), providersQ.data, mediaKind]);
 
   const refreshProvider = async () => {
     setRefreshing(true);

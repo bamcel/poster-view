@@ -201,6 +201,7 @@ export const api = {
     tvdb_pin?: string;
     comicvine_api_key?: string;
     default_provider?: string;
+    ereader_default_provider?: string;
     enabled_providers?: string[];
   }) => request<ArtworkSettings>("/artwork/settings", { method: "PUT", body: JSON.stringify(data) }),
   testArtworkProvider: (data: ArtworkProviderTestRequest) =>
