@@ -215,6 +215,10 @@ export default function DashboardPage() {
     () => Array.from(new Set((itemsQ.data ?? []).map((item) => imageUrl(serverId!, item.background)).filter((url): url is string => Boolean(url)))),
     [itemsQ.data, serverId],
   );
+  const posterBackdropUrls = useMemo(
+    () => Array.from(new Set((itemsQ.data ?? []).map((item) => imageUrl(serverId!, item.poster)).filter((url): url is string => Boolean(url)))),
+    [itemsQ.data, serverId],
+  );
 
   const scrollPositionKey =
     serverId != null && libraryId != null
@@ -322,7 +326,9 @@ export default function DashboardPage() {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
-      {showBackdrop && backdropUrls.length > 0 && <DashboardBackdrop urls={backdropUrls} />}
+      {showBackdrop && (backdropUrls.length > 0 || posterBackdropUrls.length > 0) && (
+        <DashboardBackdrop desktopUrls={backdropUrls} mobileUrls={posterBackdropUrls} />
+      )}
       {/* Header */}
       <div className="relative z-10 border-b border-border px-4 pt-0 sm:px-6 md:pt-[75px] lg:px-8">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
@@ -494,7 +500,7 @@ export default function DashboardPage() {
   );
 }
 
-function DashboardBackdrop({ urls }: { urls: string[] }) {
+function BackdropLayers({ urls, className, source }: { urls: string[]; className: string; source: "mobile" | "desktop" }) {
   const [activeIndex, setActiveIndex] = useState(() => Math.floor(Math.random() * urls.length));
 
   useEffect(() => {
@@ -509,8 +515,8 @@ function DashboardBackdrop({ urls }: { urls: string[] }) {
     return () => window.clearInterval(interval);
   }, [urls]);
 
-  return createPortal(
-    <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true" data-testid="dashboard-backdrop">
+  return (
+    <div className={className} data-backdrop-source={source}>
       {urls.map((url, index) => (
         <div
           key={url}
@@ -518,6 +524,15 @@ function DashboardBackdrop({ urls }: { urls: string[] }) {
           style={{ backgroundImage: `url("${url.replaceAll('"', '%22')}")` }}
         />
       ))}
+    </div>
+  );
+}
+
+function DashboardBackdrop({ desktopUrls, mobileUrls }: { desktopUrls: string[]; mobileUrls: string[] }) {
+  return createPortal(
+    <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true" data-testid="dashboard-backdrop">
+      {mobileUrls.length > 0 && <BackdropLayers urls={mobileUrls} className="md:hidden" source="mobile" />}
+      {desktopUrls.length > 0 && <BackdropLayers urls={desktopUrls} className="hidden md:block" source="desktop" />}
       <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(8,9,12,0.72),rgba(8,9,12,0.9)_45%,rgba(8,9,12,0.97))]" />
     </div>,
     document.body,

@@ -47,16 +47,21 @@ it("shows backdrops from the selected library when enabled", async () => {
   localStorage.setItem("posterview.dashboardBackdropEnabled", "true");
   vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
   vi.mocked(api.getItems).mockResolvedValue([
-    { id: "alien", title: "Alien", type: "movie", background: "alien-backdrop" },
-    { id: "arrival", title: "Arrival", type: "movie", background: "arrival-backdrop" },
+    { id: "alien", title: "Alien", type: "movie", poster: "alien-poster", background: "alien-backdrop" },
+    { id: "arrival", title: "Arrival", type: "movie", poster: "arrival-poster", background: "arrival-backdrop" },
   ]);
 
   const { client } = renderDashboard();
   await screen.findByText("Alien");
   const backdrop = screen.getByTestId("dashboard-backdrop");
-  expect(backdrop.querySelectorAll("[style]")).toHaveLength(2);
-  expect(backdrop.innerHTML).toContain("alien-backdrop");
-  expect(backdrop.innerHTML).toContain("arrival-backdrop");
+  const mobileLayers = backdrop.querySelector('[data-backdrop-source="mobile"]')!;
+  const desktopLayers = backdrop.querySelector('[data-backdrop-source="desktop"]')!;
+  expect(mobileLayers.querySelectorAll("[style]")).toHaveLength(2);
+  expect(desktopLayers.querySelectorAll("[style]")).toHaveLength(2);
+  expect(mobileLayers.innerHTML).toContain("alien-poster");
+  expect(mobileLayers.innerHTML).toContain("arrival-poster");
+  expect(desktopLayers.innerHTML).toContain("alien-backdrop");
+  expect(desktopLayers.innerHTML).toContain("arrival-backdrop");
   client.clear();
 });
 
