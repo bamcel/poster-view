@@ -2,6 +2,7 @@
 // a seasons row, and the ThePosterDB panel docked on the right for swapping art.
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink, Images, Pencil, RefreshCw, X } from "lucide-react";
@@ -116,23 +117,20 @@ export default function ItemDetailPage() {
   }, [artworkOpen]);
 
   return (
-    <div className="relative isolate flex h-full overflow-hidden">
-      {/* Keep the backdrop inside this page's stacking context. A negative
-          z-index placed it behind the application's opaque base background,
-          which made valid media-server backdrops invisible. */}
-      <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden bg-base">
-        {backdrop && (
-          <img
-            src={backdrop}
-            alt=""
-            className="h-full w-full scale-[1.02] object-cover"
-          />
-        )}
-        {/* Keep the baseline dimming attached to the fixed backdrop rather than
-            the scrolling content. Mobile rubber-band scrolling can temporarily
-            pull the content layer down, but must never expose the raw image. */}
-        <div className="absolute inset-0 bg-black/55" />
-      </div>
+    <div className="relative flex h-full overflow-hidden">
+      {createPortal(
+        <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-base" aria-hidden="true" data-testid="item-backdrop">
+          {backdrop && (
+            <img
+              src={backdrop}
+              alt=""
+              className="h-full w-full scale-[1.02] object-cover"
+            />
+          )}
+          <div className="absolute inset-0 bg-black/55" />
+        </div>,
+        document.body,
+      )}
 
       {/* Left: hero + seasons */}
       <div className="relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain">
