@@ -354,7 +354,7 @@ export default function ItemDetailPage() {
       {/* Right: dock only when both columns have enough room. */}
       <div className="relative z-[1] hidden h-full w-[clamp(20rem,25vw,23.75rem)] shrink-0 xl:block">
         {item && (
-          <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
+          <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} anilistMangaId={metadataQ.data?.anilist_id} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
         )}
       </div>
 
@@ -378,7 +378,7 @@ export default function ItemDetailPage() {
             >
               <X className="size-5" />
             </button>
-            <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setArtworkOpen(false); setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
+            <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} anilistMangaId={metadataQ.data?.anilist_id} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setArtworkOpen(false); setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
           </section>
         </div>
       )}

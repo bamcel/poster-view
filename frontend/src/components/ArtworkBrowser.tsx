@@ -90,12 +90,14 @@ export default function ArtworkBrowser({
   provider,
   serverId,
   item,
+  metadataId,
   prefill,
   onReviewMetadata,
 }: {
   provider: string;
   serverId: number;
   item: ItemDetail;
+  metadataId?: string;
   prefill?: { value: string; nonce: number };
   onReviewMetadata?: (metadata: NfoMetadata, sourceLabel: string) => void;
 }) {
@@ -108,17 +110,19 @@ export default function ArtworkBrowser({
   // The id/search box: pre-filled with whatever id is already known (from the
   // server's own API); typing + submitting sets an explicit override that
   // replaces auto-detection for this lookup.
-  const [idInput, setIdInput] = useState(() => defaultIdFor(provider, item));
-  const [override, setOverride] = useState<string | undefined>(undefined);
+  const savedId = provider === "anilist-manga" ? metadataId?.trim() ?? "" : "";
+  const [idInput, setIdInput] = useState(() => savedId || defaultIdFor(provider, item));
+  const [override, setOverride] = useState<string | undefined>(() => savedId || undefined);
   // A non-numeric submission on a title-search-capable provider (Fanart.tv,
   // TheTVDB) triggers a title search instead of an id lookup; the results
   // are shown as a picker, and choosing one sets `override` as usual.
   const [searchTerm, setSearchTerm] = useState<string | undefined>(undefined);
   useEffect(() => {
-    setIdInput(defaultIdFor(provider, item));
-    setOverride(undefined);
+    const nextId = provider === "anilist-manga" ? metadataId?.trim() || defaultIdFor(provider, item) : defaultIdFor(provider, item);
+    setIdInput(nextId);
+    setOverride(nextId || undefined);
     setSearchTerm(undefined);
-  }, [provider, item.id]);
+  }, [provider, item.id, metadataId]);
   useEffect(() => {
     if (!prefill?.nonce) return;
     setIdInput(prefill.value);

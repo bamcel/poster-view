@@ -22,6 +22,7 @@ interface Props {
   item: ItemDetail;
   prefill?: { term: string; nonce: number };
   navigationTarget?: { provider: string; value: string; nonce: number };
+  anilistMangaId?: string;
   libraryType?: Library["type"];
   libraryTitle?: string;
   onReviewMetadata?: (metadata: NfoMetadata, sourceLabel: string) => void;
@@ -34,7 +35,7 @@ const PROVIDER_GROUPS = [
   { label: "Local", names: ["manual"] },
 ];
 
-export default function ArtworkPanel({ serverId, item, prefill, navigationTarget, libraryType, libraryTitle, onReviewMetadata }: Props) {
+export default function ArtworkPanel({ serverId, item, prefill, navigationTarget, anilistMangaId, libraryType, libraryTitle, onReviewMetadata }: Props) {
   const [provider, setProvider] = useState("posterdb");
   const [sourceLayout, setSourceLayout] = useState<"list" | "compact">(() =>
     localStorage.getItem(ARTWORK_LAYOUT_KEY) === "compact" ? "compact" : "list",
@@ -196,7 +197,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
         ) : provider === "manual" ? (
           <ManualUpload serverId={serverId} item={item} />
         ) : (
-          <ArtworkBrowser key={panelVersion} provider={provider} serverId={serverId} item={item} prefill={navigationTarget?.provider === provider ? navigationTarget : undefined} onReviewMetadata={onReviewMetadata} />
+          <ArtworkBrowser key={panelVersion} provider={provider} serverId={serverId} item={item} metadataId={provider === "anilist-manga" ? anilistMangaId : undefined} prefill={navigationTarget?.provider === provider ? navigationTarget : undefined} onReviewMetadata={onReviewMetadata} />
         )}
       </div>
     </div>
