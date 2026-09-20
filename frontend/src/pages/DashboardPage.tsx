@@ -287,7 +287,7 @@ export default function DashboardPage() {
     <div className="relative isolate flex h-full flex-col overflow-hidden">
       {showBackdrop && backdropUrls.length > 0 && <DashboardBackdrop urls={backdropUrls} />}
       {/* Header */}
-      <div className="relative z-10 border-b border-border px-4 pt-[800px] sm:px-6 lg:px-8">
+      <div className="relative z-10 border-b border-border px-4 pt-[200px] sm:px-6 lg:px-8">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
           {/* Library tabs */}
           <div className="col-start-1 row-start-1 min-w-0">
