@@ -268,7 +268,7 @@ export default function DashboardPage() {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="border-b border-border px-4 pt-3 sm:px-6 sm:pt-4 lg:px-8">
+      <div className="border-b border-border px-4 pt-[800px] sm:px-6 lg:px-8">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
           {/* Library tabs */}
           <div className="col-start-1 row-start-1 min-w-0">
