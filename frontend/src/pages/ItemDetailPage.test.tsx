@@ -52,6 +52,8 @@ it("refreshes artwork for the current server and title, prevents duplicate reque
   vi.mocked(api.refreshArtworkItem).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/item/7/movie"]}><QueryClientProvider client={client}><Routes><Route path="/item/:serverId/:itemId" element={<ItemDetailPage />} /></Routes></QueryClientProvider></MemoryRouter>);
+  expect((await screen.findByTitle("Refresh from server")).className).toContain("hidden");
+  expect(screen.getByTitle("Refresh from server").className).toContain("sm:flex");
   fireEvent.click(await screen.findByRole("button", { name: "Refresh artwork" }));
   await waitFor(() => expect(api.refreshArtworkItem).toHaveBeenCalledWith(7, "movie"));
   expect((await screen.findByRole("button", { name: "Refreshing artwork…" })).hasAttribute("disabled")).toBe(true);

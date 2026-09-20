@@ -245,7 +245,7 @@ export default function ItemDetailPage() {
                         )}
                       <button
                         onClick={() => { void detailQ.refetch(); void metadataQ.refetch(); }}
-                        className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white"
+                        className="hidden items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white sm:flex"
                         title="Refresh from server"
                       >
                         <RefreshCw
