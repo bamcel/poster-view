@@ -101,7 +101,10 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   };
 
   return (
-    <div className="flex h-full flex-col border-l border-border bg-surface/40 backdrop-blur-xl">
+    <div
+      className="flex h-full flex-col border-l border-border bg-surface/40 backdrop-blur-xl"
+      style={{ backgroundImage: "linear-gradient(rgb(0 0 0 / 55%), rgb(0 0 0 / 55%))" }}
+    >
       <div className="border-b border-border p-3">
         <div className="mb-2 flex items-center justify-between gap-3 px-1">
           <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted">
