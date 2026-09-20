@@ -60,6 +60,28 @@ it("shows backdrops from the selected library when enabled", async () => {
   client.clear();
 });
 
+it("filters by artwork and sorts titles from the compact filter menu", async () => {
+  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
+  vi.mocked(api.getItems).mockResolvedValue([
+    { id: "older", title: "Older", type: "movie", year: 1990, poster: "older-poster" },
+    { id: "newer", title: "Newer", type: "movie", year: 2020 },
+  ]);
+
+  const { container, client } = renderDashboard();
+  await screen.findByText("Older");
+  fireEvent.click(screen.getByLabelText("Filter and sort titles"));
+  fireEvent.change(screen.getByLabelText("Filter by artwork"), { target: { value: "missing-poster" } });
+  expect(screen.queryByText("Older")).toBeNull();
+  expect(screen.getByText("Newer")).toBeTruthy();
+
+  fireEvent.change(screen.getByLabelText("Filter by artwork"), { target: { value: "all" } });
+  fireEvent.change(screen.getByLabelText("Sort titles"), { target: { value: "newest" } });
+  const cards = container.querySelectorAll('button[title*="right-click for options"]');
+  expect(cards).toHaveLength(2);
+  expect(cards[0].getAttribute("title")).toContain("Newer");
+  client.clear();
+});
+
 it("restores a library's scroll position once without jumping during filtering", async () => {
   vi.mocked(api.getLibraries).mockResolvedValue([
     { id: "movies", title: "Movies", type: "movie" },

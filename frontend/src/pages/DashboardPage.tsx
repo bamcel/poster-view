@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Search, ServerCrash, Sparkles } from "lucide-react";
+import { ArrowLeft, ListFilter, Search, ServerCrash, Sparkles } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import { useServers } from "../lib/serverContext";
 import PosterCard from "../components/PosterCard";
@@ -16,6 +16,8 @@ import { DASHBOARD_BACKDROP_EVENT, dashboardBackdropEnabled } from "../lib/dashb
 const GROUP_COLLECTIONS_KEY = "posterview.groupCollections";
 const LAST_VISIT_PREFIX = "posterview.lastVisit.";
 const SCROLL_POSITION_PREFIX = "posterview.libraryScroll.";
+type ArtworkFilter = "all" | "missing-poster" | "has-backdrop" | "missing-backdrop";
+type TitleSort = "title" | "newest" | "oldest" | "recently-added";
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -31,6 +33,8 @@ export default function DashboardPage() {
   const folderId = searchParams.get("folder");
   const folderTitle = searchParams.get("folder_title");
   const [filter, setFilter] = useState("");
+  const [artworkFilter, setArtworkFilter] = useState<ArtworkFilter>("all");
+  const [titleSort, setTitleSort] = useState<TitleSort>("title");
   const [automaticRootId, setAutomaticRootId] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
@@ -160,8 +164,22 @@ export default function DashboardPage() {
   const items = useMemo(() => {
     const all = itemsQ.data ?? [];
     const q = filter.trim().toLowerCase();
-    return q ? all.filter((i) => i.title.toLowerCase().includes(q)) : all;
-  }, [itemsQ.data, filter]);
+    const filtered = all.filter((item) => {
+      if (q && !item.title.toLowerCase().includes(q)) return false;
+      if (artworkFilter === "missing-poster") return !item.poster;
+      if (artworkFilter === "has-backdrop") return Boolean(item.background);
+      if (artworkFilter === "missing-backdrop") return !item.background;
+      return true;
+    });
+    return filtered.sort((a, b) => {
+      if (titleSort === "newest") return (b.year ?? -Infinity) - (a.year ?? -Infinity);
+      if (titleSort === "oldest") return (a.year ?? Infinity) - (b.year ?? Infinity);
+      if (titleSort === "recently-added") {
+        return Date.parse(b.added_at ?? "") - Date.parse(a.added_at ?? "") || a.title.localeCompare(b.title);
+      }
+      return a.title.localeCompare(b.title);
+    });
+  }, [artworkFilter, filter, itemsQ.data, titleSort]);
 
   useEffect(() => {
     const update = (event: Event) => setShowBackdrop((event as CustomEvent<boolean>).detail);
@@ -324,15 +342,55 @@ export default function DashboardPage() {
       </div>
 
       <div className="relative z-10 shrink-0 px-4 py-3 sm:px-6 lg:px-8">
-        <div className="relative mx-auto w-full max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            aria-label="Search Titles"
-            placeholder="Search Titles…"
-            className="w-full rounded-full border border-border bg-surface-2 py-2 pl-9 pr-3 text-sm outline-none focus:border-accent"
-          />
+        <div className="mx-auto flex w-full items-center justify-center gap-2">
+          <div className="relative w-full max-w-[21rem]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              aria-label="Search Titles"
+              placeholder="Search Titles…"
+              className="w-full rounded-full border border-border bg-surface-2 py-2 pl-9 pr-3 text-sm outline-none focus:border-accent"
+            />
+          </div>
+          <details className="group relative">
+            <summary
+              aria-label="Filter and sort titles"
+              className={`grid size-10 cursor-pointer list-none place-items-center rounded-full border bg-surface-2 text-muted outline-none marker:hidden hover:text-white ${artworkFilter !== "all" || titleSort !== "title" ? "border-accent text-accent" : "border-border"}`}
+            >
+              <ListFilter className="size-4" />
+            </summary>
+            <div className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-border bg-sidebar p-4 shadow-2xl">
+              <label className="block text-xs font-semibold text-muted">
+                Artwork
+                <select
+                  aria-label="Filter by artwork"
+                  value={artworkFilter}
+                  onChange={(event) => setArtworkFilter(event.target.value as ArtworkFilter)}
+                  className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm font-normal text-white outline-none focus:border-accent"
+                >
+                  <option value="all">All titles</option>
+                  <option value="missing-poster">Missing poster</option>
+                  <option value="has-backdrop">Has backdrop</option>
+                  <option value="missing-backdrop">Missing backdrop</option>
+                </select>
+              </label>
+              <label className="mt-4 block text-xs font-semibold text-muted">
+                Sort by
+                <select
+                  aria-label="Sort titles"
+                  value={titleSort}
+                  onChange={(event) => setTitleSort(event.target.value as TitleSort)}
+                  className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm font-normal text-white outline-none focus:border-accent"
+                >
+                  <option value="title">Title A–Z</option>
+                  <option value="newest">Newest year</option>
+                  <option value="oldest">Oldest year</option>
+                  <option value="recently-added">Recently added</option>
+                </select>
+              </label>
+            </div>
+          </details>
         </div>
       </div>
 
