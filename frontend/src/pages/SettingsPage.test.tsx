@@ -62,7 +62,8 @@ it("previews a palette color and saves it as a selectable custom theme", async (
   fireEvent.click(screen.getByLabelText("Toggle Theme JSON"));
   const themeEditor = screen.getByLabelText("Theme JSON") as HTMLTextAreaElement;
   expect(themeEditor.value).toContain('"name": "Gotham"');
-  expect(themeEditor.style.fontSize).toBe("1.125rem");
+  expect(themeEditor.style.fontSize).toBe("0.5625rem");
+  expect(themeEditor.style.lineHeight).toBe("0.75rem");
 
   fireEvent.change(screen.getByLabelText("Choose Accent color"), { target: { value: "#ff3366" } });
   expect(document.documentElement.style.getPropertyValue("--color-accent")).toBe("#FF3366");
