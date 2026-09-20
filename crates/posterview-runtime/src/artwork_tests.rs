@@ -42,7 +42,6 @@ fn add_server(runtime: &Runtime, name: &str, base_url: &str) -> Server {
             token: "test".into(),
             is_default: false,
             nfo_metadata_enabled: false,
-            show_missing_titles: true,
         })
         .unwrap()
 }

@@ -10,7 +10,6 @@ export interface Server {
   base_url: string;
   is_default: boolean;
   nfo_metadata_enabled: boolean;
-  show_missing_titles?: boolean;
   has_token: boolean;
   created_at: string;
   updated_at: string;

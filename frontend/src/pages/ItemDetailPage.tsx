@@ -12,7 +12,6 @@ import MetadataEditorModal from "../components/MetadataEditorModal";
 import { Spinner, EmptyState } from "../components/ui";
 import type { Library, NfoMetadata } from "../types";
 import { seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
-import { useServers } from "../lib/serverContext";
 
 function sentenceCaseMetadata(value: string): string {
   const normalized = value.trim().replaceAll("_", " ").toLowerCase();
@@ -24,8 +23,6 @@ export default function ItemDetailPage() {
   const { serverId: serverIdParam, itemId } = useParams();
   const [searchParams] = useSearchParams();
   const serverId = Number(serverIdParam);
-  const { servers } = useServers();
-  const showMissingTitles = servers.find((server) => server.id === serverId)?.show_missing_titles !== false;
   const libraryType = searchParams.get("library_type") as Library["type"] | null;
   const libraryTitle = searchParams.get("library_title") ?? undefined;
   const returnLibrary = searchParams.get("return_library");
@@ -273,7 +270,7 @@ export default function ItemDetailPage() {
                             const displayValue = label === "Status" || label === "Source" ? sentenceCaseMetadata(value) : value;
                             return <span key={label} className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span><span className="text-white/50">{label}</span> · {displayValue}</span></span>;
                           })}
-                          {showMissingTitles && missingInstallments > 0 && installmentInfo && (
+                          {missingInstallments > 0 && installmentInfo && (
                             <span className="rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 text-xs font-medium text-amber-200">
                               {missingInstallments} {installmentInfo.unit}{missingInstallments === 1 ? "" : "s"} Missing
                             </span>

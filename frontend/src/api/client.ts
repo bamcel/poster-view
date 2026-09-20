@@ -73,7 +73,6 @@ export interface ServerInput {
   token: string;
   is_default: boolean;
   nfo_metadata_enabled: boolean;
-  show_missing_titles: boolean;
 }
 
 export interface SecuritySettings {

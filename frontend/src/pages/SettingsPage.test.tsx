@@ -108,7 +108,7 @@ it("keeps the add server form collapsed until requested", async () => {
   client.clear();
 });
 
-it("saves the per-server NFO metadata and missing-title settings", async () => {
+it("saves the per-server NFO metadata setting", async () => {
   vi.mocked(api.createServer).mockResolvedValue({
     id: 1, name: "Manga", type: "emby", base_url: "http://emby:8096",
     is_default: true, nfo_metadata_enabled: true, has_token: true, created_at: "", updated_at: "",
@@ -121,12 +121,10 @@ it("saves the per-server NFO metadata and missing-title settings", async () => {
   fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "http://emby:8096" } });
   fireEvent.change(screen.getByLabelText("API key"), { target: { value: "secret" } });
   fireEvent.click(screen.getByRole("checkbox", { name: /Enable NFO metadata/ }));
-  fireEvent.click(screen.getByRole("checkbox", { name: /Show missing titles/ }));
   fireEvent.click(screen.getByRole("button", { name: "Add server" }));
 
   await waitFor(() => expect(api.createServer).toHaveBeenCalledWith(expect.objectContaining({
     nfo_metadata_enabled: true,
-    show_missing_titles: false,
   })));
   client.clear();
 });
