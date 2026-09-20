@@ -59,7 +59,7 @@ it("restores a library's scroll position once without jumping during filtering",
   expect(scrollContainer!.scrollTop).toBe(240);
 
   scrollContainer!.scrollTop = 360;
-  fireEvent.change(screen.getByPlaceholderText("Filter titles…"), {
+  fireEvent.change(screen.getByPlaceholderText("Search Titles…"), {
     target: { value: "Alien" },
   });
   expect(scrollContainer!.scrollTop).toBe(360);
