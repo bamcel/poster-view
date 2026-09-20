@@ -19,6 +19,7 @@ import {
   Palette,
   HardDrive,
   ChevronDown,
+  LayoutDashboard,
 } from "lucide-react";
 import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
@@ -237,12 +238,14 @@ function AppearanceSection() {
   return (
     <section className="h-full min-h-0 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <div className="mx-auto min-h-full w-full max-w-4xl">
+        <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
+          <LayoutDashboard className="size-5 text-accent" /> Dashboard
+        </h2>
+        <p className="mb-3 text-sm text-faint">Customize dashboard artwork and panel visibility.</p>
         <div className="rounded-xl border border-border bg-surface-2 p-4">
-          <h2 className="text-lg font-semibold">Dashboard</h2>
-          <p className="mt-1 text-sm text-faint">Customize dashboard artwork and panel visibility.</p>
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="mt-4 text-sm font-medium text-white">Show backdrops</p>
+              <p className="text-sm font-medium text-white">Show backdrops</p>
               <p className="mt-1 text-xs text-faint">Show rotating Dashboard artwork and selected-series backgrounds.</p>
             </div>
             <Switch label="Show backdrops" checked={showBackdrops} onChange={() => changeBackdrops(!showBackdrops)} />
