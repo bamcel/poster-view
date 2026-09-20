@@ -443,7 +443,9 @@ impl Runtime {
             }));
         }
         self.invalidate_media_item_images(server_id, item_id)?;
-        if let Some(reference) = current_reference {
+        if let Some(reference) = current_reference
+            .filter(|reference| image_reference_belongs_to_item(reference, item_id))
+        {
             self.cache_media_image(server_id, &reference, data, content_type);
         }
         self.record_history(
@@ -556,6 +558,12 @@ fn media_image_cache_key(server_id: i64, reference: &str) -> String {
     format!("media:{server_id}:{reference}")
 }
 
+fn image_reference_belongs_to_item(reference: &str, item_id: &str) -> bool {
+    reference.starts_with(&format!("Items/{item_id}/"))
+        || reference.contains(&format!("/library/metadata/{item_id}/"))
+        || reference.starts_with(&format!("library/metadata/{item_id}/"))
+}
+
 fn library_visibility_key(server_id: i64) -> String {
     format!("hidden_libraries:{server_id}")
 }
@@ -620,7 +628,10 @@ async fn connection_test(config: ConnectionConfig<'_>) -> ConnectionTest {
 
 #[cfg(test)]
 mod tests {
-    use super::{Runtime, posterdb_top_three, save_companion_cover, watchdog_inventory_diff};
+    use super::{
+        Runtime, image_reference_belongs_to_item, posterdb_top_three, save_companion_cover,
+        watchdog_inventory_diff,
+    };
     use posterview_contracts::{
         PosterCategory, PosterSearchResults, PosterTitleResult, ServerCreate, ServerType,
     };
@@ -647,6 +658,18 @@ mod tests {
         )
         .expect("replace companion cover");
         assert_eq!(std::fs::read(cover).unwrap(), b"replacement cover");
+    }
+
+    #[test]
+    fn inherited_folder_cover_is_not_treated_as_the_series_image() {
+        assert!(image_reference_belongs_to_item(
+            "Items/series-1/Images/Primary?tag=series-cover",
+            "series-1",
+        ));
+        assert!(!image_reference_belongs_to_item(
+            "Items/volume-1/Images/Primary?tag=volume-cover",
+            "series-1",
+        ));
     }
 
     #[test]

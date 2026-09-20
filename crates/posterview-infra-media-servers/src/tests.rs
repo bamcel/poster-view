@@ -232,6 +232,30 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
     );
 }
 
+#[test]
+fn manga_series_own_cover_wins_over_first_volume_fallback() {
+    let series = json!({
+        "Id": "food-wars",
+        "Type": "Folder",
+        "IsFolder": true,
+        "ImageTags": {"Primary": "series-cover"}
+    });
+    let members = vec![MediaItem {
+        id: "volume-1".to_owned(),
+        title: "Volume 01".to_owned(),
+        year: None,
+        item_type: ItemType::Book,
+        poster: Some("Items/volume-1/Images/Primary?tag=volume-cover".to_owned()),
+        background: None,
+        added_at: None,
+    }];
+
+    assert_eq!(
+        emby_detail_poster(&series, ItemType::Folder, &members).as_deref(),
+        Some("Items/food-wars/Images/Primary?tag=series-cover")
+    );
+}
+
 async fn serve(app: Router) -> (String, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

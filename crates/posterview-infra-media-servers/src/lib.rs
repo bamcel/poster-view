@@ -142,8 +142,10 @@ async fn emby_item_detail(
             ),
             (
                 "Fields",
-                "Overview,ChildCount,ProductionYear,ProviderIds,Path",
+                "Overview,ChildCount,ProductionYear,ProviderIds,Path,ImageTags,BackdropImageTags",
             ),
+            ("ImageTypeLimit", "1"),
+            ("EnableImageTypes", "Primary,Backdrop,Logo"),
         ],
     )
     .await?;
@@ -224,11 +226,7 @@ async fn emby_item_detail(
             Some((key.to_lowercase(), value.to_owned()))
         })
         .collect();
-    let poster = emby_image_ref(item, "Primary").or_else(|| {
-        (item_type == ItemType::Folder)
-            .then(|| members.iter().find_map(|member| member.poster.clone()))
-            .flatten()
-    });
+    let poster = emby_detail_poster(item, item_type, &members);
     Ok(ItemDetail {
         source_path: item.get("Path").and_then(Value::as_str).map(str::to_owned),
         file_name: item
@@ -944,6 +942,14 @@ fn emby_image_ref(item: &Value, image_type: &str) -> Option<String> {
     }
     let tag = item.get("ImageTags")?.get(image_type)?.as_str()?;
     Some(format!("Items/{id}/Images/{image_type}?tag={tag}"))
+}
+
+fn emby_detail_poster(item: &Value, item_type: ItemType, members: &[MediaItem]) -> Option<String> {
+    emby_image_ref(item, "Primary").or_else(|| {
+        (item_type == ItemType::Folder)
+            .then(|| members.iter().find_map(|member| member.poster.clone()))
+            .flatten()
+    })
 }
 
 fn relative_ref(value: Option<&Value>) -> Option<String> {
