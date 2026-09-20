@@ -16,7 +16,7 @@ const GROUP_COLLECTIONS_KEY = "posterview.groupCollections";
 const LAST_VISIT_PREFIX = "posterview.lastVisit.";
 const SCROLL_POSITION_PREFIX = "posterview.libraryScroll.";
 
-export default function LibraryPage() {
+export default function DashboardPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();

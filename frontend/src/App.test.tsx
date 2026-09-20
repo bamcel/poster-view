@@ -15,7 +15,7 @@ vi.mock("./components/Layout", async () => {
     return <div>{selectedServer?.name ?? "No selected server"}</div>;
   } };
 });
-vi.mock("./pages/LibraryPage", () => ({ default: () => null }));
+vi.mock("./pages/DashboardPage", () => ({ default: () => null }));
 vi.mock("./pages/ItemDetailPage", () => ({ default: () => null }));
 vi.mock("./pages/SettingsPage", () => ({ default: () => null }));
 vi.mock("./pages/HistoryPage", () => ({ default: () => null }));

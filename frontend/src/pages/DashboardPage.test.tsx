@@ -8,7 +8,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
-import LibraryPage from "./LibraryPage";
+import DashboardPage from "./DashboardPage";
 import { api } from "../api/client";
 
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
@@ -28,14 +28,14 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderLibrary(initialEntry = "/?lib=movies") {
+function renderDashboard(initialEntry = "/?lib=movies") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   const result = render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[initialEntry]}>
-        <LibraryPage />
+        <DashboardPage />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -52,7 +52,7 @@ it("restores a library's scroll position once without jumping during filtering",
   ]);
   sessionStorage.setItem("posterview.libraryScroll.1.movies.root", "240");
 
-  const { container, client } = renderLibrary();
+  const { container, client } = renderDashboard();
   await screen.findByText("Alien");
   const scrollContainer = container.querySelector(".overflow-y-auto");
   expect(scrollContainer).toBeTruthy();
@@ -76,7 +76,7 @@ it("keeps folder scroll positions separate from the library root", async () => {
   sessionStorage.setItem("posterview.libraryScroll.1.manga.root", "120");
   sessionStorage.setItem("posterview.libraryScroll.1.manga.series", "480");
 
-  const { container, client } = renderLibrary(
+  const { container, client } = renderDashboard(
     "/?lib=manga&folder=series&folder_title=Series",
   );
   await screen.findByText("Volume 1");
@@ -105,7 +105,7 @@ it.each(["book", "other"] as const)(
     render(
       <QueryClientProvider client={client}>
         <MemoryRouter>
-          <LibraryPage />
+          <DashboardPage />
         </MemoryRouter>
       </QueryClientProvider>,
     );
