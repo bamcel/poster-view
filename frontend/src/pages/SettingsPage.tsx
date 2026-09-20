@@ -237,7 +237,7 @@ function AppearanceSection() {
 
   return (
     <section className="h-full min-h-0 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
-      <div className="mx-auto min-h-full w-full max-w-4xl">
+      <div className="min-h-full w-full">
         <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
           <LayoutDashboard className="size-5 text-accent" /> Dashboard
         </h2>
