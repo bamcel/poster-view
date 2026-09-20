@@ -305,7 +305,7 @@ export default function DashboardPage() {
     <div className="relative isolate flex h-full flex-col overflow-hidden">
       {showBackdrop && backdropUrls.length > 0 && <DashboardBackdrop urls={backdropUrls} />}
       {/* Header */}
-      <div className="relative z-10 border-b border-border px-4 pt-[50px] sm:px-6 lg:px-8">
+      <div className="relative z-10 border-b border-border px-4 pt-[75px] sm:px-6 lg:px-8">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
           {/* Library tabs */}
           <div className="col-start-1 row-start-1 min-w-0">
@@ -342,8 +342,19 @@ export default function DashboardPage() {
       </div>
 
       <div className="relative z-10 shrink-0 px-4 py-3 sm:px-6 lg:px-8">
-        <div className="mx-auto flex w-full items-center justify-center gap-2">
-          <div className="relative w-full max-w-[21rem]">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
+          {folderId && (
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="col-start-1 flex min-w-0 items-center gap-2 justify-self-start text-sm text-muted hover:text-white"
+            >
+              <ArrowLeft className="size-4 shrink-0" />
+              <span className="truncate">Back{folderTitle ? ` from ${folderTitle}` : ""}</span>
+            </button>
+          )}
+          <div className="col-start-2 flex items-center gap-2">
+          <div className="relative w-[min(21rem,calc(100vw-10rem))]">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
             <input
               value={filter}
@@ -391,6 +402,7 @@ export default function DashboardPage() {
               </label>
             </div>
           </details>
+          </div>
         </div>
       </div>
 
@@ -400,16 +412,6 @@ export default function DashboardPage() {
         onScroll={rememberScrollPosition}
         className="relative z-10 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-6"
       >
-        {folderId && (
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="mb-5 flex items-center gap-2 text-sm text-muted hover:text-white"
-          >
-            <ArrowLeft className="size-4" /> Back
-            {folderTitle ? ` from ${folderTitle}` : ""}
-          </button>
-        )}
         {librariesQ.isError && (
           <EmptyState
             icon={<ServerCrash className="size-10" />}
