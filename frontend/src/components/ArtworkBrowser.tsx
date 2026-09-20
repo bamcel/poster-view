@@ -269,7 +269,7 @@ export default function ArtworkBrowser({
         <ArrowLeft className="size-4" /> Back
       </button>}
       <button type="button" disabled={useMetadata.isPending} onClick={() => useMetadata.mutate()} className="flex items-center gap-1 text-sm text-muted hover:text-white disabled:opacity-50">
-        <Database className="size-4" /> {useMetadata.isPending ? "Loading…" : "Use metadata"}
+        <Database className="size-4" /> {useMetadata.isPending ? "Loading…" : "Add Metadata"}
       </button>
     </div>
   );

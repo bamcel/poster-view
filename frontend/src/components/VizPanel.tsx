@@ -221,7 +221,7 @@ export default function VizPanel({
               disabled={useMetadata.isPending}
               className="flex items-center gap-1 text-sm text-muted transition-colors hover:text-white disabled:opacity-50"
             >
-              <Database className="size-4" /> {useMetadata.isPending ? "Loading…" : "Use metadata"}
+              <Database className="size-4" /> {useMetadata.isPending ? "Loading…" : "Add Metadata"}
             </button>
           )}
         </div>
