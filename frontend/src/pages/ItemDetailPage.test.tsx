@@ -49,6 +49,33 @@ it("returns directly to the manga series parent folder", async () => {
   client.clear();
 });
 
+it("keeps manga volume files on the series page while nested folders remain openable", async () => {
+  vi.mocked(api.getItemDetail).mockResolvedValue({
+    id: "dragon-ball",
+    title: "Dragon Ball",
+    type: "folder",
+    seasons: [],
+    external_ids: {},
+    members: [
+      { id: "volume-2", title: "Volume 2", type: "book" },
+      { id: "extras", title: "Extras", type: "folder" },
+    ],
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <MemoryRouter initialEntries={["/server/7/item/dragon-ball?return_library=manga"]}>
+      <QueryClientProvider client={client}>
+        <Routes><Route path="/server/:serverId/item/:itemId" element={<ItemDetailPage />} /></Routes>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+
+  const volume = await screen.findByText("Volume 2");
+  expect(volume.closest("button")).toBeNull();
+  expect(screen.getByRole("button", { name: /Extras/ })).toBeTruthy();
+  client.clear();
+});
+
 it("refreshes artwork for the current server and title, prevents duplicate requests, and displays failures", async () => {
   vi.mocked(api.getItemDetail).mockResolvedValue({ id: "movie", title: "Movie", type: "movie", seasons: [], external_ids: {}, members: [] });
   let finish!: (value: Awaited<ReturnType<typeof api.refreshArtworkItem>>) => void;

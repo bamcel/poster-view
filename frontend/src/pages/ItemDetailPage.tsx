@@ -326,9 +326,8 @@ export default function ItemDetailPage() {
                   </section>
                 )}
 
-                {/* Collection members — each is a full library item with its own
-                  detail page/artwork panel, so cards navigate there rather than
-                  editing inline (unlike seasons, which have no page of their own). */}
+                {/* Collection titles remain openable. Manga volume files stay on
+                  the series page, while any nested folders remain openable. */}
                 {item.members.length > 0 && (
                   <section className="mt-10">
                     <h2 className="mb-4 text-lg font-semibold">
@@ -344,9 +343,9 @@ export default function ItemDetailPage() {
                           title={m.title}
                           subtitle={m.year ? String(m.year) : undefined}
                           kind={m.type}
-                          onOpen={() =>
-                            navigate(`/server/${serverId}/item/${m.id}?${searchParams.toString()}`)
-                          }
+                          onOpen={item.type !== "folder" || m.type === "folder"
+                            ? () => navigate(`/server/${serverId}/item/${m.id}?${searchParams.toString()}`)
+                            : undefined}
                         />
                       ))}
                     </div>
