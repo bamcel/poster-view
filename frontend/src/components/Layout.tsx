@@ -1,6 +1,6 @@
 // App chrome: a left sidebar (logo, nav, active-server picker) + routed content.
 
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet } from "react-router-dom";
 import { LayoutDashboard, History, LogOut, Settings, Server as ServerIcon } from "lucide-react";
 import { useServers } from "../lib/serverContext";
 import { Logo, ServerTypeBadge } from "./ui";
@@ -16,10 +16,8 @@ const navItems = [
 ];
 
 export default function Layout() {
-  const location = useLocation();
   const { servers, selectedId, setSelectedId } = useServers();
   const showSignOut = useContext(AuthSessionContext)?.password_required !== false;
-  const selectedTitleOpen = /^\/server\/[^/]+\/item\/[^/]+/.test(location.pathname);
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
 
@@ -85,7 +83,7 @@ export default function Layout() {
 
       <aside
         className="relative z-20 hidden w-[14.75rem] shrink-0 flex-col border-r border-border px-3 py-5 md:flex"
-        style={{ backgroundColor: translucentPanelColor("--color-sidebar", panelSolid), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)`, backgroundImage: selectedTitleOpen ? "linear-gradient(rgb(0 0 0 / 55%), rgb(0 0 0 / 55%))" : undefined }}
+        style={{ backgroundColor: translucentPanelColor("--color-sidebar", panelSolid), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
       >
         <div className="mb-8 px-1">
           <Logo />

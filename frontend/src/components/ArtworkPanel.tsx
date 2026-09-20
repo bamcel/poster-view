@@ -117,7 +117,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   return (
     <div
       className="flex h-full flex-col border-l border-border"
-      style={{ backgroundColor: translucentPanelColor("--color-surface", panelSolid), backdropFilter: `blur(${panelBlur * 2}px)`, WebkitBackdropFilter: `blur(${panelBlur * 2}px)`, backgroundImage: "linear-gradient(rgb(0 0 0 / 55%), rgb(0 0 0 / 55%))" }}
+      style={{ backgroundColor: translucentPanelColor("--color-surface", panelSolid), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
     >
       <div className="border-b border-border p-3">
         <div className="mb-2 flex items-center justify-between gap-3 px-1">
