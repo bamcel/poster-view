@@ -395,9 +395,9 @@ export default function DashboardPage() {
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              aria-label="Search Titles"
-              placeholder="Search Titles…"
-              className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] outline-none focus:border-accent md:text-sm"
+              aria-label="Search titles"
+              placeholder="Search titles"
+              className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent focus:text-white md:text-sm"
               style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
             />
           </div>

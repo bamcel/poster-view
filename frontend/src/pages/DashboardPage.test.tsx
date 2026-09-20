@@ -113,7 +113,7 @@ it("applies live panel solidity and blur settings to search controls", async () 
 
   const { client } = renderDashboard();
   await screen.findByText("Alien");
-  const search = screen.getByLabelText("Search Titles");
+  const search = screen.getByLabelText("Search titles");
   const filterButton = screen.getByLabelText("Filter and sort titles");
   for (const control of [search, filterButton]) {
     expect(control.getAttribute("style")).toContain("65%");
@@ -147,7 +147,7 @@ it("restores a library's scroll position once without jumping during filtering",
   expect(scrollContainer!.scrollTop).toBe(240);
 
   scrollContainer!.scrollTop = 360;
-  fireEvent.change(screen.getByPlaceholderText("Search Titles…"), {
+  fireEvent.change(screen.getByPlaceholderText("Search titles"), {
     target: { value: "Alien" },
   });
   expect(scrollContainer!.scrollTop).toBe(360);
