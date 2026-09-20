@@ -11,6 +11,7 @@ import PosterCard from "../components/PosterCard";
 import { EmptyState, Spinner, Switch } from "../components/ui";
 import { useToast } from "../lib/toast";
 import { isBookRelatedLibraryName } from "../lib/mediaKind";
+import { DASHBOARD_BACKDROP_EVENT, dashboardBackdropEnabled } from "../lib/dashboardSettings";
 
 const GROUP_COLLECTIONS_KEY = "posterview.groupCollections";
 const LAST_VISIT_PREFIX = "posterview.lastVisit.";
@@ -32,6 +33,7 @@ export default function DashboardPage() {
   const [filter, setFilter] = useState("");
   const [automaticRootId, setAutomaticRootId] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
   const libraryBodyRef = useRef<HTMLDivElement>(null);
   const restoredScrollKeyRef = useRef<string | null>(null);
 
@@ -161,6 +163,22 @@ export default function DashboardPage() {
     return q ? all.filter((i) => i.title.toLowerCase().includes(q)) : all;
   }, [itemsQ.data, filter]);
 
+  useEffect(() => {
+    const update = (event: Event) => setShowBackdrop((event as CustomEvent<boolean>).detail);
+    const updateFromStorage = () => setShowBackdrop(dashboardBackdropEnabled());
+    window.addEventListener(DASHBOARD_BACKDROP_EVENT, update);
+    window.addEventListener("storage", updateFromStorage);
+    return () => {
+      window.removeEventListener(DASHBOARD_BACKDROP_EVENT, update);
+      window.removeEventListener("storage", updateFromStorage);
+    };
+  }, []);
+
+  const backdropUrls = useMemo(
+    () => Array.from(new Set((itemsQ.data ?? []).map((item) => imageUrl(serverId!, item.background)).filter((url): url is string => Boolean(url)))),
+    [itemsQ.data, serverId],
+  );
+
   const scrollPositionKey =
     serverId != null && libraryId != null
       ? `${SCROLL_POSITION_PREFIX}${serverId}.${libraryId}.${folderId ?? "root"}`
@@ -266,9 +284,10 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative isolate flex h-full flex-col overflow-hidden">
+      {showBackdrop && backdropUrls.length > 0 && <DashboardBackdrop urls={backdropUrls} />}
       {/* Header */}
-      <div className="border-b border-border px-4 pt-[800px] sm:px-6 lg:px-8">
+      <div className="relative z-10 border-b border-border px-4 pt-[800px] sm:px-6 lg:px-8">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
           {/* Library tabs */}
           <div className="col-start-1 row-start-1 min-w-0">
@@ -304,7 +323,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="shrink-0 px-4 py-3 sm:px-6 lg:px-8">
+      <div className="relative z-10 shrink-0 px-4 py-3 sm:px-6 lg:px-8">
         <div className="relative mx-auto w-full max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
           <input
@@ -321,7 +340,7 @@ export default function DashboardPage() {
       <div
         ref={libraryBodyRef}
         onScroll={rememberScrollPosition}
-        className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-6"
+        className="relative z-10 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-6"
       >
         {folderId && (
           <button
@@ -343,7 +362,7 @@ export default function DashboardPage() {
         )}
         {librariesQ.data && browseableLibs.length === 0 && (
           <EmptyState title="No libraries are shown">
-            Choose which libraries to display in Settings → Server Setup.
+            Choose which libraries to display in Settings → Server.
           </EmptyState>
         )}
         {itemsQ.isLoading && <Spinner label="Loading titles…" />}
@@ -386,6 +405,35 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function DashboardBackdrop({ urls }: { urls: string[] }) {
+  const [activeIndex, setActiveIndex] = useState(() => Math.floor(Math.random() * urls.length));
+
+  useEffect(() => {
+    setActiveIndex(Math.floor(Math.random() * urls.length));
+    if (urls.length < 2) return;
+    const interval = window.setInterval(() => {
+      setActiveIndex((current) => {
+        const offset = 1 + Math.floor(Math.random() * (urls.length - 1));
+        return (current + offset) % urls.length;
+      });
+    }, 12000);
+    return () => window.clearInterval(interval);
+  }, [urls]);
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true" data-testid="dashboard-backdrop">
+      {urls.map((url, index) => (
+        <div
+          key={url}
+          className={`absolute inset-0 bg-cover bg-center transition-opacity duration-[2000ms] ease-in-out ${index === activeIndex ? "opacity-100" : "opacity-0"}`}
+          style={{ backgroundImage: `url("${url.replaceAll('"', '%22')}")` }}
+        />
+      ))}
+      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(8,9,12,0.72),rgba(8,9,12,0.9)_45%,rgba(8,9,12,0.97))]" />
     </div>
   );
 }

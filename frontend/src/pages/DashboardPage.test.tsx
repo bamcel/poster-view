@@ -20,11 +20,12 @@ vi.mock("../lib/serverContext", () => ({
 }));
 vi.mock("../api/client", () => ({
   api: { getLibraries: vi.fn(), getItems: vi.fn() },
-  imageUrl: () => undefined,
+  imageUrl: (_serverId: number, image?: string | null) => image ? `/api/image/${image}` : undefined,
 }));
 afterEach(() => {
   cleanup();
   sessionStorage.clear();
+  localStorage.clear();
   vi.clearAllMocks();
 });
 
@@ -41,6 +42,23 @@ function renderDashboard(initialEntry = "/?lib=movies") {
   );
   return { ...result, client };
 }
+
+it("shows backdrops from the selected library when enabled", async () => {
+  localStorage.setItem("posterview.dashboardBackdropEnabled", "true");
+  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
+  vi.mocked(api.getItems).mockResolvedValue([
+    { id: "alien", title: "Alien", type: "movie", background: "alien-backdrop" },
+    { id: "arrival", title: "Arrival", type: "movie", background: "arrival-backdrop" },
+  ]);
+
+  const { client } = renderDashboard();
+  await screen.findByText("Alien");
+  const backdrop = screen.getByTestId("dashboard-backdrop");
+  expect(backdrop.querySelectorAll("[style]")).toHaveLength(2);
+  expect(backdrop.innerHTML).toContain("alien-backdrop");
+  expect(backdrop.innerHTML).toContain("arrival-backdrop");
+  client.clear();
+});
 
 it("restores a library's scroll position once without jumping during filtering", async () => {
   vi.mocked(api.getLibraries).mockResolvedValue([

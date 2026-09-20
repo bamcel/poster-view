@@ -113,6 +113,20 @@ it("keeps the add server form collapsed until requested", async () => {
   client.clear();
 });
 
+it("labels server settings and persists the dashboard backdrop option", () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+
+  expect(screen.getByRole("button", { name: "Server", pressed: true })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Server" })).toBeTruthy();
+  const backdropSwitch = screen.getByRole("switch", { name: "Show dashboard backdrop" });
+  expect(backdropSwitch.getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(backdropSwitch);
+  expect(backdropSwitch.getAttribute("aria-checked")).toBe("true");
+  expect(localStorage.getItem("posterview.dashboardBackdropEnabled")).toBe("true");
+  client.clear();
+});
+
 it("saves the per-server NFO metadata setting", async () => {
   vi.mocked(api.createServer).mockResolvedValue({
     id: 1, name: "Manga", type: "emby", base_url: "http://emby:8096",
@@ -173,7 +187,7 @@ it("keeps server libraries in a checkbox dropdown", async () => {
   client.clear();
 });
 
-it("places Show Providers at the top of Search Providers instead of Server Setup or Cache Services", async () => {
+it("places Show Providers at the top of Search Providers instead of Server or Cache Services", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <MemoryRouter>

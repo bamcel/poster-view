@@ -19,6 +19,7 @@ import {
   Palette,
   HardDrive,
   ChevronDown,
+  LayoutDashboard,
 } from "lucide-react";
 import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
@@ -42,6 +43,7 @@ import {
 } from "../lib/theme";
 import SecuritySection from "../components/SecuritySection";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
+import { dashboardBackdropEnabled, setDashboardBackdropEnabled } from "../lib/dashboardSettings";
 
 const BLANK: ServerInput = {
   name: "",
@@ -67,7 +69,7 @@ const TOKEN_LABEL: Record<ServerType, string> = {
 type SettingsTab = "servers" | "sources" | "database" | "appearance" | "security";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
-  { id: "servers", label: "Server Setup", icon: <ServerIcon className="size-4" /> },
+  { id: "servers", label: "Server", icon: <ServerIcon className="size-4" /> },
   { id: "sources", label: "Search Providers", icon: <ImageIcon className="size-4" /> },
   { id: "database", label: "Cache Services", icon: <Database className="size-4" /> },
   { id: "appearance", label: "Appearance", icon: <Palette className="size-4" /> },
@@ -326,6 +328,13 @@ function ServersSection() {
   const [formOpen, setFormOpen] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionTest | null>(null);
+  const [showDashboardBackdrop, setShowDashboardBackdrop] = useState(dashboardBackdropEnabled);
+
+  const toggleDashboardBackdrop = (enabled: boolean) => {
+    setShowDashboardBackdrop(enabled);
+    setDashboardBackdropEnabled(enabled);
+    reportSettingsSave("saved");
+  };
 
   const reset = () => {
     setForm(BLANK);
@@ -393,7 +402,7 @@ function ServersSection() {
   return (
     <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <ServerIcon className="size-5 text-accent" /> Server setup
+        <ServerIcon className="size-5 text-accent" /> Server
       </h2>
       <p className="mb-3 text-sm text-faint">
         Connect your media servers and choose which libraries PosterView shows.
@@ -552,6 +561,24 @@ function ServersSection() {
             </div>
               </>
             )}
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-border bg-surface-2 p-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="flex items-center gap-2 text-sm font-semibold">
+                <LayoutDashboard className="size-4 text-accent" /> Dashboard
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-faint">
+                Fade between random backdrops from titles in the selected library.
+              </p>
+            </div>
+            <Switch
+              label="Show dashboard backdrop"
+              checked={showDashboardBackdrop}
+              onChange={() => toggleDashboardBackdrop(!showDashboardBackdrop)}
+            />
           </div>
         </div>
 
