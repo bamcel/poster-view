@@ -380,13 +380,13 @@ export default function DashboardPage() {
               onChange={(e) => setFilter(e.target.value)}
               aria-label="Search Titles"
               placeholder="Search Titles…"
-              className="w-full rounded-full border border-border bg-surface-2 py-2 pl-9 pr-3 text-[16px] outline-none focus:border-accent md:text-sm"
+              className="w-full rounded-full border border-border bg-surface-2/50 py-2 pl-9 pr-3 text-[16px] backdrop-blur-md outline-none focus:border-accent md:text-sm"
             />
           </div>
           <details ref={filterMenuRef} className="group relative">
             <summary
               aria-label="Filter and sort titles"
-              className={`grid size-10 cursor-pointer list-none place-items-center rounded-full border bg-surface-2 text-muted outline-none marker:hidden hover:text-white ${artworkFilter !== "all" || titleSort !== "title" ? "border-accent text-accent" : "border-border"}`}
+              className={`grid size-10 cursor-pointer list-none place-items-center rounded-full border bg-surface-2/50 text-muted backdrop-blur-md outline-none marker:hidden hover:text-white ${artworkFilter !== "all" || titleSort !== "title" ? "border-accent text-accent" : "border-border"}`}
             >
               <ListFilter className="size-4" />
             </summary>
