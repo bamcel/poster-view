@@ -25,7 +25,7 @@ export default function Layout() {
 
   return (
     <div className="flex h-full flex-col md:flex-row">
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-sidebar/95 px-3 backdrop-blur-xl md:hidden">
+      <header className="relative z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-sidebar/90 px-3 backdrop-blur-xl md:hidden">
         <Logo className="mr-auto w-11 overflow-hidden min-[480px]:w-auto" />
         <nav className="flex items-center gap-1" aria-label="Primary navigation">
           {navItems.map(({ to, label, icon: Icon, end }) => (
@@ -49,7 +49,7 @@ export default function Layout() {
         </button>}
 
       </header>
-      <div className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border bg-sidebar px-3 py-2 md:hidden">
+      <div className="relative z-20 flex min-h-14 shrink-0 items-center gap-3 border-b border-border bg-sidebar/90 px-3 py-2 backdrop-blur-xl md:hidden">
         <span className="shrink-0 text-xs text-faint">Active server</span>
         {servers.length > 0 ? (
           <select
@@ -67,7 +67,7 @@ export default function Layout() {
         )}
       </div>
 
-      <aside className="hidden w-[14.75rem] shrink-0 flex-col border-r border-border bg-sidebar px-3 py-5 md:flex">
+      <aside className="relative z-20 hidden w-[14.75rem] shrink-0 flex-col border-r border-border bg-sidebar/85 px-3 py-5 backdrop-blur-md md:flex">
         <div className="mb-8 px-1">
           <Logo />
           <div className="mt-1 whitespace-nowrap text-left text-xs text-faint">Artwork Management Console</div>

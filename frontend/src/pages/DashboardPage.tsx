@@ -2,6 +2,7 @@
 // Double-clicking a poster opens the item detail.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ListFilter, Search, ServerCrash, Sparkles } from "lucide-react";
@@ -302,7 +303,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="relative isolate flex h-full flex-col overflow-hidden">
+    <div className="relative flex h-full flex-col overflow-hidden">
       {showBackdrop && backdropUrls.length > 0 && <DashboardBackdrop urls={backdropUrls} />}
       {/* Header */}
       <div className="relative z-10 border-b border-border px-4 pt-[75px] sm:px-6 lg:px-8">
@@ -484,8 +485,8 @@ function DashboardBackdrop({ urls }: { urls: string[] }) {
     return () => window.clearInterval(interval);
   }, [urls]);
 
-  return (
-    <div className="pointer-events-none absolute inset-0 z-0" aria-hidden="true" data-testid="dashboard-backdrop">
+  return createPortal(
+    <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true" data-testid="dashboard-backdrop">
       {urls.map((url, index) => (
         <div
           key={url}
@@ -494,6 +495,7 @@ function DashboardBackdrop({ urls }: { urls: string[] }) {
         />
       ))}
       <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(8,9,12,0.72),rgba(8,9,12,0.9)_45%,rgba(8,9,12,0.97))]" />
-    </div>
+    </div>,
+    document.body,
   );
 }
