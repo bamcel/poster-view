@@ -80,7 +80,7 @@ export default function PosterCard({
             src={image}
             alt={title}
             loading="lazy"
-            className="h-full w-full object-contain"
+            className="h-full w-full object-cover"
             draggable={false}
             onError={() => setFailed(true)}
           />

@@ -2,11 +2,6 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import PosterCard from "./PosterCard";
 
-it("fits the complete poster inside its frame without cropping", () => {
-  const { container } = render(<PosterCard title="Poster" image="/poster.jpg" />);
-  expect(container.querySelector("img")?.className).toContain("object-contain");
-});
-
 afterEach(cleanup);
 
 it("keeps only the latest right-click menu open and dismisses it with Escape", () => {
