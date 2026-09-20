@@ -136,6 +136,10 @@ export default function ItemDetailPage() {
             />
           )}
           <div className="absolute inset-0 bg-black/55" />
+          <div className="absolute inset-0 md:hidden" data-testid="item-backdrop-mobile-shading">
+            <div className="absolute inset-0 bg-gradient-to-r from-base/95 via-base/60 via-50% to-transparent to-90%" />
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent via-50% to-base/85" />
+          </div>
         </div>,
         document.body,
       )}
@@ -153,8 +157,8 @@ export default function ItemDetailPage() {
           {/* Extra gradients move with the hero column to strengthen contrast
               behind the poster/title/logo and at the end of long content. */}
           <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-r from-base/95 via-base/60 via-50% to-transparent to-90%" />
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent via-50% to-base/85" />
+            <div className="absolute inset-0 hidden bg-gradient-to-r from-base/95 via-base/60 via-50% to-transparent to-90% md:block" />
+            <div className="absolute inset-0 hidden bg-gradient-to-b from-transparent via-transparent via-50% to-base/85 md:block" />
           </div>
 
           {/* Back button */}
