@@ -56,6 +56,8 @@ it("shows backdrops from the selected library when enabled", async () => {
   const backdrop = screen.getByTestId("dashboard-backdrop");
   const mobileLayers = backdrop.querySelector('[data-backdrop-source="mobile"]')!;
   const desktopLayers = backdrop.querySelector('[data-backdrop-source="desktop"]')!;
+  expect(mobileLayers.classList.contains("absolute")).toBe(true);
+  expect(mobileLayers.classList.contains("inset-0")).toBe(true);
   expect(mobileLayers.querySelectorAll("[style]")).toHaveLength(2);
   expect(desktopLayers.querySelectorAll("[style]")).toHaveLength(2);
   expect(mobileLayers.innerHTML).toContain("alien-poster");

@@ -529,9 +529,9 @@ function BackdropLayers({ urls, className, source }: { urls: string[]; className
 function DashboardBackdrop({ desktopUrls, mobileUrls }: { desktopUrls: string[]; mobileUrls: string[] }) {
   return createPortal(
     <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true" data-testid="dashboard-backdrop">
-      {mobileUrls.length > 0 && <BackdropLayers urls={mobileUrls} className="md:hidden" source="mobile" />}
-      {desktopUrls.length > 0 && <BackdropLayers urls={desktopUrls} className="hidden md:block" source="desktop" />}
-      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(8,9,12,0.72),rgba(8,9,12,0.9)_45%,rgba(8,9,12,0.97))]" />
+      {mobileUrls.length > 0 && <BackdropLayers urls={mobileUrls} className="absolute inset-0 md:hidden" source="mobile" />}
+      {desktopUrls.length > 0 && <BackdropLayers urls={desktopUrls} className="absolute inset-0 hidden md:block" source="desktop" />}
+      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(8,9,12,0.48),rgba(8,9,12,0.72)_45%,rgba(8,9,12,0.88))] md:bg-[linear-gradient(to_bottom,rgba(8,9,12,0.72),rgba(8,9,12,0.9)_45%,rgba(8,9,12,0.97))]" />
     </div>,
     document.body,
   );
