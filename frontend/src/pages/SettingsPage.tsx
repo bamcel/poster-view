@@ -19,7 +19,6 @@ import {
   Palette,
   HardDrive,
   ChevronDown,
-  LayoutDashboard,
 } from "lucide-react";
 import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
@@ -144,6 +143,13 @@ function AppearanceSection() {
   const [selectedColor, setSelectedColor] = useState<ThemeColorKey>("accent");
   const [customName, setCustomName] = useState("");
   const [message, setMessage] = useState("");
+  const [showBackdrops, setShowBackdrops] = useState(dashboardBackdropEnabled);
+
+  const changeBackdrops = (enabled: boolean) => {
+    setShowBackdrops(enabled);
+    setDashboardBackdropEnabled(enabled);
+    reportSettingsSave("saved");
+  };
 
   const choose = (name: string) => {
     const theme = getTheme(name);
@@ -214,7 +220,17 @@ function AppearanceSection() {
   return (
     <section className="h-full min-h-0 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <div className="mx-auto min-h-full w-full max-w-4xl">
-        <div>
+        <div className="rounded-xl border border-border bg-surface-2 p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold">Backdrops</h2>
+              <p className="mt-1 text-sm text-faint">Show rotating Dashboard artwork and selected-series backgrounds.</p>
+            </div>
+            <Switch label="Show backdrops" checked={showBackdrops} onChange={() => changeBackdrops(!showBackdrops)} />
+          </div>
+        </div>
+
+        <div className="mt-4 border-t border-border pt-4">
           <h2 className="text-lg font-semibold">Theme</h2>
           <p className="mt-1 text-sm text-faint">Select a palette or preview an individual color.</p>
           <div className="mt-4 flex items-end gap-2">
@@ -328,13 +344,6 @@ function ServersSection() {
   const [formOpen, setFormOpen] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ConnectionTest | null>(null);
-  const [showDashboardBackdrop, setShowDashboardBackdrop] = useState(dashboardBackdropEnabled);
-
-  const toggleDashboardBackdrop = (enabled: boolean) => {
-    setShowDashboardBackdrop(enabled);
-    setDashboardBackdropEnabled(enabled);
-    reportSettingsSave("saved");
-  };
 
   const reset = () => {
     setForm(BLANK);
@@ -561,24 +570,6 @@ function ServersSection() {
             </div>
               </>
             )}
-          </div>
-        </div>
-
-        <div className="mt-4 rounded-xl border border-border bg-surface-2 p-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="min-w-0">
-              <h3 className="flex items-center gap-2 text-sm font-semibold">
-                <LayoutDashboard className="size-4 text-accent" /> Dashboard
-              </h3>
-              <p className="mt-1 text-xs leading-5 text-faint">
-                Fade between random backdrops from titles in the selected library.
-              </p>
-            </div>
-            <Switch
-              label="Show dashboard backdrop"
-              checked={showDashboardBackdrop}
-              onChange={() => toggleDashboardBackdrop(!showDashboardBackdrop)}
-            />
           </div>
         </div>
 

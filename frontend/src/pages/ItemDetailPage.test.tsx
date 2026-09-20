@@ -8,7 +8,7 @@ import ItemDetailPage from "./ItemDetailPage";
 vi.mock("../components/ArtworkPanel", () => ({ default: () => null }));
 vi.mock("../api/client", () => ({ imageUrl: (_serverId: number, image?: string | null) => image ? `/api/image/${image}` : undefined, api: { getItemDetail: vi.fn(), refreshArtworkItem: vi.fn() } }));
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
 
 function LocationProbe() {
   const location = useLocation();
@@ -16,6 +16,7 @@ function LocationProbe() {
 }
 
 it("renders a selected title backdrop across the viewport", async () => {
+  localStorage.setItem("posterview.dashboardBackdropEnabled", "true");
   vi.mocked(api.getItemDetail).mockResolvedValue({ id: "movie", title: "Movie", type: "movie", background: "movie-backdrop", seasons: [], external_ids: {}, members: [] });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/item/7/movie"]}><QueryClientProvider client={client}><Routes><Route path="/item/:serverId/:itemId" element={<ItemDetailPage />} /></Routes></QueryClientProvider></MemoryRouter>);

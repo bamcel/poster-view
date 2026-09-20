@@ -114,13 +114,15 @@ it("keeps the add server form collapsed until requested", async () => {
   client.clear();
 });
 
-it("labels server settings and persists the dashboard backdrop option", () => {
+it("places the backdrop option in Appearance and persists it", () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
 
   expect(screen.getByRole("button", { name: "Server", pressed: true })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Server" })).toBeTruthy();
-  const backdropSwitch = screen.getByRole("switch", { name: "Show dashboard backdrop" });
+  expect(screen.queryByRole("switch", { name: "Show backdrops" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+  const backdropSwitch = screen.getByRole("switch", { name: "Show backdrops" });
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(backdropSwitch);
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("true");

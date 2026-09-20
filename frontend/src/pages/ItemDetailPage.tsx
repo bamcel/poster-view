@@ -13,6 +13,7 @@ import MetadataEditorModal from "../components/MetadataEditorModal";
 import { Spinner, EmptyState } from "../components/ui";
 import type { Library, NfoMetadata } from "../types";
 import { seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
+import { DASHBOARD_BACKDROP_EVENT, dashboardBackdropEnabled } from "../lib/dashboardSettings";
 
 function sentenceCaseMetadata(value: string): string {
   const normalized = value.trim().replaceAll("_", " ").toLowerCase();
@@ -42,6 +43,7 @@ export default function ItemDetailPage() {
   const [prefill, setPrefill] = useState<{ term: string; nonce: number }>();
   const [artworkTarget, setArtworkTarget] = useState<{ provider: string; value: string; nonce: number }>();
   const [artworkOpen, setArtworkOpen] = useState(false);
+  const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(
     () => searchParams.get("edit_metadata") === "1",
   );
@@ -108,6 +110,12 @@ export default function ItemDetailPage() {
   }, [item?.id, item?.title]);
 
   useEffect(() => {
+    const update = (event: Event) => setShowBackdrop((event as CustomEvent<boolean>).detail);
+    window.addEventListener(DASHBOARD_BACKDROP_EVENT, update);
+    return () => window.removeEventListener(DASHBOARD_BACKDROP_EVENT, update);
+  }, []);
+
+  useEffect(() => {
     if (!artworkOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setArtworkOpen(false);
@@ -118,7 +126,7 @@ export default function ItemDetailPage() {
 
   return (
     <div className="relative flex h-full overflow-hidden">
-      {createPortal(
+      {showBackdrop && createPortal(
         <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-base" aria-hidden="true" data-testid="item-backdrop">
           {backdrop && (
             <img
