@@ -20,17 +20,16 @@ book covers from the same Dashboard._
   <img src="docs/screenshots/4_Dashboard_Manga.png" width="49%" alt="Manga book library dashboard" />
 </p>
 
-_Configure your media servers and artwork sources once in Settings — credentials are
-encrypted at rest and never sent back to the browser._
+_Configure your media servers and customize PosterView's shared appearance in Settings —
+credentials are encrypted at rest and never sent back to the browser._
 
 <p align="center">
   <img src="docs/screenshots/5_Settings_Server.png" width="49%" alt="Settings — media server setup" />
-  <img src="docs/screenshots/6_Settings_Search_Providers.png" width="49%" alt="Settings — artwork search providers" />
+  <img src="docs/screenshots/6_Settings_Appearance.png" width="49%" alt="Settings — shared appearance and theme controls" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/7_Settings_Appearance.png" width="49%" alt="Settings — shared appearance and theme controls" />
-  <img src="docs/screenshots/8_Settings_Privacy_Security.png" width="49%" alt="Settings — privacy and security controls" />
+  <img src="docs/screenshots/7_Settings_Privacy_Security.png" width="49%" alt="Settings — privacy and security controls" />
 </p>
 
 <details>
