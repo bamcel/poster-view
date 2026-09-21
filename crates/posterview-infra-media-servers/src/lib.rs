@@ -595,11 +595,11 @@ pub async fn get_folder_items(
         &[
             ("ParentId", parent_id),
             ("Recursive", "false"),
-            ("Fields", "ProductionYear,DateCreated"),
+            ("Fields", "ProductionYear,DateCreated,BackdropImageTags"),
             ("SortBy", "SortName"),
             ("SortOrder", "Ascending"),
             ("ImageTypeLimit", "1"),
-            ("EnableImageTypes", "Primary"),
+            ("EnableImageTypes", "Primary,Backdrop"),
             ("userId", &user_id),
         ],
     )

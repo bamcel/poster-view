@@ -190,8 +190,10 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
             }
             assert_eq!(query.get("ParentId").map(String::as_str), Some("manga"));
             assert!(!query.contains_key("IncludeItemTypes"));
+            assert!(query["Fields"].contains("BackdropImageTags"));
+            assert!(query["EnableImageTypes"].contains("Backdrop"));
             Json(json!({"Items":[
-                {"Id":"food-wars","Name":"Food Wars!","Type":"Folder","IsFolder":true},
+                {"Id":"food-wars","Name":"Food Wars!","Type":"Folder","IsFolder":true,"BackdropImageTags":["series-backdrop"]},
                 {"Id":"one-piece","Name":"One Piece","Type":"Folder","IsFolder":true}
             ]}))
         }));
@@ -212,6 +214,10 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
     assert_eq!(
         items[0].poster.as_deref(),
         Some("Items/volume-1/Images/Primary?tag=cover-1")
+    );
+    assert_eq!(
+        items[0].background.as_deref(),
+        Some("Items/food-wars/Images/Backdrop?tag=series-backdrop")
     );
     let detail = get_item_detail(
         ConnectionConfig {
