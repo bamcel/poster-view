@@ -23,7 +23,7 @@ import type { ArtworkItem, ArtworkSearchResult, ArtworkType, ImageTarget, ItemDe
 // this: its own fetch already accepts a free-text title directly.
 const TITLE_SEARCH_PROVIDERS = new Set(["fanart", "tvdb", "mediux", "anilist-manga"]);
 
-const TYPE_ORDER: ArtworkType[] = ["poster", "background", "banner", "logo"];
+const TYPE_ORDER: ArtworkType[] = ["poster", "background", "logo", "banner"];
 const TYPE_LABEL: Record<ArtworkType, string> = {
   poster: "Posters",
   background: "Backgrounds",
@@ -322,13 +322,13 @@ export default function ArtworkBrowser({
             <button
               key={t}
               onClick={() => setActiveType(t)}
-              className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+              className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium transition-colors ${
                 active === t ? "bg-accent text-black" : "bg-surface-2 text-muted hover:text-white"
               }`}
             >
               {TYPE_LABEL[t]}
               <span
-                className={`rounded-full px-1.5 text-[10px] ${
+                className={`rounded-full px-1 text-[9px] ${
                   active === t ? "bg-black/20" : "bg-black/30 text-faint"
                 }`}
               >
