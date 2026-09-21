@@ -144,7 +144,7 @@ not be compatible with older versions. Local development for this channel uses
   total timeouts; each Watchdog lookup has a 45-second deadline. Temporary failures retry up to
   twice after 1 and 2 seconds, then pause the run for five minutes. Invalid credentials and other
   permanent failures stop scheduling until you resolve the error and start Watchdog again.
-  Cache Services shows Idle, Scanning, Preloading, Stopping, or Failed for
+  Settings → Database shows Idle, Scanning, Preloading, Stopping, or Failed for
   each server, plus its last successful run and next scheduled run. Connection-test results stay
   visible inside their provider cards. Disabled databases are excluded from caching.
   ThePosterDB prewarming keeps only the top three Movies,

@@ -74,7 +74,7 @@ const SETTINGS_TAB_KEY = "posterview.settingsTab";
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   { id: "servers", label: "Server", icon: <ServerIcon className="size-4" /> },
   { id: "sources", label: "Search Providers", icon: <ImageIcon className="size-4" /> },
-  { id: "database", label: "Cache Services", icon: <Database className="size-4" /> },
+  { id: "database", label: "Database", icon: <Database className="size-4" /> },
   { id: "appearance", label: "Appearance", icon: <Palette className="size-4" /> },
   { id: "security", label: "Privacy / Security", icon: <KeyRound className="size-4" /> },
 ];
@@ -811,7 +811,7 @@ function DatabaseSection() {
   return (
     <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <Database className="size-5 text-accent" /> Cache Services
+        <Database className="size-5 text-accent" /> Database
       </h2>
       <p className="mb-3 text-sm text-faint">
         Manage cached artwork and control background preloading.

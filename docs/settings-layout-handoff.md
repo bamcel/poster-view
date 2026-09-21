@@ -111,7 +111,7 @@ One full-width outer card containing the media-server group:
 
 One outer card with heading, description, and saved-secret guidance. Four compact provider cards use one column below 1024px and two columns above it. Each contains a heading, labeled credential fields, and **Test Connection**. Keep all test buttons visually identical. Bottom-align adjacent inputs when labels have different line counts. A full-width **Provider defaults** card follows the provider grid.
 
-### Cache Services
+### Database
 
 One outer card with one **ServerName Cache** group card per saved server. Cache and Watchdog form a single visual entity:
 

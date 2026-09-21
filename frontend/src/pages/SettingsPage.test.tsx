@@ -228,7 +228,7 @@ it("keeps server libraries in a checkbox dropdown", async () => {
   client.clear();
 });
 
-it("places Show Providers at the top of Search Providers instead of Server or Cache Services", async () => {
+it("places Show Providers at the top of Search Providers instead of Server or Database", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <MemoryRouter>
@@ -243,7 +243,7 @@ it("places Show Providers at the top of Search Providers instead of Server or Ca
   const providers = await screen.findByRole("heading", { name: "Show Providers" });
   const section = providers.closest("section")!;
   expect(section.querySelector("h3")).toBe(providers);
-  fireEvent.click(screen.getByRole("button", { name: "Cache Services" }));
+  fireEvent.click(screen.getByRole("button", { name: "Database" }));
   expect(screen.queryByText("Show Providers")).toBeNull();
   client.clear();
 });
