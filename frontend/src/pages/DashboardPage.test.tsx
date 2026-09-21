@@ -58,11 +58,11 @@ it("shows backdrops from the selected library when enabled", async () => {
   const desktopLayers = backdrop.querySelector('[data-backdrop-source="desktop"]')!;
   expect(mobileLayers.classList.contains("absolute")).toBe(true);
   expect(mobileLayers.classList.contains("inset-0")).toBe(true);
-  expect(mobileLayers.querySelectorAll("[style]")).toHaveLength(2);
-  expect(desktopLayers.querySelectorAll("[style]")).toHaveLength(2);
-  expect(mobileLayers.firstElementChild?.classList.contains("bg-cover")).toBe(true);
-  expect(desktopLayers.firstElementChild?.classList.contains("bg-contain")).toBe(true);
-  expect(desktopLayers.firstElementChild?.classList.contains("bg-cover")).toBe(false);
+  expect(mobileLayers.querySelectorAll("img")).toHaveLength(2);
+  expect(desktopLayers.querySelectorAll("img")).toHaveLength(2);
+  expect(mobileLayers.firstElementChild?.classList.contains("object-cover")).toBe(true);
+  expect(desktopLayers.firstElementChild?.classList.contains("object-contain")).toBe(true);
+  expect(desktopLayers.firstElementChild?.classList.contains("object-cover")).toBe(false);
   expect(mobileLayers.innerHTML).toContain("alien-poster");
   expect(mobileLayers.innerHTML).toContain("arrival-poster");
   expect(desktopLayers.innerHTML).toContain("alien-backdrop");
