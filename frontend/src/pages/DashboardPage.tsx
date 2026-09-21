@@ -536,7 +536,7 @@ function BackdropLayers({ urls, className, source }: { urls: string[]; className
       {urls.map((url, index) => (
         <div
           key={url}
-          className={`absolute inset-0 bg-cover bg-center transition-opacity duration-[2000ms] ease-in-out ${index === activeIndex ? "opacity-100" : "opacity-0"}`}
+          className={`absolute inset-0 bg-center bg-no-repeat transition-opacity duration-[2000ms] ease-in-out ${source === "desktop" ? "bg-contain" : "bg-cover"} ${index === activeIndex ? "opacity-100" : "opacity-0"}`}
           style={{ backgroundImage: `url("${url.replaceAll('"', '%22')}")` }}
         />
       ))}
