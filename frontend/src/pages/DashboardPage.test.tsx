@@ -43,6 +43,19 @@ function renderDashboard(initialEntry = "/?lib=movies") {
   return { ...result, client };
 }
 
+it("restores the last library tab for the selected server", async () => {
+  sessionStorage.setItem("posterview.libraryTab.1", "anime");
+  vi.mocked(api.getLibraries).mockResolvedValue([
+    { id: "movies", title: "Movies", type: "movie" },
+    { id: "anime", title: "Anime", type: "show" },
+  ]);
+  vi.mocked(api.getItems).mockResolvedValue([]);
+
+  const { client } = renderDashboard("/");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Anime", pressed: true })).toBeTruthy());
+  client.clear();
+});
+
 it("shows backdrops from the selected library when enabled", async () => {
   localStorage.setItem("posterview.dashboardBackdropEnabled", "true");
   vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);

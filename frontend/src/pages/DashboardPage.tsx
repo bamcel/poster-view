@@ -26,6 +26,7 @@ export default function DashboardPage() {
   const queryClient = useQueryClient();
   const { selectedServer, isLoading: serversLoading } = useServers();
   const serverId = selectedServer?.id ?? null;
+  const libraryTabKey = serverId == null ? null : `posterview.libraryTab.${serverId}`;
 
   // The selected library lives in the URL (?lib=…) so that navigating into a
   // title and pressing Back returns you to the same library, not the first one.
@@ -93,7 +94,8 @@ export default function DashboardPage() {
       return next;
     });
 
-  const selectLibrary = (id: string) =>
+  const selectLibrary = (id: string) => {
+    if (libraryTabKey) sessionStorage.setItem(libraryTabKey, id);
     setSearchParams(
       (prev) => {
         const p = new URLSearchParams(prev);
@@ -104,6 +106,7 @@ export default function DashboardPage() {
       },
       { replace: true },
     );
+  };
 
   const clearLibrary = () =>
     setSearchParams(
@@ -144,9 +147,13 @@ export default function DashboardPage() {
     }
     const valid =
       libraryId != null && browseable.some((l) => l.id === libraryId);
-    if (!valid) selectLibrary(browseable[0].id);
+    if (!valid) {
+      const storedLibrary = libraryTabKey ? sessionStorage.getItem(libraryTabKey) : null;
+      const fallback = browseable.find((library) => library.id === storedLibrary) ?? browseable[0];
+      selectLibrary(fallback.id);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [librariesQ.data, libraryId]);
+  }, [librariesQ.data, libraryId, libraryTabKey]);
 
   const itemsQ = useQuery({
     queryKey: ["items", serverId, libraryId, groupCollections, parentId],

@@ -69,6 +69,7 @@ const TOKEN_LABEL: Record<ServerType, string> = {
 };
 
 type SettingsTab = "servers" | "sources" | "database" | "appearance" | "security";
+const SETTINGS_TAB_KEY = "posterview.settingsTab";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   { id: "servers", label: "Server", icon: <ServerIcon className="size-4" /> },
@@ -81,12 +82,15 @@ const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
 export default function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get("tab");
-  const tab: SettingsTab = TABS.some((candidate) => candidate.id === requestedTab)
-    ? (requestedTab as SettingsTab)
+  const storedTab = sessionStorage.getItem(SETTINGS_TAB_KEY);
+  const candidateTab = requestedTab ?? storedTab;
+  const tab: SettingsTab = TABS.some((candidate) => candidate.id === candidateTab)
+    ? (candidateTab as SettingsTab)
     : "servers";
   const [saveStatus, setSaveStatus] = useState<SettingsSaveStatus>("saved");
 
   const selectTab = (nextTab: SettingsTab) => {
+    sessionStorage.setItem(SETTINGS_TAB_KEY, nextTab);
     setSearchParams((previous) => {
       const next = new URLSearchParams(previous);
       if (nextTab === "servers") next.delete("tab");

@@ -33,6 +33,7 @@ vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   vi.mocked(api.listServers).mockResolvedValue([]);
   const appearance = { configured: true, backdrops_enabled: false, panel_solidity: 40, panel_blur: 12, panel_overlay: 0, backdrop_overlay: 72, theme_name: "Everforest", custom_themes_json: "[]" };
   vi.mocked(api.appearanceSettings).mockResolvedValue(appearance);
@@ -148,6 +149,22 @@ it("persists and resets Dashboard appearance controls", () => {
   expect(localStorage.getItem("posterview.backdropBlur")).toBe("12");
   expect(localStorage.getItem("posterview.panelOverlay")).toBe("0");
   expect(localStorage.getItem("posterview.darkOverlay")).toBe("72");
+  client.clear();
+});
+
+it("remembers the active settings tab for the browser session", () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const first = render(
+    <MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+  expect(sessionStorage.getItem("posterview.settingsTab")).toBe("appearance");
+  first.unmount();
+
+  render(
+    <MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>,
+  );
+  expect(screen.getByRole("button", { name: "Appearance", pressed: true })).toBeTruthy();
   client.clear();
 });
 
