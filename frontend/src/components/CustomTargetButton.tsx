@@ -25,11 +25,13 @@ export default function CustomTargetButton({
   busy,
   onPick,
   className = "",
+  compact = false,
 }: {
   item: ItemDetail;
   busy?: boolean;
   onPick: (target: ImageTarget, itemId: string, label: string) => void;
   className?: string;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -58,12 +60,12 @@ export default function CustomTargetButton({
         onKeyDown={(event) => { if (event.key === "ArrowDown" && !open) { event.preventDefault(); toggle(); } }}
         onClick={toggle}
         disabled={busy}
-        className={`flex min-w-0 items-center gap-1 rounded bg-elevated px-2 py-1 text-[11px] font-medium text-muted transition-colors hover:text-white disabled:opacity-60 ${className}`}
+        className={`flex min-w-0 items-center justify-center rounded bg-elevated font-medium text-muted transition-colors hover:text-white disabled:opacity-60 ${compact ? "gap-0.5 px-1 py-1 text-[10px]" : "gap-1 px-2 py-1 text-[11px]"} ${className}`}
         title="Choose exactly where to apply this image"
       >
-        {busy ? <Loader2 className="size-3 animate-spin" /> : <Settings2 className="size-3" />}
+        {busy ? <Loader2 className="size-3 animate-spin" /> : !compact && <Settings2 className="size-3" />}
         Custom
-        <ChevronDown className="size-3" />
+        <ChevronDown className={compact ? "size-2.5" : "size-3"} />
       </button>
 
       {open &&

@@ -528,7 +528,7 @@ function PosterGrid({
                   <p className="mt-1.5 truncate text-xs text-muted" title={asset.title}>
                     {asset.title}
                   </p>
-                  <div className="mt-1.5 flex flex-wrap gap-1">
+                  <div className="mt-1.5 grid grid-cols-2 gap-1">
                     {/* Portrait posters only apply as posters; only background-
                         type images offer "Background" (right aspect ratio). */}
                     {asset.kind === "background" ? (
@@ -553,6 +553,8 @@ function PosterGrid({
                     <CustomTargetButton
                       item={item}
                       busy={busyKey?.includes(asset.id) ?? false}
+                      compact
+                      className="w-full"
                       onPick={(target, targetId, label) =>
                         onApply(asset, target, targetId, `c-${asset.id}-${targetId}-${target}-${label}`, `${item.title} — ${label}`)
                       }
@@ -599,12 +601,12 @@ function ApplyButton({
     <button
       onClick={onClick}
       disabled={busy}
-      className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors disabled:opacity-60 ${
+      className={`flex min-w-0 items-center justify-center gap-1 rounded px-1 py-1 text-[10px] font-medium transition-colors disabled:opacity-60 ${
         subtle ? "bg-elevated text-muted hover:text-white" : "bg-accent/15 text-accent hover:bg-accent/25"
       }`}
     >
       {busy && <Loader2 className="size-3 animate-spin" />}
-      {label}
+      <span className="truncate">{label}</span>
     </button>
   );
 }
