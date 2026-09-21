@@ -14,17 +14,17 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/bamcel/poster-view/issues</Support>
   <Project>https://github.com/bamcel/poster-view</Project>
-  <Overview>Self-hosted artwork manager for Plex, Jellyfin, and Emby. Browse libraries, including collections, and replace posters, backgrounds, and logos from multiple artwork providers.</Overview>
-  <Description>PosterView provides one interface for managing media artwork across Plex, Jellyfin, and Emby. Browse titles and collections; apply posters, backgrounds, banners, and logos from ThePosterDB, Fanart.tv, TheTVDB, AniList, and MediUX; upload custom artwork; and revert earlier changes from apply history. Credentials are encrypted at rest, and application data persists in the configured Data path.</Description>
+  <Overview>Self-hosted artwork and metadata manager for Plex, Jellyfin, and Emby. Browse movies, shows, collections, and book libraries; replace artwork; and manage custom NFO metadata.</Overview>
+  <Description>PosterView provides one interface for managing media artwork across Plex, Jellyfin, and Emby. Browse movies, shows, collections, and book libraries such as manga; apply posters, backgrounds, banners, and logos from multiple screen and eReader providers; edit custom series NFO metadata; upload custom artwork; and revert earlier changes from apply history. Credentials are encrypted at rest, and application data persists in the configured Data path.</Description>
   <Category>MediaApp:Other</Category>
   <WebUI>http://[IP]:[PORT:7979]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/bamcel/poster-view/experimental/templates/posterview.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/bamcel/poster-view/main/icon.png</Icon>
   <License>MIT</License>
   <ExtraSearchTerms>poster artwork plex jellyfin emby theposterdb fanart tvdb anilist mediux</ExtraSearchTerms>
-  <Screenshot>https://raw.githubusercontent.com/bamcel/poster-view/main/docs/Library_Dashboard.png</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/bamcel/poster-view/main/docs/Auto_Apply_Poster_Set.png</Screenshot>
-  <Screenshot>https://raw.githubusercontent.com/bamcel/poster-view/main/docs/Custom_Select.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/bamcel/poster-view/main/docs/screenshots/2_Dashboard.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/bamcel/poster-view/main/docs/screenshots/3_Dashboard_Series_Selection.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/bamcel/poster-view/main/docs/screenshots/4_Dashboard_Manga.png</Screenshot>
   <ExtraParams>--add-host=host.docker.internal:host-gateway</ExtraParams>
   <PostArgs/>
   <CPUset/>

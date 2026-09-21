@@ -1,30 +1,43 @@
 # PosterView
 
-**PosterView** is a self-hosted, open-source artwork manager for **Plex / Jellyfin / Emby**
-libraries. Browse your servers — including **collections** — then swap in posters,
+**PosterView** is a self-hosted, open-source artwork and metadata manager for
+**Plex / Jellyfin / Emby** libraries. Browse movies, shows, collections, and
+**book libraries such as manga**, then swap in posters,
 backgrounds, and logos from [ThePosterDB](https://theposterdb.com), [Fanart.tv](https://fanart.tv),
-[TheTVDB](https://thetvdb.com), [AniList](https://anilist.co), and [MediUX](https://mediux.pro)
+[TheTVDB](https://thetvdb.com), [AniList](https://anilist.co), and [MediUX](https://mediux.pro),
+plus manga covers and metadata from AniList Manga, MangaDex, VIZ, and ComicVine
 — per image, per season (including Season 0 / Specials), per title inside a collection, or a
 whole ThePosterDB set onto a series and all its seasons at once. Every apply is remembered, so
 a bad pick is one click to undo.
 
-![PosterView — library view](docs/Library_Dashboard.png)
+![PosterView Dashboard](docs/screenshots/2_Dashboard.png)
 
-_Open a title and swap its artwork from any of five sources — here ThePosterDB (auto-apply a
-whole set) and MediUX (per-season and custom-target apply) for the same show._
+_Open a title and swap its artwork from multiple sources, or manage a manga series and its
+book covers from the same Dashboard._
 
 <p align="center">
-  <img src="docs/Auto_Apply_Poster_Set.png" width="49%" alt="Title detail with the ThePosterDB artwork panel and Auto-apply set" />
-  <img src="docs/Custom_Select.png" width="49%" alt="Title detail with MediUX artwork and the custom target picker" />
+  <img src="docs/screenshots/3_Dashboard_Series_Selection.png" width="49%" alt="Selected series with backdrop and artwork provider panel" />
+  <img src="docs/screenshots/4_Dashboard_Manga.png" width="49%" alt="Manga book library dashboard" />
 </p>
 
 _Configure your media servers and artwork sources once in Settings — credentials are
 encrypted at rest and never sent back to the browser._
 
 <p align="center">
-  <img src="docs/Server_Setup.png" width="49%" alt="Settings — media server setup" />
-  <img src="docs/Database_Connection.png" width="49%" alt="Settings — artwork source accounts and API keys" />
+  <img src="docs/screenshots/5_Settings_Server.png" width="49%" alt="Settings — media server setup" />
+  <img src="docs/screenshots/6_Settings_Search_Providers.png" width="49%" alt="Settings — artwork search providers" />
 </p>
+
+<p align="center">
+  <img src="docs/screenshots/7_Settings_Appearance.png" width="49%" alt="Settings — shared appearance and theme controls" />
+  <img src="docs/screenshots/8_Settings_Privacy_Security.png" width="49%" alt="Settings — privacy and security controls" />
+</p>
+
+<details>
+  <summary>Login screen</summary>
+  <br />
+  <img src="docs/screenshots/1_Server_Login.png" alt="PosterView server login screen" />
+</details>
 
 > ⚠️ ThePosterDB has no public API. PosterView scrapes it while signed in with **your own
 > account**, the same way the established community tools do. Use it for your own libraries
@@ -56,17 +69,25 @@ not be compatible with older versions. Local development for this channel uses
 
 ## Features
 
-- **Local manga NFO metadata**: mount your manga folders at `/media`, browse
-  them in **Manga metadata**, search AniList or edit fields manually, and preview/save
-  `<series folder name>.nfo` beside each series. Edition details are user-confirmed. Bulk creation
-  creates missing title-only sidecars; existing files are preserved. See
-  [setup and compatibility](docs/local-metadata.md).
-
-- **Five artwork sources** behind one panel: ThePosterDB (search → title → set drill-down,
-  with per-set poster counts and empty results auto-hidden), plus Fanart.tv, TheTVDB, AniList,
-  and MediUX, all looked up automatically by your items' TMDB/TVDB/IMDb/AniList ids. If an id
-  isn't known, type a title into the Fanart.tv, TheTVDB, or MediUX search box instead and pick
-  the right match from the results.
+- **Book and manga libraries**: browse Emby/Jellyfin book-style libraries alongside movies and
+  shows, open series folders and their volumes/chapters, use poster artwork as mobile rotating
+  backdrops, add a manual series backdrop, and search AniList Manga, MangaDex, VIZ, or ComicVine.
+  Screen-artwork databases remain available under **Show More** when you want to reuse their art.
+- **Custom local NFO metadata**: mount book or manga folders at `/media` and edit a
+  `<series folder name>.nfo` sidecar directly from the selected series. PosterView's UTF-8 XML
+  format uses a `<series>` root and supports `title`, `originaltitle`, `translatedtitle`, `year`,
+  `plot`, `publisher`, `edition`, `volumes`, `status`, `anilistid`, `malid`, `comicvineid`,
+  `genres`, `tags`, `creators`, `country`, and `sourcematerial`. Each AniList or ComicVine link
+  is stored in its own `<source>` element, so metadata assembled from multiple databases keeps
+  every source URL. Existing `series`, `book`, and `tvshow` roots and unrelated XML fields,
+  attributes, and comments are preserved when possible; PosterView does not leave `.nfo.bak`
+  files in the media folder. See [setup, format, and compatibility](docs/local-metadata.md).
+- **Multiple artwork sources** behind one panel: ThePosterDB (search → title → set drill-down,
+  with per-set poster counts and empty results auto-hidden), Fanart.tv, TheTVDB, AniList,
+  MediUX, AniList Manga, MangaDex, VIZ, and ComicVine. Sources use known
+  TMDB/TVDB/IMDb/AniList IDs when available; otherwise search by title and choose the right
+  match. PosterView's scheduled Sync can also resolve a missing TVDB/TMDB identifier by title
+  before preloading compatible screen-artwork providers.
 - **Collections**: a virtual **Collections** library lists every collection on the server —
   edit a collection's own poster/backdrop, browse the titles inside it, and jump straight to
   any member's own full detail page. A **Group Collections** toggle on the library view

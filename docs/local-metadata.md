@@ -1,8 +1,8 @@
 # Local manga metadata
 
-PosterView's **Manga metadata** page browses a mounted folder and reads/writes
-`<series folder name>.nfo` beside each series. This is opt-in: opening or scanning folders never
-writes files. It does not change Plex, Jellyfin, or Emby through their APIs.
+PosterView reads and writes `<series folder name>.nfo` beside a selected series in a mounted
+book or manga library. This is opt-in: browsing folders never writes files. It does not change
+Plex, Jellyfin, or Emby metadata through their APIs.
 
 The filename uses the exact series folder name, including edition suffixes, not
 the editable metadata title. For example, `Hunter x Hunter/Hunter x Hunter.nfo`.
@@ -74,9 +74,11 @@ treated as manga. Full bulk provider matching is not part of this first version.
 ## File format and preservation
 
 New files are UTF-8 XML with a `<series>` root and these optional fields:
-`title`, `year`, `plot`, `publisher`, `edition`, `volumes`, `status`, `anilistid`.
-Unknown values are omitted. `volumes` means the confirmed total for this edition,
-not the number owned and not a completeness assessment.
+`title`, `originaltitle`, `translatedtitle`, `year`, `plot`, `publisher`, `edition`, `volumes`,
+`status`, `anilistid`, `malid`, `comicvineid`, `genres`, `tags`, `creators`, `country`, and
+`sourcematerial`. Each database URL is written as its own `<source>` element, allowing AniList
+and ComicVine references to coexist. Unknown values are omitted. `volumes` means the confirmed
+total for this edition, not the number owned and not a completeness assessment.
 
 Existing `series`, `book`, and `tvshow` roots are supported. Explicit updates retain
 the root and unrelated XML elements/attributes/comments (formatting may change).
