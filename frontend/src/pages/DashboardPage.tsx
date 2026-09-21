@@ -511,7 +511,6 @@ export default function DashboardPage() {
                 kind={item.type}
                 badge={newMissingIds.has(item.id) ? "NEW" : undefined}
                 onOpen={() => openItem(item)}
-                onManage={item.type === "folder" ? () => navigate(itemDetailUrl(item.id)) : undefined}
                 onRefresh={() => refreshMut.mutate({ itemId: item.id })}
                 onEditMetadata={() => navigate(itemDetailUrl(item.id, true))}
                 refreshing={refreshingId === item.id}

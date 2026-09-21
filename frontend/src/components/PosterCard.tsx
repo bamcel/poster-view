@@ -2,7 +2,7 @@
 // Opens on a single click (and Enter for keyboard users) when `onOpen` is set.
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Film, Tv, Library, Images, Pencil, RefreshCw, BookOpen } from "lucide-react";
+import { Film, Tv, Library, Pencil, RefreshCw, BookOpen } from "lucide-react";
 import { useActionMenu } from "../lib/actionMenu";
 
 interface PosterCardProps {
@@ -13,7 +13,6 @@ interface PosterCardProps {
   kind?: "movie" | "show" | "collection" | "book" | "audiobook" | "folder";
   selected?: boolean;
   onOpen?: () => void;
-  onManage?: () => void;
   onRefresh?: () => void;
   onEditMetadata?: () => void;
   refreshing?: boolean;
@@ -27,7 +26,6 @@ export default function PosterCard({
   kind = "movie",
   selected,
   onOpen,
-  onManage,
   onRefresh,
   onEditMetadata,
   refreshing,
@@ -122,54 +120,32 @@ export default function PosterCard({
       <button
         ref={triggerRef}
         type="button"
-        aria-haspopup={onManage || onRefresh || onEditMetadata ? "menu" : undefined}
-        aria-expanded={onManage || onRefresh || onEditMetadata ? menuOpen : undefined}
+        aria-haspopup={onRefresh || onEditMetadata ? "menu" : undefined}
+        aria-expanded={onRefresh || onEditMetadata ? menuOpen : undefined}
         aria-controls={menuOpen ? menuId : undefined}
         onClick={onOpen}
         onKeyDown={(event) => {
-          if ((onManage || onRefresh || onEditMetadata) && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+          if ((onRefresh || onEditMetadata) && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
             event.preventDefault();
             setMenuOpen(true);
           }
         }}
         onContextMenu={(event) => {
-          if (!onManage && !onRefresh && !onEditMetadata) return;
+          if (!onRefresh && !onEditMetadata) return;
           event.preventDefault();
           setMenuOpen(true);
         }}
-        title={onManage || onRefresh || onEditMetadata ? `${title} · right-click for options` : title}
+        title={onRefresh || onEditMetadata ? `${title} · right-click for options` : title}
         className="group block w-full select-none text-left"
       >
         {content}
       </button>
-      {onManage && <button
-        type="button"
-        onClick={onManage}
-        aria-label={`Manage ${title}`}
-        title={`Manage artwork and metadata for ${title}`}
-        className="absolute left-2 top-2 z-20 flex min-h-9 items-center gap-1.5 rounded-full border border-white/20 bg-black/65 px-2.5 text-xs font-medium text-white/90 shadow-lg backdrop-blur-sm transition-colors hover:border-accent hover:bg-black/80 focus-visible:border-accent focus-visible:outline-none"
-      >
-        <Images className="size-3.5" />
-        Manage
-      </button>}
-      {menuOpen && (onManage || onRefresh || onEditMetadata) && (
+      {menuOpen && (onRefresh || onEditMetadata) && (
         <div
           ref={menuRef} id={menuId} role="menu" aria-label={`Artwork options for ${title}`} tabIndex={-1} onKeyDown={menuKeys}
           className="absolute left-2 top-14 z-30 w-max min-w-44 rounded-lg border border-border bg-elevated p-1 shadow-2xl"
           onClick={(event) => event.stopPropagation()}
         >
-          {onManage && <button
-            type="button"
-            role="menuitem" tabIndex={-1}
-            onClick={() => {
-              setMenuOpen(false);
-              onManage();
-            }}
-            className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-muted hover:bg-surface-2 hover:text-white"
-          >
-            <Images className="size-4 shrink-0" />
-            Manage artwork and metadata
-          </button>}
           {onRefresh && <button
             type="button"
             role="menuitem" tabIndex={-1}
