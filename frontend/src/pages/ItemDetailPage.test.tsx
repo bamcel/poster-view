@@ -6,7 +6,7 @@ import { api } from "../api/client";
 import ItemDetailPage from "./ItemDetailPage";
 
 vi.mock("../components/ArtworkPanel", () => ({ default: () => null }));
-vi.mock("../api/client", () => ({ imageUrl: (_serverId: number, image?: string | null) => image ? `/api/image/${image}` : undefined, api: { getItemDetail: vi.fn(), refreshArtworkItem: vi.fn() } }));
+vi.mock("../api/client", () => ({ imageUrl: (_serverId: number, image?: string | null) => image ? `/api/image/${image}` : undefined, api: { getItemDetail: vi.fn(), getNfoMetadata: vi.fn(), refreshArtworkItem: vi.fn() } }));
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
 
@@ -14,6 +14,25 @@ function LocationProbe() {
   const location = useLocation();
   return <div>{location.pathname}{location.search}</div>;
 }
+
+it("shows a populated manga edition immediately after volumes", async () => {
+  vi.mocked(api.getItemDetail).mockResolvedValue({ id: "manga", title: "Manga", type: "folder", seasons: [], external_ids: {}, members: [] });
+  vi.mocked(api.getNfoMetadata).mockResolvedValue({
+    title: "Manga", year: "", publisher: "", edition: "Color", volumes: "12", status: "", plot: "",
+    anilist_id: "", comicvine_id: "", source_url: "", native_title: "", translation: "", mal_id: "",
+    genres: "", tags: "", creators: "", country: "", source_material: "",
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/item/7/manga"]}><QueryClientProvider client={client}><Routes><Route path="/item/:serverId/:itemId" element={<ItemDetailPage />} /></Routes></QueryClientProvider></MemoryRouter>);
+
+  await screen.findByText("Manga");
+  const volumesPill = screen.getByText("Volumes").closest("span.inline-flex");
+  const editionPill = screen.getByText("Edition").closest("span.inline-flex");
+  expect(volumesPill?.textContent).toBe("Volumes · 12");
+  expect(editionPill?.textContent).toBe("Edition · Color");
+  expect(volumesPill?.nextElementSibling).toBe(editionPill);
+  client.clear();
+});
 
 it("renders a selected title backdrop across the viewport without a visible scrollbar", async () => {
   localStorage.setItem("posterview.dashboardBackdropEnabled", "true");

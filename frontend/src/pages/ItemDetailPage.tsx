@@ -285,6 +285,7 @@ export default function ItemDetailPage() {
                             metadataQ.data.publisher && ["Publisher", metadataQ.data.publisher],
                             metadataQ.data.translation && ["Translation", metadataQ.data.translation],
                             metadataQ.data.volumes && ["Volumes", metadataQ.data.volumes],
+                            metadataQ.data.edition && ["Edition", metadataQ.data.edition],
                             metadataQ.data.status && ["Status", metadataQ.data.status],
                             metadataQ.data.country && ["Country", metadataQ.data.country],
                             metadataQ.data.source_material && ["Source", metadataQ.data.source_material],
