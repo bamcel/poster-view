@@ -512,7 +512,7 @@ impl Runtime {
                     .and_then(|last| chrono::DateTime::parse_from_rfc3339(last).ok())
                     .map(|last| {
                         last.with_timezone(&chrono::Utc)
-                            + chrono::Duration::hours(settings.watchdog_interval_hours as i64)
+                            + chrono::Duration::hours(settings.watchdog_interval_hours)
                     })
                     .unwrap_or_else(chrono::Utc::now)
                     .to_rfc3339(),

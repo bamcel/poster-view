@@ -371,10 +371,10 @@ fn usage_for(root: &Path) -> io::Result<CacheUsage> {
 
 fn remove_entry(entry: &CacheEntry) -> io::Result<()> {
     for path in &entry.paths {
-        if let Err(error) = fs::remove_file(path) {
-            if error.kind() != io::ErrorKind::NotFound {
-                return Err(error);
-            }
+        if let Err(error) = fs::remove_file(path)
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            return Err(error);
         }
     }
     Ok(())

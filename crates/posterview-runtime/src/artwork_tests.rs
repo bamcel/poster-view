@@ -460,7 +460,7 @@ async fn cancel_drops_pending_provider_work_without_cancelling_another_server() 
     let dropped = AtomicBool::new(false);
     let work = async {
         let _guard = OnDrop(&dropped);
-        request_with_retry::<(), _, _>("Provider", || std::future::pending())
+        request_with_retry::<(), _, _>("Provider", std::future::pending)
             .await
             .unwrap();
         unreachable!()
