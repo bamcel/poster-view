@@ -1,5 +1,8 @@
 # PosterView application base-template handoff
 
+> Developer reference, not an end-user guide. See [Getting started](user-guide.md) for current
+> PosterView usage.
+
 ## Purpose
 
 Use PosterView as a reference implementation for a self-hosted web application with a Rust API,

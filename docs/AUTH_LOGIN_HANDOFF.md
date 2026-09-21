@@ -1,5 +1,8 @@
 # Authentication and login handoff
 
+> Developer reference, not an end-user guide. See [Getting started](user-guide.md) for current
+> PosterView usage.
+
 ## Task for the receiving developer or coding agent
 
 Port PosterView's authentication, login screen, and Privacy / Security settings into the target

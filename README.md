@@ -67,6 +67,14 @@ before testing with existing appdata: a future experimental database change may
 not be compatible with older versions. Local development for this channel uses
 `git switch experimental`; reviewed work can be merged into main through a PR.
 
+## Documentation
+
+- [Getting started and key features](docs/user-guide.md)
+- [Book libraries: manga, comics, and books](docs/book-libraries.md)
+- [Local book and manga metadata](docs/local-metadata.md)
+- [MangaDex covers](docs/mangadex-covers.md)
+- [Documentation index and developer references](docs/README.md)
+
 ## Features
 
 - **Book and manga libraries**: browse Emby/Jellyfin book-style libraries alongside movies and

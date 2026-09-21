@@ -1,84 +1,46 @@
 # MangaDex covers
 
-Open a library item, choose **MangaDex** in Artwork, and search by title,
-alternate/Japanese title, or MangaDex UUID. Select a series, browse its volume
-covers, open a preview, and choose **Use Cover**. MangaDex needs no API key.
-If the tab is hidden, enable MangaDex in Settings → enabled artwork databases.
-Existing saved provider preferences are preserved on upgrade.
+Open a manga or book series, choose **MangaDex** in the Artwork panel, and search by title,
+alternate/Japanese title, or MangaDex UUID. Select the correct manga, browse its volume covers,
+open a preview, and apply the chosen image to the intended series or volume. MangaDex requires no
+API key. If its tab is hidden, enable it in **Settings → Search Providers**.
 
-Volume numbers are suggested from media-server metadata, item titles, or filenames
-such as `Food Wars v14.epub`. The suggestion never applies a cover automatically.
-Edit and save the volume, filter by language or matching volume, or change series
-at any time. Unknown volumes/languages remain browseable. The gallery loads 24
-thumbnails at a time; **Load more** reveals the next batch. **Refresh search** and
-**Refresh covers** bypass metadata caches. Manual artwork selection remains available.
+Volume numbers can be suggested from media-server metadata, titles, or filenames such as
+`Food Wars v14.epub`. A suggestion never applies artwork automatically. Edit the volume, filter by
+language or matching volume, or change the selected manga at any time. Covers with unknown volume
+or language remain available. The gallery loads in pages; use **Load more** for the next group and
+the refresh control to bypass cached provider results.
 
-Book and audiobook libraries returned by Emby/Jellyfin are included in discovery,
-item listing, and item detail. Manga/book libraries browse their real folder hierarchy:
-the library grid shows immediate series folders such as **Food Wars!**, opening a
-series shows its volume folders, and opening a volume reaches the book item. The
-Library page respects Settings visibility for every library type, including manga
-libraries reported as `other`.
-
-## Implementation
-
-- MangaDex extends the existing `ArtworkService` search/fetch provider interface
-  and normalized artwork contracts. The provider uses MangaDex's supported API:
-  [`GET /manga`, `GET /manga/{id}`, `GET /cover`](https://api.mangadex.org/docs/swagger.html).
-  The cover endpoint is paged with `limit=100`; volume, locale, and description
-  come from cover attributes. Description is retained without assuming it names
-  an edition. Alternate titles remain available for disambiguation.
-- The MangaDex panel reuses artwork image/button components and the existing
-  apply endpoint, server upload, image caching, and revert history. Preview and
-  thumbnail images pass through a cached proxy restricted to HTTPS on
-  `uploads.mangadex.org`, including redirect validation.
-- Series selection is explicitly saved through
-  `GET/PUT /api/artwork/mangadex/selection?server_id=…&item_id=…`. The existing SQLite
-  settings store holds `mangadex-selection:{server_id}:{item_id}` independently
-  of the expiring artwork cache. It retains the series UUID/title, user volume,
-  and the last selected cover record, including cover UUID, volume, locale,
-  description and full image URL. These fields do not rewrite EPUB files.
-- Saved series UUIDs are reused when artwork is requested without an override.
-  React Query keys and a 400 ms debounce keep late search results from replacing
-  current results. Failed lookups are not persisted in the server cache.
-
-## Verification
-
-Run `cargo test --workspace --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`,
-`cargo fmt --all -- --check`, and frontend `npm test` / `npm run build`.
-
-The opt-in acceptance test reads live MangaDex data and applies a real downloaded
-Food Wars volume 14 cover **only to a local mock media server**. It checks saved
-identity lookup, thumbnail decoding, upload, cover metadata and history. It also
-checks One Piece cover pagination:
-
-```sh
-cargo test -p posterview-server live_mangadex_food_wars_search_cover_apply_and_history --locked -- --ignored --nocapture
-```
-
-Normal tests cover book-library browsing, alternate titles, incomplete cover
-metadata, source URL validation, selection persistence/isolation, volume parsing,
-debouncing, explicit application, saved-series restoration, filtering and retries.
+PosterView saves the selected MangaDex series, preferred volume/language, and last cover for that
+media-server item. This provider selection is independent of the expiring artwork cache and does
+not modify EPUB, CBZ, CBR, or PDF contents.
 
 ## Companion cover files
 
-When MangaDex applies a poster to a book or audiobook, PosterView also writes the
-downloaded image beside the source media using the source file's exact stem. For
-example, `/manga/Plunderer/Plunderer - Volume 01.cbz` produces
-`/manga/Plunderer/Plunderer - Volume 01.jpg`. The image extension follows its
-actual JPEG, PNG, or WebP content type. Reapplying a cover replaces an existing
-companion image with that name.
+When a MangaDex poster is applied to a book or audiobook, PosterView also attempts to write the
+downloaded image beside the source media with its exact stem. For example:
 
-This requires the media directory to be visible at the same path inside the
-PosterView container and mounted writable. For example, if Emby reports paths
-under `/manga`, add the same bind mount to PosterView:
+```text
+/media/manga/Plunderer/Plunderer - Volume 01.cbz
+/media/manga/Plunderer/Plunderer - Volume 01.jpg
+```
+
+The extension follows the actual JPEG, PNG, or WebP content. Reapplying a cover replaces the
+same companion image. This requires the source path reported by the media server to be visible and
+writable inside PosterView. A typical matching bind mount is:
 
 ```yaml
 services:
   posterview:
     volumes:
-      - /mnt/user/media/manga:/manga
+      - /mnt/user/media/manga:/media/manga
 ```
 
-Poster assignment through Emby/Jellyfin remains successful when that mount is
-missing or read-only; the result reports that the companion file was not saved.
+Applying artwork through Emby or Jellyfin can still succeed if the companion mount is missing or
+read-only; PosterView reports that only the companion file could not be saved. For complete folder
+and metadata setup, see [Book libraries](book-libraries.md).
+
+## Privacy and service use
+
+PosterView uses MangaDex's documented API and proxies image previews through its server-side
+cache. Use the service responsibly and respect MangaDex's terms and rate limits.

@@ -1,5 +1,8 @@
 # PosterView Settings — Visual Layout Handoff
 
+> Developer reference: this describes the current visual structure for implementation work. For
+> user instructions, see [Getting started](user-guide.md).
+
 Use this specification to make another app match PosterView's settings. Preserve that app's functionality and labels; reproduce the layout hierarchy, tokens, spacing, and interaction patterns below.
 
 ## Layout blueprint
@@ -56,9 +59,9 @@ At 1280px and above, the settings workspace fills its available height; the acti
 - Group headings and primary controls: .875rem; headings weight 600.
 - Field labels, helper text, count summaries, save status: .75rem.
 - Icons: Lucide outline style; typically 1rem, with .5rem between icon and text.
-- Theme JSON: monospace, .75rem font, 1rem line-height.
+- JSON Editor: monospace, .5625rem font, .75rem line-height.
 
-## Theme tokens — Gotham reference
+## Theme tokens — semantic reference
 
 Use semantic variables rather than scattering hex values through components.
 
@@ -92,17 +95,17 @@ Use thin borders and subtle background changes, not large shadows. The floating 
 - Inactive tab: transparent border, muted text; primary text on hover.
 - Tab strip: 1px bottom border and .75rem bottom padding. The scrollable tab row also has .75rem bottom padding to keep its scrollbar off the selected tab outline.
 - Save status sits to the right on wider screens; below the tabs, right-aligned, on mobile.
-- Preserve active tab in the URL (`?tab=...`) so refresh does not reset the page.
+- Preserve the active tab in the URL (`?tab=...`) with a session fallback, so leaving and
+  returning to Settings or refreshing does not reset the page.
 - Autosave status: “Saving settings…”, “Settings saved automatically.”, or an error message. Do not introduce an unnecessary Save Settings button.
 
 ## Per-page composition
 
-### Server Setup
+### Server
 
-One outer card containing two vertically stacked group cards:
+One full-width outer card containing the media-server group:
 
 1. **Media Servers**: heading and connection description on the left; **Add server** on the right. When the add/edit form is open, **Cancel** occupies the same header-action position. Saved servers each have their own inset card, with edit/delete icon buttons at the right. **Show Libraries** is a borderless disclosure with a count summary beneath the label. Its text aligns with the server name. The form is collapsed by default; its fields become two columns from 640px.
-2. **Show Databases**: heading and helper text followed by one inset card. Inside are independent, initially collapsed **Poster** and **eReader** disclosures with counts. Database names are alphabetized within each category. Options use one column on mobile, two from 640px, three from 1280px.
 
 ### Search Providers
 
@@ -121,7 +124,12 @@ One outer card with one **ServerName Cache** group card per saved server. Cache 
 
 ### Appearance
 
-One outer card, two columns from 1280px: Theme JSON editor on the left; theme selection, individual-color editing, and custom-theme controls on the right. Stack on smaller screens. Editor fills its allocated column vertically. Theme menu uses small palette swatches beside names and the sidebar color for its backdrop.
+Use the same full workspace width as Server. **Dashboard** and **Theme** each have their own
+full-width outer card and heading. The Dashboard card contains the backdrop switch, Panel Color,
+Panel Blur, Panel Overlay, Backdrop Overlay, and reset action. The Theme card contains theme
+selection, individual-color editing, and custom-theme controls. **JSON Editor** is a collapsible
+section inside Custom theme rather than a permanent split column. Theme menus use small palette
+swatches beside names and the sidebar color for their backdrop. Everforest is the default theme.
 
 ### Privacy / Security
 
@@ -150,5 +158,5 @@ One outer card with heading and short explanation, followed by one secondary car
 
 - `frontend/src/pages/SettingsPage.tsx`: workspace, tabs, cards, provider grid, cache controls, theme controls, disclosures.
 - `frontend/src/components/SecuritySection.tsx`: stacked security options and warning styling.
-- `frontend/src/lib/theme.ts`: Gotham palette and semantic theme mapping.
+- `frontend/src/lib/theme.ts`: built-in palettes, Everforest default, and semantic theme mapping.
 - `frontend/src/index.css`: responsive root font, global typography, and scrollbars.

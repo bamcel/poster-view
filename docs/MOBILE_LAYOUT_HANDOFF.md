@@ -1,5 +1,8 @@
 # Mobile layout handoff
 
+> Developer reference, not an end-user guide. See [Getting started](user-guide.md) for current
+> PosterView usage.
+
 Use this file as an implementation brief for making another application mobile friendly. It draws on PosterView's responsive shell, settings, library grid, and accessibility patterns. Adapt the navigation labels and data entities to the receiving application; do not copy its backend or theme wholesale.
 
 ## Implementation brief
