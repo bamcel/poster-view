@@ -326,48 +326,46 @@ impl MetadataStore {
     pub(crate) fn save_comicvine_for_source(
         &self,
         source: &str,
-        id: &str,
-        title: &str,
-        year: &str,
-        publisher: &str,
-        volumes: &str,
-        plot: &str,
-        source_url: &str,
+        incoming: &Fields,
     ) -> Result<Fields, HttpError> {
         let relative = self.relative_directory_for_source(source)?;
         let document = self.read(&relative)?;
         let mut fields = document.fields;
-        fields.title = title.to_owned();
-        fields.year = year.to_owned();
-        fields.publisher = publisher.to_owned();
-        fields.volumes = volumes.to_owned();
-        fields.plot = plot.to_owned();
-        fields.comicvine_id = id.to_owned();
-        fields.source_url = merge_source_urls(&fields.source_url, source_url);
+        fields.title = incoming.title.clone();
+        fields.year = incoming.year.clone();
+        fields.publisher = incoming.publisher.clone();
+        fields.volumes = incoming.volumes.clone();
+        fields.plot = incoming.plot.clone();
+        fields.comicvine_id = incoming.comicvine_id.clone();
+        fields.source_url = merge_source_urls(&fields.source_url, &incoming.source_url);
         Ok(self.save(&SaveRequest { path: relative, fields, revision: document.revision })?.fields)
     }
 
     pub(crate) fn save_anilist_manga_for_source(
         &self,
         source_path: &str,
-        id: &str, mal_id: &str, title: &str, native_title: &str, year: &str,
-        status: &str, plot: &str, genres: &str, tags: &str, creators: &str,
-        country: &str, source_material: &str, source_url: &str,
+        incoming: &Fields,
     ) -> Result<Fields, HttpError> {
         let relative = self.relative_directory_for_source(source_path)?;
         let document = self.read(&relative)?;
         let mut fields = document.fields;
         for (target, incoming) in [
-            (&mut fields.title, title), (&mut fields.native_title, native_title),
-            (&mut fields.year, year), (&mut fields.status, status), (&mut fields.plot, plot),
-            (&mut fields.anilist_id, id), (&mut fields.mal_id, mal_id),
-            (&mut fields.genres, genres), (&mut fields.tags, tags),
-            (&mut fields.creators, creators), (&mut fields.country, country),
-            (&mut fields.source_material, source_material),
+            (&mut fields.title, incoming.title.as_str()),
+            (&mut fields.native_title, incoming.native_title.as_str()),
+            (&mut fields.year, incoming.year.as_str()),
+            (&mut fields.status, incoming.status.as_str()),
+            (&mut fields.plot, incoming.plot.as_str()),
+            (&mut fields.anilist_id, incoming.anilist_id.as_str()),
+            (&mut fields.mal_id, incoming.mal_id.as_str()),
+            (&mut fields.genres, incoming.genres.as_str()),
+            (&mut fields.tags, incoming.tags.as_str()),
+            (&mut fields.creators, incoming.creators.as_str()),
+            (&mut fields.country, incoming.country.as_str()),
+            (&mut fields.source_material, incoming.source_material.as_str()),
         ] {
             if !incoming.trim().is_empty() { *target = incoming.to_owned(); }
         }
-        fields.source_url = merge_source_urls(&fields.source_url, source_url);
+        fields.source_url = merge_source_urls(&fields.source_url, &incoming.source_url);
         Ok(self.save(&SaveRequest { path: relative, fields, revision: document.revision })?.fields)
     }
 
@@ -646,7 +644,7 @@ fn sentence_case(value: &str) -> String {
 fn merge_source_urls(existing: &str, incoming: &str) -> String {
     let mut urls = Vec::new();
     for url in existing.lines().chain(incoming.lines()).map(str::trim) {
-        if !url.is_empty() && !urls.iter().any(|saved| *saved == url) {
+        if !url.is_empty() && !urls.contains(&url) {
             urls.push(url);
         }
     }
@@ -729,10 +727,16 @@ pub(crate) async fn use_comicvine(
     let source = item_source(&state, request.server_id, &request.item_id).await?;
     let metadata = state.runtime.comicvine_metadata(&request.volume_id).await
         .map_err(|error| HttpError::bad_gateway(error.to_string()))?;
-    state.metadata.save_comicvine_for_source(
-        &source, &metadata.id, &metadata.title, &metadata.year, &metadata.publisher,
-        &metadata.volumes, &metadata.plot, &metadata.source_url,
-    ).map(Json)
+    state.metadata.save_comicvine_for_source(&source, &Fields {
+        title: metadata.title,
+        year: metadata.year,
+        publisher: metadata.publisher,
+        volumes: metadata.volumes,
+        plot: metadata.plot,
+        comicvine_id: metadata.id,
+        source_url: metadata.source_url,
+        ..Fields::default()
+    }).map(Json)
 }
 
 pub(crate) async fn preview_comicvine(
@@ -781,11 +785,22 @@ pub(crate) async fn use_anilist_manga(
         .map_err(|error| HttpError::bad_gateway(error.to_string()))?;
     let status = sentence_case(&metadata.status);
     let source_material = sentence_case(&metadata.source);
-    state.metadata.save_anilist_manga_for_source(
-        &source_path, &metadata.id, &metadata.mal_id, &metadata.title, &metadata.native_title,
-        &metadata.year, &status, &metadata.plot, &metadata.genres, &metadata.tags,
-        &metadata.creators, &metadata.country, &source_material, &metadata.source_url,
-    ).map(Json)
+    state.metadata.save_anilist_manga_for_source(&source_path, &Fields {
+        title: metadata.title,
+        native_title: metadata.native_title,
+        year: metadata.year,
+        status,
+        plot: metadata.plot,
+        anilist_id: metadata.id,
+        mal_id: metadata.mal_id,
+        genres: metadata.genres,
+        tags: metadata.tags,
+        creators: metadata.creators,
+        country: metadata.country,
+        source_material,
+        source_url: metadata.source_url,
+        ..Fields::default()
+    }).map(Json)
 }
 
 pub(crate) async fn preview_anilist_manga(
@@ -1059,10 +1074,16 @@ mod tests {
         let (dir, store) = setup();
         let media = dir.path().join("Manga & Color/Volume 1.cbz");
         fs::write(&media, b"comic").unwrap();
-        let fields = store.save_comicvine_for_source(
-            media.to_str().unwrap(), "132428", "The Apothecary Diaries", "2017",
-            "Square Enix", "14", "A palace mystery.", "https://comicvine.gamespot.com/example/",
-        ).unwrap_or_else(|error| panic!("{}", error.detail));
+        let fields = store.save_comicvine_for_source(media.to_str().unwrap(), &Fields {
+            title: "The Apothecary Diaries".to_owned(),
+            year: "2017".to_owned(),
+            publisher: "Square Enix".to_owned(),
+            volumes: "14".to_owned(),
+            plot: "A palace mystery.".to_owned(),
+            comicvine_id: "132428".to_owned(),
+            source_url: "https://comicvine.gamespot.com/example/".to_owned(),
+            ..Fields::default()
+        }).unwrap_or_else(|error| panic!("{}", error.detail));
         assert_eq!(fields.comicvine_id, "132428");
         assert_eq!(fields.volumes, "14");
         let xml = fs::read_to_string(dir.path().join("Manga & Color/Manga & Color.nfo")).unwrap();
