@@ -28,7 +28,7 @@ fn provider_test_item(item_type: ItemType, external_ids: &[(&str, &str)]) -> Ite
 }
 
 #[test]
-fn sync_skips_incompatible_and_unresolvable_providers() {
+fn sync_matches_providers_to_media_types_and_known_ids() {
     let manga = provider_test_item(ItemType::Folder, &[("anilist", "123")]);
     assert!(provider_applies_to_item("anilist-manga", &manga));
     assert!(!provider_applies_to_item("fanart", &manga));
@@ -38,13 +38,15 @@ fn sync_skips_incompatible_and_unresolvable_providers() {
 
     let show_without_ids = provider_test_item(ItemType::Show, &[]);
     assert!(provider_applies_to_item("anilist", &show_without_ids));
-    assert!(!provider_applies_to_item("fanart", &show_without_ids));
-    assert!(!provider_applies_to_item("tvdb", &show_without_ids));
+    assert!(provider_applies_to_item("fanart", &show_without_ids));
+    assert!(provider_applies_to_item("tvdb", &show_without_ids));
+    assert!(provider_item_id("fanart", &show_without_ids).is_none());
 
     let show = provider_test_item(ItemType::Show, &[("tvdb", "456"), ("tmdb", "789")]);
     assert!(provider_applies_to_item("fanart", &show));
     assert!(provider_applies_to_item("tvdb", &show));
     assert!(provider_applies_to_item("mediux", &show));
+    assert_eq!(provider_item_id("fanart", &show), Some("456"));
 }
 
 #[test]

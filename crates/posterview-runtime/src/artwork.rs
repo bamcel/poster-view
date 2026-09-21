@@ -44,11 +44,6 @@ fn temporary_failure(message: &str) -> bool {
 }
 
 fn provider_applies_to_item(provider: &str, item: &ItemDetail) -> bool {
-    let has_id = |name: &str| {
-        item.external_ids
-            .get(name)
-            .is_some_and(|value| !value.trim().is_empty())
-    };
     let book = matches!(
         item.item_type,
         ItemType::Book | ItemType::Audiobook | ItemType::Folder
@@ -56,12 +51,27 @@ fn provider_applies_to_item(provider: &str, item: &ItemDetail) -> bool {
     match provider {
         "anilist-manga" => book,
         "anilist" => !book,
-        "fanart" if item.item_type == ItemType::Movie => has_id("tmdb") || has_id("imdb"),
-        "fanart" if item.item_type == ItemType::Show => has_id("tvdb"),
+        "fanart" if item.item_type == ItemType::Movie => true,
+        "fanart" if item.item_type == ItemType::Show => true,
         "fanart" => false,
-        "tvdb" => !book && has_id("tvdb"),
-        "mediux" => !book && has_id("tmdb"),
+        "tvdb" => !book,
+        "mediux" => !book,
         _ => true,
+    }
+}
+
+fn provider_item_id<'a>(provider: &str, item: &'a ItemDetail) -> Option<&'a str> {
+    let id = |name: &str| {
+        item.external_ids
+            .get(name)
+            .map(String::as_str)
+            .filter(|value| !value.trim().is_empty())
+    };
+    match provider {
+        "fanart" if item.item_type == ItemType::Movie => id("tmdb").or_else(|| id("imdb")),
+        "fanart" | "tvdb" => id("tvdb"),
+        "mediux" => id("tmdb"),
+        _ => None,
     }
 }
 
@@ -706,11 +716,34 @@ impl Runtime {
             {
                 continue;
             }
+            let mut resolved_id = provider_item_id(provider, &detail).map(str::to_owned);
+            if matches!(provider, "fanart" | "tvdb" | "mediux") && resolved_id.is_none() {
+                if tvdb_key.is_empty() {
+                    continue;
+                }
+                let kind = if detail.item_type == ItemType::Movie { "movie" } else { "series" };
+                let matches = request_with_retry("TheTVDB title search", || {
+                    self.artwork.search(
+                        provider,
+                        &detail.title,
+                        kind,
+                        &tvdb_key,
+                        &tvdb_pin,
+                        &comicvine_key,
+                    )
+                })
+                .await
+                .map_err(RuntimeError::Watchdog)?;
+                resolved_id = matches.into_iter().next().map(|result| result.id);
+                if resolved_id.is_none() {
+                    continue;
+                }
+            }
             let items = request_with_retry(provider, || {
                 self.artwork.fetch(
                     provider,
                     &detail,
-                    None,
+                    resolved_id.as_deref(),
                     &fanart_key,
                     &tvdb_key,
                     &tvdb_pin,
