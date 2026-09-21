@@ -1,6 +1,51 @@
 use super::*;
-use posterview_contracts::{Server, ServerCreate, ServerType};
+use posterview_contracts::{ItemDetail, ItemType, Server, ServerCreate, ServerType};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+fn provider_test_item(item_type: ItemType, external_ids: &[(&str, &str)]) -> ItemDetail {
+    ItemDetail {
+        source_path: None,
+        file_name: None,
+        volume: None,
+        id: "item".into(),
+        title: "Example".into(),
+        year: None,
+        item_type,
+        poster: None,
+        background: None,
+        added_at: None,
+        summary: None,
+        season_count: None,
+        seasons: Vec::new(),
+        external_ids: external_ids
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .collect::<BTreeMap<_, _>>(),
+        logo: None,
+        members: Vec::new(),
+    }
+}
+
+#[test]
+fn sync_skips_incompatible_and_unresolvable_providers() {
+    let manga = provider_test_item(ItemType::Folder, &[("anilist", "123")]);
+    assert!(provider_applies_to_item("anilist-manga", &manga));
+    assert!(!provider_applies_to_item("fanart", &manga));
+    assert!(!provider_applies_to_item("tvdb", &manga));
+    assert!(!provider_applies_to_item("anilist", &manga));
+    assert!(!provider_applies_to_item("mediux", &manga));
+
+    let show_without_ids = provider_test_item(ItemType::Show, &[]);
+    assert!(provider_applies_to_item("anilist", &show_without_ids));
+    assert!(!provider_applies_to_item("fanart", &show_without_ids));
+    assert!(!provider_applies_to_item("tvdb", &show_without_ids));
+
+    let show = provider_test_item(ItemType::Show, &[("tvdb", "456"), ("tmdb", "789")]);
+    assert!(provider_applies_to_item("fanart", &show));
+    assert!(provider_applies_to_item("tvdb", &show));
+    assert!(provider_applies_to_item("mediux", &show));
+}
 
 #[test]
 fn search_thumbnails_receive_the_server_scope_required_by_image_proxies() {

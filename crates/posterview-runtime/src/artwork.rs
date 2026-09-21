@@ -8,8 +8,8 @@ use posterview_contracts::{
     ApplyRequest, ApplyResult, ArtworkCacheClearResult, ArtworkCacheSettings, ArtworkCacheStatus,
     ArtworkProviderInfo, ArtworkProviderTestRequest, ArtworkProviderTestResult,
     ArtworkRefreshResult, ArtworkResults, ArtworkSearchResults, ArtworkSettings,
-    ArtworkSettingsUpdate, PosterDbCredentials, PosterDbStatus, PosterSearchResults, PosterSet,
-    WatchdogState,
+    ArtworkSettingsUpdate, ItemDetail, ItemType, PosterDbCredentials, PosterDbStatus,
+    PosterSearchResults, PosterSet, WatchdogState,
 };
 use posterview_infra_artwork::{download_public_image, fetch_mediux_thumb};
 
@@ -41,6 +41,28 @@ fn temporary_failure(message: &str) -> bool {
     ]
     .iter()
     .any(|part| message.contains(part))
+}
+
+fn provider_applies_to_item(provider: &str, item: &ItemDetail) -> bool {
+    let has_id = |name: &str| {
+        item.external_ids
+            .get(name)
+            .is_some_and(|value| !value.trim().is_empty())
+    };
+    let book = matches!(
+        item.item_type,
+        ItemType::Book | ItemType::Audiobook | ItemType::Folder
+    );
+    match provider {
+        "anilist-manga" => book,
+        "anilist" => !book,
+        "fanart" if item.item_type == ItemType::Movie => has_id("tmdb") || has_id("imdb"),
+        "fanart" if item.item_type == ItemType::Show => has_id("tvdb"),
+        "fanart" => false,
+        "tvdb" => !book && has_id("tvdb"),
+        "mediux" => !book && has_id("tmdb"),
+        _ => true,
+    }
 }
 
 async fn request_with_retry<T, F, Fut>(label: &str, mut request: F) -> Result<T, String>
@@ -676,7 +698,8 @@ impl Runtime {
         let mut warmed = 0;
         for provider in providers {
             let key = format!("artwork:{provider}:{server_id}:{item_id}:");
-            if !enabled.contains(provider)
+            if !provider_applies_to_item(provider, &detail)
+                || !enabled.contains(provider)
                 || (!force && cache.has_fresh_json(&key, settings.ttl_days))
                 || (provider == "fanart" && fanart_key.is_empty())
                 || (provider == "tvdb" && tvdb_key.is_empty())
