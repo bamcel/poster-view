@@ -250,6 +250,33 @@ pub struct HistorySettings {
     pub max_entries: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct AppearanceSettings {
+    pub configured: bool,
+    pub backdrops_enabled: bool,
+    pub panel_solidity: u8,
+    pub panel_blur: u8,
+    pub panel_overlay: u8,
+    pub backdrop_overlay: u8,
+    pub theme_name: String,
+    pub custom_themes_json: String,
+}
+
+impl Default for AppearanceSettings {
+    fn default() -> Self {
+        Self {
+            configured: false,
+            backdrops_enabled: false,
+            panel_solidity: 40,
+            panel_blur: 12,
+            panel_overlay: 0,
+            backdrop_overlay: 72,
+            theme_name: "Everforest".to_owned(),
+            custom_themes_json: "[]".to_owned(),
+        }
+    }
+}
+
 const fn default_history_max_entries() -> i64 {
     50
 }

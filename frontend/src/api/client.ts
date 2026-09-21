@@ -3,6 +3,7 @@
 
 import type {
   ApplyHistoryEntry,
+  AppearanceSettings,
   ApplyResult,
   ArtworkProviderInfo,
   ArtworkCacheClearResult,
@@ -91,6 +92,10 @@ export interface AuthSession {
 }
 
 export const api = {
+  appearanceSettings: () => request<AppearanceSettings>("/appearance/settings"),
+  saveAppearanceSettings: (settings: AppearanceSettings) => request<AppearanceSettings>("/appearance/settings", {
+    method: "PUT", body: JSON.stringify(settings),
+  }),
   loginBackdrop: () => request<LoginBackdropManifest>("/login-backdrop"),
   securitySettings: () => request<SecuritySettings>("/security/settings"),
   saveSecuritySettings: (settings: SecuritySettings) => request<SecuritySettings>("/security/settings", {

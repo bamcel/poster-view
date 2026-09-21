@@ -7,22 +7,25 @@ import HistoryPage from "./pages/HistoryPage";
 import { ToastProvider } from "./lib/toast";
 import AuthGate from "./components/AuthGate";
 import { ServerProvider } from "./lib/serverContext";
+import AppearanceBootstrap from "./components/AppearanceBootstrap";
 
 export default function App() {
   return (
     <AuthGate>
-      <ServerProvider>
-        <ToastProvider>
-          <Routes>
+      <AppearanceBootstrap>
+        <ServerProvider>
+          <ToastProvider>
+            <Routes>
             <Route element={<Layout />}>
               <Route path="/" element={<DashboardPage />} />
               <Route path="/history" element={<HistoryPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/server/:serverId/item/:itemId" element={<ItemDetailPage />} />
             </Route>
-          </Routes>
-        </ToastProvider>
-      </ServerProvider>
+            </Routes>
+          </ToastProvider>
+        </ServerProvider>
+      </AppearanceBootstrap>
     </AuthGate>
   );
 }

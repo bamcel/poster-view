@@ -9,7 +9,7 @@ use axum::{
     routing::{any, get},
 };
 use posterview_contracts::{
-    ApiErrorResponse, ApplyRequest, ArtworkCacheSettings, ArtworkProviderTestRequest,
+    ApiErrorResponse, AppearanceSettings, ApplyRequest, ArtworkCacheSettings, ArtworkProviderTestRequest,
     ArtworkRefreshRequest, ArtworkRefreshResult, ArtworkSettingsUpdate, HistoryPurgeResult,
     HistorySettings, ImageTarget, LibraryVisibilityUpdate, PosterDbCredentials,
     RemoveImageRequest, ServerCreate, ServerUpdate, VerifyTitlesRequest,
@@ -82,6 +82,10 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         )
         .route("/api/auth/activity", axum::routing::post(auth_activity))
         .route("/api/status", get(status))
+        .route(
+            "/api/appearance/settings",
+            get(get_appearance_settings).put(set_appearance_settings),
+        )
         .route("/api/servers/test", axum::routing::post(test_adhoc_server))
         .route("/api/servers", get(list_servers).post(create_server))
         .route(
@@ -607,6 +611,19 @@ async fn upload_image(
         .await?
         .map(Json)
         .ok_or_else(HttpError::not_found)
+}
+
+async fn get_appearance_settings(
+    State(state): State<AppState>,
+) -> Result<Json<AppearanceSettings>, HttpError> {
+    Ok(Json(state.runtime.appearance_settings()?))
+}
+
+async fn set_appearance_settings(
+    State(state): State<AppState>,
+    Json(settings): Json<AppearanceSettings>,
+) -> Result<Json<AppearanceSettings>, HttpError> {
+    Ok(Json(state.runtime.set_appearance_settings(settings)?))
 }
 
 async fn remove_artwork(

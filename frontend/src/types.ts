@@ -270,3 +270,14 @@ export interface HistorySettings {
 export interface HistoryPurgeResult {
   purged: number;
 }
+
+export interface AppearanceSettings {
+  configured: boolean;
+  backdrops_enabled: boolean;
+  panel_solidity: number;
+  panel_blur: number;
+  panel_overlay: number;
+  backdrop_overlay: number;
+  theme_name: string;
+  custom_themes_json: string;
+}

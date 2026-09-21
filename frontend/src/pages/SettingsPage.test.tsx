@@ -25,6 +25,8 @@ vi.mock("../api/client", () => ({
     posterdbLogin: vi.fn(),
     testArtworkProvider: vi.fn(),
     deleteServer: vi.fn(),
+    appearanceSettings: vi.fn(),
+    saveAppearanceSettings: vi.fn(),
   },
 }));
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
@@ -32,6 +34,9 @@ vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 beforeEach(() => {
   localStorage.clear();
   vi.mocked(api.listServers).mockResolvedValue([]);
+  const appearance = { configured: true, backdrops_enabled: false, panel_solidity: 40, panel_blur: 12, panel_overlay: 0, backdrop_overlay: 72, theme_name: "Everforest", custom_themes_json: "[]" };
+  vi.mocked(api.appearanceSettings).mockResolvedValue(appearance);
+  vi.mocked(api.saveAppearanceSettings).mockImplementation(async (settings) => settings);
   vi.mocked(api.posterdbStatus).mockResolvedValue({ configured: true, logged_in: false, email: "test@example.test", message: "" });
   vi.mocked(api.getArtworkSettings).mockResolvedValue({
     fanart_configured: false,

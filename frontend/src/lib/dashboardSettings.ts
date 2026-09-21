@@ -82,3 +82,29 @@ export function setDashboardBackdropEnabled(enabled: boolean) {
   localStorage.setItem(DASHBOARD_BACKDROP_KEY, String(enabled));
   window.dispatchEvent(new CustomEvent(DASHBOARD_BACKDROP_EVENT, { detail: enabled }));
 }
+
+export interface DashboardAppearance {
+  backdrops_enabled: boolean;
+  panel_solidity: number;
+  panel_blur: number;
+  panel_overlay: number;
+  backdrop_overlay: number;
+}
+
+export function dashboardAppearance(): DashboardAppearance {
+  return {
+    backdrops_enabled: dashboardBackdropEnabled(),
+    panel_solidity: panelSolidity(),
+    panel_blur: backdropBlur(),
+    panel_overlay: panelOverlay(),
+    backdrop_overlay: backdropOverlay(),
+  };
+}
+
+export function applyDashboardAppearance(settings: DashboardAppearance) {
+  setDashboardBackdropEnabled(settings.backdrops_enabled);
+  setPanelSolidity(settings.panel_solidity);
+  setBackdropBlur(settings.panel_blur);
+  setPanelOverlay(settings.panel_overlay);
+  setBackdropOverlay(settings.backdrop_overlay);
+}

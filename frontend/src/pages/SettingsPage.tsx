@@ -25,9 +25,11 @@ import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
 import WatchdogStatus from "../components/WatchdogStatus";
 import { ServerTypeBadge, Switch } from "../components/ui";
-import type { ConnectionTest, LibraryVisibility, Server, ServerType } from "../types";
+import type { AppearanceSettings, ConnectionTest, LibraryVisibility, Server, ServerType } from "../types";
 import {
   applyTheme,
+  applyThemePreferences,
+  exportThemePreferences,
   getAllThemes,
   getStoredThemeName,
   getTheme,
@@ -138,6 +140,7 @@ export default function SettingsPage() {
 }
 
 function AppearanceSection() {
+  const queryClient = useQueryClient();
   const [themes, setThemes] = useState(getAllThemes);
   const [selected, setSelected] = useState(getStoredThemeName);
   const [themeJson, setThemeJson] = useState(() => serializeTheme(getTheme(getStoredThemeName())));
@@ -149,16 +152,49 @@ function AppearanceSection() {
   const [blur, setBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
   const [backdropOverlayStrength, setBackdropOverlayStrength] = useState(backdropOverlay);
+  const settingsQ = useQuery({ queryKey: ["appearance-settings"], queryFn: api.appearanceSettings });
+
+  useEffect(() => {
+    const settings = settingsQ.data;
+    if (!settings?.configured) return;
+    setShowBackdrops(settings.backdrops_enabled);
+    setPanelSolid(settings.panel_solidity);
+    setBlur(settings.panel_blur);
+    setPanelOverlayStrength(settings.panel_overlay);
+    setBackdropOverlayStrength(settings.backdrop_overlay);
+    applyThemePreferences(settings.theme_name, settings.custom_themes_json);
+    setThemes(getAllThemes());
+    setSelected(getStoredThemeName());
+    setThemeJson(serializeTheme(getTheme(getStoredThemeName())));
+  }, [settingsQ.data]);
+
+  const persist = (overrides: Partial<AppearanceSettings> = {}) => {
+    const next: AppearanceSettings = {
+      configured: true,
+      backdrops_enabled: showBackdrops,
+      panel_solidity: panelSolid,
+      panel_blur: blur,
+      panel_overlay: panelOverlayStrength,
+      backdrop_overlay: backdropOverlayStrength,
+      ...exportThemePreferences(),
+      ...overrides,
+    };
+    reportSettingsSave("saving");
+    void api.saveAppearanceSettings(next).then((saved) => {
+      queryClient.setQueryData(["appearance-settings"], saved);
+      reportSettingsSave("saved");
+    }).catch(() => reportSettingsSave("error"));
+  };
 
   const changeBackdrops = (enabled: boolean) => {
     setShowBackdrops(enabled);
     setDashboardBackdropEnabled(enabled);
-    reportSettingsSave("saved");
+    persist({ backdrops_enabled: enabled });
   };
-  const changePanelSolid = (value: number) => { setPanelSolid(value); setPanelSolidity(value); reportSettingsSave("saved"); };
-  const changeBlur = (value: number) => { setBlur(value); setBackdropBlur(value); reportSettingsSave("saved"); };
-  const changePanelOverlay = (value: number) => { setPanelOverlayStrength(value); setPanelOverlay(value); reportSettingsSave("saved"); };
-  const changeBackdropOverlay = (value: number) => { setBackdropOverlayStrength(value); setBackdropOverlay(value); reportSettingsSave("saved"); };
+  const changePanelSolid = (value: number) => { setPanelSolid(value); setPanelSolidity(value); persist({ panel_solidity: value }); };
+  const changeBlur = (value: number) => { setBlur(value); setBackdropBlur(value); persist({ panel_blur: value }); };
+  const changePanelOverlay = (value: number) => { setPanelOverlayStrength(value); setPanelOverlay(value); persist({ panel_overlay: value }); };
+  const changeBackdropOverlay = (value: number) => { setBackdropOverlayStrength(value); setBackdropOverlay(value); persist({ backdrop_overlay: value }); };
   const resetDashboard = () => {
     setShowBackdrops(DEFAULT_BACKDROPS_ENABLED);
     setPanelSolid(DEFAULT_PANEL_SOLIDITY);
@@ -170,7 +206,7 @@ function AppearanceSection() {
     setBackdropBlur(DEFAULT_BACKDROP_BLUR);
     setPanelOverlay(DEFAULT_PANEL_OVERLAY);
     setBackdropOverlay(DEFAULT_BACKDROP_OVERLAY);
-    reportSettingsSave("saved");
+    persist({ backdrops_enabled: DEFAULT_BACKDROPS_ENABLED, panel_solidity: DEFAULT_PANEL_SOLIDITY, panel_blur: DEFAULT_BACKDROP_BLUR, panel_overlay: DEFAULT_PANEL_OVERLAY, backdrop_overlay: DEFAULT_BACKDROP_OVERLAY });
   };
 
   const choose = (name: string) => {
@@ -179,7 +215,7 @@ function AppearanceSection() {
     setThemeJson(serializeTheme(theme));
     setCustomName(loadCustomThemes().some((candidate) => candidate.name === name) ? name : "");
     setMessage(`Theme applied: ${name}`);
-    reportSettingsSave("saved");
+    persist({ theme_name: name });
   };
 
   const reload = () => {
@@ -211,7 +247,7 @@ function AppearanceSection() {
       setCustomName(theme.name);
       setThemeJson(serializeTheme(theme));
       setMessage(`Custom theme saved: ${theme.name}`);
-      reportSettingsSave("saved");
+      persist({ ...exportThemePreferences(), theme_name: theme.name });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Theme JSON is invalid.");
       reportSettingsSave("error");
@@ -229,7 +265,7 @@ function AppearanceSection() {
     setCustomName("");
     setThemeJson(serializeTheme(fallback));
     setMessage(`Custom theme removed: ${removedName}`);
-    reportSettingsSave("saved");
+    persist(exportThemePreferences());
   };
 
   let selectedColorValue = "#000000";

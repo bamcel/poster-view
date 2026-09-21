@@ -216,3 +216,21 @@ export function applyTheme(themeOrName: AppTheme | string) {
 export function initializeTheme() {
   return applyTheme(getStoredThemeName());
 }
+
+export function exportThemePreferences() {
+  return {
+    theme_name: getStoredThemeName(),
+    custom_themes_json: JSON.stringify(loadCustomThemes()),
+  };
+}
+
+export function applyThemePreferences(themeName: string, customThemesJson: string) {
+  try {
+    const parsed: unknown = JSON.parse(customThemesJson);
+    const themes = Array.isArray(parsed) ? parsed.filter(isAppTheme).map(normalizeTheme) : [];
+    localStorage.setItem(CUSTOM_STORAGE_KEY, JSON.stringify(themes));
+  } catch {
+    localStorage.setItem(CUSTOM_STORAGE_KEY, "[]");
+  }
+  return applyTheme(themeName);
+}

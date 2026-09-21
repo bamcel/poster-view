@@ -9,7 +9,7 @@ use std::{
 };
 
 use posterview_contracts::{
-    ApplyResult, ConnectionTest, HealthResponse, ImageTarget, ItemDetail, Library,
+    AppearanceSettings, ApplyResult, ConnectionTest, HealthResponse, ImageTarget, ItemDetail, Library,
     LibraryVisibility, LibraryVisibilityItem, MediaItem, PosterSearchResults, Server, ServerCreate,
     ServerUpdate, StatusResponse,
 };
@@ -487,6 +487,36 @@ impl Runtime {
         }))
     }
 
+    pub fn appearance_settings(&self) -> Result<AppearanceSettings, RuntimeError> {
+        let raw = self.server_store()?.get_setting("appearance_settings")?;
+        if raw.is_empty() {
+            return Ok(AppearanceSettings::default());
+        }
+        Ok(serde_json::from_str(&raw).unwrap_or_default())
+    }
+
+    pub fn set_appearance_settings(
+        &self,
+        mut settings: AppearanceSettings,
+    ) -> Result<AppearanceSettings, RuntimeError> {
+        settings.configured = true;
+        settings.panel_solidity = settings.panel_solidity.min(100);
+        settings.panel_blur = settings.panel_blur.min(30);
+        settings.panel_overlay = settings.panel_overlay.min(95);
+        settings.backdrop_overlay = settings.backdrop_overlay.min(95);
+        if settings.theme_name.trim().is_empty() {
+            settings.theme_name = "Everforest".to_owned();
+        }
+        if serde_json::from_str::<serde_json::Value>(&settings.custom_themes_json).is_err() {
+            settings.custom_themes_json = "[]".to_owned();
+        }
+        self.server_store()?.set_setting(
+            "appearance_settings",
+            &serde_json::to_string(&settings).unwrap_or_default(),
+        )?;
+        Ok(settings)
+    }
+
     pub async fn remove_image(
         &self,
         server_id: i64,
@@ -666,9 +696,36 @@ mod tests {
         watchdog_inventory_diff,
     };
     use posterview_contracts::{
-        PosterCategory, PosterSearchResults, PosterTitleResult, ServerCreate, ServerType,
+        AppearanceSettings, PosterCategory, PosterSearchResults, PosterTitleResult, ServerCreate,
+        ServerType,
     };
     use std::collections::BTreeMap;
+
+    #[test]
+    fn appearance_settings_persist_globally_and_are_clamped() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let runtime = Runtime::new(directory.path());
+        runtime.initialize().expect("initialize runtime");
+        assert!(!runtime.appearance_settings().unwrap().configured);
+
+        let saved = runtime
+            .set_appearance_settings(AppearanceSettings {
+                configured: false,
+                backdrops_enabled: true,
+                panel_solidity: 255,
+                panel_blur: 255,
+                panel_overlay: 255,
+                backdrop_overlay: 255,
+                theme_name: "Everforest".into(),
+                custom_themes_json: "[]".into(),
+            })
+            .unwrap();
+        assert!(saved.configured);
+        assert_eq!(saved.panel_solidity, 100);
+        assert_eq!(saved.panel_blur, 30);
+        assert_eq!(saved.panel_overlay, 95);
+        assert_eq!(runtime.appearance_settings().unwrap(), saved);
+    }
 
     #[test]
     fn companion_cover_uses_the_media_files_exact_stem() {
