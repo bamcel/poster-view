@@ -630,10 +630,19 @@ async fn fetch_anilist_manga(
     } else {
         json!({"search": if raw.is_empty() { strip_year(&item.title) } else { raw.to_owned() }})
     };
-    let body: Value = http_client()?.post(ANILIST_URL)
-        .json(&json!({"query": QUERY, "variables": variables})).send().await
-        .map_err(network_error)?.error_for_status().map_err(network_error)?
-        .json().await.map_err(network_error)?;
+    let response = http_client()?
+        .post(ANILIST_URL)
+        .json(&json!({"query": QUERY, "variables": variables}))
+        .send()
+        .await
+        .map_err(network_error)?;
+    if response.status() == StatusCode::NOT_FOUND {
+        return Ok(Vec::new());
+    }
+    if !response.status().is_success() {
+        return Err(provider_status_error("AniList Manga", response.status()));
+    }
+    let body: Value = response.json().await.map_err(network_error)?;
     let Some(media) = body.pointer("/data/Media") else { return Ok(Vec::new()); };
     let id = value_string(media.get("id")).unwrap_or_default();
     let source_url = format!("https://anilist.co/manga/{id}");
@@ -659,10 +668,19 @@ async fn fetch_anilist_manga(
 
 async fn search_anilist_manga(query: &str) -> Result<Vec<ArtworkSearchResult>, String> {
     const QUERY: &str = "query ($search: String) { Page(perPage: 12) { media(search: $search, type: MANGA, sort: SEARCH_MATCH) { id title { english romaji } startDate { year } coverImage { medium } } } }";
-    let body: Value = http_client()?.post(ANILIST_URL)
-        .json(&json!({"query": QUERY, "variables": {"search": query}})).send().await
-        .map_err(network_error)?.error_for_status().map_err(network_error)?
-        .json().await.map_err(network_error)?;
+    let response = http_client()?
+        .post(ANILIST_URL)
+        .json(&json!({"query": QUERY, "variables": {"search": query}}))
+        .send()
+        .await
+        .map_err(network_error)?;
+    if response.status() == StatusCode::NOT_FOUND {
+        return Ok(Vec::new());
+    }
+    if !response.status().is_success() {
+        return Err(provider_status_error("AniList Manga", response.status()));
+    }
+    let body: Value = response.json().await.map_err(network_error)?;
     Ok(body.pointer("/data/Page/media").and_then(Value::as_array).into_iter().flatten().filter_map(|media| {
         Some(ArtworkSearchResult {
             alternate_titles: Vec::new(), status: None, id: value_string(media.get("id"))?,
