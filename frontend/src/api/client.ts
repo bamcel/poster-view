@@ -190,6 +190,8 @@ export const api = {
     download_url: string;
     item_title?: string;
   }) => request<ApplyResult>("/posterdb/apply", { method: "POST", body: JSON.stringify(data) }),
+  removeArtwork: (data: { server_id: number; item_id: string; target: ImageTarget }) =>
+    request<ApplyResult>("/artwork/remove", { method: "POST", body: JSON.stringify(data) }),
 
   // -- artwork providers (Fanart / AniList / TVDB) --
   artworkProviders: () => request<ArtworkProviderInfo[]>("/artwork/providers"),

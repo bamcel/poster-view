@@ -1,4 +1,4 @@
-use axum::{Json, Router, http::StatusCode, response::IntoResponse, routing::get};
+use axum::{Json, Router, http::StatusCode, response::IntoResponse, routing::{delete, get}};
 use serde_json::json;
 use tokio::net::TcpListener;
 
@@ -326,4 +326,43 @@ async fn unsafe_server_url_is_rejected_before_network_access() {
         result.unwrap_err(),
         "Media-server URLs must use HTTP or HTTPS."
     );
+}
+
+#[tokio::test]
+async fn emby_family_artwork_can_be_removed() {
+    let app = Router::new().route(
+        "/Items/example/Images/Primary",
+        delete(|| async { StatusCode::NO_CONTENT }),
+    );
+    let (base_url, task) = serve(app).await;
+    for server_type in [ServerType::Emby, ServerType::Jellyfin] {
+        remove_image(
+            ConnectionConfig {
+                server_type,
+                base_url: &base_url,
+                token: "test-token",
+            },
+            "example",
+            "poster",
+        )
+        .await
+        .unwrap();
+    }
+    task.abort();
+}
+
+#[tokio::test]
+async fn plex_artwork_removal_fails_safely() {
+    let message = remove_image(
+        ConnectionConfig {
+            server_type: ServerType::Plex,
+            base_url: "http://127.0.0.1:9",
+            token: "test-token",
+        },
+        "example",
+        "poster",
+    )
+    .await
+    .unwrap_err();
+    assert!(message.contains("not supported for Plex"));
 }

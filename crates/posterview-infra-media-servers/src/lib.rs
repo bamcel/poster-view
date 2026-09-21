@@ -466,6 +466,64 @@ pub async fn set_image(
     }
 }
 
+pub async fn remove_image(
+    config: ConnectionConfig<'_>,
+    item_id: &str,
+    target: &str,
+) -> Result<(), String> {
+    let client = media_client(&config)?;
+    match config.server_type {
+        ServerType::Plex => Err(
+            "Removing artwork is not supported for Plex because it does not expose a safe generic current-image delete operation."
+                .to_owned(),
+        ),
+        ServerType::Jellyfin => {
+            remove_emby_image(&client, &config, "Jellyfin", item_id, target).await
+        }
+        ServerType::Emby => remove_emby_image(&client, &config, "Emby", item_id, target).await,
+    }
+}
+
+async fn remove_emby_image(
+    client: &Client,
+    config: &ConnectionConfig<'_>,
+    label: &str,
+    item_id: &str,
+    target: &str,
+) -> Result<(), String> {
+    let image_type = match target {
+        "background" => "Backdrop",
+        "logo" => "Logo",
+        _ => "Primary",
+    };
+    let limit = if image_type == "Backdrop" { 25 } else { 1 };
+    for _ in 0..limit {
+        let suffix = if image_type == "Backdrop" { "/0" } else { "" };
+        let request = client.delete(format!(
+            "{}/Items/{item_id}/Images/{image_type}{suffix}",
+            config.base_url.trim_end_matches('/')
+        ));
+        let response = emby_family_auth(request, config)
+            .send()
+            .await
+            .map_err(|error| format!("{label} artwork removal failed: {error}"))?;
+        if response.status() == StatusCode::NOT_FOUND {
+            break;
+        }
+        if !response.status().is_success() {
+            let status = response.status();
+            let detail = response.text().await.unwrap_or_default();
+            let truncated = detail.chars().take(200).collect::<String>();
+            return Err(format!(
+                "{label} artwork removal failed ({}): {}",
+                status.as_u16(),
+                truncated
+            ));
+        }
+    }
+    Ok(())
+}
+
 async fn set_emby_image(
     client: &Client,
     config: &ConnectionConfig<'_>,

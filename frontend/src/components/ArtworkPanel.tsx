@@ -12,6 +12,7 @@ import type { ItemDetail, Library, NfoMetadata } from "../types";
 import PosterDBBody from "./PosterDBPanel";
 import ArtworkBrowser from "./ArtworkBrowser";
 import ManualUpload from "./ManualUpload";
+import RemoveArtwork from "./RemoveArtwork";
 import MangaDexPanel from "./MangaDexPanel";
 import VizPanel from "./VizPanel";
 import { useToast } from "../lib/toast";
@@ -33,7 +34,7 @@ const ARTWORK_LAYOUT_KEY = "posterview.artworkSourceLayout";
 const PROVIDER_GROUPS = [
   { label: "TV & Movies", names: ["posterdb", "fanart", "tvdb", "anilist", "mediux"] },
   { label: "Comics & Manga", names: ["anilist-manga", "mangadex", "viz", "comicvine"] },
-  { label: "Local", names: ["manual"] },
+  { label: "Local", names: ["manual", "remove"] },
 ];
 
 export default function ArtworkPanel({ serverId, item, prefill, navigationTarget, anilistMangaId, libraryType, libraryTitle, onReviewMetadata }: Props) {
@@ -87,11 +88,13 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
     : [];
   const primaryProviderTabs = primaryTabs.filter((tab) => tab.name !== "manual");
   const manualTab = primaryTabs.find((tab) => tab.name === "manual");
+  const removeTab = { name: "remove", label: "Remove", configured: true, needs_key: false };
+  const compactTabs = [...allTabs, removeTab];
 
   useEffect(() => {
     const preferred = defaultProvider;
     if (preferred && primaryTabs.some((tab) => tab.name === preferred)) setProvider(preferred);
-    else if (!allTabs.some((tab) => tab.name === provider)) setProvider(primaryTabs[0]?.name ?? "manual");
+    else if (provider !== "remove" && !allTabs.some((tab) => tab.name === provider)) setProvider(primaryTabs[0]?.name ?? "manual");
     setOtherSourcesOpen(false);
     // Reset to the configured default when a different library item opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -171,6 +174,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
             <div className="flex flex-wrap gap-1">
               {primaryProviderTabs.map(sourceButton)}
               {manualTab && sourceButton(manualTab)}
+              {sourceButton(removeTab)}
               {otherTabs.length > 0 && <button type="button" aria-label="Show more artwork databases" aria-expanded={otherSourcesOpen} onClick={() => setOtherSourcesOpen((open) => !open)} className="flex items-center gap-1 rounded-full bg-surface-2 px-2 py-1 text-xs font-medium text-muted transition-colors hover:text-white">
                 <span>Show More</span>
                 <ChevronDown className={`size-4 transition-transform ${otherSourcesOpen ? "rotate-180" : ""}`} />
@@ -190,7 +194,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
               className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-white outline-none focus:border-accent"
             >
               {PROVIDER_GROUPS.map((group) => {
-                const options = group.names.flatMap((name) => allTabs.filter((tab) => tab.name === name));
+                const options = group.names.flatMap((name) => compactTabs.filter((tab) => tab.name === name));
                 return options.length ? (
                   <optgroup key={group.label} label={group.label}>
                     {options.map((option) => (
@@ -207,7 +211,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
       </div>
 
       <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto p-4">
-        {provider !== "manual" && (
+        {provider !== "manual" && provider !== "remove" && (
           <div className="mb-3 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">
               {allTabs.find((tab) => tab.name === provider)?.label ?? provider}
@@ -234,6 +238,8 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
           <VizPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} database="comicvine" prefill={navigationTarget?.provider === "comicvine" ? navigationTarget : undefined} onReviewMetadata={onReviewMetadata} />
         ) : provider === "manual" ? (
           <ManualUpload serverId={serverId} item={item} includeFolderBackdrop={mediaKind === "book"} />
+        ) : provider === "remove" ? (
+          <RemoveArtwork serverId={serverId} item={item} includeFolderBackdrop={mediaKind === "book"} />
         ) : (
           <ArtworkBrowser key={panelVersion} provider={provider} serverId={serverId} item={item} metadataId={provider === "anilist-manga" ? anilistMangaId : undefined} prefill={navigationTarget?.provider === provider ? navigationTarget : undefined} onReviewMetadata={onReviewMetadata} />
         )}

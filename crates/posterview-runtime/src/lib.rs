@@ -16,7 +16,8 @@ use posterview_contracts::{
 use posterview_infra_artwork::{AniListMangaMetadata, ArtworkService, ComicVineMetadata};
 pub use posterview_infra_artwork::valid_manga_id;
 use posterview_infra_media_servers::{
-    ConnectionConfig, fetch_image, get_item_detail, get_items, get_libraries, set_image,
+    ConnectionConfig, fetch_image, get_item_detail, get_items, get_libraries, remove_image,
+    set_image,
     test_connection,
 };
 use posterview_infra_sqlite::{ServerStore, StoreError};
@@ -483,6 +484,34 @@ impl Runtime {
             } else {
                 format!("Updated {} successfully.", target.as_str())
             },
+        }))
+    }
+
+    pub async fn remove_image(
+        &self,
+        server_id: i64,
+        item_id: &str,
+        target: &ImageTarget,
+    ) -> Result<Option<ApplyResult>, RuntimeError> {
+        let Some(server) = self.server_store()?.get_server(server_id)? else {
+            return Ok(None);
+        };
+        let token = self
+            .server_store()?
+            .decrypted_token(server_id)?
+            .unwrap_or_default();
+        let config = ConnectionConfig {
+            server_type: server.server_type,
+            base_url: &server.base_url,
+            token: &token,
+        };
+        if let Err(message) = remove_image(config, item_id, target.as_str()).await {
+            return Ok(Some(ApplyResult { ok: false, message }));
+        }
+        self.invalidate_media_item_images(server_id, item_id)?;
+        Ok(Some(ApplyResult {
+            ok: true,
+            message: format!("Removed {} successfully.", target.as_str()),
         }))
     }
 

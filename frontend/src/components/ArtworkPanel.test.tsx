@@ -81,4 +81,20 @@ describe("ArtworkPanel cross-library databases", () => {
     expect(screen.getByRole("button", { name: alternate })).toBeTruthy();
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
   });
+
+  it("places artwork removal between Manual and Show More", async () => {
+    show("book");
+
+    const manual = await screen.findByRole("button", { name: "Manual" });
+    const remove = screen.getByRole("button", { name: "Remove" });
+    const showMore = await screen.findByRole("button", { name: "Show more artwork databases" });
+    expect(manual.compareDocumentPosition(remove) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(remove.compareDocumentPosition(showMore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(remove);
+    expect(screen.getByRole("heading", { name: "Remove artwork" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove All" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Series cover/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Series backdrop/ })).toBeTruthy();
+  });
 });

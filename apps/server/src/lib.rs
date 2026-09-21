@@ -11,8 +11,8 @@ use axum::{
 use posterview_contracts::{
     ApiErrorResponse, ApplyRequest, ArtworkCacheSettings, ArtworkProviderTestRequest,
     ArtworkRefreshRequest, ArtworkRefreshResult, ArtworkSettingsUpdate, HistoryPurgeResult,
-    HistorySettings, ImageTarget, LibraryVisibilityUpdate, PosterDbCredentials, ServerCreate,
-    ServerUpdate, VerifyTitlesRequest,
+    HistorySettings, ImageTarget, LibraryVisibilityUpdate, PosterDbCredentials,
+    RemoveImageRequest, ServerCreate, ServerUpdate, VerifyTitlesRequest,
 };
 use posterview_runtime::Runtime;
 use posterview_url_security::media_server_base;
@@ -108,6 +108,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             axum::routing::post(upload_image)
                 .layer(DefaultBodyLimit::max(MAX_MANUAL_IMAGE_BYTES)),
         )
+        .route("/api/artwork/remove", axum::routing::post(remove_artwork))
         .route("/api/artwork/providers", get(artwork_providers))
         .route(
             "/api/artwork/test",
@@ -603,6 +604,18 @@ async fn upload_image(
             "manual",
             &item_title,
         )
+        .await?
+        .map(Json)
+        .ok_or_else(HttpError::not_found)
+}
+
+async fn remove_artwork(
+    State(state): State<AppState>,
+    Json(input): Json<RemoveImageRequest>,
+) -> Result<impl IntoResponse, HttpError> {
+    state
+        .runtime
+        .remove_image(input.server_id, &input.item_id, &input.target)
         .await?
         .map(Json)
         .ok_or_else(HttpError::not_found)

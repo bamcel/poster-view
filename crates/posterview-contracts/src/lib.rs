@@ -208,6 +208,13 @@ pub struct ApplyRequest {
     pub item_title: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct RemoveImageRequest {
+    pub server_id: i64,
+    pub item_id: String,
+    pub target: ImageTarget,
+}
+
 fn default_image_target() -> ImageTarget {
     ImageTarget::Poster
 }
