@@ -1,6 +1,6 @@
 // App chrome: a left sidebar (logo, nav, active-server picker) + routed content.
 
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { LayoutDashboard, History, LogOut, Settings, Server as ServerIcon } from "lucide-react";
 import { useServers } from "../lib/serverContext";
 import { Logo, ServerTypeBadge } from "./ui";
@@ -10,17 +10,55 @@ import { AuthSessionContext } from "../lib/authContext";
 import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
 const navItems = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/history", label: "History", icon: History, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];
+const DASHBOARD_LOCATION_PREFIX = "posterview.dashboardLocation.";
 
 export default function Layout() {
   const { servers, selectedId, setSelectedId } = useServers();
+  const location = useLocation();
   const showSignOut = useContext(AuthSessionContext)?.password_required !== false;
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
+  const [dashboardLocation, setDashboardLocation] = useState(() =>
+    selectedId == null
+      ? "/"
+      : sessionStorage.getItem(`${DASHBOARD_LOCATION_PREFIX}${selectedId}`) || "/",
+  );
+
+  useEffect(() => {
+    const itemMatch = location.pathname.match(/^\/server\/(\d+)\/item\/[^/]+$/);
+    if (itemMatch) {
+      const routeServerId = Number(itemMatch[1]);
+      const destination = `${location.pathname}${location.search}`;
+      sessionStorage.setItem(`${DASHBOARD_LOCATION_PREFIX}${routeServerId}`, destination);
+      if (selectedId === routeServerId) setDashboardLocation(destination);
+      return;
+    }
+    if (location.pathname === "/" && selectedId != null) {
+      const destination = `/${location.search}`;
+      sessionStorage.setItem(`${DASHBOARD_LOCATION_PREFIX}${selectedId}`, destination);
+      setDashboardLocation(destination);
+      return;
+    }
+    setDashboardLocation(selectedId == null
+      ? "/"
+      : sessionStorage.getItem(`${DASHBOARD_LOCATION_PREFIX}${selectedId}`) || "/");
+  }, [location.pathname, location.search, selectedId]);
+
+  const navigationItems = [
+    { to: dashboardLocation, label: "Dashboard", icon: LayoutDashboard, end: true },
+    ...navItems,
+  ];
+  const openDashboardRoot = () => {
+    if (selectedId != null) {
+      sessionStorage.removeItem(`posterview.libraryTab.${selectedId}`);
+      sessionStorage.setItem(`${DASHBOARD_LOCATION_PREFIX}${selectedId}`, "/");
+    }
+    setDashboardLocation("/");
+  };
 
   useEffect(() => {
     const updateSolidity = (event: Event) => setPanelSolid((event as CustomEvent<number>).detail);
@@ -44,9 +82,11 @@ export default function Layout() {
   return (
     <div className="flex h-full flex-col md:flex-row">
       <header className="relative z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-sidebar/90 px-3 backdrop-blur-xl md:hidden">
-        <Logo className="mr-auto w-36 overflow-hidden [&>img]:max-w-full sm:w-auto sm:[&>img]:max-w-none" />
+        <NavLink to="/" onClick={openDashboardRoot} aria-label="Go to Dashboard" className="mr-auto min-w-0">
+          <Logo className="w-36 overflow-hidden [&>img]:max-w-full sm:w-auto sm:[&>img]:max-w-none" />
+        </NavLink>
         <nav className="flex items-center gap-1" aria-label="Primary navigation">
-          {navItems.map(({ to, label, icon: Icon, end }) => (
+          {navigationItems.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}
@@ -90,12 +130,14 @@ export default function Layout() {
         style={{ backgroundColor: translucentPanelColor("--color-sidebar", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
       >
         <div className="mb-8 px-1">
-          <Logo />
+          <NavLink to="/" onClick={openDashboardRoot} aria-label="Go to Dashboard" className="block w-fit">
+            <Logo />
+          </NavLink>
           <div className="mt-1 whitespace-nowrap text-left text-xs text-faint">Artwork Management Console</div>
         </div>
 
         <nav className="flex flex-col gap-1.5">
-          {navItems.map(({ to, label, icon: Icon, end }) => (
+          {navigationItems.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
               to={to}
