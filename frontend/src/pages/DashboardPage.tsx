@@ -540,7 +540,7 @@ function BackdropLayers({ urls, className, source }: { urls: string[]; className
           alt=""
           aria-hidden="true"
           draggable={false}
-          className={`absolute inset-0 h-full w-full transition-opacity duration-[2000ms] ease-in-out ${source === "desktop" ? "object-contain" : "object-cover"} ${index === activeIndex ? "opacity-100" : "opacity-0"}`}
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-[2000ms] ease-in-out ${index === activeIndex ? "opacity-100" : "opacity-0"}`}
         />
       ))}
     </div>

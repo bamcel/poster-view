@@ -24,10 +24,7 @@ it("renders a selected title backdrop across the viewport without a visible scro
   await screen.findByText("Movie");
   const backdrop = screen.getByTestId("item-backdrop");
   expect(backdrop.parentElement).toBe(document.body);
-  const backdropImage = backdrop.querySelector("img");
-  expect(backdropImage?.getAttribute("src")).toBe("/api/image/movie-backdrop");
-  expect(backdropImage?.classList.contains("object-contain")).toBe(true);
-  expect(backdropImage?.className).not.toContain("scale-");
+  expect(backdrop.querySelector("img")?.getAttribute("src")).toBe("/api/image/movie-backdrop");
   expect(screen.getByTestId("item-backdrop-overlay-mobile").parentElement).toBe(backdrop);
   expect(screen.getByTestId("item-backdrop-overlay-desktop").parentElement).toBe(backdrop);
   expect(document.querySelector(".overflow-y-auto")?.classList.contains("scrollbar-hidden")).toBe(true);

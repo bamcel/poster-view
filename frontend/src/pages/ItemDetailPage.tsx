@@ -138,7 +138,7 @@ export default function ItemDetailPage() {
             <img
               src={backdrop}
               alt=""
-              className="h-full w-full object-contain"
+              className="h-full w-full scale-[1.02] object-cover"
             />
           )}
           <div className="absolute inset-0 md:hidden" data-testid="item-backdrop-overlay-mobile" style={{ backgroundImage: backdropOverlayGradients(overlayStrength).mobile }} />
