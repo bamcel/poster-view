@@ -73,7 +73,8 @@ describe("ArtworkPanel cross-library databases", () => {
     expect(screen.getByRole("button", { name: "Manual" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: alternate })).toBeNull();
 
-    const toggle = screen.getByRole("button", { name: "Show other artwork databases" });
+    const toggle = screen.getByRole("button", { name: "Show more artwork databases" });
+    expect(toggle.textContent).toContain("Show More");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(toggle);
 

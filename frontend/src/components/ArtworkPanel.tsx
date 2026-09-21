@@ -171,7 +171,8 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
             <div className="flex flex-wrap gap-1">
               {primaryProviderTabs.map(sourceButton)}
               {manualTab && sourceButton(manualTab)}
-              {otherTabs.length > 0 && <button type="button" aria-label="Show other artwork databases" aria-expanded={otherSourcesOpen} onClick={() => setOtherSourcesOpen((open) => !open)} className="grid size-6 place-items-center rounded-full bg-surface-2 text-muted transition-colors hover:text-white">
+              {otherTabs.length > 0 && <button type="button" aria-label="Show more artwork databases" aria-expanded={otherSourcesOpen} onClick={() => setOtherSourcesOpen((open) => !open)} className="flex items-center gap-1 rounded-full bg-surface-2 px-2 py-1 text-xs font-medium text-muted transition-colors hover:text-white">
+                <span>Show More</span>
                 <ChevronDown className={`size-4 transition-transform ${otherSourcesOpen ? "rotate-180" : ""}`} />
               </button>}
             </div>
