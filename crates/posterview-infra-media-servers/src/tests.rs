@@ -5,6 +5,26 @@ use tokio::net::TcpListener;
 use super::*;
 
 #[tokio::test]
+async fn book_folder_detail_falls_back_to_user_scoped_item_endpoint() {
+    let app = Router::new()
+        .route("/Users", get(|| async { Json(json!([{"Id":"reader"}])) }))
+        .route("/Items", get(|| async { Json(json!({"Items":[]})) }))
+        .route("/Users/reader/Items/book-series", get(|| async {
+            Json(json!({"Id":"book-series","Name":"Book Series","Type":"Folder","IsFolder":true,"Path":"/media/Books/Book Series"}))
+        }));
+    let (base_url, task) = serve(app).await;
+    let detail = get_item_detail(ConnectionConfig {
+        server_type: ServerType::Emby,
+        base_url: &base_url,
+        token: "test",
+    }, "book-series").await.unwrap();
+    task.abort();
+    assert_eq!(detail.id, "book-series");
+    assert_eq!(detail.item_type, ItemType::Folder);
+    assert_eq!(detail.source_path.as_deref(), Some("/media/Books/Book Series"));
+}
+
+#[tokio::test]
 async fn failure_messages_distinguish_credentials_rate_limits_outages_and_unreachable_servers() {
     for (status, expected) in [
         (StatusCode::UNAUTHORIZED, "rejected"),

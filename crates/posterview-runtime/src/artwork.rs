@@ -675,6 +675,12 @@ impl Runtime {
         .await;
         let detail = match detail {
             Ok(value) => value,
+            Err(message) if !force && (message.ends_with("Item not found.") || message.ends_with("request failed (404).")) => {
+                // Sync can race a media-server scan: an item discovered moments ago
+                // may be gone by the time its detail is requested. Continue with the
+                // remaining titles instead of failing the whole scheduled run.
+                return Ok(None);
+            }
             Err(message) => {
                 return Ok(Some(ArtworkRefreshResult {
                     ok: false,

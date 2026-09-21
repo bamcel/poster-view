@@ -152,9 +152,20 @@ async fn emby_item_detail(
     let item = data
         .get("Items")
         .and_then(Value::as_array)
-        .and_then(|items| items.first())
-        .ok_or_else(|| "Item not found.".to_owned())?;
-    let item_type = emby_item_type(item);
+        .and_then(|items| items.iter().find(|item| item.get("Id").and_then(Value::as_str) == Some(item_id)))
+        .cloned();
+    let item = match item {
+        Some(item) => item,
+        None => {
+            // Some Emby/Jellyfin folder items are omitted by /Items with an Ids
+            // filter even though their direct user-scoped endpoint is available.
+            emby_json(client, config, label, &format!("/Users/{user_id}/Items/{item_id}"), &[]).await?
+        }
+    };
+    if item.get("Id").and_then(Value::as_str) != Some(item_id) {
+        return Err("Item not found.".to_owned());
+    }
+    let item_type = emby_item_type(&item);
     let seasons = if item_type == ItemType::Show {
         let data = emby_json(
             client,
@@ -226,7 +237,7 @@ async fn emby_item_detail(
             Some((key.to_lowercase(), value.to_owned()))
         })
         .collect();
-    let poster = emby_detail_poster(item, item_type, &members);
+    let poster = emby_detail_poster(&item, item_type, &members);
     Ok(ItemDetail {
         source_path: item.get("Path").and_then(Value::as_str).map(str::to_owned),
         file_name: item
@@ -248,7 +259,7 @@ async fn emby_item_detail(
         year: item.get("ProductionYear").and_then(Value::as_i64),
         item_type,
         poster,
-        background: emby_image_ref(item, "Backdrop"),
+        background: emby_image_ref(&item, "Backdrop"),
         added_at: None,
         summary: item
             .get("Overview")
@@ -259,7 +270,7 @@ async fn emby_item_detail(
             .flatten(),
         seasons,
         external_ids,
-        logo: emby_image_ref(item, "Logo"),
+        logo: emby_image_ref(&item, "Logo"),
         members,
     })
 }
