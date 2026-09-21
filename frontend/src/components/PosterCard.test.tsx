@@ -45,3 +45,16 @@ it("shows compact refresh and metadata actions and opens the editor action", () 
   fireEvent.click(screen.getByRole("menuitem", { name: "Edit Metadata" }));
   expect(editMetadata).toHaveBeenCalledOnce();
 });
+
+it("offers a touch-friendly manage action without replacing folder browsing", () => {
+  const open = vi.fn();
+  const manage = vi.fn();
+  render(<PosterCard title="Classroom of the Elite" kind="folder" onOpen={open} onManage={manage} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "Manage Classroom of the Elite" }));
+  expect(manage).toHaveBeenCalledOnce();
+  expect(open).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByTitle("Classroom of the Elite · right-click for options"));
+  expect(open).toHaveBeenCalledOnce();
+});

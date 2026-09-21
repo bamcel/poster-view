@@ -30,8 +30,10 @@ Books/
     poster.jpg
 ```
 
-Grouping folders may be used above series folders. Selecting a grouping folder navigates deeper;
-selecting a series opens its detail page. PosterView deliberately does not open an individual
+Grouping folders may be used above series folders. Selecting a folder navigates deeper when its
+immediate children are also folders. Use the folder card's **Manage** button to open that folder's
+own artwork and metadata page instead. This supports series roots with another level such as
+`Classroom of the Elite/Year 1/Volume 1`. PosterView deliberately does not open an individual
 book/volume as another Dashboard detail page, so Back returns to the series rather than skipping
 directly to the library.
 
@@ -117,4 +119,3 @@ library over `/config`, which is reserved for PosterView's database and caches.
 - **Provider did not auto-search:** enter a known AniList/ComicVine ID or title. Add the ID to the
   series metadata so subsequent searches can reuse it.
 - **Backdrop absent on a phone:** enable backdrops in Appearance; mobile rotation uses posters.
-
