@@ -67,6 +67,16 @@ PosterView reports the filesystem result separately.
 For MangaDex-specific volume selection, languages, and saved matches, see
 [MangaDex covers](mangadex-covers.md).
 
+## Database Sync for book libraries
+
+For manga, comics, books, light novels, and audiobooks, **Sync** preloads artwork only from
+provider URLs explicitly saved as `<source>` entries in that series folder's NFO. It does not
+guess providers from the title or use an ID field alone. Supported links are AniList Manga,
+MangaDex, VIZ, and ComicVine; the provider must also be enabled in Database settings (and
+ComicVine requires its API key). A book without an NFO or supported source URL is skipped.
+Sync walks nested book folders and checks existing series again on later runs, so adding a link
+does not require the series to be newly added to the library.
+
 ## Backdrops and mobile displays
 
 Upload or select a series background, then enable **Show backdrops** in

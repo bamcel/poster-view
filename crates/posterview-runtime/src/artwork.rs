@@ -704,19 +704,34 @@ impl Runtime {
         let comicvine_key = store.get_setting("comicvine_api_key")?;
         let settings = self.artwork_cache_settings(server_id)?;
         let enabled = self.enabled_artwork_providers()?;
-        let providers = ["fanart", "tvdb", "anilist", "anilist-manga", "mediux"];
+        let book_sync = !force && matches!(detail.item_type, ItemType::Book | ItemType::Audiobook | ItemType::Folder);
+        let linked = if book_sync {
+            crate::nfo_sources::linked_providers(detail.source_path.as_deref())
+        } else {
+            std::collections::HashMap::new()
+        };
+        let providers: &[&str] = if book_sync {
+            &["anilist-manga", "mangadex", "viz", "comicvine"]
+        } else {
+            &["fanart", "tvdb", "anilist", "anilist-manga", "mediux"]
+        };
         let mut warmed = 0;
-        for provider in providers {
-            let key = format!("artwork:{provider}:{server_id}:{item_id}:");
+        for &provider in providers {
+            let linked_id = linked.get(provider);
+            if book_sync && linked_id.is_none() {
+                continue;
+            }
+            let key = format!("artwork:{provider}:{server_id}:{item_id}:{}", linked_id.map_or("", String::as_str));
             if !provider_applies_to_item(provider, &detail)
                 || !enabled.contains(provider)
                 || (!force && cache.has_fresh_json(&key, settings.ttl_days))
                 || (provider == "fanart" && fanart_key.is_empty())
                 || (provider == "tvdb" && tvdb_key.is_empty())
+                || (provider == "comicvine" && comicvine_key.is_empty())
             {
                 continue;
             }
-            let mut resolved_id = provider_item_id(provider, &detail).map(str::to_owned);
+            let mut resolved_id = linked_id.cloned().or_else(|| provider_item_id(provider, &detail).map(str::to_owned));
             if matches!(provider, "fanart" | "tvdb" | "mediux") && resolved_id.is_none() {
                 if tvdb_key.is_empty() {
                     continue;
@@ -770,7 +785,7 @@ impl Runtime {
         );
         let email = store.get_setting("posterdb_email")?;
         let password = store.get_setting("posterdb_password")?;
-        if enabled.contains("posterdb")
+        if !book_sync && enabled.contains("posterdb")
             && !email.is_empty()
             && !password.is_empty()
             && (force || !cache.has_fresh_json(&posterdb_key, settings.ttl_days))
@@ -937,6 +952,7 @@ impl Runtime {
             .get_server(server_id)?
             .ok_or_else(|| RuntimeError::Watchdog("Media server not found.".to_owned()))?;
         let mut seen = std::collections::HashSet::new();
+        let mut book_ids = std::collections::HashSet::new();
         let mut discovered = Vec::new();
         let libraries = request_with_retry(&server.name, || async {
             self.get_libraries(server.id)
@@ -963,7 +979,38 @@ impl Runtime {
                     providers_warmed: 0,
                 });
             }
-            if library.library_type == posterview_contracts::LibraryType::Other {
+            let book_library = matches!(library.library_type, posterview_contracts::LibraryType::Book | posterview_contracts::LibraryType::Audiobook)
+                || (library.library_type == posterview_contracts::LibraryType::Other
+                    && ["manga", "manhwa", "manhua", "comic", "book", "novel", "webtoon"]
+                        .iter().any(|word| library.title.to_lowercase().contains(word)));
+            if library.library_type == posterview_contracts::LibraryType::Other && !book_library {
+                continue;
+            }
+            if book_library && server.server_type != posterview_contracts::ServerType::Plex {
+                // Folder-based book libraries can put series below years, publishers, or
+                // collections. Walk a bounded hierarchy so their NFO-backed series reach Sync.
+                let mut folders = vec![(library.id.clone(), 0usize)];
+                let mut visited = std::collections::HashSet::new();
+                while let Some((parent_id, depth)) = folders.pop() {
+                    if !visited.insert(parent_id.clone()) || depth > 8 || visited.len() > 10_000 {
+                        continue;
+                    }
+                    let children = request_with_retry(&server.name, || async {
+                        self.get_folder_items(server.id, &parent_id)
+                            .await.map_err(|error| error.to_string())?
+                            .ok_or_else(|| "Media server not found.".to_owned())?
+                    }).await.map_err(RuntimeError::Watchdog)?;
+                    for item in children {
+                        if item.item_type == ItemType::Folder && depth < 8 {
+                            folders.push((item.id.clone(), depth + 1));
+                        }
+                        if seen.insert(item.id.clone()) {
+                            book_ids.insert(format!("{}:{}", server.id, item.id));
+                            discovered.push((server.id, item.id, item.title));
+                        }
+                    }
+                    if self.watchdog_cancel_requested(server_id) { break; }
+                }
                 continue;
             }
             let items = request_with_retry(&server.name, || async {
@@ -976,6 +1023,9 @@ impl Runtime {
             .map_err(RuntimeError::Watchdog)?;
             for item in items {
                 if seen.insert(item.id.clone()) {
+                    if book_library {
+                        book_ids.insert(format!("{}:{}", server.id, item.id));
+                    }
                     discovered.push((server.id, item.id, item.title));
                 }
             }
@@ -999,7 +1049,10 @@ impl Runtime {
             watchdog_inventory_diff(&previous_inventory, &current_inventory);
         let queue = discovered
             .into_iter()
-            .filter(|(server_id, item_id, _)| new_items.contains(&format!("{server_id}:{item_id}")))
+            .filter(|(server_id, item_id, _)| {
+                let key = format!("{server_id}:{item_id}");
+                new_items.contains(&key) || book_ids.contains(&key)
+            })
             .collect::<Vec<_>>();
         let checkpoint = store.get_setting(&Self::server_setting(
             server_id,

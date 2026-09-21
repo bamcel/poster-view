@@ -1,6 +1,7 @@
 mod artwork;
 mod artwork_cache;
 mod history;
+mod nfo_sources;
 
 use std::{
     collections::{HashMap, HashSet},

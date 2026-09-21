@@ -1063,7 +1063,9 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "url",
  "uuid",
+ "xmltree",
 ]
 
 [[package]]
