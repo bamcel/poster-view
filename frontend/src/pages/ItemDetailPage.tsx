@@ -387,7 +387,7 @@ export default function ItemDetailPage() {
               type="button"
               onClick={() => setArtworkOpen(false)}
               aria-label="Close artwork"
-              className="absolute right-3 top-3 z-[60] grid size-9 place-items-center rounded-lg bg-elevated text-muted transition-colors hover:text-white"
+              className="absolute right-3 top-3 z-[60] grid size-9 place-items-center rounded-lg text-muted transition-colors hover:text-white"
             >
               <X className="size-5" />
             </button>
