@@ -131,6 +131,7 @@ select {
   will-change: transform;
 }
 .login-backdrop-row-reverse { animation-name: loginPostersRight; }
+.login-backdrop-mobile-extra { display: none; }
 .login-backdrop-segment {
   display: flex;
   gap: clamp(0.48rem, 1vw, 0.8rem);
@@ -144,6 +145,11 @@ select {
   opacity: 0.34;
   filter: brightness(0.58) saturate(0.75);
   box-shadow: 0 10px 25px rgb(0 0 0 / 35%);
+}
+@media (max-width: 767px) {
+  .login-backdrop-row { flex: none; }
+  .login-backdrop-mobile-extra { display: flex; }
+  .login-backdrop-row img { width: clamp(9.9rem, 18vw, 15.3rem); }
 }
 .login-backdrop-shade {
   position: absolute;

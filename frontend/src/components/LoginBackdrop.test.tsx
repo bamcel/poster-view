@@ -10,8 +10,9 @@ it("renders shuffled alternating poster rows from the sanitized feed", async () 
   ] }))));
   const { container } = render(<LoginBackdrop />);
   await waitFor(() => expect(container.querySelectorAll("img").length).toBeGreaterThanOrEqual(8));
-  expect(container.querySelectorAll(".login-backdrop-row")).toHaveLength(2);
-  expect(container.querySelectorAll(".login-backdrop-row-reverse")).toHaveLength(1);
+  expect(container.querySelectorAll(".login-backdrop-row")).toHaveLength(7);
+  expect(container.querySelectorAll(".login-backdrop-row-reverse")).toHaveLength(3);
+  expect(container.querySelectorAll(".login-backdrop-mobile-extra")).toHaveLength(5);
   const durations = Array.from(container.querySelectorAll<HTMLElement>(".login-backdrop-row"))
     .map((row) => row.style.getPropertyValue("--backdrop-duration"));
   expect(new Set(durations)).toEqual(new Set(["109.375s"]));
