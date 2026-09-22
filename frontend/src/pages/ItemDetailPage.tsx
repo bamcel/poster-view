@@ -166,16 +166,6 @@ export default function ItemDetailPage() {
             <ArrowLeft className="size-5" />
           </button>
 
-          {item && (
-            <button
-              type="button"
-              onClick={() => setArtworkOpen(true)}
-              className="absolute right-4 top-5 z-10 flex min-h-11 items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-white/40 hover:text-white xl:hidden"
-            >
-              <Images className="size-4" /> Artwork
-            </button>
-          )}
-
           <div className="relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-8">
             {detailQ.isLoading && <Spinner label="Loading…" />}
             {detailQ.isError && (
@@ -233,7 +223,7 @@ export default function ItemDetailPage() {
                                     : item.year}
                         </p>
                       </div>
-                      <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 sm:justify-end">
+                      <div className="hidden shrink-0 flex-wrap items-center justify-end gap-2 xl:flex">
                         {metadataQ.data && (
                           <button
                             type="button"
@@ -245,7 +235,7 @@ export default function ItemDetailPage() {
                         )}
                       <button
                         onClick={() => { void detailQ.refetch(); void metadataQ.refetch(); }}
-                        className="hidden items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white sm:flex"
+                        className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white"
                         title="Refresh from server"
                       >
                         <RefreshCw
@@ -255,16 +245,32 @@ export default function ItemDetailPage() {
                       </button>
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap items-center justify-center gap-3 sm:justify-start xl:hidden">
+                    <div className="mt-3 flex items-center justify-center gap-1.5 sm:justify-start sm:gap-2 xl:hidden">
+                      {metadataQ.data && (
+                        <button
+                          type="button"
+                          onClick={() => { setMetadataImport(null); setMetadataEditorOpen(true); }}
+                          className="flex min-h-11 min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 py-2 text-[11px] font-medium text-muted transition-colors hover:border-white/40 hover:text-white sm:gap-2 sm:px-4 sm:text-sm"
+                        >
+                          <Pencil className="size-3.5 shrink-0 sm:size-4" /> Edit Metadata
+                        </button>
+                      )}
                       <button
                         type="button"
                         aria-label="Refresh artwork"
                         onClick={() => refreshArtwork.mutate()}
                         disabled={refreshArtwork.isPending}
-                        className="flex min-h-11 items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-white/40 hover:text-white disabled:opacity-50 xl:hidden"
+                        className="flex min-h-11 min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 py-2 text-[11px] font-medium text-muted transition-colors hover:border-white/40 hover:text-white disabled:opacity-50 sm:gap-2 sm:px-4 sm:text-sm"
                       >
-                        <RefreshCw className={`size-4 shrink-0 ${refreshArtwork.isPending ? "animate-spin" : ""}`} />
+                        <RefreshCw className={`size-3.5 shrink-0 sm:size-4 ${refreshArtwork.isPending ? "animate-spin" : ""}`} />
                         {refreshArtwork.isPending ? "Refreshing…" : "Refresh"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setArtworkOpen(true)}
+                        className="flex min-h-11 min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 py-2 text-[11px] font-medium text-muted transition-colors hover:border-white/40 hover:text-white sm:gap-2 sm:px-4 sm:text-sm"
+                      >
+                        <Images className="size-3.5 shrink-0 sm:size-4" /> Artwork
                       </button>
                     </div>
                     <div role="status" aria-live="polite" className="mt-2 break-words text-sm xl:hidden">
@@ -292,7 +298,7 @@ export default function ItemDetailPage() {
                           ].filter(Boolean).map((entry) => {
                             const [label, value] = entry as string[];
                             const displayValue = label === "Status" || label === "Source" ? sentenceCaseMetadata(value) : value;
-                            return <span key={label} className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span><span className="text-white/50">{label}</span> · {displayValue}</span>{label === "Publisher" && publisherArtworkTarget && <button type="button" onClick={() => { setArtworkTarget({ ...publisherArtworkTarget, nonce: Date.now() }); setArtworkOpen(true); }} aria-label={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} title={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} className="ml-1 rounded-full p-0.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white"><ExternalLink className="size-3.5" /></button>}</span>;
+                            return <span key={label} className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span className="min-w-0 truncate"><span className="text-white/50">{label}</span> · {displayValue}</span>{label === "Publisher" && publisherArtworkTarget && <button type="button" onClick={() => { setArtworkTarget({ ...publisherArtworkTarget, nonce: Date.now() }); setArtworkOpen(true); }} aria-label={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} title={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} className="ml-1 shrink-0 rounded-full p-0.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white"><ExternalLink className="size-3.5" /></button>}</span>;
                           })}
                           {missingInstallments > 0 && installmentInfo && (
                             <span className="rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 text-xs font-medium text-amber-200">

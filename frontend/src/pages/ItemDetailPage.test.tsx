@@ -34,6 +34,27 @@ it("shows a populated manga edition immediately after volumes", async () => {
   client.clear();
 });
 
+it("keeps mobile detail actions together and publisher metadata in a single pill", async () => {
+  vi.mocked(api.getItemDetail).mockResolvedValue({ id: "manga", title: "Manga", type: "folder", seasons: [], external_ids: {}, members: [] });
+  vi.mocked(api.getNfoMetadata).mockResolvedValue({
+    title: "Manga", year: "", publisher: "Viz", edition: "", volumes: "", status: "", plot: "",
+    anilist_id: "123", comicvine_id: "", source_url: "https://anilist.co/manga/123", native_title: "", translation: "", mal_id: "",
+    genres: "", tags: "", creators: "", country: "", source_material: "",
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/item/7/manga"]}><QueryClientProvider client={client}><Routes><Route path="/item/:serverId/:itemId" element={<ItemDetailPage />} /></Routes></QueryClientProvider></MemoryRouter>);
+
+  const mobileActions = (await screen.findByRole("button", { name: "Refresh artwork" })).parentElement;
+  expect(mobileActions?.className).toContain("xl:hidden");
+  expect(mobileActions?.querySelectorAll("button")).toHaveLength(3);
+  expect(mobileActions?.textContent).toContain("Edit Metadata");
+  expect(mobileActions?.textContent).toContain("Artwork");
+  const publisherPill = screen.getByText("Publisher").closest("span.inline-flex");
+  expect(publisherPill?.className).toContain("shrink-0");
+  expect(publisherPill?.textContent).toContain("Publisher · Viz");
+  client.clear();
+});
+
 it("renders a selected title backdrop across the viewport without a visible scrollbar", async () => {
   localStorage.setItem("posterview.dashboardBackdropEnabled", "true");
   vi.mocked(api.getItemDetail).mockResolvedValue({ id: "movie", title: "Movie", type: "movie", background: "movie-backdrop", seasons: [], external_ids: {}, members: [] });
@@ -101,8 +122,8 @@ it("refreshes artwork for the current server and title, prevents duplicate reque
   vi.mocked(api.refreshArtworkItem).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/item/7/movie"]}><QueryClientProvider client={client}><Routes><Route path="/item/:serverId/:itemId" element={<ItemDetailPage />} /></Routes></QueryClientProvider></MemoryRouter>);
-  expect((await screen.findByTitle("Refresh from server")).className).toContain("hidden");
-  expect(screen.getByTitle("Refresh from server").className).toContain("sm:flex");
+  expect((await screen.findByTitle("Refresh from server")).parentElement?.className).toContain("hidden");
+  expect(screen.getByTitle("Refresh from server").parentElement?.className).toContain("xl:flex");
   fireEvent.click(await screen.findByRole("button", { name: "Refresh artwork" }));
   await waitFor(() => expect(api.refreshArtworkItem).toHaveBeenCalledWith(7, "movie"));
   expect((await screen.findByRole("button", { name: "Refresh artwork" })).hasAttribute("disabled")).toBe(true);
