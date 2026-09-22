@@ -157,7 +157,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
       style={{ backgroundColor: translucentPanelColor("--color-surface", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
     >
       <div className="border-b border-border p-3">
-        <div className="mb-2 flex items-center justify-between gap-3 px-1">
+        <div className="mb-2 flex items-center justify-between gap-3 pl-1 pr-12 xl:pr-1">
           <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted">
             <Images className="size-4 text-accent" /> Artwork
           </h2>
