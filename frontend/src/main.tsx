@@ -6,13 +6,6 @@ import App from "./App";
 import { initializeTheme } from "./lib/theme";
 import "./index.css";
 
-if (window.matchMedia("(hover: none) and (pointer: coarse)").matches) {
-  document.querySelector('meta[name="viewport"]')?.setAttribute(
-    "content",
-    "width=device-width, initial-scale=1.0, minimum-scale=1.0, shrink-to-fit=no",
-  );
-}
-
 initializeTheme();
 
 const queryClient = new QueryClient({
