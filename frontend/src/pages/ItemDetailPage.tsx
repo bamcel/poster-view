@@ -170,7 +170,7 @@ export default function ItemDetailPage() {
             <button
               type="button"
               onClick={() => setArtworkOpen(true)}
-              className="absolute right-4 top-5 z-10 flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-black shadow-lg transition-colors hover:bg-accent-hover xl:hidden"
+              className="absolute right-4 top-5 z-10 flex min-h-11 items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-white/40 hover:text-white xl:hidden"
             >
               <Images className="size-4" /> Artwork
             </button>
