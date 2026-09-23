@@ -50,8 +50,8 @@ function LibraryTabScroller({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="relative px-5">
-      {edges.left && <button type="button" aria-label="Scroll libraries left" onClick={() => scroll(-1)} className="absolute inset-y-0 left-0 flex w-5 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronLeft className="size-4" /></button>}
+    <div className="relative">
+      {edges.left && <button type="button" aria-label="Scroll libraries left" onClick={() => scroll(-1)} className="absolute inset-y-0 -left-4 flex w-4 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronLeft className="size-4" /></button>}
       <div ref={scroller} role="group" aria-label="Libraries" className="scrollbar-hidden flex gap-1 overflow-x-auto pb-px"
         onWheel={(event) => {
           if (window.matchMedia("(min-width: 768px)").matches && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
@@ -60,7 +60,7 @@ function LibraryTabScroller({ children }: { children: ReactNode }) {
         }}>
         {children}
       </div>
-      {edges.right && <button type="button" aria-label="Scroll libraries right" onClick={() => scroll(1)} className="absolute inset-y-0 right-0 flex w-5 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronRight className="size-4" /></button>}
+      {edges.right && <button type="button" aria-label="Scroll libraries right" onClick={() => scroll(1)} className="absolute inset-y-0 -right-4 flex w-4 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronRight className="size-4" /></button>}
     </div>
   );
 }
