@@ -104,6 +104,8 @@ it("does not paint a library name clipped at either scroller edge", async () => 
   const tabs = screen.getByRole("group", { name: "Libraries" });
   vi.spyOn(tabs, "getBoundingClientRect").mockReturnValue({ left: 20, right: 400 } as DOMRect);
   const bounds = vi.spyOn(tab, "getBoundingClientRect");
+  tab.style.paddingLeft = "16px";
+  tab.style.paddingRight = "16px";
   bounds.mockReturnValue({ left: 350, right: 450 } as DOMRect);
   fireEvent.scroll(tabs);
   expect(tab.style.opacity).toBe("0");
@@ -114,6 +116,9 @@ it("does not paint a library name clipped at either scroller edge", async () => 
   fireEvent.scroll(tabs);
   expect(tab.style.opacity).toBe("");
   expect(tab.style.pointerEvents).toBe("");
+  // Arrow slots move across hidden-tab space and tab padding, retaining the 8px grid gap.
+  expect((tabs.previousElementSibling as HTMLElement).style.transform).toBe("translateX(246px)");
+  expect((tabs.nextElementSibling as HTMLElement).style.transform).toBe("translateX(-66px)");
   client.clear();
 });
 

@@ -23,6 +23,8 @@ type TitleSort = "title" | "newest" | "oldest" | "recently-added";
 
 function LibraryTabScroller({ children, collapsed }: { children: ReactNode; collapsed: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const leftArrow = useRef<HTMLDivElement>(null);
+  const rightArrow = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
 
   useLayoutEffect(() => {
@@ -30,6 +32,8 @@ function LibraryTabScroller({ children, collapsed }: { children: ReactNode; coll
     if (!element) return;
     const update = () => {
       const viewport = element.getBoundingClientRect();
+      let firstLabel: number | undefined;
+      let lastLabel: number | undefined;
       for (const child of element.children) {
         if (!(child instanceof HTMLButtonElement)) continue;
         const bounds = child.getBoundingClientRect();
@@ -37,7 +41,16 @@ function LibraryTabScroller({ children, collapsed }: { children: ReactNode; coll
         // Keep the tab's layout and keyboard focusability, but never paint half a label.
         child.style.opacity = fullyVisible ? "" : "0";
         child.style.pointerEvents = fullyVisible ? "" : "none";
+        if (fullyVisible) {
+          const style = getComputedStyle(child);
+          firstLabel ??= bounds.left + (parseFloat(style.paddingLeft) || 0);
+          lastLabel = bounds.right - (parseFloat(style.paddingRight) || 0);
+        }
       }
+      // Follow the visible labels, not the empty space occupied by clipped tabs.
+      // The grid's 8px gap remains between each arrow and the label.
+      if (leftArrow.current) leftArrow.current.style.transform = `translateX(${firstLabel == null ? 0 : firstLabel - viewport.left}px)`;
+      if (rightArrow.current) rightArrow.current.style.transform = `translateX(${lastLabel == null ? 0 : lastLabel - viewport.right}px)`;
       setEdges({
         left: element.scrollLeft > 1,
         right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
@@ -68,7 +81,7 @@ function LibraryTabScroller({ children, collapsed }: { children: ReactNode; coll
 
   return (
     <div className="-ml-2 grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_1rem] items-stretch gap-2 md:-ml-6">
-      <div className="flex">
+      <div ref={leftArrow} className="relative z-10 flex">
         {edges.left && <button type="button" aria-label="Scroll libraries left" onClick={() => scroll(-1)} className="flex w-4 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronLeft className="size-4" /></button>}
       </div>
       <div ref={scroller} role="group" aria-label="Libraries" className="scrollbar-hidden flex min-w-0 snap-x snap-mandatory gap-1 overflow-x-auto pb-px [&>button]:max-w-full [&>button]:snap-start"
@@ -79,7 +92,7 @@ function LibraryTabScroller({ children, collapsed }: { children: ReactNode; coll
         }}>
         {children}
       </div>
-      <div className="flex">
+      <div ref={rightArrow} className="relative z-10 flex">
         {edges.right && <button type="button" aria-label="Scroll libraries right" onClick={() => scroll(1)} className="flex w-4 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronRight className="size-4" /></button>}
       </div>
     </div>
