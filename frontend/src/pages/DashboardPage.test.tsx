@@ -95,6 +95,28 @@ it("keeps scroll arrows outside the tabs and scrolls smoothly in both directions
   }
 });
 
+it("does not paint a library name clipped at either scroller edge", async () => {
+  localStorage.setItem("posterview.libraryTabsCollapsed", "true");
+  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "tv", title: "TV Series", type: "show" }]);
+  vi.mocked(api.getItems).mockResolvedValue([]);
+  const { client } = renderDashboard();
+  const tab = await screen.findByRole("button", { name: "TV Series" });
+  const tabs = screen.getByRole("group", { name: "Libraries" });
+  vi.spyOn(tabs, "getBoundingClientRect").mockReturnValue({ left: 20, right: 400 } as DOMRect);
+  const bounds = vi.spyOn(tab, "getBoundingClientRect");
+  bounds.mockReturnValue({ left: 350, right: 450 } as DOMRect);
+  fireEvent.scroll(tabs);
+  expect(tab.style.opacity).toBe("0");
+  bounds.mockReturnValue({ left: 10, right: 110 } as DOMRect);
+  fireEvent.scroll(tabs);
+  expect(tab.style.opacity).toBe("0");
+  bounds.mockReturnValue({ left: 250, right: 350 } as DOMRect);
+  fireEvent.scroll(tabs);
+  expect(tab.style.opacity).toBe("");
+  expect(tab.style.pointerEvents).toBe("");
+  client.clear();
+});
+
 it("restores the last library tab for the selected server", async () => {
   sessionStorage.setItem("posterview.libraryTab.1", "anime");
   vi.mocked(api.getLibraries).mockResolvedValue([

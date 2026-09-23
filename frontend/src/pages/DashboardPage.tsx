@@ -29,6 +29,15 @@ function LibraryTabScroller({ children, collapsed }: { children: ReactNode; coll
     const element = scroller.current;
     if (!element) return;
     const update = () => {
+      const viewport = element.getBoundingClientRect();
+      for (const child of element.children) {
+        if (!(child instanceof HTMLButtonElement)) continue;
+        const bounds = child.getBoundingClientRect();
+        const fullyVisible = bounds.left >= viewport.left - 1 && bounds.right <= viewport.right + 1;
+        // Keep the tab's layout and keyboard focusability, but never paint half a label.
+        child.style.opacity = fullyVisible ? "" : "0";
+        child.style.pointerEvents = fullyVisible ? "" : "none";
+      }
       setEdges({
         left: element.scrollLeft > 1,
         right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
@@ -42,6 +51,11 @@ function LibraryTabScroller({ children, collapsed }: { children: ReactNode; coll
     return () => {
       element.removeEventListener("scroll", update);
       observer?.disconnect();
+      for (const child of element.children) {
+        if (!(child instanceof HTMLButtonElement)) continue;
+        child.style.opacity = "";
+        child.style.pointerEvents = "";
+      }
     };
   }, [children, collapsed]);
 
@@ -57,7 +71,7 @@ function LibraryTabScroller({ children, collapsed }: { children: ReactNode; coll
       <div className="flex">
         {edges.left && <button type="button" aria-label="Scroll libraries left" onClick={() => scroll(-1)} className="flex w-4 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronLeft className="size-4" /></button>}
       </div>
-      <div ref={scroller} role="group" aria-label="Libraries" className="scrollbar-hidden flex min-w-0 snap-x snap-mandatory gap-1 overflow-x-auto pb-px [&>button]:snap-start"
+      <div ref={scroller} role="group" aria-label="Libraries" className="scrollbar-hidden flex min-w-0 snap-x snap-mandatory gap-1 overflow-x-auto pb-px [&>button]:max-w-full [&>button]:snap-start"
         onWheel={(event) => {
           if (window.matchMedia("(min-width: 768px)").matches && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
             event.currentTarget.scrollLeft += event.deltaY;
