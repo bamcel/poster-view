@@ -53,11 +53,11 @@ function LibraryTabScroller({ children, collapsed }: { children: ReactNode; coll
   };
 
   return (
-    <div className="grid grid-cols-[1rem_minmax(0,1fr)_1rem] items-stretch gap-2">
+    <div className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_1rem] items-stretch gap-2">
       <div className="flex">
         {edges.left && <button type="button" aria-label="Scroll libraries left" onClick={() => scroll(-1)} className="flex w-4 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronLeft className="size-4" /></button>}
       </div>
-      <div ref={scroller} role="group" aria-label="Libraries" className="scrollbar-hidden flex snap-x snap-mandatory gap-1 overflow-x-auto pb-px [&>button]:snap-start"
+      <div ref={scroller} role="group" aria-label="Libraries" className="scrollbar-hidden flex min-w-0 snap-x snap-mandatory gap-1 overflow-x-auto pb-px [&>button]:snap-start"
         onWheel={(event) => {
           if (window.matchMedia("(min-width: 768px)").matches && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
             event.currentTarget.scrollLeft += event.deltaY;

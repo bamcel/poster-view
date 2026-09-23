@@ -55,6 +55,46 @@ it.each([false, true])("uses the collapsed library layout only when enabled: %s"
   client.clear();
 });
 
+it("keeps scroll arrows outside the tabs and scrolls smoothly in both directions", async () => {
+  localStorage.setItem("posterview.libraryTabsCollapsed", "true");
+  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
+  vi.mocked(api.getItems).mockResolvedValue([]);
+  const { client } = renderDashboard();
+  await screen.findByRole("button", { name: "Movies" });
+  const tabs = screen.getByRole("group", { name: "Libraries" });
+  Object.defineProperties(tabs, {
+    clientWidth: { value: 400 },
+    scrollWidth: { value: 1000 },
+    scrollLeft: { value: 200, writable: true },
+    scrollBy: { value: vi.fn() },
+  });
+  const originalMatchMedia = window.matchMedia;
+  window.matchMedia = vi.fn().mockReturnValue({ matches: false });
+  try {
+    fireEvent.scroll(tabs);
+    const left = screen.getByRole("button", { name: "Scroll libraries left" });
+    const right = screen.getByRole("button", { name: "Scroll libraries right" });
+    expect(tabs.contains(left)).toBe(false);
+    expect(tabs.contains(right)).toBe(false);
+    expect(left.parentElement?.nextElementSibling).toBe(tabs);
+    expect(right.parentElement?.previousElementSibling).toBe(tabs);
+    expect(tabs.parentElement?.classList.contains("gap-2")).toBe(true);
+    fireEvent.click(right);
+    expect(tabs.scrollBy).toHaveBeenLastCalledWith({ left: 300, behavior: "smooth" });
+    fireEvent.click(left);
+    expect(tabs.scrollBy).toHaveBeenLastCalledWith({ left: -300, behavior: "smooth" });
+    tabs.scrollLeft = 0;
+    fireEvent.scroll(tabs);
+    expect(screen.queryByRole("button", { name: "Scroll libraries left" })).toBeNull();
+    tabs.scrollLeft = 600;
+    fireEvent.scroll(tabs);
+    expect(screen.queryByRole("button", { name: "Scroll libraries right" })).toBeNull();
+  } finally {
+    window.matchMedia = originalMatchMedia;
+    client.clear();
+  }
+});
+
 it("restores the last library tab for the selected server", async () => {
   sessionStorage.setItem("posterview.libraryTab.1", "anime");
   vi.mocked(api.getLibraries).mockResolvedValue([
