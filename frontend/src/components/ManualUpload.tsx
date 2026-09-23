@@ -123,7 +123,7 @@ export default function ManualUpload({ serverId, item, includeFolderBackdrop = f
           <img
             src={preview}
             alt="preview"
-            className={`w-full bg-base ${isBackground ? "aspect-video object-cover" : "max-h-64 object-contain"}`}
+            className={`w-full bg-base ${isBackground ? "aspect-video object-cover object-top" : "max-h-64 object-contain"}`}
           />
         </div>
       ) : (

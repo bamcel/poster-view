@@ -432,7 +432,7 @@ export function ArtImg({ art }: { art: ArtworkItem }) {
         ? "aspect-[16/5] object-cover"
         : art.type === "logo"
           ? "aspect-video object-contain p-2"
-          : "aspect-video object-cover";
+          : "aspect-video object-cover object-top";
   if (failed) {
     return <div className={`grid w-full place-items-center rounded bg-base text-faint ${shape}`}><ImageOff className="size-6" /></div>;
   }
