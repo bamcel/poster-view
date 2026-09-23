@@ -74,8 +74,10 @@ provider URLs explicitly saved as `<source>` entries in that series folder's NFO
 guess providers from the title or use an ID field alone. Supported links are AniList Manga,
 MangaDex, VIZ, and ComicVine; the provider must also be enabled in Database settings (and
 ComicVine requires its API key). A book without an NFO or supported source URL is skipped.
-Sync walks nested book folders and checks existing series again on later runs, so adding a link
-does not require the series to be newly added to the library.
+Sync walks nested book folders to discover additions and removals. Existing books use saved
+paths to check their NFO links locally; only new items, changed links/titles, or missing/expired
+enabled-provider cache entries are queued for detail lookups. Books without supported links
+are not repeatedly queued. The first run after upgrading records a one-time path baseline.
 
 ## Backdrops and mobile displays
 

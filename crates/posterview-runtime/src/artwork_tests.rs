@@ -3,6 +3,19 @@ use posterview_contracts::{ItemDetail, ItemType, Server, ServerCreate, ServerTyp
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+#[test]
+fn book_sync_queues_changed_links_or_stale_cache_but_skips_unchanged_books() {
+    let links = BTreeMap::from([("anilist-manga".to_owned(), "123".to_owned())]);
+    let previous = BookSyncState { source_path: Some("/media/Manga/Series".to_owned()), links: links.clone() };
+    assert!(!book_sync_needs_refresh(&previous, &links, |_, _| false));
+    assert!(book_sync_needs_refresh(&previous, &links, |provider, id| provider == "anilist-manga" && id == "123"));
+    let changed = BTreeMap::from([("anilist-manga".to_owned(), "456".to_owned())]);
+    assert!(book_sync_needs_refresh(&previous, &changed, |_, _| false));
+    assert!(book_sync_needs_refresh(&previous, &BTreeMap::new(), |_, _| false));
+    let empty = BookSyncState { source_path: None, links: BTreeMap::new() };
+    assert!(!book_sync_needs_refresh(&empty, &BTreeMap::new(), |_, _| true));
+}
+
 fn provider_test_item(item_type: ItemType, external_ids: &[(&str, &str)]) -> ItemDetail {
     ItemDetail {
         source_path: None,

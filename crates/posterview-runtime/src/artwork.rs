@@ -15,6 +15,20 @@ use posterview_infra_artwork::{download_public_image, fetch_mediux_thumb};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(45);
 
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BookSyncState {
+    source_path: Option<String>,
+    links: std::collections::BTreeMap<String, String>,
+}
+
+fn book_sync_needs_refresh(
+    previous: &BookSyncState,
+    links: &std::collections::BTreeMap<String, String>,
+    mut missing_cache: impl FnMut(&str, &str) -> bool,
+) -> bool {
+    previous.links != *links || links.iter().any(|(provider, id)| missing_cache(provider, id))
+}
+
 fn temporary_failure(message: &str) -> bool {
     let message = message.to_lowercase();
     if message.contains("credentials")
@@ -808,6 +822,17 @@ impl Runtime {
             warmed += 1;
         }
 
+        if book_sync {
+            let snapshot = BookSyncState {
+                source_path: detail.source_path.clone(),
+                links: linked.into_iter().map(|(provider, id)| (provider.to_owned(), id)).collect(),
+            };
+            store.set_setting(
+                &Self::server_setting(server_id, &format!("artwork_book_sync:{item_id}")),
+                &serde_json::to_string(&snapshot).map_err(std::io::Error::other)?,
+            )?;
+        }
+
         Ok(Some(ArtworkRefreshResult {
             ok: true,
             message: format!("Refreshed artwork for {}.", detail.title),
@@ -1053,21 +1078,41 @@ impl Runtime {
         let initial_build = previous_inventory.is_empty();
         let (new_items, removed_inventory) =
             watchdog_inventory_diff(&previous_inventory, &current_inventory);
-        let queue = discovered
-            .into_iter()
-            .filter(|(server_id, item_id, _)| {
-                let key = format!("{server_id}:{item_id}");
-                new_items.contains(&key) || book_ids.contains(&key)
-            })
-            .collect::<Vec<_>>();
-        let checkpoint = store.get_setting(&Self::server_setting(
-            server_id,
-            "artwork_watchdog_checkpoint",
-        ))?;
-        let start = queue
-            .iter()
-            .position(|(server_id, item_id, _)| format!("{server_id}:{item_id}") == checkpoint)
-            .map_or(0, |index| index + 1);
+        let cache = self.server_artwork_cache(server_id)?;
+        let settings = self.artwork_cache_settings(server_id)?;
+        let enabled = self.enabled_artwork_providers()?;
+        let comicvine_configured = !store.get_setting("comicvine_api_key")?.is_empty();
+        let mut queue = Vec::new();
+        for entry in &discovered {
+            let (entry_server_id, item_id, title) = entry;
+            let key = format!("{entry_server_id}:{item_id}");
+            let needs_refresh = if new_items.contains(&key) {
+                true
+            } else if book_ids.contains(&key) {
+                let snapshot = serde_json::from_str::<BookSyncState>(&store.get_setting(
+                    &Self::server_setting(*entry_server_id, &format!("artwork_book_sync:{item_id}")),
+                )?).ok();
+                match snapshot {
+                    None => true, // One-time path baseline for installations upgraded from older Sync.
+                    Some(previous) => {
+                        let links = crate::nfo_sources::linked_providers(previous.source_path.as_deref())
+                            .into_iter().map(|(provider, id)| (provider.to_owned(), id)).collect();
+                        previous_inventory.get(&key) != Some(title)
+                            || book_sync_needs_refresh(&previous, &links, |provider, id| {
+                                enabled.contains(provider)
+                                    && (provider != "comicvine" || comicvine_configured)
+                                    && !cache.has_fresh_json(&format!("artwork:{provider}:{entry_server_id}:{item_id}:{id}"), settings.ttl_days)
+                            })
+                    }
+                }
+            } else {
+                false
+            };
+            if needs_refresh { queue.push(entry.clone()); }
+        }
+        // The queue can change between attempts as NFO links and cache freshness change.
+        // Never skip entries using a positional checkpoint from a previous queue.
+        let start = 0;
         store.set_setting(
             &Self::server_setting(server_id, "artwork_watchdog_progress_total"),
             &queue.len().to_string(),
@@ -1134,6 +1179,7 @@ impl Runtime {
         let mut removed_items = 0;
         for (key, title) in &removed_inventory {
             if let Some((_inventory_server_id, item_id)) = key.split_once(':') {
+                store.set_setting(&Self::server_setting(server_id, &format!("artwork_book_sync:{item_id}")), "")?;
                 let cache = self.server_artwork_cache(server_id)?;
                 let _ = cache.remove_matching(&format!(":{server_id}:{item_id}:"));
             }
@@ -1170,7 +1216,7 @@ impl Runtime {
         Ok(ArtworkRefreshResult {
             ok: true,
             message: format!(
-                "Watchdog {run_kind} added {items_refreshed} new titles, removed {removed_items} missing titles, and warmed {providers_warmed} provider lookups ({}/{} queued).",
+                "Watchdog {run_kind} processed {items_refreshed} titles, removed {removed_items} missing titles, and warmed {providers_warmed} provider lookups ({}/{} queued).",
                 queue.len().saturating_sub(start),
                 queue.len()
             ),
