@@ -272,6 +272,7 @@ export interface HistoryPurgeResult {
 }
 
 export interface AppearanceSettings {
+  library_tabs_collapsed?: boolean;
   configured: boolean;
   backdrops_enabled: boolean;
   panel_solidity: number;

@@ -713,6 +713,7 @@ mod tests {
             .set_appearance_settings(AppearanceSettings {
                 configured: false,
                 backdrops_enabled: true,
+                library_tabs_collapsed: true,
                 panel_solidity: 255,
                 panel_blur: 255,
                 panel_overlay: 255,

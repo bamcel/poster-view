@@ -252,6 +252,8 @@ pub struct HistorySettings {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AppearanceSettings {
+    #[serde(default)]
+    pub library_tabs_collapsed: bool,
     pub configured: bool,
     pub backdrops_enabled: bool,
     pub panel_solidity: u8,
@@ -267,6 +269,7 @@ impl Default for AppearanceSettings {
         Self {
             configured: false,
             backdrops_enabled: false,
+            library_tabs_collapsed: false,
             panel_solidity: 40,
             panel_blur: 12,
             panel_overlay: 0,

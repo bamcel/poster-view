@@ -43,6 +43,18 @@ function renderDashboard(initialEntry = "/?lib=movies") {
   return { ...result, client };
 }
 
+it.each([false, true])("uses the collapsed library layout only when enabled: %s", async (collapsed) => {
+  if (collapsed) localStorage.setItem("posterview.libraryTabsCollapsed", "true");
+  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
+  vi.mocked(api.getItems).mockResolvedValue([]);
+  const { client } = renderDashboard();
+  await screen.findByRole("button", { name: "Movies" });
+  const tabs = screen.getByRole("group", { name: "Libraries" });
+  expect(tabs.classList.contains("snap-mandatory")).toBe(collapsed);
+  expect(tabs.closest(".md\\:grid-cols-2") !== null).toBe(collapsed);
+  client.clear();
+});
+
 it("restores the last library tab for the selected server", async () => {
   sessionStorage.setItem("posterview.libraryTab.1", "anime");
   vi.mocked(api.getLibraries).mockResolvedValue([

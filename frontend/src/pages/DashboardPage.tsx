@@ -11,6 +11,7 @@ import { useServers } from "../lib/serverContext";
 import PosterCard from "../components/PosterCard";
 import { EmptyState, Spinner, Switch } from "../components/ui";
 import { useToast } from "../lib/toast";
+import { LIBRARY_COLLAPSE_EVENT, libraryTabsCollapsed } from "../lib/dashboardSettings";
 import { isBookRelatedLibraryName } from "../lib/mediaKind";
 import { BACKDROP_BLUR_EVENT, BACKDROP_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, backdropOverlay, backdropOverlayGradients, dashboardBackdropEnabled, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
@@ -20,7 +21,7 @@ const SCROLL_POSITION_PREFIX = "posterview.libraryScroll.";
 type ArtworkFilter = "all" | "missing-poster" | "missing-backdrop";
 type TitleSort = "title" | "newest" | "oldest" | "recently-added";
 
-function LibraryTabScroller({ children }: { children: ReactNode }) {
+function LibraryTabScroller({ children, collapsed }: { children: ReactNode; collapsed: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
 
@@ -42,7 +43,9 @@ function LibraryTabScroller({ children }: { children: ReactNode }) {
       element.removeEventListener("scroll", update);
       observer?.disconnect();
     };
-  }, [children]);
+  }, [children, collapsed]);
+
+  if (!collapsed) return <div role="group" aria-label="Libraries" className="flex gap-1 overflow-x-auto pb-px">{children}</div>;
 
   const scroll = (direction: number) => {
     const element = scroller.current;
@@ -70,6 +73,12 @@ function LibraryTabScroller({ children }: { children: ReactNode }) {
 }
 
 export default function DashboardPage() {
+  const [collapsedTabs, setCollapsedTabs] = useState(libraryTabsCollapsed);
+  useEffect(() => {
+    const update = () => setCollapsedTabs(libraryTabsCollapsed());
+    window.addEventListener(LIBRARY_COLLAPSE_EVENT, update);
+    return () => window.removeEventListener(LIBRARY_COLLAPSE_EVENT, update);
+  }, []);
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -402,10 +411,10 @@ export default function DashboardPage() {
       )}
       {/* Header */}
       <div className="relative z-10 border-b border-border px-4 pt-0 sm:px-6 md:pt-[75px] lg:px-8">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 md:grid-cols-2">
+        <div className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 ${collapsedTabs ? "md:grid-cols-2" : ""}`}>
           {/* Library tabs */}
           <div className="col-start-1 row-start-1 min-w-0">
-            <LibraryTabScroller>
+            <LibraryTabScroller collapsed={collapsedTabs}>
               {librariesQ.isLoading && (
                 <span className="py-2 text-sm text-faint">
                   Loading libraries…
