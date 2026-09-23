@@ -1,11 +1,11 @@
 // Browse the active server: pick a library, then a searchable grid of titles.
 // Double-clicking a poster opens the item detail.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ListFilter, Search, ServerCrash, Sparkles } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, ListFilter, Search, ServerCrash, Sparkles } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import { useServers } from "../lib/serverContext";
 import PosterCard from "../components/PosterCard";
@@ -19,6 +19,51 @@ const LAST_VISIT_PREFIX = "posterview.lastVisit.";
 const SCROLL_POSITION_PREFIX = "posterview.libraryScroll.";
 type ArtworkFilter = "all" | "missing-poster" | "missing-backdrop";
 type TitleSort = "title" | "newest" | "oldest" | "recently-added";
+
+function LibraryTabScroller({ children }: { children: ReactNode }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const update = () => {
+      setEdges({
+        left: element.scrollLeft > 1,
+        right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
+      });
+    };
+    update();
+    element.addEventListener("scroll", update, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
+    observer?.observe(element);
+    for (const child of element.children) observer?.observe(child);
+    return () => {
+      element.removeEventListener("scroll", update);
+      observer?.disconnect();
+    };
+  }, [children]);
+
+  const scroll = (direction: number) => {
+    const element = scroller.current;
+    if (element) element.scrollBy({ left: direction * element.clientWidth * 0.75, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  };
+
+  return (
+    <div className="relative px-5">
+      {edges.left && <button type="button" aria-label="Scroll libraries left" onClick={() => scroll(-1)} className="absolute inset-y-0 left-0 flex w-5 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronLeft className="size-4" /></button>}
+      <div ref={scroller} role="group" aria-label="Libraries" className="scrollbar-hidden flex gap-1 overflow-x-auto pb-px"
+        onWheel={(event) => {
+          if (window.matchMedia("(min-width: 768px)").matches && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+            event.currentTarget.scrollLeft += event.deltaY;
+          }
+        }}>
+        {children}
+      </div>
+      {edges.right && <button type="button" aria-label="Scroll libraries right" onClick={() => scroll(1)} className="absolute inset-y-0 right-0 flex w-5 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronRight className="size-4" /></button>}
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -356,16 +401,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 md:grid-cols-2">
           {/* Library tabs */}
           <div className="col-start-1 row-start-1 min-w-0">
-            <div
-              role="group"
-              aria-label="Libraries"
-              className="scrollbar-hidden flex gap-1 overflow-x-auto pb-px"
-              onWheel={(event) => {
-                if (window.matchMedia("(min-width: 768px)").matches && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
-                  event.currentTarget.scrollLeft += event.deltaY;
-                }
-              }}
-            >
+            <LibraryTabScroller>
               {librariesQ.isLoading && (
                 <span className="py-2 text-sm text-faint">
                   Loading libraries…
@@ -386,7 +422,7 @@ export default function DashboardPage() {
                   {lib.title}
                 </button>
               ))}
-            </div>
+            </LibraryTabScroller>
           </div>
           {showGroupCollections && (
             <label className="col-start-2 row-start-1 hidden items-center justify-end gap-2 text-sm text-muted md:flex">
