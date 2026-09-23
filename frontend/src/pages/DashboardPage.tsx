@@ -353,10 +353,19 @@ export default function DashboardPage() {
       )}
       {/* Header */}
       <div className="relative z-10 border-b border-border px-4 pt-0 sm:px-6 md:pt-[75px] lg:px-8">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 md:grid-cols-2">
           {/* Library tabs */}
           <div className="col-start-1 row-start-1 min-w-0">
-            <div className="flex gap-1 overflow-x-auto pb-px">
+            <div
+              role="group"
+              aria-label="Libraries"
+              className="scrollbar-hidden flex gap-1 overflow-x-auto pb-px"
+              onWheel={(event) => {
+                if (window.matchMedia("(min-width: 768px)").matches && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+                  event.currentTarget.scrollLeft += event.deltaY;
+                }
+              }}
+            >
               {librariesQ.isLoading && (
                 <span className="py-2 text-sm text-faint">
                   Loading libraries…
