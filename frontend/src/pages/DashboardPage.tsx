@@ -67,7 +67,7 @@ function LibraryTabScroller({ children, collapsed }: { children: ReactNode; coll
   };
 
   return (
-    <div className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_1rem] items-stretch gap-2">
+    <div className="-ml-2 grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_1rem] items-stretch gap-2 md:-ml-6">
       <div className="flex">
         {edges.left && <button type="button" aria-label="Scroll libraries left" onClick={() => scroll(-1)} className="flex w-4 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronLeft className="size-4" /></button>}
       </div>
