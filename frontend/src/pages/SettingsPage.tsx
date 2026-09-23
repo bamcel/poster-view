@@ -305,23 +305,14 @@ function AppearanceSection() {
             </div>
             <Switch label="Show backdrops" checked={showBackdrops} onChange={() => changeBackdrops(!showBackdrops)} />
           </div>
-          <div className="mt-4 flex items-center justify-between gap-4">
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium text-white">Collapse library tabs</p>
-              <p className="mt-1 text-xs text-faint">Limit visible libraries with arrow controls. Off restores the full-width library tabs.</p>
+              <p className="text-sm font-medium text-white">Collapsible libraries</p>
+              <p className="mt-1 text-xs text-faint">Show the chosen number before scrolling. Off shows the full-width tabs; smaller screens may show fewer.</p>
             </div>
-            <Switch label="Collapse library tabs" checked={collapsedTabs} onChange={() => {
-              const enabled = !collapsedTabs;
-              setCollapsedTabs(enabled);
-              setLibraryTabsCollapsed(enabled);
-              persist({ library_tabs_collapsed: enabled });
-            }} />
-          </div>
-          {collapsedTabs && <div className="ml-4 mt-4">
-            <label className="flex items-center justify-between gap-4 text-sm font-medium text-white">
-              Libraries shown
-              <input key={visibleCount} type="number" min={1} max={30} step={1} defaultValue={visibleCount}
-                className="h-10 w-24 rounded-lg border border-border bg-input px-3 text-white"
+            <div className="flex shrink-0 items-center gap-3">
+              <input aria-label="Libraries shown" disabled={!collapsedTabs} key={visibleCount} type="number" min={1} max={30} step={1} defaultValue={visibleCount}
+                className="h-10 w-24 rounded-lg border border-border bg-input px-3 text-white disabled:opacity-50"
                 onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
                 onBlur={(event) => {
                   const entered = event.currentTarget.valueAsNumber;
@@ -332,9 +323,14 @@ function AppearanceSection() {
                   setLibraryVisibleCount(value);
                   persist({ library_visible_count: value });
                 }} />
-            </label>
-            <p className="mt-1 text-xs text-faint">Defaults to 5. Smaller screens may show fewer libraries to fit.</p>
-          </div>}
+              <Switch label="Collapsible libraries" checked={collapsedTabs} onChange={() => {
+                const enabled = !collapsedTabs;
+                setCollapsedTabs(enabled);
+                setLibraryTabsCollapsed(enabled);
+                persist({ library_tabs_collapsed: enabled });
+              }} />
+            </div>
+          </div>
           <DashboardSlider label="Panel Color" value={panelSolid} suffix="%" min={0} max={100} onChange={changePanelSolid} start="Transparent" end="Solid" />
           <DashboardSlider label="Panel Blur" value={blur} suffix="px" min={0} max={30} step={2} onChange={changeBlur} start="No blur" end="Blurred" />
           <DashboardSlider label="Panel Overlay" value={panelOverlayStrength} suffix="%" min={0} max={95} onChange={changePanelOverlay} start="Light" end="Dark" />
