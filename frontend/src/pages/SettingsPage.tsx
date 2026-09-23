@@ -317,12 +317,22 @@ function AppearanceSection() {
               persist({ library_tabs_collapsed: enabled });
             }} />
           </div>
-          {collapsedTabs && <div className="ml-4">
-            <DashboardSlider label="Libraries shown" value={visibleCount} suffix="" min={1} max={30} step={1} onChange={(value) => {
-              setVisibleCount(value);
-              setLibraryVisibleCount(value);
-              persist({ library_visible_count: value });
-            }} start="1 library" end="30 libraries" />
+          {collapsedTabs && <div className="ml-4 mt-4">
+            <label className="flex items-center justify-between gap-4 text-sm font-medium text-white">
+              Libraries shown
+              <input key={visibleCount} type="number" min={1} max={30} step={1} defaultValue={visibleCount}
+                className="h-10 w-24 rounded-lg border border-border bg-input px-3 text-white"
+                onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
+                onBlur={(event) => {
+                  const entered = event.currentTarget.valueAsNumber;
+                  const value = Number.isFinite(entered) ? Math.round(Math.max(1, Math.min(30, entered))) : visibleCount;
+                  event.currentTarget.value = String(value);
+                  if (value === visibleCount) return;
+                  setVisibleCount(value);
+                  setLibraryVisibleCount(value);
+                  persist({ library_visible_count: value });
+                }} />
+            </label>
             <p className="mt-1 text-xs text-faint">Defaults to 5. Smaller screens may show fewer libraries to fit.</p>
           </div>}
           <DashboardSlider label="Panel Color" value={panelSolid} suffix="%" min={0} max={100} onChange={changePanelSolid} start="Transparent" end="Solid" />
