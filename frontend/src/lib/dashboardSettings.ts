@@ -1,6 +1,14 @@
 export const DASHBOARD_BACKDROP_KEY = "posterview.dashboardBackdropEnabled";
 export const LIBRARY_COLLAPSE_EVENT = "posterview:library-collapse";
 const LIBRARY_COLLAPSE_KEY = "posterview.libraryTabsCollapsed";
+export const DEFAULT_LIBRARY_VISIBLE_COUNT = 5;
+export function libraryVisibleCount() {
+  return storedNumber("posterview.libraryVisibleCount", DEFAULT_LIBRARY_VISIBLE_COUNT, 1, 30);
+}
+export function setLibraryVisibleCount(value: number) {
+  localStorage.setItem("posterview.libraryVisibleCount", String(Math.round(Math.max(1, Math.min(30, value)))));
+  window.dispatchEvent(new CustomEvent(LIBRARY_COLLAPSE_EVENT));
+}
 
 export function libraryTabsCollapsed() {
   return localStorage.getItem(LIBRARY_COLLAPSE_KEY) === "true";
@@ -96,6 +104,7 @@ export function setDashboardBackdropEnabled(enabled: boolean) {
 
 export interface DashboardAppearance {
   library_tabs_collapsed?: boolean;
+  library_visible_count?: number;
   backdrops_enabled: boolean;
   panel_solidity: number;
   panel_blur: number;
@@ -107,6 +116,7 @@ export function dashboardAppearance(): DashboardAppearance {
   return {
     backdrops_enabled: dashboardBackdropEnabled(),
     library_tabs_collapsed: libraryTabsCollapsed(),
+    library_visible_count: libraryVisibleCount(),
     panel_solidity: panelSolidity(),
     panel_blur: backdropBlur(),
     panel_overlay: panelOverlay(),
@@ -116,6 +126,7 @@ export function dashboardAppearance(): DashboardAppearance {
 
 export function applyDashboardAppearance(settings: DashboardAppearance) {
   setLibraryTabsCollapsed(settings.library_tabs_collapsed ?? false);
+  setLibraryVisibleCount(settings.library_visible_count ?? DEFAULT_LIBRARY_VISIBLE_COUNT);
   setDashboardBackdropEnabled(settings.backdrops_enabled);
   setPanelSolidity(settings.panel_solidity);
   setBackdropBlur(settings.panel_blur);

@@ -51,7 +51,25 @@ it.each([false, true])("uses the collapsed library layout only when enabled: %s"
   await screen.findByRole("button", { name: "Movies" });
   const tabs = screen.getByRole("group", { name: "Libraries" });
   expect(tabs.classList.contains("snap-mandatory")).toBe(false);
-  expect(tabs.closest(".md\\:grid-cols-2") !== null).toBe(collapsed);
+  expect(tabs.parentElement?.classList.contains("max-w-full")).toBe(collapsed);
+  client.clear();
+});
+
+it("sizes the collapsed row to the configured number of libraries", async () => {
+  localStorage.setItem("posterview.libraryTabsCollapsed", "true");
+  localStorage.setItem("posterview.libraryVisibleCount", "2");
+  vi.mocked(api.getLibraries).mockResolvedValue([
+    { id: "movies", title: "Movies", type: "movie" },
+    { id: "tv", title: "TV Series", type: "show" },
+    { id: "books", title: "Books", type: "book" },
+  ]);
+  vi.mocked(api.getItems).mockResolvedValue([]);
+  const { client } = renderDashboard();
+  await screen.findByRole("button", { name: "Movies" });
+  const tabs = screen.getByRole("group", { name: "Libraries" });
+  for (const tab of tabs.children) vi.spyOn(tab, "getBoundingClientRect").mockReturnValue({ width: 100, left: 0, right: 100 } as DOMRect);
+  fireEvent.resize(window);
+  expect(tabs.parentElement?.style.width).toBe("252px"); // Two tabs, one gap, arrow slots.
   client.clear();
 });
 

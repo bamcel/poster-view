@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import { libraryTabsCollapsed, setLibraryTabsCollapsed } from "../lib/dashboardSettings";
+import { libraryTabsCollapsed, setLibraryTabsCollapsed, libraryVisibleCount, setLibraryVisibleCount, DEFAULT_LIBRARY_VISIBLE_COUNT } from "../lib/dashboardSettings";
 import {
   Plus,
   Trash2,
@@ -153,6 +153,7 @@ function AppearanceSection() {
   const [customName, setCustomName] = useState("");
   const [message, setMessage] = useState("");
   const [collapsedTabs, setCollapsedTabs] = useState(libraryTabsCollapsed);
+  const [visibleCount, setVisibleCount] = useState(libraryVisibleCount);
   const [showBackdrops, setShowBackdrops] = useState(dashboardBackdropEnabled);
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [blur, setBlur] = useState(backdropBlur);
@@ -165,6 +166,7 @@ function AppearanceSection() {
     if (!settings?.configured) return;
     setShowBackdrops(settings.backdrops_enabled);
     setCollapsedTabs(settings.library_tabs_collapsed ?? false);
+    setVisibleCount(settings.library_visible_count ?? DEFAULT_LIBRARY_VISIBLE_COUNT);
     setPanelSolid(settings.panel_solidity);
     setBlur(settings.panel_blur);
     setPanelOverlayStrength(settings.panel_overlay);
@@ -180,6 +182,7 @@ function AppearanceSection() {
       configured: true,
       backdrops_enabled: showBackdrops,
       library_tabs_collapsed: collapsedTabs,
+      library_visible_count: visibleCount,
       panel_solidity: panelSolid,
       panel_blur: blur,
       panel_overlay: panelOverlayStrength,
@@ -204,6 +207,8 @@ function AppearanceSection() {
   const changePanelOverlay = (value: number) => { setPanelOverlayStrength(value); setPanelOverlay(value); persist({ panel_overlay: value }); };
   const changeBackdropOverlay = (value: number) => { setBackdropOverlayStrength(value); setBackdropOverlay(value); persist({ backdrop_overlay: value }); };
   const resetDashboard = () => {
+    setVisibleCount(DEFAULT_LIBRARY_VISIBLE_COUNT);
+    setLibraryVisibleCount(DEFAULT_LIBRARY_VISIBLE_COUNT);
     setCollapsedTabs(false);
     setLibraryTabsCollapsed(false);
     setShowBackdrops(DEFAULT_BACKDROPS_ENABLED);
@@ -216,7 +221,7 @@ function AppearanceSection() {
     setBackdropBlur(DEFAULT_BACKDROP_BLUR);
     setPanelOverlay(DEFAULT_PANEL_OVERLAY);
     setBackdropOverlay(DEFAULT_BACKDROP_OVERLAY);
-    persist({ library_tabs_collapsed: false, backdrops_enabled: DEFAULT_BACKDROPS_ENABLED, panel_solidity: DEFAULT_PANEL_SOLIDITY, panel_blur: DEFAULT_BACKDROP_BLUR, panel_overlay: DEFAULT_PANEL_OVERLAY, backdrop_overlay: DEFAULT_BACKDROP_OVERLAY });
+    persist({ library_visible_count: DEFAULT_LIBRARY_VISIBLE_COUNT, library_tabs_collapsed: false, backdrops_enabled: DEFAULT_BACKDROPS_ENABLED, panel_solidity: DEFAULT_PANEL_SOLIDITY, panel_blur: DEFAULT_BACKDROP_BLUR, panel_overlay: DEFAULT_PANEL_OVERLAY, backdrop_overlay: DEFAULT_BACKDROP_OVERLAY });
   };
 
   const choose = (name: string) => {
@@ -303,7 +308,7 @@ function AppearanceSection() {
           <div className="mt-4 flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-white">Collapse library tabs</p>
-              <p className="mt-1 text-xs text-faint">Use a half-width desktop scroller with arrow controls. Off restores the full-width library tabs.</p>
+              <p className="mt-1 text-xs text-faint">Limit visible libraries with arrow controls. Off restores the full-width library tabs.</p>
             </div>
             <Switch label="Collapse library tabs" checked={collapsedTabs} onChange={() => {
               const enabled = !collapsedTabs;
@@ -312,6 +317,14 @@ function AppearanceSection() {
               persist({ library_tabs_collapsed: enabled });
             }} />
           </div>
+          {collapsedTabs && <div className="ml-4">
+            <DashboardSlider label="Libraries shown" value={visibleCount} suffix="" min={1} max={30} step={1} onChange={(value) => {
+              setVisibleCount(value);
+              setLibraryVisibleCount(value);
+              persist({ library_visible_count: value });
+            }} start="1 library" end="30 libraries" />
+            <p className="mt-1 text-xs text-faint">Defaults to 5. Smaller screens may show fewer libraries to fit.</p>
+          </div>}
           <DashboardSlider label="Panel Color" value={panelSolid} suffix="%" min={0} max={100} onChange={changePanelSolid} start="Transparent" end="Solid" />
           <DashboardSlider label="Panel Blur" value={blur} suffix="px" min={0} max={30} step={2} onChange={changeBlur} start="No blur" end="Blurred" />
           <DashboardSlider label="Panel Overlay" value={panelOverlayStrength} suffix="%" min={0} max={95} onChange={changePanelOverlay} start="Light" end="Dark" />
