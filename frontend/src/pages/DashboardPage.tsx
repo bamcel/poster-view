@@ -23,46 +23,39 @@ type TitleSort = "title" | "newest" | "oldest" | "recently-added";
 
 function LibraryTabScroller({ children, collapsed }: { children: ReactNode; collapsed: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
-  const leftArrow = useRef<HTMLDivElement>(null);
-  const rightArrow = useRef<HTMLDivElement>(null);
+  const hasScrolled = useRef(false);
   const [edges, setEdges] = useState({ left: false, right: false });
 
   useLayoutEffect(() => {
     const element = scroller.current;
-    if (!element) return;
+    if (!element) { hasScrolled.current = false; return; }
     const update = () => {
       const viewport = element.getBoundingClientRect();
-      let firstLabel: number | undefined;
-      let lastLabel: number | undefined;
       for (const child of element.children) {
         if (!(child instanceof HTMLButtonElement)) continue;
         const bounds = child.getBoundingClientRect();
         const fullyVisible = bounds.left >= viewport.left - 1 && bounds.right <= viewport.right + 1;
-        // Keep the tab's layout and keyboard focusability, but never paint half a label.
-        child.style.opacity = fullyVisible ? "" : "0";
-        child.style.pointerEvents = fullyVisible ? "" : "none";
-        if (fullyVisible) {
-          const style = getComputedStyle(child);
-          firstLabel ??= bounds.left + (parseFloat(style.paddingLeft) || 0);
-          lastLabel = bounds.right - (parseFloat(style.paddingRight) || 0);
-        }
+        // Only the initial view hides partial tabs. Once scrolling starts, paint
+        // every tab continuously without changing geometry or snapping position.
+        const visible = hasScrolled.current || fullyVisible;
+        child.style.opacity = visible ? "" : "0";
+        child.style.pointerEvents = visible ? "" : "none";
       }
-      // Follow the visible labels, not the empty space occupied by clipped tabs.
-      // The grid's 8px gap remains between each arrow and the label.
-      if (leftArrow.current) leftArrow.current.style.transform = `translateX(${firstLabel == null ? 0 : firstLabel - viewport.left}px)`;
-      if (rightArrow.current) rightArrow.current.style.transform = `translateX(${lastLabel == null ? 0 : lastLabel - viewport.right}px)`;
       setEdges({
         left: element.scrollLeft > 1,
         right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
       });
     };
     update();
-    element.addEventListener("scroll", update, { passive: true });
+    const onScroll = () => { hasScrolled.current = true; update(); };
+    element.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", update);
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
     observer?.observe(element);
     for (const child of element.children) observer?.observe(child);
     return () => {
-      element.removeEventListener("scroll", update);
+      element.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", update);
       observer?.disconnect();
       for (const child of element.children) {
         if (!(child instanceof HTMLButtonElement)) continue;
@@ -81,10 +74,10 @@ function LibraryTabScroller({ children, collapsed }: { children: ReactNode; coll
 
   return (
     <div className="-ml-2 grid min-w-0 grid-cols-[1rem_minmax(0,1fr)_1rem] items-stretch gap-2 md:-ml-6">
-      <div ref={leftArrow} className="relative z-10 flex">
+      <div className="relative z-10 flex">
         {edges.left && <button type="button" aria-label="Scroll libraries left" onClick={() => scroll(-1)} className="flex w-4 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronLeft className="size-4" /></button>}
       </div>
-      <div ref={scroller} role="group" aria-label="Libraries" className="scrollbar-hidden flex min-w-0 snap-x snap-mandatory gap-1 overflow-x-auto pb-px [&>button]:max-w-full [&>button]:snap-start"
+      <div ref={scroller} role="group" aria-label="Libraries" className="scrollbar-hidden flex min-w-0 gap-1 overflow-x-auto pb-px [&>button]:max-w-full"
         onWheel={(event) => {
           if (window.matchMedia("(min-width: 768px)").matches && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
             event.currentTarget.scrollLeft += event.deltaY;
@@ -92,7 +85,7 @@ function LibraryTabScroller({ children, collapsed }: { children: ReactNode; coll
         }}>
         {children}
       </div>
-      <div ref={rightArrow} className="relative z-10 flex">
+      <div className="relative z-10 flex">
         {edges.right && <button type="button" aria-label="Scroll libraries right" onClick={() => scroll(1)} className="flex w-4 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronRight className="size-4" /></button>}
       </div>
     </div>

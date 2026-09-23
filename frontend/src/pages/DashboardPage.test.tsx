@@ -50,7 +50,7 @@ it.each([false, true])("uses the collapsed library layout only when enabled: %s"
   const { client } = renderDashboard();
   await screen.findByRole("button", { name: "Movies" });
   const tabs = screen.getByRole("group", { name: "Libraries" });
-  expect(tabs.classList.contains("snap-mandatory")).toBe(collapsed);
+  expect(tabs.classList.contains("snap-mandatory")).toBe(false);
   expect(tabs.closest(".md\\:grid-cols-2") !== null).toBe(collapsed);
   client.clear();
 });
@@ -95,7 +95,7 @@ it("keeps scroll arrows outside the tabs and scrolls smoothly in both directions
   }
 });
 
-it("does not paint a library name clipped at either scroller edge", async () => {
+it("hides partial tabs only initially, then keeps names and arrow positions stable while scrolling", async () => {
   localStorage.setItem("posterview.libraryTabsCollapsed", "true");
   vi.mocked(api.getLibraries).mockResolvedValue([{ id: "tv", title: "TV Series", type: "show" }]);
   vi.mocked(api.getItems).mockResolvedValue([]);
@@ -107,18 +107,20 @@ it("does not paint a library name clipped at either scroller edge", async () => 
   tab.style.paddingLeft = "16px";
   tab.style.paddingRight = "16px";
   bounds.mockReturnValue({ left: 350, right: 450 } as DOMRect);
-  fireEvent.scroll(tabs);
+  fireEvent.resize(window);
   expect(tab.style.opacity).toBe("0");
   bounds.mockReturnValue({ left: 10, right: 110 } as DOMRect);
   fireEvent.scroll(tabs);
-  expect(tab.style.opacity).toBe("0");
+  expect(tab.style.opacity).toBe("");
   bounds.mockReturnValue({ left: 250, right: 350 } as DOMRect);
   fireEvent.scroll(tabs);
   expect(tab.style.opacity).toBe("");
   expect(tab.style.pointerEvents).toBe("");
-  // Arrow slots move across hidden-tab space and tab padding, retaining the 8px grid gap.
-  expect((tabs.previousElementSibling as HTMLElement).style.transform).toBe("translateX(246px)");
-  expect((tabs.nextElementSibling as HTMLElement).style.transform).toBe("translateX(-66px)");
+  bounds.mockReturnValue({ left: 350, right: 450 } as DOMRect);
+  fireEvent.scroll(tabs);
+  expect(tab.style.opacity).toBe("");
+  expect((tabs.previousElementSibling as HTMLElement).style.transform).toBe("");
+  expect((tabs.nextElementSibling as HTMLElement).style.transform).toBe("");
   client.clear();
 });
 
