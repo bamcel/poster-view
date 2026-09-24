@@ -272,12 +272,11 @@ function AppearanceSection() {
     persist(exportThemePreferences());
   };
 
-  let selectedColorValue = "#000000";
+  let previewColors = getTheme(selected);
   try {
-    selectedColorValue = parseThemeJson(themeJson)[selectedColor];
-  } catch {
-    selectedColorValue = getTheme(selected)[selectedColor];
-  }
+    previewColors = parseThemeJson(themeJson);
+  } catch { /* Keep the selected theme while JSON is incomplete. */ }
+  const selectedColorValue = previewColors[selectedColor];
 
   return (
     <section className="h-full min-h-0 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
@@ -314,12 +313,7 @@ function AppearanceSection() {
             </button>
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="text-xs font-semibold text-muted">
-              Color Label
-              <select value={selectedColor} onChange={(event) => setSelectedColor(event.target.value as ThemeColorKey)} className={`${compactInputCls} mt-2 h-10`}>
-                {THEME_COLOR_OPTIONS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
-              </select>
-            </label>
+            <ColorLabelPicker theme={previewColors} selected={selectedColor} onSelect={setSelectedColor} />
             <label className="text-xs font-semibold text-muted">
               {THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)?.label}
               <span className="mt-2 flex h-10 items-center gap-3 rounded-lg border border-border bg-input px-3">
@@ -405,6 +399,45 @@ function ThemePicker({ themes, selected, onSelect }: { themes: AppTheme[]; selec
       </details>
     </div>
   );
+}
+
+function ColorLabelPicker({ theme, selected, onSelect }: { theme: AppTheme; selected: ThemeColorKey; onSelect: (key: ThemeColorKey) => void }) {
+  const details = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      if (!details.current?.contains(event.target as Node)) details.current?.removeAttribute("open");
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, []);
+  const swatch = (key: ThemeColorKey) => <span aria-hidden="true" className="size-4 shrink-0 rounded-sm border border-border" style={{ backgroundColor: theme[key] }} />;
+  return <div className="min-w-0 text-xs font-semibold text-muted">
+    <span>Color Label</span>
+    <details ref={details} className="relative mt-2" onKeyDown={(event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        details.current?.removeAttribute("open");
+        details.current?.querySelector("summary")?.focus();
+      }
+    }}>
+      <summary aria-label="Select Color Label" className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-input px-3 marker:hidden focus-visible:outline-accent">
+        {swatch(selected)}
+        <span className="flex-1">{THEME_COLOR_OPTIONS.find((option) => option.key === selected)?.label}</span>
+        <ChevronDown className="size-4" />
+      </summary>
+      <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-sidebar p-1 shadow-2xl">
+        {THEME_COLOR_OPTIONS.map((option) => <button key={option.key} type="button" aria-pressed={selected === option.key}
+          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-white hover:bg-surface-2 focus-visible:outline-accent"
+          onClick={() => {
+            onSelect(option.key);
+            details.current?.removeAttribute("open");
+            details.current?.querySelector("summary")?.focus();
+          }}>
+          {swatch(option.key)}<span>{option.label}</span>
+        </button>)}
+      </div>
+    </details>
+  </div>;
 }
 
 function ThemePaletteIcon({ theme }: { theme: AppTheme }) {
