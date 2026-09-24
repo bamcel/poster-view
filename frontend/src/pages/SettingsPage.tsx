@@ -307,7 +307,7 @@ function AppearanceSection() {
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium text-white">Collapsible libraries</p>
+              <p className="text-sm font-medium text-white">Library Scroll</p>
               <p className="mt-1 text-xs text-faint">Show the chosen number before scrolling. Off shows the full-width tabs; smaller screens may show fewer.</p>
             </div>
             <div className="flex shrink-0 items-center gap-3">
@@ -323,7 +323,7 @@ function AppearanceSection() {
                   setLibraryVisibleCount(value);
                   persist({ library_visible_count: value });
                 }} />
-              <Switch label="Collapsible libraries" checked={collapsedTabs} onChange={() => {
+              <Switch label="Library Scroll" checked={collapsedTabs} onChange={() => {
                 const enabled = !collapsedTabs;
                 setCollapsedTabs(enabled);
                 setLibraryTabsCollapsed(enabled);
