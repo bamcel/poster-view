@@ -317,7 +317,9 @@ function AppearanceSection() {
             <label className="text-xs font-semibold text-muted">
               {THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)?.label}
               <span className="mt-2 flex h-10 items-center gap-3 rounded-lg border border-border bg-input px-3">
-                <input aria-label={`Choose ${THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)?.label} color`} type="color" value={selectedColorValue} onChange={(event) => updateColor(event.target.value)} className="h-7 w-9 cursor-pointer border-0 bg-transparent p-0" />
+                <span className="relative size-4 shrink-0 rounded-sm border border-border focus-within:outline focus-within:outline-2 focus-within:outline-accent" style={{ backgroundColor: selectedColorValue }}>
+                  <input aria-label={`Choose ${THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)?.label} color`} type="color" value={selectedColorValue} onChange={(event) => updateColor(event.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0" />
+                </span>
                 <span className="font-mono text-xs text-white">{selectedColorValue.toUpperCase()}</span>
               </span>
             </label>
