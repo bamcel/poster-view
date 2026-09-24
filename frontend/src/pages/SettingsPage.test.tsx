@@ -127,10 +127,10 @@ it("persists and resets Dashboard appearance controls", () => {
 
   expect(screen.getByRole("button", { name: "Server", pressed: true })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Server" })).toBeTruthy();
-  expect(screen.queryByRole("switch", { name: "Show backdrops" })).toBeNull();
+  expect(screen.queryByRole("switch", { name: "Show Backdrops" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
   expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
-  const backdropSwitch = screen.getByRole("switch", { name: "Show backdrops" });
+  const backdropSwitch = screen.getByRole("switch", { name: "Show Backdrops" });
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(backdropSwitch);
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("true");
@@ -179,8 +179,8 @@ it("saves the per-server NFO metadata setting", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Add server" }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Manga" } });
   fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "http://emby:8096" } });
-  fireEvent.change(screen.getByLabelText("API key"), { target: { value: "secret" } });
-  fireEvent.click(screen.getByRole("checkbox", { name: /Enable NFO metadata/ }));
+  fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "secret" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: /Enable NFO Metadata/ }));
   fireEvent.click(screen.getByRole("button", { name: "Add server" }));
 
   await waitFor(() => expect(api.createServer).toHaveBeenCalledWith(expect.objectContaining({

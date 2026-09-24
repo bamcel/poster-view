@@ -63,9 +63,9 @@ const URL_PLACEHOLDER: Record<ServerType, string> = {
 };
 
 const TOKEN_LABEL: Record<ServerType, string> = {
-  plex: "Plex token (X-Plex-Token)",
-  jellyfin: "API key",
-  emby: "API key",
+  plex: "Plex Token (X-Plex-Token)",
+  jellyfin: "API Key",
+  emby: "API Key",
 };
 
 type SettingsTab = "servers" | "sources" | "database" | "appearance" | "security";
@@ -289,10 +289,10 @@ function AppearanceSection() {
         <div className="rounded-xl border border-border bg-surface-2 p-4">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium text-white">Show backdrops</p>
+              <p className="text-sm font-medium text-white">Show Backdrops</p>
               <p className="mt-1 text-xs text-faint">Show rotating Dashboard artwork and selected-series backgrounds.</p>
             </div>
-            <Switch label="Show backdrops" checked={showBackdrops} onChange={() => changeBackdrops(!showBackdrops)} />
+            <Switch label="Show Backdrops" checked={showBackdrops} onChange={() => changeBackdrops(!showBackdrops)} />
           </div>
           <DashboardSlider label="Panel Color" value={panelSolid} suffix="%" min={0} max={100} onChange={changePanelSolid} start="Transparent" end="Solid" />
           <DashboardSlider label="Panel Blur" value={blur} suffix="px" min={0} max={30} step={2} onChange={changeBlur} start="No blur" end="Blurred" />
@@ -315,7 +315,7 @@ function AppearanceSection() {
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-semibold text-muted">
-              Color label
+              Color Label
               <select value={selectedColor} onChange={(event) => setSelectedColor(event.target.value as ThemeColorKey)} className={`${compactInputCls} mt-2 h-10`}>
                 {THEME_COLOR_OPTIONS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
               </select>
@@ -331,7 +331,7 @@ function AppearanceSection() {
           <p className="mt-2 text-xs text-faint">Color changes preview immediately. Save them as a custom theme to keep them.</p>
 
         <div className="mt-4 border-t border-border pt-4">
-          <h2 className="text-lg font-semibold">Custom theme</h2>
+          <h2 className="text-lg font-semibold">Custom Theme</h2>
           <p className="mt-1 text-sm text-faint">Save the edited JSON under a unique name or remove a selected custom theme.</p>
           <details className="group mt-4 rounded-xl border border-border bg-panel">
             <summary aria-label="Toggle JSON Editor" className="flex h-10 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-semibold text-muted outline-none marker:hidden hover:text-white focus-visible:text-white">
@@ -353,7 +353,7 @@ function AppearanceSection() {
             </div>
           </details>
           <label className="mt-4 block text-xs font-semibold text-muted">
-            Custom theme name
+            Custom Theme Name
             <input value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="My theme" className={`${compactInputCls} mt-2 h-10`} />
           </label>
           <button type="button" onClick={save} className="mt-4 h-10 w-full rounded-lg bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-hover">Save custom theme</button>
@@ -557,7 +557,7 @@ function ServersSection() {
             {formOpen && (
               <>
             <h3 className="mb-3 text-sm font-semibold">
-              {editingId == null ? "Add a server" : "Edit server"}
+              {editingId == null ? "Add A Server" : "Edit Server"}
             </h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Name">
@@ -605,7 +605,7 @@ function ServersSection() {
             onChange={(e) => setForm({ ...form, is_default: e.target.checked })}
             className="size-4 accent-[var(--color-accent)]"
           />
-          Use as default server
+          Use As Default Server
             </label>
 
             <label className="mt-3 flex items-start gap-2 text-sm text-muted">
@@ -616,7 +616,7 @@ function ServersSection() {
             className="mt-0.5 size-4 accent-[var(--color-accent)]"
           />
           <span>
-            <span className="block text-white">Enable NFO metadata</span>
+            <span className="block text-white">Enable NFO Metadata</span>
             <span className="block text-xs text-faint">
               Allow PosterView to create and maintain NFO files for this server. The configured media path must be writable.
             </span>
@@ -782,7 +782,7 @@ function ServerCard({
 }
 
 // ---------------------------------------------------------------------------
-// Search providers — ThePosterDB login + Fanart.tv/TheTVDB API keys, grouped
+// Search providers — ThePosterDB login + Fanart.tv/TheTVDB API Keys, grouped
 // into one card since they're all just "credentials for an artwork source".
 // ---------------------------------------------------------------------------
 
@@ -790,7 +790,7 @@ function ArtworkSourcesSection() {
   return (
     <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <ImageIcon className="size-5 text-accent" /> Search providers
+        <ImageIcon className="size-5 text-accent" /> Search Providers
       </h2>
       <p className="mb-4 text-sm text-faint">
         Accounts and API keys used to search and download posters, backgrounds, banners, and logos.
@@ -1048,7 +1048,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
       </div>
 
       <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <Field label="Maximum storage">
+        <Field label="Maximum Storage">
           <select className={inputCls} value={maxMb} disabled={saveMut.isPending} onChange={(e) => {
             const value = Number(e.target.value);
             setMaxMb(value);
@@ -1061,7 +1061,7 @@ function ArtworkCacheFields({ server }: { server: Server }) {
             <option value={2048}>2 GB</option>
           </select>
         </Field>
-        <Field label="Remove unused items after">
+        <Field label="Remove Unused Items After">
           <select className={inputCls} value={ttlDays} disabled={saveMut.isPending} onChange={(e) => {
             const value = Number(e.target.value);
             setTtlDays(value);
@@ -1314,7 +1314,7 @@ function FanartTvdbFields({
         <Field
           label={
             <>
-              Fanart.tv API key{" "}
+              Fanart.tv API Key{" "}
               {cfg?.fanart_configured && <ConfiguredTag />}{" "}
               <a href="https://fanart.tv/get-an-api-key/" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">
                 (create account for free key ↗)
@@ -1327,7 +1327,7 @@ function FanartTvdbFields({
             type="password"
             value={fanart}
             onChange={(e) => { setFanart(e.target.value); fanartTestMut.reset(); }}
-            placeholder={cfg?.fanart_configured ? "••••••" : "your Fanart.tv personal API key"}
+            placeholder={cfg?.fanart_configured ? "••••••" : "your Fanart.tv personal API Key"}
             onBlur={() => { if (fanart) onAutoSave("fanart"); }}
           />
         </Field>
@@ -1348,7 +1348,7 @@ function FanartTvdbFields({
           <Field
             label={
               <>
-                TheTVDB API key{" "}
+                TheTVDB API Key{" "}
                 {cfg?.tvdb_configured && <ConfiguredTag />}{" "}
                 <a href="https://thetvdb.com/dashboard/account/apikey" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">
                   (create account for free key ↗)
@@ -1361,11 +1361,11 @@ function FanartTvdbFields({
               type="password"
               value={tvdbKey}
               onChange={(e) => { setTvdbKey(e.target.value); tvdbTestMut.reset(); }}
-              placeholder={cfg?.tvdb_configured ? "••••••" : "TheTVDB v4 API key"}
+              placeholder={cfg?.tvdb_configured ? "••••••" : "TheTVDB v4 API Key"}
               onBlur={() => { if (tvdbKey) onAutoSave("tvdb"); }}
             />
           </Field>
-          <Field label="TheTVDB subscriber PIN (optional)">
+          <Field label="TheTVDB Subscriber PIN (Optional)">
             <input
               className={compactInputCls}
               value={tvdbPin}
@@ -1387,8 +1387,8 @@ function FanartTvdbFields({
       </div>
       <div className="rounded-xl border border-border bg-surface-2 p-3">
         <ProviderHeading name="ComicVine" connected={!comicvineTestMut.isPending && !comicvineTestMut.error && comicvineTestMut.data?.ok === true} />
-        <Field label={<><span>ComicVine API key</span>{cfg?.comicvine_configured && <ConfiguredTag />} <a href="https://comicvine.gamespot.com/api/" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">(request a free key ↗)</a></>}>
-          <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => { setComicvine(e.target.value); comicvineTestMut.reset(); }} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
+        <Field label={<><span>ComicVine API Key</span>{cfg?.comicvine_configured && <ConfiguredTag />} <a href="https://comicvine.gamespot.com/api/" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">(request a free key ↗)</a></>}>
+          <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => { setComicvine(e.target.value); comicvineTestMut.reset(); }} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API Key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
         </Field>
         <button onClick={() => comicvineTestMut.mutate()} disabled={comicvineTestMut.isPending || (!comicvine && !cfg?.comicvine_configured)} className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50">
           {comicvineTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test Connection

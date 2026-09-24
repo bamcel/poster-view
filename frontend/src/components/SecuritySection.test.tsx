@@ -13,9 +13,9 @@ it("saves timeout and local bypass with a reverse-proxy warning", async () => {
   vi.mocked(api.saveSecuritySettings).mockResolvedValue({ idle_timeout_minutes: 10, local_network_bypass: true, login_backdrop_enabled: true });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<QueryClientProvider client={client}><SecuritySection /></QueryClientProvider>);
-  fireEvent.click(await screen.findByLabelText("Automatically sign out when inactive"));
-  fireEvent.change(screen.getByLabelText("Minutes of inactivity"), { target: { value: "10" } });
-  fireEvent.click(screen.getByLabelText("Skip password authentication on local networks"));
+  fireEvent.click(await screen.findByLabelText("Automatically Sign Out When Inactive"));
+  fireEvent.change(screen.getByLabelText("Minutes Of Inactivity"), { target: { value: "10" } });
+  fireEvent.click(screen.getByLabelText("Skip Password Authentication On Local Networks"));
   expect(screen.getByText(/A reverse proxy or Docker networking/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Hide warning" }));
   expect(screen.queryByText(/A reverse proxy or Docker networking/)).toBeNull();
@@ -25,7 +25,7 @@ it("saves timeout and local bypass with a reverse-proxy warning", async () => {
   await waitFor(() => expect(api.saveSecuritySettings).toHaveBeenCalledWith({ idle_timeout_minutes: 10, local_network_bypass: true, login_backdrop_enabled: true }));
   rememberUsername("curator");
   expect(initialUsername()).toBe("curator");
-  fireEvent.click(screen.getByLabelText("Remember username on this browser"));
+  fireEvent.click(screen.getByLabelText("Remember Username On This Browser"));
   expect(initialUsername()).toBe("");
   expect(localStorage.getItem("posterview.savedUsername")).toBeNull();
   expect(client.getQueryData(["security-settings"])).toEqual({ idle_timeout_minutes: 10, local_network_bypass: true, login_backdrop_enabled: true });

@@ -65,23 +65,23 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
       <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={remember} onChange={(event) => {
         setRemember(event.target.checked);
         setRememberUsername(event.target.checked);
-      }} />Remember username on this browser</label>
+      }} />Remember Username On This Browser</label>
       <p className="text-xs leading-5 text-faint">Saves immediately on this browser only. Keeps your last successful username filled in on the sign-in screen. Turning this off deletes the saved username. PosterView never stores your login password in browser storage.</p>
     </fieldset>
     <fieldset disabled={saving} className="space-y-1 px-3 py-2.5">
-      <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={backdrop} onChange={(event) => setBackdrop(event.target.checked)} />Show library posters on the login page</label>
+      <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={backdrop} onChange={(event) => setBackdrop(event.target.checked)} />Show Library Posters On The Login Page</label>
       <p className="text-xs leading-5 text-faint">Uses cached, resized posters from your connected server. Library names, item names, server addresses, and credentials are never included in the public backdrop feed. Turn this off if artwork would reveal private library content.</p>
     </fieldset>
     <fieldset disabled={saving} className="space-y-1 px-3 py-2.5">
-      <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={autoSignOut} onChange={(event) => setAutoSignOut(event.target.checked)} />Automatically sign out when inactive</label>
-      <label className="flex flex-wrap items-center gap-2 text-xs text-muted">Minutes of inactivity
-        <input aria-label="Minutes of inactivity" type="number" min="1" max="1440" step="1" required disabled={!autoSignOut} value={minutes} onChange={(event) => setMinutes(event.target.value)} className="w-20 rounded-md border border-border bg-input px-2 py-1 text-sm text-white disabled:opacity-50" />
+      <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={autoSignOut} onChange={(event) => setAutoSignOut(event.target.checked)} />Automatically Sign Out When Inactive</label>
+      <label className="flex flex-wrap items-center gap-2 text-xs text-muted">Minutes Of Inactivity
+        <input aria-label="Minutes Of Inactivity" type="number" min="1" max="1440" step="1" required disabled={!autoSignOut} value={minutes} onChange={(event) => setMinutes(event.target.value)} className="w-20 rounded-md border border-border bg-input px-2 py-1 text-sm text-white disabled:opacity-50" />
       </label>
       <p className="text-xs leading-5 text-faint">Choose 1–1440 minutes. Mouse, keyboard, touch, and scrolling count as activity; background requests do not. Activity in another open tab keeps the shared session active.</p>
     </fieldset>
     <fieldset disabled={saving} className="space-y-1 px-3 py-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={bypass} onChange={(event) => setBypass(event.target.checked)} aria-describedby={warningHidden ? undefined : "local-bypass-warning"} />Skip password authentication on local networks</label>
+        <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={bypass} onChange={(event) => setBypass(event.target.checked)} aria-describedby={warningHidden ? undefined : "local-bypass-warning"} />Skip Password Authentication On Local Networks</label>
         {warningHidden && <button type="button" onClick={showWarning} className="text-xs text-muted hover:text-white">Show warning</button>}
       </div>
       {!warningHidden && (

@@ -27,8 +27,8 @@ export default function WatchdogStatus({ status, starting, stopping, error }: {
       <p className="mt-1 text-faint">{current} of {total} titles</p>
     </div>}
     <dl className="grid gap-3 text-muted sm:grid-cols-2">
-      <div><dt className="text-faint">Last successful run</dt><dd className="mt-1"><RunTime value={status.watchdog_last_successful_run} empty="No successful run yet" /></dd></div>
-      <div><dt className="text-faint">Next scheduled run</dt><dd className="mt-1">{active ? "Calculated when this run finishes" : status.watchdog_next_run
+      <div><dt className="text-faint">Last Successful Run</dt><dd className="mt-1"><RunTime value={status.watchdog_last_successful_run} empty="No successful run yet" /></dd></div>
+      <div><dt className="text-faint">Next Scheduled Run</dt><dd className="mt-1">{active ? "Calculated when this run finishes" : status.watchdog_next_run
         ? <><RunTime value={status.watchdog_next_run} empty="Not scheduled" /><span className="mt-1 block text-faint">Runs when the scheduler next checks.</span></>
         : state === "failed" ? "Resolve the error and run Sync again" : status.watchdog_enabled ? "Awaiting schedule" : "Automatic Sync is off"}</dd></div>
     </dl>
