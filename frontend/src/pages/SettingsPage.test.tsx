@@ -74,9 +74,9 @@ it("previews a palette color and saves it as a selectable custom theme", async (
   fireEvent.change(screen.getByLabelText("Choose Accent color"), { target: { value: "#ff3366" } });
   expect(document.documentElement.style.getPropertyValue("--color-accent")).toBe("#FF3366");
   fireEvent.click(screen.getByLabelText("Select Color Label"));
-  const accentOption = screen.getByRole("button", { name: "Accent", exact: true });
+  const accentOption = screen.getByRole("button", { name: /^Accent$/ });
   expect((accentOption.querySelector("span") as HTMLElement).style.backgroundColor).toBe("rgb(255, 51, 102)");
-  fireEvent.click(screen.getByRole("button", { name: "Border", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: /^Border$/ }));
   expect(screen.getByLabelText("Choose Border color")).toBeTruthy();
   expect(screen.getByLabelText("Select Color Label").closest("details")?.open).toBe(false);
 
