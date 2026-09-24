@@ -1,17 +1,16 @@
 // Browse the active server: pick a library, then a searchable grid of titles.
 // Double-clicking a poster opens the item detail.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ChevronLeft, ChevronRight, ListFilter, Search, ServerCrash, Sparkles } from "lucide-react";
+import { ArrowLeft, ListFilter, Search, ServerCrash, Sparkles } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import { useServers } from "../lib/serverContext";
 import PosterCard from "../components/PosterCard";
 import { EmptyState, Spinner, Switch } from "../components/ui";
 import { useToast } from "../lib/toast";
-import { LIBRARY_COLLAPSE_EVENT, libraryTabsCollapsed, libraryVisibleCount } from "../lib/dashboardSettings";
 import { isBookRelatedLibraryName } from "../lib/mediaKind";
 import { BACKDROP_BLUR_EVENT, BACKDROP_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, backdropOverlay, backdropOverlayGradients, dashboardBackdropEnabled, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
@@ -21,92 +20,7 @@ const SCROLL_POSITION_PREFIX = "posterview.libraryScroll.";
 type ArtworkFilter = "all" | "missing-poster" | "missing-backdrop";
 type TitleSort = "title" | "newest" | "oldest" | "recently-added";
 
-function LibraryTabScroller({ children, collapsed, visibleCount }: { children: ReactNode; collapsed: boolean; visibleCount: number }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const container = useRef<HTMLDivElement>(null);
-  const hasScrolled = useRef(false);
-  const [edges, setEdges] = useState({ left: false, right: false });
-
-  useLayoutEffect(() => {
-    const element = scroller.current;
-    if (!element) { hasScrolled.current = false; return; }
-    const update = () => {
-      const tabs = Array.from(element.children).filter((child): child is HTMLButtonElement => child instanceof HTMLButtonElement);
-      const shown = tabs.slice(0, visibleCount);
-      if (container.current && shown.length) {
-        const width = shown.reduce((sum, tab) => sum + tab.getBoundingClientRect().width, 0) + Math.max(0, shown.length - 1) * 4 + 48;
-        container.current.style.width = `${width}px`;
-      }
-      const viewport = element.getBoundingClientRect();
-      for (const child of element.children) {
-        if (!(child instanceof HTMLButtonElement)) continue;
-        const bounds = child.getBoundingClientRect();
-        const fullyVisible = bounds.left >= viewport.left - 1 && bounds.right <= viewport.right + 1;
-        // Only the initial view hides partial tabs. Once scrolling starts, paint
-        // every tab continuously without changing geometry or snapping position.
-        const visible = hasScrolled.current || fullyVisible;
-        child.style.opacity = visible ? "" : "0";
-        child.style.pointerEvents = visible ? "" : "none";
-      }
-      setEdges({
-        left: element.scrollLeft > 1,
-        right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
-      });
-    };
-    update();
-    const onScroll = () => { hasScrolled.current = true; update(); };
-    element.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", update);
-    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
-    observer?.observe(element);
-    for (const child of element.children) observer?.observe(child);
-    return () => {
-      element.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", update);
-      observer?.disconnect();
-      for (const child of element.children) {
-        if (!(child instanceof HTMLButtonElement)) continue;
-        child.style.opacity = "";
-        child.style.pointerEvents = "";
-      }
-    };
-  }, [children, collapsed, visibleCount]);
-
-  if (!collapsed) return <div role="group" aria-label="Libraries" className="flex gap-1 overflow-x-auto pb-px">{children}</div>;
-
-  const scroll = (direction: number) => {
-    const element = scroller.current;
-    if (element) element.scrollBy({ left: direction * element.clientWidth * 0.75, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-  };
-
-  return (
-    <div ref={container} className="-ml-2 grid min-w-0 max-w-full grid-cols-[1rem_minmax(0,1fr)_1rem] items-stretch gap-2 md:-ml-6">
-      <div className="relative z-10 flex">
-        {edges.left && <button type="button" aria-label="Scroll libraries left" onClick={() => scroll(-1)} className="flex w-4 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronLeft className="size-4" /></button>}
-      </div>
-      <div ref={scroller} role="group" aria-label="Libraries" className="scrollbar-hidden flex min-w-0 gap-1 overflow-x-auto pb-px [&>button]:max-w-full"
-        onWheel={(event) => {
-          if (window.matchMedia("(min-width: 768px)").matches && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
-            event.currentTarget.scrollLeft += event.deltaY;
-          }
-        }}>
-        {children}
-      </div>
-      <div className="relative z-10 flex">
-        {edges.right && <button type="button" aria-label="Scroll libraries right" onClick={() => scroll(1)} className="flex w-4 items-center justify-center text-muted/60 transition-colors hover:text-white"><ChevronRight className="size-4" /></button>}
-      </div>
-    </div>
-  );
-}
-
 export default function DashboardPage() {
-  const [collapsedTabs, setCollapsedTabs] = useState(libraryTabsCollapsed);
-  const [visibleCount, setVisibleCount] = useState(libraryVisibleCount);
-  useEffect(() => {
-    const update = () => { setCollapsedTabs(libraryTabsCollapsed()); setVisibleCount(libraryVisibleCount()); };
-    window.addEventListener(LIBRARY_COLLAPSE_EVENT, update);
-    return () => window.removeEventListener(LIBRARY_COLLAPSE_EVENT, update);
-  }, []);
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -442,7 +356,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
           {/* Library tabs */}
           <div className="col-start-1 row-start-1 min-w-0">
-            <LibraryTabScroller collapsed={collapsedTabs} visibleCount={visibleCount}>
+            <div role="group" aria-label="Libraries" className="flex gap-1 overflow-x-auto pb-px">
               {librariesQ.isLoading && (
                 <span className="py-2 text-sm text-faint">
                   Loading libraries…
@@ -463,7 +377,7 @@ export default function DashboardPage() {
                   {lib.title}
                 </button>
               ))}
-            </LibraryTabScroller>
+            </div>
           </div>
           {showGroupCollections && (
             <label className="col-start-2 row-start-1 hidden items-center justify-end gap-2 text-sm text-muted md:flex">

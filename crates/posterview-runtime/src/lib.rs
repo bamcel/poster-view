@@ -505,7 +505,6 @@ impl Runtime {
         settings.panel_blur = settings.panel_blur.min(30);
         settings.panel_overlay = settings.panel_overlay.min(95);
         settings.backdrop_overlay = settings.backdrop_overlay.min(95);
-        settings.library_visible_count = settings.library_visible_count.clamp(1, 30);
         if settings.theme_name.trim().is_empty() {
             settings.theme_name = "Everforest".to_owned();
         }
@@ -714,8 +713,6 @@ mod tests {
             .set_appearance_settings(AppearanceSettings {
                 configured: false,
                 backdrops_enabled: true,
-                library_tabs_collapsed: true,
-                library_visible_count: 5,
                 panel_solidity: 255,
                 panel_blur: 255,
                 panel_overlay: 255,

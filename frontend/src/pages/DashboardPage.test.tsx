@@ -43,102 +43,19 @@ function renderDashboard(initialEntry = "/?lib=movies") {
   return { ...result, client };
 }
 
-it.each([false, true])("uses the collapsed library layout only when enabled: %s", async (collapsed) => {
-  if (collapsed) localStorage.setItem("posterview.libraryTabsCollapsed", "true");
+it("uses full-width overflow tabs even with legacy collapse preferences", async () => {
+  localStorage.setItem("posterview.libraryTabsCollapsed", "true");
+  localStorage.setItem("posterview.libraryVisibleCount", "1");
   vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
   vi.mocked(api.getItems).mockResolvedValue([]);
   const { client } = renderDashboard();
-  await screen.findByRole("button", { name: "Movies" });
+  const tab = await screen.findByRole("button", { name: "Movies" });
   const tabs = screen.getByRole("group", { name: "Libraries" });
-  expect(tabs.classList.contains("snap-mandatory")).toBe(false);
-  expect(tabs.parentElement?.classList.contains("max-w-full")).toBe(collapsed);
-  client.clear();
-});
-
-it("sizes the collapsed row to the configured number of libraries", async () => {
-  localStorage.setItem("posterview.libraryTabsCollapsed", "true");
-  localStorage.setItem("posterview.libraryVisibleCount", "2");
-  vi.mocked(api.getLibraries).mockResolvedValue([
-    { id: "movies", title: "Movies", type: "movie" },
-    { id: "tv", title: "TV Series", type: "show" },
-    { id: "books", title: "Books", type: "book" },
-  ]);
-  vi.mocked(api.getItems).mockResolvedValue([]);
-  const { client } = renderDashboard();
-  await screen.findByRole("button", { name: "Movies" });
-  const tabs = screen.getByRole("group", { name: "Libraries" });
-  for (const tab of tabs.children) vi.spyOn(tab, "getBoundingClientRect").mockReturnValue({ width: 100, left: 0, right: 100 } as DOMRect);
-  fireEvent.resize(window);
-  expect(tabs.parentElement?.style.width).toBe("252px"); // Two tabs, one gap, arrow slots.
-  client.clear();
-});
-
-it("keeps scroll arrows outside the tabs and scrolls smoothly in both directions", async () => {
-  localStorage.setItem("posterview.libraryTabsCollapsed", "true");
-  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
-  vi.mocked(api.getItems).mockResolvedValue([]);
-  const { client } = renderDashboard();
-  await screen.findByRole("button", { name: "Movies" });
-  const tabs = screen.getByRole("group", { name: "Libraries" });
-  Object.defineProperties(tabs, {
-    clientWidth: { value: 400 },
-    scrollWidth: { value: 1000 },
-    scrollLeft: { value: 200, writable: true },
-    scrollBy: { value: vi.fn() },
-  });
-  const originalMatchMedia = window.matchMedia;
-  window.matchMedia = vi.fn().mockReturnValue({ matches: false });
-  try {
-    fireEvent.scroll(tabs);
-    const left = screen.getByRole("button", { name: "Scroll libraries left" });
-    const right = screen.getByRole("button", { name: "Scroll libraries right" });
-    expect(tabs.contains(left)).toBe(false);
-    expect(tabs.contains(right)).toBe(false);
-    expect(left.parentElement?.nextElementSibling).toBe(tabs);
-    expect(right.parentElement?.previousElementSibling).toBe(tabs);
-    expect(tabs.parentElement?.classList.contains("gap-2")).toBe(true);
-    fireEvent.click(right);
-    expect(tabs.scrollBy).toHaveBeenLastCalledWith({ left: 300, behavior: "smooth" });
-    fireEvent.click(left);
-    expect(tabs.scrollBy).toHaveBeenLastCalledWith({ left: -300, behavior: "smooth" });
-    tabs.scrollLeft = 0;
-    fireEvent.scroll(tabs);
-    expect(screen.queryByRole("button", { name: "Scroll libraries left" })).toBeNull();
-    tabs.scrollLeft = 600;
-    fireEvent.scroll(tabs);
-    expect(screen.queryByRole("button", { name: "Scroll libraries right" })).toBeNull();
-  } finally {
-    window.matchMedia = originalMatchMedia;
-    client.clear();
-  }
-});
-
-it("hides partial tabs only initially, then keeps names and arrow positions stable while scrolling", async () => {
-  localStorage.setItem("posterview.libraryTabsCollapsed", "true");
-  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "tv", title: "TV Series", type: "show" }]);
-  vi.mocked(api.getItems).mockResolvedValue([]);
-  const { client } = renderDashboard();
-  const tab = await screen.findByRole("button", { name: "TV Series" });
-  const tabs = screen.getByRole("group", { name: "Libraries" });
-  vi.spyOn(tabs, "getBoundingClientRect").mockReturnValue({ left: 20, right: 400 } as DOMRect);
-  const bounds = vi.spyOn(tab, "getBoundingClientRect");
-  tab.style.paddingLeft = "16px";
-  tab.style.paddingRight = "16px";
-  bounds.mockReturnValue({ left: 350, right: 450 } as DOMRect);
-  fireEvent.resize(window);
-  expect(tab.style.opacity).toBe("0");
-  bounds.mockReturnValue({ left: 10, right: 110 } as DOMRect);
-  fireEvent.scroll(tabs);
+  expect(tabs.classList.contains("overflow-x-auto")).toBe(true);
+  expect(tabs.style.width).toBe("");
   expect(tab.style.opacity).toBe("");
-  bounds.mockReturnValue({ left: 250, right: 350 } as DOMRect);
-  fireEvent.scroll(tabs);
-  expect(tab.style.opacity).toBe("");
-  expect(tab.style.pointerEvents).toBe("");
-  bounds.mockReturnValue({ left: 350, right: 450 } as DOMRect);
-  fireEvent.scroll(tabs);
-  expect(tab.style.opacity).toBe("");
-  expect((tabs.previousElementSibling as HTMLElement).style.transform).toBe("");
-  expect((tabs.nextElementSibling as HTMLElement).style.transform).toBe("");
+  expect(screen.queryByRole("button", { name: "Scroll libraries left" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Scroll libraries right" })).toBeNull();
   client.clear();
 });
 

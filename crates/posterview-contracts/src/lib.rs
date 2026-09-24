@@ -252,10 +252,6 @@ pub struct HistorySettings {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AppearanceSettings {
-    #[serde(default)]
-    pub library_tabs_collapsed: bool,
-    #[serde(default = "default_library_visible_count")]
-    pub library_visible_count: u8,
     pub configured: bool,
     pub backdrops_enabled: bool,
     pub panel_solidity: u8,
@@ -271,8 +267,6 @@ impl Default for AppearanceSettings {
         Self {
             configured: false,
             backdrops_enabled: false,
-            library_tabs_collapsed: false,
-            library_visible_count: default_library_visible_count(),
             panel_solidity: 40,
             panel_blur: 12,
             panel_overlay: 0,
@@ -287,7 +281,6 @@ const fn default_history_max_entries() -> i64 {
     50
 }
 
-const fn default_library_visible_count() -> u8 { 5 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HistoryPurgeResult {
