@@ -1,28 +1,5 @@
 @import "tailwindcss";
 
-/* A desktop preview has its own available width, independent of the window. */
-@container library (width < 80rem) {
-  .appearance-preview .item-artwork-overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 50;
-    width: 100%;
-    background: rgb(0 0 0 / 65%);
-  }
-  .appearance-preview #item-artwork-panel { max-width: 28rem; }
-}
-@container library (width < 64rem) {
-  .appearance-preview .lg\:px-8,
-  .appearance-preview .lg\:px-10 { padding-inline: 1.5rem; }
-  .appearance-preview .lg\:gap-9 { gap: 1.5rem; }
-  .appearance-preview .md\:pt-\[75px\] { padding-top: 1rem; }
-}
-@container library (width < 40rem) {
-  .appearance-preview .sm\:text-3xl { font-size: 1.5rem; }
-  .appearance-preview .sm\:gap-8 { gap: 1rem; }
-  .appearance-preview .sm\:px-6 { padding-inline: 1rem; }
-}
-
 /* PosterView design tokens. Tailwind v4 reads @theme to generate utilities like
    bg-surface, text-accent, etc. The palette is a modern dark media UI with a
    green "Play" accent matching the reference design. */
