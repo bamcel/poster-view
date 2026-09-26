@@ -8,7 +8,7 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
-import DashboardPage from "./DashboardPage";
+import MediaLibraryPage from "./MediaLibraryPage";
 import { api } from "../api/client";
 vi.mock("../components/LibraryMetadataEditor", () => ({ default: ({ item, onClose }: { item: { title: string }; onClose: () => void }) => <div role="dialog" aria-label="Metadata editor">{item.title}<button onClick={onClose}>Close Editor</button></div> }));
 function CurrentLocation() { const location = useLocation(); return <output data-testid="location">{location.pathname}{location.search}</output>; }
@@ -35,7 +35,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderDashboard(initialEntry = "/?lib=movies") {
+function renderMediaLibrary(initialEntry = "/?lib=movies") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -43,7 +43,7 @@ function renderDashboard(initialEntry = "/?lib=movies") {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[initialEntry]}>
         <CurrentLocation />
-        <DashboardPage />
+        <MediaLibraryPage />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -54,7 +54,7 @@ it.each(["movie", "show", "collection", "book", "audiobook", "other"] as const)(
   "opens a Preferences popup for %s libraries", async (type) => {
     vi.mocked(api.getLibraries).mockResolvedValue([{ id: "library", title: "Test Library", type }]);
     vi.mocked(api.getItems).mockResolvedValue([]);
-    const { client } = renderDashboard("/?lib=library");
+    const { client } = renderMediaLibrary("/?lib=library");
     await screen.findByRole("button", { name: "Test Library" });
     fireEvent.click(screen.getByRole("button", { name: "Library preferences" }));
     expect(screen.getByRole("dialog", { name: "Preferences" })).toBeTruthy();
@@ -73,7 +73,7 @@ it.each(["movie", "show", "collection", "book", "audiobook", "other"] as const)(
 it("edits metadata without leaving the library or resetting its filter", async () => {
   vi.mocked(api.getLibraries).mockResolvedValue([{ id: "manga", title: "Manga", type: "book" }]);
   vi.mocked(api.getItems).mockResolvedValue([{ id: "series", title: "Chainsaw Man", type: "folder" }]);
-  const { client } = renderDashboard("/?lib=manga");
+  const { client } = renderMediaLibrary("/?lib=manga");
   await screen.findByText("Chainsaw Man");
   fireEvent.change(screen.getByLabelText("Search titles"), { target: { value: "Chainsaw" } });
   fireEvent.contextMenu(screen.getByTitle("Chainsaw Man · right-click for options"));
@@ -92,7 +92,7 @@ it("waits for NFO titles without flashing folder names", async () => {
   let complete!: (value: unknown) => void;
   const pending = new Promise(resolve => { complete = resolve; });
   vi.stubGlobal("fetch", vi.fn((url: string) => url.includes("/reader/info/") ? pending : Promise.resolve({ ok: true, json: async () => ({ tracking_overlays: true }) })));
-  const { client } = renderDashboard("/?lib=manga");
+  const { client } = renderMediaLibrary("/?lib=manga");
   await waitFor(() => expect(api.getItems).toHaveBeenCalled());
   expect(screen.queryByText("Chainsaw Man [Colored]")).toBeNull();
   expect(screen.getByText("Loading titles…")).toBeTruthy();
@@ -107,7 +107,7 @@ it("uses full-width overflow tabs even with legacy collapse preferences", async 
   localStorage.setItem("posterview.libraryVisibleCount", "1");
   vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
   vi.mocked(api.getItems).mockResolvedValue([]);
-  const { client } = renderDashboard();
+  const { client } = renderMediaLibrary();
   const tab = await screen.findByRole("button", { name: "Movies" });
   const tabs = screen.getByRole("group", { name: "Libraries" });
   expect(tabs.classList.contains("overflow-x-auto")).toBe(true);
@@ -126,7 +126,7 @@ it("restores the last library tab for the selected server", async () => {
   ]);
   vi.mocked(api.getItems).mockResolvedValue([]);
 
-  const { client } = renderDashboard("/");
+  const { client } = renderMediaLibrary("/");
   await waitFor(() => expect(screen.getByRole("button", { name: "Anime", pressed: true })).toBeTruthy());
   client.clear();
 });
@@ -139,9 +139,9 @@ it("shows backdrops from the selected library when enabled", async () => {
     { id: "arrival", title: "Arrival", type: "movie", poster: "arrival-poster", background: "arrival-backdrop" },
   ]);
 
-  const { client } = renderDashboard();
+  const { client } = renderMediaLibrary();
   await screen.findByText("Alien");
-  const backdrop = screen.getByTestId("dashboard-backdrop");
+  const backdrop = screen.getByTestId("media-library-backdrop");
   const mobileLayers = backdrop.querySelector('[data-backdrop-source="mobile"]')!;
   const desktopLayers = backdrop.querySelector('[data-backdrop-source="desktop"]')!;
   expect(mobileLayers.classList.contains("absolute")).toBe(true);
@@ -164,7 +164,7 @@ it("filters by artwork and sorts titles from the compact filter menu", async () 
     { id: "newer", title: "Newer", type: "movie", year: 2020 },
   ]);
 
-  const { container, client } = renderDashboard();
+  const { container, client } = renderMediaLibrary();
   await screen.findByText("Older");
   fireEvent.click(screen.getByLabelText("Filter and sort titles"));
   fireEvent.change(screen.getByLabelText("Filter by artwork"), { target: { value: "missing-poster" } });
@@ -184,7 +184,7 @@ it("opens the filter popup and closes it through its close button", async () => 
   vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
   vi.mocked(api.getItems).mockResolvedValue([{ id: "alien", title: "Alien", type: "movie" }]);
 
-  const { client } = renderDashboard();
+  const { client } = renderMediaLibrary();
   await screen.findByText("Alien");
   const toggle = screen.getByLabelText("Filter and sort titles");
   fireEvent.click(toggle);
@@ -201,7 +201,7 @@ it("applies live panel solidity and blur settings to search controls", async () 
   vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
   vi.mocked(api.getItems).mockResolvedValue([{ id: "alien", title: "Alien", type: "movie" }]);
 
-  const { client } = renderDashboard();
+  const { client } = renderMediaLibrary();
   await screen.findByText("Alien");
   const search = screen.getByLabelText("Search titles");
   const filterButton = screen.getByLabelText("Filter and sort titles");
@@ -231,7 +231,7 @@ it("restores a library's scroll position once without jumping during filtering",
   ]);
   sessionStorage.setItem("posterview.libraryScroll.1.movies.root", "240");
 
-  const { container, client } = renderDashboard();
+  const { container, client } = renderMediaLibrary();
   await screen.findByText("Alien");
   const scrollContainer = container.querySelector(".overflow-y-auto");
   expect(scrollContainer).toBeTruthy();
@@ -256,7 +256,7 @@ it("keeps folder scroll positions separate from the library root", async () => {
   sessionStorage.setItem("posterview.libraryScroll.1.manga.root", "120");
   sessionStorage.setItem("posterview.libraryScroll.1.manga.series", "480");
 
-  const { container, client } = renderDashboard(
+  const { container, client } = renderMediaLibrary(
     "/?lib=manga&folder=series&folder_title=Series",
   );
   await screen.findByText("Volume 1");
@@ -285,7 +285,7 @@ it.each(["book", "other"] as const)(
     render(
       <QueryClientProvider client={client}>
         <MemoryRouter>
-          <DashboardPage />
+          <MediaLibraryPage />
         </MemoryRouter>
       </QueryClientProvider>,
     );

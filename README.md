@@ -10,14 +10,14 @@ plus manga covers and metadata from AniList Manga, MangaDex, VIZ, and ComicVine
 whole ThePosterDB set onto a series and all its seasons at once. Every apply is remembered, so
 a bad pick is one click to undo.
 
-![PosterView Dashboard](docs/screenshots/2_Dashboard.png)
+![PosterView Media Library](docs/screenshots/2_Dashboard.png)
 
 _Open a title and swap its artwork from multiple sources, or manage a manga series and its
-book covers from the same Dashboard._
+book covers from the same Media Library._
 
 <p align="center">
   <img src="docs/screenshots/3_Dashboard_Series_Selection.png" width="49%" alt="Selected series with backdrop and artwork provider panel" />
-  <img src="docs/screenshots/4_Dashboard_Manga.png" width="49%" alt="Manga book library dashboard" />
+  <img src="docs/screenshots/4_Dashboard_Manga.png" width="49%" alt="Manga collection in Media Library" />
 </p>
 
 _Configure your media servers and customize PosterView's shared appearance in Settings —

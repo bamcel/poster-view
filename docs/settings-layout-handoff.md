@@ -124,8 +124,8 @@ One outer card with one **ServerName Cache** group card per saved server. Cache 
 
 ### Appearance
 
-Use the same full workspace width as Server. **Dashboard** and **Theme** each have their own
-full-width outer card and heading. The Dashboard card contains the backdrop switch, Panel Color,
+Use the same full workspace width as Server. **Media Library** and **Theme** each have their own
+full-width outer card and heading. The Media Library card contains the backdrop switch, Panel Color,
 Panel Blur, Panel Overlay, Backdrop Overlay, and reset action. The Theme card contains theme
 selection, individual-color editing, and custom-theme controls. **JSON Editor** is a collapsible
 section inside Custom theme rather than a permanent split column. Theme menus use small palette

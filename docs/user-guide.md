@@ -8,19 +8,19 @@ sends approved artwork changes back to it.
 
 1. Open **Settings → Server** and select **Add server**.
 2. Choose Plex, Jellyfin, or Emby and enter the server address and credentials.
-3. Expand **Show Libraries** and enable the libraries that should appear on the Dashboard.
+3. Expand **Show Libraries** and enable the libraries that should appear on the Media Library.
 4. Save the server. Use the active-server selector when more than one server is configured.
 
 Provider credentials and tokens are encrypted at rest. PosterView never returns stored secrets
 to the browser.
 
-## 2. Browse the Dashboard
+## 2. Browse the Media Library
 
 Choose a library tab, search its titles, or use the filter menu. **Group Collections** replaces
 collection members with a collection tile when supported. Selecting a movie or series opens its
 detail page; book-style libraries can also contain navigable grouping and series folders.
 
-When Dashboard backdrops are enabled in **Settings → Appearance**, artwork rotates behind the
+When Media Library backdrops are enabled in **Settings → Appearance**, artwork rotates behind the
 page. Desktop clients use backdrop artwork. Mobile clients use portrait posters so the image
 better fills a phone display. The appearance settings are stored by PosterView and shared by
 clients rather than being limited to one browser.

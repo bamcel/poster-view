@@ -20,7 +20,7 @@ import TitleMetadata from "../components/TitleMetadata";
 import { Spinner, EmptyState } from "../components/ui";
 import type { Library, NfoMetadata } from "../types";
 import { seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
-import { BACKDROP_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, backdropOverlay, backdropOverlayGradients, dashboardBackdropEnabled } from "../lib/dashboardSettings";
+import { BACKDROP_OVERLAY_EVENT, MEDIA_LIBRARY_BACKDROP_EVENT, backdropOverlay, backdropOverlayGradients, mediaLibraryBackdropEnabled } from "../lib/mediaLibrarySettings";
 
 function sentenceCaseMetadata(value: string): string {
   const normalized = value.trim().replaceAll("_", " ").toLowerCase();
@@ -51,7 +51,7 @@ export default function ItemDetailPage() {
   const [prefill, setPrefill] = useState<{ term: string; nonce: number }>();
   const [artworkTarget, setArtworkTarget] = useState<{ provider: string; value: string; nonce: number }>();
   const [artworkOpen, setArtworkOpen] = useState(false);
-  const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
+  const [showBackdrop, setShowBackdrop] = useState(mediaLibraryBackdropEnabled);
   const [overlayStrength, setOverlayStrength] = useState(backdropOverlay);
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(
     () => searchParams.get("edit_metadata") === "1",
@@ -123,10 +123,10 @@ export default function ItemDetailPage() {
   useEffect(() => {
     const update = (event: Event) => setShowBackdrop((event as CustomEvent<boolean>).detail);
     const updateOverlay = (event: Event) => setOverlayStrength((event as CustomEvent<number>).detail);
-    window.addEventListener(DASHBOARD_BACKDROP_EVENT, update);
+    window.addEventListener(MEDIA_LIBRARY_BACKDROP_EVENT, update);
     window.addEventListener(BACKDROP_OVERLAY_EVENT, updateOverlay);
     return () => {
-      window.removeEventListener(DASHBOARD_BACKDROP_EVENT, update);
+      window.removeEventListener(MEDIA_LIBRARY_BACKDROP_EVENT, update);
       window.removeEventListener(BACKDROP_OVERLAY_EVENT, updateOverlay);
     };
   }, []);

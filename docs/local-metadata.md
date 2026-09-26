@@ -49,7 +49,7 @@ outside this root.
 
 ## Review and save metadata
 
-1. On the **Dashboard**, open a manga, comic, or book library and select a series.
+1. On the **Media Library**, open a manga, comic, or book library and select a series.
 2. Choose **Edit Metadata** on the series detail page.
 3. PosterView loads `<series folder name>.nfo`; a new record starts with the folder-derived title.
 4. Edit values manually or use a provider result to populate them. Known AniList or ComicVine IDs

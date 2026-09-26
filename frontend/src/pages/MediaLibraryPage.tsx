@@ -17,7 +17,7 @@ import type { MediaItem } from "../types";
 import { EmptyState, Spinner, Switch } from "../components/ui";
 import { useToast } from "../lib/toast";
 import { isBookRelatedLibraryName } from "../lib/mediaKind";
-import { BACKDROP_BLUR_EVENT, BACKDROP_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, backdropOverlay, backdropOverlayGradients, dashboardBackdropEnabled, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
+import { BACKDROP_BLUR_EVENT, BACKDROP_OVERLAY_EVENT, MEDIA_LIBRARY_BACKDROP_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, backdropOverlay, backdropOverlayGradients, mediaLibraryBackdropEnabled, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/mediaLibrarySettings";
 
 const GROUP_COLLECTIONS_KEY = "posterview.groupCollections";
 const LAST_VISIT_PREFIX = "posterview.lastVisit.";
@@ -26,7 +26,7 @@ type ArtworkFilter = "all" | "missing-poster" | "missing-backdrop";
 import { useBookInfo, bookTitleOrder } from "../lib/bookInfo";
 type TitleSort = "title" | "newest" | "oldest" | "recently-added";
 
-export default function DashboardPage() {
+export default function MediaLibraryPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -46,7 +46,7 @@ export default function DashboardPage() {
   const [titleSort, setTitleSort] = useState<TitleSort>("title");
   const [automaticRootId, setAutomaticRootId] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
-  const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
+  const [showBackdrop, setShowBackdrop] = useState(mediaLibraryBackdropEnabled);
   const [overlayStrength, setOverlayStrength] = useState(backdropOverlay);
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
@@ -210,15 +210,15 @@ export default function DashboardPage() {
     const updateSolidity = (event: Event) => setPanelSolid((event as CustomEvent<number>).detail);
     const updateBlur = (event: Event) => setPanelBlur((event as CustomEvent<number>).detail);
     const updatePanelOverlay = (event: Event) => setPanelOverlayStrength((event as CustomEvent<number>).detail);
-    const updateFromStorage = () => setShowBackdrop(dashboardBackdropEnabled());
-    window.addEventListener(DASHBOARD_BACKDROP_EVENT, update);
+    const updateFromStorage = () => setShowBackdrop(mediaLibraryBackdropEnabled());
+    window.addEventListener(MEDIA_LIBRARY_BACKDROP_EVENT, update);
     window.addEventListener(BACKDROP_OVERLAY_EVENT, updateOverlay);
     window.addEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
     window.addEventListener(BACKDROP_BLUR_EVENT, updateBlur);
     window.addEventListener(PANEL_OVERLAY_EVENT, updatePanelOverlay);
     window.addEventListener("storage", updateFromStorage);
     return () => {
-      window.removeEventListener(DASHBOARD_BACKDROP_EVENT, update);
+      window.removeEventListener(MEDIA_LIBRARY_BACKDROP_EVENT, update);
       window.removeEventListener(BACKDROP_OVERLAY_EVENT, updateOverlay);
       window.removeEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
       window.removeEventListener(BACKDROP_BLUR_EVENT, updateBlur);
@@ -344,7 +344,7 @@ export default function DashboardPage() {
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
       {showBackdrop && (backdropUrls.length > 0 || posterBackdropUrls.length > 0) && (
-        <DashboardBackdrop desktopUrls={backdropUrls} mobileUrls={posterBackdropUrls} overlayStrength={overlayStrength} />
+        <MediaLibraryBackdrop desktopUrls={backdropUrls} mobileUrls={posterBackdropUrls} overlayStrength={overlayStrength} />
       )}
       {/* Header */}
       <div className="relative z-10 border-b border-border px-4 pt-0 sm:px-6 md:pt-[75px] lg:px-8">
@@ -572,10 +572,10 @@ function BackdropLayers({ urls, className, source }: { urls: string[]; className
   );
 }
 
-function DashboardBackdrop({ desktopUrls, mobileUrls, overlayStrength }: { desktopUrls: string[]; mobileUrls: string[]; overlayStrength: number }) {
+function MediaLibraryBackdrop({ desktopUrls, mobileUrls, overlayStrength }: { desktopUrls: string[]; mobileUrls: string[]; overlayStrength: number }) {
   const gradients = backdropOverlayGradients(overlayStrength);
   return createPortal(
-    <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true" data-testid="dashboard-backdrop">
+    <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true" data-testid="media-library-backdrop">
       {mobileUrls.length > 0 && <BackdropLayers urls={mobileUrls} className="absolute inset-0 md:hidden" source="mobile" />}
       {desktopUrls.length > 0 && <BackdropLayers urls={desktopUrls} className="absolute inset-0 hidden md:block" source="desktop" />}
       <div className="absolute inset-0 md:hidden" style={{ backgroundImage: gradients.mobile }} />

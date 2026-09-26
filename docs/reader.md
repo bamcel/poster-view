@@ -1,6 +1,6 @@
 # Book reader
 
-Open a book-style series on Dashboard and choose **Read** under a volume. An individual
+Open a book-style series on Media Library and choose **Read** under a volume. An individual
 book detail page also has **Read Book**. The reader opens separately from the artwork panel;
 Back returns to the series. Files are resolved from the connected server's item ID, but the
 actual PDF, EPUB or CBZ must be readable under PosterView's `/media` mount (or

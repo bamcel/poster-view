@@ -75,7 +75,7 @@ frontend-only login gate.
 1. Check `/api/auth/status` before mounting any protected application providers or pages.
    Show only a loading state until that check finishes.
 2. Mount data-fetching providers inside `AuthGate`, not above it. The reference fixed a bug where
-   requests ran before login and failed, leaving an empty dashboard until a manual refresh.
+   requests ran before login and failed, leaving an empty media library until a manual refresh.
 3. Require both username and password. The default username is `admin`; usernames are case-sensitive.
 4. Display the configured username from auth status when remembering is enabled. It overrides
    stale remembered `admin` after a container username change. Never overwrite active typing.

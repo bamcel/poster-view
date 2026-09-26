@@ -127,7 +127,7 @@ it("keeps the add server form collapsed until requested", async () => {
   client.clear();
 });
 
-it("persists and resets Dashboard appearance controls", () => {
+it("persists and resets Media Library appearance controls", () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
 
@@ -135,7 +135,7 @@ it("persists and resets Dashboard appearance controls", () => {
   expect(screen.getByRole("heading", { name: "Server" })).toBeTruthy();
   expect(screen.queryByRole("switch", { name: "Show Backdrops" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
-  expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Media Library" })).toBeTruthy();
   const backdropSwitch = screen.getByRole("switch", { name: "Show Backdrops" });
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(backdropSwitch);

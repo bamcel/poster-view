@@ -39,7 +39,7 @@ reading modes, bookmarks, search, file requirements and current format limitatio
 
 1. In **Settings → Server**, expand the server's **Show Libraries** list.
 2. Enable the manga, comic, book, or audiobook library.
-3. Return to **Dashboard** and choose its library tab.
+3. Return to **Media Library** and choose its library tab.
 4. Select a series folder to manage its series artwork and listed volumes.
 
 The search bar filters the active library. Folder names and the media server's metadata determine
@@ -82,8 +82,8 @@ are not repeatedly queued. The first run after upgrading records a one-time path
 ## Backdrops and mobile displays
 
 Upload or select a series background, then enable **Show backdrops** in
-**Settings → Appearance → Dashboard**. Desktop Dashboard rotation uses available backgrounds.
-Mobile Dashboard rotation uses portrait posters for better phone coverage. A selected series uses
+**Settings → Appearance → Media Library**. Desktop Media Library rotation uses available backgrounds.
+Mobile Media Library rotation uses portrait posters for better phone coverage. A selected series uses
 its backdrop across the content and side panels, with the same shared panel/overlay controls.
 
 If no background appears, confirm that backdrops are enabled and that the active library contains

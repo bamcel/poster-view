@@ -30,7 +30,7 @@ it("updates both sign-out controls when the security policy changes", async () =
   await waitFor(() => expect(screen.queryAllByRole("button", { name: "Sign out" })).toHaveLength(0));
 });
 
-it("returns to the last selected series when reopening Dashboard", async () => {
+it("returns to the last selected series when reopening Media Library", async () => {
   vi.mocked(api.authStatus).mockResolvedValue({ authenticated: true, password_required: false });
   render(
     <MemoryRouter initialEntries={["/server/7/item/classroom?return_library=novels"]}>
@@ -48,11 +48,11 @@ it("returns to the last selected series when reopening Dashboard", async () => {
   await screen.findByText("/server/7/item/classroom?return_library=novels");
   fireEvent.click(screen.getAllByText("Settings")[0]);
   await screen.findByText("/settings");
-  fireEvent.click(screen.getAllByLabelText("Dashboard")[0]);
+  fireEvent.click(screen.getAllByLabelText("Media Library")[0]);
   expect(await screen.findByText("/server/7/item/classroom?return_library=novels")).toBeTruthy();
 });
 
-it("makes both PosterView logos link to the Dashboard root", async () => {
+it("makes both PosterView logos link to the Media Library root", async () => {
   vi.mocked(api.authStatus).mockResolvedValue({ authenticated: true, password_required: false });
   sessionStorage.setItem("posterview.libraryTab.7", "manga");
   sessionStorage.setItem("posterview.dashboardLocation.7", "/server/7/item/manga");
@@ -69,7 +69,7 @@ it("makes both PosterView logos link to the Dashboard root", async () => {
     </MemoryRouter>,
   );
 
-  const logoLinks = await screen.findAllByRole("link", { name: "Go to Dashboard" });
+  const logoLinks = await screen.findAllByRole("link", { name: "Go to Media Library" });
   expect(logoLinks).toHaveLength(2);
   fireEvent.click(logoLinks[0]);
   expect(await screen.findByText("/")).toBeTruthy();

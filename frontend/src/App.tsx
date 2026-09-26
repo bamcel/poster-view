@@ -1,6 +1,6 @@
 import { Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
-import DashboardPage from "./pages/DashboardPage";
+import MediaLibraryPage from "./pages/MediaLibraryPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
 import SeasonDetailPage from "./pages/SeasonDetailPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -22,7 +22,7 @@ export default function App() {
             <Route path="/read/:serverId/:itemId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
             <Route path="/reader/:bookId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
             <Route element={<Layout />}>
-              <Route path="/" element={<DashboardPage />} />
+              <Route path="/" element={<MediaLibraryPage />} />
               <Route path="/history" element={<HistoryPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/server/:serverId/item/:itemId" element={<ItemDetailPage />} />

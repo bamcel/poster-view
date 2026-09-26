@@ -7,13 +7,13 @@ import { Logo, ServerTypeBadge } from "./ui";
 import { api } from "../api/client";
 import { useContext, useEffect, useState } from "react";
 import { AuthSessionContext } from "../lib/authContext";
-import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
+import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/mediaLibrarySettings";
 
 const navItems = [
   { to: "/history", label: "History", icon: History, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];
-const DASHBOARD_LOCATION_PREFIX = "posterview.dashboardLocation.";
+const MEDIA_LIBRARY_LOCATION_PREFIX = "posterview.dashboardLocation.";
 
 export default function Layout() {
   const { servers, selectedId, setSelectedId } = useServers();
@@ -22,10 +22,10 @@ export default function Layout() {
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
-  const [dashboardLocation, setDashboardLocation] = useState(() =>
+  const [mediaLibraryLocation, setMediaLibraryLocation] = useState(() =>
     selectedId == null
       ? "/"
-      : sessionStorage.getItem(`${DASHBOARD_LOCATION_PREFIX}${selectedId}`) || "/",
+      : sessionStorage.getItem(`${MEDIA_LIBRARY_LOCATION_PREFIX}${selectedId}`) || "/",
   );
 
   useEffect(() => {
@@ -33,31 +33,31 @@ export default function Layout() {
     if (itemMatch) {
       const routeServerId = Number(itemMatch[1]);
       const destination = `${location.pathname}${location.search}`;
-      sessionStorage.setItem(`${DASHBOARD_LOCATION_PREFIX}${routeServerId}`, destination);
-      if (selectedId === routeServerId) setDashboardLocation(destination);
+      sessionStorage.setItem(`${MEDIA_LIBRARY_LOCATION_PREFIX}${routeServerId}`, destination);
+      if (selectedId === routeServerId) setMediaLibraryLocation(destination);
       return;
     }
     if (location.pathname === "/" && selectedId != null) {
       const destination = `/${location.search}`;
-      sessionStorage.setItem(`${DASHBOARD_LOCATION_PREFIX}${selectedId}`, destination);
-      setDashboardLocation(destination);
+      sessionStorage.setItem(`${MEDIA_LIBRARY_LOCATION_PREFIX}${selectedId}`, destination);
+      setMediaLibraryLocation(destination);
       return;
     }
-    setDashboardLocation(selectedId == null
+    setMediaLibraryLocation(selectedId == null
       ? "/"
-      : sessionStorage.getItem(`${DASHBOARD_LOCATION_PREFIX}${selectedId}`) || "/");
+      : sessionStorage.getItem(`${MEDIA_LIBRARY_LOCATION_PREFIX}${selectedId}`) || "/");
   }, [location.pathname, location.search, selectedId]);
 
   const navigationItems = [
-    { to: dashboardLocation, label: "Dashboard", icon: LayoutDashboard, end: true },
+    { to: mediaLibraryLocation, label: "Media Library", icon: LayoutDashboard, end: true },
     ...navItems,
   ];
-  const openDashboardRoot = () => {
+  const openMediaLibraryRoot = () => {
     if (selectedId != null) {
       sessionStorage.removeItem(`posterview.libraryTab.${selectedId}`);
-      sessionStorage.setItem(`${DASHBOARD_LOCATION_PREFIX}${selectedId}`, "/");
+      sessionStorage.setItem(`${MEDIA_LIBRARY_LOCATION_PREFIX}${selectedId}`, "/");
     }
-    setDashboardLocation("/");
+    setMediaLibraryLocation("/");
   };
 
   useEffect(() => {
@@ -82,7 +82,7 @@ export default function Layout() {
   return (
     <div className="flex h-full flex-col md:flex-row">
       <header className="relative z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-sidebar/90 px-3 backdrop-blur-xl md:hidden">
-        <NavLink to="/" onClick={openDashboardRoot} aria-label="Go to Dashboard" className="mr-auto min-w-0">
+        <NavLink to="/" onClick={openMediaLibraryRoot} aria-label="Go to Media Library" className="mr-auto min-w-0">
           <Logo className="w-36 overflow-hidden [&>img]:max-w-full [&>img]:translate-y-[5px] sm:w-auto sm:[&>img]:max-w-none" />
         </NavLink>
         <nav className="flex items-center gap-1" aria-label="Primary navigation">
@@ -130,7 +130,7 @@ export default function Layout() {
         style={{ backgroundColor: translucentPanelColor("--color-sidebar", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
       >
         <div className="mb-8 px-1">
-          <NavLink to="/" onClick={openDashboardRoot} aria-label="Go to Dashboard" className="block w-fit">
+          <NavLink to="/" onClick={openMediaLibraryRoot} aria-label="Go to Media Library" className="block w-fit">
             <Logo />
           </NavLink>
           <div className="mt-1 whitespace-nowrap text-left text-xs text-faint">Artwork Management Console</div>

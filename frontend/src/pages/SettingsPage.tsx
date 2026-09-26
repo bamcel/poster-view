@@ -48,7 +48,7 @@ import ScheduledTasks from "../components/ScheduledTasks";
 import ImdbSource from "../components/ImdbSource";
 import { Clock } from "lucide-react";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
-import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROP_OVERLAY, DEFAULT_BACKDROPS_ENABLED, DEFAULT_PANEL_OVERLAY, DEFAULT_PANEL_SOLIDITY, backdropBlur, backdropOverlay, dashboardBackdropEnabled, panelOverlay, panelSolidity, setBackdropBlur, setBackdropOverlay, setDashboardBackdropEnabled, setPanelOverlay, setPanelSolidity } from "../lib/dashboardSettings";
+import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROP_OVERLAY, DEFAULT_BACKDROPS_ENABLED, DEFAULT_PANEL_OVERLAY, DEFAULT_PANEL_SOLIDITY, backdropBlur, backdropOverlay, mediaLibraryBackdropEnabled, panelOverlay, panelSolidity, setBackdropBlur, setBackdropOverlay, setMediaLibraryBackdropEnabled, setPanelOverlay, setPanelSolidity } from "../lib/mediaLibrarySettings";
 
 const BLANK: ServerInput = {
   name: "",
@@ -156,7 +156,7 @@ function AppearanceSection() {
   const [selectedColor, setSelectedColor] = useState<ThemeColorKey>("accent");
   const [customName, setCustomName] = useState("");
   const [message, setMessage] = useState("");
-  const [showBackdrops, setShowBackdrops] = useState(dashboardBackdropEnabled);
+  const [showBackdrops, setShowBackdrops] = useState(mediaLibraryBackdropEnabled);
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [blur, setBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
@@ -197,20 +197,20 @@ function AppearanceSection() {
 
   const changeBackdrops = (enabled: boolean) => {
     setShowBackdrops(enabled);
-    setDashboardBackdropEnabled(enabled);
+    setMediaLibraryBackdropEnabled(enabled);
     persist({ backdrops_enabled: enabled });
   };
   const changePanelSolid = (value: number) => { setPanelSolid(value); setPanelSolidity(value); persist({ panel_solidity: value }); };
   const changeBlur = (value: number) => { setBlur(value); setBackdropBlur(value); persist({ panel_blur: value }); };
   const changePanelOverlay = (value: number) => { setPanelOverlayStrength(value); setPanelOverlay(value); persist({ panel_overlay: value }); };
   const changeBackdropOverlay = (value: number) => { setBackdropOverlayStrength(value); setBackdropOverlay(value); persist({ backdrop_overlay: value }); };
-  const resetDashboard = () => {
+  const resetMediaLibrary = () => {
     setShowBackdrops(DEFAULT_BACKDROPS_ENABLED);
     setPanelSolid(DEFAULT_PANEL_SOLIDITY);
     setBlur(DEFAULT_BACKDROP_BLUR);
     setPanelOverlayStrength(DEFAULT_PANEL_OVERLAY);
     setBackdropOverlayStrength(DEFAULT_BACKDROP_OVERLAY);
-    setDashboardBackdropEnabled(DEFAULT_BACKDROPS_ENABLED);
+    setMediaLibraryBackdropEnabled(DEFAULT_BACKDROPS_ENABLED);
     setPanelSolidity(DEFAULT_PANEL_SOLIDITY);
     setBackdropBlur(DEFAULT_BACKDROP_BLUR);
     setPanelOverlay(DEFAULT_PANEL_OVERLAY);
@@ -287,22 +287,22 @@ function AppearanceSection() {
     <section className="h-full min-h-0 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <div className="min-h-full w-full">
         <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-          <LayoutDashboard className="size-5 text-accent" /> Dashboard
+          <LayoutDashboard className="size-5 text-accent" /> Media Library
         </h2>
-        <p className="mb-3 text-sm text-faint">Customize dashboard artwork and panel visibility.</p>
+        <p className="mb-3 text-sm text-faint">Customize media library artwork and panel visibility.</p>
         <div className="rounded-xl border border-border bg-surface-2 p-4">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-white">Show Backdrops</p>
-              <p className="mt-1 text-xs text-faint">Show rotating Dashboard artwork and selected-series backgrounds.</p>
+              <p className="mt-1 text-xs text-faint">Show rotating Media Library artwork and selected-series backgrounds.</p>
             </div>
             <Switch label="Show Backdrops" checked={showBackdrops} onChange={() => changeBackdrops(!showBackdrops)} />
           </div>
-          <DashboardSlider label="Panel Color" value={panelSolid} suffix="%" min={0} max={100} onChange={changePanelSolid} start="Transparent" end="Solid" />
-          <DashboardSlider label="Panel Blur" value={blur} suffix="px" min={0} max={30} step={2} onChange={changeBlur} start="No blur" end="Blurred" />
-          <DashboardSlider label="Panel Overlay" value={panelOverlayStrength} suffix="%" min={0} max={95} onChange={changePanelOverlay} start="Light" end="Dark" />
-          <DashboardSlider label="Backdrop Overlay" value={backdropOverlayStrength} suffix="%" min={0} max={95} onChange={changeBackdropOverlay} start="Light" end="Dark" />
-          <button type="button" onClick={resetDashboard} className="mt-4 h-10 rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted transition-colors hover:bg-button-hover hover:text-white">Reset to default</button>
+          <MediaLibrarySlider label="Panel Color" value={panelSolid} suffix="%" min={0} max={100} onChange={changePanelSolid} start="Transparent" end="Solid" />
+          <MediaLibrarySlider label="Panel Blur" value={blur} suffix="px" min={0} max={30} step={2} onChange={changeBlur} start="No blur" end="Blurred" />
+          <MediaLibrarySlider label="Panel Overlay" value={panelOverlayStrength} suffix="%" min={0} max={95} onChange={changePanelOverlay} start="Light" end="Dark" />
+          <MediaLibrarySlider label="Backdrop Overlay" value={backdropOverlayStrength} suffix="%" min={0} max={95} onChange={changeBackdropOverlay} start="Light" end="Dark" />
+          <button type="button" onClick={resetMediaLibrary} className="mt-4 h-10 rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted transition-colors hover:bg-button-hover hover:text-white">Reset to default</button>
         </div>
 
         <div className="mt-6">
@@ -368,7 +368,7 @@ function AppearanceSection() {
   );
 }
 
-function DashboardSlider({ label, value, suffix, min, max, step = 1, onChange, start, end }: { label: string; value: number; suffix: string; min: number; max: number; step?: number; onChange: (value: number) => void; start: string; end: string }) {
+function MediaLibrarySlider({ label, value, suffix, min, max, step = 1, onChange, start, end }: { label: string; value: number; suffix: string; min: number; max: number; step?: number; onChange: (value: number) => void; start: string; end: string }) {
   return (
     <label className="mt-4 block text-sm font-medium text-white">
       <span className="flex items-center justify-between gap-3">

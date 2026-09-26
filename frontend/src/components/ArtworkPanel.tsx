@@ -17,7 +17,7 @@ import MangaDexPanel from "./MangaDexPanel";
 import VizPanel from "./VizPanel";
 import { useToast } from "../lib/toast";
 import { artworkMediaKind, providerMatchesMediaKind } from "../lib/mediaKind";
-import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
+import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/mediaLibrarySettings";
 
 interface Props {
   serverId: number;

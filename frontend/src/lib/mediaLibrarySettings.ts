@@ -1,5 +1,6 @@
-export const DASHBOARD_BACKDROP_KEY = "posterview.dashboardBackdropEnabled";
-export const DASHBOARD_BACKDROP_EVENT = "posterview:dashboard-backdrop";
+// Keep existing storage keys and events compatible with saved appearance preferences.
+export const MEDIA_LIBRARY_BACKDROP_KEY = "posterview.dashboardBackdropEnabled";
+export const MEDIA_LIBRARY_BACKDROP_EVENT = "posterview:dashboard-backdrop";
 export const PANEL_SOLIDITY_KEY = "posterview.panelSolidity";
 export const PANEL_SOLIDITY_EVENT = "posterview:panel-solidity";
 export const BACKDROP_BLUR_KEY = "posterview.backdropBlur";
@@ -20,8 +21,8 @@ function storedNumber(key: string, fallback: number, minimum: number, maximum: n
   return Number.isFinite(value) ? Math.min(maximum, Math.max(minimum, value)) : fallback;
 }
 
-export function dashboardBackdropEnabled() {
-  const stored = localStorage.getItem(DASHBOARD_BACKDROP_KEY);
+export function mediaLibraryBackdropEnabled() {
+  const stored = localStorage.getItem(MEDIA_LIBRARY_BACKDROP_KEY);
   return stored == null ? DEFAULT_BACKDROPS_ENABLED : stored === "true";
 }
 
@@ -78,12 +79,12 @@ export function translucentPanelColor(colorVariable: string, solidity: number, o
   return overlay > 0 ? `color-mix(in srgb, ${panel} ${100 - overlay}%, black)` : panel;
 }
 
-export function setDashboardBackdropEnabled(enabled: boolean) {
-  localStorage.setItem(DASHBOARD_BACKDROP_KEY, String(enabled));
-  window.dispatchEvent(new CustomEvent(DASHBOARD_BACKDROP_EVENT, { detail: enabled }));
+export function setMediaLibraryBackdropEnabled(enabled: boolean) {
+  localStorage.setItem(MEDIA_LIBRARY_BACKDROP_KEY, String(enabled));
+  window.dispatchEvent(new CustomEvent(MEDIA_LIBRARY_BACKDROP_EVENT, { detail: enabled }));
 }
 
-export interface DashboardAppearance {
+export interface MediaLibraryAppearance {
   backdrops_enabled: boolean;
   panel_solidity: number;
   panel_blur: number;
@@ -91,9 +92,9 @@ export interface DashboardAppearance {
   backdrop_overlay: number;
 }
 
-export function dashboardAppearance(): DashboardAppearance {
+export function mediaLibraryAppearance(): MediaLibraryAppearance {
   return {
-    backdrops_enabled: dashboardBackdropEnabled(),
+    backdrops_enabled: mediaLibraryBackdropEnabled(),
     panel_solidity: panelSolidity(),
     panel_blur: backdropBlur(),
     panel_overlay: panelOverlay(),
@@ -101,8 +102,8 @@ export function dashboardAppearance(): DashboardAppearance {
   };
 }
 
-export function applyDashboardAppearance(settings: DashboardAppearance) {
-  setDashboardBackdropEnabled(settings.backdrops_enabled);
+export function applyMediaLibraryAppearance(settings: MediaLibraryAppearance) {
+  setMediaLibraryBackdropEnabled(settings.backdrops_enabled);
   setPanelSolidity(settings.panel_solidity);
   setBackdropBlur(settings.panel_blur);
   setPanelOverlay(settings.panel_overlay);
