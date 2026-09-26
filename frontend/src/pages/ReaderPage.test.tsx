@@ -88,6 +88,37 @@ it("opens a book, navigates pages and persists a bookmark", async () => {
     ).toBe(true),
   );
 });
+it("offers labeled toolbar actions and all three page layouts", async () => {
+  open();
+  await screen.findByText("Comic page 1");
+  for (const label of [
+    "Contents",
+    "Bookmark",
+    "Pages",
+    "Settings",
+    "Fullscreen",
+  ])
+    expect(screen.getByText(label)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Page layout" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Two Pages" }));
+  fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
+  expect(screen.getByText("Comic page 1")).toBeTruthy();
+  expect(screen.getByText("Comic page 2")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  expect(screen.getByText("Comic page 3")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+  expect(screen.getByText("Comic page 1")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Page layout" }));
+  fireEvent.click(
+    screen.getByRole("radio", { name: /Two Pages with First Page as Cover/ }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
+  expect(screen.queryByText("Comic page 2")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+  expect(screen.getByText("Comic page 2")).toBeTruthy();
+  expect(screen.getByText("Comic page 3")).toBeTruthy();
+});
+
 it("restores the saved position", async () => {
   const base = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
