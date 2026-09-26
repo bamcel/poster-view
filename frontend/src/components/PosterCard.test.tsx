@@ -3,6 +3,16 @@ import { afterEach, expect, it, vi } from "vitest";
 import PosterCard from "./PosterCard";
 
 afterEach(cleanup);
+it("gives each poster a stable random shimmer phase", () => {
+  const random = vi.spyOn(Math, "random").mockReturnValueOnce(0.2).mockReturnValueOnce(0.8);
+  const { container, rerender } = render(<><PosterCard title="First" image="first.jpg" coloredEffect="shimmer" /><PosterCard title="Second" image="second.jpg" coloredEffect="shimmer" /></>);
+  const delays = () => Array.from(container.querySelectorAll<HTMLElement>(".poster-colored-shimmer")).map(element => element.style.animationDelay);
+  const initial = delays();
+  expect(initial[0]).not.toBe(initial[1]);
+  rerender(<><PosterCard title="First updated" image="first.jpg" coloredEffect="shimmer" /><PosterCard title="Second" image="second.jpg" coloredEffect="shimmer" /></>);
+  expect(delays()).toEqual(initial);
+  random.mockRestore();
+});
 it("keeps colored effects opt-in and separate from progress badges", () => {
   const { container, rerender } = render(<PosterCard title="Book [Colored]" image="poster.jpg" />);
   expect(container.querySelector(".poster-colored-shimmer")).toBeNull();
