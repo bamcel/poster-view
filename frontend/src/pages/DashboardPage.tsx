@@ -5,7 +5,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ListFilter, Search, ServerCrash, Sparkles } from "lucide-react";
+import { ArrowLeft, ListFilter, MoreHorizontal, Search, ServerCrash, Sparkles } from "lucide-react";
+import { useTrackingOverlays } from "../lib/libraryDisplay";
 import { api, imageUrl } from "../api/client";
 import { useServers } from "../lib/serverContext";
 import PosterCard from "../components/PosterCard";
@@ -47,15 +48,19 @@ export default function DashboardPage() {
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
   const libraryBodyRef = useRef<HTMLDivElement>(null);
   const filterMenuRef = useRef<HTMLDetailsElement>(null);
+  const displayMenuRef = useRef<HTMLDetailsElement>(null);
+  const [trackingOverlays, setTrackingOverlays] = useTrackingOverlays();
   const restoredScrollKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!displayMenuRef.current?.contains(event.target as Node)) displayMenuRef.current?.removeAttribute("open");
       if (!filterMenuRef.current?.contains(event.target as Node)) {
         filterMenuRef.current?.removeAttribute("open");
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") displayMenuRef.current?.removeAttribute("open");
       if (event.key === "Escape") filterMenuRef.current?.removeAttribute("open");
     };
     document.addEventListener("pointerdown", closeOnOutsidePress);
@@ -403,7 +408,7 @@ export default function DashboardPage() {
             </button>
           )}
           <div className="col-start-2 flex items-center gap-2">
-          <div className="relative w-[min(21rem,calc(100vw-10rem))]">
+          <div className="relative w-[min(21rem,calc(100vw-13rem))]">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
             <input
               value={filter}
@@ -456,6 +461,23 @@ export default function DashboardPage() {
                   <Switch label="Group Collections filter" checked={groupCollections} onChange={toggleGroupCollections} />
                 </div>
               )}
+            </div>
+          </details>
+          <details ref={displayMenuRef} className="relative">
+            <summary aria-label="Library display preferences" title="Display Preferences"
+              className="grid size-10 cursor-pointer list-none place-items-center rounded-full border border-border text-muted marker:hidden hover:text-white focus-visible:outline focus-visible:outline-accent"
+              style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)` }}>
+              <MoreHorizontal className="size-4" />
+            </summary>
+            <div className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-border bg-sidebar p-4 shadow-2xl">
+              <h3 className="text-sm font-semibold text-white">Display Preferences</h3>
+              {browsesFolders ? <>
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <span className="text-sm text-muted">Tracking Overlays</span>
+                  <Switch label="Show tracking overlays" checked={trackingOverlays} onChange={() => setTrackingOverlays(!trackingOverlays)} />
+                </div>
+                <p className="mt-2 text-xs text-faint">Show New, Reading, and Finished badges in book libraries. Applies to all book libraries on this browser; reading progress is still saved.</p>
+              </> : <p className="mt-3 text-xs text-muted">No display options for this library type yet.</p>}
             </div>
           </details>
           </div>
@@ -511,7 +533,7 @@ export default function DashboardPage() {
                 title={item.title}
                 subtitle={item.year ? String(item.year) : undefined}
                 kind={item.type}
-                badge={bookInfo.data?.[item.id]?.status ?? (newMissingIds.has(item.id) ? "NEW" : undefined)}
+                badge={browsesFolders && !trackingOverlays ? undefined : bookInfo.data?.[item.id]?.status ?? (newMissingIds.has(item.id) ? "NEW" : undefined)}
                 onOpen={() => openItem(item)}
                 onRefresh={() => refreshMut.mutate({ itemId: item.id })}
                 onEditMetadata={() => navigate(itemDetailUrl(item.id, true))}
