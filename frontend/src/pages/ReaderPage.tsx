@@ -305,6 +305,54 @@ export default function ReaderPage() {
     },
     [go, spread, count, settings.pageLayout],
   );
+  const wheelGesture = useRef({
+    at: -Infinity,
+    previous: -Infinity,
+    total: 0,
+    sign: 0,
+  });
+  const wheel = useCallback(
+    (event: WheelEvent) => {
+      if (
+        !ready ||
+        panel ||
+        webtoon ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
+      )
+        return;
+      const delta =
+        Math.abs(event.deltaY) >= Math.abs(event.deltaX)
+          ? event.deltaY
+          : event.deltaX;
+      if (!delta) return;
+      event.preventDefault();
+      const now = performance.now();
+      const gesture = wheelGesture.current;
+      // Collapse trackpad momentum / repeated wheel events into deliberate turns.
+      if (now - gesture.at < 350) return;
+      const sign = Math.sign(delta);
+      if (gesture.sign !== sign || now - gesture.previous > 200)
+        gesture.total = 0;
+      gesture.previous = now;
+      gesture.sign = sign;
+      gesture.total +=
+        Math.abs(delta) *
+        (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1);
+      if (gesture.total < 20) return;
+      gesture.at = now;
+      gesture.total = 0;
+      turn(sign * (settings.direction === "rtl" ? -1 : 1));
+    },
+    [ready, panel, webtoon, turn, settings.direction],
+  );
+  useEffect(() => {
+    const node = viewport.current;
+    if (!node || !ready) return;
+    node.addEventListener("wheel", wheel, { passive: false });
+    return () => node.removeEventListener("wheel", wheel);
+  }, [ready, wheel]);
   const key = useCallback(
     (event: KeyboardEvent) => {
       if (
@@ -621,6 +669,7 @@ export default function ReaderPage() {
                 onPosition={epubPosition}
                 onNavigate={(p) => go(p)}
                 onKey={key}
+                onWheel={wheel}
                 search={highlight}
               />
             ) : webtoon ? (

@@ -165,6 +165,7 @@ export function EpubChapter({
   onPosition,
   onNavigate,
   onKey,
+  onWheel,
   search,
 }: {
   book: ReaderManifest;
@@ -174,14 +175,15 @@ export function EpubChapter({
   onPosition: (offset: number) => void;
   onNavigate: (page: number) => void;
   onKey: (event: KeyboardEvent) => void;
+  onWheel?: (event: WheelEvent) => void;
   search: string;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [html, setHtml] = useState("");
   const [error, setError] = useState("");
   const position = useRef(offset);
-  const callbacks = useRef({ onPosition, onNavigate, onKey });
-  callbacks.current = { onPosition, onNavigate, onKey };
+  const callbacks = useRef({ onPosition, onNavigate, onKey, onWheel });
+  callbacks.current = { onPosition, onNavigate, onKey, onWheel };
   useEffect(() => {
     position.current = offset;
   }, [offset]);
@@ -314,9 +316,11 @@ export function EpubChapter({
       }
     };
     const key = (event: KeyboardEvent) => callbacks.current.onKey(event);
+    const wheel = (event: WheelEvent) => callbacks.current.onWheel?.(event);
     win.addEventListener("scroll", scroll, { passive: true });
     doc.addEventListener("click", click);
     doc.addEventListener("keydown", key);
+    doc.addEventListener("wheel", wheel, { passive: false });
     win.scrollTo(
       0,
       position.current *
@@ -327,6 +331,7 @@ export function EpubChapter({
       win.removeEventListener("scroll", scroll);
       doc.removeEventListener("click", click);
       doc.removeEventListener("keydown", key);
+      doc.removeEventListener("wheel", wheel);
     };
   }
   return error ? (
