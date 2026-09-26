@@ -65,7 +65,7 @@ export default function CastCrewPanel({ serverId, item }: { serverId: number; it
   const linkedId = item.external_ids[provider] ?? (provider === "mal" ? item.external_ids.myanimelist : undefined);
   const error = importing.error ?? removing.error ?? language.error;
 
-  return <section className="mt-10 rounded-2xl border border-white/10 bg-black/20 p-4 sm:p-5" aria-label="Cast and crew">
+  return <section className="mt-10" aria-label="Cast and crew">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h2 className="flex items-center gap-2 text-lg font-semibold"><UsersRound className="size-5 text-white/60" />Cast & crew</h2>
       <button className={control} aria-expanded={sourcesOpen} onClick={() => setSourcesOpen(!sourcesOpen)}>Sources & matching</button>

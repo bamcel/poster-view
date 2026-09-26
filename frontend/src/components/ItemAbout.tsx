@@ -32,7 +32,7 @@ export function providerLinks(item: ItemDetail) {
 export default function ItemAbout({ item }: { item: ItemDetail }) {
   const links = providerLinks(item);
   const groups = [["Genres", item.genres ?? []], ["Tags", item.tags ?? []], ["Studios", item.studios ?? []]] as const;
-  return <section aria-labelledby="item-about-title" className="mt-10 rounded-2xl border border-white/10 bg-black/20 p-5 backdrop-blur-sm sm:p-6">
+  return <section aria-labelledby="item-about-title" className="mt-10">
     <h2 id="item-about-title" className="mb-5 flex items-center gap-2 text-lg font-semibold"><Info className="size-4 text-muted" aria-hidden="true" />About</h2>
     <dl className="space-y-5">{groups.map(([label, values]) => <div key={label}><dt className="mb-2 text-xs font-semibold text-muted">{label}</dt><dd className="flex flex-wrap gap-2">{values.length ? values.map(value => <span key={value} className={`max-w-full break-words rounded-lg border px-2.5 py-1 text-xs leading-relaxed ${label === "Genres" ? "border-accent/20 bg-accent/10 text-accent" : "border-white/10 bg-white/5 text-white/75"}`}>{value}</span>) : <span className="text-xs text-faint">Not provided</span>}</dd></div>)}
       <div><dt className="mb-2 text-xs font-semibold text-muted">Links</dt><dd className="flex flex-wrap gap-2">{links.length ? links.map(link => <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-accent/20 bg-accent/5 px-2.5 py-1.5 text-xs text-accent transition-colors hover:bg-accent/15">{link.label}<ExternalLink className="size-3" aria-hidden="true" /></a>) : <span className="text-xs text-faint">No provider links available</span>}</dd></div>
