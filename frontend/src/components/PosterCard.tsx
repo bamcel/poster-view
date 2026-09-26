@@ -94,7 +94,7 @@ export default function PosterCard({
 
         {badge != null && (
           <span className="absolute right-2 top-2 grid min-w-6 place-items-center rounded-full bg-accent px-1.5 py-0.5 text-xs font-bold text-black shadow">
-            {badge}
+            {typeof badge === "string" && ["new", "reading", "finished"].includes(badge.toLowerCase()) ? badge.toUpperCase() : badge}
           </span>
         )}
 
