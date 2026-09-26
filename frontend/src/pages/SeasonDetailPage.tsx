@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, CalendarDays, ChevronDown, Clock3, Film, Layers3, RefreshCw, Search, Star, Tv } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Clock3, Film, Layers3, RefreshCw, Search, Star, Tv } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import { seasonsApi, type EpisodeDetail } from "../api/seasons";
 import type { Season } from "../types";
@@ -23,24 +23,23 @@ function EpisodeCard({ episode, serverId }: { episode: EpisodeDetail; serverId: 
   const [expanded, setExpanded] = useState(false);
   const aired = airDate(episode.aired);
   const number = episode.index == null ? "Episode" : `Episode ${String(episode.index).padStart(2, "0")}${episode.index_end != null && episode.index_end !== episode.index ? `–${String(episode.index_end).padStart(2, "0")}` : ""}`;
-  return <article className="group overflow-hidden rounded-2xl border border-white/[0.08] bg-surface shadow-lg shadow-black/10 transition-colors hover:border-white/20">
-    <div className="relative aspect-video overflow-hidden bg-base">
+  return <article className="group w-[min(80vw,21rem)] shrink-0 snap-start">
+    <button type="button" aria-label={`${expanded ? "Less detail" : "Episode details"} for ${episode.title}`} aria-expanded={expanded} aria-controls={`episode-${episode.id}-details`} onClick={() => setExpanded(!expanded)} className="relative block aspect-video w-full overflow-hidden rounded-xl bg-base text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
       <Artwork src={imageUrl(serverId, episode.image)} alt={`${episode.title} episode still`} className="transition-transform duration-500 group-hover:scale-[1.035]" />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-      <span className="absolute bottom-3 left-4 text-xs font-semibold uppercase tracking-[0.15em] text-white">{number}</span>
+      <span className="sr-only">{number}</span>
       {episode.rating != null && <span className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/40 px-2 py-1 text-xs text-white backdrop-blur"><Star className="size-3 fill-amber-300 text-amber-300" aria-hidden="true" />{episode.rating.toFixed(1)}<span className="sr-only">out of 10</span></span>}
-    </div>
-    <div className="p-4 sm:p-5">
-      <h3 className="text-base font-semibold leading-snug text-white">{episode.title}</h3>
+    </button>
+    <div className="pt-2">
+      <h3 className="text-center text-sm font-semibold leading-snug text-white">{episode.index != null && <span>{episode.index}{episode.index_end != null && episode.index_end !== episode.index ? `–${episode.index_end}` : ""}. </span>}<span>{episode.title}</span></h3>
+      {expanded && <div id={`episode-${episode.id}-details`} className="mt-3 rounded-xl border border-white/10 bg-surface p-4">
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
         {aired && <span className="flex items-center gap-1.5"><CalendarDays className="size-3.5" aria-hidden="true" />{aired}</span>}
         {episode.runtime_minutes != null && <span className="flex items-center gap-1.5"><Clock3 className="size-3.5" aria-hidden="true" />{episode.runtime_minutes} min</span>}
       </div>
       <p className={`mt-3 text-sm leading-relaxed text-muted ${expanded ? "" : "line-clamp-3"}`}>{episode.summary || "No synopsis available."}</p>
-      {(episode.summary || episode.directors.length > 0 || episode.writers.length > 0 || episode.cast.length > 0) && <button aria-label={`${expanded ? "Less detail" : "Episode details"} for ${episode.title}`} aria-expanded={expanded} aria-controls={`episode-${episode.id}-details`} onClick={() => setExpanded(!expanded)} className="mt-4 flex min-h-8 items-center gap-1 text-xs font-medium text-accent hover:text-accent-hover">{expanded ? "Less detail" : "Episode details"}<ChevronDown aria-hidden="true" className={`size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} /><span className="sr-only"> for {episode.title}</span></button>}
-      <div id={`episode-${episode.id}-details`} hidden={!expanded}>
         {expanded && <dl className="mt-3 space-y-3 border-t border-white/10 pt-3 text-xs">{[["Directed by", episode.directors], ["Written by", episode.writers], ["Cast", episode.cast]].map(([label, names]) => (names as string[]).length > 0 && <div key={label as string}><dt className="mb-1 text-faint">{label}</dt><dd className="leading-relaxed text-white/80">{(names as string[]).join(" · ")}</dd></div>)}</dl>}
-      </div>
+      </div>}
     </div>
   </article>;
 }
@@ -59,6 +58,8 @@ export default function SeasonDetailPage() {
   const series = seriesQ.data;
   const [search, setSearch] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
+  const episodeRow = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (episodeRow.current) episodeRow.current.scrollLeft = 0; }, [seasonId, search]);
   useEffect(() => { setSearch(""); if (scroller.current) scroller.current.scrollTop = 0; }, [seasonId]);
   const episodes = season?.episodes ?? [];
   const filtered = episodes.filter(episode => `${episode.title} ${episode.index ?? ""}`.toLowerCase().includes(search.trim().toLowerCase()));
@@ -85,8 +86,8 @@ export default function SeasonDetailPage() {
       </div>
     </div>
     {season && <section aria-labelledby="season-episodes-title" className="mx-auto max-w-[1500px] px-5 pb-12 pt-6 sm:px-8 lg:px-12">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4"><div><h2 id="season-episodes-title" className="text-xl font-semibold">Episodes</h2><p className="mt-1 text-xs text-muted">{search ? `${filtered.length} of ${episodes.length}` : `${episodes.length} in this season`}</p></div><div className="flex flex-wrap gap-3">{(series?.seasons.length ?? 0) > 1 && <label className="sr-only" htmlFor="season-picker">Select season</label>}{(series?.seasons.length ?? 0) > 1 && <SeasonPicker seasons={series!.seasons} current={seasonId} serverId={serverId} seriesId={seriesId} suffix={suffix} />}{episodes.length > 0 && <label className="flex items-center gap-2 rounded-full border border-border bg-surface px-4 py-2.5 text-muted"><Search className="size-4" /><input aria-label="Search episodes" placeholder="Find an episode" value={search} onChange={event => setSearch(event.target.value)} className="w-40 bg-transparent text-sm text-white outline-none placeholder:text-faint" /></label>}</div></div>
-      {!episodes.length ? <div className="rounded-2xl border border-dashed border-border py-16 text-center"><Film className="mx-auto mb-3 size-9 text-faint" /><h3>No episodes available</h3><p className="mt-2 text-sm text-muted">Episodes will appear here once your media server has indexed them.</p></div> : !filtered.length ? <p role="status" className="py-12 text-center text-muted">No episodes match “{search}”.</p> : <div className="grid items-start gap-5 md:grid-cols-2 2xl:grid-cols-3">{filtered.map(episode => <EpisodeCard key={`${season.id}:${episode.id}`} episode={episode} serverId={serverId} />)}</div>}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-4"><div><h2 id="season-episodes-title" className="text-xl font-semibold">Episodes</h2><p className="mt-1 text-xs text-muted">{search ? `${filtered.length} of ${episodes.length}` : `${episodes.length} in this season`}</p></div><div className="flex flex-wrap items-center gap-3">{episodes.length > 1 && <div className="flex gap-2"><button aria-label="Previous episodes" onClick={() => episodeRow.current?.scrollBy({ left: -episodeRow.current.clientWidth * 0.85, behavior: "smooth" })} className="rounded-full border border-border p-2.5 text-muted hover:text-white"><ArrowLeft className="size-4" /></button><button aria-label="Next episodes" onClick={() => episodeRow.current?.scrollBy({ left: episodeRow.current.clientWidth * 0.85, behavior: "smooth" })} className="rounded-full border border-border p-2.5 text-muted hover:text-white"><ArrowRight className="size-4" /></button></div>}{(series?.seasons.length ?? 0) > 1 && <label className="sr-only" htmlFor="season-picker">Select season</label>}{(series?.seasons.length ?? 0) > 1 && <SeasonPicker seasons={series!.seasons} current={seasonId} serverId={serverId} seriesId={seriesId} suffix={suffix} />}{episodes.length > 0 && <label className="flex items-center gap-2 rounded-full border border-border bg-surface px-4 py-2.5 text-muted"><Search className="size-4" /><input aria-label="Search episodes" placeholder="Find an episode" value={search} onChange={event => setSearch(event.target.value)} className="w-40 bg-transparent text-sm text-white outline-none placeholder:text-faint" /></label>}</div></div>
+      {!episodes.length ? <div className="rounded-2xl border border-dashed border-border py-16 text-center"><Film className="mx-auto mb-3 size-9 text-faint" /><h3>No episodes available</h3><p className="mt-2 text-sm text-muted">Episodes will appear here once your media server has indexed them.</p></div> : !filtered.length ? <p role="status" className="py-12 text-center text-muted">No episodes match “{search}”.</p> : <div ref={episodeRow} role="region" aria-label="Episodes" tabIndex={0} className="flex snap-x snap-proximity items-start gap-5 overflow-x-auto overscroll-x-contain pb-4 pt-1 focus-visible:outline-accent">{filtered.map(episode => <EpisodeCard key={`${season.id}:${episode.id}`} episode={episode} serverId={serverId} />)}</div>}
     </section>}
   </div>;
 }
