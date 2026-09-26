@@ -15,7 +15,7 @@ mod tests {
         let runtime = Runtime::new(dir.path());
         runtime.initialize().unwrap();
         let tasks = runtime.scheduled_tasks().unwrap();
-        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks.len(), 3);
         let mut config = tasks[0].config.clone();
         assert!(runtime.save_scheduled_task(None, config.clone()).is_err());
         assert!(runtime.task_action(&tasks[0].id, "delete").is_err());
@@ -88,6 +88,24 @@ mod tests {
                 .unwrap(),
             "legacy-data"
         );
+    }
+    #[test]
+    fn new_builtin_is_added_to_existing_task_settings_without_resetting_schedules() {
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = Runtime::new(dir.path());
+        runtime.initialize().unwrap();
+        let mut saved = builtin_tasks();
+        saved.retain(|t| t.id != "imdb_refresh");
+        saved[0].config.enabled = true;
+        runtime
+            .server_store()
+            .unwrap()
+            .set_setting(KEY, &serde_json::to_string(&saved).unwrap())
+            .unwrap();
+        let loaded = runtime.scheduled_tasks().unwrap();
+        assert_eq!(loaded.len(), 3);
+        assert!(loaded[0].config.enabled);
+        assert_eq!(loaded[2].id, "imdb_refresh");
     }
 }
 
@@ -194,6 +212,7 @@ fn builtin_tasks() -> Vec<ScheduledTask> {
     [
         ("missing_credits", "Fetch Missing Cast & Crew", 24),
         ("refresh_credits", "Refresh Outdated Cast & Crew", 168),
+        ("imdb_refresh", "Refresh IMDb Data", 168),
     ]
     .into_iter()
     .map(|(kind, name, interval_hours)| ScheduledTask {
@@ -230,8 +249,14 @@ impl Runtime {
         if raw.is_empty() {
             return Ok(builtin_tasks());
         }
-        serde_json::from_str(&raw)
-            .map_err(|e| invalid(format!("Could not read scheduled tasks: {e}")))
+        let mut saved: Vec<ScheduledTask> = serde_json::from_str(&raw)
+            .map_err(|e| invalid(format!("Could not read scheduled tasks: {e}")))?;
+        for task in builtin_tasks() {
+            if !saved.iter().any(|t| t.id == task.id) {
+                saved.push(task);
+            }
+        }
+        Ok(saved)
     }
     fn change_tasks<T>(
         &self,
@@ -257,6 +282,9 @@ impl Runtime {
     ) -> Result<ScheduledTask, RuntimeError> {
         let id =
             id.ok_or_else(|| invalid("Tasks are built in; custom tasks cannot be created."))?;
+        if id == "imdb_refresh" && config.enabled && !self.imdb_status()?.enabled {
+            return Err(invalid("Enable IMDb in Settings → Database first."));
+        }
         if !(1..=8760).contains(&config.interval_hours) || !(1..=3650).contains(&config.stale_days)
         {
             return Err(invalid(
@@ -283,14 +311,27 @@ impl Runtime {
         })
     }
     pub fn task_action(&self, id: &str, action: &str) -> Result<(), RuntimeError> {
+        if id == "imdb_refresh" && action == "run" && !self.imdb_status()?.enabled {
+            return Err(invalid("Enable IMDb in Settings → Database first."));
+        }
         self.change_tasks(|tasks| {
             let task = tasks
                 .iter_mut()
                 .find(|t| t.id == id)
                 .ok_or_else(|| invalid("Task not found"))?;
             match action {
-                "run" if !active(task) => queue(task),
+                "run" if !active(task) => {
+                    if id == "imdb_refresh" {
+                        self.imdb_cancel
+                            .store(false, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    queue(task);
+                }
                 "cancel" if active(task) => {
+                    if id == "imdb_refresh" {
+                        self.imdb_cancel
+                            .store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
                     task.status = "stopping".into();
                     task.message = "Cancellation requested".into();
                 }
@@ -303,7 +344,7 @@ impl Runtime {
             Ok(())
         })
     }
-    fn update_task(
+    pub(crate) fn update_task(
         &self,
         id: &str,
         change: impl FnOnce(&mut ScheduledTask),
@@ -330,6 +371,10 @@ impl Runtime {
         let task = self.change_tasks(|tasks| {
             for t in tasks.iter_mut() {
                 if !active(t) && t.config.enabled && t.next_run.is_some_and(|at| at <= now()) {
+                    if t.id == "imdb_refresh" {
+                        self.imdb_cancel
+                            .store(false, std::sync::atomic::Ordering::Relaxed);
+                    }
                     queue(t);
                 }
                 if t.status == "stopping" {
@@ -346,7 +391,22 @@ impl Runtime {
         let Some(task) = task else {
             return Ok(());
         };
-        let result = self.task_step(&task).await;
+        let result = if task.id == "imdb_refresh" {
+            let result = self.refresh_imdb().await;
+            if result.is_ok() {
+                self.update_task(&task.id, |t| {
+                    let message = t.message.clone();
+                    if t.status == "stopping" {
+                        finish(t, "cancelled", "IMDb refresh cancelled");
+                    } else {
+                        finish(t, "completed", &message);
+                    }
+                })?;
+            }
+            result
+        } else {
+            self.task_step(&task).await
+        };
         if let Err(error) = result {
             self.update_task(&task.id, |t| {
                 if t.status == "stopping" {

@@ -1,6 +1,8 @@
 mod artwork;
 mod credits;
 mod tasks;
+mod imdb;
+pub use imdb::{ImdbStatus, ImdbTitle};
 pub use tasks::{ScheduledTask, TaskConfig};
 mod artwork_cache;
 mod history;
@@ -56,6 +58,8 @@ pub struct Runtime {
     watchdog_cancelled: Mutex<HashSet<i64>>,
     task_settings_lock: Mutex<()>,
     task_worker: tokio::sync::Mutex<()>,
+    imdb_cancel: Arc<std::sync::atomic::AtomicBool>,
+    imdb_data_lock: Mutex<()>,
 }
 
 #[derive(Debug, Error)]
@@ -93,6 +97,8 @@ impl Runtime {
             watchdog_cancelled: Mutex::new(HashSet::new()),
             task_settings_lock: Mutex::new(()),
             task_worker: tokio::sync::Mutex::new(()),
+            imdb_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            imdb_data_lock: Mutex::new(()),
         }
     }
 

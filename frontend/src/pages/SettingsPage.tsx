@@ -45,6 +45,7 @@ import {
 } from "../lib/theme";
 import SecuritySection from "../components/SecuritySection";
 import ScheduledTasks from "../components/ScheduledTasks";
+import ImdbSource from "../components/ImdbSource";
 import { Clock } from "lucide-react";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
 import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROP_OVERLAY, DEFAULT_BACKDROPS_ENABLED, DEFAULT_PANEL_OVERLAY, DEFAULT_PANEL_SOLIDITY, backdropBlur, backdropOverlay, dashboardBackdropEnabled, panelOverlay, panelSolidity, setBackdropBlur, setBackdropOverlay, setDashboardBackdropEnabled, setPanelOverlay, setPanelSolidity } from "../lib/dashboardSettings";
@@ -853,9 +854,10 @@ function DatabaseSection() {
         <Database className="size-5 text-accent" /> Database
       </h2>
       <p className="mb-3 text-sm text-faint">
-        Manage cached artwork and control background preloading.
+        Manage metadata sources, cached artwork, and background preloading.
       </p>
       <div className="space-y-4">
+        <ImdbSource />
         {serversQ.data?.map((server) => <ArtworkCacheFields key={server.id} server={server} />)}
         {!serversQ.isLoading && serversQ.data?.length === 0 && (
           <p className="rounded-xl border border-border bg-surface-2 p-4 text-sm text-faint">

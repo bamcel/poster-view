@@ -1,9 +1,10 @@
 # Scheduled Tasks
 
-Open **Settings -> Scheduled Tasks**. The Library section contains two built-in tasks, each with a description, last-run information, and a circular Run button:
+Open **Settings -> Scheduled Tasks**. The list contains built-in tasks, each with a description, last-run information, and a circular Run button:
 
 - **Fetch Missing Cast & Crew** fills absent or empty provider credit sources.
 - **Refresh Outdated Cast & Crew** refreshes old sources and fills missing ones.
+- **Refresh IMDb Data** downloads and indexes the optional local IMDb title/rating source. Enable it under **Settings → Database** first; see [IMDb](imdb.md).
 
 Tasks automatically discover every TV library across all connected servers each time they run, including newly added libraries. No task creation or library selection is required. Movie and book credits are not supported by these series tasks.
 

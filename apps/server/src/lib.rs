@@ -28,6 +28,7 @@ mod error;
 mod login_backdrop;
 mod metadata;
 mod credits;
+mod imdb;
 mod reader;
 pub use auth::AuthState;
 pub use config::ServerConfig;
@@ -65,6 +66,8 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 
     let protected = Router::new()
+        .route("/api/imdb/settings", get(imdb::status).put(imdb::save))
+        .route("/api/imdb/search", get(imdb::search))
         .route("/api/tasks", get(tasks::list).post(tasks::create))
         .route("/api/tasks/{id}", axum::routing::put(tasks::update))
         .route("/api/tasks/{id}/{action}", axum::routing::post(tasks::action))

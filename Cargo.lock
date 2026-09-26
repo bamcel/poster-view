@@ -1075,10 +1075,13 @@ name = "posterview-runtime"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "flate2",
  "posterview-contracts",
  "posterview-infra-artwork",
  "posterview-infra-media-servers",
  "posterview-infra-sqlite",
+ "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

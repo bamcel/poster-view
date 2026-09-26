@@ -34,7 +34,7 @@ mod tests {
         let runtime = posterview_runtime::Runtime::new(dir.path());
         runtime.initialize().unwrap();
         // Read the built-ins before connecting servers: scope must be discovered at run time.
-        assert_eq!(runtime.scheduled_tasks().unwrap().len(), 2);
+        assert_eq!(runtime.scheduled_tasks().unwrap().len(), 3);
         for name in ["One", "Two"] {
             runtime
                 .create_server(&posterview_contracts::ServerCreate {
