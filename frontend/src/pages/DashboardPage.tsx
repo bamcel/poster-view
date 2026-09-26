@@ -182,6 +182,9 @@ export default function DashboardPage() {
   useEffect(() => setAutomaticRootId(null), [serverId, libraryId]);
 
   const bookInfo = useBookInfo(serverId, itemsQ.data, browsesFolders);
+  // Resolve NFO names before the first grid render; keep cached titles visible
+  // during background refreshes instead of flashing the server's folder names.
+  const waitingForBookTitles = browsesFolders && (itemsQ.data?.length ?? 0) > 0 && bookInfo.isPending;
   const items = useMemo(() => {
     const all = (itemsQ.data ?? []).map(item => ({ ...item, title: bookInfo.data?.[item.id]?.title || item.title }));
     const q = filter.trim().toLowerCase();
@@ -244,6 +247,7 @@ export default function DashboardPage() {
     if (
       !scrollPositionKey ||
       !itemsQ.data ||
+      waitingForBookTitles ||
       restoredScrollKeyRef.current === scrollPositionKey
     )
       return;
@@ -254,9 +258,10 @@ export default function DashboardPage() {
       libraryBodyRef.current.scrollTop = savedPosition;
     }
     restoredScrollKeyRef.current = scrollPositionKey;
-  }, [itemsQ.data, scrollPositionKey]);
+  }, [itemsQ.data, scrollPositionKey, waitingForBookTitles]);
 
   const rememberScrollPosition = () => {
+    if (waitingForBookTitles || restoredScrollKeyRef.current !== scrollPositionKey) return;
     if (scrollPositionKey && libraryBodyRef.current) {
       sessionStorage.setItem(scrollPositionKey, String(libraryBodyRef.current.scrollTop));
     }
@@ -491,7 +496,7 @@ export default function DashboardPage() {
             Choose which libraries to display in Settings → Server.
           </EmptyState>
         )}
-        {itemsQ.isLoading && <Spinner label="Loading titles…" />}
+        {(itemsQ.isLoading || waitingForBookTitles) && <Spinner label="Loading titles…" />}
         {itemsQ.isError && (
           <EmptyState
             icon={<ServerCrash className="size-10" />}
@@ -500,11 +505,11 @@ export default function DashboardPage() {
             {(itemsQ.error as Error).message}
           </EmptyState>
         )}
-        {itemsQ.data && items.length === 0 && (
+        {!waitingForBookTitles && itemsQ.data && items.length === 0 && (
           <EmptyState title={filter ? "No matches" : "This library is empty"} />
         )}
 
-        {newMissingIds.size > 0 && (
+        {!waitingForBookTitles && newMissingIds.size > 0 && (
           <div className="mb-5 flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-4 py-2 text-sm text-accent">
             <Sparkles className="size-4 shrink-0" />
             {newMissingIds.size} new title{newMissingIds.size === 1 ? "" : "s"}{" "}
@@ -512,7 +517,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {items.length > 0 && (
+        {!waitingForBookTitles && items.length > 0 && (
           <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(125px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]">
             {items.map((item) => (
               <PosterCard

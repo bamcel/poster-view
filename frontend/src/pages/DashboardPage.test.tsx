@@ -32,6 +32,7 @@ afterEach(() => {
   sessionStorage.clear();
   localStorage.clear();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 function renderDashboard(initialEntry = "/?lib=movies") {
@@ -82,6 +83,22 @@ it("edits metadata without leaving the library or resetting its filter", async (
   fireEvent.click(screen.getByText("Close Editor"));
   expect((screen.getByLabelText("Search titles") as HTMLInputElement).value).toBe("Chainsaw");
   expect(screen.getByTestId("location").textContent).toBe("/?lib=manga");
+  client.clear();
+});
+
+it("waits for NFO titles without flashing folder names", async () => {
+  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "manga", title: "Manga", type: "book" }]);
+  vi.mocked(api.getItems).mockResolvedValue([{ id: "colored", title: "Chainsaw Man [Colored]", type: "folder" }]);
+  let complete!: (value: unknown) => void;
+  const pending = new Promise(resolve => { complete = resolve; });
+  vi.stubGlobal("fetch", vi.fn((url: string) => url.includes("/reader/info/") ? pending : Promise.resolve({ ok: true, json: async () => ({ tracking_overlays: true }) })));
+  const { client } = renderDashboard("/?lib=manga");
+  await waitFor(() => expect(api.getItems).toHaveBeenCalled());
+  expect(screen.queryByText("Chainsaw Man [Colored]")).toBeNull();
+  expect(screen.getByText("Loading titles…")).toBeTruthy();
+  complete({ ok: true, json: async () => ({ title: "Chainsaw Man", colored_edition: true }) });
+  expect(await screen.findByText("Chainsaw Man")).toBeTruthy();
+  expect(screen.queryByText("Chainsaw Man [Colored]")).toBeNull();
   client.clear();
 });
 
