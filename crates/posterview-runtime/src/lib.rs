@@ -1,4 +1,5 @@
 mod artwork;
+mod credits;
 mod artwork_cache;
 mod history;
 mod nfo_sources;
@@ -408,6 +409,14 @@ impl Runtime {
             )
             .await,
         ))
+    }
+
+    pub async fn get_season_detail(&self, id: i64, series_id: &str, season_id: &str) -> Result<Option<Result<posterview_contracts::SeasonDetail, String>>, RuntimeError> {
+        let Some(server) = self.server_store()?.get_server(id)? else { return Ok(None); };
+        let token = self.server_store()?.decrypted_token(id)?.unwrap_or_default();
+        Ok(Some(posterview_infra_media_servers::get_season_detail(ConnectionConfig {
+            server_type: server.server_type, base_url: &server.base_url, token: &token,
+        }, series_id, season_id).await))
     }
 
     #[allow(clippy::too_many_arguments)]

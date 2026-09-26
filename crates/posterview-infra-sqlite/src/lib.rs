@@ -1,3 +1,5 @@
+mod credits;
+
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -88,6 +90,7 @@ impl ServerStore {
         self.cipher()?;
         let connection = self.connection()?;
         connection.execute_batch(SCHEMA)?;
+        connection.execute_batch(credits::SCHEMA)?;
         migrate(&connection)?;
         Ok(())
     }
@@ -390,7 +393,7 @@ impl ServerStore {
 fn is_secret_setting(key: &str) -> bool {
     matches!(
         key,
-        "posterdb_password" | "fanart_api_key" | "tvdb_api_key" | "tvdb_pin" | "comicvine_api_key"
+        "posterdb_password" | "fanart_api_key" | "tvdb_api_key" | "tvdb_pin" | "comicvine_api_key" | "tmdb_access_token"
     )
 }
 

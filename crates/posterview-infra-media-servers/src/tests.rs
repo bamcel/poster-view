@@ -4,6 +4,14 @@ use tokio::net::TcpListener;
 
 use super::*;
 
+#[test]
+fn plex_nfo_location_requires_one_distinct_path() {
+    assert_eq!(plex_source_path(&json!({"type":"show","Location":[{"path":"/media/TV/Series"}]})), Some("/media/TV/Series".into()));
+    assert_eq!(plex_source_path(&json!({"type":"show","Location":[{"path":"/media/TV/Series"},{"path":"/other/Series"}]})), None);
+    assert_eq!(plex_source_path(&json!({"type":"movie","Media":[{"Part":[{"file":"/media/Movie.mkv"}]}]})), Some("/media/Movie.mkv".into()));
+    assert_eq!(plex_source_path(&json!({"type":"movie","Media":[{"Part":[{"file":"/media/Movie.mkv"},{"file":"/media/Movie2.mkv"}]}]})), None);
+}
+
 #[tokio::test]
 async fn book_folder_detail_falls_back_to_user_scoped_item_endpoint() {
     let app = Router::new()
@@ -282,7 +290,7 @@ fn manga_series_own_cover_wins_over_first_volume_fallback() {
     );
 }
 
-async fn serve(app: Router) -> (String, tokio::task::JoinHandle<()>) {
+pub(super) async fn serve(app: Router) -> (String, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move {

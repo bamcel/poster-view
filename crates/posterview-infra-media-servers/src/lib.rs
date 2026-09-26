@@ -275,6 +275,25 @@ async fn emby_item_detail(
     })
 }
 
+fn plex_source_path(item: &Value) -> Option<String> {
+    let mut paths = Vec::new();
+    if item.get("type").and_then(Value::as_str) == Some("show") {
+        for location in item.get("Location").and_then(Value::as_array).into_iter().flatten() {
+            if let Some(path) = location.get("path").and_then(Value::as_str) { paths.push(path); }
+        }
+    } else {
+        for media in item.get("Media").and_then(Value::as_array).into_iter().flatten() {
+            for part in media.get("Part").and_then(Value::as_array).into_iter().flatten() {
+                if let Some(path) = part.get("file").and_then(Value::as_str) { paths.push(path); }
+            }
+        }
+    }
+    paths.retain(|path| !path.is_empty());
+    paths.sort_unstable();
+    paths.dedup();
+    if paths.len() == 1 { Some(paths[0].to_owned()) } else { None }
+}
+
 async fn plex_item_detail(
     client: &Client,
     config: &ConnectionConfig<'_>,
@@ -351,10 +370,7 @@ async fn plex_item_detail(
         .find(|image| image.get("type").and_then(Value::as_str) == Some("clearLogo"))
         .and_then(|image| relative_ref(image.get("url")));
     Ok(ItemDetail {
-        source_path: item
-            .pointer("/Media/0/Part/0/file")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
+        source_path: plex_source_path(item),
         file_name: item
             .pointer("/Media/0/Part/0/file")
             .and_then(Value::as_str)
@@ -1296,3 +1312,5 @@ fn string_field(value: &Value, field: &str, fallback: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+mod seasons;
+pub use seasons::get_season_detail;

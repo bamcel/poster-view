@@ -12,6 +12,8 @@ import { api, imageUrl } from "../api/client";
 import PosterCard from "../components/PosterCard";
 import ArtworkPanel from "../components/ArtworkPanel";
 import MetadataEditorModal from "../components/MetadataEditorModal";
+import VideoMetadataEditor from "../components/VideoMetadataEditor";
+import CastCrewPanel from "../components/CastCrewPanel";
 import { Spinner, EmptyState } from "../components/ui";
 import type { Library, NfoMetadata } from "../types";
 import { seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
@@ -71,7 +73,7 @@ export default function ItemDetailPage() {
   const metadataQ = useQuery({
     queryKey: ["nfo-metadata", serverId, itemId],
     queryFn: () => api.getNfoMetadata(serverId, itemId!),
-    enabled: Number.isFinite(serverId) && !!itemId,
+    enabled: Number.isFinite(serverId) && !!itemId && !!detailQ.data && !["movie", "show"].includes(detailQ.data.type),
     retry: false,
   });
   const saveMetadata = useMutation({
@@ -229,7 +231,7 @@ export default function ItemDetailPage() {
                         </p>
                       </div>
                       <div className="hidden shrink-0 flex-wrap items-center justify-end gap-2 xl:flex">
-                        {metadataQ.data && (
+                        {(item.type === "movie" || item.type === "show" || metadataQ.data) && (
                           <button
                             type="button"
                             onClick={() => { setMetadataImport(null); setMetadataEditorOpen(true); }}
@@ -251,7 +253,7 @@ export default function ItemDetailPage() {
                       </div>
                     </div>
                     <div className="mt-3 flex items-center justify-center gap-1.5 sm:justify-start sm:gap-2 xl:hidden">
-                      {metadataQ.data && (
+                      {(item.type === "movie" || item.type === "show" || metadataQ.data) && (
                         <button
                           type="button"
                           onClick={() => { setMetadataImport(null); setMetadataEditorOpen(true); }}
@@ -317,6 +319,8 @@ export default function ItemDetailPage() {
                   </div>
                 </div>
 
+                {item.type === "show" && <CastCrewPanel key={`${serverId}:${item.id}`} serverId={serverId} item={item} />}
+
                 {/* Seasons */}
                 {item.seasons.length > 0 && (
                   <section className="mt-10">
@@ -332,6 +336,11 @@ export default function ItemDetailPage() {
                           }
                           kind="show"
                           badge={s.episode_count ?? undefined}
+                          onOpen={() => {
+                            const context = new URLSearchParams(searchParams);
+                            context.delete("edit_metadata");
+                            navigate(`/server/${serverId}/series/${encodeURIComponent(item.id)}/season/${encodeURIComponent(s.id)}?${context}`);
+                          }}
                         />
                       ))}
                     </div>
@@ -406,7 +415,10 @@ export default function ItemDetailPage() {
           </section>
         </div>
       )}
-      {metadataEditorOpen && (metadataQ.data || metadataImport) && (
+      {metadataEditorOpen && item && (item.type === "movie" || item.type === "show") && (
+        <VideoMetadataEditor key={`${serverId}:${itemId}`} serverId={serverId} itemId={itemId!} onClose={() => setMetadataEditorOpen(false)} />
+      )}
+      {metadataEditorOpen && item?.type !== "movie" && item?.type !== "show" && (metadataQ.data || metadataImport) && (
         <MetadataEditorModal
           metadata={metadataQ.data ?? {
             title: "", year: "", publisher: "", edition: "", volumes: "", status: "", plot: "",

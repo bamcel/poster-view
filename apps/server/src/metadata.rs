@@ -1,4 +1,5 @@
 //! Opt-in sidecars on a mounted manga directory. No media-server mutations.
+pub(crate) mod video;
 use std::{
     collections::HashMap,
     fs,
@@ -963,6 +964,9 @@ mod tests {
             ("GET", "/api/metadata/search?query=Manga"),
             ("GET", "/api/metadata/item?server_id=1&item_id=manga"),
             ("PUT", "/api/metadata/item"),
+            ("GET", "/api/metadata/video?server_id=1&item_id=movie"),
+            ("PUT", "/api/metadata/video"),
+            ("POST", "/api/metadata/video/preview"),
             ("POST", "/api/metadata/comicvine"),
             ("POST", "/api/metadata/comicvine/preview"),
             ("POST", "/api/metadata/anilist-manga"),

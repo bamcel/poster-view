@@ -5,7 +5,10 @@
 - [Getting started and key features](user-guide.md)
 - [Book libraries: manga, comics, and books](book-libraries.md)
 - [Local book and manga metadata](local-metadata.md)
+- [Movie and series NFO metadata](movie-series-metadata.md)
+- [Seasons and episodes](seasons-and-episodes.md)
 - [MangaDex covers](mangadex-covers.md)
+- [Series cast, crew, and dubbed languages](cast-and-crew.md)
 
 The user guides describe the current PosterView interface. Screenshots are stored in
 [`screenshots/`](screenshots/).

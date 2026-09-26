@@ -378,6 +378,9 @@ async fn administrator_session_protects_api_routes() {
         .unwrap();
     assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
 
+    let denied_season = app.clone().oneshot(Request::get("/api/servers/1/shows/show/seasons/season").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(denied_season.status(), StatusCode::UNAUTHORIZED);
+
     let rejected = app
         .clone()
         .oneshot(

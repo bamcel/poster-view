@@ -2,6 +2,7 @@ import { Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
 import DashboardPage from "./pages/DashboardPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
+import SeasonDetailPage from "./pages/SeasonDetailPage";
 import SettingsPage from "./pages/SettingsPage";
 import HistoryPage from "./pages/HistoryPage";
 import { ToastProvider } from "./lib/toast";
@@ -25,6 +26,7 @@ export default function App() {
               <Route path="/history" element={<HistoryPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/server/:serverId/item/:itemId" element={<ItemDetailPage />} />
+              <Route path="/server/:serverId/series/:seriesId/season/:seasonId" element={<SeasonDetailPage />} />
             </Route>
             </Routes>
           </ToastProvider>

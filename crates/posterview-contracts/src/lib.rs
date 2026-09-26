@@ -1,3 +1,6 @@
+mod credits;
+pub use credits::*;
+
 use serde::{Deserialize, Serialize};
 
 /// Stable response returned by the public health endpoint.
@@ -543,3 +546,5 @@ pub struct PosterSearchResults {
 pub struct VerifyTitlesRequest {
     pub ids: Vec<String>,
 }
+mod seasons;
+pub use seasons::{EpisodeDetail, SeasonDetail};

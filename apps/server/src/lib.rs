@@ -27,6 +27,7 @@ mod config;
 mod error;
 mod login_backdrop;
 mod metadata;
+mod credits;
 mod reader;
 pub use auth::AuthState;
 pub use config::ServerConfig;
@@ -64,6 +65,9 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 
     let protected = Router::new()
+        .route("/api/credits/search", get(credits::search))
+        .route("/api/credits/settings", get(credits::settings).put(credits::save_settings))
+        .route("/api/servers/{id}/items/{item_id}/credits", get(credits::get).post(credits::import).put(credits::language).delete(credits::remove))
         .route("/api/reader/open/{server}/{item}", get(reader::open))
         .route("/api/reader/books/{id}", get(reader::manifest))
         .route("/api/reader/info/{server}/{item}", get(reader::info))
@@ -71,6 +75,8 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/reader/books/{id}/entry", get(reader::entry))
         .route("/api/reader/books/{id}/state", get(reader::load_state).put(reader::save_state))
         .route("/api/metadata/folders", get(metadata::folders))
+        .route("/api/metadata/video", get(metadata::video::document).put(metadata::video::save))
+        .route("/api/metadata/video/preview", axum::routing::post(metadata::video::preview))
         .route(
             "/api/metadata/document",
             get(metadata::document).put(metadata::save),
@@ -116,6 +122,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             get(get_items),
         )
         .route("/api/servers/{id}/items/{item_id}", get(get_item_detail))
+        .route("/api/servers/{id}/shows/{series_id}/seasons/{season_id}", get(get_season_detail))
         .route(
             "/api/artwork/upload",
             axum::routing::post(upload_image)
@@ -552,6 +559,14 @@ async fn get_item_detail(
             status: StatusCode::BAD_GATEWAY,
             detail,
         }),
+    }
+}
+
+async fn get_season_detail(State(state): State<AppState>, Path((id, series_id, season_id)): Path<(i64, String, String)>) -> Result<impl IntoResponse, HttpError> {
+    match state.runtime.get_season_detail(id, &series_id, &season_id).await? {
+        None => Err(HttpError::not_found()),
+        Some(Ok(season)) => Ok(Json(season)),
+        Some(Err(detail)) => Err(HttpError::bad_gateway(detail)),
     }
 }
 

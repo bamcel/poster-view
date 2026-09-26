@@ -1,4 +1,6 @@
 mod comicvine;
+mod credits;
+pub use credits::{valid_credit_id, valid_credit_provider, credit_language};
 mod mangadex;
 mod posterdb;
 mod viz;
