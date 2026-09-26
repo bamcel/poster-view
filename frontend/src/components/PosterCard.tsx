@@ -48,7 +48,7 @@ export default function PosterCard({
   // server; fall back to a clean placeholder instead of a broken-image glyph.
   const [failed, setFailed] = useState(false);
   // Keep each poster's random phase stable across hover and metadata updates.
-  const [shimmerDelay] = useState(() => `${-Math.random() * 6.3}s`);
+  const [shimmerDelay] = useState(() => `${-Math.random() * 5}s`);
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
