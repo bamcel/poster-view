@@ -3,6 +3,14 @@ import { afterEach, expect, it, vi } from "vitest";
 import PosterCard from "./PosterCard";
 
 afterEach(cleanup);
+it("matches the colored title background to the badge when enabled", () => {
+  const { rerender } = render(<PosterCard title="Colored Title" coloredEffect="badge" />);
+  expect(screen.getByText("Colored Title").classList.contains("poster-colored-badge")).toBe(true);
+  rerender(<PosterCard title="Colored Title" coloredEffect="both" />);
+  expect(screen.getByText("Colored Title").classList.contains("poster-colored-badge")).toBe(true);
+  rerender(<PosterCard title="Colored Title" coloredEffect="off" />);
+  expect(screen.getByText("Colored Title").classList.contains("poster-colored-badge")).toBe(false);
+});
 it("renders both colored effects together", () => {
   const { container } = render(<PosterCard title="Book" image="poster.jpg" coloredEffect="both" />);
   expect(container.querySelector(".poster-colored-shimmer")).toBeTruthy();
