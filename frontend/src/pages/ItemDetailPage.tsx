@@ -379,6 +379,7 @@ export default function ItemDetailPage() {
                           image={imageUrl(serverId, m.poster)}
                           title={memberInfo.data?.[m.id]?.title || m.title}
                           coloredEffect={memberInfo.data?.[m.id]?.colored_edition ? displayStatus.coloredEffect : "off"}
+                          coloredTitle={memberInfo.data?.[m.id]?.colored_edition && displayStatus.coloredTitle}
                           badge={trackingOverlays ? memberInfo.data?.[m.id]?.status : undefined}
                           subtitle={m.year ? String(m.year) : undefined}
                           kind={m.type}
