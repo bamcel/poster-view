@@ -44,6 +44,8 @@ import {
   type ThemeColorKey,
 } from "../lib/theme";
 import SecuritySection from "../components/SecuritySection";
+import ScheduledTasks from "../components/ScheduledTasks";
+import { Clock } from "lucide-react";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
 import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROP_OVERLAY, DEFAULT_BACKDROPS_ENABLED, DEFAULT_PANEL_OVERLAY, DEFAULT_PANEL_SOLIDITY, backdropBlur, backdropOverlay, dashboardBackdropEnabled, panelOverlay, panelSolidity, setBackdropBlur, setBackdropOverlay, setDashboardBackdropEnabled, setPanelOverlay, setPanelSolidity } from "../lib/dashboardSettings";
 
@@ -68,10 +70,11 @@ const TOKEN_LABEL: Record<ServerType, string> = {
   emby: "API Key",
 };
 
-type SettingsTab = "servers" | "sources" | "database" | "appearance" | "security";
+type SettingsTab = "servers" | "sources" | "database" | "appearance" | "security" | "tasks";
 const SETTINGS_TAB_KEY = "posterview.settingsTab";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
+  { id: "tasks", label: "Scheduled Tasks", icon: <Clock className="size-4" /> },
   { id: "servers", label: "Server", icon: <ServerIcon className="size-4" /> },
   { id: "sources", label: "Search Providers", icon: <ImageIcon className="size-4" /> },
   { id: "database", label: "Database", icon: <Database className="size-4" /> },
@@ -127,11 +130,12 @@ export default function SettingsPage() {
             </button>
           ))}</div>
           <span role="status" className={`shrink-0 self-end text-xs sm:self-auto ${saveStatus === "error" ? "text-danger" : "text-accent"}`}>
-            {saveStatus === "saving" ? "Saving settings…" : saveStatus === "error" ? "Settings could not be saved." : "Settings saved automatically."}
+            {tab === "tasks" ? "Save each task to apply changes." : saveStatus === "saving" ? "Saving settings…" : saveStatus === "error" ? "Settings could not be saved." : "Settings saved automatically."}
           </span>
         </div>
 
         <div className="min-h-0 flex-1">
+          {tab === "tasks" && <ScheduledTasks />}
           {tab === "servers" && <ServersSection />}
           {tab === "sources" && <ArtworkSourcesSection />}
           {tab === "database" && <DatabaseSection />}

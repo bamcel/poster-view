@@ -29,6 +29,7 @@ async fn main() -> anyhow::Result<()> {
     .context("could not initialize administrator authentication")?
     .with_authentication(config.auth_enabled);
     tokio::spawn(watchdog_loop(Arc::clone(&runtime)));
+    tokio::spawn(task_loop(Arc::clone(&runtime)));
 
     let listener = TcpListener::bind(config.bind)
         .await
@@ -57,6 +58,13 @@ async fn watchdog_loop(runtime: Arc<Runtime>) {
                 });
             }
         }
+    }
+}
+
+async fn task_loop(runtime: Arc<Runtime>) {
+    loop {
+        if let Err(error) = runtime.scheduled_task_tick().await { tracing::error!(%error, "Scheduled task worker failed"); }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
 }
 

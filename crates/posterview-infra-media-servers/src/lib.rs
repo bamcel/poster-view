@@ -678,6 +678,56 @@ async fn emby_items(
     Ok(raw.iter().filter_map(emby_media_item).collect())
 }
 
+/// Paginated series inventory for background tasks; never silently truncate a library.
+#[cfg(test)]
+mod task_inventory_tests {
+    use super::*;
+    #[tokio::test]
+    async fn plex_inventory_follows_server_total_across_short_pages() {
+        use axum::{Router, Json, extract::Query, routing::get};
+        let app = Router::new().route("/library/sections/tv/all", get(|Query(query): Query<std::collections::HashMap<String, String>>| async move {
+            let offset: usize = query["X-Plex-Container-Start"].parse().unwrap();
+            Json(serde_json::json!({"MediaContainer": {"totalSize": 3, "Metadata": [{"ratingKey": (offset + 1).to_string(), "title": format!("Series {offset}"), "type": "show"}]}}))
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        let result = get_series_inventory(ConnectionConfig { server_type: ServerType::Plex, base_url: &url, token: "test" }, "tv").await.unwrap();
+        assert_eq!(result.len(), 3); assert_eq!(result[2].id, "3");
+        handle.abort();
+    }
+}
+
+pub async fn get_series_inventory(config: ConnectionConfig<'_>, library_id: &str) -> Result<Vec<MediaItem>, String> {
+    let client = media_client(&config)?;
+    let mut items = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let plex = config.server_type == ServerType::Plex;
+    let label = if config.server_type == ServerType::Emby { "Emby" } else { "Jellyfin" };
+    let user = if plex { String::new() } else { emby_user_id(&client, &config, label).await? };
+    let mut offset = 0usize;
+    loop {
+        let start = offset.to_string();
+        let data = if plex {
+            plex_json(&client, &config, &format!("/library/sections/{library_id}/all?type=2&X-Plex-Container-Start={offset}&X-Plex-Container-Size=200")).await?
+        } else {
+            emby_json(&client, &config, label, "/Items", &[("ParentId", library_id), ("Recursive", "true"), ("IncludeItemTypes", "Series"), ("SortBy", "SortName"), ("SortOrder", "Ascending"), ("userId", &user), ("StartIndex", &start), ("Limit", "200")]).await?
+        };
+        let rows = data.get(if plex { "Metadata" } else { "Items" }).and_then(Value::as_array);
+        let count = rows.map_or(0, Vec::len);
+        let before = items.len();
+        for row in rows.into_iter().flatten() {
+            let item = if plex { plex_media_item(row) } else { emby_media_item(row) };
+            if let Some(item) = item { if seen.insert(item.id.clone()) { items.push(item); } }
+        }
+        offset += count;
+        let total = data.get(if plex { "totalSize" } else { "TotalRecordCount" }).and_then(Value::as_u64);
+        if total.is_some_and(|n| offset >= n as usize) || (total.is_none() && count < 200) { break; }
+        if count == 0 || items.len() == before { return Err("Media server did not advance inventory pagination".into()); }
+    }
+    Ok(items)
+}
+
 /// Browse actual folder children rather than flattening every volume in a library.
 pub async fn get_folder_items(
     config: ConnectionConfig<'_>,

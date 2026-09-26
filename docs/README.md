@@ -9,6 +9,7 @@
 - [Seasons and episodes](seasons-and-episodes.md)
 - [MangaDex covers](mangadex-covers.md)
 - [Series cast, crew, and dubbed languages](cast-and-crew.md)
+- [Scheduled Tasks](scheduled-tasks.md)
 
 The user guides describe the current PosterView interface. Screenshots are stored in
 [`screenshots/`](screenshots/).

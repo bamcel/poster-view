@@ -1,5 +1,7 @@
 mod artwork;
 mod credits;
+mod tasks;
+pub use tasks::{ScheduledTask, TaskConfig};
 mod artwork_cache;
 mod history;
 mod nfo_sources;
@@ -52,6 +54,8 @@ pub struct Runtime {
     media_image_cache: ArtworkCache,
     watchdog_running: Mutex<HashSet<i64>>,
     watchdog_cancelled: Mutex<HashSet<i64>>,
+    task_settings_lock: Mutex<()>,
+    task_worker: tokio::sync::Mutex<()>,
 }
 
 #[derive(Debug, Error)]
@@ -87,6 +91,8 @@ impl Runtime {
             artwork: ArtworkService::default(),
             watchdog_running: Mutex::new(HashSet::new()),
             watchdog_cancelled: Mutex::new(HashSet::new()),
+            task_settings_lock: Mutex::new(()),
+            task_worker: tokio::sync::Mutex::new(()),
         }
     }
 

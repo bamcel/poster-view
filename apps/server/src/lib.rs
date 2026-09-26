@@ -65,6 +65,9 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 
     let protected = Router::new()
+        .route("/api/tasks", get(tasks::list).post(tasks::create))
+        .route("/api/tasks/{id}", axum::routing::put(tasks::update))
+        .route("/api/tasks/{id}/{action}", axum::routing::post(tasks::action))
         .route("/api/credits/search", get(credits::search))
         .route("/api/credits/preferences", get(credits::preferences).put(credits::save_preferences))
         .route("/api/credits/settings", get(credits::settings).put(credits::save_settings))
@@ -1131,3 +1134,4 @@ async fn api_not_found(uri: Uri) -> impl IntoResponse {
 
 #[cfg(test)]
 mod tests;
+mod tasks;
