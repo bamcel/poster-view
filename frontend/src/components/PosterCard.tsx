@@ -13,6 +13,7 @@ interface PosterCardProps {
   kind?: "movie" | "show" | "collection" | "book" | "audiobook" | "folder";
   selected?: boolean;
   onOpen?: () => void;
+  openLabel?: string;
   onRefresh?: () => void;
   onEditMetadata?: () => void;
   refreshing?: boolean;
@@ -26,6 +27,7 @@ export default function PosterCard({
   kind = "movie",
   selected,
   onOpen,
+  openLabel = "Open",
   onRefresh,
   onEditMetadata,
   refreshing,
@@ -99,7 +101,7 @@ export default function PosterCard({
         {onOpen && (
           <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
             <span className="m-3 rounded-md bg-white/15 px-2 py-1 text-xs font-medium backdrop-blur">
-              Open
+              {openLabel}
             </span>
           </div>
         )}

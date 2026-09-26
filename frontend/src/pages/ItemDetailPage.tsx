@@ -351,11 +351,13 @@ export default function ItemDetailPage() {
                           title={m.title}
                           subtitle={m.year ? String(m.year) : undefined}
                           kind={m.type}
-                          onOpen={item.type !== "folder" || m.type === "folder"
+                          openLabel={m.type === "book" ? "Read" : "Open"}
+                          onOpen={m.type === "book"
+                            ? () => navigate(`/read/${serverId}/${encodeURIComponent(m.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`)
+                            : item.type !== "folder" || m.type === "folder"
                             ? () => navigate(`/server/${serverId}/item/${m.id}?${searchParams.toString()}`)
-                            : m.type === "book" ? () => navigate(`/read/${serverId}/${encodeURIComponent(m.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`) : undefined}
+                            : undefined}
                         />
-                        {m.type === "book" && <button className="mt-2 w-full rounded-lg border border-border bg-button py-2 text-xs font-medium text-white hover:bg-button-hover" onClick={()=>navigate(`/read/${serverId}/${encodeURIComponent(m.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`)}>Read</button>}
                         </div>
                       ))}
                     </div>

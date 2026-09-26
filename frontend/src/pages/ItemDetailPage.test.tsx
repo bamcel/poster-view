@@ -112,7 +112,9 @@ it("makes manga volume files readable while nested folders remain openable", asy
 
   const volume = await screen.findByText("Volume 2");
   expect(volume.closest("button")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Read" })).toBeTruthy();
+  expect(volume.closest("button")?.textContent).toContain("Read");
+  expect(volume.closest("button")?.textContent).not.toContain("Open");
+  expect(screen.queryByRole("button", { name: "Read" })).toBeNull();
   expect(screen.getByRole("button", { name: /Extras/ })).toBeTruthy();
   client.clear();
 });
