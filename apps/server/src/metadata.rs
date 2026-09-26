@@ -50,7 +50,7 @@ pub(crate) struct Fields {
     pub(crate) sort_title: String,
     year: String,
     publisher: String,
-    edition: String,
+    pub(crate) edition: String,
     volumes: String,
     status: String,
     plot: String,

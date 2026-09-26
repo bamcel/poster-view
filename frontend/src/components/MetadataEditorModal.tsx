@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { ExternalLink, Loader2, Save, X } from "lucide-react";
 import type { NfoMetadata } from "../types";
+import EditionField from "./EditionField";
 
 function mergeSourceUrls(existing: string, incoming: string): string {
   return [...new Set(`${existing}\n${incoming}`.split(/\r?\n/).map((url) => url.trim()).filter(Boolean))].join("\n");
@@ -149,7 +150,7 @@ export default function MetadataEditorModal({
           <details open className="sm:col-span-2 rounded-xl border border-border bg-window p-3">
             <summary className="cursor-pointer text-sm font-medium text-muted">Advanced fields</summary>
             <div className="mt-3 grid gap-4 sm:grid-cols-2">
-              <label className="text-sm text-muted">Edition<input className={input} value={fields.edition} onChange={(e) => set("edition", e.target.value)} /></label>
+              <EditionField value={fields.edition} onChange={value => set("edition", value)} inputClass={input} />
               <label className="text-sm text-muted">
                 AniList ID
                 <span className="relative block">

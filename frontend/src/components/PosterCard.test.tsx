@@ -3,6 +3,17 @@ import { afterEach, expect, it, vi } from "vitest";
 import PosterCard from "./PosterCard";
 
 afterEach(cleanup);
+it("keeps colored effects opt-in and separate from progress badges", () => {
+  const { container, rerender } = render(<PosterCard title="Book [Colored]" image="poster.jpg" />);
+  expect(container.querySelector(".poster-colored-shimmer")).toBeNull();
+  expect(screen.queryByText("COLORED")).toBeNull();
+  rerender(<PosterCard title="Book" image="poster.jpg" coloredEffect="shimmer" />);
+  expect(container.querySelector(".poster-colored-shimmer")).toBeTruthy();
+  rerender(<PosterCard title="Book" image="poster.jpg" coloredEffect="badge" badge="Reading" />);
+  expect(screen.getByText("COLORED")).toBeTruthy();
+  expect(screen.getByText("READING")).toBeTruthy();
+  expect(container.querySelector(".poster-colored-shimmer")).toBeNull();
+});
 it("keeps only the latest right-click menu open and dismisses it with Escape", () => {
   render(<>
     <PosterCard title="First" onOpen={vi.fn()} onRefresh={vi.fn()} />
