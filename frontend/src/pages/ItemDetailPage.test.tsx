@@ -7,7 +7,7 @@ import ItemDetailPage from "./ItemDetailPage";
 import { videoMetadataApi } from "../api/videoMetadata";
 
 vi.mock("../components/ArtworkPanel", () => ({ default: ({ onClose }: { onClose?: () => void }) => <button onClick={onClose}>Close artwork</button> }));
-vi.mock("../components/CastCrewPanel", () => ({ default: () => <section aria-label="Cast & crew">Cast & crew</section> }));
+vi.mock("../components/CastCrewPanel", () => ({ default: () => <section aria-label="Cast & Crew">Cast & Crew</section> }));
 vi.mock("../api/videoMetadata", () => ({ videoMetadataApi: { get: vi.fn() } }));
 vi.mock("../api/client", () => ({ imageUrl: (_serverId: number, image?: string | null) => image ? `/api/image/${image}` : undefined, api: { getItemDetail: vi.fn(), getNfoMetadata: vi.fn(), refreshArtworkItem: vi.fn() } }));
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
@@ -41,7 +41,7 @@ it("opens a season from its series card and preserves library context", async ()
   const openSeason = await screen.findByRole("button", { name: /Open Season 1/ });
   const seasonsHeading = screen.getByRole("heading", { name: "Seasons" });
   const about = screen.getByRole("region", { name: "About" });
-  const cast = screen.getByRole("region", { name: "Cast & crew" });
+  const cast = screen.getByRole("region", { name: "Cast & Crew" });
   expect(seasonsHeading.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(about.compareDocumentPosition(cast) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   fireEvent.click(openSeason);

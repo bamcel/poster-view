@@ -67,7 +67,7 @@ export default function CastCrewPanel({ serverId, item }: { serverId: number; it
 
   return <section className="mt-10" aria-label="Cast and crew">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <h2 className="flex items-center gap-2 text-lg font-semibold"><UsersRound className="size-5 text-white/60" />Cast & crew</h2>
+      <h2 className="flex items-center gap-2 text-lg font-semibold"><UsersRound className="size-5 text-white/60" />Cast & Crew</h2>
       <button className={control} aria-expanded={sourcesOpen} onClick={() => setSourcesOpen(!sourcesOpen)}>Sources & matching</button>
     </div>
     <p className="mt-1 text-xs text-white/50">Original performances, dubbed casts, and the people behind this series.</p>
