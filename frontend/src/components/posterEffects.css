@@ -1,7 +1,7 @@
 .poster-colored-shimmer {
   background: linear-gradient(115deg, transparent 30%, #7dd3fc20 39%, #f0abfc60 46%, #ffffff70 50%, #fde68a40 55%, transparent 65%);
   background-size: 300% 100%;
-  animation: colored-edition-shimmer 7s ease-in-out infinite;
+  animation: colored-edition-shimmer 6.3s ease-in-out infinite;
 }
 .poster-colored-badge {
   color: #18181b;

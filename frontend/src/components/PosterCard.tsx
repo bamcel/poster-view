@@ -47,6 +47,8 @@ export default function PosterCard({
   // Many libraries have artwork records whose image files are missing on the
   // server; fall back to a clean placeholder instead of a broken-image glyph.
   const [failed, setFailed] = useState(false);
+  // Keep each poster's random phase stable across hover and metadata updates.
+  const [shimmerDelay] = useState(() => `${-Math.random() * 6.3}s`);
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -96,7 +98,7 @@ export default function PosterCard({
           </div>
         )}
 
-        {coloredEffect === "shimmer" && image && !failed && <span aria-hidden="true" className="poster-colored-shimmer pointer-events-none absolute inset-0" />}
+        {coloredEffect === "shimmer" && image && !failed && <span aria-hidden="true" style={{ animationDelay: shimmerDelay }} className="poster-colored-shimmer pointer-events-none absolute inset-0" />}
         {coloredEffect === "badge" && <span className="poster-colored-badge pointer-events-none absolute bottom-2 right-2 overflow-hidden rounded-md px-2 py-1 text-[10px] font-bold tracking-wider shadow" aria-label="Colored edition">COLORED</span>}
         {badge != null && (
           <span className="absolute right-2 top-2 grid min-w-6 place-items-center rounded-full bg-accent px-1.5 py-0.5 text-xs font-bold text-black shadow">
