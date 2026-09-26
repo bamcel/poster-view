@@ -452,7 +452,7 @@ export default function DashboardPage() {
                   <button type="submit" disabled={displayStatus.busy} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black disabled:opacity-50">Save Thresholds</button>
                 </form>
                 {displayStatus.error && <p role="alert" className="mt-2 text-xs text-muted">{displayStatus.error}</p>}
-              </> : <p className="mt-3 text-xs text-muted">No display options for this library type yet.</p>}
+              </> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
           </LibraryPopup>
           </div>
         </div>

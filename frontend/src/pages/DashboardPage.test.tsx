@@ -46,6 +46,23 @@ function renderDashboard(initialEntry = "/?lib=movies") {
   return { ...result, client };
 }
 
+it.each(["movie", "show", "collection", "book", "audiobook", "other"] as const)(
+  "opens a Preferences popup for %s libraries", async (type) => {
+    vi.mocked(api.getLibraries).mockResolvedValue([{ id: "library", title: "Test Library", type }]);
+    vi.mocked(api.getItems).mockResolvedValue([]);
+    const { client } = renderDashboard("/?lib=library");
+    await screen.findByRole("button", { name: "Test Library" });
+    fireEvent.click(screen.getByRole("button", { name: "Library preferences" }));
+    expect(screen.getByRole("dialog", { name: "Preferences" })).toBeTruthy();
+    if (!["book", "audiobook"].includes(type)) {
+      expect(screen.getByText("No preferences available for this library type yet.")).toBeTruthy();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Close Preferences" }));
+    expect(screen.queryByRole("dialog", { name: "Preferences" })).toBeNull();
+    client.clear();
+  },
+);
+
 it("uses full-width overflow tabs even with legacy collapse preferences", async () => {
   localStorage.setItem("posterview.libraryTabsCollapsed", "true");
   localStorage.setItem("posterview.libraryVisibleCount", "1");
