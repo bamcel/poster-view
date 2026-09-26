@@ -870,7 +870,7 @@ pub(crate) async fn save_display_preferences(
     State(state): State<AppState>,
     Json(settings): Json<DisplayPreferences>,
 ) -> Result<Json<DisplayPreferences>, HttpError> {
-    if !["off", "shimmer", "badge"].contains(&settings.colored_effect.as_str()) {
+    if !["off", "shimmer", "badge", "both"].contains(&settings.colored_effect.as_str()) {
         return Err(bad("Unknown colored edition effect."));
     }
     if !settings.reading_threshold.is_finite()

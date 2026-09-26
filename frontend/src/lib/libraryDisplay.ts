@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { readerRequest } from "./reader";
 const queryKey = ["library-display"];
-export type ColoredEffect = "off" | "shimmer" | "badge";
+export type ColoredEffect = "off" | "shimmer" | "badge" | "both";
+export function toggleColoredEffect(current: ColoredEffect, effect: "shimmer" | "badge"): ColoredEffect {
+  const shimmer = current === "shimmer" || current === "both";
+  const badge = current === "badge" || current === "both";
+  const nextShimmer = effect === "shimmer" ? !shimmer : shimmer;
+  const nextBadge = effect === "badge" ? !badge : badge;
+  return nextShimmer && nextBadge ? "both" : nextShimmer ? "shimmer" : nextBadge ? "badge" : "off";
+}
 interface Preferences { tracking_overlays: boolean; reading_threshold: number; finished_threshold: number; colored_effect?: ColoredEffect }
 export function useTrackingOverlays() {
   const client = useQueryClient();
@@ -15,6 +22,7 @@ export function useTrackingOverlays() {
     readingThreshold: query.data?.reading_threshold ?? 2,
     coloredEffect: query.data?.colored_effect ?? "off",
     setColoredEffect: (effect: ColoredEffect) => save.mutate({ colored_effect: effect }),
+    toggleColoredEffect: (effect: "shimmer" | "badge") => save.mutate({ colored_effect: toggleColoredEffect(query.data?.colored_effect ?? "off", effect) }),
     finishedThreshold: query.data?.finished_threshold ?? 98,
     saveThresholds: (reading: number, finished: number) => save.mutate({ reading_threshold: reading, finished_threshold: finished }),
     busy: query.isPending || save.isPending,

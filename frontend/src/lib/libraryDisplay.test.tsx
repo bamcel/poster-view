@@ -2,7 +2,14 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useTrackingOverlays } from "./libraryDisplay";
+import { toggleColoredEffect, useTrackingOverlays } from "./libraryDisplay";
+it("toggles each colored effect without switching off the other", () => {
+  expect(toggleColoredEffect("off", "shimmer")).toBe("shimmer");
+  expect(toggleColoredEffect("shimmer", "badge")).toBe("both");
+  expect(toggleColoredEffect("both", "shimmer")).toBe("badge");
+  expect(toggleColoredEffect("both", "badge")).toBe("shimmer");
+  expect(toggleColoredEffect("badge", "badge")).toBe("off");
+});
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 it("loads server preferences and shares successful saves across views", async () => {

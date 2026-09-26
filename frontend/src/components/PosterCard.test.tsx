@@ -3,6 +3,11 @@ import { afterEach, expect, it, vi } from "vitest";
 import PosterCard from "./PosterCard";
 
 afterEach(cleanup);
+it("renders both colored effects together", () => {
+  const { container } = render(<PosterCard title="Book" image="poster.jpg" coloredEffect="both" />);
+  expect(container.querySelector(".poster-colored-shimmer")).toBeTruthy();
+  expect(screen.getByText("COLORED")).toBeTruthy();
+});
 it("gives each poster a stable random shimmer phase", () => {
   const random = vi.spyOn(Math, "random").mockReturnValueOnce(0.2).mockReturnValueOnce(0.8);
   const { container, rerender } = render(<><PosterCard title="First" image="first.jpg" coloredEffect="shimmer" /><PosterCard title="Second" image="second.jpg" coloredEffect="shimmer" /></>);

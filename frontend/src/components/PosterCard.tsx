@@ -98,8 +98,8 @@ export default function PosterCard({
           </div>
         )}
 
-        {coloredEffect === "shimmer" && image && !failed && <span aria-hidden="true" style={{ animationDelay: shimmerDelay }} className="poster-colored-shimmer pointer-events-none absolute inset-0" />}
-        {coloredEffect === "badge" && <span className="poster-colored-badge pointer-events-none absolute bottom-2 right-2 overflow-hidden rounded-md px-2 py-1 text-[10px] font-bold tracking-wider shadow" aria-label="Colored edition">COLORED</span>}
+        {(coloredEffect === "shimmer" || coloredEffect === "both") && image && !failed && <span aria-hidden="true" style={{ animationDelay: shimmerDelay }} className="poster-colored-shimmer pointer-events-none absolute inset-0" />}
+        {(coloredEffect === "badge" || coloredEffect === "both") && <span className="poster-colored-badge pointer-events-none absolute bottom-2 right-2 overflow-hidden rounded-md px-2 py-1 text-[10px] font-bold tracking-wider shadow" aria-label="Colored edition">COLORED</span>}
         {badge != null && (
           <span className="absolute right-2 top-2 grid min-w-6 place-items-center rounded-full bg-accent px-1.5 py-0.5 text-xs font-bold text-black shadow">
             {typeof badge === "string" && ["new", "reading", "finished"].includes(badge.toLowerCase()) ? badge.toUpperCase() : badge}

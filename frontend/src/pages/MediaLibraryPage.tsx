@@ -463,11 +463,10 @@ export default function MediaLibraryPage() {
                   <p className="text-xs text-faint">Changes save automatically when you leave a field. Reading must be lower than Finished.</p>
                 </form>}
                 <div className="mt-6 border-t border-border pt-4">
-                  <div className="flex items-center justify-between gap-3"><span className="text-sm text-muted">Colored Edition Effect</span>
-                    <Switch label="Colored Edition Effect" checked={displayStatus.coloredEffect !== "off"} onChange={() => { if (!displayStatus.busy) displayStatus.setColoredEffect(displayStatus.coloredEffect === "off" ? "shimmer" : "off"); }} />
-                  </div>
+                  <h3 className="text-sm text-muted">Colored Edition Effects</h3>
                   <p className="mt-2 text-xs text-faint">Only applies when the NFO Edition field is Colored.</p>
-                  {displayStatus.coloredEffect !== "off" && <label className="mt-3 block text-sm text-muted">Effect<select className="mt-2 w-full rounded-lg border border-border bg-input p-3 text-white" value={displayStatus.coloredEffect} disabled={displayStatus.busy} onChange={event => displayStatus.setColoredEffect(event.target.value as "shimmer" | "badge")}><option value="shimmer">Poster Shimmer</option><option value="badge">Colored Badge</option></select></label>}
+                  <div className="mt-3 flex items-center justify-between gap-3"><span className="text-sm text-muted">Poster Shimmer</span><Switch label="Poster Shimmer" checked={["shimmer", "both"].includes(displayStatus.coloredEffect)} onChange={() => { if (!displayStatus.busy) displayStatus.toggleColoredEffect("shimmer"); }} /></div>
+                  <div className="mt-3 flex items-center justify-between gap-3"><span className="text-sm text-muted">Colored Badge</span><Switch label="Colored Badge" checked={["badge", "both"].includes(displayStatus.coloredEffect)} onChange={() => { if (!displayStatus.busy) displayStatus.toggleColoredEffect("badge"); }} /></div>
                 </div>
                 {displayStatus.error && <p role="alert" className="mt-2 text-xs text-muted">{displayStatus.error}</p>}
               </> : selectedLibrary?.type === "show" ? <CastPreferences /> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
