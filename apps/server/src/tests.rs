@@ -802,6 +802,7 @@ async fn jellyfin_item_detail_is_normalized() {
                 axum::Json(serde_json::json!({"Items": [{
                     "Id":"show-1","Name":"Example Show","Type":"Series",
                     "ProductionYear":2024,"Overview":"Summary","ChildCount":2,
+                    "CommunityRating":7.9,"OfficialRating":"TV-14",
                     "ProviderIds":{"Tmdb":"123","Tvdb":"456"},
                     "Genres":["Anime","Action"],"Tags":["Anti-Hero"],"Studios":[{"Name":"WHITE FOX"}],
                     "ExternalUrls":[{"Name":"Trakt","Url":"https://trakt.tv/shows/example-show"}],
@@ -851,6 +852,8 @@ async fn jellyfin_item_detail_is_normalized() {
         serde_json::json!({"tmdb":"123","tvdb":"456"})
     );
     assert_eq!(detail["seasons"][0]["episode_count"], 10);
+    assert_eq!(detail["rating"], 7.9);
+    assert_eq!(detail["content_rating"], "TV-14");
     assert_eq!(detail["genres"], serde_json::json!(["Anime", "Action"]));
     assert_eq!(detail["tags"], serde_json::json!(["Anti-Hero"]));
     assert_eq!(detail["studios"], serde_json::json!(["WHITE FOX"]));

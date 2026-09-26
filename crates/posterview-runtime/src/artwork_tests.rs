@@ -30,7 +30,7 @@ fn provider_test_item(item_type: ItemType, external_ids: &[(&str, &str)]) -> Ite
         added_at: None,
         summary: None,
         season_count: None,
-        seasons: Vec::new(),
+        seasons: Vec::new(), rating: None, content_rating: None,
             genres: Vec::new(), tags: Vec::new(), studios: Vec::new(), external_urls: Vec::new(),
         external_ids: external_ids
             .iter()

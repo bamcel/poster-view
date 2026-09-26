@@ -6,7 +6,7 @@ import { api } from "../api/client";
 import ItemDetailPage from "./ItemDetailPage";
 import { videoMetadataApi } from "../api/videoMetadata";
 
-vi.mock("../components/ArtworkPanel", () => ({ default: () => null }));
+vi.mock("../components/ArtworkPanel", () => ({ default: ({ onClose }: { onClose?: () => void }) => <button onClick={onClose}>Close artwork</button> }));
 vi.mock("../components/CastCrewPanel", () => ({ default: () => <section aria-label="Cast & crew">Cast & crew</section> }));
 vi.mock("../api/videoMetadata", () => ({ videoMetadataApi: { get: vi.fn() } }));
 vi.mock("../api/client", () => ({ imageUrl: (_serverId: number, image?: string | null) => image ? `/api/image/${image}` : undefined, api: { getItemDetail: vi.fn(), getNfoMetadata: vi.fn(), refreshArtworkItem: vi.fn() } }));
@@ -17,6 +17,22 @@ function LocationProbe() {
   const location = useLocation();
   return <div>{location.pathname}{location.search}</div>;
 }
+
+it("opens artwork beside refresh on demand and closes it with X or Escape", async () => {
+  vi.mocked(api.getItemDetail).mockResolvedValue({ id: "movie", title: "Movie", type: "movie", seasons: [], external_ids: {}, members: [] });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/item/7/movie"]}><QueryClientProvider client={client}><Routes><Route path="/item/:serverId/:itemId" element={<ItemDetailPage />} /></Routes></QueryClientProvider></MemoryRouter>);
+  const buttons = await screen.findAllByRole("button", { name: "Edit Artwork" });
+  expect(screen.queryByRole("button", { name: "Close artwork" })).toBeNull();
+  expect(buttons[0].previousElementSibling?.textContent).toContain("Refresh");
+  expect(buttons[0].className).toBe(buttons[0].previousElementSibling?.className);
+  fireEvent.click(buttons[0]);
+  fireEvent.click(screen.getByRole("button", { name: "Close artwork" }));
+  expect(screen.queryByRole("button", { name: "Close artwork" })).toBeNull();
+  fireEvent.click(buttons[1]);fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("button", { name: "Close artwork" })).toBeNull();
+  client.clear();
+});
 
 it("opens a season from its series card and preserves library context", async () => {
   vi.mocked(api.getItemDetail).mockResolvedValue({ id: "show", title: "Series", type: "show", seasons: [{ id: "season", title: "Season 1", index: 1, episode_count: 10 }], external_ids: {}, members: [] });

@@ -60,6 +60,8 @@ export interface ItemDetail extends MediaItem {
   summary?: string | null;
   season_count?: number | null;
   seasons: Season[];
+  rating?: number | null;
+  content_rating?: string | null;
   genres?: string[];
   tags?: string[];
   studios?: string[];

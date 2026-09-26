@@ -157,7 +157,7 @@ pub struct Season {
     pub episode_count: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ItemDetail {
     #[serde(skip_serializing)]
     pub source_path: Option<String>,
@@ -174,6 +174,8 @@ pub struct ItemDetail {
     pub summary: Option<String>,
     pub season_count: Option<i64>,
     pub seasons: Vec<Season>,
+    pub rating: Option<f64>,
+    pub content_rating: Option<String>,
     pub genres: Vec<String>,
     pub tags: Vec<String>,
     pub studios: Vec<String>,

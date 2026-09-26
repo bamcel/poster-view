@@ -7,7 +7,7 @@ import { useTrackingOverlays } from "../lib/libraryDisplay";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, Images, Pencil, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, Images, Pencil, RefreshCw } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import PosterCard from "../components/PosterCard";
 import ArtworkPanel from "../components/ArtworkPanel";
@@ -15,6 +15,7 @@ import MetadataEditorModal from "../components/MetadataEditorModal";
 import VideoMetadataEditor from "../components/VideoMetadataEditor";
 import CastCrewPanel from "../components/CastCrewPanel";
 import ItemAbout from "../components/ItemAbout";
+import TitleMetadata from "../components/TitleMetadata";
 import { Spinner, EmptyState } from "../components/ui";
 import type { Library, NfoMetadata } from "../types";
 import { seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
@@ -215,12 +216,8 @@ export default function ItemDetailPage() {
                             {item.title}
                           </h1>
                         )}
-                        <p className="mt-2 text-sm text-white/70">
-                          {item.type === "show"
-                            ? `${item.season_count ?? item.seasons.length} Season${
-                                (item.season_count ?? item.seasons.length) === 1 ? "" : "s"
-                              }`
-                            : item.type === "collection"
+                        {item.type === "show" || item.type === "movie" ? <TitleMetadata item={item} /> : <p className="mt-2 text-sm text-white/70">
+                          {item.type === "collection"
                               ? "Collection"
                               : item.type === "book"
                                 ? "Book"
@@ -229,7 +226,7 @@ export default function ItemDetailPage() {
                                   : item.type === "folder"
                                     ? seriesInstallmentSummary(item.members)
                                     : item.year}
-                        </p>
+                        </p>}
                       </div>
                       <div className="hidden shrink-0 flex-wrap items-center justify-end gap-2 xl:flex">
                         {(item.type === "movie" || item.type === "show" || metadataQ.data) && (
@@ -250,6 +247,9 @@ export default function ItemDetailPage() {
                           className={`size-4 ${detailQ.isFetching ? "animate-spin" : ""}`}
                         />{" "}
                         Refresh
+                      </button>
+                      <button type="button" onClick={() => setArtworkOpen(true)} aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white">
+                        <Images className="size-4" /> Edit Artwork
                       </button>
                       </div>
                     </div>
@@ -278,7 +278,7 @@ export default function ItemDetailPage() {
                         onClick={() => setArtworkOpen(true)}
                         className="flex min-h-11 min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 py-2 text-[11px] font-medium text-muted transition-colors hover:border-white/40 hover:text-white sm:gap-2 sm:px-4 sm:text-sm"
                       >
-                        <Images className="size-3.5 shrink-0 sm:size-4" /> Artwork
+                        <Images className="size-3.5 shrink-0 sm:size-4" /> Edit Artwork
                       </button>
                     </div>
                     <div role="status" aria-live="polite" className="mt-2 break-words text-sm xl:hidden">
@@ -385,34 +385,10 @@ export default function ItemDetailPage() {
         </div>
       </div>
 
-      {/* Right: dock only when both columns have enough room. */}
-      <div className="relative z-[1] hidden h-full w-[clamp(20rem,25vw,23.75rem)] shrink-0 xl:block">
-        {item && (
-          <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} anilistMangaId={metadataQ.data?.anilist_id} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
-        )}
-      </div>
-
       {artworkOpen && item && (
-        <div
-          className="fixed inset-0 z-50 bg-black/65 xl:hidden"
-          onClick={() => setArtworkOpen(false)}
-        >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Artwork for ${item.title}`}
-            className="ml-auto h-full w-full max-w-md shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => setArtworkOpen(false)}
-              aria-label="Close artwork"
-              className="absolute right-3 top-3 z-[60] grid size-9 place-items-center rounded-lg text-muted transition-colors hover:text-white"
-            >
-              <X className="size-5" />
-            </button>
-            <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} anilistMangaId={metadataQ.data?.anilist_id} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setArtworkOpen(false); setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
+        <div className="fixed inset-0 z-50 bg-black/65 xl:relative xl:inset-auto xl:z-[1] xl:h-full xl:w-[clamp(20rem,25vw,23.75rem)] xl:shrink-0 xl:bg-transparent" onClick={() => setArtworkOpen(false)}>
+          <section id="item-artwork-panel" aria-label={`Artwork for ${item.title}`} className="ml-auto h-full w-full max-w-md shadow-2xl xl:max-w-none" onClick={event => event.stopPropagation()}>
+            <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} anilistMangaId={metadataQ.data?.anilist_id} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onClose={() => setArtworkOpen(false)} onReviewMetadata={(fields, sourceLabel) => { setArtworkOpen(false); setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
           </section>
         </div>
       )}

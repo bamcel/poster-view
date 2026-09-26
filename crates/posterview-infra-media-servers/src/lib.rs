@@ -270,6 +270,8 @@ async fn emby_item_detail(
             .flatten(),
         seasons,
         genres: metadata_labels(&item, "Genres", None),
+        rating: item.get("CommunityRating").and_then(Value::as_f64),
+        content_rating: item.get("OfficialRating").and_then(Value::as_str).map(str::to_owned),
         tags: metadata_labels(&item, "Tags", None),
         studios: metadata_labels(&item, "Studios", Some("Name")),
         external_urls: item.get("ExternalUrls").and_then(Value::as_array).into_iter().flatten().filter_map(|link| Some(posterview_contracts::MetadataLink {
@@ -406,6 +408,8 @@ async fn plex_item_detail(
             .flatten(),
         seasons,
         genres: metadata_labels(item, "Genre", Some("tag")),
+        rating: item.get("rating").and_then(Value::as_f64),
+        content_rating: item.get("contentRating").and_then(Value::as_str).map(str::to_owned),
         external_urls: Vec::new(),
         tags: metadata_labels(item, "Label", Some("tag")),
         studios: item.get("studio").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(|s| vec![s.to_owned()]).unwrap_or_default(),
