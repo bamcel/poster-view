@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const editions = ["Standard", "Original", "Colored"];
+const editions = ["Standard", "Original", "Colored", "Special"];
 export default function EditionField({ value, onChange, inputClass }: { value: string; onChange: (value: string) => void; inputClass: string }) {
   const preset = editions.find(edition => edition.toLowerCase() === value.trim().toLowerCase());
   const [custom, setCustom] = useState(Boolean(value && !preset));
