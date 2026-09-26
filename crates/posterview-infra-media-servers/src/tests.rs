@@ -5,6 +5,18 @@ use tokio::net::TcpListener;
 use super::*;
 
 #[test]
+fn about_metadata_normalizes_emby_and_plex_lists() {
+    let emby = json!({"Genres":["Anime", "anime", " Action "],"Tags":["Anti-Hero", ""],"Studios":[{"Name":"WHITE FOX"}]});
+    assert_eq!(metadata_labels(&emby, "Genres", None), vec!["Anime", "Action"]);
+    assert_eq!(metadata_labels(&emby, "Tags", None), vec!["Anti-Hero"]);
+    assert_eq!(metadata_labels(&emby, "Studios", Some("Name")), vec!["WHITE FOX"]);
+    let plex = json!({"Genre":[{"tag":"Drama"}],"Label":[{"tag":"Favorite"}]});
+    assert_eq!(metadata_labels(&plex, "Genre", Some("tag")), vec!["Drama"]);
+    assert_eq!(metadata_labels(&plex, "Label", Some("tag")), vec!["Favorite"]);
+    assert!(metadata_labels(&json!({}), "Tags", None).is_empty());
+}
+
+#[test]
 fn plex_nfo_location_requires_one_distinct_path() {
     assert_eq!(plex_source_path(&json!({"type":"show","Location":[{"path":"/media/TV/Series"}]})), Some("/media/TV/Series".into()));
     assert_eq!(plex_source_path(&json!({"type":"show","Location":[{"path":"/media/TV/Series"},{"path":"/other/Series"}]})), None);

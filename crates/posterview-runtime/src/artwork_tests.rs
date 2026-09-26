@@ -31,6 +31,7 @@ fn provider_test_item(item_type: ItemType, external_ids: &[(&str, &str)]) -> Ite
         summary: None,
         season_count: None,
         seasons: Vec::new(),
+            genres: Vec::new(), tags: Vec::new(), studios: Vec::new(), external_urls: Vec::new(),
         external_ids: external_ids
             .iter()
             .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))

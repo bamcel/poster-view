@@ -14,6 +14,7 @@ import ArtworkPanel from "../components/ArtworkPanel";
 import MetadataEditorModal from "../components/MetadataEditorModal";
 import VideoMetadataEditor from "../components/VideoMetadataEditor";
 import CastCrewPanel from "../components/CastCrewPanel";
+import ItemAbout from "../components/ItemAbout";
 import { Spinner, EmptyState } from "../components/ui";
 import type { Library, NfoMetadata } from "../types";
 import { seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
@@ -319,8 +320,6 @@ export default function ItemDetailPage() {
                   </div>
                 </div>
 
-                {item.type === "show" && <CastCrewPanel key={`${serverId}:${item.id}`} serverId={serverId} item={item} />}
-
                 {/* Seasons */}
                 {item.seasons.length > 0 && (
                   <section className="mt-10">
@@ -348,6 +347,8 @@ export default function ItemDetailPage() {
                 )}
 
                 {item.type === "book" && <button className="mt-5 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-base hover:bg-accent-hover" onClick={()=>navigate(`/read/${serverId}/${encodeURIComponent(item.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`)}>Read Book</button>}
+                {(item.type === "show" || item.type === "movie") && <ItemAbout item={item} />}
+                {item.type === "show" && <CastCrewPanel key={`${serverId}:${item.id}`} serverId={serverId} item={item} />}
                 {/* Volume cards open the reader; nested folders keep their detail pages. */}
                 {item.members.length > 0 && (
                   <section className="mt-10">

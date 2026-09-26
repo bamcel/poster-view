@@ -803,6 +803,8 @@ async fn jellyfin_item_detail_is_normalized() {
                     "Id":"show-1","Name":"Example Show","Type":"Series",
                     "ProductionYear":2024,"Overview":"Summary","ChildCount":2,
                     "ProviderIds":{"Tmdb":"123","Tvdb":"456"},
+                    "Genres":["Anime","Action"],"Tags":["Anti-Hero"],"Studios":[{"Name":"WHITE FOX"}],
+                    "ExternalUrls":[{"Name":"Trakt","Url":"https://trakt.tv/shows/example-show"}],
                     "ImageTags":{"Primary":"p","Logo":"l"},
                     "BackdropImageTags":["b"]
                 }]}))
@@ -849,6 +851,10 @@ async fn jellyfin_item_detail_is_normalized() {
         serde_json::json!({"tmdb":"123","tvdb":"456"})
     );
     assert_eq!(detail["seasons"][0]["episode_count"], 10);
+    assert_eq!(detail["genres"], serde_json::json!(["Anime", "Action"]));
+    assert_eq!(detail["tags"], serde_json::json!(["Anti-Hero"]));
+    assert_eq!(detail["studios"], serde_json::json!(["WHITE FOX"]));
+    assert_eq!(detail["external_urls"][0]["name"], "Trakt");
     assert_eq!(detail["background"], "Items/show-1/Images/Backdrop?tag=b");
     media_server.abort();
 }

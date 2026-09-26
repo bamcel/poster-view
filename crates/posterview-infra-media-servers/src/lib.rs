@@ -142,7 +142,7 @@ async fn emby_item_detail(
             ),
             (
                 "Fields",
-                "Overview,ChildCount,ProductionYear,ProviderIds,Path,ImageTags,BackdropImageTags",
+                "Overview,ChildCount,ProductionYear,ProviderIds,Path,ImageTags,BackdropImageTags,Genres,Tags,Studios",
             ),
             ("ImageTypeLimit", "1"),
             ("EnableImageTypes", "Primary,Backdrop,Logo"),
@@ -269,6 +269,12 @@ async fn emby_item_detail(
             .then(|| item.get("ChildCount").and_then(Value::as_i64))
             .flatten(),
         seasons,
+        genres: metadata_labels(&item, "Genres", None),
+        tags: metadata_labels(&item, "Tags", None),
+        studios: metadata_labels(&item, "Studios", Some("Name")),
+        external_urls: item.get("ExternalUrls").and_then(Value::as_array).into_iter().flatten().filter_map(|link| Some(posterview_contracts::MetadataLink {
+            name: link.get("Name")?.as_str()?.to_owned(), url: link.get("Url")?.as_str()?.to_owned(),
+        })).collect(),
         external_ids,
         logo: emby_image_ref(&item, "Logo"),
         members,
@@ -399,10 +405,22 @@ async fn plex_item_detail(
             .then(|| item.get("childCount").and_then(Value::as_i64))
             .flatten(),
         seasons,
+        genres: metadata_labels(item, "Genre", Some("tag")),
+        external_urls: Vec::new(),
+        tags: metadata_labels(item, "Label", Some("tag")),
+        studios: item.get("studio").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(|s| vec![s.to_owned()]).unwrap_or_default(),
         external_ids,
         logo,
         members,
     })
+}
+
+fn metadata_labels(item: &Value, field: &str, nested: Option<&str>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    item.get(field).and_then(Value::as_array).into_iter().flatten()
+        .filter_map(|value| nested.and_then(|key| value.get(key)).unwrap_or(value).as_str())
+        .map(str::trim).filter(|value| !value.is_empty() && seen.insert(value.to_lowercase()))
+        .map(str::to_owned).collect()
 }
 
 pub async fn fetch_image(

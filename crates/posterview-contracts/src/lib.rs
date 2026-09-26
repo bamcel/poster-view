@@ -174,9 +174,19 @@ pub struct ItemDetail {
     pub summary: Option<String>,
     pub season_count: Option<i64>,
     pub seasons: Vec<Season>,
+    pub genres: Vec<String>,
+    pub tags: Vec<String>,
+    pub studios: Vec<String>,
+    pub external_urls: Vec<MetadataLink>,
     pub external_ids: std::collections::BTreeMap<String, String>,
     pub logo: Option<String>,
     pub members: Vec<MediaItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MetadataLink {
+    pub name: String,
+    pub url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]

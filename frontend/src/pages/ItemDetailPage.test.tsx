@@ -7,7 +7,7 @@ import ItemDetailPage from "./ItemDetailPage";
 import { videoMetadataApi } from "../api/videoMetadata";
 
 vi.mock("../components/ArtworkPanel", () => ({ default: () => null }));
-vi.mock("../components/CastCrewPanel", () => ({ default: () => null }));
+vi.mock("../components/CastCrewPanel", () => ({ default: () => <section aria-label="Cast & crew">Cast & crew</section> }));
 vi.mock("../api/videoMetadata", () => ({ videoMetadataApi: { get: vi.fn() } }));
 vi.mock("../api/client", () => ({ imageUrl: (_serverId: number, image?: string | null) => image ? `/api/image/${image}` : undefined, api: { getItemDetail: vi.fn(), getNfoMetadata: vi.fn(), refreshArtworkItem: vi.fn() } }));
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
@@ -22,7 +22,13 @@ it("opens a season from its series card and preserves library context", async ()
   vi.mocked(api.getItemDetail).mockResolvedValue({ id: "show", title: "Series", type: "show", seasons: [{ id: "season", title: "Season 1", index: 1, episode_count: 10 }], external_ids: {}, members: [] });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/server/7/item/show?return_library=tv"]}><QueryClientProvider client={client}><Routes><Route path="/server/:serverId/item/:itemId" element={<ItemDetailPage />} /><Route path="/server/:serverId/series/:seriesId/season/:seasonId" element={<LocationProbe />} /></Routes></QueryClientProvider></MemoryRouter>);
-  fireEvent.click(await screen.findByRole("button", { name: /Open Season 1/ }));
+  const openSeason = await screen.findByRole("button", { name: /Open Season 1/ });
+  const seasonsHeading = screen.getByRole("heading", { name: "Seasons" });
+  const about = screen.getByRole("region", { name: "About" });
+  const cast = screen.getByRole("region", { name: "Cast & crew" });
+  expect(seasonsHeading.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(about.compareDocumentPosition(cast) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  fireEvent.click(openSeason);
   expect(await screen.findByText("/server/7/series/show/season/season?return_library=tv")).toBeTruthy();
   client.clear();
 });

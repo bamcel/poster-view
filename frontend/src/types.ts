@@ -60,6 +60,10 @@ export interface ItemDetail extends MediaItem {
   summary?: string | null;
   season_count?: number | null;
   seasons: Season[];
+  genres?: string[];
+  tags?: string[];
+  studios?: string[];
+  external_urls?: { name: string; url: string }[];
   external_ids: Record<string, string>;
   logo?: string | null;
   members: MediaItem[];
