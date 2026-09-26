@@ -680,14 +680,17 @@ export default function ReaderPage() {
                   active={state.page}
                   onPosition={flowPosition}
                 >
-                  <div style={{ paddingBottom: settings.gap }}>
+                  <div
+                    className="flex justify-center"
+                    style={{ paddingBottom: settings.gap }}
+                  >
                     {renderPage(i)}
                   </div>
                 </FlowPage>
               ))
             ) : (
               <div
-                className="flex min-h-full items-start justify-center gap-2 p-3"
+                className="flex min-h-full items-start justify-center gap-0 p-3"
                 style={{
                   flexDirection:
                     settings.direction === "rtl" ? "row-reverse" : "row",
@@ -887,7 +890,8 @@ export default function ReaderPage() {
                               mode: e.target.value as ReaderSettings["mode"],
                               ...(e.target.value === "manga"
                                 ? { direction: "rtl" as const }
-                                : e.target.value === "comic"
+                                : e.target.value === "comic" ||
+                                    e.target.value === "book"
                                   ? { direction: "ltr" as const }
                                   : {}),
                             })
