@@ -11,6 +11,7 @@ import {
   List,
   X,
   BookOpen,
+  PanelsLeftBottom,
 } from "lucide-react";
 import {
   GlobalWorkerOptions,
@@ -30,6 +31,7 @@ import {
   normalizeState,
   readerRequest,
   readerUrl,
+  readerPages,
   type ReaderManifest,
   type ReaderSettings,
   type ReaderState,
@@ -37,7 +39,7 @@ import {
 
 GlobalWorkerOptions.workerSrc = worker;
 const button =
-  "inline-flex min-h-10 min-w-10 items-center justify-center gap-2 rounded-xl px-3 text-sm text-muted hover:bg-button hover:text-white disabled:opacity-35";
+  "inline-flex shrink-0 whitespace-nowrap min-h-10 min-w-10 items-center justify-center gap-2 rounded-xl px-3 text-sm text-muted hover:bg-button hover:text-white disabled:opacity-35";
 const input =
   "w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-white";
 type Result = { page: number; label: string };
@@ -63,9 +65,9 @@ export default function ReaderPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [saveError, setSaveError] = useState("");
-  const [panel, setPanel] = useState<"contents" | "settings" | "search" | null>(
-    null,
-  );
+  const [panel, setPanel] = useState<
+    "contents" | "settings" | "search" | "layout" | null
+  >(null);
   const [controls, setControls] = useState(true);
   const [size, setSize] = useState({ width: 800, height: 700 });
   const [query, setQuery] = useState("");
@@ -226,12 +228,20 @@ export default function ReaderPage() {
   const settings = state.settings;
   const webtoon = settings.mode === "webtoon" && book?.format !== "epub";
   const spread =
-    settings.spread && size.width >= 800 && !webtoon && book?.format !== "epub";
+    settings.pageLayout !== "single" &&
+    size.width >= 800 &&
+    !webtoon &&
+    book?.format !== "epub";
   const setSettings = (patch: Partial<ReaderSettings>) =>
     setState((s) => ({ ...s, settings: { ...s.settings, ...patch } }));
   const go = useCallback(
     (page: number, offset = 0) => {
       page = Math.max(0, Math.min(count - 1, page));
+      page = readerPages(
+        page,
+        count,
+        spread ? settings.pageLayout : "single",
+      )[0];
       if (
         page === latest.current.state.page &&
         latest.current.book?.format === "epub"
@@ -258,7 +268,7 @@ export default function ReaderPage() {
         });
       else viewport.current?.scrollTo(0, 0);
     },
-    [count, webtoon],
+    [count, webtoon, spread, settings.pageLayout],
   );
   const turn = useCallback(
     (delta: number) => {
@@ -286,9 +296,14 @@ export default function ReaderPage() {
         go(page + delta, delta < 0 ? 1 : 0);
         return;
       }
-      go(page + delta * (spread && page > 0 ? 2 : 1));
+      const group = readerPages(
+        page,
+        count,
+        spread ? settings.pageLayout : "single",
+      );
+      go(delta > 0 ? group[group.length - 1] + 1 : group[0] - 1);
     },
-    [go, spread],
+    [go, spread, count, settings.pageLayout],
   );
   const key = useCallback(
     (event: KeyboardEvent) => {
@@ -418,10 +433,11 @@ export default function ReaderPage() {
       settings.zoom) /
       100,
   );
-  const pages =
-    spread && state.page > 0 && state.page + 1 < count
-      ? [state.page, state.page + 1]
-      : [state.page];
+  const pages = readerPages(
+    state.page,
+    count,
+    spread ? settings.pageLayout : "single",
+  );
   const maxHeight =
     settings.fit === "page" && !webtoon
       ? (Math.max(100, size.height - 24) * settings.zoom) / 100
@@ -452,7 +468,7 @@ export default function ReaderPage() {
       onMouseMove={() => setControls(true)}
     >
       <header
-        className={`z-20 flex h-16 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 transition-opacity ${controls || panel ? "opacity-100" : "opacity-0 hover:opacity-100 focus-within:opacity-100"}`}
+        className={`z-20 flex min-h-16 shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface px-3 py-2 transition-opacity ${controls || panel ? "opacity-100" : "opacity-0 hover:opacity-100 focus-within:opacity-100"}`}
       >
         <button
           className={button}
@@ -474,53 +490,73 @@ export default function ReaderPage() {
               `· ${book?.format === "epub" ? "Chapter" : "Page"} ${state.page + 1} of ${count}`}
           </p>
         </div>
-        <button
-          className={button}
-          onClick={() => setPanel("contents")}
-          aria-label="Contents and bookmarks"
-        >
-          <List className="size-5" />
-        </button>
-        {book?.format !== "cbz" && (
+        <div className="flex w-full items-center overflow-x-auto sm:w-auto sm:max-w-full sm:ml-auto">
           <button
             className={button}
-            onClick={() => setPanel("search")}
-            aria-label="Search book"
+            onClick={() => setPanel("contents")}
+            aria-label="Contents and bookmarks"
           >
-            <Search className="size-5" />
+            <List className="size-5" />
+            <span>Contents</span>
           </button>
-        )}
-        <button
-          className={`${button} ${saved ? "text-accent" : ""}`}
-          disabled={!ready}
-          onClick={bookmark}
-          aria-label={saved ? "Remove bookmark" : "Bookmark this page"}
-          aria-pressed={saved}
-        >
-          <Bookmark className="size-5" fill={saved ? "currentColor" : "none"} />
-        </button>
-        <button
-          className={button}
-          onClick={() => setPanel("settings")}
-          aria-label="Reader settings"
-        >
-          <Settings2 className="size-5" />
-        </button>
-        <button
-          className={`${button} hidden sm:inline-flex`}
-          aria-label="Toggle fullscreen"
-          onClick={() => {
-            void (
-              document.fullscreenElement
-                ? document.exitFullscreen()
-                : shell.current?.requestFullscreen()
-            )?.catch(() =>
-              setNotice("Fullscreen is not available in this browser."),
-            );
-          }}
-        >
-          <Maximize className="size-5" />
-        </button>
+          {book?.format !== "cbz" && (
+            <button
+              className={button}
+              onClick={() => setPanel("search")}
+              aria-label="Search book"
+            >
+              <Search className="size-5" />
+              <span>Search</span>
+            </button>
+          )}
+          <button
+            className={`${button} ${saved ? "text-accent" : ""}`}
+            disabled={!ready}
+            onClick={bookmark}
+            aria-label={saved ? "Remove bookmark" : "Bookmark this page"}
+            aria-pressed={saved}
+          >
+            <Bookmark
+              className="size-5"
+              fill={saved ? "currentColor" : "none"}
+            />
+            <span>{saved ? "Bookmarked" : "Bookmark"}</span>
+          </button>
+          {book?.format !== "epub" && (
+            <button
+              className={button}
+              onClick={() => setPanel("layout")}
+              aria-label="Page layout"
+            >
+              <PanelsLeftBottom className="size-5" />
+              <span>Pages</span>
+            </button>
+          )}
+          <button
+            className={button}
+            onClick={() => setPanel("settings")}
+            aria-label="Reader settings"
+          >
+            <Settings2 className="size-5" />
+            <span>Settings</span>
+          </button>
+          <button
+            className={`${button} hidden sm:inline-flex`}
+            aria-label="Toggle fullscreen"
+            onClick={() => {
+              void (
+                document.fullscreenElement
+                  ? document.exitFullscreen()
+                  : shell.current?.requestFullscreen()
+              )?.catch(() =>
+                setNotice("Fullscreen is not available in this browser."),
+              );
+            }}
+          >
+            <Maximize className="size-5" />
+            <span>Fullscreen</span>
+          </button>
+        </div>
       </header>
       {notice && (
         <div className="flex items-center gap-2 bg-surface-2 px-4 py-2 text-xs text-muted">
@@ -619,7 +655,7 @@ export default function ReaderPage() {
           >
             <button
               className={button}
-              disabled={state.page === 0 && state.offset === 0}
+              disabled={pages[0] === 0 && state.offset === 0}
               onClick={() => turn(-1)}
               aria-label="Previous page"
             >
@@ -651,7 +687,7 @@ export default function ReaderPage() {
             <button
               className={button}
               disabled={
-                state.page >= count - 1 &&
+                pages[pages.length - 1] >= count - 1 &&
                 (book?.format !== "epub" || state.offset >= 0.999)
               }
               onClick={() => turn(1)}
@@ -659,7 +695,7 @@ export default function ReaderPage() {
             >
               <ChevronRight className="size-5" />
             </button>
-            {state.page >= count - 1 && book?.next && (
+            {pages[pages.length - 1] >= count - 1 && book?.next && (
               <button
                 className={`${button} text-accent`}
                 onClick={() => openNeighbor(book.next!.id)}
@@ -683,11 +719,13 @@ export default function ReaderPage() {
             role="dialog"
             aria-modal="true"
             aria-label={
-              panel === "settings"
-                ? "Reader settings"
-                : panel === "search"
-                  ? "Search book"
-                  : "Contents and bookmarks"
+              panel === "layout"
+                ? "Page layout"
+                : panel === "settings"
+                  ? "Reader settings"
+                  : panel === "search"
+                    ? "Search book"
+                    : "Contents and bookmarks"
             }
             className="ml-auto flex h-full w-full max-w-sm flex-col border-l border-border bg-surface shadow-2xl"
             onClick={(e) => e.stopPropagation()}
@@ -713,11 +751,13 @@ export default function ReaderPage() {
           >
             <div className="flex items-center justify-between border-b border-border p-4">
               <h2 className="font-semibold">
-                {panel === "settings"
-                  ? "Reading Preferences"
-                  : panel === "search"
-                    ? "Search Book"
-                    : "Contents & Bookmarks"}
+                {panel === "layout"
+                  ? "Page Layout"
+                  : panel === "settings"
+                    ? "Reading Preferences"
+                    : panel === "search"
+                      ? "Search Book"
+                      : "Contents & Bookmarks"}
               </h2>
               <button
                 autoFocus
@@ -729,6 +769,61 @@ export default function ReaderPage() {
               </button>
             </div>
             <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+              {panel === "layout" && (
+                <fieldset className="space-y-3">
+                  <legend className="mb-3 text-sm text-muted">
+                    Choose how pages are paired.
+                  </legend>
+                  {(
+                    [
+                      ["single", "One Page", "Show one page at a time."],
+                      [
+                        "double",
+                        "Two Pages",
+                        "Pair pages 1–2, 3–4, and so on.",
+                      ],
+                      [
+                        "cover",
+                        "Two Pages with First Page as Cover",
+                        "Show page 1 alone, then pair 2–3, 4–5, and so on.",
+                      ],
+                    ] as const
+                  ).map(([value, label, detail]) => (
+                    <label
+                      key={value}
+                      className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 ${settings.pageLayout === value ? "border-accent bg-accent/10" : "border-border hover:bg-button"}`}
+                    >
+                      <input
+                        type="radio"
+                        name="page-layout"
+                        aria-label={label}
+                        value={value}
+                        checked={settings.pageLayout === value}
+                        onChange={() =>
+                          setSettings({
+                            pageLayout: value,
+                            ...(webtoon ? { mode: "book" as const } : {}),
+                          })
+                        }
+                        className="mt-1 accent-accent"
+                      />
+                      <span>
+                        <span className="block text-sm font-medium">
+                          {label}
+                        </span>
+                        <span className="mt-1 block text-xs text-muted">
+                          {detail}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                  <p className="text-xs text-faint">
+                    Saved for this book. Narrow screens display one page while
+                    keeping your selection. Selecting a page layout exits
+                    Webtoon mode; manga reading direction is preserved.
+                  </p>
+                </fieldset>
+              )}
               {panel === "settings" && (
                 <>
                   {book?.format !== "epub" && (
@@ -772,19 +867,12 @@ export default function ReaderPage() {
                       </label>
                       {!webtoon && (
                         <>
-                          <label className="flex items-center justify-between text-sm">
-                            Two-Page Spreads
-                            <input
-                              type="checkbox"
-                              checked={settings.spread}
-                              onChange={(e) =>
-                                setSettings({ spread: e.target.checked })
-                              }
-                            />
-                          </label>
-                          <p className="text-xs text-faint">
-                            Cover stays single. Small screens use one page.
-                          </p>
+                          <button
+                            className={button}
+                            onClick={() => setPanel("layout")}
+                          >
+                            <PanelsLeftBottom className="size-5" /> Page Layout
+                          </button>
                           <label className="block text-sm">
                             Page Fit
                             <select

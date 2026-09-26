@@ -10,8 +10,10 @@ CB7, MOBI and DRM-protected files are not supported in this release.
 ## Controls
 
 - PDF and CBZ: Book/Comic, Manga (right-to-left default), and Webtoon (vertical scrolling).
-- Reading direction can be changed independently. Optional spreads leave the cover single
-  and fall back to one page on narrow screens. Fit Page, Fit Width, zoom and webtoon gaps
+- Reading direction can be changed independently. The **Pages** toolbar menu offers One
+  Page, Two Pages (1–2, 3–4), and Two Pages with First Page as Cover (1, 2–3, 4–5).
+  These preferences are saved per book; narrow screens fall back to one page. Selecting a
+  page layout exits Webtoon mode. Fit Page, Fit Width, zoom and webtoon gaps
   are in the settings drawer.
 - EPUB: reflowed, sanitized chapter text with serif/sans-serif fonts, size, line spacing,
   dark/light/sepia reading themes. Previous/Next moves a screenful within a chapter, then

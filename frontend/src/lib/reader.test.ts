@@ -1,5 +1,33 @@
 import { expect, it } from "vitest";
-import { defaults, epubPath, normalizeState, readerUrl } from "./reader";
+import {
+  defaults,
+  epubPath,
+  normalizeState,
+  readerUrl,
+  readerPages,
+} from "./reader";
+
+it("pairs pages consistently for each layout and arbitrary jumps", () => {
+  expect(readerPages(0, 5, "double")).toEqual([0, 1]);
+  expect(readerPages(1, 5, "double")).toEqual([0, 1]);
+  expect(readerPages(4, 5, "double")).toEqual([4]);
+  expect(readerPages(0, 5, "cover")).toEqual([0]);
+  expect(readerPages(2, 5, "cover")).toEqual([1, 2]);
+  expect(readerPages(3, 4, "cover")).toEqual([3]);
+  expect(readerPages(2, 5, "single")).toEqual([2]);
+});
+it("migrates the old spread setting without overriding explicit layouts", () => {
+  expect(
+    normalizeState(JSON.parse('{"settings":{"spread":true}}'), 5).settings
+      .pageLayout,
+  ).toBe("cover");
+  expect(
+    normalizeState(
+      { settings: { ...defaults, spread: true, pageLayout: "double" } },
+      5,
+    ).settings.pageLayout,
+  ).toBe("double");
+});
 
 it("resumes valid progress and clamps corrupt/outdated positions", () => {
   expect(normalizeState({ page: 4, offset: 0.5 }, 10).page).toBe(4);

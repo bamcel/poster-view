@@ -11,6 +11,7 @@ export interface ReaderSettings {
   mode: "book" | "comic" | "manga" | "webtoon";
   direction: "ltr" | "rtl";
   spread: boolean;
+  pageLayout: "single" | "double" | "cover";
   fit: "width" | "page";
   zoom: number;
   fontSize: number;
@@ -29,6 +30,7 @@ export const defaults: ReaderSettings = {
   mode: "book",
   direction: "ltr",
   spread: false,
+  pageLayout: "single",
   fit: "page",
   zoom: 100,
   fontSize: 20,
@@ -42,6 +44,8 @@ export function normalizeState(
   count: number,
 ): ReaderState {
   const settings = { ...defaults, ...raw?.settings };
+  if (!["single", "double", "cover"].includes(raw?.settings?.pageLayout ?? ""))
+    settings.pageLayout = raw?.settings?.spread ? "cover" : "single";
   if (!["book", "comic", "manga", "webtoon"].includes(settings.mode))
     settings.mode = "book";
   if (!["ltr", "rtl"].includes(settings.direction)) settings.direction = "ltr";
@@ -75,6 +79,18 @@ export function normalizeState(
         label: b.label.slice(0, 150),
       })),
   };
+}
+export function readerPages(
+  page: number,
+  count: number,
+  layout: ReaderSettings["pageLayout"],
+): number[] {
+  if (layout === "single" || (layout === "cover" && page === 0)) return [page];
+  const start =
+    layout === "cover"
+      ? 1 + Math.floor((page - 1) / 2) * 2
+      : Math.floor(page / 2) * 2;
+  return start + 1 < count ? [start, start + 1] : [start];
 }
 export async function readerRequest<T>(
   url: string,
