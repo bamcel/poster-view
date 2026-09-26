@@ -50,7 +50,8 @@ impl ReaderStore {
         db.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(failure)?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS reader_books (id TEXT PRIMARY KEY, path TEXT UNIQUE NOT NULL);
-            CREATE TABLE IF NOT EXISTS reader_states (user TEXT NOT NULL, book TEXT NOT NULL, revision TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(user,book));").map_err(failure)?;
+            CREATE TABLE IF NOT EXISTS reader_states (user TEXT NOT NULL, book TEXT NOT NULL, revision TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(user,book));
+            CREATE TABLE IF NOT EXISTS library_display_preferences (user TEXT PRIMARY KEY, tracking_overlays INTEGER NOT NULL DEFAULT 1);").map_err(failure)?;
         Ok(db)
     }
     fn checked(&self, path: &FsPath) -> Result<PathBuf, HttpError> {
@@ -721,6 +722,20 @@ pub(crate) async fn entry(
 pub(crate) struct SavedState {
     revision: String,
     data: serde_json::Value,
+}
+#[derive(Serialize, Deserialize)]
+pub(crate) struct DisplayPreferences { tracking_overlays: bool }
+pub(crate) async fn load_display_preferences(State(state): State<AppState>) -> Result<Json<DisplayPreferences>, HttpError> {
+    tokio::task::spawn_blocking(move || {
+        let tracking_overlays = state.reader.db()?.query_row("SELECT tracking_overlays FROM library_display_preferences WHERE user=?1", [state.auth.username()], |r| r.get::<_, bool>(0)).optional().map_err(failure)?.unwrap_or(true);
+        Ok(Json(DisplayPreferences { tracking_overlays }))
+    }).await.map_err(failure)?
+}
+pub(crate) async fn save_display_preferences(State(state): State<AppState>, Json(settings): Json<DisplayPreferences>) -> Result<Json<DisplayPreferences>, HttpError> {
+    tokio::task::spawn_blocking(move || {
+        state.reader.db()?.execute("INSERT INTO library_display_preferences(user,tracking_overlays) VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET tracking_overlays=excluded.tracking_overlays", params![state.auth.username(), settings.tracking_overlays]).map_err(failure)?;
+        Ok(Json(settings))
+    }).await.map_err(failure)?
 }
 pub(crate) async fn load_state(
     State(state): State<AppState>,

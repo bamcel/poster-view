@@ -1,20 +1,16 @@
-import { useSyncExternalStore } from "react";
-
-const key = "posterview.libraryDisplay.books.trackingOverlays";
-const event = "posterview:library-display";
-function subscribe(update: () => void) {
-  window.addEventListener(event, update);
-  window.addEventListener("storage", update);
-  return () => { window.removeEventListener(event, update); window.removeEventListener("storage", update); };
-}
-function read() {
-  try { return localStorage.getItem(key) !== "false"; } catch { return true; }
-}
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { readerRequest } from "./reader";
+const queryKey = ["library-display"];
+interface Preferences { tracking_overlays: boolean }
 export function useTrackingOverlays() {
-  const enabled = useSyncExternalStore(subscribe, read, () => true);
-  const setEnabled = (value: boolean) => {
-    try { localStorage.setItem(key, String(value)); } catch { return; }
-    window.dispatchEvent(new Event(event));
-  };
-  return [enabled, setEnabled] as const;
+  const client = useQueryClient();
+  const query = useQuery({ queryKey, queryFn: () => readerRequest<Preferences>("/api/library-display"), refetchOnWindowFocus: "always" });
+  const save = useMutation({
+    mutationFn: (value: boolean) => readerRequest<Preferences>("/api/library-display", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tracking_overlays: value }) }),
+    onSuccess: async (settings) => { await client.cancelQueries({ queryKey }); client.setQueryData(queryKey, settings); },
+  });
+  return [query.data?.tracking_overlays ?? true, save.mutate, {
+    busy: query.isPending || save.isPending,
+    error: save.isError ? "Could not save preferences. Please try again." : query.isError ? "Could not load preferences." : undefined,
+  }] as const;
 }
