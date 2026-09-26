@@ -97,6 +97,7 @@ export default function ReaderPage() {
           keepalive: true,
         });
         setSaveError("");
+        window.dispatchEvent(new Event("posterview:reading-progress"));
       })
       .catch(() =>
         setSaveError(
@@ -569,6 +570,10 @@ export default function ReaderPage() {
               fill={saved ? "currentColor" : "none"}
             />
             <span>{saved ? "Bookmarked" : "Bookmark"}</span>
+          </button>
+          <button className={button} disabled={!ready} aria-pressed={state.finished === true}
+            onClick={() => setState((current) => ({ ...current, finished: !current.finished }))}>
+            <span>{state.finished ? "✓ Finished" : "Mark Finished"}</span>
           </button>
           {book?.format !== "epub" && (
             <button

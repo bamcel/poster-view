@@ -18,6 +18,7 @@ const GROUP_COLLECTIONS_KEY = "posterview.groupCollections";
 const LAST_VISIT_PREFIX = "posterview.lastVisit.";
 const SCROLL_POSITION_PREFIX = "posterview.libraryScroll.";
 type ArtworkFilter = "all" | "missing-poster" | "missing-backdrop";
+import { useBookInfo, bookTitleOrder } from "../lib/bookInfo";
 type TitleSort = "title" | "newest" | "oldest" | "recently-added";
 
 export default function DashboardPage() {
@@ -191,8 +192,9 @@ export default function DashboardPage() {
 
   useEffect(() => setAutomaticRootId(null), [serverId, libraryId]);
 
+  const bookInfo = useBookInfo(serverId, itemsQ.data, browsesFolders);
   const items = useMemo(() => {
-    const all = itemsQ.data ?? [];
+    const all = (itemsQ.data ?? []).map(item => ({ ...item, title: bookInfo.data?.[item.id]?.title || item.title }));
     const q = filter.trim().toLowerCase();
     const filtered = all.filter((item) => {
       if (q && !item.title.toLowerCase().includes(q)) return false;
@@ -206,9 +208,9 @@ export default function DashboardPage() {
       if (titleSort === "recently-added") {
         return Date.parse(b.added_at ?? "") - Date.parse(a.added_at ?? "") || a.title.localeCompare(b.title);
       }
-      return a.title.localeCompare(b.title);
+      return bookTitleOrder(a, b, bookInfo.data ?? {});
     });
-  }, [artworkFilter, filter, itemsQ.data, titleSort]);
+  }, [artworkFilter, filter, itemsQ.data, titleSort, bookInfo.data]);
 
   useEffect(() => {
     const update = (event: Event) => setShowBackdrop((event as CustomEvent<boolean>).detail);
@@ -509,7 +511,7 @@ export default function DashboardPage() {
                 title={item.title}
                 subtitle={item.year ? String(item.year) : undefined}
                 kind={item.type}
-                badge={newMissingIds.has(item.id) ? "NEW" : undefined}
+                badge={bookInfo.data?.[item.id]?.status ?? (newMissingIds.has(item.id) ? "NEW" : undefined)}
                 onOpen={() => openItem(item)}
                 onRefresh={() => refreshMut.mutate({ itemId: item.id })}
                 onEditMetadata={() => navigate(itemDetailUrl(item.id, true))}

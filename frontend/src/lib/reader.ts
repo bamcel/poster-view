@@ -21,6 +21,7 @@ export interface ReaderSettings {
   gap: number;
 }
 export interface ReaderState {
+  finished?: boolean;
   page: number;
   offset: number;
   settings: ReaderSettings;
@@ -60,6 +61,7 @@ export function normalizeState(
   settings.lineHeight = clamp(settings.lineHeight, 1.2, 2.4);
   settings.gap = clamp(settings.gap, 0, 32);
   return {
+    finished: raw?.finished === true,
     page: Math.floor(clamp(raw?.page ?? 0, 0, Math.max(0, count - 1))),
     offset: clamp(raw?.offset ?? 0, 0, 1),
     settings,
