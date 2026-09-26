@@ -6,6 +6,18 @@ use axum::{
 use posterview_contracts::{CreditProviderSettings, CreditSearchResult, SeriesCredits};
 use serde::Deserialize;
 
+pub(crate) async fn preferences(State(state): State<AppState>) -> Result<Json<posterview_contracts::CastPreferences>, HttpError> {
+    Ok(Json(state.runtime.cast_preferences(state.auth.username())?))
+}
+pub(crate) async fn save_preferences(State(state): State<AppState>, Json(value): Json<posterview_contracts::CastPreferences>) -> Result<Json<posterview_contracts::CastPreferences>, HttpError> {
+    if !["both", "original", "dub"].contains(&value.mode.as_str())
+        || !(value.language == "system" || ((2..=3).contains(&value.language.len()) && value.language.bytes().all(|c| c.is_ascii_lowercase()))) {
+        return Err(HttpError::bad_request("Invalid cast display or language preference."));
+    }
+    state.runtime.save_cast_preferences(state.auth.username(), &value)?;
+    Ok(Json(value))
+}
+
 fn error(error: posterview_runtime::RuntimeError) -> HttpError {
     match error {
         posterview_runtime::RuntimeError::Watchdog(message) => HttpError::bad_gateway(message),
@@ -146,6 +158,26 @@ mod tests {
     use tower::ServiceExt;
 
     #[tokio::test]
+    async fn cast_preferences_persist_and_reject_invalid_modes() {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = Arc::new(Runtime::new(directory.path())); runtime.initialize().unwrap();
+        let app = crate::router(runtime.clone(), PathBuf::from("missing"), crate::AuthState::for_tests(""));
+        let body = r#"{"show":false,"hide_crew":true,"mode":"dub","language":"fr"}"#;
+        let response = app.clone().oneshot(Request::put("/api/credits/preferences").header("content-type", "application/json").body(Body::from(body)).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = app.clone().oneshot(Request::get("/api/credits/preferences").body(Body::empty()).unwrap()).await.unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+        assert_eq!(saved["show"], false); assert_eq!(saved["language"], "fr");
+        let response = app.oneshot(Request::put("/api/credits/preferences").header("content-type", "application/json").body(Body::from(body.replace("dub", "invalid"))).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let prefs = posterview_contracts::CastPreferences { show: false, hide_crew: true, mode: "original".into(), language: "system".into() };
+        runtime.save_cast_preferences("first-user", &prefs).unwrap();
+        let reopened = Runtime::new(directory.path()); reopened.initialize().unwrap();
+        assert_eq!(reopened.cast_preferences("first-user").unwrap(), prefs);
+        assert_eq!(reopened.cast_preferences("other-user").unwrap(), posterview_contracts::CastPreferences::default());
+    }
+
+    #[tokio::test]
     async fn credits_routes_require_auth_and_keep_credentials_private() {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(Runtime::new(directory.path()));
@@ -156,6 +188,8 @@ mod tests {
             crate::AuthState::for_tests("password"),
         );
         for (method, path, body) in [
+            ("GET", "/api/credits/preferences", ""),
+            ("PUT", "/api/credits/preferences", r#"{"show":true,"hide_crew":false,"mode":"both","language":"system"}"#),
             ("GET", "/api/credits/settings", ""),
             (
                 "PUT",

@@ -15,14 +15,15 @@ MyAnimeList's documented official API v2 does not expose anime characters, voice
 
 ## Choose what to display
 
-- **Original + selected language** is the initial mode; English is the initial preferred dub.
-- Choose **Original only**, **Selected language only**, or **All languages** as needed.
+- Open **⋯ Preferences** beside the search bar in a TV/anime library. **Cast & Crew** contains **Show Cast & Crew**, **Hide Crew**, three cast-display choices, and **Cast Language**.
+- **Primary + selected language** is the initial mode. Choose **Primary Cast Only** or **Selected-language Cast Only** as needed. The labels display the resolved language name.
+- **System Default** uses the current browser's preferred language. Select an explicit language to use the same language on every device.
 - All available language-tagged credits are captured during import. Changing the view never deletes another cast language.
-- The display preference is stored per browser and signed-in username, not as a global server setting. PosterView's existing authentication model still applies; this does not introduce multi-user accounts or cross-device preference synchronization.
+- Preferences are saved on PosterView per authenticated username across devices and TV/anime libraries. Existing browser-only cast preferences are superseded by the new account defaults. This does not introduce new accounts or change authentication.
 - Set **Series' original language** when the providers do not identify it, including AniList-only imports. This series metadata is saved in the database. An actor's language, a title's production country, and the language used to translate a provider response are not reliable substitutes for the series' original language.
 - Credits without a confirmed performance language appear separately as **language unspecified**, not as an invented English dub. TMDb/TheTVDB credits generally belong here because their credit records do not identify the performance language.
 - AniList's dub-group labels and role notes are retained. Multiple recordings in the same language remain separate. Where a provider does not supply this distinction, PosterView cannot reconstruct it.
-- Crew has its own tab and is not hidden by the cast-language filter. Sources can be viewed together or by provider.
+- Crew has its own tab unless **Hide Crew** is enabled. Sources can be viewed together or by provider. The title-specific original-language correction is under **Sources & matching**.
 
 Cards show the performer, character/job, portrait where available, dub notes and provider links. Equivalent displayed labels may be coalesced across sources; provider-scoped person identities and original credit records remain separate in storage. Differently named credits remain separate rather than being automatically identified as the same person.
 

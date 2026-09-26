@@ -6,6 +6,15 @@ use tokio::sync::Mutex;
 static IMPORT_LOCK: Mutex<()> = Mutex::const_new(());
 
 impl Runtime {
+    pub fn cast_preferences(&self, user: &str) -> Result<posterview_contracts::CastPreferences, RuntimeError> {
+        let raw = self.server_store()?.get_setting(&format!("cast_preferences:{user}"))?;
+        Ok(serde_json::from_str(&raw).unwrap_or_default())
+    }
+
+    pub fn save_cast_preferences(&self, user: &str, value: &posterview_contracts::CastPreferences) -> Result<(), RuntimeError> {
+        self.server_store()?.set_setting(&format!("cast_preferences:{user}"), &serde_json::to_string(value).expect("serializable preferences"))?;
+        Ok(())
+    }
     pub fn credit_provider_settings(&self) -> Result<CreditProviderSettings, RuntimeError> {
         let store = self.server_store()?;
         Ok(CreditProviderSettings {

@@ -57,7 +57,10 @@ it.each(["movie", "show", "collection", "book", "audiobook", "other"] as const)(
     await screen.findByRole("button", { name: "Test Library" });
     fireEvent.click(screen.getByRole("button", { name: "Library preferences" }));
     expect(screen.getByRole("dialog", { name: "Preferences" })).toBeTruthy();
-    if (!["book", "audiobook"].includes(type)) {
+    if (type === "show") {
+      expect(screen.getByRole("switch", { name: "Show Cast & Crew" })).toBeTruthy();
+      expect(screen.getByRole("switch", { name: "Hide Crew" })).toBeTruthy();
+    } else if (!["book", "audiobook"].includes(type)) {
       expect(screen.getByText("No preferences available for this library type yet.")).toBeTruthy();
     }
     fireEvent.click(screen.getByRole("button", { name: "Close Preferences" }));

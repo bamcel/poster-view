@@ -11,6 +11,7 @@ import { api, imageUrl } from "../api/client";
 import { useServers } from "../lib/serverContext";
 import PosterCard from "../components/PosterCard";
 import LibraryPopup from "../components/LibraryPopup";
+import CastPreferences from "../components/CastPreferences";
 import LibraryMetadataEditor from "../components/LibraryMetadataEditor";
 import type { MediaItem } from "../types";
 import { EmptyState, Spinner, Switch } from "../components/ui";
@@ -464,7 +465,7 @@ export default function DashboardPage() {
                   {displayStatus.coloredEffect !== "off" && <label className="mt-3 block text-sm text-muted">Effect<select className="mt-2 w-full rounded-lg border border-border bg-input p-3 text-white" value={displayStatus.coloredEffect} disabled={displayStatus.busy} onChange={event => displayStatus.setColoredEffect(event.target.value as "shimmer" | "badge")}><option value="shimmer">Poster Shimmer</option><option value="badge">Colored Badge</option></select></label>}
                 </div>
                 {displayStatus.error && <p role="alert" className="mt-2 text-xs text-muted">{displayStatus.error}</p>}
-              </> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
+              </> : selectedLibrary?.type === "show" ? <CastPreferences /> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
           </LibraryPopup>
           </div>
         </div>

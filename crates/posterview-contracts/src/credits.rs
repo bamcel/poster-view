@@ -49,3 +49,16 @@ pub struct CreditProviderSettings {
     pub tmdb_configured: bool,
     pub tvdb_configured: bool,
 }
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct CastPreferences {
+    pub show: bool,
+    pub hide_crew: bool,
+    pub mode: String,
+    pub language: String,
+}
+
+impl Default for CastPreferences {
+    fn default() -> Self {
+        Self { show: true, hide_crew: false, mode: "both".into(), language: "system".into() }
+    }
+}

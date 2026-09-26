@@ -1,9 +1,9 @@
-import { useContext, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Loader2, RefreshCw, Search, UsersRound } from "lucide-react";
 import { creditsApi, type SeriesCredits } from "../api/credits";
-import { castGroups, creditProviders, displayCredits, languageName, readCastPreference, type CastPreference, type DisplayCredit } from "../lib/credits";
-import { AuthSessionContext } from "../lib/authContext";
+import { castGroups, creditProviders, displayCredits, languageName, type DisplayCredit } from "../lib/credits";
+import { useCastPreferences } from "../lib/castPreferences";
 import type { ItemDetail } from "../types";
 
 const control = "rounded-lg border border-white/15 bg-surface px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50";
@@ -32,9 +32,8 @@ function CreditGrid({ credits }: { credits: DisplayCredit[] }) {
 }
 
 export default function CastCrewPanel({ serverId, item }: { serverId: number; item: ItemDetail }) {
-  const session = useContext(AuthSessionContext);
-  const preferenceKey = `posterview.cast.${session?.username ?? "local"}`;
-  const [preference, setPreference] = useState(() => readCastPreference(preferenceKey));
+  const display = useCastPreferences();
+  const preference = { mode: display.value.mode, language: display.language };
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [provider, setProvider] = useState("anilist");
   const [term, setTerm] = useState(item.title);
@@ -44,7 +43,7 @@ export default function CastCrewPanel({ serverId, item }: { serverId: number; it
   const [tab, setTab] = useState<"cast" | "crew">("cast");
   const client = useQueryClient();
   const queryKey = ["series-credits", serverId, item.id];
-  const query = useQuery({ queryKey, queryFn: () => creditsApi.get(serverId, item.id), staleTime: 60_000 });
+  const query = useQuery({ queryKey, queryFn: () => creditsApi.get(serverId, item.id), staleTime: 60_000, enabled: display.value.show });
   const settings = useQuery({ queryKey: ["credit-settings"], queryFn: creditsApi.settings, enabled: sourcesOpen });
   const matches = useQuery({ queryKey: ["credit-search", provider, search], queryFn: () => creditsApi.search(provider, search), enabled: sourcesOpen && !!search, retry: false });
   const saved = (value: SeriesCredits) => { client.setQueryData(queryKey, value); };
@@ -52,7 +51,6 @@ export default function CastCrewPanel({ serverId, item }: { serverId: number; it
   const removing = useMutation({ mutationFn: ({ provider, id }: { provider: string; id: string }) => creditsApi.remove(serverId, item.id, provider, id), onSuccess: value => { saved(value); setSourceFilter("all"); } });
   const language = useMutation({ mutationFn: (value: string) => creditsApi.language(serverId, item.id, value || null), onSuccess: saved });
   const saveToken = useMutation({ mutationFn: () => creditsApi.saveToken(token.trim()), onSuccess: value => { client.setQueryData(["credit-settings"], value); setToken(""); } });
-  const updatePreference = (next: CastPreference) => { setPreference(next); try { localStorage.setItem(preferenceKey, JSON.stringify(next)); } catch { /* Preference still works in memory. */ } };
   const data = query.data;
   const sources = data?.sources ?? [];
   const reportedLanguages = [...new Set(sources.map(s => s.original_language).filter((v): v is string => !!v))];
@@ -65,6 +63,7 @@ export default function CastCrewPanel({ serverId, item }: { serverId: number; it
   const linkedId = item.external_ids[provider] ?? (provider === "mal" ? item.external_ids.myanimelist : undefined);
   const error = importing.error ?? removing.error ?? language.error;
 
+  if (!display.value.show) return null;
   return <section className="mt-10" aria-label="Cast and crew">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h2 className="flex items-center gap-2 text-lg font-semibold"><UsersRound className="size-5 text-white/60" />Cast & Crew</h2>
@@ -75,6 +74,7 @@ export default function CastCrewPanel({ serverId, item }: { serverId: number; it
     {query.error && <p className="mt-4 text-sm text-red-300" role="alert">Could not load credits: {query.error.message} <button onClick={() => query.refetch()}>Retry</button></p>}
     {error && <p className="mt-4 text-sm text-red-300" role="alert">{error.message}</p>}
     {sourcesOpen && <div className="mt-5 space-y-4 rounded-xl border border-white/10 bg-black/25 p-4">
+          <label className="text-xs text-white/55">Series’ original language<select className={`${control} mt-1 block`} aria-label="Original cast language" disabled={language.isPending} value={original ?? ""} onChange={e => language.mutate(e.target.value)}><option value="">{sources.some(s => s.original_language) ? "Use provider language" : "Choose language"}</option>{languages.map(lang => <option key={lang} value={lang}>{languageName(lang)}</option>)}</select></label>
       <p className="text-sm text-white/65">Match the exact series or season entry before importing. You can add multiple seasons from the same provider. Each source stays available separately.</p>
       {sources.map(source => <div key={`${source.provider}:${source.external_id}`} className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
         <div className="min-w-0"><a className="text-sm font-medium hover:underline" href={safeUrl(source.source_url)} target="_blank" rel="noreferrer">{creditProviders[source.provider]} · {source.title} <ExternalLink className="inline size-3" /></a>
@@ -108,18 +108,12 @@ export default function CastCrewPanel({ serverId, item }: { serverId: number; it
     {!query.isLoading && !query.error && !sources.length && <div className="py-8 text-center"><p className="text-sm text-white/65">No cast or crew saved for this series yet.</p><button className={`${control} mt-3`} onClick={() => setSourcesOpen(true)}>Find cast & crew</button></div>}
     {sources.length > 0 && <>
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 rounded-lg bg-black/30 p-1" role="group" aria-label="Credit category">{(["cast", "crew"] as const).map(value => <button key={value} aria-pressed={tab === value} className={`rounded-md px-4 py-2 text-sm ${tab === value ? "bg-white/15 text-white" : "text-white/50"}`} onClick={() => setTab(value)}>{value === "cast" ? "Cast" : "Crew"} · {credits.filter(c => c.category === value).length}</button>)}</div>
+        <div className="flex gap-1 rounded-lg bg-black/30 p-1" role="group" aria-label="Credit category">{(display.value.hide_crew ? ["cast"] as const : ["cast", "crew"] as const).map(value => <button key={value} aria-pressed={tab === value} className={`rounded-md px-4 py-2 text-sm ${tab === value ? "bg-white/15 text-white" : "text-white/50"}`} onClick={() => setTab(value)}>{value === "cast" ? "Cast" : "Crew"} · {credits.filter(c => c.category === value).length}</button>)}</div>
         <select className={control} aria-label="Displayed credits source" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}><option value="all">All saved sources</option>{[...new Set(sources.map(s => s.provider))].map(provider => <option key={provider} value={provider}>{creditProviders[provider]}</option>)}</select>
       </div>
-      {tab === "cast" ? <>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <label className="text-xs text-white/55">Show<select className={`${control} mt-1 block`} aria-label="Cast display" value={preference.mode} onChange={e => updatePreference({ ...preference, mode: e.target.value as CastPreference["mode"] })}><option value="both">Original + selected language</option><option value="original">Original only</option><option value="dub">Selected language only</option><option value="all">All languages</option></select></label>
-          {(preference.mode === "both" || preference.mode === "dub") && <label className="text-xs text-white/55">Preferred dub<select className={`${control} mt-1 block`} aria-label="Preferred dub language" value={preference.language} onChange={e => updatePreference({ ...preference, language: e.target.value })}>{languages.map(lang => <option key={lang} value={lang}>{languageName(lang)}</option>)}</select></label>}
-          <label className="text-xs text-white/55">Series’ original language<select className={`${control} mt-1 block`} aria-label="Original cast language" disabled={language.isPending} value={original ?? ""} onChange={e => language.mutate(e.target.value)}><option value="">{sources.some(s => s.original_language) ? "Use provider language" : "Choose language"}</option>{languages.map(lang => <option key={lang} value={lang}>{languageName(lang)}</option>)}</select></label>
-        </div>
-        <p className="mt-2 text-[11px] text-white/40">Your display preference is remembered in this browser. Changing it keeps every saved cast language.</p>
+      {tab === "cast" || display.value.hide_crew ? <>
         {!original && <p className="mt-3 text-sm text-amber-200">Choose the series’ original language to identify its primary cast. {reportedLanguages.length > 1 ? "The saved providers report different original languages." : "Providers do not always supply it."}</p>}
-        {groups.map(group => <div className="mt-5" key={`${group.label}-${sourceFilter}`}><h3 className="mb-3 text-sm font-semibold text-white/80">{group.label} <span className="font-normal text-white/40">{group.credits.length}</span></h3>{group.credits.length ? <CreditGrid credits={group.credits} /> : <p className="rounded-lg border border-dashed border-white/15 p-4 text-sm text-white/45">{!original && group.label === "Original cast" ? "Select the original language above." : "No credits for this language in the saved sources. Try another provider to fill the gap."}</p>}</div>)}
+        {groups.map(group => <div className="mt-5" key={`${group.label}-${sourceFilter}`}><h3 className="mb-3 text-sm font-semibold text-white/80">{group.label} <span className="font-normal text-white/40">{group.credits.length}</span></h3>{group.credits.length ? <CreditGrid credits={group.credits} /> : <p className="rounded-lg border border-dashed border-white/15 p-4 text-sm text-white/45">{!original && group.label === "Original cast" ? "Choose the original language in Sources & matching." : "No credits for this language in the saved sources. Try another provider to fill the gap."}</p>}</div>)}
         {groups.some(g => g.label.includes("unspecified")) && <p className="mt-3 text-xs text-white/40">These credits have no confirmed performance language. Localized provider text does not establish a dubbed cast.</p>}
       </> : <div className="mt-5">{crew.length ? <CreditGrid key={sourceFilter} credits={crew} /> : <p className="py-5 text-sm text-white/50">No crew credits supplied by these sources.</p>}</div>}
     </>}
