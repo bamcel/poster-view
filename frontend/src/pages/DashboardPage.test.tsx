@@ -6,10 +6,12 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import DashboardPage from "./DashboardPage";
 import { api } from "../api/client";
+vi.mock("../components/LibraryMetadataEditor", () => ({ default: ({ item, onClose }: { item: { title: string }; onClose: () => void }) => <div role="dialog" aria-label="Metadata editor">{item.title}<button onClick={onClose}>Close Editor</button></div> }));
+function CurrentLocation() { const location = useLocation(); return <output data-testid="location">{location.pathname}{location.search}</output>; }
 
 HTMLDialogElement.prototype.showModal = function () { this.open = true; };
 HTMLDialogElement.prototype.close = function () { this.open = false; };
@@ -39,6 +41,7 @@ function renderDashboard(initialEntry = "/?lib=movies") {
   const result = render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[initialEntry]}>
+        <CurrentLocation />
         <DashboardPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -62,6 +65,22 @@ it.each(["movie", "show", "collection", "book", "audiobook", "other"] as const)(
     client.clear();
   },
 );
+
+it("edits metadata without leaving the library or resetting its filter", async () => {
+  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "manga", title: "Manga", type: "book" }]);
+  vi.mocked(api.getItems).mockResolvedValue([{ id: "series", title: "Chainsaw Man", type: "folder" }]);
+  const { client } = renderDashboard("/?lib=manga");
+  await screen.findByText("Chainsaw Man");
+  fireEvent.change(screen.getByLabelText("Search titles"), { target: { value: "Chainsaw" } });
+  fireEvent.contextMenu(screen.getByTitle("Chainsaw Man · right-click for options"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Edit Metadata" }));
+  expect(screen.getByRole("dialog", { name: "Metadata editor" })).toBeTruthy();
+  expect(screen.getByTestId("location").textContent).toBe("/?lib=manga");
+  fireEvent.click(screen.getByText("Close Editor"));
+  expect((screen.getByLabelText("Search titles") as HTMLInputElement).value).toBe("Chainsaw");
+  expect(screen.getByTestId("location").textContent).toBe("/?lib=manga");
+  client.clear();
+});
 
 it("uses full-width overflow tabs even with legacy collapse preferences", async () => {
   localStorage.setItem("posterview.libraryTabsCollapsed", "true");
