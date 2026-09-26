@@ -11,6 +11,8 @@ import { api, imageUrl } from "../api/client";
 import { useServers } from "../lib/serverContext";
 import PosterCard from "../components/PosterCard";
 import LibraryPopup from "../components/LibraryPopup";
+import LibraryMetadataEditor from "../components/LibraryMetadataEditor";
+import type { MediaItem } from "../types";
 import { EmptyState, Spinner, Switch } from "../components/ui";
 import { useToast } from "../lib/toast";
 import { isBookRelatedLibraryName } from "../lib/mediaKind";
@@ -38,6 +40,7 @@ export default function DashboardPage() {
   const folderId = searchParams.get("folder");
   const folderTitle = searchParams.get("folder_title");
   const [filter, setFilter] = useState("");
+  const [metadataItem, setMetadataItem] = useState<MediaItem | null>(null);
   const [artworkFilter, setArtworkFilter] = useState<ArtworkFilter>("all");
   const [titleSort, setTitleSort] = useState<TitleSort>("title");
   const [automaticRootId, setAutomaticRootId] = useState<string | null>(null);
@@ -296,7 +299,7 @@ export default function DashboardPage() {
   }
 
   const browseableLibs = librariesQ.data ?? [];
-  const itemDetailUrl = (itemId: string, editMetadata = false) => {
+  const itemDetailUrl = (itemId: string) => {
     const context = new URLSearchParams();
     if (selectedLibrary) {
       context.set("library_type", selectedLibrary.type);
@@ -305,7 +308,6 @@ export default function DashboardPage() {
     if (libraryId) context.set("return_library", libraryId);
     if (folderId) context.set("return_folder", folderId);
     if (folderTitle) context.set("return_folder_title", folderTitle);
-    if (editMetadata) context.set("edit_metadata", "1");
     const query = context.toString();
     return `/server/${serverId}/item/${itemId}${query ? `?${query}` : ""}`;
   };
@@ -464,6 +466,7 @@ export default function DashboardPage() {
         onScroll={rememberScrollPosition}
         className="scrollbar-hidden relative z-10 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-6"
       >
+        {metadataItem && serverId != null && <LibraryMetadataEditor key={`${serverId}:${metadataItem.id}`} serverId={serverId} item={metadataItem} onClose={() => setMetadataItem(null)} />}
         {librariesQ.isError && (
           <EmptyState
             icon={<ServerCrash className="size-10" />}
@@ -510,7 +513,7 @@ export default function DashboardPage() {
                 badge={browsesFolders && !trackingOverlays ? undefined : bookInfo.data?.[item.id]?.status ?? (newMissingIds.has(item.id) ? "NEW" : undefined)}
                 onOpen={() => openItem(item)}
                 onRefresh={() => refreshMut.mutate({ itemId: item.id })}
-                onEditMetadata={() => navigate(itemDetailUrl(item.id, true))}
+                onEditMetadata={() => setMetadataItem(item)}
                 refreshing={refreshingId === item.id}
               />
             ))}
