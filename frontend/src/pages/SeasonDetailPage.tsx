@@ -1,11 +1,12 @@
 import DetailSynopsis from "../components/DetailSynopsis";
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "../lib/libraryNavigation";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, CalendarDays, ChevronDown, Clock3, Film, Layers3, RefreshCw, Search } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import { seasonsApi, type EpisodeDetail } from "../api/seasons";
 import type { Season } from "../types";
+import { BACKDROP_OVERLAY_EVENT, MEDIA_LIBRARY_BACKDROP_EVENT, backdropOverlay, backdropOverlayGradients, mediaLibraryBackdropEnabled } from "../lib/mediaLibrarySettings";
 
 function Artwork({ src, alt, className = "", decorative = false }: { src?: string; alt: string; className?: string; decorative?: boolean }) {
   const [failed, setFailed] = useState(false);
@@ -46,6 +47,18 @@ function EpisodeCard({ episode, serverId }: { episode: EpisodeDetail; serverId: 
 }
 
 export default function SeasonDetailPage() {
+  const [showBackdrop, setShowBackdrop] = useState(mediaLibraryBackdropEnabled);
+  const [overlayStrength, setOverlayStrength] = useState(backdropOverlay);
+  useEffect(() => {
+    const updateBackdrop = () => setShowBackdrop(mediaLibraryBackdropEnabled());
+    const updateOverlay = () => setOverlayStrength(backdropOverlay());
+    window.addEventListener(MEDIA_LIBRARY_BACKDROP_EVENT, updateBackdrop);
+    window.addEventListener(BACKDROP_OVERLAY_EVENT, updateOverlay);
+    return () => {
+      window.removeEventListener(MEDIA_LIBRARY_BACKDROP_EVENT, updateBackdrop);
+      window.removeEventListener(BACKDROP_OVERLAY_EVENT, updateOverlay);
+    };
+  }, []);
   const { serverId: serverParam, seriesId = "", seasonId = "" } = useParams();
   const serverId = Number(serverParam);
   const [params] = useSearchParams();
@@ -66,8 +79,10 @@ export default function SeasonDetailPage() {
   const period = years.length ? years[0] === years.at(-1) ? years[0] : `${years[0]}–${years.at(-1)}` : null;
 
   return <div className="media-detail relative isolate h-full overflow-hidden bg-base text-white">
-    <div className="pointer-events-none absolute inset-0 -z-20"><Artwork src={imageUrl(serverId, season?.background || series?.background)} alt="" decorative /></div>
-    <div className="pointer-events-none absolute inset-0 -z-10 bg-black/75" />
+    {showBackdrop && <>
+      <div className="pointer-events-none absolute inset-0 -z-20"><Artwork src={imageUrl(serverId, season?.background || series?.background)} alt="" decorative /></div>
+      <div data-testid="season-backdrop-overlay" className="pointer-events-none absolute inset-0 -z-10" style={{ backgroundImage: backdropOverlayGradients(overlayStrength).desktop }} />
+    </>}
     <div ref={scroller} className="h-full overflow-y-auto">
     <div className="px-4 pb-4 pt-5 sm:px-6 lg:px-10">
       <div>
@@ -78,7 +93,7 @@ export default function SeasonDetailPage() {
             <Link to={seriesUrl} className="text-xl font-semibold text-white hover:text-accent sm:text-3xl">{series?.logo ? <img src={imageUrl(serverId, series.logo)} alt={series.title} className="max-h-24 max-w-full object-contain object-left sm:max-w-[400px]" /> : series?.title || "Series"}</Link>
 
             <h1 className="mt-3 text-xl font-semibold leading-tight sm:text-2xl">{season.title}</h1>
-            <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-white/75">{season.index === 0 && <span>Specials</span>}{period && <span>{period}</span>}<span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5"><Layers3 className="size-3.5" />{episodes.length} {episodes.length === 1 ? "episode" : "episodes"}</span></div>
+            <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-white/75">{season.index === 0 && <span>Specials</span>}{period && <span>{period}</span>}<span className="media-detail-pill inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5"><Layers3 className="size-3.5" />{episodes.length} {episodes.length === 1 ? "episode" : "episodes"}</span></div>
             <div className="mt-4"><button aria-label="Refresh season" title="Refresh season" disabled={seasonQ.isFetching} className="rounded-full border border-white/15 p-2.5 text-white/70 hover:bg-white/10 disabled:opacity-40" onClick={() => { void seasonQ.refetch(); void seriesQ.refetch(); }}><RefreshCw className={`size-4 ${seasonQ.isFetching ? "animate-spin" : ""}`} /></button></div>
             <div className="hidden sm:block"><DetailSynopsis key={season.id} text={season.summary || series?.summary} /></div>
           </div>

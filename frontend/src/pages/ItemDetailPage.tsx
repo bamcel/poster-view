@@ -6,8 +6,8 @@ import FindMissingMetadata, { MissingMetadataMenu } from "../components/FindMiss
 import { useEffect, useState } from "react";
 import { useBookInfo } from "../lib/bookInfo";
 import { useTrackingOverlays } from "../lib/libraryDisplay";
-import { createPortal } from "react-dom";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { LibraryBackdrop } from "../lib/libraryNavigation";
+import { useNavigate, useParams, useSearchParams } from "../lib/libraryNavigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink, Images, Pencil, RefreshCw } from "lucide-react";
 import { api, imageUrl } from "../api/client";
@@ -146,7 +146,7 @@ export default function ItemDetailPage() {
 
   return (
     <div className="relative flex h-full overflow-hidden">
-      {showBackdrop && createPortal(
+      {showBackdrop && (<LibraryBackdrop>
         <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-base" aria-hidden="true" data-testid="item-backdrop">
           {backdrop && (
             <img
@@ -157,9 +157,7 @@ export default function ItemDetailPage() {
           )}
           <div className="absolute inset-0 md:hidden" data-testid="item-backdrop-overlay-mobile" style={{ backgroundImage: backdropOverlayGradients(overlayStrength).mobile }} />
           <div className="absolute inset-0 hidden md:block" data-testid="item-backdrop-overlay-desktop" style={{ backgroundImage: backdropOverlayGradients(overlayStrength).desktop }} />
-        </div>,
-        document.body,
-      )}
+        </div></LibraryBackdrop>)}
 
       {/* Left: hero + seasons */}
       <div className={`${isSeries ? "media-detail " : ""}scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain`}>
@@ -399,7 +397,7 @@ export default function ItemDetailPage() {
       </div>
 
       {artworkOpen && item && (
-        <div className="fixed inset-0 z-50 bg-black/65 xl:relative xl:inset-auto xl:z-[1] xl:h-full xl:w-[clamp(20rem,25vw,23.75rem)] xl:shrink-0 xl:bg-transparent" onClick={() => setArtworkOpen(false)}>
+        <div className="item-artwork-overlay fixed inset-0 z-50 bg-black/65 xl:relative xl:inset-auto xl:z-[1] xl:h-full xl:w-[clamp(20rem,25vw,23.75rem)] xl:shrink-0 xl:bg-transparent" onClick={() => setArtworkOpen(false)}>
           <section id="item-artwork-panel" aria-label={`Artwork for ${item.title}`} className="ml-auto h-full w-full max-w-md shadow-2xl xl:max-w-none" onClick={event => event.stopPropagation()}>
             <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} anilistMangaId={metadataQ.data?.anilist_id} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onClose={() => setArtworkOpen(false)} onReviewMetadata={(fields, sourceLabel) => { setArtworkOpen(false); setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
           </section>

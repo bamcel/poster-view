@@ -273,6 +273,8 @@ pub struct AppearanceSettings {
     pub panel_blur: u8,
     pub panel_overlay: u8,
     pub backdrop_overlay: u8,
+    #[serde(default = "default_pill_background_opacity")]
+    pub pill_background_opacity: u8,
     pub theme_name: String,
     pub custom_themes_json: String,
 }
@@ -286,10 +288,15 @@ impl Default for AppearanceSettings {
             panel_blur: 12,
             panel_overlay: 0,
             backdrop_overlay: 72,
+            pill_background_opacity: default_pill_background_opacity(),
             theme_name: "Everforest".to_owned(),
             custom_themes_json: "[]".to_owned(),
         }
     }
+}
+
+const fn default_pill_background_opacity() -> u8 {
+    5
 }
 
 const fn default_history_max_entries() -> i64 {

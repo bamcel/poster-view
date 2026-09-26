@@ -531,6 +531,7 @@ impl Runtime {
         settings.panel_blur = settings.panel_blur.min(30);
         settings.panel_overlay = settings.panel_overlay.min(95);
         settings.backdrop_overlay = settings.backdrop_overlay.min(95);
+        settings.pill_background_opacity = settings.pill_background_opacity.min(100);
         if settings.theme_name.trim().is_empty() {
             settings.theme_name = "Everforest".to_owned();
         }
@@ -743,6 +744,7 @@ mod tests {
                 panel_blur: 255,
                 panel_overlay: 255,
                 backdrop_overlay: 255,
+                pill_background_opacity: 255,
                 theme_name: "Everforest".into(),
                 custom_themes_json: "[]".into(),
             })
@@ -751,7 +753,18 @@ mod tests {
         assert_eq!(saved.panel_solidity, 100);
         assert_eq!(saved.panel_blur, 30);
         assert_eq!(saved.panel_overlay, 95);
+        assert_eq!(saved.pill_background_opacity, 100);
         assert_eq!(runtime.appearance_settings().unwrap(), saved);
+    }
+
+    #[test]
+    fn older_appearance_settings_keep_their_values_with_default_pill_opacity() {
+        let mut stored = serde_json::to_value(AppearanceSettings::default()).unwrap();
+        stored.as_object_mut().unwrap().remove("pill_background_opacity");
+        stored["panel_blur"] = serde_json::json!(24);
+        let settings: AppearanceSettings = serde_json::from_value(stored).unwrap();
+        assert_eq!(settings.pill_background_opacity, 5);
+        assert_eq!(settings.panel_blur, 24);
     }
 
     #[test]

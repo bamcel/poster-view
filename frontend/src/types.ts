@@ -285,6 +285,7 @@ export interface AppearanceSettings {
   panel_blur: number;
   panel_overlay: number;
   backdrop_overlay: number;
+  pill_background_opacity: number;
   theme_name: string;
   custom_themes_json: string;
 }
