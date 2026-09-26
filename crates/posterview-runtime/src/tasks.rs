@@ -4,98 +4,93 @@ use posterview_contracts::ItemType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-const KEY: &str = "scheduled_tasks_v1";
+const KEY: &str = "scheduled_tasks_v2";
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn setup(runtime: &Runtime) -> TaskConfig {
-        runtime.initialize().unwrap();
-        let server = runtime
-            .create_server(&posterview_contracts::ServerCreate {
-                name: "Test".into(),
-                server_type: posterview_contracts::ServerType::Emby,
-                base_url: "http://localhost:1".into(),
-                token: "test".into(),
-                is_default: false,
-                nfo_metadata_enabled: false,
-            })
-            .unwrap();
-        TaskConfig {
-            name: "Credits".into(),
-            server_id: server.id,
-            library_ids: vec!["tv".into()],
-            kind: "missing_credits".into(),
-            providers: vec!["anilist".into()],
-            enabled: false,
-            interval_hours: 24,
-            stale_days: 30,
-        }
-    }
     #[tokio::test]
-    async fn task_queue_survives_restart_and_cancel_keeps_history() {
+    async fn builtins_are_fixed_persist_and_cancel_after_restart() {
         let dir = tempfile::tempdir().unwrap();
         let runtime = Runtime::new(dir.path());
-        let config = setup(&runtime);
-        let task = runtime.save_scheduled_task(None, config.clone()).unwrap();
-        runtime.task_action(&task.id, "run").unwrap();
-        assert!(runtime.task_action(&task.id, "run").is_err());
-        assert!(runtime.save_scheduled_task(Some(&task.id), config).is_err());
+        runtime.initialize().unwrap();
+        let tasks = runtime.scheduled_tasks().unwrap();
+        assert_eq!(tasks.len(), 2);
+        let mut config = tasks[0].config.clone();
+        assert!(runtime.save_scheduled_task(None, config.clone()).is_err());
+        assert!(runtime.task_action(&tasks[0].id, "delete").is_err());
+        config.name = "Custom".into();
+        config.providers.clear();
+        config.enabled = true;
+        let saved = runtime
+            .save_scheduled_task(Some(&tasks[0].id), config)
+            .unwrap();
+        assert_eq!(saved.config.name, tasks[0].config.name);
+        assert_eq!(saved.config.providers.len(), 4);
+        runtime.task_action(&saved.id, "run").unwrap();
+        assert!(runtime.task_action(&saved.id, "run").is_err());
         drop(runtime);
         let runtime = Runtime::new(dir.path());
         runtime.initialize().unwrap();
         assert_eq!(runtime.scheduled_tasks().unwrap()[0].status, "queued");
-        runtime.task_action(&task.id, "cancel").unwrap();
+        runtime.task_action(&saved.id, "cancel").unwrap();
         runtime.scheduled_task_tick().await.unwrap();
-        let saved = &runtime.scheduled_tasks().unwrap()[0];
-        assert_eq!(saved.status, "cancelled");
-        assert_eq!(saved.history.len(), 1);
-        runtime.task_action(&task.id, "delete").unwrap();
-        assert!(runtime.scheduled_tasks().unwrap().is_empty());
+        let task = &runtime.scheduled_tasks().unwrap()[0];
+        assert_eq!(task.status, "cancelled");
+        assert_eq!(task.history.len(), 1);
+        assert!(task.next_run.unwrap() > now());
     }
     #[tokio::test]
-    async fn running_checkpoint_resumes_and_reschedules_without_rescanning() {
+    async fn builtin_running_checkpoint_resumes() {
         let dir = tempfile::tempdir().unwrap();
         let runtime = Runtime::new(dir.path());
-        let mut config = setup(&runtime);
-        config.enabled = true;
-        let task = runtime.save_scheduled_task(None, config).unwrap();
+        runtime.initialize().unwrap();
         runtime
-            .update_task(&task.id, |t| {
+            .update_task("missing_credits", |t| {
                 t.status = "running".into();
-                t.processed = 3;
-                t.total = 3;
+                t.processed = 2;
+                t.total = 2;
             })
             .unwrap();
         runtime
             .server_store()
             .unwrap()
-            .set_setting(&format!("task_inventory:{}", task.id), "[]")
+            .set_setting("task_inventory:missing_credits", "[]")
             .unwrap();
         drop(runtime);
         let runtime = Runtime::new(dir.path());
         runtime.initialize().unwrap();
         runtime.scheduled_task_tick().await.unwrap();
-        let saved = &runtime.scheduled_tasks().unwrap()[0];
-        assert_eq!(saved.status, "completed");
-        assert_eq!(saved.processed, 3);
-        assert!(saved.next_run.unwrap() > now());
+        assert_eq!(runtime.scheduled_tasks().unwrap()[0].status, "completed");
     }
     #[test]
-    fn task_rejects_unsupported_work_and_unconfigured_provider() {
+    fn legacy_schedules_are_retained_but_do_not_execute() {
         let dir = tempfile::tempdir().unwrap();
         let runtime = Runtime::new(dir.path());
-        let mut config = setup(&runtime);
-        config.kind = "publish_nfo".into();
-        assert!(runtime.save_scheduled_task(None, config.clone()).is_err());
-        config.kind = "missing_credits".into();
-        config.providers = vec!["tmdb".into()];
-        assert!(runtime.save_scheduled_task(None, config.clone()).is_err());
-        config.providers = vec!["anilist".into()];
-        config.library_ids.clear();
-        assert!(runtime.save_scheduled_task(None, config).is_err());
+        runtime.initialize().unwrap();
+        runtime
+            .server_store()
+            .unwrap()
+            .set_setting("scheduled_tasks_v1", "legacy-data")
+            .unwrap();
+        assert!(
+            runtime
+                .scheduled_tasks()
+                .unwrap()
+                .iter()
+                .all(|t| !t.config.enabled && t.status == "idle")
+        );
+        assert_eq!(
+            runtime
+                .server_store()
+                .unwrap()
+                .get_setting("scheduled_tasks_v1")
+                .unwrap(),
+            "legacy-data"
+        );
     }
 }
+
 fn invalid(message: impl Into<String>) -> RuntimeError {
     RuntimeError::Watchdog(message.into())
 }
@@ -106,8 +101,6 @@ fn now() -> i64 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TaskConfig {
     pub name: String,
-    pub server_id: i64,
-    pub library_ids: Vec<String>,
     pub kind: String,
     pub providers: Vec<String>,
     pub enabled: bool,
@@ -116,6 +109,7 @@ pub struct TaskConfig {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TaskIssue {
+    pub server_id: i64,
     pub item_id: String,
     pub title: String,
     pub message: String,
@@ -151,6 +145,7 @@ pub struct TaskHistory {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct WorkItem {
+    server_id: i64,
     id: String,
     title: String,
 }
@@ -159,7 +154,7 @@ fn active(task: &ScheduledTask) -> bool {
 }
 fn queue(task: &mut ScheduledTask) {
     task.status = "queued".into();
-    task.started_at = None;
+    task.started_at = Some(now());
     task.finished_at = None;
     task.processed = 0;
     task.total = 0;
@@ -195,11 +190,45 @@ fn finish(task: &mut ScheduledTask, status: &str, message: &str) {
     task.history.truncate(5);
 }
 
+fn builtin_tasks() -> Vec<ScheduledTask> {
+    [
+        ("missing_credits", "Fetch Missing Cast & Crew", 24),
+        ("refresh_credits", "Refresh Outdated Cast & Crew", 168),
+    ]
+    .into_iter()
+    .map(|(kind, name, interval_hours)| ScheduledTask {
+        id: kind.into(),
+        config: TaskConfig {
+            name: name.into(),
+            kind: kind.into(),
+            providers: vec!["anilist".into(), "mal".into(), "tvdb".into(), "tmdb".into()],
+            enabled: false,
+            interval_hours,
+            stale_days: 30,
+        },
+        status: "idle".into(),
+        next_run: None,
+        started_at: None,
+        finished_at: None,
+        processed: 0,
+        total: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+        needs_matching: 0,
+        current_title: None,
+        message: "Ready to run".into(),
+        issues: vec![],
+        history: vec![],
+    })
+    .collect()
+}
+
 impl Runtime {
     pub fn scheduled_tasks(&self) -> Result<Vec<ScheduledTask>, RuntimeError> {
         let raw = self.server_store()?.get_setting(KEY)?;
         if raw.is_empty() {
-            return Ok(Vec::new());
+            return Ok(builtin_tasks());
         }
         serde_json::from_str(&raw)
             .map_err(|e| invalid(format!("Could not read scheduled tasks: {e}")))
@@ -226,79 +255,31 @@ impl Runtime {
         id: Option<&str>,
         config: TaskConfig,
     ) -> Result<ScheduledTask, RuntimeError> {
-        if config.name.trim().is_empty()
-            || config.name.len() > 100
-            || config.library_ids.is_empty()
-            || config.library_ids.len() > 100
-            || config
-                .library_ids
-                .iter()
-                .any(|s| s.is_empty() || s.len() > 512)
-            || !["missing_credits", "refresh_credits"].contains(&config.kind.as_str())
-            || config.providers.is_empty()
-            || config.providers.len() > 4
-            || config
-                .providers
-                .iter()
-                .any(|p| !posterview_infra_artwork::valid_credit_provider(p))
-            || !(1..=8760).contains(&config.interval_hours)
-            || !(1..=3650).contains(&config.stale_days)
+        let id =
+            id.ok_or_else(|| invalid("Tasks are built in; custom tasks cannot be created."))?;
+        if !(1..=8760).contains(&config.interval_hours) || !(1..=3650).contains(&config.stale_days)
         {
             return Err(invalid(
-                "Choose a name, libraries, providers, interval (1–8760 hours), and refresh age (1–3650 days).",
-            ));
-        }
-        if self.get_server(config.server_id)?.is_none() {
-            return Err(invalid("Media server no longer exists."));
-        }
-        let settings = self.credit_provider_settings()?;
-        if config.providers.iter().any(|p| {
-            (p == "tmdb" && !settings.tmdb_configured) || (p == "tvdb" && !settings.tvdb_configured)
-        }) {
-            return Err(invalid(
-                "Configure the selected TMDB/TVDB provider credentials first.",
+                "Choose an interval of 1–8760 hours and a refresh age of 1–3650 days.",
             ));
         }
         self.change_tasks(|tasks| {
-            if let Some(id) = id {
-                let task = tasks
-                    .iter_mut()
-                    .find(|t| t.id == id)
-                    .ok_or_else(|| invalid("Task not found"))?;
-                if active(task) {
-                    return Err(invalid("Cancel the current run before editing this task."));
-                }
-                task.next_run = config
-                    .enabled
-                    .then_some(now() + config.interval_hours * 3600);
-                task.config = config;
-                return Ok(task.clone());
+            let task = tasks
+                .iter_mut()
+                .find(|t| t.id == id)
+                .ok_or_else(|| invalid("Task not found"))?;
+            if active(task) {
+                return Err(invalid(
+                    "Cancel the current run before editing its schedule.",
+                ));
             }
-            if tasks.len() >= 100 {
-                return Err(invalid("Maximum of 100 scheduled tasks reached."));
-            }
-            let task = ScheduledTask {
-                id: uuid::Uuid::new_v4().to_string(),
-                next_run: config
-                    .enabled
-                    .then_some(now() + config.interval_hours * 3600),
-                config,
-                status: "idle".into(),
-                started_at: None,
-                finished_at: None,
-                processed: 0,
-                total: 0,
-                updated: 0,
-                skipped: 0,
-                failed: 0,
-                needs_matching: 0,
-                current_title: None,
-                message: "Ready to run".into(),
-                issues: Vec::new(),
-                history: Vec::new(),
-            };
-            tasks.push(task.clone());
-            Ok(task)
+            task.config.enabled = config.enabled;
+            task.config.interval_hours = config.interval_hours;
+            task.config.stale_days = config.stale_days;
+            task.next_run = config
+                .enabled
+                .then_some(now() + config.interval_hours * 3600);
+            Ok(task.clone())
         })
     }
     pub fn task_action(&self, id: &str, action: &str) -> Result<(), RuntimeError> {
@@ -312,11 +293,6 @@ impl Runtime {
                 "cancel" if active(task) => {
                     task.status = "stopping".into();
                     task.message = "Cancellation requested".into();
-                }
-                "delete" if !active(task) => {
-                    tasks.retain(|t| t.id != id);
-                    self.server_store()?
-                        .set_setting(&format!("task_inventory:{id}"), "")?;
                 }
                 _ => {
                     return Err(invalid(
@@ -387,49 +363,51 @@ impl Runtime {
         let key = format!("task_inventory:{}", task.id);
         if task.status == "queued" {
             self.update_task(&task.id, |t| {
-                t.message = "Scanning selected TV libraries".into();
+                t.message = "Scanning all TV libraries across connected servers".into();
             })?;
-            let libraries = self
-                .get_libraries(config.server_id)
-                .await?
-                .ok_or_else(|| invalid("Media server no longer exists"))?
-                .map_err(invalid)?;
             let mut items = Vec::new();
             let mut seen = HashSet::new();
-            for library in &config.library_ids {
-                if self.cancelled(&task.id)? {
-                    return Ok(());
-                }
-                if !libraries.iter().any(|l| {
-                    &l.id == library && l.library_type == posterview_contracts::LibraryType::Show
-                }) {
-                    return Err(invalid(
-                        "A selected TV library is missing or has changed type. Edit this task's libraries.",
-                    ));
-                }
-                let server = self
-                    .get_server(config.server_id)?
-                    .ok_or_else(|| invalid("Media server no longer exists"))?;
+            let servers = self.list_servers()?;
+            if servers.is_empty() {
+                return Err(invalid("Connect a media server before running this task."));
+            }
+            for server in servers {
+                let libraries = self
+                    .get_libraries(server.id)
+                    .await?
+                    .ok_or_else(|| invalid("Media server no longer exists"))?
+                    .map_err(invalid)?;
                 let token = self
                     .server_store()?
-                    .decrypted_token(config.server_id)?
+                    .decrypted_token(server.id)?
                     .unwrap_or_default();
-                let inventory = posterview_infra_media_servers::get_series_inventory(
-                    posterview_infra_media_servers::ConnectionConfig {
-                        server_type: server.server_type,
-                        base_url: &server.base_url,
-                        token: &token,
-                    },
-                    library,
-                )
-                .await
-                .map_err(invalid)?;
-                for item in inventory {
-                    if item.item_type == ItemType::Show && seen.insert(item.id.clone()) {
-                        items.push(WorkItem {
-                            id: item.id,
-                            title: item.title,
-                        });
+                for library in libraries
+                    .iter()
+                    .filter(|l| l.library_type == posterview_contracts::LibraryType::Show)
+                {
+                    if self.cancelled(&task.id)? {
+                        return Ok(());
+                    }
+                    let inventory = posterview_infra_media_servers::get_series_inventory(
+                        posterview_infra_media_servers::ConnectionConfig {
+                            server_type: server.server_type.clone(),
+                            base_url: &server.base_url,
+                            token: &token,
+                        },
+                        &library.id,
+                    )
+                    .await
+                    .map_err(invalid)?;
+                    for item in inventory {
+                        if item.item_type == ItemType::Show
+                            && seen.insert((server.id, item.id.clone()))
+                        {
+                            items.push(WorkItem {
+                                server_id: server.id,
+                                id: item.id,
+                                title: item.title,
+                            });
+                        }
                     }
                 }
             }
@@ -440,7 +418,6 @@ impl Runtime {
             self.update_task(&task.id, |t| {
                 if t.status != "stopping" {
                     t.status = "running".into();
-                    t.started_at = Some(now());
                     t.total = items.len();
                     t.message = "Fetching saved and linked credits".into();
                 }
@@ -468,7 +445,7 @@ impl Runtime {
         let mut issues = Vec::new();
         let mut updated = false;
         let detail = match self
-            .get_item_detail(config.server_id, &item.id)
+            .get_item_detail(item.server_id, &item.id)
             .await?
             .ok_or_else(|| invalid("Media server no longer exists"))?
         {
@@ -479,6 +456,7 @@ impl Runtime {
                     t.failed += 1;
                     if t.issues.len() < 200 {
                         t.issues.push(TaskIssue {
+                            server_id: item.server_id,
                             item_id: item.id.clone(),
                             title: item.title.clone(),
                             message: error,
@@ -489,8 +467,14 @@ impl Runtime {
                 return Ok(());
             }
         };
-        let saved = self.series_credits(config.server_id, &item.id)?;
+        let saved = self.series_credits(item.server_id, &item.id)?;
+        let settings = self.credit_provider_settings()?;
         for provider in &config.providers {
+            if (provider == "tmdb" && !settings.tmdb_configured)
+                || (provider == "tvdb" && !settings.tvdb_configured)
+            {
+                continue;
+            }
             if self.cancelled(&task.id)? {
                 return Ok(());
             }
@@ -526,15 +510,6 @@ impl Runtime {
                 });
                 if let Some(id) = id.filter(|id| posterview_infra_artwork::valid_credit_id(id)) {
                     ids.push(id.clone());
-                } else {
-                    issues.push(TaskIssue {
-                        item_id: item.id.clone(),
-                        title: item.title.clone(),
-                        message: format!(
-                            "{provider}: no linked ID. Match this series in Sources & matching."
-                        ),
-                        needs_matching: true,
-                    });
                 }
             }
             ids.sort();
@@ -547,7 +522,7 @@ impl Runtime {
                     }
                     match tokio::time::timeout(
                         std::time::Duration::from_secs(90),
-                        self.import_credits(config.server_id, &item.id, provider, &id),
+                        self.import_credits(item.server_id, &item.id, provider, &id),
                     )
                     .await
                     {
@@ -571,6 +546,7 @@ impl Runtime {
                 }
                 if let Some(message) = last_error {
                     issues.push(TaskIssue {
+                        server_id: item.server_id,
                         item_id: item.id.clone(),
                         title: item.title.clone(),
                         message: format!("{provider}: {message}"),
@@ -579,6 +555,9 @@ impl Runtime {
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             }
+        }
+        if saved.sources.is_empty() && !updated && issues.is_empty() {
+            issues.push(TaskIssue { server_id: item.server_id, item_id: item.id.clone(), title: item.title.clone(), message: "No usable linked provider ID. Match this series in Sources & matching or configure its provider credentials.".into(), needs_matching: true });
         }
         self.update_task(&task.id, |t| {
             t.processed += 1;

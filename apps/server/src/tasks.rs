@@ -13,6 +13,51 @@ mod tests {
     };
     use tower::ServiceExt;
     #[tokio::test]
+    async fn builtin_tasks_discover_all_tv_libraries_on_every_server() {
+        use axum::{Json, Router, extract::Path, routing::get};
+        let upstream = Router::new()
+            .route("/library/sections", get(|| async { Json(serde_json::json!({"MediaContainer": {"Directory": [
+                {"key": "a", "title": "TV", "type": "show"},
+                {"key": "b", "title": "Anime", "type": "show"},
+                {"key": "c", "title": "Movies", "type": "movie"}
+            ]}})) }))
+            .route("/library/sections/{id}/all", get(|Path(id): Path<String>| async move {
+                assert_ne!(id, "c");
+                Json(serde_json::json!({"MediaContainer": {"totalSize": 1, "Metadata": [{"ratingKey": id, "title": "Series", "type": "show"}]}}))
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, upstream).await.unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = posterview_runtime::Runtime::new(dir.path());
+        runtime.initialize().unwrap();
+        // Read the built-ins before connecting servers: scope must be discovered at run time.
+        assert_eq!(runtime.scheduled_tasks().unwrap().len(), 2);
+        for name in ["One", "Two"] {
+            runtime
+                .create_server(&posterview_contracts::ServerCreate {
+                    name: name.into(),
+                    server_type: posterview_contracts::ServerType::Plex,
+                    base_url: url.clone(),
+                    token: "test".into(),
+                    is_default: false,
+                    nfo_metadata_enabled: false,
+                })
+                .unwrap();
+        }
+        runtime.task_action("missing_credits", "run").unwrap();
+        runtime.scheduled_task_tick().await.unwrap();
+        let task = &runtime.scheduled_tasks().unwrap()[0];
+        assert_eq!(task.status, "running", "{}", task.message);
+        assert_eq!(
+            task.total, 4,
+            "IDs shared by different servers must remain distinct"
+        );
+        handle.abort();
+    }
+    #[tokio::test]
     async fn scheduled_task_routes_require_authentication() {
         let dir = tempfile::tempdir().unwrap();
         let runtime = std::sync::Arc::new(posterview_runtime::Runtime::new(dir.path()));
