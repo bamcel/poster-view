@@ -191,3 +191,14 @@ select {
 .media-detail :is(h1,h2,h3,h4) { color: var(--color-detail-title); }
 .media-detail :is([aria-label="Title information"], [aria-label="Title information"] span, dt, dd, [class~="text-xs"]) { color: var(--color-detail-metadata); }
 .media-detail :is(a, button[class*="text-accent"], span[class~="text-accent"]) { color: var(--color-detail-link); }
+
+/* One shared identity for About genres, tags, studios, and provider links. */
+.media-detail :is(span, a).media-detail-pill, .media-detail-pill {
+  color: var(--color-pill-text, var(--color-detail-metadata));
+  background-color: color-mix(in srgb, var(--color-pill-background, #fff) 5%, transparent);
+  border-color: color-mix(in srgb, var(--color-pill-border, #fff) 10%, transparent);
+}
+.media-detail a.media-detail-pill:hover, .media-detail a.media-detail-pill:focus-visible {
+  background-color: color-mix(in srgb, var(--color-pill-background, #fff) 12%, transparent);
+  outline-color: var(--color-pill-border, #fff);
+}

@@ -18,6 +18,19 @@ beforeEach(() => {
 });
 
 describe("custom themes", () => {
+  it("applies and round-trips the shared pill identity", () => {
+    const theme = { ...getTheme("Gotham"), pillBackground: "#123456", pillBorder: "#ABCDEF", pillText: "#FEDCBA" };
+    applyTheme(theme);
+    expect(document.documentElement.style.getPropertyValue("--color-pill-background")).toBe("#123456");
+    expect(document.documentElement.style.getPropertyValue("--color-pill-border")).toBe("#ABCDEF");
+    expect(document.documentElement.style.getPropertyValue("--color-pill-text")).toBe("#FEDCBA");
+    expect(parseThemeJson(serializeTheme(theme))).toEqual(theme);
+    const legacy = JSON.parse(serializeTheme(theme));
+    delete legacy.colors["Media Detail Pills Background"];
+    delete legacy.colors["Media Detail Pills Border"];
+    delete legacy.colors["Media Detail Pills Text"];
+    expect(parseThemeJson(JSON.stringify(legacy)).pillBackground).toBe("#FFFFFF");
+  });
   it("round-trips a complete theme through the editable JSON format", () => {
     const gotham = getTheme("Gotham");
     expect(parseThemeJson(serializeTheme(gotham))).toEqual(gotham);

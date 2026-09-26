@@ -23,16 +23,22 @@ export interface AppTheme {
   detailText: string;
   detailMetadata: string;
   detailLink: string;
+  pillBackground: string;
+  pillBorder: string;
+  pillText: string;
 }
 
 export type ThemeColorKey = Exclude<keyof AppTheme, "name">;
 
-const DETAIL_ROLES = { detailTitle: "text", detailText: "text", detailMetadata: "muted", detailLink: "accent" } as const;
+const DETAIL_ROLES = { detailTitle: "text", detailText: "text", detailMetadata: "muted", detailLink: "accent", pillBackground: "text", pillBorder: "text", pillText: "muted" } as const;
 function detailDefaults(theme: Partial<AppTheme>) {
-  return { detailTitle: theme.text ?? "#FFFFFF", detailText: theme.text ?? "#FFFFFF", detailMetadata: theme.muted ?? "#FFFFFF", detailLink: theme.accent ?? "#FFFFFF" };
+  return { detailTitle: theme.text ?? "#FFFFFF", detailText: theme.text ?? "#FFFFFF", detailMetadata: theme.muted ?? "#FFFFFF", detailLink: theme.accent ?? "#FFFFFF", pillBackground: "#FFFFFF", pillBorder: "#FFFFFF", pillText: theme.detailMetadata ?? theme.muted ?? "#FFFFFF" };
 }
 
 export const THEME_COLOR_OPTIONS: { key: ThemeColorKey; label: string }[] = [
+  { key: "pillBackground", label: "Media Detail Pills Background" },
+  { key: "pillBorder", label: "Media Detail Pills Border" },
+  { key: "pillText", label: "Media Detail Pills Text" },
   { key: "detailTitle", label: "Media Detail Titles" },
   { key: "detailText", label: "Media Detail Text" },
   { key: "detailMetadata", label: "Media Detail Metadata" },
@@ -144,7 +150,7 @@ export function parseThemeJson(value: string): AppTheme {
   for (const { key, label } of THEME_COLOR_OPTIONS) {
     const inheritedRole = DETAIL_ROLES[key as keyof typeof DETAIL_ROLES];
     const inheritedLabel = THEME_COLOR_OPTIONS.find(option => option.key === inheritedRole)?.label;
-    const color = colors[label] ?? (inheritedLabel ? colors[inheritedLabel] : undefined);
+    const color = colors[label] ?? (key === "pillBackground" || key === "pillBorder" ? "#FFFFFF" : inheritedLabel ? colors[inheritedLabel] : undefined);
     if (typeof color !== "string" || !HEX_COLOR.test(color)) {
       throw new Error(`${label} must be a six-digit hex color, such as #BD93F9.`);
     }
@@ -206,6 +212,7 @@ function applyThemeValues(theme: AppTheme) {
   root.dataset.theme = theme.name;
   root.style.colorScheme = isLightColor(theme.window) ? "light" : "dark";
   const values: Record<string, string> = {
+    "pill-background": theme.pillBackground ?? "#FFFFFF", "pill-border": theme.pillBorder ?? "#FFFFFF", "pill-text": theme.pillText ?? theme.detailMetadata ?? theme.muted,
     "detail-title": theme.detailTitle ?? theme.text, "detail-text": theme.detailText ?? theme.text,
     "detail-metadata": theme.detailMetadata ?? theme.muted, "detail-link": theme.detailLink ?? theme.accent,
     base: theme.window, surface: theme.card, "surface-2": theme.panel, sidebar: theme.sidebar,
