@@ -31,10 +31,10 @@ function CreditGrid({ credits }: { credits: DisplayCredit[] }) {
     {credits.length > 12 && <button className="mt-3 text-sm text-white/70 hover:text-white" onClick={() => setExpanded(!expanded)}>{expanded ? "Show fewer" : `Show all ${credits.length}`}</button>}</>;
 }
 
-export default function CastCrewPanel({ serverId, item }: { serverId: number; item: ItemDetail }) {
+export default function CastCrewPanel({ serverId, item, editing = false }: { serverId: number; item: ItemDetail; editing?: boolean }) {
   const display = useCastPreferences();
   const preference = { mode: display.value.mode, language: display.language };
-  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const sourcesOpen = editing;
   const [provider, setProvider] = useState("anilist");
   const [term, setTerm] = useState(item.title);
   const [search, setSearch] = useState("");
@@ -43,7 +43,7 @@ export default function CastCrewPanel({ serverId, item }: { serverId: number; it
   const [tab, setTab] = useState<"cast" | "crew">("cast");
   const client = useQueryClient();
   const queryKey = ["series-credits", serverId, item.id];
-  const query = useQuery({ queryKey, queryFn: () => creditsApi.get(serverId, item.id), staleTime: 60_000, enabled: display.value.show });
+  const query = useQuery({ queryKey, queryFn: () => creditsApi.get(serverId, item.id), staleTime: 60_000, enabled: display.value.show || editing });
   const settings = useQuery({ queryKey: ["credit-settings"], queryFn: creditsApi.settings, enabled: sourcesOpen });
   const matches = useQuery({ queryKey: ["credit-search", provider, search], queryFn: () => creditsApi.search(provider, search), enabled: sourcesOpen && !!search, retry: false });
   const saved = (value: SeriesCredits) => { client.setQueryData(queryKey, value); };
@@ -63,30 +63,27 @@ export default function CastCrewPanel({ serverId, item }: { serverId: number; it
   const linkedId = item.external_ids[provider] ?? (provider === "mal" ? item.external_ids.myanimelist : undefined);
   const error = importing.error ?? removing.error ?? language.error;
 
-  if (!display.value.show) return null;
+  if (!display.value.show && !editing) return null;
   return <section className="mt-10" aria-label="Cast and crew">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <h2 className="flex items-center gap-2 text-lg font-semibold"><UsersRound className="size-5 text-white/60" />Cast & Crew</h2>
-      <button className={control} aria-expanded={sourcesOpen} onClick={() => setSourcesOpen(!sourcesOpen)}>Sources & matching</button>
-    </div>
-    <p className="mt-1 text-xs text-white/50">Original performances, dubbed casts, and the people behind this series.</p>
+    {!editing && <><h2 className="flex items-center gap-2 text-lg font-semibold"><UsersRound className="size-5 text-white/60" />Cast &amp; Crew</h2>
+    <p className="mt-1 text-xs text-white/50">Original performances, dubbed casts, and the people behind this title.</p></>}
     {query.isLoading && <p className="mt-5 text-sm text-white/60" role="status">Loading saved credits…</p>}
     {query.error && <p className="mt-4 text-sm text-red-300" role="alert">Could not load credits: {query.error.message} <button onClick={() => query.refetch()}>Retry</button></p>}
     {error && <p className="mt-4 text-sm text-red-300" role="alert">{error.message}</p>}
     {sourcesOpen && <div className="mt-5 space-y-4 rounded-xl border border-white/10 bg-black/25 p-4">
-          <label className="text-xs text-white/55">Series’ original language<select className={`${control} mt-1 block`} aria-label="Original cast language" disabled={language.isPending} value={original ?? ""} onChange={e => language.mutate(e.target.value)}><option value="">{sources.some(s => s.original_language) ? "Use provider language" : "Choose language"}</option>{languages.map(lang => <option key={lang} value={lang}>{languageName(lang)}</option>)}</select></label>
-      <p className="text-sm text-white/65">Match the exact series or season entry before importing. You can add multiple seasons from the same provider. Each source stays available separately.</p>
+          <label className="text-xs text-white/55">Title’s original language<select className={`${control} mt-1 block`} aria-label="Original cast language" disabled={language.isPending} value={original ?? ""} onChange={e => language.mutate(e.target.value)}><option value="">{sources.some(s => s.original_language) ? "Use provider language" : "Choose language"}</option>{languages.map(lang => <option key={lang} value={lang}>{languageName(lang)}</option>)}</select></label>
+      <p className="text-sm text-white/65">Match the exact title or season entry before importing. You can add multiple seasons from the same provider. Each source stays available separately.</p>
       {sources.map(source => <div key={`${source.provider}:${source.external_id}`} className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
         <div className="min-w-0"><a className="text-sm font-medium hover:underline" href={safeUrl(source.source_url)} target="_blank" rel="noreferrer">{creditProviders[source.provider]} · {source.title} <ExternalLink className="inline size-3" /></a>
           <p className="text-xs text-white/45">{source.credits.length} credits · {source.fetched_at ? `Saved ${new Date(source.fetched_at).toLocaleString()}` : "Saved"}</p></div>
         <div className="flex gap-2"><button className={control} disabled={busy} aria-label={`Refresh ${creditProviders[source.provider]}`} onClick={() => importing.mutate({ provider: source.provider, id: source.external_id })}><RefreshCw className="size-4" /></button>
           <button className="text-xs text-white/50 hover:text-red-300 disabled:opacity-50" disabled={busy} onClick={() => removing.mutate({ provider: source.provider, id: source.external_id })}>Remove {creditProviders[source.provider]}</button></div>
       </div>)}
-      <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); if (term.trim()) setSearch(term.trim()); }}>
+      {item.type !== "movie" && <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); if (term.trim()) setSearch(term.trim()); }}>
         <select aria-label="Credits provider" className={control} value={provider} disabled={busy} onChange={e => { setProvider(e.target.value); setSearch(""); importing.reset(); }}>{Object.entries(creditProviders).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>
         <input aria-label="Series search" maxLength={200} className={`${control} min-w-0 flex-1`} value={term} onChange={e => setTerm(e.target.value)} />
         <button type="submit" className={control} disabled={busy || matches.isFetching || !term.trim()}><Search className="mr-1 inline size-4" />Search</button>
-      </form>
+      </form>}
       {linkedId && !sources.some(s => s.provider === provider) && <button className="text-xs text-white/65 hover:text-white" disabled={busy} onClick={() => importing.mutate({ provider, id: linkedId })}>Import using this series’ linked {creditProviders[provider]} ID ({linkedId})</button>}
       {matches.isFetching && <p className="text-sm text-white/60" role="status">Searching {creditProviders[provider]}…</p>}
       {matches.error && <p role="alert" className="text-sm text-red-300">{matches.error.message}</p>}
@@ -105,15 +102,15 @@ export default function CastCrewPanel({ serverId, item }: { serverId: number; it
         <p className="mt-3">This product uses the TMDB API but is not endorsed or certified by TMDB. <a className="underline" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">Get a TMDb token</a>.</p>
       </details>
     </div>}
-    {!query.isLoading && !query.error && !sources.length && <div className="py-8 text-center"><p className="text-sm text-white/65">No cast or crew saved for this series yet.</p><button className={`${control} mt-3`} onClick={() => setSourcesOpen(true)}>Find cast & crew</button></div>}
-    {sources.length > 0 && <>
+    {!editing && !query.isLoading && !query.error && !sources.length && <p className="py-8 text-center text-sm text-white/65">No saved cast or crew. Use Find Missing Metadata from the title menu.</p>}
+    {!editing && sources.length > 0 && <>
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 rounded-lg bg-black/30 p-1" role="group" aria-label="Credit category">{(display.value.hide_crew ? ["cast"] as const : ["cast", "crew"] as const).map(value => <button key={value} aria-pressed={tab === value} className={`rounded-md px-4 py-2 text-sm ${tab === value ? "bg-white/15 text-white" : "text-white/50"}`} onClick={() => setTab(value)}>{value === "cast" ? "Cast" : "Crew"} · {credits.filter(c => c.category === value).length}</button>)}</div>
         <select className={control} aria-label="Displayed credits source" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}><option value="all">All saved sources</option>{[...new Set(sources.map(s => s.provider))].map(provider => <option key={provider} value={provider}>{creditProviders[provider]}</option>)}</select>
       </div>
       {tab === "cast" || display.value.hide_crew ? <>
         {!original && <p className="mt-3 text-sm text-amber-200">Choose the series’ original language to identify its primary cast. {reportedLanguages.length > 1 ? "The saved providers report different original languages." : "Providers do not always supply it."}</p>}
-        {groups.map(group => <div className="mt-5" key={`${group.label}-${sourceFilter}`}><h3 className="mb-3 text-sm font-semibold text-white/80">{group.label} <span className="font-normal text-white/40">{group.credits.length}</span></h3>{group.credits.length ? <CreditGrid credits={group.credits} /> : <p className="rounded-lg border border-dashed border-white/15 p-4 text-sm text-white/45">{!original && group.label === "Original cast" ? "Choose the original language in Sources & matching." : "No credits for this language in the saved sources. Try another provider to fill the gap."}</p>}</div>)}
+        {groups.map(group => <div className="mt-5" key={`${group.label}-${sourceFilter}`}><h3 className="mb-3 text-sm font-semibold text-white/80">{group.label} <span className="font-normal text-white/40">{group.credits.length}</span></h3>{group.credits.length ? <CreditGrid credits={group.credits} /> : <p className="rounded-lg border border-dashed border-white/15 p-4 text-sm text-white/45">{!original && group.label === "Original cast" ? "Choose the original language in Edit Metadata → Provider matching." : "No credits for this language in the saved sources. Try another provider to fill the gap."}</p>}</div>)}
         {groups.some(g => g.label.includes("unspecified")) && <p className="mt-3 text-xs text-white/40">These credits have no confirmed performance language. Localized provider text does not establish a dubbed cast.</p>}
       </> : <div className="mt-5">{crew.length ? <CreditGrid key={sourceFilter} credits={crew} /> : <p className="py-5 text-sm text-white/50">No crew credits supplied by these sources.</p>}</div>}
     </>}

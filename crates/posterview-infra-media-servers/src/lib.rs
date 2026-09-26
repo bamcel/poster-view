@@ -699,6 +699,10 @@ mod task_inventory_tests {
 }
 
 pub async fn get_series_inventory(config: ConnectionConfig<'_>, library_id: &str) -> Result<Vec<MediaItem>, String> {
+    get_video_inventory(config, library_id, false).await
+}
+
+pub async fn get_video_inventory(config: ConnectionConfig<'_>, library_id: &str, movie: bool) -> Result<Vec<MediaItem>, String> {
     let client = media_client(&config)?;
     let mut items = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -709,9 +713,9 @@ pub async fn get_series_inventory(config: ConnectionConfig<'_>, library_id: &str
     loop {
         let start = offset.to_string();
         let data = if plex {
-            plex_json(&client, &config, &format!("/library/sections/{library_id}/all?type=2&X-Plex-Container-Start={offset}&X-Plex-Container-Size=200")).await?
+            plex_json(&client, &config, &format!("/library/sections/{library_id}/all?type={}&X-Plex-Container-Start={offset}&X-Plex-Container-Size=200", if movie { 1 } else { 2 })).await?
         } else {
-            emby_json(&client, &config, label, "/Items", &[("ParentId", library_id), ("Recursive", "true"), ("IncludeItemTypes", "Series"), ("SortBy", "SortName"), ("SortOrder", "Ascending"), ("userId", &user), ("StartIndex", &start), ("Limit", "200")]).await?
+            emby_json(&client, &config, label, "/Items", &[("ParentId", library_id), ("Recursive", "true"), ("IncludeItemTypes", if movie { "Movie" } else { "Series" }), ("SortBy", "SortName"), ("SortOrder", "Ascending"), ("userId", &user), ("StartIndex", &start), ("Limit", "200")]).await?
         };
         let rows = data.get(if plex { "Metadata" } else { "Items" }).and_then(Value::as_array);
         let count = rows.map_or(0, Vec::len);

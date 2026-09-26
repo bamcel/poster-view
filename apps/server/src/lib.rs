@@ -29,6 +29,7 @@ mod login_backdrop;
 mod metadata;
 mod credits;
 mod imdb;
+mod video_enrichment;
 mod reader;
 pub use auth::AuthState;
 pub use config::ServerConfig;
@@ -66,6 +67,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 
     let protected = Router::new()
+        .route("/api/servers/{id}/items/{item_id}/metadata", get(video_enrichment::get).put(video_enrichment::matches).post(video_enrichment::find))
         .route("/api/imdb/settings", get(imdb::status).put(imdb::save))
         .route("/api/imdb/search", get(imdb::search))
         .route("/api/tasks", get(tasks::list).post(tasks::create))

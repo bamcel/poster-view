@@ -2,7 +2,7 @@
 // Opens on a single click (and Enter for keyboard users) when `onOpen` is set.
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Film, Tv, Library, Pencil, RefreshCw, BookOpen } from "lucide-react";
+import { Film, Tv, Library, Pencil, RefreshCw, BookOpen, Search } from "lucide-react";
 import { useActionMenu } from "../lib/actionMenu";
 import type { ColoredEffect } from "../lib/libraryDisplay";
 import "./posterEffects.css";
@@ -19,6 +19,7 @@ interface PosterCardProps {
   openLabel?: string;
   onRefresh?: () => void;
   onEditMetadata?: () => void;
+  onFindMetadata?: () => void;
   refreshing?: boolean;
 }
 
@@ -34,6 +35,7 @@ export default function PosterCard({
   openLabel = "Open",
   onRefresh,
   onEditMetadata,
+  onFindMetadata,
   refreshing,
 }: PosterCardProps) {
   const Placeholder =
@@ -130,27 +132,27 @@ export default function PosterCard({
       <button
         ref={triggerRef}
         type="button"
-        aria-haspopup={onRefresh || onEditMetadata ? "menu" : undefined}
-        aria-expanded={onRefresh || onEditMetadata ? menuOpen : undefined}
+        aria-haspopup={onRefresh || onEditMetadata || onFindMetadata ? "menu" : undefined}
+        aria-expanded={onRefresh || onEditMetadata || onFindMetadata ? menuOpen : undefined}
         aria-controls={menuOpen ? menuId : undefined}
         onClick={onOpen}
         onKeyDown={(event) => {
-          if ((onRefresh || onEditMetadata) && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+          if ((onRefresh || onEditMetadata || onFindMetadata) && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
             event.preventDefault();
             setMenuOpen(true);
           }
         }}
         onContextMenu={(event) => {
-          if (!onRefresh && !onEditMetadata) return;
+          if (!onRefresh && !onEditMetadata && !onFindMetadata) return;
           event.preventDefault();
           setMenuOpen(true);
         }}
-        title={onRefresh || onEditMetadata ? `${title} · right-click for options` : title}
+        title={onRefresh || onEditMetadata || onFindMetadata ? `${title} · right-click for options` : title}
         className="group block w-full select-none text-left"
       >
         {content}
       </button>
-      {menuOpen && (onRefresh || onEditMetadata) && (
+      {menuOpen && (onRefresh || onEditMetadata || onFindMetadata) && (
         <div
           ref={menuRef} id={menuId} role="menu" aria-label={`Artwork options for ${title}`} tabIndex={-1} onKeyDown={menuKeys}
           className="absolute left-2 top-14 z-30 w-max min-w-44 rounded-lg border border-border bg-elevated p-1 shadow-2xl"
@@ -172,6 +174,7 @@ export default function PosterCard({
             />
             Refresh artwork data
           </button>}
+          {onFindMetadata && <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setMenuOpen(false); triggerRef.current?.focus(); onFindMetadata(); }} className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-muted hover:bg-surface-2 hover:text-white"><Search className="size-4" />Find Missing Metadata</button>}
           {onEditMetadata && <button
             type="button"
             role="menuitem"

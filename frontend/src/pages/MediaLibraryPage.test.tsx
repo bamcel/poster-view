@@ -58,7 +58,7 @@ it.each(["movie", "show", "collection", "book", "audiobook", "other"] as const)(
     await screen.findByRole("button", { name: "Test Library" });
     fireEvent.click(screen.getByRole("button", { name: "Library preferences" }));
     expect(screen.getByRole("dialog", { name: "Preferences" })).toBeTruthy();
-    if (type === "show") {
+    if (type === "show" || type === "movie") {
       expect(screen.getByRole("switch", { name: "Show Cast & Crew" })).toBeTruthy();
       expect(screen.getByRole("switch", { name: "Hide Crew" })).toBeTruthy();
     } else if (!["book", "audiobook"].includes(type)) {

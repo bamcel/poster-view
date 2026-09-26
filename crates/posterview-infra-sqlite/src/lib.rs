@@ -26,6 +26,12 @@ CREATE TABLE IF NOT EXISTS settings (
     key       TEXT PRIMARY KEY,
     value_enc TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS video_metadata (
+    server_id INTEGER NOT NULL REFERENCES media_servers(id) ON DELETE CASCADE,
+    item_id TEXT NOT NULL,
+    document TEXT NOT NULL,
+    PRIMARY KEY(server_id,item_id)
+);
 CREATE TABLE IF NOT EXISTS apply_history (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     server_id    INTEGER NOT NULL,
@@ -75,6 +81,13 @@ pub struct HistoryRow {
 }
 
 impl ServerStore {
+    pub fn video_metadata(&self, server: i64, item: &str) -> Result<Option<String>, StoreError> {
+        Ok(self.connection()?.query_row("SELECT document FROM video_metadata WHERE server_id=?1 AND item_id=?2", params![server,item], |r|r.get(0)).optional()?)
+    }
+    pub fn save_video_metadata(&self, server: i64, item: &str, document: &str) -> Result<(), StoreError> {
+        self.connection()?.execute("INSERT INTO video_metadata(server_id,item_id,document) VALUES(?1,?2,?3) ON CONFLICT(server_id,item_id) DO UPDATE SET document=excluded.document", params![server,item,document])?;
+        Ok(())
+    }
     #[must_use]
     pub fn new(data_dir: impl AsRef<Path>) -> Self {
         Self {

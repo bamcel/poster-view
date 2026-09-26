@@ -22,9 +22,10 @@ mod tests {
                 {"key": "c", "title": "Movies", "type": "movie"}
             ]}})) }))
             .route("/library/sections/{id}/all", get(|Path(id): Path<String>| async move {
-                assert_ne!(id, "c");
-                Json(serde_json::json!({"MediaContainer": {"totalSize": 1, "Metadata": [{"ratingKey": id, "title": "Series", "type": "show"}]}}))
-            }));
+                Json(serde_json::json!({"MediaContainer": {"totalSize": 1, "Metadata": [{"ratingKey": id, "title": "Title", "type": if id=="c" {"movie"} else {"show"}}]}}))
+            }))
+            .route("/library/metadata/{id}", get(|Path(id):Path<String>| async move {Json(serde_json::json!({"MediaContainer":{"Metadata":[{"ratingKey":id,"title":"Title","type":if id=="c" {"movie"} else {"show"}}]}}))}))
+            .route("/library/metadata/{id}/children", get(||async {Json(serde_json::json!({"MediaContainer":{"Metadata":[]}}))}));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let handle = tokio::spawn(async move {
@@ -34,7 +35,7 @@ mod tests {
         let runtime = posterview_runtime::Runtime::new(dir.path());
         runtime.initialize().unwrap();
         // Read the built-ins before connecting servers: scope must be discovered at run time.
-        assert_eq!(runtime.scheduled_tasks().unwrap().len(), 3);
+        assert_eq!(runtime.scheduled_tasks().unwrap().len(), 4);
         for name in ["One", "Two"] {
             runtime
                 .create_server(&posterview_contracts::ServerCreate {
@@ -55,6 +56,13 @@ mod tests {
             task.total, 4,
             "IDs shared by different servers must remain distinct"
         );
+        runtime.task_action("missing_credits", "cancel").unwrap();
+        runtime.task_action("missing_metadata", "run").unwrap();
+        runtime.scheduled_task_tick().await.unwrap();
+        assert_eq!(runtime.scheduled_tasks().unwrap().iter().find(|t|t.id=="missing_metadata").unwrap().total,6);
+        for _ in 0..7 {runtime.scheduled_task_tick().await.unwrap();}
+        let tasks=runtime.scheduled_tasks().unwrap();let metadata=tasks.iter().find(|t|t.id=="missing_metadata").unwrap();
+        assert_eq!(metadata.status,"completed_with_issues");assert_eq!(metadata.needs_matching,6);assert_eq!(metadata.failed,0);
         handle.abort();
     }
     #[tokio::test]

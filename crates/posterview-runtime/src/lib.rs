@@ -1,5 +1,7 @@
 mod artwork;
 mod credits;
+mod video_metadata;
+pub use video_metadata::{VideoMetadataDocument, MetadataFetchResult};
 mod tasks;
 mod imdb;
 pub use imdb::{ImdbStatus, ImdbTitle};
@@ -60,6 +62,7 @@ pub struct Runtime {
     task_worker: tokio::sync::Mutex<()>,
     imdb_cancel: Arc<std::sync::atomic::AtomicBool>,
     imdb_data_lock: Mutex<()>,
+    metadata_worker: tokio::sync::Mutex<()>,
 }
 
 #[derive(Debug, Error)]
@@ -99,6 +102,7 @@ impl Runtime {
             task_worker: tokio::sync::Mutex::new(()),
             imdb_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             imdb_data_lock: Mutex::new(()),
+            metadata_worker: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -410,6 +414,7 @@ impl Runtime {
             .server_store()?
             .decrypted_token(id)?
             .unwrap_or_default();
+        let metadata = self.video_metadata_document(id, item_id)?;
         Ok(Some(
             get_item_detail(
                 ConnectionConfig {
@@ -419,7 +424,7 @@ impl Runtime {
                 },
                 item_id,
             )
-            .await,
+            .await.map(|mut detail| { metadata.apply(&mut detail); detail }),
         ))
     }
 

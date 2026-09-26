@@ -45,6 +45,22 @@ CREATE INDEX IF NOT EXISTS idx_series_credits_language ON series_credits(series_
 "#;
 
 impl ServerStore {
+    /// Fill missing credit rows in one transaction without replacing saved credits.
+    pub fn merge_credit_source(&self, server:i64, item:&str, source:&CreditSource) -> Result<usize,StoreError> {
+        let mut db=self.connection()?; let tx=db.transaction()?;
+        tx.execute("INSERT INTO credit_series(server_id,item_id) VALUES(?1,?2) ON CONFLICT DO NOTHING",params![server,item])?;
+        let series:String=tx.query_row("SELECT id FROM credit_series WHERE server_id=?1 AND item_id=?2",params![server,item],|r|r.get(0))?;
+        tx.execute("INSERT INTO credit_sources(series_id,provider,external_id,title,source_url,original_language) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(series_id,provider,external_id) DO UPDATE SET original_language=COALESCE(credit_sources.original_language,excluded.original_language)",params![series,source.provider,source.external_id,source.title,source.source_url,source.original_language])?;
+        let mut ordinal:i64=tx.query_row("SELECT COALESCE(MAX(ordinal),-1)+1 FROM series_credits WHERE series_id=?1 AND provider=?2 AND external_id=?3",params![series,source.provider,source.external_id],|r|r.get(0))?;
+        let mut added=0;
+        for c in &source.credits {
+            let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM series_credits WHERE series_id=?1 AND provider=?2 AND external_id=?3 AND person_id=?4 AND category=?5 AND role=?6 AND character IS ?7 AND language IS ?8 AND dub_group IS ?9)",params![series,source.provider,source.external_id,c.person_id,c.category,c.role,c.character,c.language,c.dub_group],|r|r.get(0))?;
+            if exists {continue;}
+            tx.execute("INSERT INTO series_credits VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",params![series,source.provider,source.external_id,ordinal,c.person_id,c.name,c.image,c.person_url,c.character_id,c.character,c.character_image,c.category,c.role,c.language,c.dub_group,c.notes,c.order])?;
+            ordinal+=1; added+=1;
+        }
+        tx.commit()?; Ok(added)
+    }
     pub fn series_credits(&self, server: i64, item: &str) -> Result<SeriesCredits, StoreError> {
         let mut db = self.connection()?;
         let tx = db.transaction()?;

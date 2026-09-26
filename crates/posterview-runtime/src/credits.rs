@@ -94,11 +94,15 @@ impl Runtime {
         }
         let _guard = IMPORT_LOCK.lock().await;
         let store = self.server_store()?;
+        let item_detail = self.get_item_detail(server, item).await?.ok_or_else(|| RuntimeError::Watchdog("Server not found".into()))?.map_err(RuntimeError::Watchdog)?;
+        let movie = item_detail.item_type == posterview_contracts::ItemType::Movie;
+        if !movie && item_detail.item_type != posterview_contracts::ItemType::Show { return Err(RuntimeError::Watchdog("Credits are supported for movies and series.".into())); }
         let source = self
             .artwork
-            .fetch_credits(
+            .fetch_video_credits(
                 provider,
                 id,
+                movie,
                 &store.get_setting("tmdb_access_token")?,
                 &store.get_setting("tvdb_api_key")?,
                 &store.get_setting("tvdb_pin")?,

@@ -1,5 +1,7 @@
 mod comicvine;
 mod credits;
+mod video_metadata;
+pub use video_metadata::FetchedVideoMetadata;
 pub use credits::{valid_credit_id, valid_credit_provider, credit_language};
 mod mangadex;
 mod posterdb;

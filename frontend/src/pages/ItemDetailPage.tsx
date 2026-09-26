@@ -1,3 +1,4 @@
+import FindMissingMetadata, { MissingMetadataMenu } from "../components/FindMissingMetadata";
 // Item detail: a cinematic hero (blurred backdrop, large poster, metadata) with
 // a seasons row, and the ThePosterDB panel docked on the right for swapping art.
 
@@ -53,6 +54,7 @@ export default function ItemDetailPage() {
   const [artworkOpen, setArtworkOpen] = useState(false);
   const [showBackdrop, setShowBackdrop] = useState(mediaLibraryBackdropEnabled);
   const [overlayStrength, setOverlayStrength] = useState(backdropOverlay);
+  const [findingMetadata, setFindingMetadata] = useState(false);
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(
     () => searchParams.get("edit_metadata") === "1",
   );
@@ -230,6 +232,7 @@ export default function ItemDetailPage() {
                         </p>}
                       </div>
                       <div className="hidden shrink-0 flex-wrap items-center justify-end gap-2 xl:flex">
+                        {(item.type === "movie" || item.type === "show") && <MissingMetadataMenu onFind={() => setFindingMetadata(true)} />}
                         {(item.type === "movie" || item.type === "show" || metadataQ.data) && (
                           <button
                             type="button"
@@ -254,7 +257,8 @@ export default function ItemDetailPage() {
                       </button>
                       </div>
                     </div>
-                    <div className="mt-3 flex items-center justify-center gap-1.5 sm:justify-start sm:gap-2 xl:hidden">
+                    <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 sm:justify-start sm:gap-2 xl:hidden">
+                      {(item.type === "movie" || item.type === "show") && <MissingMetadataMenu onFind={() => setFindingMetadata(true)} />}
                       {(item.type === "movie" || item.type === "show" || metadataQ.data) && (
                         <button
                           type="button"
@@ -350,7 +354,7 @@ export default function ItemDetailPage() {
                 {item.type === "book" && <button className="mt-5 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-base hover:bg-accent-hover" onClick={()=>navigate(`/read/${serverId}/${encodeURIComponent(item.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`)}>Read Book</button>}
                 {(item.type === "show" || item.type === "movie") && <ItemAbout item={item} />}
                 {(item.type === "show" || item.type === "movie") && Object.entries(item.external_ids).filter(([key, id]) => key.toLowerCase() === "imdb" && /^tt\d{7,12}$/.test(id)).map(([, id]) => <ImdbMetadata key={id} id={id} />)}
-                {item.type === "show" && <CastCrewPanel key={`${serverId}:${item.id}`} serverId={serverId} item={item} />}
+                {(item.type === "show" || item.type === "movie") && <CastCrewPanel key={`${serverId}:${item.id}`} serverId={serverId} item={item} />}
                 {/* Volume cards open the reader; nested folders keep their detail pages. */}
                 {item.members.length > 0 && (
                   <section className="mt-10">
@@ -395,6 +399,7 @@ export default function ItemDetailPage() {
           </section>
         </div>
       )}
+      {findingMetadata && itemId && <FindMissingMetadata serverId={serverId} itemId={itemId} title={item?.title ?? "Title"} onClose={() => setFindingMetadata(false)} onEdit={() => { setFindingMetadata(false); setMetadataEditorOpen(true); }} />}
       {metadataEditorOpen && item && (item.type === "movie" || item.type === "show") && (
         <VideoMetadataEditor key={`${serverId}:${itemId}`} serverId={serverId} itemId={itemId!} onClose={() => setMetadataEditorOpen(false)} />
       )}

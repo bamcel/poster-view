@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 
 // Shared pacing also covers parallel clients. Do not hammer Jikan or AniList.
 static REQUEST_GATE: Mutex<Option<tokio::time::Instant>> = Mutex::const_new(None);
-async fn pace() {
+pub(crate) async fn pace() {
     let mut previous = REQUEST_GATE.lock().await;
     if let Some(last) = *previous {
         tokio::time::sleep_until(last + Duration::from_millis(1100)).await;
@@ -26,7 +26,7 @@ pub fn valid_credit_id(id: &str) -> bool {
         && id.parse::<u64>().is_ok_and(|v| v > 0)
 }
 
-async fn response(mut response: reqwest::Response) -> Result<Value, String> {
+pub(crate) async fn response(mut response: reqwest::Response) -> Result<Value, String> {
     if !response.status().is_success() {
         return Err(format!(
             "Provider returned HTTP {}. Existing credits were kept; retry later or check the provider credentials.",
@@ -56,7 +56,7 @@ async fn response(mut response: reqwest::Response) -> Result<Value, String> {
     }
     Ok(value)
 }
-async fn request(builder: RequestBuilder) -> Result<Value, String> {
+pub(crate) async fn request(builder: RequestBuilder) -> Result<Value, String> {
     pace().await;
     response(
         builder
@@ -159,7 +159,7 @@ impl ArtworkService {
         let (value, key)=match provider {
             "anilist"=>(request(self.client.post(crate::ANILIST_URL).json(&json!({"query":"query($q:String!){Page(perPage:20){media(search:$q,type:ANIME){id title{romaji english} startDate{year} coverImage{medium}}}}","variables":{"q":query}}))).await?,"anilist"),
             "mal"=>(request(self.client.get("https://api.jikan.moe/v4/anime").query(&[("q",query),("limit","20")])).await?,"mal"),
-            "tmdb"=>{if tmdb.is_empty(){return Err("Add your TMDb API Read Access Token in Cast & crew → Sources.".into());}(request(self.client.get("https://api.themoviedb.org/3/search/tv").bearer_auth(tmdb).query(&[("query",query)])).await?,"tmdb")},
+            "tmdb"=>{if tmdb.is_empty(){return Err("Add your TMDb API Read Access Token in Edit Metadata → Provider matching.".into());}(request(self.client.get("https://api.themoviedb.org/3/search/tv").bearer_auth(tmdb).query(&[("query",query)])).await?,"tmdb")},
             "tvdb"=>{if tvdb.is_empty(){return Err("Configure TheTVDB in Settings → Providers first.".into());} pace().await;(response(self.tvdb_get("/search",&[("query",query),("type","series"),("limit","20")],tvdb,pin).await?).await?,"tvdb")},
             _=>return Err("Unknown credits provider.".into()),
         };
@@ -232,7 +232,7 @@ impl ArtworkService {
             "tmdb" => {
                 if tmdb.is_empty() {
                     return Err(
-                        "Add your TMDb API Read Access Token in Cast & crew → Sources.".into(),
+                        "Add your TMDb API Read Access Token in Edit Metadata → Provider matching.".into(),
                     );
                 }
                 let data = request(
@@ -392,7 +392,7 @@ fn parse_mal(
     Ok(result)
 }
 
-fn parse_tmdb(external_id: &str, data: &Value) -> Result<CreditSource, String> {
+pub(crate) fn parse_tmdb(external_id: &str, data: &Value) -> Result<CreditSource, String> {
     let mut result = CreditSource {
         provider: "tmdb".into(),
         external_id: external_id.into(),
@@ -439,7 +439,7 @@ fn parse_tmdb(external_id: &str, data: &Value) -> Result<CreditSource, String> {
     Ok(result)
 }
 
-fn parse_tvdb(external_id: &str, data: &Value) -> Result<CreditSource, String> {
+pub(crate) fn parse_tvdb(external_id: &str, data: &Value) -> Result<CreditSource, String> {
     let mut result = CreditSource {
         provider: "tvdb".into(),
         external_id: external_id.into(),

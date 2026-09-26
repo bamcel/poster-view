@@ -15,7 +15,7 @@ mod tests {
         let runtime = Runtime::new(dir.path());
         runtime.initialize().unwrap();
         let tasks = runtime.scheduled_tasks().unwrap();
-        assert_eq!(tasks.len(), 3);
+        assert_eq!(tasks.len(), 4);
         let mut config = tasks[0].config.clone();
         assert!(runtime.save_scheduled_task(None, config.clone()).is_err());
         assert!(runtime.task_action(&tasks[0].id, "delete").is_err());
@@ -103,9 +103,9 @@ mod tests {
             .set_setting(KEY, &serde_json::to_string(&saved).unwrap())
             .unwrap();
         let loaded = runtime.scheduled_tasks().unwrap();
-        assert_eq!(loaded.len(), 3);
+        assert_eq!(loaded.len(), 4);
         assert!(loaded[0].config.enabled);
-        assert_eq!(loaded[2].id, "imdb_refresh");
+        assert_eq!(loaded.last().unwrap().id, "imdb_refresh");
     }
 }
 
@@ -213,6 +213,7 @@ fn builtin_tasks() -> Vec<ScheduledTask> {
         ("missing_credits", "Fetch Missing Cast & Crew", 24),
         ("refresh_credits", "Refresh Outdated Cast & Crew", 168),
         ("imdb_refresh", "Refresh IMDb Data", 168),
+        ("missing_metadata", "Find Missing Metadata", 24),
     ]
     .into_iter()
     .map(|(kind, name, interval_hours)| ScheduledTask {
@@ -356,7 +357,7 @@ impl Runtime {
             Ok(())
         })
     }
-    fn cancelled(&self, id: &str) -> Result<bool, RuntimeError> {
+    pub(crate) fn cancelled(&self, id: &str) -> Result<bool, RuntimeError> {
         Ok(self
             .scheduled_tasks()?
             .iter()
@@ -423,7 +424,7 @@ impl Runtime {
         let key = format!("task_inventory:{}", task.id);
         if task.status == "queued" {
             self.update_task(&task.id, |t| {
-                t.message = "Scanning all TV libraries across connected servers".into();
+                t.message = "Scanning applicable libraries across connected servers".into();
             })?;
             let mut items = Vec::new();
             let mut seen = HashSet::new();
@@ -443,23 +444,24 @@ impl Runtime {
                     .unwrap_or_default();
                 for library in libraries
                     .iter()
-                    .filter(|l| l.library_type == posterview_contracts::LibraryType::Show)
+                    .filter(|l| l.library_type == posterview_contracts::LibraryType::Show || (config.kind == "missing_metadata" && l.library_type == posterview_contracts::LibraryType::Movie))
                 {
                     if self.cancelled(&task.id)? {
                         return Ok(());
                     }
-                    let inventory = posterview_infra_media_servers::get_series_inventory(
+                    let inventory = posterview_infra_media_servers::get_video_inventory(
                         posterview_infra_media_servers::ConnectionConfig {
                             server_type: server.server_type.clone(),
                             base_url: &server.base_url,
                             token: &token,
                         },
                         &library.id,
+                        library.library_type == posterview_contracts::LibraryType::Movie,
                     )
                     .await
                     .map_err(invalid)?;
                     for item in inventory {
-                        if item.item_type == ItemType::Show
+                        if matches!(item.item_type, ItemType::Show | ItemType::Movie)
                             && seen.insert((server.id, item.id.clone()))
                         {
                             items.push(WorkItem {
@@ -502,6 +504,25 @@ impl Runtime {
             return Ok(());
         };
         self.update_task(&task.id, |t| t.current_title = Some(item.title.clone()))?;
+        if config.kind == "missing_metadata" {
+            let fetched = self.find_missing_metadata(item.server_id, &item.id, Some(&task.id)).await;
+            if self.cancelled(&task.id)? { return Ok(()); }
+            self.update_task(&task.id, |t| {
+                t.processed += 1;
+                match fetched {
+                    Ok(result) => {
+                        let updated = !result.filled.is_empty() || result.credits_added > 0;
+                        t.updated += usize::from(updated); t.skipped += usize::from(!updated && result.issues.is_empty());
+                        t.needs_matching += usize::from(result.needs_matching);
+                        t.failed += usize::from(!result.needs_matching && !result.issues.is_empty());
+                        for message in result.issues { if t.issues.len() < 200 { t.issues.push(TaskIssue { server_id: item.server_id, item_id: item.id.clone(), title: item.title.clone(), message, needs_matching: result.needs_matching }); } }
+                    },
+                    Err(e) => { t.failed += 1; if t.issues.len() < 200 { t.issues.push(TaskIssue { server_id: item.server_id, item_id: item.id.clone(), title: item.title.clone(), message: e.to_string(), needs_matching: false }); } }
+                }
+            })?;
+            return Ok(());
+        }
+
         let mut issues = Vec::new();
         let mut updated = false;
         let detail = match self
@@ -617,7 +638,7 @@ impl Runtime {
             }
         }
         if saved.sources.is_empty() && !updated && issues.is_empty() {
-            issues.push(TaskIssue { server_id: item.server_id, item_id: item.id.clone(), title: item.title.clone(), message: "No usable linked provider ID. Match this series in Sources & matching or configure its provider credentials.".into(), needs_matching: true });
+            issues.push(TaskIssue { server_id: item.server_id, item_id: item.id.clone(), title: item.title.clone(), message: "No usable linked provider ID. Match this series in Edit Metadata → Provider matching or configure its provider credentials.".into(), needs_matching: true });
         }
         self.update_task(&task.id, |t| {
             t.processed += 1;

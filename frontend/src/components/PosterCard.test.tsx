@@ -3,6 +3,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import PosterCard from "./PosterCard";
 
 afterEach(cleanup);
+it("offers Find Missing Metadata on right-click without opening the title",()=>{
+  const find=vi.fn();const open=vi.fn();render(<PosterCard title="Film" kind="movie" onOpen={open} onFindMetadata={find}/>);
+  fireEvent.contextMenu(screen.getByRole("button"));fireEvent.click(screen.getByRole("menuitem",{name:"Find Missing Metadata"}));expect(find).toHaveBeenCalledOnce();expect(open).not.toHaveBeenCalled();
+});
 it("matches the colored title background to the badge when enabled", () => {
   const { rerender } = render(<PosterCard title="Colored Title" coloredEffect="badge" />);
   expect(screen.getByText("Colored Title").classList.contains("poster-colored-badge")).toBe(true);

@@ -11,6 +11,7 @@
 - [Series cast, crew, and dubbed languages](cast-and-crew.md)
 - [Scheduled Tasks](scheduled-tasks.md)
 - [IMDb database source](imdb.md)
+- [Find Missing Metadata](find-missing-metadata.md)
 
 The user guides describe the current PosterView interface. Screenshots are stored in
 [`screenshots/`](screenshots/).

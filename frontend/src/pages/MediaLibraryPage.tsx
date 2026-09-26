@@ -1,3 +1,4 @@
+import FindMissingMetadata from "../components/FindMissingMetadata";
 // Browse the active server: pick a library, then a searchable grid of titles.
 // Double-clicking a poster opens the item detail.
 
@@ -41,6 +42,7 @@ export default function MediaLibraryPage() {
   const folderId = searchParams.get("folder");
   const folderTitle = searchParams.get("folder_title");
   const [filter, setFilter] = useState("");
+  const [findItem, setFindItem] = useState<MediaItem | null>(null);
   const [metadataItem, setMetadataItem] = useState<MediaItem | null>(null);
   const [artworkFilter, setArtworkFilter] = useState<ArtworkFilter>("all");
   const [titleSort, setTitleSort] = useState<TitleSort>("title");
@@ -343,6 +345,7 @@ export default function MediaLibraryPage() {
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
+      {findItem && serverId != null && <FindMissingMetadata serverId={serverId} itemId={findItem.id} title={findItem.title} onClose={() => setFindItem(null)} onEdit={() => { setMetadataItem(findItem); setFindItem(null); }} />}
       {showBackdrop && (backdropUrls.length > 0 || posterBackdropUrls.length > 0) && (
         <MediaLibraryBackdrop desktopUrls={backdropUrls} mobileUrls={posterBackdropUrls} overlayStrength={overlayStrength} />
       )}
@@ -469,7 +472,7 @@ export default function MediaLibraryPage() {
                   <div className="mt-3 flex items-center justify-between gap-3"><span className="text-sm text-muted">Colored Badge</span><Switch label="Colored Badge" checked={["badge", "both"].includes(displayStatus.coloredEffect)} onChange={() => { if (!displayStatus.busy) displayStatus.toggleColoredEffect("badge"); }} /></div>
                 </div>
                 {displayStatus.error && <p role="alert" className="mt-2 text-xs text-muted">{displayStatus.error}</p>}
-              </> : selectedLibrary?.type === "show" ? <CastPreferences /> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
+              </> : (selectedLibrary?.type === "show" || selectedLibrary?.type === "movie") ? <CastPreferences /> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
           </LibraryPopup>
           </div>
         </div>
@@ -530,6 +533,7 @@ export default function MediaLibraryPage() {
                 onOpen={() => openItem(item)}
                 onRefresh={() => refreshMut.mutate({ itemId: item.id })}
                 onEditMetadata={() => setMetadataItem(item)}
+                onFindMetadata={item.type === "movie" || item.type === "show" ? () => setFindItem(item) : undefined}
                 refreshing={refreshingId === item.id}
               />
             ))}
