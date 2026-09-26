@@ -11,6 +11,7 @@ import { useTrackingOverlays } from "../lib/libraryDisplay";
 import { api, imageUrl } from "../api/client";
 import { useServers } from "../lib/serverContext";
 import PosterCard from "../components/PosterCard";
+import BulkEditionEditor from "../components/BulkEditionEditor";
 import LibraryPopup from "../components/LibraryPopup";
 import CastPreferences from "../components/CastPreferences";
 import LibraryMetadataEditor from "../components/LibraryMetadataEditor";
@@ -42,6 +43,11 @@ export default function MediaLibraryPage() {
   const folderId = searchParams.get("folder");
   const folderTitle = searchParams.get("folder_title");
   const [filter, setFilter] = useState("");
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const selectionAnchor = useRef<string | null>(null);
+  useEffect(() => { setSelectedIds(new Set()); setSelectionMode(false); setBulkOpen(false); selectionAnchor.current = null; }, [serverId, libraryId, folderId]);
   const [findItem, setFindItem] = useState<MediaItem | null>(null);
   const [metadataItem, setMetadataItem] = useState<MediaItem | null>(null);
   const [artworkFilter, setArtworkFilter] = useState<ArtworkFilter>("all");
@@ -228,6 +234,21 @@ export default function MediaLibraryPage() {
       window.removeEventListener("storage", updateFromStorage);
     };
   }, []);
+
+  const selectedItems = (itemsQ.data ?? []).filter(item => selectedIds.has(item.id)).map(item => ({ ...item, title: bookInfo.data?.[item.id]?.title || item.title }));
+  const canBulkEdit = browsesFolders && selectedItems.length > 0 && selectedItems.every(item => item.type === "folder");
+  function selectItem(id: string, range: boolean) {
+    setSelectionMode(true);
+    const anchor = items.findIndex(item => item.id === selectionAnchor.current);
+    const end = items.findIndex(item => item.id === id);
+    setSelectedIds(previous => {
+      const next = new Set(previous);
+      if (range && anchor >= 0 && end >= 0) items.slice(Math.min(anchor, end), Math.max(anchor, end) + 1).forEach(item => next.add(item.id));
+      else if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+    selectionAnchor.current = id;
+  }
 
   const backdropUrls = useMemo(
     () => Array.from(new Set((itemsQ.data ?? []).map((item) => imageUrl(serverId!, item.background)).filter((url): url is string => Boolean(url)))),
@@ -478,6 +499,14 @@ export default function MediaLibraryPage() {
         </div>
       </div>
 
+        {selectionMode && <div className="relative z-20 flex shrink-0 flex-wrap items-center gap-2 px-4 py-2 text-sm sm:px-6 lg:px-8">
+            <span className="mr-2 font-semibold">{selectedItems.length} Selected</span>
+            <button className="rounded-lg border border-border px-3 py-2" onClick={() => setSelectedIds(previous => new Set([...previous, ...items.map(item => item.id)]))}>Select All Filtered</button>
+            <button className="rounded-lg border border-border px-3 py-2" onClick={() => setSelectedIds(new Set())}>Clear</button>
+            <button className="rounded-lg bg-accent px-3 py-2 text-black disabled:opacity-40" disabled={!canBulkEdit} title="Phase 1 supports Edition for book series folders" onClick={() => setBulkOpen(true)}>Bulk Edit</button>
+            <button className="rounded-lg border border-border px-3 py-2" onClick={() => { setSelectionMode(false); setSelectedIds(new Set()); selectionAnchor.current = null; }}>Done</button>
+            {selectedItems.length > 0 && !canBulkEdit && <span className="text-xs text-muted">Select book series folders to edit Edition.</span>}
+        </div>}
       {/* Body */}
       <div
         ref={libraryBodyRef}
@@ -485,6 +514,7 @@ export default function MediaLibraryPage() {
         className="scrollbar-hidden relative z-10 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-6"
       >
         {metadataItem && serverId != null && <LibraryMetadataEditor key={`${serverId}:${metadataItem.id}`} serverId={serverId} item={metadataItem} onClose={() => setMetadataItem(null)} />}
+        {bulkOpen && serverId != null && <BulkEditionEditor serverId={serverId} items={selectedItems} onClose={() => setBulkOpen(false)} />}
         {librariesQ.isError && (
           <EmptyState
             icon={<ServerCrash className="size-10" />}
@@ -524,6 +554,9 @@ export default function MediaLibraryPage() {
             {items.map((item) => (
               <PosterCard
                 key={item.id}
+                selected={selectedIds.has(item.id)}
+                selectionMode={selectionMode}
+                onSelect={range => selectItem(item.id, range)}
                 image={imageUrl(serverId!, item.poster)}
                 title={item.title}
                 subtitle={item.year ? String(item.year) : undefined}
