@@ -66,6 +66,7 @@ export interface ItemDetail extends MediaItem {
 }
 
 export interface NfoMetadata {
+  sort_title?: string;
   title: string;
   year: string;
   publisher: string;

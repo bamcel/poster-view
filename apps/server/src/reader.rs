@@ -34,6 +34,7 @@ pub(crate) struct ReaderStore {
     root: PathBuf,
     db: PathBuf,
     writes: Mutex<()>,
+    info_slots: tokio::sync::Semaphore,
 }
 impl ReaderStore {
     pub fn new(root: PathBuf, db: PathBuf) -> Self {
@@ -41,6 +42,7 @@ impl ReaderStore {
             root,
             db,
             writes: Mutex::new(()),
+            info_slots: tokio::sync::Semaphore::new(4),
         }
     }
     fn db(&self) -> Result<Connection, HttpError> {
@@ -52,6 +54,15 @@ impl ReaderStore {
         Ok(db)
     }
     fn checked(&self, path: &FsPath) -> Result<PathBuf, HttpError> {
+        let current = self.checked_location(path)?;
+        if !current.is_file() || format(&current).is_none() {
+            return Err(bad(
+                "Choose a PDF, EPUB, or CBZ file inside the media mount.",
+            ));
+        }
+        Ok(current)
+    }
+    fn checked_location(&self, path: &FsPath) -> Result<PathBuf, HttpError> {
         let root = self
             .root
             .canonicalize()
@@ -87,7 +98,7 @@ impl ReaderStore {
             }
         }
         let current = current.canonicalize().map_err(failure)?;
-        if !current.starts_with(root) || !current.is_file() || format(&current).is_none() {
+        if !current.starts_with(root) {
             return Err(bad(
                 "Choose a PDF, EPUB, or CBZ file inside the media mount.",
             ));
@@ -123,12 +134,160 @@ impl ReaderStore {
         })?))
     }
 }
+#[derive(Default, Serialize)]
+pub(crate) struct BookInfo {
+    title: Option<String>,
+    sort_title: Option<String>,
+    status: Option<&'static str>,
+}
+
+impl ReaderStore {
+    fn reading_status(&self, path: &FsPath, user: &str) -> Result<Option<&'static str>, HttpError> {
+        let db = self.db()?;
+        let mut statement = db.prepare("SELECT b.path,s.revision,s.state FROM reader_states s JOIN reader_books b ON b.id=s.book WHERE s.user=?1").map_err(failure)?;
+        let rows = statement
+            .query_map([user], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    (r.get::<_, String>(1)?, r.get::<_, String>(2)?),
+                ))
+            })
+            .map_err(failure)?;
+        let states: std::collections::HashMap<_, _> =
+            rows.collect::<Result<_, _>>().map_err(failure)?;
+        let mut pending = vec![path.to_path_buf()];
+        let (mut total, mut started, mut finished, mut visited) = (0, 0, 0, 0);
+        let mut complete = true;
+        while let Some(candidate) = pending.pop() {
+            visited += 1;
+            if visited > 20_000 {
+                complete = false;
+                break;
+            }
+            let Ok(candidate) = self.checked_location(&candidate) else {
+                complete = false;
+                continue;
+            };
+            if candidate.is_dir() {
+                match fs::read_dir(&candidate) {
+                    Ok(entries) => {
+                        for entry in entries {
+                            match entry {
+                                Ok(entry) => pending.push(entry.path()),
+                                Err(_) => complete = false,
+                            }
+                        }
+                    }
+                    Err(_) => complete = false,
+                }
+            } else if format(&candidate).is_some() {
+                total += 1;
+                if let Some((saved_revision, data)) =
+                    states.get(candidate.to_string_lossy().as_ref())
+                {
+                    if revision(&candidate).ok().as_ref() == Some(saved_revision) {
+                        started += 1;
+                        if serde_json::from_str::<serde_json::Value>(data)
+                            .ok()
+                            .is_some_and(|s| s["finished"] == true)
+                        {
+                            finished += 1;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(if complete && total > 0 && finished == total {
+            Some("Finished")
+        } else if started > 0 {
+            Some("Reading")
+        } else {
+            None
+        })
+    }
+}
+
+pub(crate) async fn info(
+    State(state): State<AppState>,
+    Path((server, item)): Path<(i64, String)>,
+) -> Result<Json<BookInfo>, HttpError> {
+    let _slot = state.reader.info_slots.acquire().await.map_err(failure)?;
+    let source = crate::metadata::item_source(&state, server, &item).await?;
+    let reader = state.reader.clone();
+    let metadata = state.metadata.clone();
+    let user = state.auth.username().to_owned();
+    tokio::task::spawn_blocking(move || {
+        let path = reader.checked_location(FsPath::new(&source))?;
+        let mut info = BookInfo {
+            status: reader.reading_status(&path, &user)?,
+            ..BookInfo::default()
+        };
+        // Folder NFO describes the series, not each individual volume.
+        if path.is_dir() {
+            if let Some(fields) = metadata.read_for_source(&source)? {
+                info.title =
+                    (!fields.title.trim().is_empty()).then(|| fields.title.trim().to_owned());
+                info.sort_title = (!fields.sort_title.trim().is_empty())
+                    .then(|| fields.sort_title.trim().to_owned());
+            }
+        }
+        Ok(Json(info))
+    })
+    .await
+    .map_err(failure)?
+}
+
 fn format(path: &FsPath) -> Option<&'static str> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "pdf" => Some("pdf"),
         "epub" => Some("epub"),
         "cbz" => Some("cbz"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+    #[test]
+    fn progress_is_user_scoped_and_new_volumes_reopen_a_series() {
+        let temp = tempfile::tempdir().unwrap();
+        let folder = temp.path().join("Series");
+        fs::create_dir(&folder).unwrap();
+        let path = folder.join("01.pdf");
+        fs::write(&path, b"pdf").unwrap();
+        let store = ReaderStore::new(temp.path().into(), temp.path().join("reader.sqlite"));
+        let id = store.register(&path).unwrap();
+        assert_eq!(store.reading_status(&folder, "admin").unwrap(), None);
+        store
+            .db()
+            .unwrap()
+            .execute(
+                "INSERT INTO reader_states VALUES (?1,?2,?3,?4)",
+                params!["admin", id, revision(&path).unwrap(), "{\"page\":0}"],
+            )
+            .unwrap();
+        assert_eq!(
+            store.reading_status(&folder, "admin").unwrap(),
+            Some("Reading")
+        );
+        store
+            .db()
+            .unwrap()
+            .execute("UPDATE reader_states SET state=?1", ["{\"finished\":true}"])
+            .unwrap();
+        assert_eq!(
+            store.reading_status(&folder, "admin").unwrap(),
+            Some("Finished")
+        );
+        assert_eq!(store.reading_status(&folder, "other").unwrap(), None);
+        fs::write(folder.join("02.cbz"), b"new").unwrap();
+        assert_eq!(
+            store.reading_status(&folder, "admin").unwrap(),
+            Some("Reading")
+        );
+        fs::write(&path, b"replacement pdf").unwrap();
+        assert_eq!(store.reading_status(&path, "admin").unwrap(), None);
     }
 }
 fn revision(path: &FsPath) -> Result<String, HttpError> {

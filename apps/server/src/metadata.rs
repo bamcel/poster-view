@@ -46,7 +46,8 @@ struct CachedSource {
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub(crate) struct Fields {
-    title: String,
+    pub(crate) title: String,
+    pub(crate) sort_title: String,
     year: String,
     publisher: String,
     edition: String,
@@ -456,6 +457,7 @@ fn fields_from(root: &Element) -> Fields {
     };
     Fields {
         title: text("title"),
+        sort_title: text("sorttitle"),
         year: text("year"),
         publisher: text("publisher"),
         edition: text("edition"),
@@ -513,6 +515,7 @@ fn render(fields: &Fields, original: Option<&str>) -> Result<String, HttpError> 
         .unwrap_or_else(|| Element::new("series"));
     for (name, value) in [
         ("title", &fields.title),
+        ("sorttitle", &fields.sort_title),
         ("year", &fields.year),
         ("publisher", &fields.publisher),
         ("edition", &fields.edition),
@@ -672,7 +675,7 @@ pub(crate) struct AniListMangaRequest {
     anilist_id: String,
 }
 
-async fn item_source(state: &AppState, server_id: i64, item_id: &str) -> Result<String, HttpError> {
+pub(crate) async fn item_source(state: &AppState, server_id: i64, item_id: &str) -> Result<String, HttpError> {
     if let Some(source) = state.metadata.cached_source(server_id, item_id) {
         return Ok(source);
     }
@@ -1026,6 +1029,7 @@ mod tests {
                 path: doc.path,
                 fields: Fields {
                     title: "Different / title 日本語".into(),
+                    sort_title: "Different 02".into(),
                     ..doc.fields
                 },
                 revision: None,
@@ -1033,6 +1037,7 @@ mod tests {
             .ok()
             .unwrap();
         assert_eq!(saved.fields.title, "Different / title 日本語");
+        assert_eq!(store.read("Manga & Color").unwrap().fields.sort_title, "Different 02");
         assert!(folder.join("Manga & Color.nfo").is_file());
         assert!(store.list("").ok().unwrap().folders[0].has_nfo);
         assert_eq!(

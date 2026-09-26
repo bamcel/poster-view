@@ -2,6 +2,7 @@
 // a seasons row, and the ThePosterDB panel docked on the right for swapping art.
 
 import { useEffect, useState } from "react";
+import { useBookInfo } from "../lib/bookInfo";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -76,11 +77,13 @@ export default function ItemDetailPage() {
       api.updateNfoMetadata(serverId, itemId!, fields),
     onSuccess: (fields) => {
       queryClient.setQueryData(["nfo-metadata", serverId, itemId], fields);
+      void queryClient.invalidateQueries({ queryKey: ["book-info"] });
       setMetadataImport(null);
       setMetadataEditorOpen(false);
     },
   });
-  const item = detailQ.data;
+  const item = detailQ.data && { ...detailQ.data, title: detailQ.data.type === "folder" ? metadataQ.data?.title.trim() || detailQ.data.title : detailQ.data.title };
+  const memberInfo = useBookInfo(serverId, item?.members, item?.type === "folder" || item?.type === "book");
   const backdrop = imageUrl(serverId, item?.background);
   const poster = imageUrl(serverId, item?.poster);
   const logo = imageUrl(serverId, item?.logo);
@@ -348,7 +351,8 @@ export default function ItemDetailPage() {
                         <PosterCard
                           key={m.id}
                           image={imageUrl(serverId, m.poster)}
-                          title={m.title}
+                          title={memberInfo.data?.[m.id]?.title || m.title}
+                          badge={memberInfo.data?.[m.id]?.status}
                           subtitle={m.year ? String(m.year) : undefined}
                           kind={m.type}
                           openLabel={m.type === "book" ? "Read" : "Open"}

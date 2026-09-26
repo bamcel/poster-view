@@ -38,7 +38,7 @@ export default function MetadataEditorModal({
   const conflicts = useMemo(() => {
     if (!incoming) return [] as Array<keyof NfoMetadata>;
     return (Object.keys(incoming) as Array<keyof NfoMetadata>).filter(
-      (key) => key !== "source_url" && incoming[key].trim() && metadata[key].trim() && !metadataValuesMatch(key, metadata[key], incoming[key]),
+      (key) => key !== "source_url" && incoming[key]?.trim() && metadata[key]?.trim() && !metadataValuesMatch(key, metadata[key] ?? "", incoming[key] ?? ""),
     );
   }, [incoming, metadata]);
   const [fields, setFields] = useState<NfoMetadata>(() => {
@@ -46,7 +46,7 @@ export default function MetadataEditorModal({
     const merged = { ...metadata, source_url: mergeSourceUrls(metadata.source_url, incoming.source_url) };
     for (const key of Object.keys(incoming) as Array<keyof NfoMetadata>) {
       if (key === "source_url") continue;
-      if (incoming[key].trim() && !metadata[key].trim()) merged[key] = incoming[key];
+      if (incoming[key]?.trim() && !metadata[key]?.trim()) merged[key] = incoming[key] ?? "";
     }
     return merged;
   });
@@ -68,6 +68,7 @@ export default function MetadataEditorModal({
   const submit = (event: FormEvent) => { event.preventDefault(); onSave(fields); };
   const input = "mt-1 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-white outline-none transition-colors focus:border-accent";
   const labels: Partial<Record<keyof NfoMetadata, string>> = {
+    sort_title: "Sort Title",
     title: "Title", native_title: "Original title", translation: "Translation", year: "Year", publisher: "Publisher",
     volumes: "Volumes", status: "Status", plot: "Description", anilist_id: "AniList ID",
     mal_id: "MyAnimeList ID", comicvine_id: "ComicVine ID", source_url: "Source URLs",
@@ -135,6 +136,7 @@ export default function MetadataEditorModal({
             </section>
           )}
           <label className="text-sm text-muted sm:col-span-2">Title<input required className={input} value={fields.title} onChange={(e) => set("title", e.target.value)} /></label>
+          <label className="text-sm text-muted sm:col-span-2">Sort Title<input className={input} value={fields.sort_title ?? ""} onChange={(e) => set("sort_title", e.target.value)} /><span className="mt-1 block text-xs">Optional alphabetical order. Title is displayed; folder names stay unchanged.</span></label>
           <label className="text-sm text-muted sm:col-span-2">Original title<input className={input} value={fields.native_title} onChange={(e) => set("native_title", e.target.value)} /></label>
           <label className="text-sm text-muted sm:col-span-2">Translation<input className={input} value={fields.translation} onChange={(e) => set("translation", e.target.value)} /></label>
           <label className="text-sm text-muted">Year<input inputMode="numeric" className={input} value={fields.year} onChange={(e) => set("year", e.target.value)} /></label>
