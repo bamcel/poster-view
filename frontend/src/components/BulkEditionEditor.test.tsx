@@ -1,0 +1,24 @@
+import { fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, it, expect, vi } from "vitest";
+import BulkEditionEditor from "./BulkEditionEditor";
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+it("requires review, updates only edition, and reports partial failures", async () => {
+  const fetcher = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({}) }).mockResolvedValueOnce({ ok: false, json: async () => ({ detail: "Read-only folder" }) });
+  vi.stubGlobal("fetch", fetcher);
+  render(<QueryClientProvider client={new QueryClient()}><BulkEditionEditor serverId={1} items={[{ id: "one", title: "One", type: "folder" }, { id: "two", title: "Two", type: "folder" }]} onClose={vi.fn()} /></QueryClientProvider>);
+  expect((screen.getByText("Review Changes") as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByLabelText("Change Edition For Selected Series"));
+  fireEvent.change(screen.getByLabelText("Edition"), { target: { value: "Standard" } });
+  fireEvent.click(screen.getByText("Review Changes"));
+  expect(fetcher).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByText("Apply Changes"));
+  await screen.findByText("Read-only folder");
+  expect(screen.getByText("1 updated · 1 failed · 0 remaining")).toBeTruthy();
+  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ server_id: 1, item_id: "one", edition: "Standard" });
+  fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+  fireEvent.click(screen.getByText("Retry Failed"));
+  await waitFor(() => expect(screen.getByText("2 updated · 0 failed · 0 remaining")).toBeTruthy());
+  expect(fetcher).toHaveBeenCalledTimes(3);
+});

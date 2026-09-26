@@ -3,6 +3,16 @@ import { afterEach, expect, it, vi } from "vitest";
 import PosterCard from "./PosterCard";
 
 afterEach(cleanup);
+it("selects from the hover control without opening the series", () => {
+  const open = vi.fn(); const select = vi.fn();
+  const { rerender } = render(<PosterCard title="Series" onOpen={open} onSelect={select} />);
+  fireEvent.click(screen.getByRole("button", { name: "Select Series" }), { shiftKey: true });
+  expect(select).toHaveBeenCalledWith(true); expect(open).not.toHaveBeenCalled();
+  rerender(<PosterCard title="Series" onOpen={open} onSelect={select} selectionMode selected />);
+  expect(screen.getByRole("button", { name: "Select Series" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByTitle("Series"));
+  expect(select).toHaveBeenCalledWith(false); expect(open).not.toHaveBeenCalled();
+});
 it("offers Find Missing Metadata on right-click without opening the title",()=>{
   const find=vi.fn();const open=vi.fn();render(<PosterCard title="Film" kind="movie" onOpen={open} onFindMetadata={find}/>);
   fireEvent.contextMenu(screen.getByRole("button"));fireEvent.click(screen.getByRole("menuitem",{name:"Find Missing Metadata"}));expect(find).toHaveBeenCalledOnce();expect(open).not.toHaveBeenCalled();

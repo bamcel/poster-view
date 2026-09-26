@@ -2,12 +2,14 @@
 // Opens on a single click (and Enter for keyboard users) when `onOpen` is set.
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Film, Tv, Library, Pencil, RefreshCw, BookOpen, Search } from "lucide-react";
+import { Film, Tv, Library, Pencil, RefreshCw, BookOpen, Search, Check } from "lucide-react";
 import { useActionMenu } from "../lib/actionMenu";
 import type { ColoredEffect } from "../lib/libraryDisplay";
 import "./posterEffects.css";
 
 interface PosterCardProps {
+  selectionMode?: boolean;
+  onSelect?: (range: boolean) => void;
   coloredEffect?: ColoredEffect;
   image?: string;
   title: string;
@@ -24,6 +26,8 @@ interface PosterCardProps {
 }
 
 export default function PosterCard({
+  selectionMode = false,
+  onSelect,
   coloredEffect = "off",
   image,
   title,
@@ -128,14 +132,14 @@ export default function PosterCard({
   );
 
   return onOpen ? (
-    <div className="relative" onMouseLeave={() => setMenuOpen(false)}>
+    <div className="group/selection relative" onMouseLeave={() => setMenuOpen(false)}>
       <button
         ref={triggerRef}
         type="button"
         aria-haspopup={onRefresh || onEditMetadata || onFindMetadata ? "menu" : undefined}
         aria-expanded={onRefresh || onEditMetadata || onFindMetadata ? menuOpen : undefined}
         aria-controls={menuOpen ? menuId : undefined}
-        onClick={onOpen}
+        onClick={event => selectionMode && onSelect ? onSelect(event.shiftKey) : onOpen()}
         onKeyDown={(event) => {
           if ((onRefresh || onEditMetadata || onFindMetadata) && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
             event.preventDefault();
@@ -152,6 +156,11 @@ export default function PosterCard({
       >
         {content}
       </button>
+      {onSelect && <button type="button" aria-label={`Select ${title}`} aria-pressed={!!selected}
+        onClick={event => { event.stopPropagation(); onSelect(event.shiftKey); }}
+        className={`absolute left-2 top-2 z-10 grid size-7 place-items-center rounded-full border shadow backdrop-blur-sm transition-opacity focus-visible:opacity-100 ${selected ? "border-accent bg-accent text-black" : "border-white/50 bg-white/20 text-white"} ${selectionMode || selected ? "opacity-100" : "opacity-0 group-hover/selection:opacity-100 group-focus-within/selection:opacity-100 [@media(hover:none)]:opacity-100"}`}>
+        {selected && <Check className="size-4" />}
+      </button>}
       {menuOpen && (onRefresh || onEditMetadata || onFindMetadata) && (
         <div
           ref={menuRef} id={menuId} role="menu" aria-label={`Artwork options for ${title}`} tabIndex={-1} onKeyDown={menuKeys}
