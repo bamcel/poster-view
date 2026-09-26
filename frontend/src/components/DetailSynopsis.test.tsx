@@ -11,3 +11,8 @@ it("renders provider markup as text and expands the description", () => {
   fireEvent.click(screen.getByRole("button", { name: "Less" }));
   expect(screen.getByRole("button", { name: "More" }).getAttribute("aria-expanded")).toBe("false");
 });
+
+it("collapses repeated provider breaks while keeping single newlines", () => {
+  const { container } = render(<DetailSynopsis text={'First<br><br>\n  <br>Second\n\n\nThird'} />);
+  expect(container.querySelector("p")?.textContent).toBe("First\nSecond\nThird");
+});

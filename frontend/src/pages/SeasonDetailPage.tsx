@@ -66,7 +66,7 @@ export default function SeasonDetailPage() {
   const years = [...new Set(episodes.map(episode => episode.aired?.slice(0, 4)).filter((year): year is string => !!year && /^\d{4}$/.test(year)))].sort();
   const period = years.length ? years[0] === years.at(-1) ? years[0] : `${years[0]}–${years.at(-1)}` : null;
 
-  return <div className="relative isolate h-full overflow-hidden bg-base text-white">
+  return <div className="media-detail relative isolate h-full overflow-hidden bg-base text-white">
     <div className="pointer-events-none absolute inset-0 -z-20"><Artwork src={imageUrl(serverId, season?.background || series?.background)} alt="" decorative /></div>
     <div className="pointer-events-none absolute inset-0 -z-10 bg-black/75" />
     <div ref={scroller} className="h-full overflow-y-auto">

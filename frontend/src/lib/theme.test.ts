@@ -57,3 +57,21 @@ describe("custom themes", () => {
     expect(getStoredThemeName()).toBe("Gotham");
   });
 });
+
+it("inherits media detail roles in every built-in theme and migrates old custom themes", () => {
+  for (const theme of getAllThemes()) {
+    expect(theme.detailTitle).toBe(theme.text);
+    expect(theme.detailText).toBe(theme.text);
+    expect(theme.detailMetadata).toBe(theme.muted);
+    expect(theme.detailLink).toBe(theme.accent);
+  }
+  const legacy = JSON.parse(serializeTheme(getTheme("Everforest")));
+  legacy.name = "Legacy";
+  for (const key of Object.keys(legacy.colors)) if (key.startsWith("Media Detail")) delete legacy.colors[key];
+  const migrated = parseThemeJson(JSON.stringify(legacy));
+  expect(migrated.detailText).toBe(migrated.text);
+  const customized = { ...migrated, detailText: "#FFFFFF" };
+  saveCustomTheme(customized);
+  expect(loadCustomThemes()[0].detailText).toBe("#FFFFFF");
+  expect(document.documentElement.style.getPropertyValue("--color-detail-text")).toBe("#FFFFFF");
+});

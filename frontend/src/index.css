@@ -4,6 +4,10 @@
    bg-surface, text-accent, etc. The palette is a modern dark media UI with a
    green "Play" accent matching the reference design. */
 @theme {
+  --color-detail-title: #eceff4;
+  --color-detail-text: #eceff4;
+  --color-detail-metadata: #9aa3b2;
+  --color-detail-link: #21d07a;
   --color-base: #0c0d10;
   --color-surface: #16181d;
   --color-surface-2: #1d2026;
@@ -175,3 +179,15 @@ select {
   :where(input:not([type="checkbox"]):not([type="radio"]):not([type="color"])) { min-height: 44px; }
   label:has(> input[type="checkbox"]) { min-height: 44px; }
 }
+
+/* Series, seasons, and episode rows have independent, editable text roles. */
+.media-detail {
+  color: var(--color-detail-text);
+  --color-text: var(--color-detail-text);
+  --color-muted: var(--color-detail-metadata);
+  --color-faint: var(--color-detail-metadata);
+}
+.media-detail :is([class*="text-white"], [class~="text-muted"], [class~="text-faint"]) { color: var(--color-detail-text); }
+.media-detail :is(h1,h2,h3,h4) { color: var(--color-detail-title); }
+.media-detail :is([aria-label="Title information"], [aria-label="Title information"] span, dt, dd, [class~="text-xs"]) { color: var(--color-detail-metadata); }
+.media-detail :is(a, button[class*="text-accent"], span[class~="text-accent"]) { color: var(--color-detail-link); }

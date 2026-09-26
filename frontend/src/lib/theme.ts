@@ -19,11 +19,24 @@ export interface AppTheme {
   accentHover: string;
   success: string;
   warning: string;
+  detailTitle: string;
+  detailText: string;
+  detailMetadata: string;
+  detailLink: string;
 }
 
 export type ThemeColorKey = Exclude<keyof AppTheme, "name">;
 
+const DETAIL_ROLES = { detailTitle: "text", detailText: "text", detailMetadata: "muted", detailLink: "accent" } as const;
+function detailDefaults(theme: Partial<AppTheme>) {
+  return { detailTitle: theme.text ?? "#FFFFFF", detailText: theme.text ?? "#FFFFFF", detailMetadata: theme.muted ?? "#FFFFFF", detailLink: theme.accent ?? "#FFFFFF" };
+}
+
 export const THEME_COLOR_OPTIONS: { key: ThemeColorKey; label: string }[] = [
+  { key: "detailTitle", label: "Media Detail Titles" },
+  { key: "detailText", label: "Media Detail Text" },
+  { key: "detailMetadata", label: "Media Detail Metadata" },
+  { key: "detailLink", label: "Media Detail Links" },
   { key: "accent", label: "Accent" },
   { key: "accentHover", label: "Accent Hover" },
   { key: "border", label: "Border" },
@@ -47,7 +60,7 @@ export const THEME_COLOR_OPTIONS: { key: ThemeColorKey; label: string }[] = [
 
 // Shared with MKV Orchestrator's semantic palette. PosterView-specific Tailwind
 // tokens are assigned from these roles by applyTheme below.
-export const THEMES: AppTheme[] = [
+export const THEMES: AppTheme[] = ([
   { name:"Absolutely", window:"#F6F3EE", card:"#FFFCF8", panel:"#F1ECE5", sidebar:"#E9E3DB", input:"#F4EFE9", inputHover:"#DED2C7", button:"#E8DED4", buttonHover:"#DED2C7", selected:"#F0DDD0", border:"#D6CCC2", borderStrong:"#B9AA9D", text:"#292522", muted:"#655D56", subtle:"#887D74", disabled:"#A79D95", accent:"#C66B43", accentHover:"#AD5835", success:"#347A4A", warning:"#9A6218" },
   { name:"Cappuccin", window:"#1E1E2E", card:"#252538", panel:"#2B2B40", sidebar:"#181825", input:"#313147", inputHover:"#484864", button:"#3B3B54", buttonHover:"#484864", selected:"#403854", border:"#45455F", borderStrong:"#62627C", text:"#CDD6F4", muted:"#BAC2DE", subtle:"#9399B2", disabled:"#6C7086", accent:"#CBA6F7", accentHover:"#B58BE8", success:"#A6E3A1", warning:"#F9E2AF" },
   { name:"Codex", window:"#181A1F", card:"#202329", panel:"#252930", sidebar:"#15171B", input:"#2A2E36", inputHover:"#3A424E", button:"#303640", buttonHover:"#3A424E", selected:"#263C4A", border:"#3A414C", borderStrong:"#566170", text:"#F1F3F5", muted:"#C5CAD1", subtle:"#929AA5", disabled:"#69727E", accent:"#3B9EFF", accentHover:"#2188E8", success:"#42C77A", warning:"#E7B65A" },
@@ -67,7 +80,7 @@ export const THEMES: AppTheme[] = [
   { name:"Vercel", window:"#0A0A0A", card:"#111111", panel:"#171717", sidebar:"#050505", input:"#1A1A1A", inputHover:"#303030", button:"#242424", buttonHover:"#303030", selected:"#16263B", border:"#2E2E2E", borderStrong:"#505050", text:"#EDEDED", muted:"#B7B7B7", subtle:"#888888", disabled:"#666666", accent:"#0070F3", accentHover:"#0060D1", success:"#46A758", warning:"#E5A000" },
   { name:"VS Code Plus", window:"#181818", card:"#1F1F1F", panel:"#252526", sidebar:"#181818", input:"#2A2D2E", inputHover:"#3E3E42", button:"#333337", buttonHover:"#3E3E42", selected:"#24394A", border:"#3C3C3C", borderStrong:"#5A5A5A", text:"#CCCCCC", muted:"#B8B8B8", subtle:"#858585", disabled:"#666666", accent:"#007ACC", accentHover:"#006BB3", success:"#4EC9B0", warning:"#DCDCAA" },
   { name:"Xcode", window:"#F2F4F7", card:"#FFFFFF", panel:"#E9EDF2", sidebar:"#E5E9EF", input:"#F7F8FA", inputHover:"#D2D8E0", button:"#DFE4EA", buttonHover:"#D2D8E0", selected:"#DCEBFA", border:"#CBD1D9", borderStrong:"#A3ABB6", text:"#1F2328", muted:"#505963", subtle:"#747E89", disabled:"#99A1AA", accent:"#006FE6", accentHover:"#005FC7", success:"#348A42", warning:"#A86400" },
-];
+] as Omit<AppTheme, keyof typeof DETAIL_ROLES>[]).map(theme => ({ ...detailDefaults(theme), ...theme }));
 
 const STORAGE_KEY = "posterview.theme";
 const CUSTOM_STORAGE_KEY = "posterview.customThemes";
@@ -129,7 +142,9 @@ export function parseThemeJson(value: string): AppTheme {
   const colors = record.colors as Record<string, unknown>;
   const theme = { name } as AppTheme;
   for (const { key, label } of THEME_COLOR_OPTIONS) {
-    const color = colors[label];
+    const inheritedRole = DETAIL_ROLES[key as keyof typeof DETAIL_ROLES];
+    const inheritedLabel = THEME_COLOR_OPTIONS.find(option => option.key === inheritedRole)?.label;
+    const color = colors[label] ?? (inheritedLabel ? colors[inheritedLabel] : undefined);
     if (typeof color !== "string" || !HEX_COLOR.test(color)) {
       throw new Error(`${label} must be a six-digit hex color, such as #BD93F9.`);
     }
@@ -171,13 +186,13 @@ function isAppTheme(value: unknown): value is AppTheme {
   return (
     typeof theme.name === "string" &&
     theme.name.trim().length > 0 &&
-    THEME_COLOR_OPTIONS.every(({ key }) => typeof theme[key] === "string" && HEX_COLOR.test(theme[key]))
+    THEME_COLOR_OPTIONS.every(({ key }) => (key in DETAIL_ROLES && theme[key] === undefined) || (typeof theme[key] === "string" && HEX_COLOR.test(theme[key])))
   );
 }
 
 function normalizeTheme(theme: AppTheme): AppTheme {
   return Object.fromEntries(
-    Object.entries(theme).map(([key, value]) => [key, typeof value === "string" ? value.trim() : value]),
+    Object.entries({ ...detailDefaults(theme), ...theme }).map(([key, value]) => [key, typeof value === "string" ? value.trim() : value]),
   ) as unknown as AppTheme;
 }
 
@@ -191,6 +206,8 @@ function applyThemeValues(theme: AppTheme) {
   root.dataset.theme = theme.name;
   root.style.colorScheme = isLightColor(theme.window) ? "light" : "dark";
   const values: Record<string, string> = {
+    "detail-title": theme.detailTitle ?? theme.text, "detail-text": theme.detailText ?? theme.text,
+    "detail-metadata": theme.detailMetadata ?? theme.muted, "detail-link": theme.detailLink ?? theme.accent,
     base: theme.window, surface: theme.card, "surface-2": theme.panel, sidebar: theme.sidebar,
     input: theme.input, "input-hover": theme.inputHover, button: theme.button,
     "button-hover": theme.buttonHover, elevated: theme.selected, border: theme.border,
