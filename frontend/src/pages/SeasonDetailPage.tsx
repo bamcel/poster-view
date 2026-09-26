@@ -2,7 +2,7 @@ import DetailSynopsis from "../components/DetailSynopsis";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, CalendarDays, ChevronDown, Clock3, Film, Layers3, RefreshCw, Search, Star } from "lucide-react";
+import { ArrowLeft, CalendarDays, ChevronDown, Clock3, Film, Layers3, RefreshCw, Search } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import { seasonsApi, type EpisodeDetail } from "../api/seasons";
 import type { Season } from "../types";
@@ -29,7 +29,6 @@ function EpisodeCard({ episode, serverId }: { episode: EpisodeDetail; serverId: 
       <Artwork src={imageUrl(serverId, episode.image)} alt={`${episode.title} episode still`} className="transition-transform duration-500 group-hover:scale-[1.035]" />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
       <span className="sr-only">{number}</span>
-      {episode.rating != null && <span className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/40 px-2 py-1 text-xs text-white backdrop-blur"><Star className="size-3 fill-amber-300 text-amber-300" aria-hidden="true" />{episode.rating.toFixed(1)}<span className="sr-only">out of 10</span></span>}
     </div>
     <div className="min-w-0 flex-1 py-1">
       <h3 className="text-base font-semibold leading-snug text-white">{episode.index != null && `${episode.index}. `}<span>{episode.title}</span></h3>

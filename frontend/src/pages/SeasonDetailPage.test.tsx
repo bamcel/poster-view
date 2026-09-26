@@ -21,7 +21,7 @@ function mount() { const client = new QueryClient({ defaultOptions: { queries: {
 it("shows episode cards, reveals credits on demand, and searches without leaving the season", async () => {
   mount(); await screen.findByRole("heading", { name: "Season One" });
   expect(screen.getAllByRole("article")).toHaveLength(2);
-  expect(screen.getByText("42 min")).toBeTruthy(); expect(screen.getByText("8.5")).toBeTruthy();
+  expect(screen.getByText("42 min")).toBeTruthy(); expect(screen.queryByText("8.5")).toBeNull();
   expect(screen.getByText("Episode 02–03")).toBeTruthy();
   expect(screen.queryByText("A Director")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Episode details for Pilot" })); expect(screen.getByText("A Director")).toBeTruthy();
