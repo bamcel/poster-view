@@ -11,6 +11,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import DashboardPage from "./DashboardPage";
 import { api } from "../api/client";
 
+HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+HTMLDialogElement.prototype.close = function () { this.open = false; };
+
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 vi.mock("../lib/serverContext", () => ({
   useServers: () => ({
@@ -121,17 +124,17 @@ it("filters by artwork and sorts titles from the compact filter menu", async () 
   client.clear();
 });
 
-it("closes the title filter menu when pressing outside it", async () => {
+it("opens the filter popup and closes it through its close button", async () => {
   vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
   vi.mocked(api.getItems).mockResolvedValue([{ id: "alien", title: "Alien", type: "movie" }]);
 
   const { client } = renderDashboard();
   await screen.findByText("Alien");
   const toggle = screen.getByLabelText("Filter and sort titles");
-  const menu = toggle.closest("details")!;
   fireEvent.click(toggle);
+  const menu = screen.getByRole("dialog", { name: "Filter & Sort" }) as HTMLDialogElement;
   expect(menu.open).toBe(true);
-  fireEvent.pointerDown(document.body);
+  fireEvent.click(screen.getByLabelText("Close Filter & Sort"));
   expect(menu.open).toBe(false);
   client.clear();
 });

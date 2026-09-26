@@ -22,6 +22,14 @@ vi.mock("../components/ReaderPages", () => ({
   ),
 }));
 const fetchMock = vi.fn();
+it("saves the final page as 100 percent for automatic completion", async () => {
+  open();
+  const slider = await screen.findByLabelText("Reading position");
+  fireEvent.change(slider, { target: { value: "2" } });
+  await waitFor(() => {
+    expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith("/state") && init?.method === "PUT" && JSON.parse(String(init.body)).data.progress === 100)).toBe(true);
+  });
+});
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   vi.stubGlobal(
