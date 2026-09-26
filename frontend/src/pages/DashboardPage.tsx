@@ -49,7 +49,7 @@ export default function DashboardPage() {
   const libraryBodyRef = useRef<HTMLDivElement>(null);
   const filterMenuRef = useRef<HTMLDetailsElement>(null);
   const displayMenuRef = useRef<HTMLDetailsElement>(null);
-  const [trackingOverlays, setTrackingOverlays] = useTrackingOverlays();
+  const [trackingOverlays, setTrackingOverlays, displayStatus] = useTrackingOverlays();
   const restoredScrollKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -474,9 +474,10 @@ export default function DashboardPage() {
               {browsesFolders ? <>
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <span className="text-sm text-muted">Tracking Overlays</span>
-                  <Switch label="Show tracking overlays" checked={trackingOverlays} onChange={() => setTrackingOverlays(!trackingOverlays)} />
+                  <Switch label="Show tracking overlays" checked={trackingOverlays} onChange={() => { if (!displayStatus.busy) setTrackingOverlays(!trackingOverlays); }} />
                 </div>
-                <p className="mt-2 text-xs text-faint">Show New, Reading, and Finished badges in book libraries. Applies to all book libraries on this browser; reading progress is still saved.</p>
+                <p className="mt-2 text-xs text-faint">Show New, Reading, and Finished badges in book libraries. Saved on PosterView for your account across browsers and devices; reading progress is still saved.</p>
+                {displayStatus.error && <p role="alert" className="mt-2 text-xs text-muted">{displayStatus.error}</p>}
               </> : <p className="mt-3 text-xs text-muted">No display options for this library type yet.</p>}
             </div>
           </details>

@@ -1,17 +1,18 @@
-import { act, cleanup, renderHook } from "@testing-library/react";
-import { afterEach, expect, it } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { useTrackingOverlays } from "./libraryDisplay";
 
-afterEach(() => { cleanup(); localStorage.clear(); });
-it("defaults to visible and synchronizes saved preferences between views", () => {
-  const first = renderHook(useTrackingOverlays);
-  const second = renderHook(useTrackingOverlays);
-  expect(first.result.current[0]).toBe(true);
-  act(() => first.result.current[1](false));
-  expect(second.result.current[0]).toBe(false);
-  first.unmount();
-  const reopened = renderHook(useTrackingOverlays);
-  expect(reopened.result.current[0]).toBe(false);
-  act(() => reopened.result.current[1](true));
-  expect(second.result.current[0]).toBe(true);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+it("loads server preferences and shares successful saves across views", async () => {
+  const fetcher = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ tracking_overlays: false }) }).mockResolvedValueOnce({ ok: true, json: async () => ({ tracking_overlays: true }) });
+  vi.stubGlobal("fetch", fetcher);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  const hook = renderHook(() => [useTrackingOverlays(), useTrackingOverlays()], { wrapper });
+  await waitFor(() => expect(hook.result.current[0][0]).toBe(false));
+  act(() => hook.result.current[0][1](true));
+  await waitFor(() => expect(hook.result.current[1][0]).toBe(true));
+  expect(fetcher).toHaveBeenLastCalledWith("/api/library-display", expect.objectContaining({ method: "PUT", body: '{"tracking_overlays":true}' }));
 });

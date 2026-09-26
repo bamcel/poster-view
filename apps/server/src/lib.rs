@@ -71,6 +71,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/reader/open/{server}/{item}", get(reader::open))
         .route("/api/reader/books/{id}", get(reader::manifest))
         .route("/api/reader/info/{server}/{item}", get(reader::info))
+        .route("/api/library-display", get(reader::load_display_preferences).put(reader::save_display_preferences))
         .route("/api/reader/books/{id}/file", get(reader::file))
         .route("/api/reader/books/{id}/entry", get(reader::entry))
         .route("/api/reader/books/{id}/state", get(reader::load_state).put(reader::save_state))
