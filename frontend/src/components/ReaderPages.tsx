@@ -21,6 +21,7 @@ export function PdfPage({
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState("");
+  const [ratio, setRatio] = useState(1);
   useEffect(() => {
     let cancelled = false;
     let task: { cancel: () => void } | undefined;
@@ -28,9 +29,17 @@ export function PdfPage({
       .getPage(page + 1)
       .then(async (p) => {
         if (cancelled || !canvas.current) return;
+        const natural = p.getViewport({ scale: 1 });
+        setRatio(natural.width / natural.height);
+        const fittedWidth = Math.min(
+          width,
+          maxHeight == null
+            ? width
+            : (maxHeight * natural.width) / natural.height,
+        );
         const viewport = p.getViewport({
           scale:
-            (Math.min(2, window.devicePixelRatio || 1) * width) /
+            (Math.min(2, window.devicePixelRatio || 1) * fittedWidth) /
             p.getViewport({ scale: 1 }).width,
         });
         const node = canvas.current;
@@ -55,7 +64,7 @@ export function PdfPage({
       cancelled = true;
       task?.cancel();
     };
-  }, [pdf, page, width]);
+  }, [pdf, page, width, maxHeight]);
   return error ? (
     <p role="alert">{error}</p>
   ) : (
@@ -63,13 +72,11 @@ export function PdfPage({
       ref={canvas}
       aria-label={`Page ${page + 1}`}
       style={{
-        width,
+        width: Math.min(width, maxHeight == null ? width : maxHeight * ratio),
         maxWidth: "100%",
         height: "auto",
-        maxHeight,
-        objectFit: "contain",
       }}
-      className="mx-auto shadow-lg"
+      className="block shrink-0 shadow-lg"
     />
   );
 }
@@ -88,6 +95,7 @@ export function ComicPage({
   maxHeight?: number;
 }) {
   const [error, setError] = useState(false);
+  const [ratio, setRatio] = useState<number>();
   return error ? (
     <p role="alert">
       Page {page + 1} could not be loaded. Reopen the book if it changed.
@@ -96,11 +104,21 @@ export function ComicPage({
     <img
       src={readerUrl(book, "entry", book.chapters[page]?.name)}
       alt={`Page ${page + 1}`}
-      onLoad={loaded}
+      onLoad={(event) => {
+        const image = event.currentTarget;
+        setRatio(image.naturalWidth / image.naturalHeight);
+        loaded?.();
+      }}
       onError={() => setError(true)}
       draggable={false}
-      style={{ width, maxWidth: "100%", maxHeight, objectFit: "contain" }}
-      className="mx-auto h-auto"
+      style={{
+        width: Math.min(
+          width,
+          maxHeight == null || ratio == null ? width : maxHeight * ratio,
+        ),
+        maxWidth: "100%",
+      }}
+      className="block h-auto shrink-0"
     />
   );
 }

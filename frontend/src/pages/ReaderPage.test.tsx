@@ -166,6 +166,24 @@ it("keeps native vertical wheel scrolling in webtoon mode", async () => {
   expect(event.defaultPrevented).toBe(false);
 });
 
+it("sets mode-specific directions while allowing manual overrides", async () => {
+  open();
+  await screen.findByText("Comic page 1");
+  fireEvent.click(screen.getByRole("button", { name: "Reader settings" }));
+  const mode = screen.getByLabelText("Reading Mode");
+  const direction = screen.getByLabelText(
+    "Reading Direction",
+  ) as HTMLSelectElement;
+  fireEvent.change(mode, { target: { value: "manga" } });
+  expect(direction.value).toBe("rtl");
+  fireEvent.change(mode, { target: { value: "book" } });
+  expect(direction.value).toBe("ltr");
+  fireEvent.change(direction, { target: { value: "rtl" } });
+  expect(direction.value).toBe("rtl");
+  fireEvent.change(mode, { target: { value: "comic" } });
+  expect(direction.value).toBe("ltr");
+});
+
 it("restores the saved position", async () => {
   const base = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
