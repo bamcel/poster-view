@@ -492,6 +492,7 @@ export default function MediaLibraryPage() {
                   <div className="mt-3 flex items-center justify-between gap-3"><span className="text-sm text-muted">Poster Shimmer</span><Switch label="Poster Shimmer" checked={["shimmer", "both"].includes(displayStatus.coloredEffect)} onChange={() => { if (!displayStatus.busy) displayStatus.toggleColoredEffect("shimmer"); }} /></div>
                   <div className="mt-3 flex items-center justify-between gap-3"><span className="text-sm text-muted">Colored Badge</span><Switch label="Colored Badge" checked={["badge", "both"].includes(displayStatus.coloredEffect)} onChange={() => { if (!displayStatus.busy) displayStatus.toggleColoredEffect("badge"); }} /></div>
                 </div>
+                <div className="mt-3 flex items-center justify-between gap-3"><span className="text-sm text-muted">Colored Title</span><Switch label="Colored Title" checked={displayStatus.coloredTitle} onChange={() => { if (!displayStatus.busy) displayStatus.setColoredTitle(!displayStatus.coloredTitle); }} /></div>
                 {displayStatus.error && <p role="alert" className="mt-2 text-xs text-muted">{displayStatus.error}</p>}
               </> : (selectedLibrary?.type === "show" || selectedLibrary?.type === "movie") ? <CastPreferences /> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
           </LibraryPopup>
@@ -562,6 +563,7 @@ export default function MediaLibraryPage() {
                 subtitle={item.year ? String(item.year) : undefined}
                 kind={item.type}
                 coloredEffect={browsesFolders && bookInfo.data?.[item.id]?.colored_edition ? displayStatus.coloredEffect : "off"}
+                coloredTitle={browsesFolders && bookInfo.data?.[item.id]?.colored_edition && displayStatus.coloredTitle}
                 badge={browsesFolders && !trackingOverlays ? undefined : bookInfo.data?.[item.id]?.status ?? (newMissingIds.has(item.id) ? "NEW" : undefined)}
                 onOpen={() => openItem(item)}
                 onRefresh={() => refreshMut.mutate({ itemId: item.id })}

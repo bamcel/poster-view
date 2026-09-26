@@ -17,13 +17,16 @@ it("offers Find Missing Metadata on right-click without opening the title",()=>{
   const find=vi.fn();const open=vi.fn();render(<PosterCard title="Film" kind="movie" onOpen={open} onFindMetadata={find}/>);
   fireEvent.contextMenu(screen.getByRole("button"));fireEvent.click(screen.getByRole("menuitem",{name:"Find Missing Metadata"}));expect(find).toHaveBeenCalledOnce();expect(open).not.toHaveBeenCalled();
 });
-it("matches the colored title background to the badge when enabled", () => {
-  const { rerender } = render(<PosterCard title="Colored Title" coloredEffect="badge" />);
-  expect(screen.getByText("Colored Title").classList.contains("poster-colored-badge")).toBe(true);
-  rerender(<PosterCard title="Colored Title" coloredEffect="both" />);
-  expect(screen.getByText("Colored Title").classList.contains("poster-colored-badge")).toBe(true);
-  rerender(<PosterCard title="Colored Title" coloredEffect="off" />);
+it("applies the badge gradient to title text without a colored box", () => {
+  const { rerender } = render(<PosterCard title="Colored Title" coloredTitle />);
+  expect(screen.getByText("Colored Title").classList.contains("poster-colored-title")).toBe(true);
   expect(screen.getByText("Colored Title").classList.contains("poster-colored-badge")).toBe(false);
+  expect(screen.queryByText("COLORED")).toBeNull();
+  rerender(<PosterCard title="Colored Title" coloredEffect="both" coloredTitle />);
+  expect(screen.getByText("Colored Title").classList.contains("poster-colored-title")).toBe(true);
+  rerender(<PosterCard title="Colored Title" coloredEffect="badge" />);
+  expect(screen.getByText("Colored Title").classList.contains("poster-colored-title")).toBe(false);
+  expect(screen.getByText("COLORED")).toBeTruthy();
 });
 it("renders both colored effects together", () => {
   const { container } = render(<PosterCard title="Book" image="poster.jpg" coloredEffect="both" />);
