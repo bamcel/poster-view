@@ -31,9 +31,9 @@ Books/
 ```
 
 Grouping folders may be used above series folders. Selecting a grouping folder navigates deeper;
-selecting a series opens its detail page. PosterView deliberately does not open an individual
-book/volume as another Dashboard detail page, so Back returns to the series rather than skipping
-directly to the library.
+selecting a series opens its detail page. Use **Read** under a PDF, EPUB or CBZ volume to open
+the full-screen reader. Closing it returns to the series. See [Book reader](reader.md) for
+reading modes, bookmarks, search, file requirements and current format limitations.
 
 ## Enable and open the library
 

@@ -27,6 +27,7 @@ mod config;
 mod error;
 mod login_backdrop;
 mod metadata;
+mod reader;
 pub use auth::AuthState;
 pub use config::ServerConfig;
 use error::HttpError;
@@ -39,6 +40,7 @@ struct AppState {
     auth: AuthState,
     login_backdrop: login_backdrop::LoginBackdrop,
     metadata: Arc<metadata::MetadataStore>,
+    reader: Arc<reader::ReaderStore>,
 }
 
 pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router {
@@ -52,6 +54,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/media"));
     let state = AppState {
+        reader: Arc::new(reader::ReaderStore::new(media_dir.clone(), runtime.data_dir().join("reader.sqlite"))),
         metadata: Arc::new(metadata::MetadataStore::new(media_dir)),
         runtime,
         auth: auth.clone(),
@@ -61,6 +64,11 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 
     let protected = Router::new()
+        .route("/api/reader/open/{server}/{item}", get(reader::open))
+        .route("/api/reader/books/{id}", get(reader::manifest))
+        .route("/api/reader/books/{id}/file", get(reader::file))
+        .route("/api/reader/books/{id}/entry", get(reader::entry))
+        .route("/api/reader/books/{id}/state", get(reader::load_state).put(reader::save_state))
         .route("/api/metadata/folders", get(metadata::folders))
         .route(
             "/api/metadata/document",

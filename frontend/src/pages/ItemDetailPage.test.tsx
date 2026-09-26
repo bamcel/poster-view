@@ -89,7 +89,7 @@ it("returns directly to the manga series parent folder", async () => {
   client.clear();
 });
 
-it("keeps manga volume files on the series page while nested folders remain openable", async () => {
+it("makes manga volume files readable while nested folders remain openable", async () => {
   vi.mocked(api.getItemDetail).mockResolvedValue({
     id: "dragon-ball",
     title: "Dragon Ball",
@@ -111,7 +111,8 @@ it("keeps manga volume files on the series page while nested folders remain open
   );
 
   const volume = await screen.findByText("Volume 2");
-  expect(volume.closest("button")).toBeNull();
+  expect(volume.closest("button")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Read" })).toBeTruthy();
   expect(screen.getByRole("button", { name: /Extras/ })).toBeTruthy();
   client.clear();
 });
