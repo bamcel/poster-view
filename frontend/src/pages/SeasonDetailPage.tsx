@@ -1,3 +1,4 @@
+import { synopsisText } from "../lib/synopsisText";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -36,7 +37,7 @@ function EpisodeCard({ episode, serverId }: { episode: EpisodeDetail; serverId: 
         {aired && <span className="flex items-center gap-1.5"><CalendarDays className="size-3.5" aria-hidden="true" />{aired}</span>}
         {episode.runtime_minutes != null && <span className="flex items-center gap-1.5"><Clock3 className="size-3.5" aria-hidden="true" />{episode.runtime_minutes} min</span>}
       </div>
-      <p className={`mt-3 text-sm leading-relaxed text-muted ${expanded ? "" : "line-clamp-3"}`}>{episode.summary || "No synopsis available."}</p>
+      <p className={`mt-3 text-sm leading-relaxed text-muted ${expanded ? "" : "line-clamp-3"}`}>{synopsisText(episode.summary) || "No synopsis available."}</p>
       {(episode.summary || episode.directors.length > 0 || episode.writers.length > 0 || episode.cast.length > 0) && <button aria-label={`${expanded ? "Less detail" : "Episode details"} for ${episode.title}`} aria-expanded={expanded} aria-controls={`episode-${episode.id}-details`} onClick={() => setExpanded(!expanded)} className="mt-4 flex min-h-8 items-center gap-1 text-xs font-medium text-accent hover:text-accent-hover">{expanded ? "Less detail" : "Episode details"}<ChevronDown aria-hidden="true" className={`size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} /><span className="sr-only"> for {episode.title}</span></button>}
       <div id={`episode-${episode.id}-details`} hidden={!expanded}>
         {expanded && <dl className="mt-3 space-y-3 border-t border-white/10 pt-3 text-xs">{[["Directed by", episode.directors], ["Written by", episode.writers], ["Cast", episode.cast]].map(([label, names]) => (names as string[]).length > 0 && <div key={label as string}><dt className="mb-1 text-faint">{label}</dt><dd className="leading-relaxed text-white/80">{(names as string[]).join(" · ")}</dd></div>)}</dl>}
@@ -78,10 +79,10 @@ export default function SeasonDetailPage() {
             <p className="mb-2 mt-5 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-accent"><Tv className="size-4" />{label}</p>
             <h1 className="text-3xl font-bold leading-tight tracking-tight sm:text-5xl lg:text-6xl">{season.title}</h1>
             <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-white/75">{period && <span>{period}</span>}<span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5"><Layers3 className="size-3.5" />{episodes.length} {episodes.length === 1 ? "episode" : "episodes"}</span></div>
-            {(season.summary || series?.summary) && <p className="mt-5 hidden max-w-2xl text-sm leading-7 text-white/70 sm:block sm:text-[1rem]">{season.summary || series?.summary}</p>}
+            {(season.summary || series?.summary) && <p className="mt-5 whitespace-pre-line hidden max-w-2xl text-sm leading-7 text-white/70 sm:block sm:text-[1rem]">{synopsisText(season.summary || series?.summary)}</p>}
           </div>
         </div>}
-        {season && (season.summary || series?.summary) && <p className="mt-5 text-sm leading-relaxed text-white/70 sm:hidden">{season.summary || series?.summary}</p>}
+        {season && (season.summary || series?.summary) && <p className="mt-5 whitespace-pre-line text-sm leading-relaxed text-white/70 sm:hidden">{synopsisText(season.summary || series?.summary)}</p>}
       </div>
     </div>
     {season && <section aria-labelledby="season-episodes-title" className="mx-auto max-w-[1500px] px-5 pb-12 pt-6 sm:px-8 lg:px-12">

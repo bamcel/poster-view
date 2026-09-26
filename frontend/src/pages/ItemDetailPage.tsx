@@ -1,3 +1,5 @@
+import SeriesHero from "../components/SeriesHero";
+import { synopsisText } from "../lib/synopsisText";
 import FindMissingMetadata, { MissingMetadataMenu } from "../components/FindMissingMetadata";
 // Item detail: a cinematic hero (blurred backdrop, large poster, metadata) with
 // a seasons row, and the ThePosterDB panel docked on the right for swapping art.
@@ -93,6 +95,7 @@ export default function ItemDetailPage() {
   });
   const item = detailQ.data && { ...detailQ.data, title: detailQ.data.type === "folder" ? metadataQ.data?.title.trim() || detailQ.data.title : detailQ.data.title };
   const memberInfo = useBookInfo(serverId, item?.members, item?.type === "folder" || item?.type === "book");
+  const isSeries = item?.type === "show";
   const backdrop = imageUrl(serverId, item?.background);
   const poster = imageUrl(serverId, item?.poster);
   const logo = imageUrl(serverId, item?.logo);
@@ -142,9 +145,37 @@ export default function ItemDetailPage() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [artworkOpen]);
 
+  const titleActions = item && (
+<div className={isSeries ? "flex flex-wrap items-center justify-end gap-2" : "hidden shrink-0 flex-wrap items-center justify-end gap-2 xl:flex"}>
+                        {(item.type === "movie" || item.type === "show") && <MissingMetadataMenu onFind={() => setFindingMetadata(true)} />}
+                        {(item.type === "movie" || item.type === "show" || metadataQ.data) && (
+                          <button
+                            type="button"
+                            onClick={() => { setMetadataImport(null); setMetadataEditorOpen(true); }}
+                            className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white"
+                          >
+                            <Pencil className="size-4" /> Edit Metadata
+                          </button>
+                        )}
+                      <button
+                        onClick={() => { void detailQ.refetch(); void metadataQ.refetch(); }}
+                        className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white"
+                        title="Refresh from server"
+                      >
+                        <RefreshCw
+                          className={`size-4 ${detailQ.isFetching ? "animate-spin" : ""}`}
+                        />{" "}
+                        Refresh
+                      </button>
+                      <button type="button" onClick={() => setArtworkOpen(true)} aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white">
+                        <Images className="size-4" /> Edit Artwork
+                      </button>
+                      </div>
+  );
+
   return (
     <div className="relative flex h-full overflow-hidden">
-      {showBackdrop && createPortal(
+      {showBackdrop && !isSeries && createPortal(
         <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-base" aria-hidden="true" data-testid="item-backdrop">
           {backdrop && (
             <img
@@ -168,17 +199,17 @@ export default function ItemDetailPage() {
             scroll container itself only spans one visible viewport and scrolls
             away, leaving multi-season shows showing the raw, undarkened backdrop
             at the bottom.) */}
-        <div className="relative min-h-full">
+        <div className={isSeries ? "relative min-h-full bg-base text-white" : "relative min-h-full"}>
           {/* Back button */}
-          <button
+          {!isSeries && <button
             onClick={goBack}
             className="absolute left-5 top-5 z-10 grid size-9 place-items-center rounded-full bg-black/40 text-white backdrop-blur transition-colors hover:bg-black/70"
             aria-label="Back"
           >
             <ArrowLeft className="size-5" />
-          </button>
+          </button>}
 
-          <div className="relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-8">
+          <div className={isSeries ? "relative z-[1]" : "relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-8"}>
             {detailQ.isLoading && <Spinner label="Loading…" />}
             {detailQ.isError && (
               <EmptyState title="Couldn't load this title">
@@ -188,7 +219,7 @@ export default function ItemDetailPage() {
 
             {item && (
               <>
-                <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6">
+                {isSeries ? <SeriesHero item={item} serverId={serverId} showBackdrop={showBackdrop} onBack={goBack} actions={titleActions} /> : <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6">
                   {/* Poster */}
                   <div className="w-40 shrink-0 min-[390px]:w-44 sm:w-48 lg:w-56">
                     <div className="aspect-[2/3] overflow-hidden rounded-xl bg-surface-2 shadow-2xl shadow-black/50 ring-1 ring-white/10">
@@ -231,31 +262,7 @@ export default function ItemDetailPage() {
                                     : item.year}
                         </p>}
                       </div>
-                      <div className="hidden shrink-0 flex-wrap items-center justify-end gap-2 xl:flex">
-                        {(item.type === "movie" || item.type === "show") && <MissingMetadataMenu onFind={() => setFindingMetadata(true)} />}
-                        {(item.type === "movie" || item.type === "show" || metadataQ.data) && (
-                          <button
-                            type="button"
-                            onClick={() => { setMetadataImport(null); setMetadataEditorOpen(true); }}
-                            className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white"
-                          >
-                            <Pencil className="size-4" /> Edit Metadata
-                          </button>
-                        )}
-                      <button
-                        onClick={() => { void detailQ.refetch(); void metadataQ.refetch(); }}
-                        className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white"
-                        title="Refresh from server"
-                      >
-                        <RefreshCw
-                          className={`size-4 ${detailQ.isFetching ? "animate-spin" : ""}`}
-                        />{" "}
-                        Refresh
-                      </button>
-                      <button type="button" onClick={() => setArtworkOpen(true)} aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white">
-                        <Images className="size-4" /> Edit Artwork
-                      </button>
-                      </div>
+                      {titleActions}
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 sm:justify-start sm:gap-2 xl:hidden">
                       {(item.type === "movie" || item.type === "show") && <MissingMetadataMenu onFind={() => setFindingMetadata(true)} />}
@@ -293,7 +300,7 @@ export default function ItemDetailPage() {
 
                     {!metadataQ.data && item.summary && (
                       <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/80">
-                        {item.summary}
+                        {synopsisText(item.summary)}
                       </p>
                     )}
                     {metadataQ.data && (
@@ -323,12 +330,13 @@ export default function ItemDetailPage() {
                       </section>
                     )}
                   </div>
-                </div>
+                </div>}
 
+                <div className={isSeries ? "mx-auto max-w-[1500px] px-5 pb-12 sm:px-8 lg:px-12" : undefined}>
                 {/* Seasons */}
                 {item.seasons.length > 0 && (
-                  <section className="mt-10">
-                    <h2 className="mb-4 text-lg font-semibold">Seasons</h2>
+                  <section className="pt-6">
+                    <h2 className="mb-6 text-xl font-semibold">Seasons</h2>
                     <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(120px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
                       {item.seasons.map((s) => (
                         <PosterCard
@@ -386,6 +394,7 @@ export default function ItemDetailPage() {
                     </div>
                   </section>
                 )}
+                </div>
               </>
             )}
           </div>
