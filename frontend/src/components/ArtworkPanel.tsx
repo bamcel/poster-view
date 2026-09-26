@@ -203,7 +203,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
             </select>
           </label>
         )}
-        <div className="mt-3 flex items-center justify-end gap-2">
+        <div className="mt-1 flex items-center justify-end gap-2">
           <span className="text-xs font-medium text-muted">{sourceLayout === "list" ? "List" : "Compact"}</span>
           <Switch label="Compact artwork sources" checked={sourceLayout === "compact"} translucent onChange={() => chooseLayout(sourceLayout === "list" ? "compact" : "list")} />
         </div>
