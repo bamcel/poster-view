@@ -9,7 +9,7 @@ export function toggleColoredEffect(current: ColoredEffect, effect: "shimmer" | 
   const nextBadge = effect === "badge" ? !badge : badge;
   return nextShimmer && nextBadge ? "both" : nextShimmer ? "shimmer" : nextBadge ? "badge" : "off";
 }
-interface Preferences { tracking_overlays: boolean; reading_threshold: number; finished_threshold: number; colored_effect?: ColoredEffect; colored_title?: boolean }
+interface Preferences { tracking_overlays: boolean; reading_threshold: number; finished_threshold: number; colored_effect?: ColoredEffect }
 export function useTrackingOverlays() {
   const client = useQueryClient();
   const query = useQuery({ queryKey, queryFn: () => readerRequest<Preferences>("/api/library-display"), refetchOnWindowFocus: "always" });
@@ -21,8 +21,6 @@ export function useTrackingOverlays() {
   return [query.data?.tracking_overlays ?? true, (value: boolean) => save.mutate({ tracking_overlays: value }), {
     readingThreshold: query.data?.reading_threshold ?? 2,
     coloredEffect: query.data?.colored_effect ?? "off",
-    coloredTitle: query.data?.colored_title ?? false,
-    setColoredTitle: (enabled: boolean) => save.mutate({ colored_title: enabled }),
     setColoredEffect: (effect: ColoredEffect) => save.mutate({ colored_effect: effect }),
     toggleColoredEffect: (effect: "shimmer" | "badge") => save.mutate({ colored_effect: toggleColoredEffect(query.data?.colored_effect ?? "off", effect) }),
     finishedThreshold: query.data?.finished_threshold ?? 98,

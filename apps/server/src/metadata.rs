@@ -325,15 +325,6 @@ impl MetadataStore {
             .fields)
     }
 
-    fn save_edition_for_source(&self, source: &str, edition: String) -> Result<Fields, HttpError> {
-        let relative = self.relative_directory_for_source(source)?;
-        let document = self.read(&relative)?;
-        if document.revision.is_none() { return Err(invalid("No existing NFO was found for this series.")); }
-        let mut fields = document.fields;
-        fields.edition = edition;
-        Ok(self.save(&SaveRequest { path: relative, fields, revision: document.revision })?.fields)
-    }
-
     pub(crate) fn save_comicvine_for_source(
         &self,
         source: &str,
@@ -727,20 +718,6 @@ pub(crate) async fn update_item(
         .map(Json)
 }
 
-#[derive(Deserialize)]
-pub(crate) struct EditionUpdate { server_id: i64, item_id: String, edition: String }
-pub(crate) async fn update_edition(State(state): State<AppState>, Json(request): Json<EditionUpdate>) -> Result<Json<Fields>, HttpError> {
-    let edition = request.edition.trim().to_owned();
-    if edition.is_empty() || edition.len() > 200 { return Err(invalid("Choose an edition of 1–200 characters.")); }
-    let server = state.runtime.list_servers()?.into_iter().find(|server| server.id == request.server_id).ok_or_else(HttpError::not_found)?;
-    if !server.nfo_metadata_enabled { return Err(invalid("Enable NFO metadata for this server first.")); }
-    let detail = state.runtime.get_item_detail(request.server_id, &request.item_id).await?.ok_or_else(HttpError::not_found)?.map_err(HttpError::bad_gateway)?;
-    if detail.item_type != posterview_contracts::ItemType::Folder { return Err(invalid("Select book series folders, not individual volumes.")); }
-    let source = item_source(&state, request.server_id, &request.item_id).await?;
-    let store = state.metadata.clone();
-    tokio::task::spawn_blocking(move || store.save_edition_for_source(&source, edition).map(Json)).await.map_err(|_| invalid("Edition update failed."))?
-}
-
 pub(crate) async fn use_comicvine(
     State(state): State<AppState>,
     Json(request): Json<ComicVineRequest>,
@@ -987,7 +964,6 @@ mod tests {
             ("GET", "/api/metadata/search?query=Manga"),
             ("GET", "/api/metadata/item?server_id=1&item_id=manga"),
             ("PUT", "/api/metadata/item"),
-            ("PUT", "/api/metadata/edition"),
             ("GET", "/api/metadata/video?server_id=1&item_id=movie"),
             ("PUT", "/api/metadata/video"),
             ("POST", "/api/metadata/video/preview"),
@@ -1029,22 +1005,6 @@ mod tests {
         );
         assert!(store.cached_source(8, "series").is_none());
         assert!(store.cached_source(7, "other").is_none());
-    }
-
-    #[test]
-    fn edition_patch_preserves_other_fields_and_unknown_xml() {
-        let (dir, store) = setup();
-        let folder = dir.path().join("Manga & Color");
-        let source = folder.to_str().unwrap();
-        assert!(store.save_edition_for_source(source, "Standard".into()).is_err());
-        let nfo = folder.join("Manga & Color.nfo");
-        fs::write(&nfo, "<series><title>My Series</title><edition>Colored</edition><plot>Keep this</plot><custom>Unchanged</custom></series>").unwrap();
-        let fields = store.save_edition_for_source(source, "Standard".into()).unwrap();
-        assert_eq!(fields.edition, "Standard");
-        assert_eq!(fields.title, "My Series");
-        assert_eq!(fields.plot, "Keep this");
-        assert!(fs::read_to_string(nfo).unwrap().contains("<custom>Unchanged</custom>"));
-        assert!(folder.is_dir());
     }
 
     #[test]

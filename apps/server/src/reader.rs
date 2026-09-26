@@ -53,9 +53,7 @@ impl ReaderStore {
             CREATE TABLE IF NOT EXISTS reader_states (user TEXT NOT NULL, book TEXT NOT NULL, revision TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(user,book));
             CREATE TABLE IF NOT EXISTS library_display_preferences (user TEXT PRIMARY KEY, tracking_overlays INTEGER NOT NULL DEFAULT 1);
             CREATE TABLE IF NOT EXISTS reading_thresholds (user TEXT PRIMARY KEY, reading REAL NOT NULL, finished REAL NOT NULL);
-            CREATE TABLE IF NOT EXISTS colored_edition_preferences (user TEXT PRIMARY KEY, effect TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS colored_title_preferences (user TEXT PRIMARY KEY, enabled INTEGER NOT NULL);
-            INSERT OR IGNORE INTO colored_title_preferences SELECT user, effect IN ('badge','both') FROM colored_edition_preferences;").map_err(failure)?;
+            CREATE TABLE IF NOT EXISTS colored_edition_preferences (user TEXT PRIMARY KEY, effect TEXT NOT NULL);").map_err(failure)?;
         Ok(db)
     }
     fn checked(&self, path: &FsPath) -> Result<PathBuf, HttpError> {
@@ -803,8 +801,6 @@ pub(crate) struct SavedState {
 }
 #[derive(Serialize, Deserialize)]
 pub(crate) struct DisplayPreferences {
-    #[serde(default)]
-    colored_title: bool,
     #[serde(default = "default_effect")]
     colored_effect: String,
     tracking_overlays: bool,
@@ -851,7 +847,6 @@ pub(crate) async fn load_display_preferences(
         let (reading_threshold, finished_threshold) =
             thresholds(&state.reader.db()?, state.auth.username())?;
         Ok(Json(DisplayPreferences {
-            colored_title: state.reader.db()?.query_row("SELECT enabled FROM colored_title_preferences WHERE user=?1", [state.auth.username()], |r| r.get::<_, bool>(0)).optional().map_err(failure)?.unwrap_or(false),
             colored_effect: state
                 .reader
                 .db()?
@@ -894,7 +889,6 @@ pub(crate) async fn save_display_preferences(
         tx.execute("INSERT INTO library_display_preferences(user,tracking_overlays) VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET tracking_overlays=excluded.tracking_overlays", params![state.auth.username(), settings.tracking_overlays]).map_err(failure)?;
         tx.execute("INSERT INTO reading_thresholds VALUES (?1,?2,?3) ON CONFLICT(user) DO UPDATE SET reading=excluded.reading,finished=excluded.finished", params![state.auth.username(), settings.reading_threshold, settings.finished_threshold]).map_err(failure)?;
         tx.execute("INSERT INTO colored_edition_preferences VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET effect=excluded.effect", params![state.auth.username(), settings.colored_effect]).map_err(failure)?;
-        tx.execute("INSERT INTO colored_title_preferences VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET enabled=excluded.enabled", params![state.auth.username(), settings.colored_title]).map_err(failure)?;
         tx.commit().map_err(failure)?;
         Ok(Json(settings))
     }).await.map_err(failure)?

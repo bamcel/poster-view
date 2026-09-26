@@ -3,23 +3,16 @@
   background-size: 300% 100%;
   animation: colored-edition-shimmer 5s ease-in-out infinite;
 }
-.poster-colored-badge, .poster-colored-title {
+.poster-colored-badge {
   color: #18181b;
   background: linear-gradient(115deg, #c4b5fd, #a5f3fc, #fff, #fbcfe8, #fde68a, #c4b5fd);
   background-size: 300% 100%;
   animation: colored-edition-shimmer 7s ease-in-out infinite;
-}
-.poster-colored-title {
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  text-shadow: none;
 }
 @keyframes colored-edition-shimmer {
   0%, 20% { background-position: 100% 0; }
   80%, 100% { background-position: 0% 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .poster-colored-shimmer, .poster-colored-badge, .poster-colored-title { animation: none; background-position: 50% 0; }
+  .poster-colored-shimmer, .poster-colored-badge { animation: none; background-position: 50% 0; }
 }

@@ -102,20 +102,6 @@ it("waits for NFO titles without flashing folder names", async () => {
   client.clear();
 });
 
-it("selects a range without navigation and clears selection when done", async () => {
-  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "manga", title: "Manga", type: "book" }]);
-  vi.mocked(api.getItems).mockResolvedValue(["A", "B", "C"].map(id => ({ id, title: id, type: "folder" as const })));
-  const { client } = renderMediaLibrary("/?lib=manga");
-  fireEvent.click(await screen.findByRole("button", { name: "Select A" }));
-  fireEvent.click(screen.getByRole("button", { name: "Select C" }), { shiftKey: true });
-  expect(screen.getByText("3 Selected")).toBeTruthy();
-  expect(screen.getByTestId("location").textContent).toBe("/?lib=manga");
-  expect((screen.getByRole("button", { name: "Bulk Edit" }) as HTMLButtonElement).disabled).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "Done" }));
-  expect(screen.getByRole("button", { name: "Select A" }).getAttribute("aria-pressed")).toBe("false");
-  client.clear();
-});
-
 it("uses full-width overflow tabs even with legacy collapse preferences", async () => {
   localStorage.setItem("posterview.libraryTabsCollapsed", "true");
   localStorage.setItem("posterview.libraryVisibleCount", "1");
