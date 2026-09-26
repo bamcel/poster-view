@@ -52,7 +52,8 @@ impl ReaderStore {
         db.execute_batch("CREATE TABLE IF NOT EXISTS reader_books (id TEXT PRIMARY KEY, path TEXT UNIQUE NOT NULL);
             CREATE TABLE IF NOT EXISTS reader_states (user TEXT NOT NULL, book TEXT NOT NULL, revision TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(user,book));
             CREATE TABLE IF NOT EXISTS library_display_preferences (user TEXT PRIMARY KEY, tracking_overlays INTEGER NOT NULL DEFAULT 1);
-            CREATE TABLE IF NOT EXISTS reading_thresholds (user TEXT PRIMARY KEY, reading REAL NOT NULL, finished REAL NOT NULL);").map_err(failure)?;
+            CREATE TABLE IF NOT EXISTS reading_thresholds (user TEXT PRIMARY KEY, reading REAL NOT NULL, finished REAL NOT NULL);
+            CREATE TABLE IF NOT EXISTS colored_edition_preferences (user TEXT PRIMARY KEY, effect TEXT NOT NULL);").map_err(failure)?;
         Ok(db)
     }
     fn checked(&self, path: &FsPath) -> Result<PathBuf, HttpError> {
@@ -138,6 +139,7 @@ impl ReaderStore {
 }
 #[derive(Default, Serialize)]
 pub(crate) struct BookInfo {
+    colored_edition: bool,
     title: Option<String>,
     sort_title: Option<String>,
     status: Option<&'static str>,
@@ -234,8 +236,9 @@ pub(crate) async fn info(
             ..BookInfo::default()
         };
         // Folder NFO describes the series, not each individual volume.
-        if path.is_dir() {
-            if let Some(fields) = metadata.read_for_source(&source)? {
+        if let Some(fields) = metadata.read_for_source(&source)? {
+            info.colored_edition = fields.edition.trim().eq_ignore_ascii_case("Colored");
+            if path.is_dir() {
                 info.title =
                     (!fields.title.trim().is_empty()).then(|| fields.title.trim().to_owned());
                 info.sort_title = (!fields.sort_title.trim().is_empty())
@@ -260,6 +263,49 @@ fn format(path: &FsPath) -> Option<&'static str> {
 #[cfg(test)]
 mod status_tests {
     use super::*;
+    #[test]
+    fn colored_effect_defaults_off_and_persists_per_account() {
+        let settings: DisplayPreferences =
+            serde_json::from_str(r#"{"tracking_overlays":true}"#).unwrap();
+        assert_eq!(settings.colored_effect, "off");
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("reader.sqlite");
+        let store = ReaderStore::new(temp.path().into(), db_path.clone());
+        store
+            .db()
+            .unwrap()
+            .execute(
+                "INSERT INTO colored_edition_preferences VALUES ('admin','badge')",
+                [],
+            )
+            .unwrap();
+        let reopened = ReaderStore::new(temp.path().into(), db_path);
+        assert_eq!(
+            reopened
+                .db()
+                .unwrap()
+                .query_row(
+                    "SELECT effect FROM colored_edition_preferences WHERE user='admin'",
+                    [],
+                    |r| r.get::<_, String>(0)
+                )
+                .unwrap(),
+            "badge"
+        );
+        assert_eq!(
+            reopened
+                .db()
+                .unwrap()
+                .query_row(
+                    "SELECT effect FROM colored_edition_preferences WHERE user='other'",
+                    [],
+                    |r| r.get::<_, String>(0)
+                )
+                .optional()
+                .unwrap(),
+            None
+        );
+    }
     #[test]
     fn progress_is_user_scoped_and_new_volumes_reopen_a_series() {
         let temp = tempfile::tempdir().unwrap();
@@ -755,11 +801,16 @@ pub(crate) struct SavedState {
 }
 #[derive(Serialize, Deserialize)]
 pub(crate) struct DisplayPreferences {
+    #[serde(default = "default_effect")]
+    colored_effect: String,
     tracking_overlays: bool,
     #[serde(default = "default_reading")]
     reading_threshold: f64,
     #[serde(default = "default_finished")]
     finished_threshold: f64,
+}
+fn default_effect() -> String {
+    "off".into()
 }
 fn default_reading() -> f64 {
     2.0
@@ -796,6 +847,17 @@ pub(crate) async fn load_display_preferences(
         let (reading_threshold, finished_threshold) =
             thresholds(&state.reader.db()?, state.auth.username())?;
         Ok(Json(DisplayPreferences {
+            colored_effect: state
+                .reader
+                .db()?
+                .query_row(
+                    "SELECT effect FROM colored_edition_preferences WHERE user=?1",
+                    [state.auth.username()],
+                    |r| r.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(failure)?
+                .unwrap_or_else(default_effect),
             tracking_overlays,
             reading_threshold,
             finished_threshold,
@@ -808,6 +870,9 @@ pub(crate) async fn save_display_preferences(
     State(state): State<AppState>,
     Json(settings): Json<DisplayPreferences>,
 ) -> Result<Json<DisplayPreferences>, HttpError> {
+    if !["off", "shimmer", "badge"].contains(&settings.colored_effect.as_str()) {
+        return Err(bad("Unknown colored edition effect."));
+    }
     if !settings.reading_threshold.is_finite()
         || !settings.finished_threshold.is_finite()
         || settings.reading_threshold < 0.0
@@ -823,6 +888,7 @@ pub(crate) async fn save_display_preferences(
         let tx = db.transaction().map_err(failure)?;
         tx.execute("INSERT INTO library_display_preferences(user,tracking_overlays) VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET tracking_overlays=excluded.tracking_overlays", params![state.auth.username(), settings.tracking_overlays]).map_err(failure)?;
         tx.execute("INSERT INTO reading_thresholds VALUES (?1,?2,?3) ON CONFLICT(user) DO UPDATE SET reading=excluded.reading,finished=excluded.finished", params![state.auth.username(), settings.reading_threshold, settings.finished_threshold]).map_err(failure)?;
+        tx.execute("INSERT INTO colored_edition_preferences VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET effect=excluded.effect", params![state.auth.username(), settings.colored_effect]).map_err(failure)?;
         tx.commit().map_err(failure)?;
         Ok(Json(settings))
     }).await.map_err(failure)?

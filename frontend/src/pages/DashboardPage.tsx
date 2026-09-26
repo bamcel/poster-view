@@ -456,6 +456,13 @@ export default function DashboardPage() {
                   <p className="text-xs text-faint">Below Reading: no progress badge. At or above Finished: automatically finished. A series is finished when all its volumes are finished.</p>
                   <p className="text-xs text-faint">Changes save automatically when you leave a field. Reading must be lower than Finished.</p>
                 </form>}
+                <div className="mt-6 border-t border-border pt-4">
+                  <div className="flex items-center justify-between gap-3"><span className="text-sm text-muted">Colored Edition Effect</span>
+                    <Switch label="Colored Edition Effect" checked={displayStatus.coloredEffect !== "off"} onChange={() => { if (!displayStatus.busy) displayStatus.setColoredEffect(displayStatus.coloredEffect === "off" ? "shimmer" : "off"); }} />
+                  </div>
+                  <p className="mt-2 text-xs text-faint">Only applies when the NFO Edition field is Colored.</p>
+                  {displayStatus.coloredEffect !== "off" && <label className="mt-3 block text-sm text-muted">Effect<select className="mt-2 w-full rounded-lg border border-border bg-input p-3 text-white" value={displayStatus.coloredEffect} disabled={displayStatus.busy} onChange={event => displayStatus.setColoredEffect(event.target.value as "shimmer" | "badge")}><option value="shimmer">Poster Shimmer</option><option value="badge">Colored Badge</option></select></label>}
+                </div>
                 {displayStatus.error && <p role="alert" className="mt-2 text-xs text-muted">{displayStatus.error}</p>}
               </> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
           </LibraryPopup>
@@ -513,6 +520,7 @@ export default function DashboardPage() {
                 title={item.title}
                 subtitle={item.year ? String(item.year) : undefined}
                 kind={item.type}
+                coloredEffect={browsesFolders && bookInfo.data?.[item.id]?.colored_edition ? displayStatus.coloredEffect : "off"}
                 badge={browsesFolders && !trackingOverlays ? undefined : bookInfo.data?.[item.id]?.status ?? (newMissingIds.has(item.id) ? "NEW" : undefined)}
                 onOpen={() => openItem(item)}
                 onRefresh={() => refreshMut.mutate({ itemId: item.id })}

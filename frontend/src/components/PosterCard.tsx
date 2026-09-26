@@ -4,8 +4,11 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Film, Tv, Library, Pencil, RefreshCw, BookOpen } from "lucide-react";
 import { useActionMenu } from "../lib/actionMenu";
+import type { ColoredEffect } from "../lib/libraryDisplay";
+import "./posterEffects.css";
 
 interface PosterCardProps {
+  coloredEffect?: ColoredEffect;
   image?: string;
   title: string;
   subtitle?: string;
@@ -20,6 +23,7 @@ interface PosterCardProps {
 }
 
 export default function PosterCard({
+  coloredEffect = "off",
   image,
   title,
   subtitle,
@@ -92,6 +96,8 @@ export default function PosterCard({
           </div>
         )}
 
+        {coloredEffect === "shimmer" && image && !failed && <span aria-hidden="true" className="poster-colored-shimmer pointer-events-none absolute inset-0" />}
+        {coloredEffect === "badge" && <span className="poster-colored-badge pointer-events-none absolute left-2 top-10 overflow-hidden rounded-md px-2 py-1 text-[10px] font-bold tracking-wider shadow" aria-label="Colored edition">COLORED</span>}
         {badge != null && (
           <span className="absolute right-2 top-2 grid min-w-6 place-items-center rounded-full bg-accent px-1.5 py-0.5 text-xs font-bold text-black shadow">
             {typeof badge === "string" && ["new", "reading", "finished"].includes(badge.toLowerCase()) ? badge.toUpperCase() : badge}

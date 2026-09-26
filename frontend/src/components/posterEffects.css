@@ -1,0 +1,18 @@
+.poster-colored-shimmer {
+  background: linear-gradient(115deg, transparent 30%, #7dd3fc20 39%, #f0abfc60 46%, #ffffff70 50%, #fde68a40 55%, transparent 65%);
+  background-size: 300% 100%;
+  animation: colored-edition-shimmer 7s ease-in-out infinite;
+}
+.poster-colored-badge {
+  color: #18181b;
+  background: linear-gradient(115deg, #c4b5fd, #a5f3fc, #fff, #fbcfe8, #fde68a, #c4b5fd);
+  background-size: 300% 100%;
+  animation: colored-edition-shimmer 7s ease-in-out infinite;
+}
+@keyframes colored-edition-shimmer {
+  0%, 20% { background-position: 100% 0; }
+  80%, 100% { background-position: 0% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .poster-colored-shimmer, .poster-colored-badge { animation: none; background-position: 50% 0; }
+}

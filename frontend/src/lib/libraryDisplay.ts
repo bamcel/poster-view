@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { readerRequest } from "./reader";
 const queryKey = ["library-display"];
-interface Preferences { tracking_overlays: boolean; reading_threshold: number; finished_threshold: number }
+export type ColoredEffect = "off" | "shimmer" | "badge";
+interface Preferences { tracking_overlays: boolean; reading_threshold: number; finished_threshold: number; colored_effect?: ColoredEffect }
 export function useTrackingOverlays() {
   const client = useQueryClient();
   const query = useQuery({ queryKey, queryFn: () => readerRequest<Preferences>("/api/library-display"), refetchOnWindowFocus: "always" });
@@ -12,6 +13,8 @@ export function useTrackingOverlays() {
   });
   return [query.data?.tracking_overlays ?? true, (value: boolean) => save.mutate({ tracking_overlays: value }), {
     readingThreshold: query.data?.reading_threshold ?? 2,
+    coloredEffect: query.data?.colored_effect ?? "off",
+    setColoredEffect: (effect: ColoredEffect) => save.mutate({ colored_effect: effect }),
     finishedThreshold: query.data?.finished_threshold ?? 98,
     saveThresholds: (reading: number, finished: number) => save.mutate({ reading_threshold: reading, finished_threshold: finished }),
     busy: query.isPending || save.isPending,

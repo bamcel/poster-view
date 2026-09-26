@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { readerRequest } from "./reader";
 
-export interface BookInfo { title?: string; sort_title?: string; status?: "Reading" | "Finished" }
+export interface BookInfo { title?: string; sort_title?: string; status?: "Reading" | "Finished"; colored_edition?: boolean }
 export function bookTitleOrder(a: { id: string; title: string }, b: { id: string; title: string }, info: Record<string, BookInfo>) {
   return (info[a.id]?.sort_title || a.title).localeCompare(info[b.id]?.sort_title || b.title, undefined, { numeric: true }) || a.id.localeCompare(b.id);
 }
