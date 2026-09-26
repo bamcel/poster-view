@@ -119,6 +119,53 @@ it("offers labeled toolbar actions and all three page layouts", async () => {
   expect(screen.getByText("Comic page 3")).toBeTruthy();
 });
 
+it("turns with the mouse wheel, throttles bursts, and reverses in manga mode", async () => {
+  let clock = 1000;
+  vi.spyOn(performance, "now").mockImplementation(() => clock);
+  open();
+  await screen.findByText("Comic page 1");
+  fireEvent.wheel(screen.getByText("Comic page 1"), { deltaY: 100 });
+  expect(screen.getByText("Comic page 2")).toBeTruthy();
+  fireEvent.wheel(screen.getByText("Comic page 2"), { deltaY: 100 });
+  expect(screen.queryByText("Comic page 3")).toBeNull();
+  clock += 400;
+  fireEvent.wheel(screen.getByText("Comic page 2"), { deltaY: -100 });
+  expect(screen.getByText("Comic page 1")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Reader settings" }));
+  fireEvent.change(screen.getByLabelText("Reading Mode"), {
+    target: { value: "manga" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
+  clock += 400;
+  fireEvent.wheel(screen.getByText("Comic page 1"), { deltaY: -100 });
+  expect(screen.getByText("Comic page 2")).toBeTruthy();
+  clock += 400;
+  fireEvent.wheel(screen.getByText("Comic page 2"), {
+    deltaY: 100,
+    ctrlKey: true,
+  });
+  expect(screen.getByText("Comic page 2")).toBeTruthy();
+  fireEvent.wheel(screen.getByText("Comic page 2"), { deltaY: 100 });
+  expect(screen.getByText("Comic page 1")).toBeTruthy();
+});
+
+it("keeps native vertical wheel scrolling in webtoon mode", async () => {
+  open();
+  await screen.findByText("Comic page 1");
+  fireEvent.click(screen.getByRole("button", { name: "Reader settings" }));
+  fireEvent.change(screen.getByLabelText("Reading Mode"), {
+    target: { value: "webtoon" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Close panel" }));
+  const event = new WheelEvent("wheel", {
+    deltaY: 100,
+    bubbles: true,
+    cancelable: true,
+  });
+  screen.getByText("Comic page 1").dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(false);
+});
+
 it("restores the saved position", async () => {
   const base = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>

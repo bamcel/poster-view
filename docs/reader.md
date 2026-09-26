@@ -25,7 +25,10 @@ CB7, MOBI and DRM-protected files are not supported in this release.
   directory, not a guessed relationship across folders.
 - Search: PDF text and EPUB chapters, up to 100 matching pages/chapters. EPUB results are
   highlighted. Image-only PDFs and CBZ files have no OCR search.
-- Arrow keys navigate; swipe navigates image pages; Space toggles controls. Controls hide
+- Arrow keys navigate; swipe navigates image pages; Space toggles controls. Mouse wheel down
+  turns right and up turns left, reversed for manga/right-to-left reading. Short wheel bursts
+  are throttled to avoid skipping pages. Webtoon keeps vertical scrolling; Ctrl/Command-wheel
+  remains available for browser zoom. Controls hide
   after inactivity, reappear on mouse movement, and remain keyboard-accessible. Fullscreen
   requires browser support.
 
