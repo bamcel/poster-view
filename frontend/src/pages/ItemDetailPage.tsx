@@ -333,8 +333,8 @@ export default function ItemDetailPage() {
                   </section>
                 )}
 
-                {/* Collection titles remain openable. Manga volume files stay on
-                  the series page, while any nested folders remain openable. */}
+                {item.type === "book" && <button className="mt-5 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-base hover:bg-accent-hover" onClick={()=>navigate(`/read/${serverId}/${encodeURIComponent(item.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`)}>Read Book</button>}
+                {/* Volume cards open the reader; nested folders keep their detail pages. */}
                 {item.members.length > 0 && (
                   <section className="mt-10">
                     <h2 className="mb-4 text-lg font-semibold">
@@ -344,6 +344,7 @@ export default function ItemDetailPage() {
                     </h2>
                     <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(120px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
                       {item.members.map((m) => (
+                        <div key={m.id}>
                         <PosterCard
                           key={m.id}
                           image={imageUrl(serverId, m.poster)}
@@ -352,8 +353,10 @@ export default function ItemDetailPage() {
                           kind={m.type}
                           onOpen={item.type !== "folder" || m.type === "folder"
                             ? () => navigate(`/server/${serverId}/item/${m.id}?${searchParams.toString()}`)
-                            : undefined}
+                            : m.type === "book" ? () => navigate(`/read/${serverId}/${encodeURIComponent(m.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`) : undefined}
                         />
+                        {m.type === "book" && <button className="mt-2 w-full rounded-lg border border-border bg-button py-2 text-xs font-medium text-white hover:bg-button-hover" onClick={()=>navigate(`/read/${serverId}/${encodeURIComponent(m.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`)}>Read</button>}
+                        </div>
                       ))}
                     </div>
                   </section>

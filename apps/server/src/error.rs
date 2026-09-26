@@ -6,6 +6,7 @@ use axum::{
 use posterview_contracts::ApiErrorResponse;
 use posterview_runtime::RuntimeError;
 
+#[derive(Debug)]
 pub(crate) struct HttpError {
     pub(crate) status: StatusCode,
     pub(crate) detail: String,

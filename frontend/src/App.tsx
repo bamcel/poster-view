@@ -8,6 +8,8 @@ import { ToastProvider } from "./lib/toast";
 import AuthGate from "./components/AuthGate";
 import { ServerProvider } from "./lib/serverContext";
 import AppearanceBootstrap from "./components/AppearanceBootstrap";
+import { lazy, Suspense } from "react";
+const ReaderPage = lazy(() => import("./pages/ReaderPage"));
 
 export default function App() {
   return (
@@ -16,6 +18,8 @@ export default function App() {
         <ServerProvider>
           <ToastProvider>
             <Routes>
+            <Route path="/read/:serverId/:itemId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
+            <Route path="/reader/:bookId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
             <Route element={<Layout />}>
               <Route path="/" element={<DashboardPage />} />
               <Route path="/history" element={<HistoryPage />} />
