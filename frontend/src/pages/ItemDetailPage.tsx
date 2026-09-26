@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useBookInfo } from "../lib/bookInfo";
+import { useTrackingOverlays } from "../lib/libraryDisplay";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,6 +23,7 @@ function sentenceCaseMetadata(value: string): string {
 }
 
 export default function ItemDetailPage() {
+  const [trackingOverlays] = useTrackingOverlays();
   const navigate = useNavigate();
   const { serverId: serverIdParam, itemId } = useParams();
   const [searchParams] = useSearchParams();
@@ -352,7 +354,7 @@ export default function ItemDetailPage() {
                           key={m.id}
                           image={imageUrl(serverId, m.poster)}
                           title={memberInfo.data?.[m.id]?.title || m.title}
-                          badge={memberInfo.data?.[m.id]?.status}
+                          badge={trackingOverlays ? memberInfo.data?.[m.id]?.status : undefined}
                           subtitle={m.year ? String(m.year) : undefined}
                           kind={m.type}
                           openLabel={m.type === "book" ? "Read" : "Open"}
