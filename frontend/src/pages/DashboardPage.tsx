@@ -10,6 +10,7 @@ import { useTrackingOverlays } from "../lib/libraryDisplay";
 import { api, imageUrl } from "../api/client";
 import { useServers } from "../lib/serverContext";
 import PosterCard from "../components/PosterCard";
+import LibraryPopup from "../components/LibraryPopup";
 import { EmptyState, Spinner, Switch } from "../components/ui";
 import { useToast } from "../lib/toast";
 import { isBookRelatedLibraryName } from "../lib/mediaKind";
@@ -47,29 +48,8 @@ export default function DashboardPage() {
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
   const libraryBodyRef = useRef<HTMLDivElement>(null);
-  const filterMenuRef = useRef<HTMLDetailsElement>(null);
-  const displayMenuRef = useRef<HTMLDetailsElement>(null);
   const [trackingOverlays, setTrackingOverlays, displayStatus] = useTrackingOverlays();
   const restoredScrollKeyRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      if (!displayMenuRef.current?.contains(event.target as Node)) displayMenuRef.current?.removeAttribute("open");
-      if (!filterMenuRef.current?.contains(event.target as Node)) {
-        filterMenuRef.current?.removeAttribute("open");
-      }
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") displayMenuRef.current?.removeAttribute("open");
-      if (event.key === "Escape") filterMenuRef.current?.removeAttribute("open");
-    };
-    document.addEventListener("pointerdown", closeOnOutsidePress);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePress);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, []);
 
   const refreshMut = useMutation({
     mutationFn: ({ itemId }: { itemId: string }) =>
@@ -419,15 +399,7 @@ export default function DashboardPage() {
               style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
             />
           </div>
-          <details ref={filterMenuRef} className="group relative">
-            <summary
-              aria-label="Filter and sort titles"
-              className={`grid size-10 cursor-pointer list-none place-items-center rounded-full border text-muted outline-none marker:hidden hover:text-white ${artworkFilter !== "all" || titleSort !== "title" ? "border-accent text-accent" : "border-border"}`}
-              style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
-            >
-              <ListFilter className="size-4" />
-            </summary>
-            <div className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-border bg-sidebar p-4 shadow-2xl">
+          <LibraryPopup title="Filter & Sort" label="Filter and sort titles" icon={<ListFilter className="size-4" />} style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)` }}>
               <label className="block text-xs font-semibold text-muted">
                 Artwork
                 <select
@@ -456,31 +428,32 @@ export default function DashboardPage() {
                 </select>
               </label>
               {showGroupCollections && (
-                <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3 md:hidden">
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
                   <span className="text-sm font-medium text-muted">Group Collections</span>
                   <Switch label="Group Collections filter" checked={groupCollections} onChange={toggleGroupCollections} />
                 </div>
               )}
-            </div>
-          </details>
-          <details ref={displayMenuRef} className="relative">
-            <summary aria-label="Library display preferences" title="Display Preferences"
-              className="grid size-10 cursor-pointer list-none place-items-center rounded-full border border-border text-muted marker:hidden hover:text-white focus-visible:outline focus-visible:outline-accent"
-              style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)` }}>
-              <MoreHorizontal className="size-4" />
-            </summary>
-            <div className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-border bg-sidebar p-4 shadow-2xl">
-              <h3 className="text-sm font-semibold text-white">Display Preferences</h3>
+          </LibraryPopup>
+          <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4" />}>
               {browsesFolders ? <>
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <span className="text-sm text-muted">Tracking Overlays</span>
                   <Switch label="Show tracking overlays" checked={trackingOverlays} onChange={() => { if (!displayStatus.busy) setTrackingOverlays(!trackingOverlays); }} />
                 </div>
                 <p className="mt-2 text-xs text-faint">Show New, Reading, and Finished badges in book libraries. Saved on PosterView for your account across browsers and devices; reading progress is still saved.</p>
+                <form key={`${displayStatus.readingThreshold}:${displayStatus.finishedThreshold}`} className="mt-6 space-y-4 border-t border-border pt-4" onSubmit={event => {
+                  event.preventDefault();
+                  const values = new FormData(event.currentTarget);
+                  displayStatus.saveThresholds(Number(values.get("reading")), Number(values.get("finished")));
+                }}>
+                  <label className="block text-sm text-muted">Reading Starts At (%)<input name="reading" type="number" required min="0" max="99" step="1" defaultValue={displayStatus.readingThreshold} className="mt-2 w-full rounded-lg border border-border bg-input p-3 text-white" /></label>
+                  <label className="block text-sm text-muted">Finished Starts At (%)<input name="finished" type="number" required min="1" max="100" step="1" defaultValue={displayStatus.finishedThreshold} className="mt-2 w-full rounded-lg border border-border bg-input p-3 text-white" /></label>
+                  <p className="text-xs text-faint">Below Reading: no progress badge. At or above Finished: automatically finished. A series is finished when all its volumes are finished.</p>
+                  <button type="submit" disabled={displayStatus.busy} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black disabled:opacity-50">Save Thresholds</button>
+                </form>
                 {displayStatus.error && <p role="alert" className="mt-2 text-xs text-muted">{displayStatus.error}</p>}
               </> : <p className="mt-3 text-xs text-muted">No display options for this library type yet.</p>}
-            </div>
-          </details>
+          </LibraryPopup>
           </div>
         </div>
       </div>

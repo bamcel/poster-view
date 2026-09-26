@@ -14,5 +14,5 @@ it("loads server preferences and shares successful saves across views", async ()
   await waitFor(() => expect(hook.result.current[0][0]).toBe(false));
   act(() => hook.result.current[0][1](true));
   await waitFor(() => expect(hook.result.current[1][0]).toBe(true));
-  expect(fetcher).toHaveBeenLastCalledWith("/api/library-display", expect.objectContaining({ method: "PUT", body: '{"tracking_overlays":true}' }));
+  expect(fetcher).toHaveBeenLastCalledWith("/api/library-display", expect.objectContaining({ method: "PUT", body: '{"tracking_overlays":true,"reading_threshold":2,"finished_threshold":98}' }));
 });

@@ -51,7 +51,8 @@ impl ReaderStore {
             .map_err(failure)?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS reader_books (id TEXT PRIMARY KEY, path TEXT UNIQUE NOT NULL);
             CREATE TABLE IF NOT EXISTS reader_states (user TEXT NOT NULL, book TEXT NOT NULL, revision TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(user,book));
-            CREATE TABLE IF NOT EXISTS library_display_preferences (user TEXT PRIMARY KEY, tracking_overlays INTEGER NOT NULL DEFAULT 1);").map_err(failure)?;
+            CREATE TABLE IF NOT EXISTS library_display_preferences (user TEXT PRIMARY KEY, tracking_overlays INTEGER NOT NULL DEFAULT 1);
+            CREATE TABLE IF NOT EXISTS reading_thresholds (user TEXT PRIMARY KEY, reading REAL NOT NULL, finished REAL NOT NULL);").map_err(failure)?;
         Ok(db)
     }
     fn checked(&self, path: &FsPath) -> Result<PathBuf, HttpError> {
@@ -145,6 +146,7 @@ pub(crate) struct BookInfo {
 impl ReaderStore {
     fn reading_status(&self, path: &FsPath, user: &str) -> Result<Option<&'static str>, HttpError> {
         let db = self.db()?;
+        let (reading_threshold, finished_threshold) = thresholds(&db, user)?;
         let mut statement = db.prepare("SELECT b.path,s.revision,s.state FROM reader_states s JOIN reader_books b ON b.id=s.book WHERE s.user=?1").map_err(failure)?;
         let rows = statement
             .query_map([user], |r| {
@@ -187,11 +189,19 @@ impl ReaderStore {
                     states.get(candidate.to_string_lossy().as_ref())
                 {
                     if revision(&candidate).ok().as_ref() == Some(saved_revision) {
-                        started += 1;
-                        if serde_json::from_str::<serde_json::Value>(data)
-                            .ok()
-                            .is_some_and(|s| s["finished"] == true)
-                        {
+                        let saved =
+                            serde_json::from_str::<serde_json::Value>(data).unwrap_or_default();
+                        let progress = saved["progress"].as_f64().unwrap_or_else(|| {
+                            if saved["finished"] == true {
+                                100.0
+                            } else {
+                                0.0
+                            }
+                        });
+                        if progress >= reading_threshold {
+                            started += 1;
+                        }
+                        if progress >= finished_threshold {
                             finished += 1;
                         }
                     }
@@ -265,8 +275,14 @@ mod status_tests {
             .unwrap()
             .execute(
                 "INSERT INTO reader_states VALUES (?1,?2,?3,?4)",
-                params!["admin", id, revision(&path).unwrap(), "{\"page\":0}"],
+                params!["admin", id, revision(&path).unwrap(), "{\"progress\":1.99}"],
             )
+            .unwrap();
+        assert_eq!(store.reading_status(&folder, "admin").unwrap(), None);
+        store
+            .db()
+            .unwrap()
+            .execute("UPDATE reader_states SET state=?1", ["{\"progress\":2}"])
             .unwrap();
         assert_eq!(
             store.reading_status(&folder, "admin").unwrap(),
@@ -275,13 +291,27 @@ mod status_tests {
         store
             .db()
             .unwrap()
-            .execute("UPDATE reader_states SET state=?1", ["{\"finished\":true}"])
+            .execute("UPDATE reader_states SET state=?1", ["{\"progress\":98}"])
             .unwrap();
         assert_eq!(
             store.reading_status(&folder, "admin").unwrap(),
             Some("Finished")
         );
         assert_eq!(store.reading_status(&folder, "other").unwrap(), None);
+        store
+            .db()
+            .unwrap()
+            .execute("INSERT INTO reading_thresholds VALUES ('admin', 2, 99)", [])
+            .unwrap();
+        assert_eq!(
+            store.reading_status(&folder, "admin").unwrap(),
+            Some("Reading")
+        );
+        store
+            .db()
+            .unwrap()
+            .execute("DELETE FROM reading_thresholds", [])
+            .unwrap();
         fs::write(folder.join("02.cbz"), b"new").unwrap();
         assert_eq!(
             store.reading_status(&folder, "admin").unwrap(),
@@ -724,16 +754,76 @@ pub(crate) struct SavedState {
     data: serde_json::Value,
 }
 #[derive(Serialize, Deserialize)]
-pub(crate) struct DisplayPreferences { tracking_overlays: bool }
-pub(crate) async fn load_display_preferences(State(state): State<AppState>) -> Result<Json<DisplayPreferences>, HttpError> {
-    tokio::task::spawn_blocking(move || {
-        let tracking_overlays = state.reader.db()?.query_row("SELECT tracking_overlays FROM library_display_preferences WHERE user=?1", [state.auth.username()], |r| r.get::<_, bool>(0)).optional().map_err(failure)?.unwrap_or(true);
-        Ok(Json(DisplayPreferences { tracking_overlays }))
-    }).await.map_err(failure)?
+pub(crate) struct DisplayPreferences {
+    tracking_overlays: bool,
+    #[serde(default = "default_reading")]
+    reading_threshold: f64,
+    #[serde(default = "default_finished")]
+    finished_threshold: f64,
 }
-pub(crate) async fn save_display_preferences(State(state): State<AppState>, Json(settings): Json<DisplayPreferences>) -> Result<Json<DisplayPreferences>, HttpError> {
+fn default_reading() -> f64 {
+    2.0
+}
+fn default_finished() -> f64 {
+    98.0
+}
+fn thresholds(db: &Connection, user: &str) -> Result<(f64, f64), HttpError> {
+    Ok(db
+        .query_row(
+            "SELECT reading,finished FROM reading_thresholds WHERE user=?1",
+            [user],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(failure)?
+        .unwrap_or((2.0, 98.0)))
+}
+pub(crate) async fn load_display_preferences(
+    State(state): State<AppState>,
+) -> Result<Json<DisplayPreferences>, HttpError> {
     tokio::task::spawn_blocking(move || {
-        state.reader.db()?.execute("INSERT INTO library_display_preferences(user,tracking_overlays) VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET tracking_overlays=excluded.tracking_overlays", params![state.auth.username(), settings.tracking_overlays]).map_err(failure)?;
+        let tracking_overlays = state
+            .reader
+            .db()?
+            .query_row(
+                "SELECT tracking_overlays FROM library_display_preferences WHERE user=?1",
+                [state.auth.username()],
+                |r| r.get::<_, bool>(0),
+            )
+            .optional()
+            .map_err(failure)?
+            .unwrap_or(true);
+        let (reading_threshold, finished_threshold) =
+            thresholds(&state.reader.db()?, state.auth.username())?;
+        Ok(Json(DisplayPreferences {
+            tracking_overlays,
+            reading_threshold,
+            finished_threshold,
+        }))
+    })
+    .await
+    .map_err(failure)?
+}
+pub(crate) async fn save_display_preferences(
+    State(state): State<AppState>,
+    Json(settings): Json<DisplayPreferences>,
+) -> Result<Json<DisplayPreferences>, HttpError> {
+    if !settings.reading_threshold.is_finite()
+        || !settings.finished_threshold.is_finite()
+        || settings.reading_threshold < 0.0
+        || settings.finished_threshold > 100.0
+        || settings.reading_threshold >= settings.finished_threshold
+    {
+        return Err(bad(
+            "Reading must be at least 0% and below Finished; Finished must be at most 100%.",
+        ));
+    }
+    tokio::task::spawn_blocking(move || {
+        let mut db = state.reader.db()?;
+        let tx = db.transaction().map_err(failure)?;
+        tx.execute("INSERT INTO library_display_preferences(user,tracking_overlays) VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET tracking_overlays=excluded.tracking_overlays", params![state.auth.username(), settings.tracking_overlays]).map_err(failure)?;
+        tx.execute("INSERT INTO reading_thresholds VALUES (?1,?2,?3) ON CONFLICT(user) DO UPDATE SET reading=excluded.reading,finished=excluded.finished", params![state.auth.username(), settings.reading_threshold, settings.finished_threshold]).map_err(failure)?;
+        tx.commit().map_err(failure)?;
         Ok(Json(settings))
     }).await.map_err(failure)?
 }

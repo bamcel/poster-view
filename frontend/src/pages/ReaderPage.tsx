@@ -77,8 +77,8 @@ export default function ReaderPage() {
   const [highlight, setHighlight] = useState("");
   const viewport = useRef<HTMLDivElement>(null);
   const shell = useRef<HTMLDivElement>(null);
-  const latest = useRef({ book, state, ready });
-  latest.current = { book, state, ready };
+  const latest = useRef({ book, state, ready, count });
+  latest.current = { book, state, ready, count };
   const saveChain = useRef(Promise.resolve());
   const searchRun = useRef(0);
   const persist = useCallback(() => {
@@ -92,7 +92,7 @@ export default function ReaderPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             revision: snapshot.book!.revision,
-            data: snapshot.state,
+            data: { ...snapshot.state, progress: Math.min(100, ((snapshot.state.page + (snapshot.book?.format === "epub" ? snapshot.state.offset : 1)) / Math.max(1, snapshot.count)) * 100) },
           }),
           keepalive: true,
         });
@@ -570,10 +570,6 @@ export default function ReaderPage() {
               fill={saved ? "currentColor" : "none"}
             />
             <span>{saved ? "Bookmarked" : "Bookmark"}</span>
-          </button>
-          <button className={button} disabled={!ready} aria-pressed={state.finished === true}
-            onClick={() => setState((current) => ({ ...current, finished: !current.finished }))}>
-            <span>{state.finished ? "✓ Finished" : "Mark Finished"}</span>
           </button>
           {book?.format !== "epub" && (
             <button
