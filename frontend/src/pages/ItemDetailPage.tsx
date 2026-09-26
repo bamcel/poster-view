@@ -1,3 +1,4 @@
+import DetailSynopsis from "../components/DetailSynopsis";
 import FindMissingMetadata, { MissingMetadataMenu } from "../components/FindMissingMetadata";
 // Item detail: a cinematic hero (blurred backdrop, large poster, metadata) with
 // a seasons row, and the ThePosterDB panel docked on the right for swapping art.
@@ -93,6 +94,7 @@ export default function ItemDetailPage() {
   });
   const item = detailQ.data && { ...detailQ.data, title: detailQ.data.type === "folder" ? metadataQ.data?.title.trim() || detailQ.data.title : detailQ.data.title };
   const memberInfo = useBookInfo(serverId, item?.members, item?.type === "folder" || item?.type === "book");
+  const isSeries = item?.type === "show";
   const backdrop = imageUrl(serverId, item?.background);
   const poster = imageUrl(serverId, item?.poster);
   const logo = imageUrl(serverId, item?.logo);
@@ -178,7 +180,7 @@ export default function ItemDetailPage() {
             <ArrowLeft className="size-5" />
           </button>
 
-          <div className="relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-8">
+          <div className="relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-10 lg:pt-20">
             {detailQ.isLoading && <Spinner label="Loading…" />}
             {detailQ.isError && (
               <EmptyState title="Couldn't load this title">
@@ -188,9 +190,9 @@ export default function ItemDetailPage() {
 
             {item && (
               <>
-                <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6">
+                <div className={isSeries ? "flex flex-row items-start gap-5 sm:gap-8 lg:gap-9" : "flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6"}>
                   {/* Poster */}
-                  <div className="w-40 shrink-0 min-[390px]:w-44 sm:w-48 lg:w-56">
+                  <div className={isSeries ? "w-28 shrink-0 sm:w-[25%] sm:max-w-[328px]" : "w-40 shrink-0 min-[390px]:w-44 sm:w-48 lg:w-56"}>
                     <div className="aspect-[2/3] overflow-hidden rounded-xl bg-surface-2 shadow-2xl shadow-black/50 ring-1 ring-white/10">
                       {poster ? (
                         <img
@@ -205,14 +207,14 @@ export default function ItemDetailPage() {
                   {/* Metadata — a text-shadow (not just the gradient) keeps this
                     legible over a vivid/bright backdrop image, since the exact
                     gradient fade point can't account for every image. */}
-                  <div className="min-w-0 flex-1 pt-2 text-center [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] sm:text-left">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries ? "text-left" : "text-center sm:text-left"}`}>
+                    <div className={isSeries ? "flex flex-col gap-4" : "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"}>
                       <div className="min-w-0">
                         {logo ? (
                           <img
                             src={logo}
                             alt={item.title}
-                            className="mx-auto max-h-24 max-w-full object-contain drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)] sm:mx-0 sm:max-h-28 sm:object-left"
+                            className={isSeries ? "max-h-24 max-w-full object-contain object-left sm:max-w-[400px]" : "mx-auto max-h-24 max-w-full object-contain sm:mx-0 sm:max-h-28 sm:object-left"}
                           />
                         ) : (
                           <h1 className="text-3xl font-bold leading-tight sm:text-4xl">
@@ -231,7 +233,7 @@ export default function ItemDetailPage() {
                                     : item.year}
                         </p>}
                       </div>
-                      <div className="hidden shrink-0 flex-wrap items-center justify-end gap-2 xl:flex">
+                      <div className={isSeries ? "flex flex-wrap items-center gap-2" : "hidden shrink-0 flex-wrap items-center justify-end gap-2 xl:flex"}>
                         {(item.type === "movie" || item.type === "show") && <MissingMetadataMenu onFind={() => setFindingMetadata(true)} />}
                         {(item.type === "movie" || item.type === "show" || metadataQ.data) && (
                           <button
@@ -257,7 +259,7 @@ export default function ItemDetailPage() {
                       </button>
                       </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5 sm:justify-start sm:gap-2 xl:hidden">
+                    <div className={isSeries ? "hidden" : "mt-3 flex flex-wrap items-center justify-center gap-1.5 sm:justify-start sm:gap-2 xl:hidden"}>
                       {(item.type === "movie" || item.type === "show") && <MissingMetadataMenu onFind={() => setFindingMetadata(true)} />}
                       {(item.type === "movie" || item.type === "show" || metadataQ.data) && (
                         <button
@@ -291,11 +293,12 @@ export default function ItemDetailPage() {
                         : refreshArtwork.data ? <p className={refreshArtwork.data.ok ? "text-success" : "text-danger"}>{refreshArtwork.data.message}</p> : null}
                     </div>
 
-                    {!metadataQ.data && item.summary && (
+                    {!isSeries && !metadataQ.data && item.summary && (
                       <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/80">
                         {item.summary}
                       </p>
                     )}
+                    {isSeries && <div className="hidden sm:block"><DetailSynopsis key={item.id} text={item.summary} /></div>}
                     {metadataQ.data && (
                       <section className="mt-4 max-w-2xl text-left [text-shadow:0_2px_12px_rgba(0,0,0,0.8)]">
                         <div className="flex flex-wrap items-center gap-2">
@@ -325,11 +328,13 @@ export default function ItemDetailPage() {
                   </div>
                 </div>
 
+                {isSeries && <div className="sm:hidden"><DetailSynopsis key={item.id} text={item.summary} /></div>}
+
                 {/* Seasons */}
                 {item.seasons.length > 0 && (
                   <section className="mt-10">
-                    <h2 className="mb-4 text-lg font-semibold">Seasons</h2>
-                    <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(120px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
+                    <h2 className="mb-3 text-xl font-semibold">Seasons</h2>
+                    <div className="flex gap-5 overflow-x-auto pb-3 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]">
                       {item.seasons.map((s) => (
                         <PosterCard
                           key={s.id}
