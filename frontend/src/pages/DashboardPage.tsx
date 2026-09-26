@@ -443,16 +443,19 @@ export default function DashboardPage() {
                   <Switch label="Show tracking overlays" checked={trackingOverlays} onChange={() => { if (!displayStatus.busy) setTrackingOverlays(!trackingOverlays); }} />
                 </div>
                 <p className="mt-2 text-xs text-faint">Show New, Reading, and Finished badges in book libraries. Saved on PosterView for your account across browsers and devices; reading progress is still saved.</p>
-                <form key={`${displayStatus.readingThreshold}:${displayStatus.finishedThreshold}`} className="mt-6 space-y-4 border-t border-border pt-4" onSubmit={event => {
-                  event.preventDefault();
+                {trackingOverlays && <form className="mt-4 space-y-4" onSubmit={event => event.preventDefault()} onBlur={event => {
                   const values = new FormData(event.currentTarget);
-                  displayStatus.saveThresholds(Number(values.get("reading")), Number(values.get("finished")));
+                  const reading = Number(values.get("reading"));
+                  const finished = Number(values.get("finished"));
+                  if (event.currentTarget.checkValidity() && reading < finished && (reading !== displayStatus.readingThreshold || finished !== displayStatus.finishedThreshold)) {
+                    displayStatus.saveThresholds(reading, finished);
+                  }
                 }}>
-                  <label className="block text-sm text-muted">Reading Starts At (%)<input name="reading" type="number" required min="0" max="99" step="1" defaultValue={displayStatus.readingThreshold} className="mt-2 w-full rounded-lg border border-border bg-input p-3 text-white" /></label>
-                  <label className="block text-sm text-muted">Finished Starts At (%)<input name="finished" type="number" required min="1" max="100" step="1" defaultValue={displayStatus.finishedThreshold} className="mt-2 w-full rounded-lg border border-border bg-input p-3 text-white" /></label>
+                  <label className="block text-sm text-muted">Reading Starts At (%)<input key={displayStatus.readingThreshold} name="reading" type="number" required min="0" max="99" step="1" defaultValue={displayStatus.readingThreshold} className="mt-2 w-full rounded-lg border border-border bg-input p-3 text-white" /></label>
+                  <label className="block text-sm text-muted">Finished Starts At (%)<input key={displayStatus.finishedThreshold} name="finished" type="number" required min="1" max="100" step="1" defaultValue={displayStatus.finishedThreshold} className="mt-2 w-full rounded-lg border border-border bg-input p-3 text-white" /></label>
                   <p className="text-xs text-faint">Below Reading: no progress badge. At or above Finished: automatically finished. A series is finished when all its volumes are finished.</p>
-                  <button type="submit" disabled={displayStatus.busy} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black disabled:opacity-50">Save Thresholds</button>
-                </form>
+                  <p className="text-xs text-faint">Changes save automatically when you leave a field. Reading must be lower than Finished.</p>
+                </form>}
                 {displayStatus.error && <p role="alert" className="mt-2 text-xs text-muted">{displayStatus.error}</p>}
               </> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
           </LibraryPopup>
