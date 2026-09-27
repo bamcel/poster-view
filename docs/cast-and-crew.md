@@ -72,3 +72,5 @@ AniDB uses confirmed IDs from the media server or Edit Metadata → Provider mat
 Responses are cached on disk for 30 days (128 MB cap). Requests are serialized with six seconds between requests; provider errors cause a 30-minute cooldown. The test button validates a known anime record using saved settings. Real access requires a client registered with AniDB; no bundled or borrowed client identity is used.
 
 Fetch Missing Cast & Crew and Refresh Cast & Crew scan both movie and TV libraries. Movie credits use movie-specific provider endpoints. A task already in progress retains its saved inventory; start a fresh run after updating to include movies.
+
+Character biographies display in full immediately when a character profile is opened, without a disclosure or spoiler label.

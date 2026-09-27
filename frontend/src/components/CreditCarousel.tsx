@@ -67,7 +67,7 @@ export default function CreditCarousel({ credits, characters, label, showCharact
     </div>
     {profile && <section aria-label={`${profile.name} character information`} className="mt-5 rounded-xl border border-border bg-surface/90 p-5">
       <div className="flex items-center justify-between gap-3"><h3 className="text-lg font-semibold">{profile.name}</h3><button aria-label="Close character information" onClick={() => setSelected(null)} className="p-2"><X className="size-4" /></button></div>
-      <details className="mt-3 text-sm"><summary className="cursor-pointer font-medium">Biography · may contain spoilers</summary>{profile.bio ? <DetailSynopsis text={profile.bio} /> : <p className="mt-3 text-muted">No biography saved. Find Missing Metadata can retrieve biographies from linked AniList records.</p>}</details>
+      <div className="mt-3 text-sm">{profile.bio ? <DetailSynopsis text={profile.bio} collapsible={false} /> : <p className="mt-3 text-muted">No biography saved. Find Missing Metadata can retrieve biographies from linked AniList records.</p>}</div>
       <h4 className="mb-2 mt-4 text-sm font-semibold">Performers</h4>
       <ul className="space-y-1 text-sm text-muted">{profile.credits.map((credit, index) => <li key={index}>{credit.name} · {credit.language ? languageName(credit.language) : "Language unspecified"}{credit.dub_group ? ` · ${credit.dub_group}` : ""}</li>)}</ul>
     </section>}
