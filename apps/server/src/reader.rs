@@ -323,14 +323,14 @@ mod status_tests {
             .unwrap()
             .execute(
                 "INSERT INTO reader_states VALUES (?1,?2,?3,?4)",
-                params!["admin", id, revision(&path).unwrap(), "{\"progress\":1.99}"],
+                params!["admin", id, revision(&path).unwrap(), "{\"progress\":4.99}"],
             )
             .unwrap();
         assert_eq!(store.reading_status(&folder, "admin").unwrap(), None);
         store
             .db()
             .unwrap()
-            .execute("UPDATE reader_states SET state=?1", ["{\"progress\":2}"])
+            .execute("UPDATE reader_states SET state=?1", ["{\"progress\":5}"])
             .unwrap();
         assert_eq!(
             store.reading_status(&folder, "admin").unwrap(),
@@ -339,7 +339,7 @@ mod status_tests {
         store
             .db()
             .unwrap()
-            .execute("UPDATE reader_states SET state=?1", ["{\"progress\":98}"])
+            .execute("UPDATE reader_states SET state=?1", ["{\"progress\":95}"])
             .unwrap();
         assert_eq!(
             store.reading_status(&folder, "admin").unwrap(),
@@ -817,10 +817,10 @@ fn default_effect() -> String {
     "off".into()
 }
 fn default_reading() -> f64 {
-    2.0
+    5.0
 }
 fn default_finished() -> f64 {
-    98.0
+    95.0
 }
 fn thresholds(db: &Connection, user: &str) -> Result<(f64, f64), HttpError> {
     Ok(db
@@ -831,7 +831,7 @@ fn thresholds(db: &Connection, user: &str) -> Result<(f64, f64), HttpError> {
         )
         .optional()
         .map_err(failure)?
-        .unwrap_or((2.0, 98.0)))
+        .unwrap_or((default_reading(), default_finished())))
 }
 pub(crate) async fn load_display_preferences(
     State(state): State<AppState>,
