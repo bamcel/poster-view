@@ -398,7 +398,7 @@ export default function MediaLibraryPage() {
                       : "border-transparent text-muted hover:text-white"
                   }`}
                 >
-                  {lib.title}{lib.anime && <span className="ml-2 text-xs text-accent">Anime</span>}
+                  {lib.title}
                 </button>
               ))}
             </div>
