@@ -449,7 +449,7 @@ it("saves the shared TMDB token from Search Providers and clears the input", asy
   vi.mocked(creditsApi.saveToken).mockResolvedValue({ tmdb_configured: true, tvdb_configured: false });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings?tab=sources"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
-  const input = await screen.findByLabelText("TMDB API Read Access Token");
+  const input = await screen.findByLabelText("TMDB API Read Access Token or API key");
   expect(screen.queryByRole("button", { name: "Save token" })).toBeNull();
   fireEvent.change(input, { target: { value: " test-token " } });
   fireEvent.blur(input);

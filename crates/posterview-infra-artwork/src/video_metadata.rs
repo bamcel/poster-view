@@ -1,3 +1,4 @@
+use crate::tmdb_auth::TmdbAuth;
 use crate::{
     ArtworkService,
     credits::{pace, parse_tmdb, parse_tvdb, request, response},
@@ -88,7 +89,7 @@ impl ArtworkService {
         let data = request(
             self.client
                 .get(format!("https://api.themoviedb.org/3/find/{imdb}"))
-                .bearer_auth(token)
+                .tmdb_auth(token)
                 .query(&[("external_source", "imdb_id")]),
         )
         .await?;
@@ -114,7 +115,7 @@ impl ArtworkService {
             "tmdb" => {
                 if tmdb.is_empty() { return Err("Configure TMDB in Edit Metadata → Provider matching.".into()); }
                 let kind = if movie { "movie" } else { "tv" };
-                request(self.client.get(format!("https://api.themoviedb.org/3/{kind}/{id}")).bearer_auth(tmdb).query(&[("append_to_response", if movie { "external_ids,keywords,release_dates,videos" } else { "external_ids,keywords,content_ratings,videos" })])).await?
+                request(self.client.get(format!("https://api.themoviedb.org/3/{kind}/{id}")).tmdb_auth(tmdb).query(&[("append_to_response", if movie { "external_ids,keywords,release_dates,videos" } else { "external_ids,keywords,content_ratings,videos" })])).await?
             },
             "tvdb" => {
                 if tvdb.is_empty() { return Err("Configure TheTVDB in Settings → Search Providers.".into()); }
@@ -149,7 +150,7 @@ impl ArtworkService {
                 let data = request(
                     self.client
                         .get(format!("https://api.themoviedb.org/3/movie/{id}"))
-                        .bearer_auth(tmdb)
+                        .tmdb_auth(tmdb)
                         .query(&[("append_to_response", "credits")]),
                 )
                 .await?;

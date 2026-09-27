@@ -934,12 +934,12 @@ function TmdbCredentialsFields() {
     <p className="mt-1 text-xs text-faint">Movie and TV metadata, cast, and crew. Used by Find Missing Metadata and credit lookups across all libraries.</p>
     <p className="mt-2 text-xs text-muted" role="status">{save.isPending ? "Saving…" : settings.isLoading ? "Checking configuration…" : settings.isError ? "Unable to load configuration." : settings.data?.tmdb_configured ? "Token saved" : "Not configured"}</p>
     <div className="mt-3 flex flex-wrap items-end gap-3">
-      <label className="min-w-0 flex-1 text-xs font-medium text-muted">TMDB API Read Access Token
+      <label className="min-w-0 flex-1 text-xs font-medium text-muted">TMDB API Read Access Token or API key
         <input type="password" autoComplete="off" className={`${compactInputCls} mt-1 w-full`} value={token} disabled={save.isPending} onBlur={() => { if (token.trim() && !save.isPending) save.mutate(token.trim()); }} onChange={event => { setToken(event.target.value); save.reset(); test.reset(); }} placeholder={settings.data?.tmdb_configured ? "Leave blank to keep saved token" : "Paste API Read Access Token"} />
       </label>
       <button type="button" className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-surface disabled:opacity-50" disabled={!settings.data?.tmdb_configured || test.isPending || save.isPending || !!token.trim()} onClick={() => test.mutate()}>{test.isPending ? "Testing…" : "Test Connection"}</button>
     </div>
-    <p className="mt-2 text-xs text-faint">Use the API Read Access Token, not the API key. Changes save automatically when you leave the field.</p>
+    <p className="mt-2 text-xs text-faint">Accepts a TMDB API Read Access Token or a v3 API key. Changes save automatically when you leave the field.</p>
     {test.data && <p role="status" className={`mt-2 text-sm ${test.data.ok ? "text-green-400" : "text-red-400"}`}>{test.data.message}</p>}
     {test.isError && <p role="alert" className="mt-2 text-sm text-red-400">{test.error.message}</p>}
     {save.isError && <p role="alert" className="mt-2 text-sm text-red-400">{save.error.message}</p>}

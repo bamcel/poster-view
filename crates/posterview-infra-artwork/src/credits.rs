@@ -1,5 +1,6 @@
 //! Series credits use provider-confirmed IDs; title searches never auto-match.
 use crate::ArtworkService;
+use crate::tmdb_auth::TmdbAuth;
 use posterview_contracts::{Credit, CreditSearchResult, CreditSource};
 use reqwest::RequestBuilder;
 use serde_json::{Value, json};
@@ -206,7 +207,7 @@ impl ArtworkService {
         let (value, key)=match provider {
             "anilist"=>(request(self.client.post(crate::ANILIST_URL).json(&json!({"query":"query($q:String!){Page(perPage:20){media(search:$q,type:ANIME){id title{romaji english} startDate{year} coverImage{medium}}}}","variables":{"q":query}}))).await?,"anilist"),
             "mal"=>(request(self.client.get("https://api.jikan.moe/v4/anime").query(&[("q",query),("limit","20")])).await?,"mal"),
-            "tmdb"=>{if tmdb.is_empty(){return Err("Add your TMDb API Read Access Token in Edit Metadata → Provider matching.".into());}(request(self.client.get("https://api.themoviedb.org/3/search/tv").bearer_auth(tmdb).query(&[("query",query)])).await?,"tmdb")},
+            "tmdb"=>{if tmdb.is_empty(){return Err("Add your TMDb API Read Access Token in Edit Metadata → Provider matching.".into());}(request(self.client.get("https://api.themoviedb.org/3/search/tv").tmdb_auth(tmdb).query(&[("query",query)])).await?,"tmdb")},
             "tvdb"=>{if tvdb.is_empty(){return Err("Configure TheTVDB in Settings → Providers first.".into());} pace().await;(response(self.tvdb_get("/search",&[("query",query),("type","series"),("limit","20")],tvdb,pin).await?).await?,"tvdb")},
             _=>return Err("Unknown credits provider.".into()),
         };
@@ -285,7 +286,7 @@ impl ArtworkService {
                 let data = request(
                     self.client
                         .get(format!("https://api.themoviedb.org/3/tv/{external_id}"))
-                        .bearer_auth(tmdb)
+                        .tmdb_auth(tmdb)
                         .query(&[("append_to_response", "aggregate_credits")]),
                 )
                 .await?;
