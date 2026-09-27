@@ -293,7 +293,7 @@ impl ArtworkService {
 }
 
 const ANILIST_QUERY: &str = r#"query($id:Int!,$page:Int!){Media(id:$id,type:ANIME){title{romaji english}
-characters(page:$page,perPage:25,sort:[ROLE,ID]){pageInfo{hasNextPage} edges{role name node{id name{full} image{medium} description(asHtml:true)}}
+characters(page:$page,perPage:25,sort:[ROLE,ID]){pageInfo{hasNextPage} edges{role name node{id name{full} image{medium} description(asHtml:true)}
 voiceActorRoles{roleNotes dubGroup voiceActor{id name{full} image{medium} languageV2 siteUrl}}}}
 staff(page:$page,perPage:25,sort:[ID]){pageInfo{hasNextPage} edges{role node{id name{full} image{medium} siteUrl}}}}}"#;
 
