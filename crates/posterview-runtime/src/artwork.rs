@@ -354,6 +354,7 @@ impl Runtime {
                 .to_string();
         }
         Ok(ArtworkSettings {
+            tmdb_configured: !store.get_setting("tmdb_access_token")?.is_empty(),
             fanart_configured: !store.get_setting("fanart_api_key")?.is_empty(),
             tvdb_configured: !store.get_setting("tvdb_api_key")?.is_empty(),
             comicvine_configured: !store.get_setting("comicvine_api_key")?.is_empty(),
@@ -1169,6 +1170,9 @@ impl Runtime {
         input: &ArtworkSettingsUpdate,
     ) -> Result<ArtworkSettings, RuntimeError> {
         let store = self.server_store()?;
+        if let Some(value) = input.tmdb_access_token.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+            store.set_setting("tmdb_access_token", value)?;
+        }
         if let Some(value) = input
             .fanart_api_key
             .as_deref()
@@ -1230,6 +1234,7 @@ impl Runtime {
     ) -> Result<ArtworkProviderTestResult, RuntimeError> {
         let store = self.server_store()?;
         let result = match input.provider.as_str() {
+            "tmdb" => self.artwork.test_tmdb(&store.get_setting("tmdb_access_token")?).await,
             "fanart" => {
                 let key = input
                     .fanart_api_key
@@ -1279,6 +1284,7 @@ impl Runtime {
             Ok(()) => ArtworkProviderTestResult {
                 ok: true,
                 message: match input.provider.as_str() {
+                    "tmdb" => "TMDB API connection succeeded.",
                     "fanart" => "Fanart.tv API connection succeeded.",
                     "tvdb" => "TheTVDB API connection succeeded.",
                     "comicvine" => "ComicVine API connection succeeded.",

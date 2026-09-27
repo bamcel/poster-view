@@ -153,6 +153,7 @@ export interface ArtworkProviderInfo {
 }
 
 export interface ArtworkSettings {
+  tmdb_configured: boolean;
   fanart_configured: boolean;
   tvdb_configured: boolean;
   comicvine_configured: boolean;
@@ -197,7 +198,7 @@ export interface ArtworkRefreshResult {
 }
 
 export interface ArtworkProviderTestRequest {
-  provider: "fanart" | "tvdb" | "comicvine";
+  provider: "tmdb" | "fanart" | "tvdb" | "comicvine";
   fanart_api_key?: string;
   tvdb_api_key?: string;
   tvdb_pin?: string;

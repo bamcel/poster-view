@@ -43,6 +43,7 @@ beforeEach(() => {
   vi.mocked(api.saveAppearanceSettings).mockImplementation(async (settings) => settings);
   vi.mocked(api.posterdbStatus).mockResolvedValue({ configured: true, logged_in: false, email: "test@example.test", message: "" });
   vi.mocked(api.getArtworkSettings).mockResolvedValue({
+    tmdb_configured: false,
     fanart_configured: false,
     tvdb_configured: false,
     comicvine_configured: false,
@@ -312,7 +313,7 @@ it("groups existing providers without disable controls or new metadata providers
   for (const name of ["AniList", "AniList Manga", "MediUX", "MangaDex", "VIZ"]) {
     expect(screen.getByRole("button", { name: `Configure ${name}` })).toBeTruthy();
   }
-  expect(screen.queryByRole("button", { name: "Configure TMDB" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Configure TMDB" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Configure AniDB" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Database" }));
   expect(screen.queryByText("Show Providers")).toBeNull();
@@ -371,7 +372,8 @@ it("shows an independent cache panel and cancellation control for each server", 
 });
 
 it("keeps each provider test result inside its own card", async () => {
-  vi.mocked(api.getArtworkSettings).mockResolvedValue({ fanart_configured: true, tvdb_configured: true, comicvine_configured: true, default_provider: "fanart", ereader_default_provider: "comicvine", enabled_providers: ["fanart", "tvdb", "comicvine"] });
+  vi.mocked(api.getArtworkSettings).mockResolvedValue({
+    tmdb_configured: false, fanart_configured: true, tvdb_configured: true, comicvine_configured: true, default_provider: "fanart", ereader_default_provider: "comicvine", enabled_providers: ["fanart", "tvdb", "comicvine"] });
   vi.mocked(api.testArtworkProvider).mockImplementation(async ({ provider }) => ({ ok: provider !== "tvdb", message: provider === "tvdb" ? "TheTVDB rejected the credentials." : `${provider} connected.` }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings?tab=sources"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
@@ -447,3 +449,26 @@ it("tests edited server settings with the saved key without saving the edits", a
   expect(api.testServerAdhoc).not.toHaveBeenCalled();
   client.clear();
 });
+
+it("saves TMDB credentials on blur and tests the saved connection", async () => {
+  const settings = await api.getArtworkSettings();
+  vi.mocked(api.setArtworkSettings).mockResolvedValue({ ...settings, tmdb_configured: true });
+  vi.mocked(api.testArtworkProvider).mockResolvedValue({ ok: true, message: "TMDB API connection succeeded." });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/settings?tab=search-providers"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", { name: "Search Providers" }));
+  fireEvent.click(screen.getByRole("button", { name: "Configure TMDB" }));
+  const region = within(screen.getByRole("region", { name: "TMDB connection" }));
+  const input = region.getByLabelText("TMDB API Read Access Token or API key");
+  fireEvent.change(input, { target: { value: "  example.token  " } });
+  fireEvent.blur(input);
+  await waitFor(() => expect(api.setArtworkSettings).toHaveBeenCalledWith({ tmdb_access_token: "example.token" }));
+  await waitFor(() => expect((input as HTMLInputElement).value).toBe(""));
+  fireEvent.click(region.getByRole("button", { name: "Test Connection" }));
+  await waitFor(() => expect(api.testArtworkProvider).toHaveBeenCalledWith({ provider: "tmdb" }));
+  await waitFor(() => expect(region.getByRole("img", { name: "TMDB connection verified" })).toBeTruthy());
+  fireEvent.blur(input);
+  expect(api.setArtworkSettings).toHaveBeenCalledTimes(1);
+  client.clear();
+});
+

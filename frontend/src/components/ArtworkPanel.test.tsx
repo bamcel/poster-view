@@ -40,6 +40,7 @@ beforeEach(() => {
     { name: "mangadex", label: "MangaDex", configured: true, needs_key: false, enabled: true },
   ]);
   vi.mocked(api.getArtworkSettings).mockResolvedValue({
+    tmdb_configured: false,
     fanart_configured: true,
     tvdb_configured: false,
     comicvine_configured: false,

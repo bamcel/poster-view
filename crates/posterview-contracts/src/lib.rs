@@ -385,6 +385,7 @@ pub struct ArtworkProviderInfo {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ArtworkSettings {
+    pub tmdb_configured: bool,
     pub fanart_configured: bool,
     pub tvdb_configured: bool,
     pub comicvine_configured: bool,
@@ -395,6 +396,7 @@ pub struct ArtworkSettings {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct ArtworkSettingsUpdate {
+    pub tmdb_access_token: Option<String>,
     pub fanart_api_key: Option<String>,
     pub tvdb_api_key: Option<String>,
     pub tvdb_pin: Option<String>,

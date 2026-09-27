@@ -202,6 +202,7 @@ export const api = {
   artworkProviders: () => request<ArtworkProviderInfo[]>("/artwork/providers"),
   getArtworkSettings: () => request<ArtworkSettings>("/artwork/settings"),
   setArtworkSettings: (data: {
+    tmdb_access_token?: string;
     fanart_api_key?: string;
     tvdb_api_key?: string;
     tvdb_pin?: string;

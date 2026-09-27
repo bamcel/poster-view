@@ -894,6 +894,7 @@ function ArtworkSourcesSection() {
       <h3 className="mb-2 mt-6 text-sm font-semibold">Accounts &amp; connections</h3>
       <p className="mb-3 text-xs text-faint">Expand a provider to configure credentials or test its connection.</p>
       <div className="overflow-hidden rounded-xl border border-border">
+        <TmdbCredentialsFields />
         <ArtworkCredentialsFields />
         {[
           { id: "anilist", name: "AniList", description: "Anime artwork", url: "https://anilist.co" },
@@ -908,6 +909,44 @@ function ArtworkSourcesSection() {
 
     </section>
   );
+}
+
+function TmdbCredentialsFields() {
+  const [token, setToken] = useState("");
+  const client = useQueryClient();
+  const toast = useToast();
+  const settings = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
+  const test = useMutation({ mutationFn: () => api.testArtworkProvider({ provider: "tmdb" }) });
+  const save = useMutation({
+    mutationFn: (value: string) => api.setArtworkSettings({ tmdb_access_token: value }),
+    onMutate: () => reportSettingsSave("saving"),
+    onSuccess: (value, savedToken) => {
+      client.setQueryData(["artwork-settings"], value);
+      setToken(current => current.trim() === savedToken ? "" : current);
+      test.reset();
+      reportSettingsSave("saved");
+      toast.push("success", "TMDB credentials saved.");
+    },
+    onError: (error: Error) => {
+      reportSettingsSave("error");
+      toast.push("error", error.message);
+    },
+  });
+  return <ProviderConnection id="tmdb" name="TMDB" description="Movie and TV metadata" status={settings.isError ? "Configuration unavailable" : save.isPending ? "Saving…" : providerStatus(settings.data?.tmdb_configured, test.isPending, test.data, test.error)} setupUrl="https://www.themoviedb.org/settings/api">
+    <form onSubmit={event => { event.preventDefault(); if (token.trim() && !save.isPending) save.mutate(token.trim()); }}>
+    <p className="mt-1 text-xs text-faint">Save and test your TMDB credentials. Automatic TMDB metadata fetching is not included in this development build.</p>
+    <p className="mt-2 text-xs text-muted" role="status">{save.isPending ? "Saving…" : settings.isLoading ? "Checking configuration…" : settings.isError ? "Unable to load configuration." : settings.data?.tmdb_configured ? "Token saved" : "Not configured"}</p>
+    <div className="mt-3 flex flex-wrap items-end gap-3">
+      <label className="min-w-0 flex-1 text-xs font-medium text-muted">TMDB API Read Access Token or API key
+        <input type="password" autoComplete="off" className={`${compactInputCls} mt-1 w-full`} value={token} disabled={save.isPending} onBlur={() => { if (token.trim() && !save.isPending) save.mutate(token.trim()); }} onChange={event => { setToken(event.target.value); save.reset(); test.reset(); }} placeholder={settings.data?.tmdb_configured ? "Leave blank to keep saved token" : "Paste API Read Access Token"} />
+      </label>
+      <button type="button" className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-surface disabled:opacity-50" disabled={!settings.data?.tmdb_configured || test.isPending || save.isPending || !!token.trim()} onClick={() => test.mutate()}>{test.isPending ? "Testing…" : "Test Connection"}</button>
+    </div>
+    <p className="mt-2 text-xs text-faint">Accepts a TMDB API Read Access Token or a v3 API key. Changes save automatically when you leave the field.</p>
+    {test.data && <p role="status" className={`mt-2 text-sm ${test.data.ok ? "text-green-400" : "text-red-400"}`}>{test.data.message}</p>}
+    {test.isError && <p role="alert" className="mt-2 text-sm text-red-400">{test.error.message}</p>}
+    {save.isError && <p role="alert" className="mt-2 text-sm text-red-400">{save.error.message}</p>}
+  </form></ProviderConnection>;
 }
 
 function DatabaseSection() {

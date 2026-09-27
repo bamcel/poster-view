@@ -1,3 +1,5 @@
+mod tmdb_auth;
+use tmdb_auth::TmdbAuth;
 mod comicvine;
 mod mangadex;
 mod posterdb;
@@ -67,6 +69,18 @@ impl ArtworkService {
     }
     pub async fn test_comicvine(&self, key: &str) -> Result<(), String> {
         comicvine::test(&self.client, key).await
+    }
+
+    pub async fn test_tmdb(&self, token: &str) -> Result<(), String> {
+        if token.trim().is_empty() { return Err("Save a TMDB API Read Access Token in Settings first.".into()); }
+        let response = self.client.get("https://api.themoviedb.org/3/movie/11")
+            .tmdb_auth(token).timeout(std::time::Duration::from_secs(15))
+            .send().await.map_err(network_error)?;
+        if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
+            return Err("TMDB rejected the saved token. Check your API Read Access Token in Settings.".into());
+        }
+        if !response.status().is_success() { return Err(provider_status_error("TMDB", response.status())); }
+        Ok(())
     }
 
     pub async fn test_fanart(&self, key: &str) -> Result<(), String> {

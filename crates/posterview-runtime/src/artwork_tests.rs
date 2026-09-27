@@ -1,5 +1,21 @@
 use super::*;
 
+#[tokio::test]
+async fn tmdb_settings_preserve_saved_secret_and_return_only_configuration_status() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = Runtime::new(directory.path());
+    runtime.initialize().unwrap();
+    assert!(!runtime.artwork_settings().unwrap().tmdb_configured);
+    let empty = runtime.test_artwork_provider(&ArtworkProviderTestRequest { provider: "tmdb".into(), ..Default::default() }).await.unwrap();
+    assert!(!empty.ok);
+    let input = ArtworkSettingsUpdate { tmdb_access_token: Some("  private-token  ".into()), ..Default::default() };
+    let settings = runtime.set_artwork_settings(&input).await.unwrap();
+    assert!(settings.tmdb_configured);
+    assert!(!serde_json::to_string(&settings).unwrap().contains("private-token"));
+    runtime.set_artwork_settings(&ArtworkSettingsUpdate { tmdb_access_token: Some("  ".into()), ..Default::default() }).await.unwrap();
+    assert_eq!(runtime.server_store().unwrap().get_setting("tmdb_access_token").unwrap(), "private-token");
+}
+
 #[test]
 fn legacy_disabled_sources_remain_available_without_disable_controls() {
     let directory = tempfile::tempdir().unwrap();

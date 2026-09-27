@@ -1003,6 +1003,7 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
     assert_eq!(
         settings,
         serde_json::json!({
+            "tmdb_configured": false,
             "fanart_configured": true,
             "tvdb_configured": true,
             "comicvine_configured": false,
