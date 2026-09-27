@@ -35,8 +35,9 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
   const original = data?.original_language ?? (reportedLanguages.length === 1 ? reportedLanguages[0] : null);
   const credits = displayCredits(sources);
   const languages = [...new Set(["en", "ja", "es", "fr", "de", "it", "pt", "ko", "zh", preference.language, ...(original ? [original] : []), ...sources.flatMap(s => s.credits.map(c => c.language).filter((v): v is string => !!v))])].sort((a, b) => languageName(a).localeCompare(languageName(b)));
-  const animated = sources.some(source => source.provider === "anilist" || source.provider === "mal") || Object.entries(item.external_ids).some(([provider, id]) => !!id && ["anilist", "mal", "myanimelist", "anidb"].includes(provider.toLowerCase())) || (item.genres ?? []).some(genre => ["anime", "animation", "animated"].includes(genre.trim().toLowerCase()));
-  const groups = animated ? castGroups(credits, original, preference) : [{ label: "Cast", credits: credits.filter(credit => credit.category === "cast") }];
+  const anime = sources.some(source => source.provider === "anilist" || source.provider === "mal") || Object.entries(item.external_ids).some(([provider, id]) => !!id && ["anilist", "mal", "myanimelist", "anidb"].includes(provider.toLowerCase())) || (item.genres ?? []).some(genre => genre.trim().toLowerCase() === "anime");
+  const animated = anime || (item.genres ?? []).some(genre => ["animation", "animated"].includes(genre.trim().toLowerCase()));
+  const groups = anime ? castGroups(credits, original, preference) : [{ label: "Cast", credits: credits.filter(credit => credit.category === "cast") }];
   const crew = credits.filter(c => c.category === "crew");
   const tabs = groups.map(group => ({ id: group.label, label: group.label.startsWith("Original cast · ") ? `${group.label.split(" · ")[1]} Cast` : group.label === "Original cast" ? "Primary Cast" : group.label.replace(/ cast$/, " Cast"), credits: [...group.credits, ...(display.value.hide_crew ? [] : crew)], characters: false }));
   if (animated && credits.some(c => c.category === "cast" && c.character)) tabs.push({ id: "characters", label: "Characters", credits: credits.filter(c => c.category === "cast" && c.character), characters: true });
