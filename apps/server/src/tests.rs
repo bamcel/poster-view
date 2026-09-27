@@ -1134,3 +1134,46 @@ async fn artwork_cache_defaults_to_250_mb_and_can_be_configured_and_cleared() {
         .unwrap();
     assert_eq!(cleared.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn saved_connection_tests_use_unsaved_settings_without_changing_the_server() {
+    use posterview_contracts::{ServerCreate, ServerType};
+    let media = axum::Router::new()
+        .route("/System/Info", axum::routing::get(|headers: axum::http::HeaderMap| async move {
+            let accepted = headers.get("X-Emby-Token").and_then(|v| v.to_str().ok()) == Some("saved-key");
+            if accepted {
+                (StatusCode::OK, axum::Json(serde_json::json!({"ServerName":"Emby", "Version":"4"})))
+            } else {
+                (StatusCode::UNAUTHORIZED, axum::Json(serde_json::json!({})))
+            }
+        }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, media).await.unwrap(); });
+    let directory = tempdir().unwrap();
+    let runtime = Arc::new(Runtime::new(directory.path()));
+    runtime.initialize().unwrap();
+    let original = runtime.create_server(&ServerCreate {
+        name: "Original".into(), server_type: ServerType::Jellyfin,
+        base_url: url.clone(), token: "saved-key".into(), is_default: true, nfo_metadata_enabled: false,
+    }).unwrap();
+    let app = router(runtime.clone(), PathBuf::from("missing-ui"));
+    // A request with no body keeps the existing API behavior (Jellyfin's header is rejected here).
+    for (body, expected) in [
+        (String::new(), false),
+        (serde_json::json!({"type":"emby", "base_url": format!("{url}/"), "token":""}).to_string(), true),
+        (serde_json::json!({"type":"emby", "token":"wrong-key"}).to_string(), false),
+        (serde_json::json!({"type":"emby", "token":"  saved-key\n"}).to_string(), true),
+        (serde_json::json!({"type":"emby", "base_url": format!("{url}/missing"), "token":""}).to_string(), false),
+    ] {
+        let response = app.clone().oneshot(Request::post(format!("/api/servers/{}/test", original.id))
+            .header("content-type", "application/json").body(Body::from(body)).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let result: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(result["ok"], expected, "{result}");
+        assert!(!String::from_utf8_lossy(&bytes).contains("saved-key"));
+    }
+    assert_eq!(runtime.get_server(original.id).unwrap().unwrap(), original);
+    task.abort();
+}

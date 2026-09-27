@@ -426,10 +426,19 @@ async fn test_adhoc_server(
 async fn test_saved_server(
     State(state): State<AppState>,
     Path(id): Path<i64>,
+    body: axum::body::Bytes,
 ) -> Result<impl IntoResponse, HttpError> {
+    let input: ServerUpdate = if body.is_empty() {
+        ServerUpdate::default()
+    } else {
+        serde_json::from_slice(&body).map_err(|_| HttpError::bad_request("Invalid connection test settings."))?
+    };
+    if let Some(url) = &input.base_url {
+        media_server_base(url.trim()).map_err(HttpError::bad_request)?;
+    }
     state
         .runtime
-        .test_saved_server(id)
+        .test_server_changes(id, &input)
         .await?
         .map(Json)
         .ok_or_else(HttpError::not_found)

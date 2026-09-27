@@ -5,7 +5,17 @@ import {
   normalizeState,
   readerUrl,
   readerPages,
+  readingProgress,
 } from "./reader";
+
+it("counts visible spreads while keeping narrow screens and EPUB progress separate", () => {
+  const state = normalizeState({ page: 2, settings: { ...defaults, pageLayout: "double" } }, 4);
+  expect(readingProgress(state, 4, "cbz", true)).toBe(100);
+  expect(readingProgress(state, 4, "pdf", true)).toBe(100);
+  expect(readingProgress(state, 4, "cbz", false)).toBe(75);
+  expect(readingProgress({ ...state, offset: 0.5 }, 4, "epub", false)).toBe(62.5);
+  expect(readingProgress({ ...state, page: 3, settings: { ...defaults, pageLayout: "cover" } }, 5, "cbz", true)).toBe(100);
+});
 
 it("pairs pages consistently for each layout and arbitrary jumps", () => {
   expect(readerPages(0, 5, "double")).toEqual([0, 1]);

@@ -94,6 +94,11 @@ export function readerPages(
       : Math.floor(page / 2) * 2;
   return start + 1 < count ? [start, start + 1] : [start];
 }
+export function readingProgress(state: ReaderState, count: number, format: ReaderManifest["format"], spread: boolean): number {
+  const pages = readerPages(state.page, count, spread ? state.settings.pageLayout : "single");
+  const completed = format === "epub" ? state.page + state.offset : pages[pages.length - 1] + 1;
+  return Math.min(100, (completed / Math.max(1, count)) * 100);
+}
 export async function readerRequest<T>(
   url: string,
   init?: RequestInit,

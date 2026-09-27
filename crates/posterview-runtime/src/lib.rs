@@ -189,6 +189,11 @@ impl Runtime {
     }
 
     pub async fn test_saved_server(&self, id: i64) -> Result<Option<ConnectionTest>, RuntimeError> {
+        self.test_server_changes(id, &ServerUpdate::default()).await
+    }
+
+    /// Test unsaved connection edits while retaining a blank token's saved value.
+    pub async fn test_server_changes(&self, id: i64, input: &ServerUpdate) -> Result<Option<ConnectionTest>, RuntimeError> {
         let Some(server) = self.server_store()?.get_server(id)? else {
             return Ok(None);
         };
@@ -198,9 +203,9 @@ impl Runtime {
             .unwrap_or_default();
         Ok(Some(
             connection_test(ConnectionConfig {
-                server_type: server.server_type,
-                base_url: &server.base_url,
-                token: &token,
+                server_type: input.server_type.unwrap_or(server.server_type),
+                base_url: input.base_url.as_deref().unwrap_or(&server.base_url).trim(),
+                token: input.token.as_deref().map(str::trim).filter(|value| !value.is_empty()).unwrap_or(&token),
             })
             .await,
         ))

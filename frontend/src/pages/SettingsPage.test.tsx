@@ -420,3 +420,18 @@ it("confirms a specific server cache and keeps another server's browser cache in
   confirm.mockRestore();
   client.clear();
 });
+
+it("tests edited server settings with the saved key without saving the edits", async () => {
+  vi.mocked(api.listServers).mockResolvedValue([{ id: 7, name: "Emby", type: "emby", base_url: "http://old:8096", has_token: true, is_default: true, nfo_metadata_enabled: false, created_at: "", updated_at: "" }]);
+  vi.mocked(api.getLibraryVisibility).mockResolvedValue({ libraries: [] });
+  vi.mocked(api.testServerSaved).mockResolvedValue({ ok: true, message: "Connected", server_name: "Emby", version: "4" });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/settings?tab=servers"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  fireEvent.click(await screen.findByTitle("Edit Emby"));
+  fireEvent.change(screen.getByDisplayValue("http://old:8096"), { target: { value: "http://new:8096" } });
+  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  await waitFor(() => expect(api.testServerSaved).toHaveBeenCalledWith(7, expect.objectContaining({ base_url: "http://new:8096", token: "", type: "emby" })));
+  expect(api.updateServer).not.toHaveBeenCalled();
+  expect(api.testServerAdhoc).not.toHaveBeenCalled();
+  client.clear();
+});

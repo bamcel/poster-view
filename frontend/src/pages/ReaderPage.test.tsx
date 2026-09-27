@@ -233,3 +233,23 @@ it("shows unsupported-file errors without modifying progress", async () => {
     false,
   );
 });
+
+it("saves the last visible spread as complete", async () => {
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => ({
+    ok: true,
+    json: async () => url.endsWith("/state") ? (init?.method ? true : null) : {
+      id: "book", title: "Short comic", format: "cbz", revision: "r",
+      chapters: Array.from({length: 4}, (_, i) => ({ name: `${i}.jpg`, title: `Page ${i+1}` }))
+    }
+  }));
+  open();
+  await screen.findByText("Comic page 1");
+  fireEvent.click(screen.getByRole("button", {name:"Page layout"}));
+  fireEvent.click(screen.getByRole("radio", {name:"Two Pages"}));
+  fireEvent.click(screen.getByRole("button", {name:"Close panel"}));
+  fireEvent.click(screen.getByRole("button", {name:"Next page"}));
+  expect(screen.getByText("Comic page 4")).toBeTruthy();
+  expect(screen.getByText(/^100\s*%$/)).toBeTruthy();
+  expect((screen.getByRole("button", {name:"Next page"}) as HTMLButtonElement).disabled).toBe(true);
+  await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith("/state") && init?.method === "PUT" && JSON.parse(String(init.body)).data.progress === 100)).toBe(true));
+});

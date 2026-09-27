@@ -32,6 +32,7 @@ import {
   readerRequest,
   readerUrl,
   readerPages,
+  readingProgress,
   type ReaderManifest,
   type ReaderSettings,
   type ReaderState,
@@ -77,8 +78,10 @@ export default function ReaderPage() {
   const [highlight, setHighlight] = useState("");
   const viewport = useRef<HTMLDivElement>(null);
   const shell = useRef<HTMLDivElement>(null);
-  const latest = useRef({ book, state, ready, count });
-  latest.current = { book, state, ready, count };
+  const webtoon = state.settings.mode === "webtoon" && book?.format !== "epub";
+  const spread = state.settings.pageLayout !== "single" && size.width >= 800 && !webtoon && book?.format !== "epub";
+  const latest = useRef({ book, state, ready, count, spread });
+  latest.current = { book, state, ready, count, spread };
   const saveChain = useRef(Promise.resolve());
   const searchRun = useRef(0);
   const persist = useCallback(() => {
@@ -92,7 +95,7 @@ export default function ReaderPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             revision: snapshot.book!.revision,
-            data: { ...snapshot.state, progress: Math.min(100, ((snapshot.state.page + (snapshot.book?.format === "epub" ? snapshot.state.offset : 1)) / Math.max(1, snapshot.count)) * 100) },
+            data: { ...snapshot.state, progress: readingProgress(snapshot.state, snapshot.count, snapshot.book!.format, snapshot.spread) },
           }),
           keepalive: true,
         });
@@ -203,7 +206,7 @@ export default function ReaderPage() {
     if (!ready) return;
     const timer = setTimeout(persist, 700);
     return () => clearTimeout(timer);
-  }, [state, ready, persist]);
+  }, [state, ready, spread, persist]);
   useEffect(() => {
     const flush = () => persist();
     const visibility = () => {
@@ -227,12 +230,6 @@ export default function ReaderPage() {
     return () => observer.disconnect();
   }, [ready]);
   const settings = state.settings;
-  const webtoon = settings.mode === "webtoon" && book?.format !== "epub";
-  const spread =
-    settings.pageLayout !== "single" &&
-    size.width >= 800 &&
-    !webtoon &&
-    book?.format !== "epub";
   const setSettings = (patch: Partial<ReaderSettings>) =>
     setState((s) => ({ ...s, settings: { ...s.settings, ...patch } }));
   const go = useCallback(
@@ -727,14 +724,7 @@ export default function ReaderPage() {
               className="min-w-0 max-w-xl flex-1 accent-accent"
             />
             <span className="min-w-16 text-center text-xs text-muted">
-              {Math.min(
-                100,
-                Math.round(
-                  ((state.page + (book?.format === "epub" ? state.offset : 1)) /
-                    Math.max(1, count)) *
-                    100,
-                ),
-              )}
+              {Math.round(readingProgress(state, count, book!.format, spread))}
               %
             </span>
             <button

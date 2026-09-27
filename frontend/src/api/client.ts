@@ -120,8 +120,8 @@ export const api = {
   deleteServer: (id: number) => request<void>(`/servers/${id}`, { method: "DELETE" }),
   testServerAdhoc: (data: ServerInput) =>
     request<ConnectionTest>("/servers/test", { method: "POST", body: JSON.stringify(data) }),
-  testServerSaved: (id: number) =>
-    request<ConnectionTest>(`/servers/${id}/test`, { method: "POST" }),
+  testServerSaved: (id: number, data?: Partial<ServerInput>) =>
+    request<ConnectionTest>(`/servers/${id}/test`, { method: "POST", ...(data ? { body: JSON.stringify(data) } : {}) }),
 
   // -- libraries / items --
   getLibraries: (serverId: number) => request<Library[]>(`/servers/${serverId}/libraries`),

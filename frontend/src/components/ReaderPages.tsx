@@ -329,8 +329,11 @@ export function EpubChapter({
       const anchor = (event.target as Element)?.closest("a");
       if (anchor) {
         event.preventDefault();
-        const chapter = Number(anchor.getAttribute("data-chapter"));
-        if (Number.isInteger(chapter)) callbacks.current.onNavigate(chapter);
+        const destination = anchor.getAttribute("data-chapter");
+        if (destination === null) return;
+        const chapter = Number(destination);
+        if (Number.isInteger(chapter) && chapter >= 0 && chapter < book.chapters.length)
+          callbacks.current.onNavigate(chapter);
       }
     };
     const key = (event: KeyboardEvent) => callbacks.current.onKey(event);

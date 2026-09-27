@@ -60,9 +60,9 @@ fn emby_family_auth(request: RequestBuilder, config: &ConnectionConfig<'_>) -> R
     match config.server_type {
         ServerType::Jellyfin => request.header(
             reqwest::header::AUTHORIZATION,
-            format!("MediaBrowser Token=\"{}\"", config.token),
+            format!("MediaBrowser Token=\"{}\"", config.token.trim()),
         ),
-        ServerType::Emby => request.header("X-Emby-Token", config.token),
+        ServerType::Emby => request.header("X-Emby-Token", config.token.trim()),
         ServerType::Plex => request,
     }
 }

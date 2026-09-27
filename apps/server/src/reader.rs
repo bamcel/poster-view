@@ -431,14 +431,23 @@ fn read_entry(zip: &mut ZipArchive<File>, name: &str) -> Result<Vec<u8>, HttpErr
     Ok(bytes)
 }
 fn xml(bytes: &[u8]) -> Result<Element, HttpError> {
-    if bytes.len() > 4 * 1024 * 1024
-        || String::from_utf8_lossy(bytes)
+    if bytes.len() > 4 * 1024 * 1024 {
+        return Err(bad("Unsupported EPUB XML document."));
+    }
+    // HTML5 navigation documents may have this inert declaration. Remove only
+    // that exact declaration; external and internal DTDs remain unsupported.
+    let mut bytes = bytes.to_vec();
+    const HTML_DOCTYPE: &[u8] = b"<!DOCTYPE html>";
+    if let Some(start) = bytes.windows(HTML_DOCTYPE.len()).position(|part| part == HTML_DOCTYPE) {
+        bytes.drain(start..start + HTML_DOCTYPE.len());
+    }
+    if String::from_utf8_lossy(&bytes)
             .to_ascii_uppercase()
             .contains("<!DOCTYPE")
     {
         return Err(bad("Unsupported EPUB XML document."));
     }
-    Element::parse(bytes).map_err(failure)
+    Element::parse(bytes.as_slice()).map_err(failure)
 }
 fn descendants<'a>(element: &'a Element, name: &str, output: &mut Vec<&'a Element>) {
     if element.name == name {
@@ -964,7 +973,7 @@ mod tests {
             ),
             (
                 "OPS/nav.xhtml",
-                r#"<html><body><nav><a href="one.xhtml">Beginning</a><a href="two.xhtml">Ending</a></nav></body></html>"#,
+                r#"<!DOCTYPE html><html><body><nav><a href="one.xhtml">Beginning</a><a href="two.xhtml">Ending</a></nav></body></html>"#,
             ),
             ("OPS/one.xhtml", "<html><body>Hello</body></html>"),
             ("OPS/two.xhtml", "<html><body>World</body></html>"),
@@ -980,7 +989,9 @@ mod tests {
         assert_eq!(manifest.chapters[0].name, "OPS/one.xhtml");
         assert_eq!(manifest.chapters[0].title, "Beginning");
         assert_eq!(manifest.chapters[1].title, "Ending");
-        assert!(xml(b"<!DOCTYPE html><html/>").is_err());
+        assert!(xml(b"<!DOCTYPE html><html/>").is_ok());
+        assert!(xml(b"<!DOCTYPE html SYSTEM 'https://example.test/dtd'><html/>").is_err());
+        assert!(xml(b"<!DOCTYPE html [<!ENTITY x 'text'>]><html/>").is_err());
     }
     #[tokio::test]
     async fn authenticated_ranges_and_durable_progress() {

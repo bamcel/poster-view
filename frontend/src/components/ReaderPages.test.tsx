@@ -88,3 +88,21 @@ it("isolates EPUB content and removes scripts, forms, styles and remote images",
   expect(frame.srcdoc).not.toContain("javascript:");
   expect(frame.srcdoc).toContain("default-src 'none'");
 });
+
+it("ignores external EPUB links and still follows chapter links", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ok:true, text:async () => '<p>Text</p><a href="https://example.test">External link</a><a href="one.xhtml">First chapter</a>'}));
+  const onNavigate = vi.fn();
+  render(<EpubChapter book={{id:"b",title:"B",format:"epub",revision:"r",chapters:[{name:"one.xhtml",title:"One"},{name:"two.xhtml",title:"Two"}]}} page={1} settings={defaults} offset={0} onPosition={() => {}} onNavigate={onNavigate} onKey={() => {}} search="" />);
+  const frame = await screen.findByTitle("Two") as HTMLIFrameElement;
+  await waitFor(() => expect(frame.srcdoc).toContain("External link"));
+  frame.contentDocument!.open();
+  frame.contentDocument!.write(frame.srcdoc);
+  frame.contentDocument!.close();
+  frame.contentWindow!.scrollTo = vi.fn();
+  fireEvent.load(frame);
+  const links = frame.contentDocument!.querySelectorAll("a");
+  fireEvent.click(links[0]);
+  expect(onNavigate).not.toHaveBeenCalled();
+  fireEvent.click(links[1]);
+  expect(onNavigate).toHaveBeenCalledWith(0);
+});

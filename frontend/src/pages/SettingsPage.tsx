@@ -545,8 +545,9 @@ function ServersSection() {
 
   const saveMut = useMutation({
     mutationFn: async () => {
-      if (editingId == null) return api.createServer(form);
-      return api.updateServer(editingId, form);
+      const input = { ...form, base_url: form.base_url.trim(), token: form.token.trim() };
+      if (editingId == null) return api.createServer(input);
+      return api.updateServer(editingId, input);
     },
     onMutate: () => reportSettingsSave("saving"),
     onSuccess: () => {
@@ -570,13 +571,15 @@ function ServersSection() {
     setTesting(true);
     setTestResult(null);
     try {
+      const input = { ...form, base_url: form.base_url.trim(), token: form.token.trim() };
       const r =
-        editingId != null && form.token === ""
-          ? await api.testServerSaved(editingId)
-          : await api.testServerAdhoc(form);
+        editingId != null
+          ? await api.testServerSaved(editingId, input)
+          : await api.testServerAdhoc(input);
       setTestResult(r);
       toast.push(r.ok ? "success" : "error", r.message);
     } catch (e) {
+      setTestResult({ ok: false, message: (e as Error).message, server_name: null, version: null });
       toast.push("error", (e as Error).message);
     } finally {
       setTesting(false);

@@ -5,6 +5,24 @@ use tokio::net::TcpListener;
 use super::*;
 
 #[tokio::test]
+async fn emby_connection_trims_pasted_api_key_before_authenticating() {
+    let app = Router::new().route("/System/Info", get(|headers: axum::http::HeaderMap| async move {
+        if headers.get("X-Emby-Token").and_then(|value| value.to_str().ok()) != Some("emby-key") {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        Json(json!({"ServerName":"Emby fixture","Version":"4"})).into_response()
+    }));
+    let (base_url, task) = serve(app).await;
+    let result = test_connection(ConnectionConfig {
+        server_type: ServerType::Emby,
+        base_url: &base_url,
+        token: " \temby-key\r\n",
+    }).await;
+    task.abort();
+    assert_eq!(result.unwrap(), ("Emby fixture".to_owned(), "4".to_owned()));
+}
+
+#[tokio::test]
 async fn book_folder_detail_falls_back_to_user_scoped_item_endpoint() {
     let app = Router::new()
         .route("/Users", get(|| async { Json(json!([{"Id":"reader"}])) }))
