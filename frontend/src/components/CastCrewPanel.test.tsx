@@ -64,3 +64,16 @@ it("groups characters across language performances and shows their saved biograp
   expect(screen.getByText("A brave hero.")).toBeTruthy();
   expect(screen.getByText(/English actor · English/)).toBeTruthy();
 });
+
+it.each(["show", "movie"] as const)("shows normal cast including untagged credits for live-action %s", async type => {
+  vi.mocked(creditsApi.get).mockResolvedValue({ catalog_id: "1", original_language: "en", sources: [{ ...data.sources[0], provider: "tmdb", credits: [credit("Live actor", null), credit("Director", null, "crew")] }] });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(client);
+  render(<QueryClientProvider client={client}><CastCrewPanel serverId={1} item={{ id: "1", title: "Live action", type, seasons: [], members: [], external_ids: { tmdb: "1" }, genres: ["Drama"] }} /></QueryClientProvider>);
+  await screen.findByText("Live actor");
+  expect(screen.getByRole("tab", { name: "Cast" })).toBeTruthy();
+  expect(screen.queryByRole("tab", { name: "English Cast" })).toBeNull();
+  expect(screen.queryByRole("tab", { name: "Characters" })).toBeNull();
+  fireEvent.click(screen.getByRole("tab", { name: "Crew" }));
+  expect(screen.getByText("Director", { selector: "p.font-semibold" })).toBeTruthy();
+});
+

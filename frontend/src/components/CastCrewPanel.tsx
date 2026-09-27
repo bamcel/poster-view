@@ -35,11 +35,12 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
   const original = data?.original_language ?? (reportedLanguages.length === 1 ? reportedLanguages[0] : null);
   const credits = displayCredits(sources);
   const languages = [...new Set(["en", "ja", "es", "fr", "de", "it", "pt", "ko", "zh", preference.language, ...(original ? [original] : []), ...sources.flatMap(s => s.credits.map(c => c.language).filter((v): v is string => !!v))])].sort((a, b) => languageName(a).localeCompare(languageName(b)));
-  const groups = castGroups(credits, original, preference);
+  const animated = sources.some(source => source.provider === "anilist" || source.provider === "mal") || Object.entries(item.external_ids).some(([provider, id]) => !!id && ["anilist", "mal", "myanimelist", "anidb"].includes(provider.toLowerCase())) || (item.genres ?? []).some(genre => ["anime", "animation", "animated"].includes(genre.trim().toLowerCase()));
+  const groups = animated ? castGroups(credits, original, preference) : [{ label: "Cast", credits: credits.filter(credit => credit.category === "cast") }];
   const crew = credits.filter(c => c.category === "crew");
   const tabs = groups.map(group => ({ id: group.label, label: group.label.startsWith("Original cast · ") ? `${group.label.split(" · ")[1]} Cast` : group.label === "Original cast" ? "Primary Cast" : group.label.replace(/ cast$/, " Cast"), credits: group.credits, characters: false }));
   if (!display.value.hide_crew) tabs.push({ id: "crew", label: "Crew", credits: crew, characters: false });
-  tabs.push({ id: "characters", label: "Characters", credits: credits.filter(c => c.category === "cast" && c.character), characters: true });
+  if (animated) tabs.push({ id: "characters", label: "Characters", credits: credits.filter(c => c.category === "cast" && c.character), characters: true });
   const selectedTab = tabs.find(value => value.id === tab) ?? tabs[0];
 
   const busy = importing.isPending || removing.isPending;
@@ -49,7 +50,7 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
   if (!display.value.show && !editing) return null;
   return <section className="mt-10" aria-label="Cast and crew">
     {!editing && <><h2 className="flex items-center gap-2 text-lg font-semibold"><UsersRound className="size-5 text-white/60" />Cast &amp; Crew</h2>
-    <p className="mt-1 text-xs text-white/50">Original performances, dubbed casts, and the people behind this title.</p></>}
+    <p className="mt-1 text-xs text-white/50">{animated ? "Original performances, dubbed casts, and the people behind this title." : "The cast and the people behind this title."}</p></>}
     {query.isLoading && <p className="mt-5 text-sm text-white/60" role="status">Loading saved credits…</p>}
     {query.error && <p className="mt-4 text-sm text-red-300" role="alert">Could not load credits: {query.error.message} <button onClick={() => query.refetch()}>Retry</button></p>}
     {error && <p className="mt-4 text-sm text-red-300" role="alert">{error.message}</p>}
@@ -95,7 +96,7 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
         }}>{value.label}</button>)}</div>
       </div>
       <div role="tabpanel" id={`credit-panel-${item.id}`} aria-labelledby={`credit-tab-${item.id}-${encodeURIComponent(selectedTab.id)}`} className="mt-5">
-        <CreditCarousel key={selectedTab.id} credits={selectedTab.credits} characters={selectedTab.characters} label={selectedTab.label} showCharacterPortraits={sources.some(source => source.provider === "anilist" || source.provider === "mal") || Object.entries(item.external_ids).some(([provider, id]) => !!id && ["anilist", "mal", "myanimelist", "anidb"].includes(provider.toLowerCase())) || (item.genres ?? []).some(genre => ["anime", "animation", "animated"].includes(genre.trim().toLowerCase()))} />
+        <CreditCarousel key={selectedTab.id} credits={selectedTab.credits} characters={selectedTab.characters} label={selectedTab.label} showCharacterPortraits={animated} />
         {!original && selectedTab.id === "Original cast" && <p className="mt-3 text-sm text-muted">Choose the original language in Edit Metadata → Provider matching.</p>}
       </div>
     </>}
