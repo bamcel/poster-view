@@ -23,6 +23,7 @@ import {
   Columns2,
 } from "lucide-react";
 import { api, type ServerInput } from "../api/client";
+import { creditsApi } from "../api/credits";
 import { useToast } from "../lib/toast";
 import WatchdogStatus from "../components/WatchdogStatus";
 import { ServerTypeBadge, Switch } from "../components/ui";
@@ -891,17 +892,52 @@ function ArtworkSourcesSection() {
         <ImageIcon className="size-5 text-accent" /> Search Providers
       </h2>
       <p className="mb-4 text-sm text-faint">
-        Accounts and API keys used to search and download posters, backgrounds, banners, and logos.
+        Accounts and API keys used for artwork searches, metadata, and cast and crew.
         {" "}Leave saved key fields blank to keep existing values.
       </p>
 
       <div className="mb-3 rounded-xl border border-border bg-surface-2 p-3">
         <EnabledArtworkSourcesFields />
       </div>
+      <TmdbCredentialsFields />
       <ArtworkCredentialsFields />
 
     </section>
   );
+}
+
+function TmdbCredentialsFields() {
+  const [token, setToken] = useState("");
+  const client = useQueryClient();
+  const toast = useToast();
+  const settings = useQuery({ queryKey: ["credit-settings"], queryFn: creditsApi.settings });
+  const save = useMutation({
+    mutationFn: () => creditsApi.saveToken(token.trim()),
+    onMutate: () => reportSettingsSave("saving"),
+    onSuccess: value => {
+      client.setQueryData(["credit-settings"], value);
+      setToken("");
+      reportSettingsSave("saved");
+      toast.push("success", "TMDB credentials saved.");
+    },
+    onError: (error: Error) => {
+      reportSettingsSave("error");
+      toast.push("error", error.message);
+    },
+  });
+  return <form className="mb-4 rounded-xl border border-border bg-surface-2 p-4" onSubmit={event => { event.preventDefault(); if (token.trim()) save.mutate(); }}>
+    <h3 className="text-sm font-semibold">The Movie Database (TMDB)</h3>
+    <p className="mt-1 text-xs text-faint">Movie and TV metadata, cast, and crew. Used by Find Missing Metadata and credit lookups across all libraries.</p>
+    <p className="mt-2 text-xs text-muted" role="status">{settings.isLoading ? "Checking configuration…" : settings.isError ? "Unable to load configuration." : settings.data?.tmdb_configured ? "Token saved" : "Not configured"}</p>
+    <div className="mt-3 flex flex-wrap items-end gap-3">
+      <label className="min-w-0 flex-1 text-xs font-medium text-muted">TMDB API Read Access Token
+        <input type="password" autoComplete="off" className={`${compactInputCls} mt-1 w-full`} value={token} onChange={event => { setToken(event.target.value); save.reset(); }} placeholder={settings.data?.tmdb_configured ? "Leave blank to keep saved token" : "Paste API Read Access Token"} />
+      </label>
+      <button type="submit" className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-surface disabled:opacity-50" disabled={!token.trim() || save.isPending}>{save.isPending ? "Saving…" : "Save token"}</button>
+    </div>
+    <p className="mt-2 text-xs text-faint">Use the API Read Access Token, not the API key. Saving replaces the existing token.</p>
+    {save.isError && <p role="alert" className="mt-2 text-sm text-red-400">{save.error.message}</p>}
+  </form>;
 }
 
 function DatabaseSection() {

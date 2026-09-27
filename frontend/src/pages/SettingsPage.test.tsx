@@ -4,6 +4,8 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import SettingsPage from "./SettingsPage";
 import { api } from "../api/client";
+import { creditsApi } from "../api/credits";
+vi.mock("../api/credits", () => ({ creditsApi: { settings: vi.fn(), saveToken: vi.fn() } }));
 import type { AppearanceSettings } from "../types";
 
 vi.mock("../components/AppearancePreview", () => ({ default: ({ onClose }: { onClose: () => void }) => <section aria-label="Live Media Library preview"><button onClick={onClose}>Close split view</button></section> }));
@@ -35,6 +37,7 @@ vi.mock("../api/client", () => ({
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 
 beforeEach(() => {
+  vi.mocked(creditsApi.settings).mockResolvedValue({ tmdb_configured: false, tvdb_configured: false });
   localStorage.clear();
   sessionStorage.clear();
   vi.mocked(api.listServers).mockResolvedValue([]);
@@ -439,5 +442,20 @@ it("confirms a specific server cache and keeps another server's browser cache in
   await waitFor(() => expect(client.getQueryData(artworkA)).toBeUndefined());
   expect(client.getQueryData(artworkB)).toBe("B");
   confirm.mockRestore();
+  client.clear();
+});
+
+it("saves the shared TMDB token from Search Providers and clears the input", async () => {
+  vi.mocked(creditsApi.saveToken).mockResolvedValue({ tmdb_configured: true, tvdb_configured: false });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/settings?tab=sources"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  const input = await screen.findByLabelText("TMDB API Read Access Token");
+  expect((screen.getByRole("button", { name: "Save token" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(input, { target: { value: " test-token " } });
+  fireEvent.click(screen.getByRole("button", { name: "Save token" }));
+  await waitFor(() => expect(creditsApi.saveToken).toHaveBeenCalledWith("test-token"));
+  await screen.findByText("Token saved");
+  expect((input as HTMLInputElement).value).toBe("");
+  expect(client.getQueryData(["credit-settings"])).toEqual({ tmdb_configured: true, tvdb_configured: false });
   client.clear();
 });
