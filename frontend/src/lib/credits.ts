@@ -26,6 +26,7 @@ export function displayCredits(sources: CreditSource[]): DisplayCredit[] {
       if (!existing.sources.some(s => s.provider === source.provider)) existing.sources.push({ provider: source.provider, url: credit.person_url });
       existing.image ??= credit.image;
       existing.character_image ??= credit.character_image;
+      existing.character_bio ??= credit.character_bio;
     } else rows.set(key, { ...credit, sources: [{ provider: source.provider, url: credit.person_url }] });
   }
   return [...rows.values()];

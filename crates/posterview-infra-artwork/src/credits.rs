@@ -293,7 +293,7 @@ impl ArtworkService {
 }
 
 const ANILIST_QUERY: &str = r#"query($id:Int!,$page:Int!){Media(id:$id,type:ANIME){title{romaji english}
-characters(page:$page,perPage:25,sort:[ROLE,ID]){pageInfo{hasNextPage} edges{role name node{id name{full} image{medium}}
+characters(page:$page,perPage:25,sort:[ROLE,ID]){pageInfo{hasNextPage} edges{role name node{id name{full} image{medium} description(asHtml:true)}}
 voiceActorRoles{roleNotes dubGroup voiceActor{id name{full} image{medium} languageV2 siteUrl}}}}
 staff(page:$page,perPage:25,sort:[ID]){pageInfo{hasNextPage} edges{role node{id name{full} image{medium} siteUrl}}}}}"#;
 
@@ -319,6 +319,7 @@ fn parse_anilist_page(media: &Value, credits: &mut Vec<Credit>) -> Result<(), St
                 language: p["languageV2"].as_str().and_then(credit_language),
                 dub_group: text(&actor["dubGroup"]),
                 notes: text(&actor["roleNotes"]),
+                character_bio: text(&edge["node"]["description"]),
                 order: credits.len() as i64,
             });
         }
@@ -526,9 +527,10 @@ mod tests {
     }
     #[test]
     fn anilist_preserves_dubs_and_multiple_roles() {
-        let value = json!({"characters":{"edges":[{"role":"MAIN","node":{"id":10,"name":{"full":"Hero"}},"voiceActorRoles":[{"voiceActor":{"id":1,"name":{"full":"Japanese actor"},"languageV2":"Japanese"}},{"dubGroup":"New dub","roleNotes":"Season 2","voiceActor":{"id":2,"name":{"full":"English actor"},"languageV2":"English"}}]}]},"staff":{"edges":[{"role":"Director","node":{"id":1,"name":{"full":"Japanese actor"}}}]}});
+        let value = json!({"characters":{"edges":[{"role":"MAIN","node":{"id":10,"name":{"full":"Hero"},"description":"A brave hero."},"voiceActorRoles":[{"voiceActor":{"id":1,"name":{"full":"Japanese actor"},"languageV2":"Japanese"}},{"dubGroup":"New dub","roleNotes":"Season 2","voiceActor":{"id":2,"name":{"full":"English actor"},"languageV2":"English"}}]}]},"staff":{"edges":[{"role":"Director","node":{"id":1,"name":{"full":"Japanese actor"}}}]}});
         let mut credits = Vec::new();
         parse_anilist_page(&value, &mut credits).unwrap();
+        assert_eq!(credits[0].character_bio.as_deref(), Some("A brave hero."));
         assert_eq!(credits.len(), 3);
         assert_eq!(credits[0].language.as_deref(), Some("ja"));
         assert_eq!(credits[1].language.as_deref(), Some("en"));

@@ -425,6 +425,12 @@ fn history_from_row(row: &rusqlite::Row<'_>) -> Result<HistoryRow, rusqlite::Err
 }
 
 fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
+    let credit_columns = connection.prepare("PRAGMA table_info(series_credits)")?
+        .query_map([], |row| row.get::<_, String>(1))?.collect::<Result<Vec<_>, _>>()?;
+    if !credit_columns.iter().any(|name| name == "character_bio") {
+        connection.execute("ALTER TABLE series_credits ADD COLUMN character_bio TEXT", [])?;
+    }
+
     let mut statement = connection.prepare("PRAGMA table_info(apply_history)")?;
     let columns = statement
         .query_map([], |row| row.get::<_, String>(1))?

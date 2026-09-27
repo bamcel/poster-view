@@ -15,6 +15,8 @@ pub struct Credit {
     pub language: Option<String>,
     pub dub_group: Option<String>,
     pub notes: Option<String>,
+    #[serde(default)]
+    pub character_bio: Option<String>,
     pub order: i64,
 }
 

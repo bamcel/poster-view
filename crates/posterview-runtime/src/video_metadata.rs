@@ -162,9 +162,16 @@ mod tests {
         source.credits.push(alternate);
         assert_eq!(store.merge_credit_source(server.id, "movie", &source).unwrap(), 1);
         assert_eq!(store.merge_credit_source(server.id, "movie", &source).unwrap(), 0);
+        source.credits[0].character_bio = Some("Saved biography".into());
+        store.merge_credit_source(server.id, "movie", &source).unwrap();
+        source.credits[0].character_bio = Some("Replacement biography".into());
+        store.merge_credit_source(server.id, "movie", &source).unwrap();
+        assert_eq!(store.series_credits(server.id, "movie").unwrap().sources[0].credits[0].character_bio.as_deref(), Some("Saved biography"));
         drop(runtime);
         let runtime = Runtime::new(dir.path());
         runtime.initialize().unwrap();
+        assert_eq!(runtime.server_store().unwrap().series_credits(server.id, "movie").unwrap().sources[0].credits[0].character_bio.as_deref(), Some("Saved biography"));
+
         assert_eq!(
             runtime
                 .video_metadata_document(server.id, "movie")

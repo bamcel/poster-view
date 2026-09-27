@@ -52,3 +52,9 @@ Tests cover original/dub filtering, missing language handling, alternate dub gro
 - [Jikan API](https://docs.api.jikan.moe/)
 - [TMDb aggregate series credits](https://developer.themoviedb.org/reference/tv-series-aggregate-credits)
 - [TheTVDB v4 schema](https://github.com/thetvdb/v4-api/blob/master/docs/swagger.yml)
+
+## Cast carousel and characters
+
+The display uses a single horizontal portrait row with tabs for the selected cast languages, Crew (unless hidden in preferences), and Characters. Use the mouse wheel over the row, touch scrolling, the side arrows, or keyboard arrows. At either end, wheel input returns to normal page scrolling. Language tabs follow the saved primary/selected-language preferences; untagged performances remain explicitly unspecified.
+
+Characters are grouped by displayed name within the selected title/source filter. Open a character to see its saved biography and performers by language. Biographies may contain spoilers and are collapsed initially. AniList descriptions are captured with cast imports and stored in PosterView; run Find Missing Metadata or refresh the AniList credit source to populate existing entries. The fill-only task fills an absent biography without replacing one already saved. Other providers still contribute their available character names, images, and performer relationships. A missing biography is explicitly identified rather than invented.

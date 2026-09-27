@@ -15,19 +15,20 @@ beforeEach(() => { vi.mocked(apiRequest).mockImplementation(async (_path, init) 
 afterEach(() => { cleanup(); clients.forEach(c => c.clear()); clients.length = 0; vi.resetAllMocks(); localStorage.clear(); });
 function mount(editing = false) { const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); clients.push(client); return render(<QueryClientProvider client={client}><CastPreferences />{editing && <CastCrewPanel serverId={1} item={{ id: "1", title: "Series", type: "show", seasons: [], members: [], external_ids: {} }} editing />}<CastCrewPanel serverId={1} item={{ id: "1", title: "Series", type: "show", seasons: [], members: [], external_ids: {} }} /></QueryClientProvider>); }
 it("shows original plus English, supports another dub and displays crew", async () => {
-  mount(); await screen.findByText("Japanese actor"); expect(screen.getByText("English actor")).toBeTruthy(); expect(screen.queryByText("French actor")).toBeNull();
+  mount(); await screen.findByText("Japanese actor"); expect(screen.queryByText("English actor")).toBeNull(); fireEvent.click(screen.getByRole("tab", { name: "English Cast" })); expect(screen.getByText("English actor")).toBeTruthy(); expect(screen.queryByText("French actor")).toBeNull();
   fireEvent.change(screen.getByLabelText("Cast Language"), { target: { value: "fr" } });
+  fireEvent.click(await screen.findByRole("tab", { name: "French Cast" }));
   await screen.findByText("French actor"); expect(screen.queryByText("English actor")).toBeNull();
   fireEvent.click(screen.getByRole("radio", { name: /Primary Cast Only/ }));
   await waitFor(() => expect(screen.queryByText("French actor")).toBeNull());
-  fireEvent.click(screen.getByRole("button", { name: "Crew · 1" })); expect(screen.getByText("Director name")).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "Crew" })); expect(screen.getByText("Director name")).toBeTruthy();
   expect(creditsApi.import).not.toHaveBeenCalled();
   expect(screen.queryByRole("button",{name:"Sources & matching"})).toBeNull();
   expect(screen.queryByRole("button",{name:/Find cast & crew/i})).toBeNull();
 });
 it("hides crew and the whole section without deleting saved credits", async () => {
   mount(); await screen.findByText("Japanese actor");
-  fireEvent.click(screen.getByRole("button", { name: "Crew · 1" }));await screen.findByText("Director name");
+  fireEvent.click(screen.getByRole("tab", { name: "Crew" }));await screen.findByText("Director name");
   fireEvent.click(screen.getByRole("switch", { name: "Hide Crew" }));
   await waitFor(() => expect(screen.queryByText("Director name")).toBeNull());expect(screen.getByText("Japanese actor")).toBeTruthy();
   fireEvent.click(screen.getByRole("switch", { name: "Show Cast & Crew" }));
@@ -39,7 +40,7 @@ it("keeps saved credits visible when provider refresh fails", async () => {
   vi.mocked(creditsApi.import).mockRejectedValue(new Error("Provider unavailable; saved credits kept."));
   mount(true); await screen.findByText("Japanese actor");
   fireEvent.click(screen.getByRole("button", { name: "Refresh AniList" }));
-  await screen.findByRole("alert"); expect(screen.getByText("English actor")).toBeTruthy();
+  await screen.findByRole("alert"); expect(screen.getByText("Japanese actor")).toBeTruthy();
 });
 it("requires an explicit candidate import and preserves the chosen provider ID", async () => {
   vi.mocked(creditsApi.search).mockResolvedValue([{ id: "999", title: "Matching series", year: 2001, image: null }]);
@@ -49,4 +50,17 @@ it("requires an explicit candidate import and preserves the chosen provider ID",
   fireEvent.click(screen.getByRole("button", { name: "Search" })); await screen.findByText("Matching series");
   expect(creditsApi.import).not.toHaveBeenCalled(); fireEvent.click(screen.getByRole("button", { name: "Import" }));
   await waitFor(() => expect(creditsApi.import).toHaveBeenCalledWith(1, "1", "mal", "999"));
+});
+
+it("groups characters across language performances and shows their saved biography", async () => {
+  const value = structuredClone(data);
+  value.sources[0].credits[0].character_bio = "A brave hero.";
+  vi.mocked(creditsApi.get).mockResolvedValue(value);
+  mount(); await screen.findByText("Japanese actor");
+  fireEvent.click(screen.getByRole("tab", { name: "Characters" }));
+  expect(screen.getAllByRole("button", { name: "Character info for Hero" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Character info for Hero" }));
+  expect(screen.getByRole("region", { name: "Hero character information" })).toBeTruthy();
+  expect(screen.getByText("A brave hero.")).toBeTruthy();
+  expect(screen.getByText(/English actor · English/)).toBeTruthy();
 });

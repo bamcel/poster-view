@@ -55,8 +55,11 @@ impl ServerStore {
         let mut added=0;
         for c in &source.credits {
             let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM series_credits WHERE series_id=?1 AND provider=?2 AND external_id=?3 AND person_id=?4 AND category=?5 AND role=?6 AND character IS ?7 AND language IS ?8 AND dub_group IS ?9)",params![series,source.provider,source.external_id,c.person_id,c.category,c.role,c.character,c.language,c.dub_group],|r|r.get(0))?;
-            if exists {continue;}
-            tx.execute("INSERT INTO series_credits VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",params![series,source.provider,source.external_id,ordinal,c.person_id,c.name,c.image,c.person_url,c.character_id,c.character,c.character_image,c.category,c.role,c.language,c.dub_group,c.notes,c.order])?;
+            if exists {
+                tx.execute("UPDATE series_credits SET character_bio=?10 WHERE series_id=?1 AND provider=?2 AND external_id=?3 AND person_id=?4 AND category=?5 AND role=?6 AND character IS ?7 AND language IS ?8 AND dub_group IS ?9 AND (character_bio IS NULL OR character_bio='')",params![series,source.provider,source.external_id,c.person_id,c.category,c.role,c.character,c.language,c.dub_group,c.character_bio])?;
+                continue;
+            }
+            tx.execute("INSERT INTO series_credits VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",params![series,source.provider,source.external_id,ordinal,c.person_id,c.name,c.image,c.person_url,c.character_id,c.character,c.character_image,c.category,c.role,c.language,c.dub_group,c.notes,c.order,c.character_bio])?;
             ordinal+=1; added+=1;
         }
         tx.commit()?; Ok(added)
@@ -80,11 +83,11 @@ impl ServerStore {
                 original_language:r.get(4)?,fetched_at:r.get(5)?,credits:Vec::new(),
             }))?.collect::<Result<Vec<_>,_>>()?;
         for source in &mut sources {
-            source.credits = tx.prepare("SELECT person_id,name,image,person_url,character_id,character,character_image,category,role,language,dub_group,notes,billing_order FROM series_credits WHERE series_id=?1 AND provider=?2 AND external_id=?3 ORDER BY billing_order,ordinal")?
+            source.credits = tx.prepare("SELECT person_id,name,image,person_url,character_id,character,character_image,category,role,language,dub_group,notes,billing_order,character_bio FROM series_credits WHERE series_id=?1 AND provider=?2 AND external_id=?3 ORDER BY billing_order,ordinal")?
                 .query_map(params![id,source.provider,source.external_id], |r| Ok(Credit {
                     person_id:r.get(0)?,name:r.get(1)?,image:r.get(2)?,person_url:r.get(3)?,
                     character_id:r.get(4)?,character:r.get(5)?,character_image:r.get(6)?,
-                    category:r.get(7)?,role:r.get(8)?,language:r.get(9)?,dub_group:r.get(10)?,notes:r.get(11)?,order:r.get(12)?,
+                    category:r.get(7)?,role:r.get(8)?,language:r.get(9)?,dub_group:r.get(10)?,notes:r.get(11)?,order:r.get(12)?,character_bio:r.get(13)?,
                 }))?.collect::<Result<Vec<_>,_>>()?;
         }
         tx.commit()?;
@@ -119,7 +122,7 @@ impl ServerStore {
         )?;
         tx.execute("INSERT INTO credit_sources(series_id,provider,external_id,title,source_url,original_language) VALUES(?1,?2,?3,?4,?5,?6)",params![id,source.provider,source.external_id,source.title,source.source_url,source.original_language])?;
         for (index, c) in source.credits.iter().enumerate() {
-            tx.execute("INSERT INTO series_credits VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",params![id,source.provider,source.external_id,index as i64,c.person_id,c.name,c.image,c.person_url,c.character_id,c.character,c.character_image,c.category,c.role,c.language,c.dub_group,c.notes,c.order])?;
+            tx.execute("INSERT INTO series_credits VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",params![id,source.provider,source.external_id,index as i64,c.person_id,c.name,c.image,c.person_url,c.character_id,c.character,c.character_image,c.category,c.role,c.language,c.dub_group,c.notes,c.order,c.character_bio])?;
         }
         tx.commit()?;
         Ok(())

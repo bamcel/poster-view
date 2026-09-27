@@ -1,35 +1,14 @@
+import CreditCarousel from "./CreditCarousel";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Loader2, RefreshCw, Search, UsersRound } from "lucide-react";
 import { creditsApi, type SeriesCredits } from "../api/credits";
-import { castGroups, creditProviders, displayCredits, languageName, type DisplayCredit } from "../lib/credits";
+import { castGroups, creditProviders, displayCredits, languageName } from "../lib/credits";
 import { useCastPreferences } from "../lib/castPreferences";
 import type { ItemDetail } from "../types";
 
 const control = "rounded-lg border border-white/15 bg-surface px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50";
 const safeUrl = (url: string | null) => url?.startsWith("https://") ? url : undefined;
-
-function PersonCard({ credit }: { credit: DisplayCredit }) {
-  return <article className="flex min-w-0 gap-3 rounded-xl border border-white/10 bg-black/25 p-3">
-    <div className="relative h-20 w-16 shrink-0 overflow-hidden rounded-lg bg-white/10">
-      <div className="absolute inset-0 grid place-items-center text-xl text-white/40" aria-hidden="true">{credit.name[0]}</div>
-      {safeUrl(credit.image) && <img src={credit.image!} alt="" loading="lazy" referrerPolicy="no-referrer" className="relative h-full w-full object-cover" onError={e => { e.currentTarget.style.visibility = "hidden"; }} />}
-    </div>
-    <div className="min-w-0 flex-1">
-      <p className="text-sm font-semibold leading-snug">{credit.name}</p>
-      {credit.character && <p className="mt-1 text-sm text-white/80">{credit.character}</p>}
-      <p className="mt-1 text-xs text-white/55">{credit.role}</p>
-      {credit.dub_group && <p className="mt-1 text-xs text-amber-200">{credit.dub_group}</p>}
-      {credit.notes && <p className="mt-1 text-xs text-white/55">{credit.notes}</p>}
-      <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1">{credit.sources.map(source => safeUrl(source.url) ? <a key={source.provider} href={source.url!} target="_blank" rel="noreferrer" className="text-[10px] text-white/50 hover:text-white">{creditProviders[source.provider]} ↗</a> : <span key={source.provider} className="text-[10px] text-white/50">{creditProviders[source.provider]}</span>)}</div>
-    </div>
-  </article>;
-}
-function CreditGrid({ credits }: { credits: DisplayCredit[] }) {
-  const [expanded, setExpanded] = useState(false);
-  return <><div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">{(expanded ? credits : credits.slice(0, 12)).map((credit, i) => <PersonCard key={`${credit.person_id}-${i}`} credit={credit} />)}</div>
-    {credits.length > 12 && <button className="mt-3 text-sm text-white/70 hover:text-white" onClick={() => setExpanded(!expanded)}>{expanded ? "Show fewer" : `Show all ${credits.length}`}</button>}</>;
-}
 
 export default function CastCrewPanel({ serverId, item, editing = false }: { serverId: number; item: ItemDetail; editing?: boolean }) {
   const display = useCastPreferences();
@@ -40,7 +19,7 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [token, setToken] = useState("");
-  const [tab, setTab] = useState<"cast" | "crew">("cast");
+  const [tab, setTab] = useState("");
   const client = useQueryClient();
   const queryKey = ["series-credits", serverId, item.id];
   const query = useQuery({ queryKey, queryFn: () => creditsApi.get(serverId, item.id), staleTime: 60_000, enabled: display.value.show || editing });
@@ -59,6 +38,11 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
   const languages = [...new Set(["en", "ja", "es", "fr", "de", "it", "pt", "ko", "zh", preference.language, ...(original ? [original] : []), ...sources.flatMap(s => s.credits.map(c => c.language).filter((v): v is string => !!v))])].sort((a, b) => languageName(a).localeCompare(languageName(b)));
   const groups = castGroups(credits, original, preference);
   const crew = credits.filter(c => c.category === "crew");
+  const tabs = groups.map(group => ({ id: group.label, label: group.label.startsWith("Original cast · ") ? `${group.label.split(" · ")[1]} Cast` : group.label === "Original cast" ? "Primary Cast" : group.label.includes("unspecified") ? "Cast · Unspecified language" : group.label.replace(/ cast$/, " Cast"), credits: group.credits, characters: false }));
+  if (!display.value.hide_crew) tabs.push({ id: "crew", label: "Crew", credits: crew, characters: false });
+  tabs.push({ id: "characters", label: "Characters", credits: credits.filter(c => c.category === "cast" && c.character), characters: true });
+  const selectedTab = tabs.find(value => value.id === tab) ?? tabs[0];
+
   const busy = importing.isPending || removing.isPending;
   const linkedId = item.external_ids[provider] ?? (provider === "mal" ? item.external_ids.myanimelist : undefined);
   const error = importing.error ?? removing.error ?? language.error;
@@ -105,14 +89,18 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
     {!editing && !query.isLoading && !query.error && !sources.length && <p className="py-8 text-center text-sm text-white/65">No saved cast or crew. Use Find Missing Metadata from the title menu.</p>}
     {!editing && sources.length > 0 && <>
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 rounded-lg bg-black/30 p-1" role="group" aria-label="Credit category">{(display.value.hide_crew ? ["cast"] as const : ["cast", "crew"] as const).map(value => <button key={value} aria-pressed={tab === value} className={`rounded-md px-4 py-2 text-sm ${tab === value ? "bg-white/15 text-white" : "text-white/50"}`} onClick={() => setTab(value)}>{value === "cast" ? "Cast" : "Crew"} · {credits.filter(c => c.category === value).length}</button>)}</div>
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Cast and crew categories">{tabs.map(value => <button key={value.id} role="tab" aria-selected={selectedTab.id === value.id} tabIndex={selectedTab.id === value.id ? 0 : -1} id={`credit-tab-${item.id}-${encodeURIComponent(value.id)}`} aria-controls={`credit-panel-${item.id}`} className={`rounded-full px-4 py-2 text-sm font-medium ${selectedTab.id === value.id ? "bg-accent text-base" : "bg-white/5 text-muted hover:bg-white/10"}`} onClick={() => setTab(value.id)} onKeyDown={event => {
+          const index = tabs.indexOf(value);
+          const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1;
+          if (next >= 0) { event.preventDefault(); setTab(tabs[next].id); (event.currentTarget.parentElement?.children[next] as HTMLElement)?.focus(); }
+        }}>{value.label}</button>)}</div>
         <select className={control} aria-label="Displayed credits source" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}><option value="all">All saved sources</option>{[...new Set(sources.map(s => s.provider))].map(provider => <option key={provider} value={provider}>{creditProviders[provider]}</option>)}</select>
       </div>
-      {tab === "cast" || display.value.hide_crew ? <>
-        {!original && <p className="mt-3 text-sm text-amber-200">Choose the series’ original language to identify its primary cast. {reportedLanguages.length > 1 ? "The saved providers report different original languages." : "Providers do not always supply it."}</p>}
-        {groups.map(group => <div className="mt-5" key={`${group.label}-${sourceFilter}`}><h3 className="mb-3 text-sm font-semibold text-white/80">{group.label} <span className="font-normal text-white/40">{group.credits.length}</span></h3>{group.credits.length ? <CreditGrid credits={group.credits} /> : <p className="rounded-lg border border-dashed border-white/15 p-4 text-sm text-white/45">{!original && group.label === "Original cast" ? "Choose the original language in Edit Metadata → Provider matching." : "No credits for this language in the saved sources. Try another provider to fill the gap."}</p>}</div>)}
-        {groups.some(g => g.label.includes("unspecified")) && <p className="mt-3 text-xs text-white/40">These credits have no confirmed performance language. Localized provider text does not establish a dubbed cast.</p>}
-      </> : <div className="mt-5">{crew.length ? <CreditGrid key={sourceFilter} credits={crew} /> : <p className="py-5 text-sm text-white/50">No crew credits supplied by these sources.</p>}</div>}
+      <div role="tabpanel" id={`credit-panel-${item.id}`} aria-labelledby={`credit-tab-${item.id}-${encodeURIComponent(selectedTab.id)}`} className="mt-5">
+        <CreditCarousel key={`${selectedTab.id}:${sourceFilter}`} credits={selectedTab.credits} characters={selectedTab.characters} label={selectedTab.label} />
+        {!original && selectedTab.id === "Original cast" && <p className="mt-3 text-sm text-muted">Choose the original language in Edit Metadata → Provider matching.</p>}
+        {selectedTab.id.includes("unspecified") && <p className="mt-3 text-xs text-muted">These providers do not identify the performance language.</p>}
+      </div>
     </>}
   </section>;
 }

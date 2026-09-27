@@ -4,6 +4,7 @@ export interface Credit {
   person_id: string; name: string; image: string | null; person_url: string | null;
   character_id: string | null; character: string | null; character_image: string | null;
   category: "cast" | "crew"; role: string; language: string | null;
+  character_bio?: string | null;
   dub_group: string | null; notes: string | null; order: number;
 }
 export interface CreditSource {
