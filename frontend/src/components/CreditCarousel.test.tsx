@@ -19,3 +19,18 @@ it("scrolls wheel input horizontally and releases it at the row boundary", () =>
   fireEvent.click(screen.getByRole("button", { name: "Next Japanese Cast" }));
   expect(row.scrollBy).toHaveBeenCalledWith(expect.objectContaining({ left: 160 }));
 });
+
+it("overlays character portraits only for animation cast and hides broken images", () => {
+  const credit = { person_id: "1", name: "Actor", character: "Hero", character_image: "https://example.com/hero.jpg", category: "cast", role: "Voice", sources: [] } as unknown as DisplayCredit;
+  const { rerender } = render(<CreditCarousel credits={[credit]} characters={false} label="Cast" showCharacterPortraits />);
+  const portrait = screen.getByAltText("Hero character portrait");
+  expect(portrait.getAttribute("src")).toBe(credit.character_image);
+  fireEvent.error(portrait);
+  expect(portrait.style.display).toBe("none");
+  rerender(<CreditCarousel credits={[credit]} characters={false} label="Cast" />);
+  expect(screen.queryByAltText("Hero character portrait")).toBeNull();
+  rerender(<CreditCarousel credits={[{ ...credit, category: "crew" }]} characters={false} label="Crew" showCharacterPortraits />);
+  expect(screen.queryByAltText("Hero character portrait")).toBeNull();
+  rerender(<CreditCarousel credits={[credit]} characters label="Characters" showCharacterPortraits />);
+  expect(screen.queryByAltText("Hero character portrait")).toBeNull();
+});

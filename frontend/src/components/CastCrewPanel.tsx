@@ -95,7 +95,7 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
         }}>{value.label}</button>)}</div>
       </div>
       <div role="tabpanel" id={`credit-panel-${item.id}`} aria-labelledby={`credit-tab-${item.id}-${encodeURIComponent(selectedTab.id)}`} className="mt-5">
-        <CreditCarousel key={selectedTab.id} credits={selectedTab.credits} characters={selectedTab.characters} label={selectedTab.label} />
+        <CreditCarousel key={selectedTab.id} credits={selectedTab.credits} characters={selectedTab.characters} label={selectedTab.label} showCharacterPortraits={sources.some(source => source.provider === "anilist" || source.provider === "mal") || Object.entries(item.external_ids).some(([provider, id]) => !!id && ["anilist", "mal", "myanimelist", "anidb"].includes(provider.toLowerCase())) || (item.genres ?? []).some(genre => ["anime", "animation", "animated"].includes(genre.trim().toLowerCase()))} />
         {!original && selectedTab.id === "Original cast" && <p className="mt-3 text-sm text-muted">Choose the original language in Edit Metadata → Provider matching.</p>}
       </div>
     </>}

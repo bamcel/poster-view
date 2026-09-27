@@ -6,7 +6,7 @@ import DetailSynopsis from "./DetailSynopsis";
 
 const safeImage = (url?: string | null) => url?.startsWith("https://") ? url : undefined;
 
-export default function CreditCarousel({ credits, characters, label }: { credits: DisplayCredit[]; characters: boolean; label: string }) {
+export default function CreditCarousel({ credits, characters, label, showCharacterPortraits = false }: { credits: DisplayCredit[]; characters: boolean; label: string; showCharacterPortraits?: boolean }) {
   const row = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ start: true, end: true });
   const [selected, setSelected] = useState<string | null>(null);
@@ -48,6 +48,12 @@ export default function CreditCarousel({ credits, characters, label }: { credits
           <button type="button" disabled={!characters} aria-label={characters ? `Character info for ${card.name}` : card.name} aria-expanded={characters ? selected === card.key : undefined} onClick={() => setSelected(selected === card.key ? null : card.key)} className="relative block aspect-[2/3] w-full overflow-hidden rounded-xl bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-default">
             <span className="absolute inset-0 grid place-items-center text-4xl text-muted" aria-hidden="true">{card.name[0]}</span>
             {safeImage(card.image) && <img src={card.image!} alt="" loading="lazy" referrerPolicy="no-referrer" className="relative h-full w-full object-cover" onError={event => { event.currentTarget.style.visibility = "hidden"; }} />}
+            {showCharacterPortraits && !characters && credits[index].category === "cast" && credits[index].character && safeImage(credits[index].character_image) && <img
+              src={credits[index].character_image!} alt={`${credits[index].character} character portrait`} title={credits[index].character!}
+              loading="lazy" referrerPolicy="no-referrer"
+              className="absolute bottom-2 right-2 aspect-[2/3] w-[36%] rounded-lg border-2 border-surface bg-surface object-cover shadow-lg"
+              onError={event => { event.currentTarget.style.display = "none"; }}
+            />}
           </button>
           <p className="mt-2 text-sm font-semibold leading-snug">{card.name}</p>
           <p className="mt-1 text-sm leading-snug text-muted">{card.subtitle}</p>
