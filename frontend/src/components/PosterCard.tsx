@@ -160,7 +160,7 @@ export default function PosterCard({
       </button>
       {onSelect && <button type="button" aria-label={`Select ${title}`} aria-pressed={!!selected}
         onClick={event => { event.stopPropagation(); onSelect(event.shiftKey); }}
-        className={`absolute left-2 top-2 z-10 grid size-7 place-items-center rounded-full border shadow backdrop-blur-sm transition-opacity focus-visible:opacity-100 ${selected ? "border-accent bg-accent text-black" : "border-white/50 bg-white/20 text-white"} ${selectionMode || selected ? "opacity-100" : "opacity-0 group-hover/selection:opacity-100 group-focus-within/selection:opacity-100 [@media(hover:none)]:opacity-100"}`}>
+        className={`poster-selection-toggle absolute left-2 top-2 z-10 grid size-7 place-items-center rounded-full border shadow backdrop-blur-sm transition-opacity focus-visible:opacity-100 ${selected ? "border-accent bg-accent text-black" : "border-white/50 bg-white/20 text-white"} ${selectionMode || selected ? "opacity-100" : "opacity-0 group-hover/selection:opacity-100 group-focus-within/selection:opacity-100 [@media(hover:none)]:opacity-100"}`}>
         {selected && <Check className="size-4" />}
       </button>}
       {menuOpen && (onRefresh || onEditMetadata || onFindMetadata) && (

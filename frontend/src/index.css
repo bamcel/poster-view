@@ -199,6 +199,8 @@ select {
 }
 @media (max-width: 767px), (pointer: coarse) {
   :where(button, select, summary, a[aria-label]) { min-height: 44px; }
+  /* Match the touch-target height so poster selection controls stay circular. */
+  .poster-selection-toggle { width: 44px; height: 44px; }
   :where(input:not([type="checkbox"]):not([type="radio"]):not([type="color"])) { min-height: 44px; }
   label:has(> input[type="checkbox"]) { min-height: 44px; }
 }
