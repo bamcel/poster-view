@@ -404,8 +404,10 @@ it("keeps each provider test result inside its own card", async () => {
   await waitFor(() => expect(within(fanart).getByRole("button", { name: "Test Connection" }).hasAttribute("disabled")).toBe(false));
   fireEvent.click(within(fanart).getByRole("button", { name: "Test Connection" }));
   expect(await within(fanart).findByText("fanart connected.", { exact: false })).toBeTruthy();
+  expect(within(fanart).getByRole("img", { name: "Fanart.tv connection verified" })).toBeTruthy();
   fireEvent.click(within(tvdb).getByRole("button", { name: "Test Connection" }));
   expect(await within(tvdb).findByText("TheTVDB rejected the credentials.", { exact: false })).toBeTruthy();
+  expect(within(tvdb).queryByRole("img", { name: "TheTVDB connection verified" })).toBeNull();
   expect(within(fanart).queryByText("TheTVDB rejected the credentials.", { exact: false })).toBeNull();
   expect(within(fanart).getByText("fanart connected.", { exact: false })).toBeTruthy();
   client.clear();

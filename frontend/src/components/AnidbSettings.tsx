@@ -22,7 +22,7 @@ export default function AnidbSettings() {
     if (!save.isPending && Number.isInteger(next.version) && next.version > 0 && (!next.enabled || !!next.client.trim()) && JSON.stringify(next) !== JSON.stringify(query.data)) save.mutate(next);
   };
   const input = "mt-1 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm";
-  return <ProviderConnection id="anidb" name="AniDB" description="Anime metadata" status={query.isError ? "Configuration unavailable" : save.isPending ? "Saving…" : test.isPending || test.data || test.error ? providerStatus(!!query.data?.client, test.isPending, test.data, test.error) : query.isPending ? "Checking configuration…" : query.data?.enabled ? "Enabled" : "Disabled"} setupUrl="https://anidb.net/perl-bin/animedb.pl?show=client">
+  return <ProviderConnection id="anidb" name="AniDB" description="Anime metadata" status={query.isError ? "Configuration unavailable" : save.isPending ? "Saving…" : providerStatus(query.data ? !!query.data.client.trim() : undefined, test.isPending, test.data, test.error)} setupUrl="https://anidb.net/perl-bin/animedb.pl?show=client">
     <form aria-label="AniDB configuration" className="space-y-3" onSubmit={e => { e.preventDefault(); autoSave(); }}>
     <p className="text-xs text-muted">Optional anime metadata source for Find Missing Metadata. Uses confirmed AniDB IDs, preserves existing fields, and caches responses for 30 days.</p>
     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={value.enabled} disabled={query.isPending || query.isError || save.isPending} onChange={e => { const next = { ...value, enabled: e.target.checked }; change(next); autoSave(next); }} />Enable AniDB metadata</label>

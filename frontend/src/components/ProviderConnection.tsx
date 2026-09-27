@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from "react";
-import { ChevronDown, ExternalLink } from "lucide-react";
+import { CheckCircle2, ChevronDown, ExternalLink } from "lucide-react";
 
 export default function ProviderConnection({ id, name, description, status, setupUrl, children }: {
   id: string; name: string; description: string; status: string; setupUrl: string; children: ReactNode;
@@ -13,10 +13,13 @@ export default function ProviderConnection({ id, name, description, status, setu
         onClick={() => { const next = !open; setOpen(next); sessionStorage.setItem(key, String(next)); }}
         className="flex w-full items-center gap-4 px-4 py-4 text-left transition-colors hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
         <span className="min-w-0 flex-1 sm:grid sm:grid-cols-[minmax(9rem,1fr)_2fr] sm:items-center sm:gap-4">
-          <span className="block text-sm font-semibold">{name}</span>
+          <span className="flex items-center gap-2 text-sm font-semibold">
+            <span className="size-4 shrink-0">{status === "Connection verified" && <CheckCircle2 className="size-4 text-green-500" role="img" aria-label={`${name} connection verified`} />}</span>
+            {name}
+          </span>
           <span className="mt-1 block text-xs font-normal text-faint sm:mt-0">{description}</span>
         </span>
-        <span className="max-w-36 text-right text-xs font-normal text-muted">{status}</span>
+        <span className="w-36 shrink-0 text-right text-xs font-normal text-muted">{status}</span>
         <ChevronDown className={`size-4 shrink-0 text-muted transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
       </button>
     </h3>

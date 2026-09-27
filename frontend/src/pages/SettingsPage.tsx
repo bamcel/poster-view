@@ -1056,13 +1056,13 @@ function EnabledArtworkSourcesFields() {
           { label: "Poster", kind: "poster" as const, names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
           { label: "eReader", kind: "ereader" as const, names: ["anilist-manga", "comicvine", "mangadex", "viz"] },
         ].map((group) => (
-          <fieldset key={group.label} className="min-w-0 rounded-xl border border-border bg-surface-2 p-4">
-            <legend className="flex items-center gap-3 px-1 text-sm">
+          <div key={group.label} role="group" aria-labelledby={`provider-group-${group.kind}`} className="min-w-0 rounded-xl border border-border bg-surface-2 p-4">
+            <div id={`provider-group-${group.kind}`} className="mb-3 flex items-center gap-3 text-sm">
                 <span className="block font-medium text-white">{group.label} providers</span>
                 <span className="block text-xs text-faint">
                   {settingsQ.isLoading ? "Loading providers…" : `${group.names.filter((name) => enabled.includes(name)).length} of ${group.names.length} enabled`}
                 </span>
-            </legend>
+            </div>
             <div className="mb-3">
               <DefaultArtworkSourceFields kind={group.kind} names={group.names} />
             </div>
@@ -1085,7 +1085,7 @@ function EnabledArtworkSourcesFields() {
           );
         })}
             </div>
-          </fieldset>
+          </div>
         ))}
       </div>
       <p className="mt-3 text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Sync, and removed from the local cache.</p>
