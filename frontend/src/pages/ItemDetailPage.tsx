@@ -254,7 +254,7 @@ export default function ItemDetailPage() {
                         <RefreshCw
                           className={`size-4 ${detailQ.isFetching ? "animate-spin" : ""}`} aria-hidden="true"
                         />
-                        
+
                       </button>
                       <button type="button" onClick={() => setArtworkOpen(true)} aria-label="Edit Artwork" title="Edit Artwork" aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className={detailActionClass}>
                         <Images className="size-4" aria-hidden="true" />
@@ -282,7 +282,7 @@ export default function ItemDetailPage() {
                         className={detailActionClass}
                       >
                         <RefreshCw aria-hidden="true" className={`size-4 ${refreshArtwork.isPending ? "animate-spin" : ""}`} />
-                        
+
                       </button>
                       <button
                         type="button"
