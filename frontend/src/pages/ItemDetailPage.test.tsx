@@ -42,8 +42,8 @@ it("opens a season from its series card and preserves library context", async ()
   const seasonsHeading = screen.getByRole("heading", { name: "Seasons" });
   const about = screen.getByRole("region", { name: "About" });
   const cast = screen.getByRole("region", { name: "Cast & Crew" });
-  expect(seasonsHeading.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(about.compareDocumentPosition(cast) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(seasonsHeading.compareDocumentPosition(cast) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(cast.compareDocumentPosition(about) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   fireEvent.click(openSeason);
   expect(await screen.findByText("/server/7/series/show/season/season?return_library=tv")).toBeTruthy();
   client.clear();

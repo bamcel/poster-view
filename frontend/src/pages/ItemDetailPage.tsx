@@ -355,9 +355,9 @@ export default function ItemDetailPage() {
                 )}
 
                 {item.type === "book" && <button className="mt-5 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-base hover:bg-accent-hover" onClick={()=>navigate(`/read/${serverId}/${encodeURIComponent(item.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`)}>Read Book</button>}
+                {(item.type === "show" || item.type === "movie") && <CastCrewPanel key={`${serverId}:${item.id}`} serverId={serverId} item={item} />}
                 {(item.type === "show" || item.type === "movie") && <ItemAbout item={item} />}
                 {(item.type === "show" || item.type === "movie") && Object.entries(item.external_ids).filter(([key, id]) => key.toLowerCase() === "imdb" && /^tt\d{7,12}$/.test(id)).map(([, id]) => <ImdbMetadata key={id} id={id} />)}
-                {(item.type === "show" || item.type === "movie") && <CastCrewPanel key={`${serverId}:${item.id}`} serverId={serverId} item={item} />}
                 {/* Volume cards open the reader; nested folders keep their detail pages. */}
                 {item.members.length > 0 && (
                   <section className="mt-10">
