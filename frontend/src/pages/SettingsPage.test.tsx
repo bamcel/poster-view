@@ -450,9 +450,9 @@ it("saves the shared TMDB token from Search Providers and clears the input", asy
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings?tab=sources"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
   const input = await screen.findByLabelText("TMDB API Read Access Token");
-  expect((screen.getByRole("button", { name: "Save token" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole("button", { name: "Save token" })).toBeNull();
   fireEvent.change(input, { target: { value: " test-token " } });
-  fireEvent.click(screen.getByRole("button", { name: "Save token" }));
+  fireEvent.blur(input);
   await waitFor(() => expect(creditsApi.saveToken).toHaveBeenCalledWith("test-token"));
   await screen.findByText("Token saved");
   expect((input as HTMLInputElement).value).toBe("");

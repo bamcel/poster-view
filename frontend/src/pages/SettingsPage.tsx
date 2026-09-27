@@ -915,11 +915,11 @@ function TmdbCredentialsFields() {
   const settings = useQuery({ queryKey: ["credit-settings"], queryFn: creditsApi.settings });
   const test = useMutation({ mutationFn: () => api.testArtworkProvider({ provider: "tmdb" }) });
   const save = useMutation({
-    mutationFn: () => creditsApi.saveToken(token.trim()),
+    mutationFn: (value: string) => creditsApi.saveToken(value),
     onMutate: () => reportSettingsSave("saving"),
-    onSuccess: value => {
+    onSuccess: (value, savedToken) => {
       client.setQueryData(["credit-settings"], value);
-      setToken("");
+      setToken(current => current.trim() === savedToken ? "" : current);
       test.reset();
       reportSettingsSave("saved");
       toast.push("success", "TMDB credentials saved.");
@@ -929,18 +929,17 @@ function TmdbCredentialsFields() {
       toast.push("error", error.message);
     },
   });
-  return <form className="mb-4 rounded-xl border border-border bg-surface-2 p-4" onSubmit={event => { event.preventDefault(); if (token.trim()) save.mutate(); }}>
+  return <form className="mb-4 rounded-xl border border-border bg-surface-2 p-4" onSubmit={event => { event.preventDefault(); if (token.trim() && !save.isPending) save.mutate(token.trim()); }}>
     <h3 className="text-sm font-semibold">The Movie Database (TMDB)</h3>
     <p className="mt-1 text-xs text-faint">Movie and TV metadata, cast, and crew. Used by Find Missing Metadata and credit lookups across all libraries.</p>
-    <p className="mt-2 text-xs text-muted" role="status">{settings.isLoading ? "Checking configuration…" : settings.isError ? "Unable to load configuration." : settings.data?.tmdb_configured ? "Token saved" : "Not configured"}</p>
+    <p className="mt-2 text-xs text-muted" role="status">{save.isPending ? "Saving…" : settings.isLoading ? "Checking configuration…" : settings.isError ? "Unable to load configuration." : settings.data?.tmdb_configured ? "Token saved" : "Not configured"}</p>
     <div className="mt-3 flex flex-wrap items-end gap-3">
       <label className="min-w-0 flex-1 text-xs font-medium text-muted">TMDB API Read Access Token
-        <input type="password" autoComplete="off" className={`${compactInputCls} mt-1 w-full`} value={token} onChange={event => { setToken(event.target.value); save.reset(); }} placeholder={settings.data?.tmdb_configured ? "Leave blank to keep saved token" : "Paste API Read Access Token"} />
+        <input type="password" autoComplete="off" className={`${compactInputCls} mt-1 w-full`} value={token} disabled={save.isPending} onBlur={() => { if (token.trim() && !save.isPending) save.mutate(token.trim()); }} onChange={event => { setToken(event.target.value); save.reset(); test.reset(); }} placeholder={settings.data?.tmdb_configured ? "Leave blank to keep saved token" : "Paste API Read Access Token"} />
       </label>
-      <button type="submit" className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-surface disabled:opacity-50" disabled={!token.trim() || save.isPending}>{save.isPending ? "Saving…" : "Save token"}</button>
       <button type="button" className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-surface disabled:opacity-50" disabled={!settings.data?.tmdb_configured || test.isPending || save.isPending || !!token.trim()} onClick={() => test.mutate()}>{test.isPending ? "Testing…" : "Test Connection"}</button>
     </div>
-    <p className="mt-2 text-xs text-faint">Use the API Read Access Token, not the API key. Save changes before testing the connection.</p>
+    <p className="mt-2 text-xs text-faint">Use the API Read Access Token, not the API key. Changes save automatically when you leave the field.</p>
     {test.data && <p role="status" className={`mt-2 text-sm ${test.data.ok ? "text-green-400" : "text-red-400"}`}>{test.data.message}</p>}
     {test.isError && <p role="alert" className="mt-2 text-sm text-red-400">{test.error.message}</p>}
     {save.isError && <p role="alert" className="mt-2 text-sm text-red-400">{save.error.message}</p>}
