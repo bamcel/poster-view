@@ -493,7 +493,7 @@ impl Runtime {
             self.update_task(&task.id, |t| {
                 finish(
                     t,
-                    if t.failed > 0 || t.needs_matching > 0 {
+                    if t.failed > 0 || t.needs_matching > 0 || !t.issues.is_empty() {
                         "completed_with_issues"
                     } else {
                         "completed"
@@ -514,7 +514,7 @@ impl Runtime {
                         let updated = !result.filled.is_empty() || result.credits_added > 0;
                         t.updated += usize::from(updated); t.skipped += usize::from(!updated && result.issues.is_empty());
                         t.needs_matching += usize::from(result.needs_matching);
-                        t.failed += usize::from(!result.needs_matching && !result.issues.is_empty());
+                        t.failed += usize::from(!result.needs_matching && result.issues.iter().any(|issue| !issue.contains("Jikan temporarily unavailable")));
                         for message in result.issues { if t.issues.len() < 200 { t.issues.push(TaskIssue { server_id: item.server_id, item_id: item.id.clone(), title: item.title.clone(), message, needs_matching: result.needs_matching }); } }
                     },
                     Err(e) => { t.failed += 1; if t.issues.len() < 200 { t.issues.push(TaskIssue { server_id: item.server_id, item_id: item.id.clone(), title: item.title.clone(), message: e.to_string(), needs_matching: false }); } }

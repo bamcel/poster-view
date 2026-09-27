@@ -56,7 +56,54 @@ pub(crate) async fn response(mut response: reqwest::Response) -> Result<Value, S
     }
     Ok(value)
 }
+static JIKAN_GATE: Mutex<Option<tokio::time::Instant>> = Mutex::const_new(None);
+
+fn retryable_jikan_status(status: u16) -> bool {
+    matches!(status, 408 | 429 | 500 | 502 | 503 | 504)
+}
+
+async fn jikan_request(builder: RequestBuilder) -> Result<Value, String> {
+    // Serialize Jikan requests, including retries, across metadata and credits jobs.
+    let mut next = JIKAN_GATE.lock().await;
+    if let Some(deadline) = *next {
+        let delay = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if delay > Duration::from_secs(2) {
+            return Err(format!("Jikan temporarily unavailable; retry this task after {} seconds. Existing metadata was kept.", delay.as_secs() + 1));
+        }
+        tokio::time::sleep_until(deadline).await;
+    }
+    for attempt in 0..3 {
+        let response_result = builder.try_clone().ok_or("Unable to retry Jikan request.")?
+            .timeout(Duration::from_secs(30)).send().await;
+        let mut retry_after = None;
+        match response_result {
+            Ok(reply) => {
+                if !retryable_jikan_status(reply.status().as_u16()) {
+                    *next = Some(tokio::time::Instant::now() + Duration::from_millis(1100));
+                    return response(reply).await;
+                }
+                retry_after = reply.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(|v| v.parse::<u64>().ok());
+            }
+            Err(error) if !error.is_timeout() && !error.is_connect() => {
+                *next = Some(tokio::time::Instant::now() + Duration::from_millis(1100));
+                return Err("Jikan request failed. Existing metadata was kept.".into());
+            }
+            Err(_) => {}
+        }
+        let delay = retry_after.unwrap_or(2_u64 << attempt).max(2);
+        if attempt == 2 || delay > 30 {
+            *next = Some(tokio::time::Instant::now() + Duration::from_secs(delay.max(60)));
+            return Err(format!("Jikan temporarily unavailable after retries; retry this task after {} seconds. Existing metadata was kept.", delay.max(60)));
+        }
+        tokio::time::sleep(Duration::from_secs(delay)).await;
+    }
+    unreachable!()
+}
+
 pub(crate) async fn request(builder: RequestBuilder) -> Result<Value, String> {
+    if builder.try_clone().and_then(|b| b.build().ok()).is_some_and(|r| r.url().host_str() == Some("api.jikan.moe")) {
+        return jikan_request(builder).await;
+    }
     pace().await;
     response(
         builder
@@ -550,5 +597,23 @@ mod tests {
         assert!(parse_tmdb("1", &json!({"name":"Series"})).is_err());
         assert!(!valid_credit_id("../1"));
         assert!(!valid_credit_id("0"));
+    }
+}
+
+#[cfg(test)]
+mod jikan_retry_tests {
+    use super::*;
+    #[tokio::test]
+    async fn cooldown_skips_network_requests_and_retains_retry_guidance() {
+        *JIKAN_GATE.lock().await = Some(tokio::time::Instant::now() + Duration::from_secs(60));
+        let result = jikan_request(reqwest::Client::new().get("http://127.0.0.1:1/unreachable")).await;
+        assert!(result.unwrap_err().contains("Jikan temporarily unavailable; retry this task after"));
+        *JIKAN_GATE.lock().await = None;
+    }
+
+    #[test]
+    fn retries_transient_failures_not_credentials_or_bad_matches() {
+        for status in [408, 429, 500, 502, 503, 504] { assert!(retryable_jikan_status(status)); }
+        for status in [200, 400, 401, 403, 404, 422] { assert!(!retryable_jikan_status(status)); }
     }
 }
