@@ -3,7 +3,7 @@ import { useMutation,useQuery,useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { enrichmentApi } from "../api/videoEnrichment";
 import CastCrewPanel from "./CastCrewPanel";
-const providers=[["tmdb","TMDB"],["tvdb","TheTVDB"],["anilist","AniList"],["mal","MyAnimeList"],["imdb","IMDb"]];
+const providers=[["tmdb","TMDB"],["tvdb","TheTVDB"],["anilist","AniList"],["mal","MyAnimeList (MAL)"],["imdb","IMDb"]];
 export default function VideoMetadataTools({serverId,itemId}:{serverId:number;itemId:string}) {
   const client=useQueryClient(); const [draft,setDraft]=useState<Record<string,string>>({});
   const item=useQuery({queryKey:["item-detail",serverId,itemId],queryFn:()=>api.getItemDetail(serverId,itemId)});

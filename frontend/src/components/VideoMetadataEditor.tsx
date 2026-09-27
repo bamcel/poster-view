@@ -7,14 +7,14 @@ const groups: { title: string; fields: [string, string][] }[] = [
   { title: "Identity & description", fields: [["title", "Title"], ["originaltitle", "Original title"], ["sorttitle", "Sort title"], ["year", "Year"], ["plot", "Plot"], ["outline", "Outline"], ["tagline", "Tagline"]] },
   { title: "Details", fields: [["premiered", "Premiere date"], ["releasedate", "Release date"], ["enddate", "End date"], ["runtime", "Runtime (minutes)"], ["mpaa", "Content rating"], ["status", "Status"], ["rating", "Rating"], ["criticrating", "Critic rating"], ["customrating", "Custom rating"], ["language", "Language"]] },
   { title: "Classification & crew", fields: [["genre", "Genres"], ["tag", "Tags"], ["studio", "Studios"], ["country", "Countries"], ["director", "Directors"], ["credits", "Writing credits"], ["writer", "Writers"], ["trailer", "Trailer links"]] },
-  { title: "Provider IDs", fields: [["imdbid", "IMDb ID"], ["tmdbid", "TMDB ID"], ["tvdbid", "TVDB ID"]] },
+  { title: "NFO Provider IDs", fields: [["imdbid", "IMDb ID"], ["tmdbid", "TMDB ID"], ["tvdbid", "TVDB ID"]] },
 ];
 const multiline = new Set(["plot", "outline", ...groups[2].fields.map(([key]) => key)]);
 const button = "rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-40";
 const input = "mt-1 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-white disabled:opacity-60";
 
 export default function VideoMetadataEditor({ serverId, itemId, onClose }: { serverId: number; itemId: string; onClose: () => void }) {
-  const [providerToolsOpen, setProviderToolsOpen] = useState(false);
+  const [providerToolsOpen, setProviderToolsOpen] = useState(true);
   const [document, setDocument] = useState<VideoDocument>();
   const [fields, setFields] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<VideoDocument>();
@@ -56,7 +56,7 @@ export default function VideoMetadataEditor({ serverId, itemId, onClose }: { ser
     <section role="dialog" aria-modal="true" aria-label="Edit movie or series metadata" className="flex max-h-[92dvh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
       <header className="flex items-center justify-between border-b border-border p-4"><div><h2 className="text-lg font-semibold">Edit Metadata</h2><p className="text-xs text-muted">Existing Emby movie / series NFO</p></div><button className={button} disabled={busy} onClick={close} aria-label="Close metadata editor"><X className="size-5" /></button></header>
       <div className="space-y-5 overflow-y-auto p-4">
-        <details onToggle={e => setProviderToolsOpen(e.currentTarget.open)}><summary className="cursor-pointer font-medium">Provider matching &amp; imported metadata</summary>{providerToolsOpen && <div className="mt-4"><VideoMetadataTools serverId={serverId} itemId={itemId} /></div>}</details>
+        <details open={providerToolsOpen} onToggle={e => setProviderToolsOpen(e.currentTarget.open)}><summary className="cursor-pointer font-medium">Provider matching &amp; imported metadata</summary>{providerToolsOpen && <div className="mt-4"><VideoMetadataTools serverId={serverId} itemId={itemId} /></div>}</details>
         {error && <p role="alert" className="text-sm text-danger">{error}</p>}
         {saved && <p role="status" className="text-sm text-success">NFO saved. Refresh metadata in your media server to display the changes there.</p>}
         {busy && <p role="status" className="text-sm text-muted">Working…</p>}
