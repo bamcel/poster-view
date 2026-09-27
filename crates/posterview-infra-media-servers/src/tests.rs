@@ -282,7 +282,7 @@ fn manga_series_own_cover_wins_over_first_volume_fallback() {
     );
 }
 
-async fn serve(app: Router) -> (String, tokio::task::JoinHandle<()>) {
+pub(crate) async fn serve(app: Router) -> (String, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let task = tokio::spawn(async move {

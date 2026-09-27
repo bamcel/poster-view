@@ -1,9 +1,12 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import SettingsPage from "./SettingsPage";
 import { api } from "../api/client";
+import type { AppearanceSettings } from "../types";
+
+vi.mock("../components/AppearancePreview", () => ({ default: ({ onClose }: { onClose: () => void }) => <section aria-label="Live Dashboard preview"><button onClick={onClose}>Close split view</button></section> }));
 
 vi.mock("../api/client", () => ({
   api: {
@@ -35,7 +38,7 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   vi.mocked(api.listServers).mockResolvedValue([]);
-  const appearance = { configured: true, backdrops_enabled: false, panel_solidity: 40, panel_blur: 12, panel_overlay: 0, backdrop_overlay: 72, theme_name: "Everforest", custom_themes_json: "[]" };
+  const appearance = { configured: true, backdrops_enabled: false, panel_solidity: 40, panel_blur: 12, panel_overlay: 0, backdrop_overlay: 72, pill_background_opacity: 5, theme_name: "Everforest", custom_themes_json: "[]" };
   vi.mocked(api.appearanceSettings).mockResolvedValue(appearance);
   vi.mocked(api.saveAppearanceSettings).mockImplementation(async (settings) => settings);
   vi.mocked(api.posterdbStatus).mockResolvedValue({ configured: true, logged_in: false, email: "test@example.test", message: "" });
@@ -52,6 +55,60 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+it("opens, resizes and closes the desktop preview while retaining Appearance controls", () => {
+  const originalWidth = window.innerWidth;
+  Object.defineProperty(window, "innerWidth", { value: 1600, configurable: true });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/settings?tab=appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", { name: "Split View" }));
+  expect(screen.getByRole("region", { name: "Live Dashboard preview" })).toBeTruthy();
+  const divider = screen.getByRole("separator");
+  fireEvent.keyDown(divider, { key: "ArrowRight" });
+  expect(divider.getAttribute("aria-valuenow")).toBe("42");
+  expect(screen.getByRole("slider", { name: "Panel Blur" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close split view" }));
+  expect(screen.queryByRole("region", { name: "Live Dashboard preview" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Split View" }).getAttribute("aria-pressed")).toBe("false");
+  Object.defineProperty(window, "innerWidth", { value: originalWidth, configurable: true });
+  client.clear();
+});
+
+it("coalesces slider saves and does not apply an older response over the latest adjustment", async () => {
+  const pending: { settings: AppearanceSettings; resolve: (settings: AppearanceSettings) => void }[] = [];
+  vi.mocked(api.saveAppearanceSettings).mockImplementation(settings => new Promise(resolve => pending.push({ settings, resolve })));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/settings?tab=appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  const slider = screen.getByRole("slider", { name: "Panel Blur" }) as HTMLInputElement;
+  await waitFor(() => expect(slider.value).toBe("12"));
+  fireEvent.change(slider, { target: { value: "14" } });
+  fireEvent.change(slider, { target: { value: "18" } });
+  fireEvent.change(slider, { target: { value: "24" } });
+  expect(pending).toHaveLength(1);
+  await act(async () => pending[0].resolve(pending[0].settings));
+  expect(slider.value).toBe("24");
+  expect(pending).toHaveLength(2);
+  expect(pending[1].settings.panel_blur).toBe(24);
+  await act(async () => pending[1].resolve(pending[1].settings));
+  await waitFor(() => expect(client.getQueryData<AppearanceSettings>(["appearance-settings"])?.panel_blur).toBe(24));
+  client.clear();
+});
+
+it("previews, saves and resets pill background opacity", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/settings?tab=appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  const slider = screen.getByRole("slider", { name: "Pill Background" }) as HTMLInputElement;
+  await waitFor(() => expect(client.getQueryData(["appearance-settings"])).toBeTruthy());
+  expect(slider.value).toBe("5");
+  fireEvent.change(slider, { target: { value: "65" } });
+  expect(document.documentElement.style.getPropertyValue("--pill-background-opacity")).toBe("65%");
+  await waitFor(() => expect(api.saveAppearanceSettings).toHaveBeenCalledWith(expect.objectContaining({ pill_background_opacity: 65 })));
+  fireEvent.click(screen.getByRole("button", { name: "Reset to default" }));
+  await waitFor(() => expect(slider.value).toBe("5"));
+  expect(document.documentElement.style.getPropertyValue("--pill-background-opacity")).toBe("5%");
+  await waitFor(() => expect(api.saveAppearanceSettings).toHaveBeenLastCalledWith(expect.objectContaining({ pill_background_opacity: 5 })));
+  client.clear();
 });
 
 it("previews a palette color and saves it as a selectable custom theme", async () => {

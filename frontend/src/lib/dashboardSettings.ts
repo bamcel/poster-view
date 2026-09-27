@@ -8,6 +8,18 @@ export const PANEL_OVERLAY_KEY = "posterview.panelOverlay";
 export const PANEL_OVERLAY_EVENT = "posterview:panel-overlay";
 export const BACKDROP_OVERLAY_KEY = "posterview.darkOverlay";
 export const BACKDROP_OVERLAY_EVENT = "posterview:dark-overlay";
+export const PILL_BACKGROUND_KEY = "posterview.pillBackgroundOpacity";
+export const DEFAULT_PILL_BACKGROUND_OPACITY = 5;
+
+export function pillBackgroundOpacity() {
+  return storedNumber(PILL_BACKGROUND_KEY, DEFAULT_PILL_BACKGROUND_OPACITY, 0, 100);
+}
+
+export function setPillBackgroundOpacity(value: number) {
+  const next = Number.isFinite(value) ? Math.round(Math.min(100, Math.max(0, value))) : DEFAULT_PILL_BACKGROUND_OPACITY;
+  localStorage.setItem(PILL_BACKGROUND_KEY, String(next));
+  document.documentElement.style.setProperty("--pill-background-opacity", `${next}%`);
+}
 
 export const DEFAULT_BACKDROPS_ENABLED = false;
 export const DEFAULT_PANEL_SOLIDITY = 40;
@@ -89,6 +101,7 @@ export interface DashboardAppearance {
   panel_blur: number;
   panel_overlay: number;
   backdrop_overlay: number;
+  pill_background_opacity: number;
 }
 
 export function dashboardAppearance(): DashboardAppearance {
@@ -98,6 +111,7 @@ export function dashboardAppearance(): DashboardAppearance {
     panel_blur: backdropBlur(),
     panel_overlay: panelOverlay(),
     backdrop_overlay: backdropOverlay(),
+    pill_background_opacity: pillBackgroundOpacity(),
   };
 }
 
@@ -107,4 +121,5 @@ export function applyDashboardAppearance(settings: DashboardAppearance) {
   setBackdropBlur(settings.panel_blur);
   setPanelOverlay(settings.panel_overlay);
   setBackdropOverlay(settings.backdrop_overlay);
+  setPillBackgroundOpacity(settings.pill_background_opacity ?? DEFAULT_PILL_BACKGROUND_OPACITY);
 }

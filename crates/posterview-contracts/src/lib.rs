@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+mod seasons;
+pub use seasons::{EpisodeDetail, SeasonDetail};
 
 /// Stable response returned by the public health endpoint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -154,7 +156,7 @@ pub struct Season {
     pub episode_count: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ItemDetail {
     #[serde(skip_serializing)]
     pub source_path: Option<String>,
@@ -171,9 +173,21 @@ pub struct ItemDetail {
     pub summary: Option<String>,
     pub season_count: Option<i64>,
     pub seasons: Vec<Season>,
+    pub rating: Option<f64>,
+    pub content_rating: Option<String>,
+    pub genres: Vec<String>,
+    pub tags: Vec<String>,
+    pub studios: Vec<String>,
+    pub external_urls: Vec<MetadataLink>,
     pub external_ids: std::collections::BTreeMap<String, String>,
     pub logo: Option<String>,
     pub members: Vec<MediaItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MetadataLink {
+    pub name: String,
+    pub url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -258,6 +272,8 @@ pub struct AppearanceSettings {
     pub panel_blur: u8,
     pub panel_overlay: u8,
     pub backdrop_overlay: u8,
+    #[serde(default = "default_pill_background_opacity")]
+    pub pill_background_opacity: u8,
     pub theme_name: String,
     pub custom_themes_json: String,
 }
@@ -271,10 +287,15 @@ impl Default for AppearanceSettings {
             panel_blur: 12,
             panel_overlay: 0,
             backdrop_overlay: 72,
+            pill_background_opacity: default_pill_background_opacity(),
             theme_name: "Everforest".to_owned(),
             custom_themes_json: "[]".to_owned(),
         }
     }
+}
+
+const fn default_pill_background_opacity() -> u8 {
+    5
 }
 
 const fn default_history_max_entries() -> i64 {

@@ -1,9 +1,36 @@
 @import "tailwindcss";
 
+/* A desktop preview has its own available width, independent of the window. */
+@container library (width < 80rem) {
+  .appearance-preview .item-artwork-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    width: 100%;
+    background: rgb(0 0 0 / 65%);
+  }
+  .appearance-preview #item-artwork-panel { max-width: 28rem; }
+}
+@container library (width < 64rem) {
+  .appearance-preview .lg\:px-8,
+  .appearance-preview .lg\:px-10 { padding-inline: 1.5rem; }
+  .appearance-preview .lg\:gap-9 { gap: 1.5rem; }
+  .appearance-preview .md\:pt-\[75px\] { padding-top: 1rem; }
+}
+@container library (width < 40rem) {
+  .appearance-preview .sm\:text-3xl { font-size: 1.5rem; }
+  .appearance-preview .sm\:gap-8 { gap: 1rem; }
+  .appearance-preview .sm\:px-6 { padding-inline: 1rem; }
+}
+
 /* PosterView design tokens. Tailwind v4 reads @theme to generate utilities like
    bg-surface, text-accent, etc. The palette is a modern dark media UI with a
    green "Play" accent matching the reference design. */
 @theme {
+  --color-detail-title: #eceff4;
+  --color-detail-text: #eceff4;
+  --color-detail-metadata: #9aa3b2;
+  --color-detail-link: #21d07a;
   --color-base: #0c0d10;
   --color-surface: #16181d;
   --color-surface-2: #1d2026;
@@ -174,4 +201,27 @@ select {
   :where(button, select, summary, a[aria-label]) { min-height: 44px; }
   :where(input:not([type="checkbox"]):not([type="radio"]):not([type="color"])) { min-height: 44px; }
   label:has(> input[type="checkbox"]) { min-height: 44px; }
+}
+
+/* Series, seasons, and episode rows have independent, editable text roles. */
+.media-detail {
+  color: var(--color-detail-text);
+  --color-text: var(--color-detail-text);
+  --color-muted: var(--color-detail-metadata);
+  --color-faint: var(--color-detail-metadata);
+}
+.media-detail :is([class*="text-white"], [class~="text-muted"], [class~="text-faint"]) { color: var(--color-detail-text); }
+.media-detail :is(h1,h2,h3,h4) { color: var(--color-detail-title); }
+.media-detail :is([aria-label="Title information"], [aria-label="Title information"] span, dt, dd, [class~="text-xs"]) { color: var(--color-detail-metadata); }
+.media-detail :is(a, button[class*="text-accent"], span[class~="text-accent"]) { color: var(--color-detail-link); }
+
+/* One shared identity for About genres, tags, studios, and provider links. */
+.media-detail :is(span, a).media-detail-pill, .media-detail-pill {
+  color: var(--color-pill-text, var(--color-detail-metadata));
+  background-color: color-mix(in srgb, var(--color-pill-background, #fff) var(--pill-background-opacity, 5%), transparent);
+  border-color: color-mix(in srgb, var(--color-pill-border, #fff) 10%, transparent);
+}
+.media-detail a.media-detail-pill:hover, .media-detail a.media-detail-pill:focus-visible {
+  background-color: color-mix(in srgb, var(--color-pill-background, #fff) min(100%, calc(var(--pill-background-opacity, 5%) * 2.4)), transparent);
+  outline-color: var(--color-pill-border, #fff);
 }

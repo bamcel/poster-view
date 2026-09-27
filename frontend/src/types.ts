@@ -60,6 +60,12 @@ export interface ItemDetail extends MediaItem {
   summary?: string | null;
   season_count?: number | null;
   seasons: Season[];
+  rating?: number | null;
+  content_rating?: string | null;
+  genres?: string[];
+  tags?: string[];
+  studios?: string[];
+  external_urls?: { name: string; url: string }[];
   external_ids: Record<string, string>;
   logo?: string | null;
   members: MediaItem[];
@@ -279,6 +285,7 @@ export interface AppearanceSettings {
   panel_blur: number;
   panel_overlay: number;
   backdrop_overlay: number;
+  pill_background_opacity: number;
   theme_name: string;
   custom_themes_json: string;
 }

@@ -118,6 +118,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             get(get_items),
         )
         .route("/api/servers/{id}/items/{item_id}", get(get_item_detail))
+        .route("/api/servers/{id}/shows/{series_id}/seasons/{season_id}", get(get_season_detail))
         .route(
             "/api/artwork/upload",
             axum::routing::post(upload_image)
@@ -554,6 +555,14 @@ async fn get_item_detail(
             status: StatusCode::BAD_GATEWAY,
             detail,
         }),
+    }
+}
+
+async fn get_season_detail(State(state): State<AppState>, Path((id, series_id, season_id)): Path<(i64, String, String)>) -> Result<impl IntoResponse, HttpError> {
+    match state.runtime.get_season_detail(id, &series_id, &season_id).await? {
+        None => Err(HttpError::not_found()),
+        Some(Ok(season)) => Ok(Json(season)),
+        Some(Err(detail)) => Err(HttpError::bad_gateway(detail)),
     }
 }
 

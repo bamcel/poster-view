@@ -6,7 +6,7 @@ import { Switch } from "./ui";
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Images, RefreshCw } from "lucide-react";
+import { ChevronDown, Images, RefreshCw, X } from "lucide-react";
 import { api } from "../api/client";
 import type { ItemDetail, Library, NfoMetadata } from "../types";
 import PosterDBBody from "./PosterDBPanel";
@@ -28,6 +28,7 @@ interface Props {
   libraryType?: Library["type"];
   libraryTitle?: string;
   onReviewMetadata?: (metadata: NfoMetadata, sourceLabel: string) => void;
+  onClose?: () => void;
 }
 
 const ARTWORK_LAYOUT_KEY = "posterview.artworkSourceLayout";
@@ -37,7 +38,7 @@ const PROVIDER_GROUPS = [
   { label: "Local", names: ["manual", "remove"] },
 ];
 
-export default function ArtworkPanel({ serverId, item, prefill, navigationTarget, anilistMangaId, libraryType, libraryTitle, onReviewMetadata }: Props) {
+export default function ArtworkPanel({ serverId, item, prefill, navigationTarget, anilistMangaId, libraryType, libraryTitle, onReviewMetadata, onClose }: Props) {
   const [provider, setProvider] = useState("posterdb");
   const [sourceLayout, setSourceLayout] = useState<"list" | "compact">(() =>
     localStorage.getItem(ARTWORK_LAYOUT_KEY) === "compact" ? "compact" : "list",
@@ -157,17 +158,11 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
       style={{ backgroundColor: translucentPanelColor("--color-surface", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
     >
       <div className="border-b border-border p-3">
-        <div className="mb-2 flex items-center justify-between gap-3 pl-1 pr-12 xl:pr-1">
+        <div className="mb-2 flex items-center justify-between gap-3 px-1">
           <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted">
             <Images className="size-4 text-accent" /> Artwork
           </h2>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-muted">
-              {sourceLayout === "list" ? "List" : "Compact"}
-            </span>
-            <Switch label="Compact artwork sources" checked={sourceLayout === "compact"} translucent
-              onChange={() => chooseLayout(sourceLayout === "list" ? "compact" : "list")} />
-          </div>
+          {onClose && <button type="button" onClick={onClose} aria-label="Close artwork" className="grid size-9 place-items-center rounded-lg text-muted transition-colors hover:bg-white/10 hover:text-white"><X className="size-5" /></button>}
         </div>
         {sourceLayout === "list" ? (
           <div>
@@ -208,6 +203,10 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
             </select>
           </label>
         )}
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <span className="text-xs font-medium text-muted">{sourceLayout === "list" ? "List" : "Compact"}</span>
+          <Switch label="Compact artwork sources" checked={sourceLayout === "compact"} translucent onChange={() => chooseLayout(sourceLayout === "list" ? "compact" : "list")} />
+        </div>
       </div>
 
       <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto p-4">

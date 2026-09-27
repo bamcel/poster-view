@@ -20,6 +20,7 @@ import {
   HardDrive,
   ChevronDown,
   LayoutDashboard,
+  Columns2,
 } from "lucide-react";
 import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
@@ -44,8 +45,9 @@ import {
   type ThemeColorKey,
 } from "../lib/theme";
 import SecuritySection from "../components/SecuritySection";
+import AppearancePreview from "../components/AppearancePreview";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
-import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROP_OVERLAY, DEFAULT_BACKDROPS_ENABLED, DEFAULT_PANEL_OVERLAY, DEFAULT_PANEL_SOLIDITY, backdropBlur, backdropOverlay, dashboardBackdropEnabled, panelOverlay, panelSolidity, setBackdropBlur, setBackdropOverlay, setDashboardBackdropEnabled, setPanelOverlay, setPanelSolidity } from "../lib/dashboardSettings";
+import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROP_OVERLAY, DEFAULT_BACKDROPS_ENABLED, DEFAULT_PANEL_OVERLAY, DEFAULT_PANEL_SOLIDITY, DEFAULT_PILL_BACKGROUND_OPACITY, pillBackgroundOpacity, setPillBackgroundOpacity, backdropBlur, backdropOverlay, dashboardAppearance, dashboardBackdropEnabled, panelOverlay, panelSolidity, setBackdropBlur, setBackdropOverlay, setDashboardBackdropEnabled, setPanelOverlay, setPanelSolidity } from "../lib/dashboardSettings";
 
 const BLANK: ServerInput = {
   name: "",
@@ -107,7 +109,7 @@ export default function SettingsPage() {
 
   return (
     <div className="h-full overflow-y-auto px-4 py-4 sm:px-6 lg:px-8 xl:overflow-hidden">
-      <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col gap-4 xl:h-full xl:min-h-0">
+      <div className="flex min-h-full w-full flex-col gap-4 xl:h-full xl:min-h-0">
         <h1 className="text-2xl font-semibold">Settings</h1>
 
         <div className="flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -145,6 +147,16 @@ export default function SettingsPage() {
 
 function AppearanceSection() {
   const queryClient = useQueryClient();
+  const [splitView, setSplitView] = useState(false);
+  const [desktop, setDesktop] = useState(() => window.innerWidth >= 1280);
+  const [settingsWidth, setSettingsWidth] = useState(40);
+  const splitRef = useRef<HTMLDivElement>(null);
+  const split = splitView && desktop;
+  useEffect(() => {
+    const resize = () => setDesktop(window.innerWidth >= 1280);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
   const [themes, setThemes] = useState(getAllThemes);
   const [selected, setSelected] = useState(getStoredThemeName);
   const [themeJson, setThemeJson] = useState(() => serializeTheme(getTheme(getStoredThemeName())));
@@ -156,16 +168,22 @@ function AppearanceSection() {
   const [blur, setBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
   const [backdropOverlayStrength, setBackdropOverlayStrength] = useState(backdropOverlay);
+  const [pillOpacity, setPillOpacity] = useState(pillBackgroundOpacity);
   const settingsQ = useQuery({ queryKey: ["appearance-settings"], queryFn: api.appearanceSettings });
+  const pendingSave = useRef<AppearanceSettings | null>(null);
+  const appearanceDraft = useRef<AppearanceSettings | null>(null);
+  const saveRunning = useRef(false);
 
   useEffect(() => {
     const settings = settingsQ.data;
-    if (!settings?.configured) return;
+    if (!settings?.configured || saveRunning.current) return;
+    appearanceDraft.current = settings;
     setShowBackdrops(settings.backdrops_enabled);
     setPanelSolid(settings.panel_solidity);
     setBlur(settings.panel_blur);
     setPanelOverlayStrength(settings.panel_overlay);
     setBackdropOverlayStrength(settings.backdrop_overlay);
+    setPillOpacity(settings.pill_background_opacity ?? DEFAULT_PILL_BACKGROUND_OPACITY);
     applyThemePreferences(settings.theme_name, settings.custom_themes_json);
     setThemes(getAllThemes());
     setSelected(getStoredThemeName());
@@ -175,19 +193,34 @@ function AppearanceSection() {
   const persist = (overrides: Partial<AppearanceSettings> = {}) => {
     const next: AppearanceSettings = {
       configured: true,
-      backdrops_enabled: showBackdrops,
-      panel_solidity: panelSolid,
-      panel_blur: blur,
-      panel_overlay: panelOverlayStrength,
-      backdrop_overlay: backdropOverlayStrength,
+      ...dashboardAppearance(),
+      ...appearanceDraft.current,
       ...exportThemePreferences(),
       ...overrides,
     };
     reportSettingsSave("saving");
-    void api.saveAppearanceSettings(next).then((saved) => {
-      queryClient.setQueryData(["appearance-settings"], saved);
-      reportSettingsSave("saved");
-    }).catch(() => reportSettingsSave("error"));
+    appearanceDraft.current = next;
+    pendingSave.current = next;
+    if (saveRunning.current) return;
+    saveRunning.current = true;
+    // Serialize writes and coalesce slider movements while a request is in flight.
+    // Only the final response may update the shared cache and reapply appearance.
+    void (async () => {
+      while (pendingSave.current) {
+        const settings = pendingSave.current;
+        pendingSave.current = null;
+        try {
+          const saved = await api.saveAppearanceSettings(settings);
+          if (!pendingSave.current) {
+            queryClient.setQueryData(["appearance-settings"], saved);
+            reportSettingsSave("saved");
+          }
+        } catch {
+          if (!pendingSave.current) reportSettingsSave("error");
+        }
+      }
+      saveRunning.current = false;
+    })();
   };
 
   const changeBackdrops = (enabled: boolean) => {
@@ -199,18 +232,21 @@ function AppearanceSection() {
   const changeBlur = (value: number) => { setBlur(value); setBackdropBlur(value); persist({ panel_blur: value }); };
   const changePanelOverlay = (value: number) => { setPanelOverlayStrength(value); setPanelOverlay(value); persist({ panel_overlay: value }); };
   const changeBackdropOverlay = (value: number) => { setBackdropOverlayStrength(value); setBackdropOverlay(value); persist({ backdrop_overlay: value }); };
+  const changePillOpacity = (value: number) => { setPillOpacity(value); setPillBackgroundOpacity(value); persist({ pill_background_opacity: value }); };
   const resetDashboard = () => {
     setShowBackdrops(DEFAULT_BACKDROPS_ENABLED);
     setPanelSolid(DEFAULT_PANEL_SOLIDITY);
     setBlur(DEFAULT_BACKDROP_BLUR);
     setPanelOverlayStrength(DEFAULT_PANEL_OVERLAY);
     setBackdropOverlayStrength(DEFAULT_BACKDROP_OVERLAY);
+    setPillOpacity(DEFAULT_PILL_BACKGROUND_OPACITY);
+    setPillBackgroundOpacity(DEFAULT_PILL_BACKGROUND_OPACITY);
     setDashboardBackdropEnabled(DEFAULT_BACKDROPS_ENABLED);
     setPanelSolidity(DEFAULT_PANEL_SOLIDITY);
     setBackdropBlur(DEFAULT_BACKDROP_BLUR);
     setPanelOverlay(DEFAULT_PANEL_OVERLAY);
     setBackdropOverlay(DEFAULT_BACKDROP_OVERLAY);
-    persist({ backdrops_enabled: DEFAULT_BACKDROPS_ENABLED, panel_solidity: DEFAULT_PANEL_SOLIDITY, panel_blur: DEFAULT_BACKDROP_BLUR, panel_overlay: DEFAULT_PANEL_OVERLAY, backdrop_overlay: DEFAULT_BACKDROP_OVERLAY });
+    persist({ backdrops_enabled: DEFAULT_BACKDROPS_ENABLED, panel_solidity: DEFAULT_PANEL_SOLIDITY, panel_blur: DEFAULT_BACKDROP_BLUR, panel_overlay: DEFAULT_PANEL_OVERLAY, backdrop_overlay: DEFAULT_BACKDROP_OVERLAY, pill_background_opacity: DEFAULT_PILL_BACKGROUND_OPACITY });
   };
 
   const choose = (name: string) => {
@@ -279,11 +315,15 @@ function AppearanceSection() {
   const selectedColorValue = previewColors[selectedColor];
 
   return (
-    <section className="h-full min-h-0 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
+    <div ref={splitRef} className="h-full min-h-0 min-w-0" style={split ? { display: "grid", gridTemplateColumns: `minmax(0, ${settingsWidth}fr) 12px minmax(0, ${100 - settingsWidth}fr)` } : undefined}>
+    <section className="h-full min-h-0 min-w-0 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <div className="min-h-full w-full">
-        <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
+        <div className="mb-1 flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
           <LayoutDashboard className="size-5 text-accent" /> Dashboard
         </h2>
+        <button type="button" aria-pressed={split} onClick={() => setSplitView(value => !value)} className="hidden shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-medium hover:bg-button-hover xl:flex"><Columns2 className="size-4" />Split View</button>
+        </div>
         <p className="mb-3 text-sm text-faint">Customize dashboard artwork and panel visibility.</p>
         <div className="rounded-xl border border-border bg-surface-2 p-4">
           <div className="flex items-center justify-between gap-4">
@@ -297,6 +337,8 @@ function AppearanceSection() {
           <DashboardSlider label="Panel Blur" value={blur} suffix="px" min={0} max={30} step={2} onChange={changeBlur} start="No blur" end="Blurred" />
           <DashboardSlider label="Panel Overlay" value={panelOverlayStrength} suffix="%" min={0} max={95} onChange={changePanelOverlay} start="Light" end="Dark" />
           <DashboardSlider label="Backdrop Overlay" value={backdropOverlayStrength} suffix="%" min={0} max={95} onChange={changeBackdropOverlay} start="Light" end="Dark" />
+          <DashboardSlider label="Pill Background" value={pillOpacity} suffix="%" min={0} max={100} onChange={changePillOpacity} start="Transparent" end="Solid" />
+          <p className="mt-1 text-xs text-faint">Background opacity for series metadata pills and season episode-count pills. Text and borders stay visible.</p>
           <button type="button" onClick={resetDashboard} className="mt-4 h-10 rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted transition-colors hover:bg-button-hover hover:text-white">Reset to default</button>
         </div>
 
@@ -360,6 +402,18 @@ function AppearanceSection() {
         </div>
       </div>
     </section>
+    {split && <>
+      <div role="separator" aria-label="Resize settings and preview" aria-orientation="vertical" aria-valuemin={30} aria-valuemax={60} aria-valuenow={Math.round(settingsWidth)} tabIndex={0}
+        className="group flex touch-none cursor-col-resize items-center justify-center outline-none"
+        onPointerDown={event => { event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId); }}
+        onPointerMove={event => { if (!event.currentTarget.hasPointerCapture(event.pointerId)) return; const bounds = splitRef.current!.getBoundingClientRect(); setSettingsWidth(Math.max(30, Math.min(60, (event.clientX - bounds.left) / bounds.width * 100))); }}
+        onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
+        onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); setSettingsWidth(value => Math.max(30, Math.min(60, value + (event.key === "ArrowLeft" ? -2 : 2)))); } }}>
+        <span className="h-12 w-1 rounded-full bg-border group-hover:bg-accent group-focus-visible:bg-accent" />
+      </div>
+      <AppearancePreview onClose={() => setSplitView(false)} />
+    </>}
+    </div>
   );
 }
 

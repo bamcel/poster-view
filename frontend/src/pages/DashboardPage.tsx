@@ -2,8 +2,8 @@
 // Double-clicking a poster opens the item detail.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
-import { createPortal } from "react-dom";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { LibraryBackdrop } from "../lib/libraryNavigation";
+import { useNavigate, useSearchParams } from "../lib/libraryNavigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ListFilter, MoreHorizontal, Search, ServerCrash, Sparkles } from "lucide-react";
 import { useTrackingOverlays } from "../lib/libraryDisplay";
@@ -608,15 +608,13 @@ function BackdropLayers({ urls, className, source }: { urls: string[]; className
 
 function DashboardBackdrop({ desktopUrls, mobileUrls, overlayStrength }: { desktopUrls: string[]; mobileUrls: string[]; overlayStrength: number }) {
   const gradients = backdropOverlayGradients(overlayStrength);
-  return createPortal(
+  return (<LibraryBackdrop>
     <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true" data-testid="dashboard-backdrop">
       {mobileUrls.length > 0 && <BackdropLayers urls={mobileUrls} className="absolute inset-0 md:hidden" source="mobile" />}
       {desktopUrls.length > 0 && <BackdropLayers urls={desktopUrls} className="absolute inset-0 hidden md:block" source="desktop" />}
       <div className="absolute inset-0 md:hidden" style={{ backgroundImage: gradients.mobile }} />
       <div className="absolute inset-0 hidden md:block" style={{ backgroundImage: gradients.desktop }} />
-    </div>,
-    document.body,
-  );
+    </div></LibraryBackdrop>);
 }
 
 function LibraryFilter({ popup, active, children, style }: { popup: boolean; active: boolean; children: ReactNode; style: CSSProperties }) {

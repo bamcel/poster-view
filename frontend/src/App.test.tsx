@@ -24,7 +24,7 @@ afterEach(cleanup);
 beforeEach(() => {
   vi.resetAllMocks();
   localStorage.clear();
-  vi.mocked(api.appearanceSettings).mockResolvedValue({ configured: true, backdrops_enabled: false, panel_solidity: 40, panel_blur: 12, panel_overlay: 0, backdrop_overlay: 72, theme_name: "Everforest", custom_themes_json: "[]" });
+  vi.mocked(api.appearanceSettings).mockResolvedValue({ configured: true, backdrops_enabled: false, panel_solidity: 40, panel_blur: 12, panel_overlay: 0, backdrop_overlay: 72, pill_background_opacity: 5, theme_name: "Everforest", custom_themes_json: "[]" });
 });
 
 it("loads the saved server only after signing in following a restart", async () => {

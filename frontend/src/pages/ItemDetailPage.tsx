@@ -1,17 +1,21 @@
+import { detailActionClass } from "../lib/detailActions";
+import DetailSynopsis from "../components/DetailSynopsis";
 // Item detail: a cinematic hero (blurred backdrop, large poster, metadata) with
 // a seasons row, and the ThePosterDB panel docked on the right for swapping art.
 
 import { useEffect, useState } from "react";
 import { useBookInfo } from "../lib/bookInfo";
 import { useTrackingOverlays } from "../lib/libraryDisplay";
-import { createPortal } from "react-dom";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { LibraryBackdrop } from "../lib/libraryNavigation";
+import { useNavigate, useParams, useSearchParams } from "../lib/libraryNavigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, Images, Pencil, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, Images, Pencil, RefreshCw } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import PosterCard from "../components/PosterCard";
 import ArtworkPanel from "../components/ArtworkPanel";
 import MetadataEditorModal from "../components/MetadataEditorModal";
+import ItemAbout from "../components/ItemAbout";
+import TitleMetadata from "../components/TitleMetadata";
 import { Spinner, EmptyState } from "../components/ui";
 import type { Library, NfoMetadata } from "../types";
 import { isBookRelatedLibraryName, seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
@@ -70,7 +74,7 @@ export default function ItemDetailPage() {
   const metadataQ = useQuery({
     queryKey: ["nfo-metadata", serverId, itemId],
     queryFn: () => api.getNfoMetadata(serverId, itemId!),
-    enabled: Number.isFinite(serverId) && !!itemId,
+    enabled: Number.isFinite(serverId) && !!itemId && !!detailQ.data && !["movie", "show"].includes(detailQ.data.type),
     retry: false,
   });
   const saveMetadata = useMutation({
@@ -89,6 +93,7 @@ export default function ItemDetailPage() {
   const [trackingOverlays, , displayStatus] = useTrackingOverlays(bookContext);
   const item = detailQ.data && { ...detailQ.data, title: bookContext && detailQ.data.type === "folder" ? metadataQ.data?.title.trim() || detailQ.data.title : detailQ.data.title };
   const memberInfo = useBookInfo(serverId, item?.members, bookContext);
+  const isSeries = item?.type === "show";
   const backdrop = imageUrl(serverId, item?.background);
   const poster = imageUrl(serverId, item?.poster);
   const logo = imageUrl(serverId, item?.logo);
@@ -140,7 +145,7 @@ export default function ItemDetailPage() {
 
   return (
     <div className="relative flex h-full overflow-hidden">
-      {showBackdrop && createPortal(
+      {showBackdrop && (<LibraryBackdrop>
         <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-base" aria-hidden="true" data-testid="item-backdrop">
           {backdrop && (
             <img
@@ -151,12 +156,10 @@ export default function ItemDetailPage() {
           )}
           <div className="absolute inset-0 md:hidden" data-testid="item-backdrop-overlay-mobile" style={{ backgroundImage: backdropOverlayGradients(overlayStrength).mobile }} />
           <div className="absolute inset-0 hidden md:block" data-testid="item-backdrop-overlay-desktop" style={{ backgroundImage: backdropOverlayGradients(overlayStrength).desktop }} />
-        </div>,
-        document.body,
-      )}
+        </div></LibraryBackdrop>)}
 
       {/* Left: hero + seasons */}
-      <div className="scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain">
+      <div className={`${isSeries ? "media-detail " : ""}scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain`}>
         {/* min-h-full lets this wrapper be at least a viewport tall but grow to
             the full scrolled content height. The darkening layer below is
             absolute inset-0 against THIS wrapper, so it covers every season row
@@ -174,7 +177,7 @@ export default function ItemDetailPage() {
             <ArrowLeft className="size-5" />
           </button>
 
-          <div className="relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-8">
+          <div className="relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-10 lg:pt-20">
             {detailQ.isLoading && <Spinner label="Loading…" />}
             {detailQ.isError && (
               <EmptyState title="Couldn't load this title">
@@ -184,9 +187,9 @@ export default function ItemDetailPage() {
 
             {item && (
               <>
-                <div className="flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6">
+                <div className={isSeries ? "flex flex-row items-start gap-5 sm:gap-8 lg:gap-9" : "flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6"}>
                   {/* Poster */}
-                  <div className="w-40 shrink-0 min-[390px]:w-44 sm:w-48 lg:w-56">
+                  <div className={isSeries ? "w-28 shrink-0 sm:w-[25%] sm:max-w-[328px]" : "w-40 shrink-0 min-[390px]:w-44 sm:w-48 lg:w-56"}>
                     <div className="aspect-[2/3] overflow-hidden rounded-xl bg-surface-2 shadow-2xl shadow-black/50 ring-1 ring-white/10">
                       {poster ? (
                         <img
@@ -201,26 +204,22 @@ export default function ItemDetailPage() {
                   {/* Metadata — a text-shadow (not just the gradient) keeps this
                     legible over a vivid/bright backdrop image, since the exact
                     gradient fade point can't account for every image. */}
-                  <div className="min-w-0 flex-1 pt-2 text-center [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] sm:text-left">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries ? "text-left" : "text-center sm:text-left"}`}>
+                    <div className={isSeries ? "flex flex-col gap-4" : "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"}>
                       <div className="min-w-0">
                         {logo ? (
                           <img
                             src={logo}
                             alt={item.title}
-                            className="mx-auto max-h-24 max-w-full object-contain drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)] sm:mx-0 sm:max-h-28 sm:object-left"
+                            className={isSeries ? "max-h-24 max-w-full object-contain object-left sm:max-w-[400px]" : "mx-auto max-h-24 max-w-full object-contain sm:mx-0 sm:max-h-28 sm:object-left"}
                           />
                         ) : (
                           <h1 className="text-3xl font-bold leading-tight sm:text-4xl">
                             {item.title}
                           </h1>
                         )}
-                        <p className="mt-2 text-sm text-white/70">
-                          {item.type === "show"
-                            ? `${item.season_count ?? item.seasons.length} Season${
-                                (item.season_count ?? item.seasons.length) === 1 ? "" : "s"
-                              }`
-                            : item.type === "collection"
+                        {item.type === "show" || item.type === "movie" ? <TitleMetadata item={item} /> : <p className="mt-2 text-sm text-white/70">
+                          {item.type === "collection"
                               ? "Collection"
                               : item.type === "book"
                                 ? "Book"
@@ -229,56 +228,65 @@ export default function ItemDetailPage() {
                                   : item.type === "folder"
                                     ? seriesInstallmentSummary(item.members)
                                     : item.year}
-                        </p>
+                        </p>}
                       </div>
-                      <div className="hidden shrink-0 flex-wrap items-center justify-end gap-2 xl:flex">
+                      <div className={isSeries ? "flex flex-wrap items-center gap-2" : "hidden shrink-0 flex-wrap items-center justify-end gap-2 xl:flex"}>
                         {metadataQ.data && (
                           <button
                             type="button"
                             onClick={() => { setMetadataImport(null); setMetadataEditorOpen(true); }}
-                            className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white"
+                            className={detailActionClass}
+                            aria-label="Edit Metadata"
+                            title="Edit Metadata"
                           >
-                            <Pencil className="size-4" /> Edit Metadata
+                            <Pencil className="size-4" aria-hidden="true" />
                           </button>
                         )}
                       <button
-                        onClick={() => { void detailQ.refetch(); void metadataQ.refetch(); }}
-                        className="flex items-center gap-2 rounded-full border border-border bg-black/20 px-4 py-2 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white"
-                        title="Refresh from server"
+                        onClick={() => { void detailQ.refetch(); if (item.type !== "show" && item.type !== "movie") void metadataQ.refetch(); }}
+                        className={detailActionClass}
+                        aria-label={isSeries ? "Refresh Series" : "Refresh"}
+                        title={isSeries ? "Refresh Series" : "Refresh from server"}
                       >
                         <RefreshCw
-                          className={`size-4 ${detailQ.isFetching ? "animate-spin" : ""}`}
-                        />{" "}
-                        Refresh
+                          className={`size-4 ${detailQ.isFetching ? "animate-spin" : ""}`} aria-hidden="true"
+                        />
+
+                      </button>
+                      <button type="button" onClick={() => setArtworkOpen(true)} aria-label="Edit Artwork" title="Edit Artwork" aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className={detailActionClass}>
+                        <Images className="size-4" aria-hidden="true" />
                       </button>
                       </div>
                     </div>
-                    <div className="mt-3 flex items-center justify-center gap-1.5 sm:justify-start sm:gap-2 xl:hidden">
+                    <div className={isSeries ? "hidden" : "mt-3 flex flex-wrap items-center justify-center gap-1.5 sm:justify-start sm:gap-2 xl:hidden"}>
                       {metadataQ.data && (
                         <button
                           type="button"
                           onClick={() => { setMetadataImport(null); setMetadataEditorOpen(true); }}
-                          className="flex min-h-11 min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 py-2 text-[11px] font-medium text-muted transition-colors hover:border-white/40 hover:text-white sm:gap-2 sm:px-4 sm:text-sm"
+                          className={detailActionClass}
+                          aria-label="Edit Metadata" title="Edit Metadata"
                         >
-                          <Pencil className="size-3.5 shrink-0 sm:size-4" /> Edit Metadata
+                          <Pencil className="size-4" aria-hidden="true" />
                         </button>
                       )}
                       <button
                         type="button"
                         aria-label="Refresh artwork"
+                        title="Refresh artwork"
                         onClick={() => refreshArtwork.mutate()}
                         disabled={refreshArtwork.isPending}
-                        className="flex min-h-11 min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 py-2 text-[11px] font-medium text-muted transition-colors hover:border-white/40 hover:text-white disabled:opacity-50 sm:gap-2 sm:px-4 sm:text-sm"
+                        className={detailActionClass}
                       >
-                        <RefreshCw className={`size-3.5 shrink-0 sm:size-4 ${refreshArtwork.isPending ? "animate-spin" : ""}`} />
-                        {refreshArtwork.isPending ? "Refreshing…" : "Refresh"}
+                        <RefreshCw aria-hidden="true" className={`size-4 ${refreshArtwork.isPending ? "animate-spin" : ""}`} />
+
                       </button>
                       <button
                         type="button"
                         onClick={() => setArtworkOpen(true)}
-                        className="flex min-h-11 min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 py-2 text-[11px] font-medium text-muted transition-colors hover:border-white/40 hover:text-white sm:gap-2 sm:px-4 sm:text-sm"
+                        className={detailActionClass}
+                        aria-label="Edit Artwork" title="Edit Artwork"
                       >
-                        <Images className="size-3.5 shrink-0 sm:size-4" /> Artwork
+                        <Images className="size-4" aria-hidden="true" />
                       </button>
                     </div>
                     <div role="status" aria-live="polite" className="mt-2 break-words text-sm xl:hidden">
@@ -286,11 +294,12 @@ export default function ItemDetailPage() {
                         : refreshArtwork.data ? <p className={refreshArtwork.data.ok ? "text-success" : "text-danger"}>{refreshArtwork.data.message}</p> : null}
                     </div>
 
-                    {!metadataQ.data && item.summary && (
+                    {!isSeries && !metadataQ.data && item.summary && (
                       <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/80">
                         {item.summary}
                       </p>
                     )}
+                    {isSeries && <div className="hidden sm:block"><DetailSynopsis key={item.id} text={item.summary} /></div>}
                     {metadataQ.data && (
                       <section className="mt-4 max-w-2xl text-left [text-shadow:0_2px_12px_rgba(0,0,0,0.8)]">
                         <div className="flex flex-wrap items-center gap-2">
@@ -320,11 +329,13 @@ export default function ItemDetailPage() {
                   </div>
                 </div>
 
+                {isSeries && <div className="sm:hidden"><DetailSynopsis key={item.id} text={item.summary} /></div>}
+
                 {/* Seasons */}
                 {item.seasons.length > 0 && (
                   <section className="mt-10">
-                    <h2 className="mb-4 text-lg font-semibold">Seasons</h2>
-                    <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(120px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
+                    <h2 className="mb-3 text-xl font-semibold">Seasons</h2>
+                    <div className="flex gap-5 overflow-x-auto pb-3 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]">
                       {item.seasons.map((s) => (
                         <PosterCard
                           key={s.id}
@@ -335,6 +346,11 @@ export default function ItemDetailPage() {
                           }
                           kind="show"
                           badge={s.episode_count ?? undefined}
+                          onOpen={() => {
+                            const context = new URLSearchParams(searchParams);
+                            context.delete("edit_metadata");
+                            navigate(`/server/${serverId}/series/${encodeURIComponent(item.id)}/season/${encodeURIComponent(s.id)}?${context}`);
+                          }}
                         />
                       ))}
                     </div>
@@ -342,6 +358,7 @@ export default function ItemDetailPage() {
                 )}
 
                 {item.type === "book" && <button className="mt-5 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-base hover:bg-accent-hover" onClick={()=>navigate(`/read/${serverId}/${encodeURIComponent(item.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`)}>Read Book</button>}
+                {(item.type === "show" || item.type === "movie") && <ItemAbout item={item} />}
                 {/* Volume cards open the reader; nested folders keep their detail pages. */}
                 {item.members.length > 0 && (
                   <section className="mt-10">
@@ -378,38 +395,14 @@ export default function ItemDetailPage() {
         </div>
       </div>
 
-      {/* Right: dock only when both columns have enough room. */}
-      <div className="relative z-[1] hidden h-full w-[clamp(20rem,25vw,23.75rem)] shrink-0 xl:block">
-        {item && (
-          <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} anilistMangaId={metadataQ.data?.anilist_id} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
-        )}
-      </div>
-
       {artworkOpen && item && (
-        <div
-          className="fixed inset-0 z-50 bg-black/65 xl:hidden"
-          onClick={() => setArtworkOpen(false)}
-        >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Artwork for ${item.title}`}
-            className="ml-auto h-full w-full max-w-md shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => setArtworkOpen(false)}
-              aria-label="Close artwork"
-              className="absolute right-3 top-3 z-[60] grid size-9 place-items-center rounded-lg text-muted transition-colors hover:text-white"
-            >
-              <X className="size-5" />
-            </button>
-            <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} anilistMangaId={metadataQ.data?.anilist_id} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onReviewMetadata={(fields, sourceLabel) => { setArtworkOpen(false); setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
+        <div className="item-artwork-overlay fixed inset-0 z-50 bg-black/65 xl:relative xl:inset-auto xl:z-[1] xl:h-full xl:w-[clamp(20rem,25vw,23.75rem)] xl:shrink-0 xl:bg-transparent" onClick={() => setArtworkOpen(false)}>
+          <section id="item-artwork-panel" aria-label={`Artwork for ${item.title}`} className="ml-auto h-full w-full max-w-md shadow-2xl xl:max-w-none" onClick={event => event.stopPropagation()}>
+            <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} anilistMangaId={metadataQ.data?.anilist_id} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onClose={() => setArtworkOpen(false)} onReviewMetadata={(fields, sourceLabel) => { setArtworkOpen(false); setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
           </section>
         </div>
       )}
-      {metadataEditorOpen && (metadataQ.data || metadataImport) && (
+      {metadataEditorOpen && item?.type !== "movie" && item?.type !== "show" && (metadataQ.data || metadataImport) && (
         <MetadataEditorModal
           metadata={metadataQ.data ?? {
             title: "", year: "", publisher: "", edition: "", volumes: "", status: "", plot: "",

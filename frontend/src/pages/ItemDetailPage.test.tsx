@@ -1,3 +1,37 @@
+it("uses server metadata for the series UI without cast, provider tools, or local video metadata", async () => {
+  vi.mocked(api.getItemDetail).mockResolvedValue({
+    id: "show", title: "Server Series", type: "show", summary: "Server synopsis", rating: 8.4,
+    content_rating: "TV-14", genres: ["Drama"], tags: ["Award Winner"], studios: ["Studio"],
+    seasons: [{ id: "season-1", title: "Season One", index: 1, episode_count: 12 }],
+    external_ids: { imdb: "tt1234567" }, members: [],
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/server/7/item/show?library_type=show&return_library=tv"]}><QueryClientProvider client={client}><Routes>
+    <Route path="/server/:serverId/item/:itemId" element={<ItemDetailPage />} />
+    <Route path="/server/:serverId/series/:seriesId/season/:seasonId" element={<LocationProbe />} />
+  </Routes></QueryClientProvider></MemoryRouter>);
+  await screen.findByText("Server Series");
+  expect(screen.getByLabelText("Title information").textContent).toContain("8.4");
+  expect(screen.getByRole("heading", { name: "About" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Cast & Crew" })).toBeNull();
+  expect(screen.queryByText("Find Missing Metadata")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Edit Metadata" })).toBeNull();
+  expect(api.getNfoMetadata).not.toHaveBeenCalled();
+  expect(document.querySelector("#item-artwork-panel")).toBeNull();
+  const artwork = screen.getAllByRole("button", { name: "Edit Artwork" })[0];
+  expect(artwork.title).toBe("Edit Artwork");
+  expect(artwork.textContent).toBe("");
+  fireEvent.click(artwork);
+  expect(document.querySelector("#item-artwork-panel")).toBeTruthy();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(document.querySelector("#item-artwork-panel")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh Series" }));
+  await waitFor(() => expect(api.getItemDetail).toHaveBeenCalledTimes(2));
+  expect(api.getNfoMetadata).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByTitle("Season One"));
+  expect(await screen.findByText("/server/7/series/show/season/season-1?library_type=show&return_library=tv")).toBeTruthy();
+  client.clear();
+});
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -47,8 +81,8 @@ it("keeps mobile detail actions together and publisher metadata in a single pill
   const mobileActions = (await screen.findByRole("button", { name: "Refresh artwork" })).parentElement;
   expect(mobileActions?.className).toContain("xl:hidden");
   expect(mobileActions?.querySelectorAll("button")).toHaveLength(3);
-  expect(mobileActions?.textContent).toContain("Edit Metadata");
-  expect(mobileActions?.textContent).toContain("Artwork");
+  expect(mobileActions?.querySelector('button[aria-label="Edit Metadata"]')).toBeTruthy();
+  expect(mobileActions?.querySelector('button[aria-label="Edit Artwork"]')).toBeTruthy();
   const publisherPill = screen.getByText("Publisher").closest("span.inline-flex");
   expect(publisherPill?.className).toContain("shrink-0");
   expect(publisherPill?.textContent).toContain("Publisher · Viz");
