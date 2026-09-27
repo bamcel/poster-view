@@ -444,7 +444,7 @@ impl Runtime {
                     .unwrap_or_default();
                 for library in libraries
                     .iter()
-                    .filter(|l| l.library_type == posterview_contracts::LibraryType::Show || (config.kind == "missing_metadata" && l.library_type == posterview_contracts::LibraryType::Movie))
+                    .filter(|l| l.library_type == posterview_contracts::LibraryType::Show || l.library_type == posterview_contracts::LibraryType::Movie)
                 {
                     if self.cancelled(&task.id)? {
                         return Ok(());
@@ -638,7 +638,7 @@ impl Runtime {
             }
         }
         if saved.sources.is_empty() && !updated && issues.is_empty() {
-            issues.push(TaskIssue { server_id: item.server_id, item_id: item.id.clone(), title: item.title.clone(), message: "No usable linked provider ID. Match this series in Edit Metadata → Provider matching or configure its provider credentials.".into(), needs_matching: true });
+            issues.push(TaskIssue { server_id: item.server_id, item_id: item.id.clone(), title: item.title.clone(), message: "No usable linked provider ID. Match this title in Edit Metadata → Provider matching or configure its provider credentials.".into(), needs_matching: true });
         }
         self.update_task(&task.id, |t| {
             t.processed += 1;
