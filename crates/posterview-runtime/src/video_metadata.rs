@@ -29,6 +29,7 @@ fn empty(v: &Value) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module, clippy::field_reassign_with_default)]
 mod tests {
     use super::*;
     fn item() -> ItemDetail {
@@ -411,25 +412,26 @@ impl Runtime {
                 ids.insert(p.into(), sources[0].external_id.clone());
             }
         }
-        if !ids.contains_key("tmdb") && !doc.matches.contains_key("tmdb") {
-            if let Some(imdb) = ids.get("imdb") {
-                match self.artwork.find_tmdb_id(imdb, movie, &tmdb).await {
-                    Ok(Some(id)) => {
-                        ids.insert("tmdb".into(), id);
-                    }
-                    Ok(None) => {}
-                    Err(e) => result.issues.push(format!("TMDB matching: {e}")),
+        if !ids.contains_key("tmdb")
+            && !doc.matches.contains_key("tmdb")
+            && let Some(imdb) = ids.get("imdb")
+        {
+            match self.artwork.find_tmdb_id(imdb, movie, &tmdb).await {
+                Ok(Some(id)) => {
+                    ids.insert("tmdb".into(), id);
                 }
+                Ok(None) => {}
+                Err(e) => result.issues.push(format!("TMDB matching: {e}")),
             }
         }
         let mut visited = HashSet::new();
         // Revisit the list when one provider discovers a reliable ID for another.
         for _ in 0..2 {
             for provider in if item.anime { vec!["anilist", "mal", "anidb", "tmdb", "tvdb", "imdb"] } else { vec!["tmdb", "tvdb", "imdb"] } {
-                if let Some(task) = task {
-                    if self.cancelled(task)? {
-                        return Err(error("Metadata fetch cancelled"));
-                    }
+                if let Some(task) = task
+                    && self.cancelled(task)?
+                {
+                    return Err(error("Metadata fetch cancelled"));
                 }
                 let Some(id) = ids.get(provider).cloned() else {
                     continue;
@@ -454,34 +456,31 @@ impl Runtime {
                     if self.imdb_status()?.enabled {
                         match self.imdb_lookup(&id) {
                             Ok(titles) => {
-                                if let Some(title) = titles.first() {
-                                    if if movie {
+                                if let Some(title) = titles.first()
+                                    && if movie {
                                         ["movie", "tvMovie", "short", "video"]
                                             .contains(&title.title_type.as_str())
                                     } else {
                                         ["tvSeries", "tvMiniSeries"]
                                             .contains(&title.title_type.as_str())
-                                    } {
-                                        let mut fetched = FetchedVideoMetadata::default();
-                                        fetched.ids.insert("imdb".into(), id.clone());
-                                        fetched.fields = BTreeMap::from([
-                                            ("original_title".into(), json!(title.original_title)),
-                                            ("year".into(), json!(title.year)),
-                                            (
-                                                "runtime_minutes".into(),
-                                                json!(title.runtime_minutes),
-                                            ),
-                                            ("genres".into(), json!(title.genres)),
-                                            ("imdb_rating".into(), json!(title.rating)),
-                                            ("imdb_votes".into(), json!(title.votes)),
-                                        ]);
-                                        doc.fill(
-                                            &item,
-                                            fetched,
-                                            &format!("imdb:{id}"),
-                                            &mut result,
-                                        );
                                     }
+                                {
+                                    let mut fetched = FetchedVideoMetadata::default();
+                                    fetched.ids.insert("imdb".into(), id.clone());
+                                    fetched.fields = BTreeMap::from([
+                                        ("original_title".into(), json!(title.original_title)),
+                                        ("year".into(), json!(title.year)),
+                                        ("runtime_minutes".into(), json!(title.runtime_minutes)),
+                                        ("genres".into(), json!(title.genres)),
+                                        ("imdb_rating".into(), json!(title.rating)),
+                                        ("imdb_votes".into(), json!(title.votes)),
+                                    ]);
+                                    doc.fill(
+                                        &item,
+                                        fetched,
+                                        &format!("imdb:{id}"),
+                                        &mut result,
+                                    );
                                 }
                             }
                             Err(e) => result.issues.push(format!("IMDb: {e}")),
@@ -525,10 +524,10 @@ impl Runtime {
                         continue;
                     }
                 }
-                if let Some(task) = task {
-                    if self.cancelled(task)? {
-                        return Err(error("Metadata fetch cancelled"));
-                    }
+                if let Some(task) = task
+                    && self.cancelled(task)?
+                {
+                    return Err(error("Metadata fetch cancelled"));
                 }
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(90),

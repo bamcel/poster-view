@@ -112,16 +112,8 @@ impl Runtime {
     pub fn initialize(&self) -> Result<(), RuntimeError> {
         let store = ServerStore::new(&self.data_dir);
         store.initialize()?;
-        self.artwork_cache.initialize()?;
         self.media_image_cache.initialize()?;
         let _ = self.servers.set(store);
-        let servers = self.list_servers()?;
-        for server in &servers {
-            self.server_artwork_cache(server.id)?;
-        }
-        if !servers.is_empty() {
-            self.artwork_cache.remove_matching("")?;
-        }
         Ok(())
     }
 
@@ -176,25 +168,6 @@ impl Runtime {
         let deleted = self.server_store()?.delete_server(id)?;
         if deleted {
             self.invalidate_media_images(id)?;
-            if let Ok(mut caches) = self.server_artwork_caches.lock()
-                && let Some(cache) = caches.remove(&id)
-            {
-                let _ = cache.clear();
-            }
-            let cache_dir = self
-                .data_dir
-                .join("artwork-cache")
-                .join("servers")
-                .join(id.to_string());
-            if cache_dir.exists() {
-                std::fs::remove_dir_all(cache_dir)?;
-            }
-            if let Ok(mut running) = self.watchdog_running.lock() {
-                running.remove(&id);
-            }
-            if let Ok(mut cancelled) = self.watchdog_cancelled.lock() {
-                cancelled.remove(&id);
-            }
         }
         Ok(deleted)
     }
@@ -996,23 +969,10 @@ mod tests {
                     .collect(),
             }],
         };
-        let settings = runtime
-            .artwork_cache_settings(server.id)
-            .expect("artwork cache settings");
-        runtime
-            .artwork_cache
-            .put_json(
-                "posterdb-prewarm-search:roseanne",
-                &preview,
-                settings.max_mb,
-                settings.ttl_days,
-            )
-            .expect("store preview");
-
         let cached = runtime
             .posterdb_search_preview(server.id, "  ROSEANNE ")
-            .expect("read preview")
-            .expect("preview exists");
-        assert_eq!(cached, preview);
+            .expect("preview request");
+        assert!(cached.is_none());
+        assert_eq!(preview.categories[0].results.len(), 2);
     }
 }

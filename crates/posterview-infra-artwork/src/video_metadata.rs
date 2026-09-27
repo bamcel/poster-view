@@ -279,15 +279,13 @@ fn parse(
                     .into_iter()
                     .flatten()
                     .find(|r| r["iso_3166_1"] == "US")
-                {
-                    if let Some(cert) = us["release_dates"]
+                    && let Some(cert) = us["release_dates"]
                         .as_array()
                         .into_iter()
                         .flatten()
                         .find_map(|r| text(&r["certification"]))
-                    {
-                        put(&mut out, "content_rating", json!(cert));
-                    }
+                {
+                    put(&mut out, "content_rating", json!(cert));
                 }
             } else if let Some(us) = data["content_ratings"]["results"]
                 .as_array()

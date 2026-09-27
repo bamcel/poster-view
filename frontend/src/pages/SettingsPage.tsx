@@ -648,7 +648,7 @@ function ServersSection() {
                 server={s}
                 onEdit={() => startEdit(s)}
                 onDelete={() => {
-                  if (confirm(`Delete server "${s.name}" (${s.base_url}, ID ${s.id}) from PosterView?\n\nThis removes its saved connection, artwork cache, and cached media-server images. Your media files and artwork on the server remain unchanged. Other servers’ caches are kept.`)) deleteMut.mutate(s.id);
+                  if (confirm(`Delete server "${s.name}" (${s.base_url}, ID ${s.id}) from PosterView?\n\nThis removes its saved connection, local catalog records, and temporary media-server images. Your media files and artwork on the server remain unchanged.`)) deleteMut.mutate(s.id);
                 }}
               />
             ))}
@@ -960,23 +960,16 @@ function TmdbCredentialsFields() {
 }
 
 function DatabaseSection() {
-  const serversQ = useQuery({ queryKey: ["servers"], queryFn: api.listServers });
   return (
     <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
         <Database className="size-5 text-accent" /> Database
       </h2>
       <p className="mb-3 text-sm text-faint">
-        Manage metadata sources, cached artwork, and background preloading.
+        Manage shared local metadata sources. Current media-server artwork is imported through Scheduled Tasks.
       </p>
       <div className="space-y-4">
         <ImdbSource />
-        {serversQ.data?.map((server) => <ArtworkCacheFields key={server.id} server={server} />)}
-        {!serversQ.isLoading && serversQ.data?.length === 0 && (
-          <p className="rounded-xl border border-border bg-surface-2 p-4 text-sm text-faint">
-            Add a media server before configuring cache services.
-          </p>
-        )}
       </div>
     </section>
   );
@@ -1047,7 +1040,7 @@ function DefaultArtworkSourcesFields() {
   </div>;
 }
 
-function ArtworkCacheFields({ server }: { server: Server }) {
+export function ArtworkCacheFields({ server }: { server: Server }) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const cacheQ = useQuery({

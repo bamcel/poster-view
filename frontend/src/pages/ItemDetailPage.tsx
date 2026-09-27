@@ -62,15 +62,6 @@ export default function ItemDetailPage() {
   );
   const [metadataImport, setMetadataImport] = useState<{ fields: NfoMetadata; sourceLabel: string } | null>(null);
   const queryClient = useQueryClient();
-  const refreshArtwork = useMutation({
-    mutationFn: () => api.refreshArtworkItem(serverId, itemId!),
-    onSuccess: (result) => {
-      if (!result.ok) return;
-      queryClient.invalidateQueries({ queryKey: ["artwork"], predicate: (query) => query.queryKey[2] === serverId && query.queryKey[3] === itemId });
-      queryClient.invalidateQueries({ queryKey: ["artwork-search"], predicate: (query) => query.queryKey[2] === serverId && query.queryKey[3] === itemId });
-      queryClient.invalidateQueries({ queryKey: ["artwork-cache", serverId] });
-    },
-  });
 
   const detailQ = useQuery({
     queryKey: ["item-detail", serverId, itemId],
@@ -275,17 +266,6 @@ export default function ItemDetailPage() {
                       )}
                       <button
                         type="button"
-                        aria-label="Refresh artwork"
-                        title="Refresh artwork"
-                        onClick={() => refreshArtwork.mutate()}
-                        disabled={refreshArtwork.isPending}
-                        className={detailActionClass}
-                      >
-                        <RefreshCw aria-hidden="true" className={`size-4 ${refreshArtwork.isPending ? "animate-spin" : ""}`} />
-
-                      </button>
-                      <button
-                        type="button"
                         onClick={() => setArtworkOpen(true)}
                         className={detailActionClass}
                         aria-label="Edit Artwork" title="Edit Artwork"
@@ -293,11 +273,6 @@ export default function ItemDetailPage() {
                         <Images className="size-4" aria-hidden="true" />
                       </button>
                     </div>
-                    <div role="status" aria-live="polite" className="mt-2 break-words text-sm xl:hidden">
-                      {refreshArtwork.isError ? <p className="text-danger">{refreshArtwork.error.message}</p>
-                        : refreshArtwork.data ? <p className={refreshArtwork.data.ok ? "text-success" : "text-danger"}>{refreshArtwork.data.message}</p> : null}
-                    </div>
-
                     {!isSeries && !metadataQ.data && item.summary && (
                       <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/80">
                         {item.summary}

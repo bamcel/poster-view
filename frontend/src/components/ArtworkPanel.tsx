@@ -6,7 +6,7 @@ import { Switch } from "./ui";
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Images, RefreshCw, X } from "lucide-react";
+import { ChevronDown, Images, X } from "lucide-react";
 import { api } from "../api/client";
 import type { ItemDetail, Library, NfoMetadata } from "../types";
 import PosterDBBody from "./PosterDBPanel";
@@ -15,7 +15,6 @@ import ManualUpload from "./ManualUpload";
 import RemoveArtwork from "./RemoveArtwork";
 import MangaDexPanel from "./MangaDexPanel";
 import VizPanel from "./VizPanel";
-import { useToast } from "../lib/toast";
 import { artworkMediaKind, providerMatchesMediaKind } from "../lib/mediaKind";
 import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/mediaLibrarySettings";
 
@@ -43,14 +42,12 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   const [sourceLayout, setSourceLayout] = useState<"list" | "compact">(() =>
     localStorage.getItem(ARTWORK_LAYOUT_KEY) === "compact" ? "compact" : "list",
   );
-  const [refreshing, setRefreshing] = useState(false);
-  const [panelVersion, setPanelVersion] = useState(0);
+  const panelVersion = 0;
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
   const [otherSourcesOpen, setOtherSourcesOpen] = useState(false);
   const queryClient = useQueryClient();
-  const toast = useToast();
 
   useEffect(() => {
     const updateSolidity = (event: Event) => setPanelSolid((event as CustomEvent<number>).detail);
@@ -110,23 +107,6 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigationTarget?.nonce]);
 
-  const refreshProvider = async () => {
-    setRefreshing(true);
-    try {
-      const result = await api.refreshArtworkItem(serverId, item.id);
-      queryClient.removeQueries({
-        predicate: (query) =>
-          query.queryKey.includes("artwork") && query.queryKey.includes(item.id),
-      });
-      queryClient.invalidateQueries({ queryKey: ["artwork-cache"] });
-      setPanelVersion((value) => value + 1);
-      toast.push(result.ok ? "success" : "error", result.message);
-    } catch (error) {
-      toast.push("error", (error as Error).message);
-    } finally {
-      setRefreshing(false);
-    }
-  };
   const chooseLayout = (layout: "list" | "compact") => {
     localStorage.setItem(ARTWORK_LAYOUT_KEY, layout);
     setSourceLayout(layout);
@@ -210,23 +190,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
       </div>
 
       <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto p-4">
-        {provider !== "manual" && provider !== "remove" && (
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">
-              {allTabs.find((tab) => tab.name === provider)?.label ?? provider}
-            </h3>
-            <button
-              type="button"
-              aria-label={`Refresh ${allTabs.find((tab) => tab.name === provider)?.label ?? provider} cache`}
-              title="Refresh artwork cache"
-              disabled={refreshing}
-              onClick={() => void refreshProvider()}
-              className="shrink-0 rounded-md p-2 text-muted transition-colors hover:bg-elevated hover:text-white disabled:opacity-50"
-            >
-              <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
-            </button>
-          </div>
-        )}
+        {provider !== "manual" && provider !== "remove" && <h3 className="mb-3 text-sm font-semibold">{allTabs.find((tab) => tab.name === provider)?.label ?? provider}</h3>}
         {provider === "posterdb" ? (
           <PosterDBBody key={panelVersion} serverId={serverId} item={item} prefill={prefill} />
         ) : provider === "mangadex" ? (

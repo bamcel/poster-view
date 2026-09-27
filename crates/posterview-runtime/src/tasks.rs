@@ -15,7 +15,7 @@ mod tests {
         let runtime = Runtime::new(dir.path());
         runtime.initialize().unwrap();
         let tasks = runtime.scheduled_tasks().unwrap();
-        assert_eq!(tasks.len(), 4);
+        assert_eq!(tasks.len(), 5);
         let mut config = tasks[0].config.clone();
         assert!(runtime.save_scheduled_task(None, config.clone()).is_err());
         assert!(runtime.task_action(&tasks[0].id, "delete").is_err());
@@ -103,7 +103,7 @@ mod tests {
             .set_setting(KEY, &serde_json::to_string(&saved).unwrap())
             .unwrap();
         let loaded = runtime.scheduled_tasks().unwrap();
-        assert_eq!(loaded.len(), 4);
+        assert_eq!(loaded.len(), 5);
         assert!(loaded[0].config.enabled);
         assert_eq!(loaded.last().unwrap().id, "imdb_refresh");
     }
@@ -214,6 +214,7 @@ fn builtin_tasks() -> Vec<ScheduledTask> {
         ("refresh_credits", "Refresh Outdated Cast & Crew", 168),
         ("imdb_refresh", "Refresh IMDb Data", 168),
         ("missing_metadata", "Find Missing Metadata", 24),
+        ("import_artwork", "Import Current Artwork", 24),
     ]
     .into_iter()
     .map(|(kind, name, interval_hours)| ScheduledTask {
@@ -442,17 +443,36 @@ impl Runtime {
                     .server_store()?
                     .decrypted_token(server.id)?
                     .unwrap_or_default();
-                for library in libraries
-                    .iter()
-                    .filter(|l| l.anime || l.library_type == posterview_contracts::LibraryType::Show || l.library_type == posterview_contracts::LibraryType::Movie)
-                {
+                for library in libraries.iter().filter(|library| {
+                    config.kind == "import_artwork"
+                        || library.anime
+                        || library.library_type == posterview_contracts::LibraryType::Show
+                        || library.library_type == posterview_contracts::LibraryType::Movie
+                }) {
                     if self.cancelled(&task.id)? {
                         return Ok(());
+                    }
+                    if config.kind == "import_artwork" {
+                        let library_items = self
+                            .get_items(server.id, &library.id, false)
+                            .await?
+                            .ok_or_else(|| invalid("Media server no longer exists"))?
+                            .map_err(invalid)?;
+                        for item in library_items {
+                            if seen.insert((server.id, item.id.clone())) {
+                                items.push(WorkItem {
+                                    server_id: server.id,
+                                    id: item.id,
+                                    title: item.title,
+                                });
+                            }
+                        }
+                        continue;
                     }
                     for movie in if library.anime && library.library_type == posterview_contracts::LibraryType::Other { vec![false, true] } else { vec![library.library_type == posterview_contracts::LibraryType::Movie] } {
                         let inventory = posterview_infra_media_servers::get_video_inventory(
                             posterview_infra_media_servers::ConnectionConfig {
-                                server_type: server.server_type.clone(),
+                                server_type: server.server_type,
                                 base_url: &server.base_url,
                                 token: &token,
                             },
@@ -484,7 +504,11 @@ impl Runtime {
                 if t.status != "stopping" {
                     t.status = "running".into();
                     t.total = items.len();
-                    t.message = "Fetching saved and linked credits".into();
+                    t.message = if config.kind == "import_artwork" {
+                        "Importing current posters, backgrounds, and logos".into()
+                    } else {
+                        "Fetching saved and linked credits".into()
+                    };
                 }
             })?;
             return Ok(());
@@ -507,6 +531,31 @@ impl Runtime {
             return Ok(());
         };
         self.update_task(&task.id, |t| t.current_title = Some(item.title.clone()))?;
+        if config.kind == "import_artwork" {
+            let imported = self
+                .get_item_detail(item.server_id, &item.id)
+                .await?
+                .ok_or_else(|| invalid("Media server no longer exists"))?;
+            self.update_task(&task.id, |t| {
+                t.processed += 1;
+                match imported {
+                    Ok(_) => t.updated += 1,
+                    Err(message) => {
+                        t.failed += 1;
+                        if t.issues.len() < 200 {
+                            t.issues.push(TaskIssue {
+                                server_id: item.server_id,
+                                item_id: item.id.clone(),
+                                title: item.title.clone(),
+                                message,
+                                needs_matching: false,
+                            });
+                        }
+                    }
+                }
+            })?;
+            return Ok(());
+        }
         if config.kind == "missing_metadata" {
             let fetched = self.find_missing_metadata(item.server_id, &item.id, Some(&task.id)).await;
             if self.cancelled(&task.id)? { return Ok(()); }

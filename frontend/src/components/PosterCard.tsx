@@ -2,7 +2,7 @@
 // Opens on a single click (and Enter for keyboard users) when `onOpen` is set.
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Film, Tv, Library, Pencil, RefreshCw, BookOpen, Search, Check } from "lucide-react";
+import { Film, Tv, Library, Pencil, BookOpen, Search, Check } from "lucide-react";
 import { useActionMenu } from "../lib/actionMenu";
 import type { ColoredEffect } from "../lib/libraryDisplay";
 import "./posterEffects.css";
@@ -20,10 +20,8 @@ interface PosterCardProps {
   selected?: boolean;
   onOpen?: () => void;
   openLabel?: string;
-  onRefresh?: () => void;
   onEditMetadata?: () => void;
   onFindMetadata?: () => void;
-  refreshing?: boolean;
 }
 
 export default function PosterCard({
@@ -39,10 +37,8 @@ export default function PosterCard({
   selected,
   onOpen,
   openLabel = "Open",
-  onRefresh,
   onEditMetadata,
   onFindMetadata,
-  refreshing,
 }: PosterCardProps) {
   const Placeholder =
     kind === "book" || kind === "audiobook"
@@ -138,22 +134,22 @@ export default function PosterCard({
       <button
         ref={triggerRef}
         type="button"
-        aria-haspopup={onRefresh || onEditMetadata || onFindMetadata ? "menu" : undefined}
-        aria-expanded={onRefresh || onEditMetadata || onFindMetadata ? menuOpen : undefined}
+        aria-haspopup={onEditMetadata || onFindMetadata ? "menu" : undefined}
+        aria-expanded={onEditMetadata || onFindMetadata ? menuOpen : undefined}
         aria-controls={menuOpen ? menuId : undefined}
         onClick={event => selectionMode && onSelect ? onSelect(event.shiftKey) : onOpen()}
         onKeyDown={(event) => {
-          if ((onRefresh || onEditMetadata || onFindMetadata) && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+          if ((onEditMetadata || onFindMetadata) && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
             event.preventDefault();
             setMenuOpen(true);
           }
         }}
         onContextMenu={(event) => {
-          if (!onRefresh && !onEditMetadata && !onFindMetadata) return;
+          if (!onEditMetadata && !onFindMetadata) return;
           event.preventDefault();
           setMenuOpen(true);
         }}
-        title={onRefresh || onEditMetadata || onFindMetadata ? `${title} · right-click for options` : title}
+        title={onEditMetadata || onFindMetadata ? `${title} · right-click for options` : title}
         className="group block w-full select-none text-left"
       >
         {content}
@@ -163,28 +159,12 @@ export default function PosterCard({
         className={`poster-selection-toggle absolute left-2 top-2 z-10 grid size-7 place-items-center rounded-full border shadow backdrop-blur-sm transition-opacity focus-visible:opacity-100 ${selected ? "border-accent bg-accent text-black" : "border-white/50 bg-white/20 text-white"} ${selectionMode || selected ? "opacity-100" : "opacity-0 group-hover/selection:opacity-100 group-focus-within/selection:opacity-100 [@media(hover:none)]:opacity-100"}`}>
         {selected && <Check className="size-4" />}
       </button>}
-      {menuOpen && (onRefresh || onEditMetadata || onFindMetadata) && (
+      {menuOpen && (onEditMetadata || onFindMetadata) && (
         <div
           ref={menuRef} id={menuId} role="menu" aria-label={`Artwork options for ${title}`} tabIndex={-1} onKeyDown={menuKeys}
           className="absolute left-2 top-14 z-30 w-max min-w-44 rounded-lg border border-border bg-elevated p-1 shadow-2xl"
           onClick={(event) => event.stopPropagation()}
         >
-          {onRefresh && <button
-            type="button"
-            role="menuitem" tabIndex={-1}
-            onClick={() => {
-              setMenuOpen(false);
-              triggerRef.current?.focus();
-              onRefresh();
-            }}
-            disabled={refreshing}
-            className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-muted hover:bg-surface-2 hover:text-white disabled:opacity-50"
-          >
-            <RefreshCw
-              className={`size-4 shrink-0 ${refreshing ? "animate-spin" : ""}`}
-            />
-            Refresh artwork data
-          </button>}
           {onFindMetadata && <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setMenuOpen(false); triggerRef.current?.focus(); onFindMetadata(); }} className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-muted hover:bg-surface-2 hover:text-white"><Search className="size-4" />Find Missing Metadata</button>}
           {onEditMetadata && <button
             type="button"

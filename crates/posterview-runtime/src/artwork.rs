@@ -73,7 +73,6 @@ fn provider_applies_to_item(provider: &str, item: &ItemDetail) -> bool {
         _ => true,
     }
 }
-
 fn provider_item_id<'a>(provider: &str, item: &'a ItemDetail) -> Option<&'a str> {
     let id = |name: &str| {
         item.external_ids
@@ -235,14 +234,6 @@ impl Runtime {
         Ok(cache)
     }
 
-    fn clear_all_artwork_caches(&self) -> Result<(), RuntimeError> {
-        for server in self.list_servers()? {
-            self.server_artwork_cache(server.id)?.clear()?;
-        }
-        self.artwork_cache.remove_matching("")?;
-        Ok(())
-    }
-
     fn server_setting(server_id: i64, name: &str) -> String {
         format!("{name}:{server_id}")
     }
@@ -279,42 +270,15 @@ impl Runtime {
         let value = serde_json::to_string(selection).map_err(std::io::Error::other)?;
         self.server_store()?
             .set_setting(&format!("mangadex-selection:{server_id}:{item_id}"), &value)?;
-        self.refresh_mangadex_cache(server_id, item_id);
         Ok(())
-    }
-
-    pub fn refresh_mangadex_cache(&self, server_id: i64, item_id: &str) {
-        if let Ok(cache) = self.server_artwork_cache(server_id) {
-            let _ = cache.remove_matching(&format!("artwork:mangadex:{server_id}:{item_id}:"));
-            let _ =
-                cache.remove_matching(&format!("artwork-search:mangadex:{server_id}:{item_id}:"));
-        }
-    }
-
-    pub fn refresh_artwork_provider_cache(&self, provider: &str, server_id: i64, item_id: &str) {
-        if let Ok(cache) = self.server_artwork_cache(server_id) {
-            let _ = cache.remove_matching(&format!("artwork:{provider}:{server_id}:{item_id}:"));
-        }
     }
 
     pub async fn mangadex_image(
         &self,
-        server_id: i64,
+        _server_id: i64,
         url: &str,
     ) -> Result<(Vec<u8>, String), String> {
-        let settings = self
-            .artwork_cache_settings(server_id)
-            .map_err(|e| e.to_string())?;
-        let cache = self
-            .server_artwork_cache(server_id)
-            .map_err(|error| error.to_string())?;
-        let key = format!("mangadex-image:{url}");
-        if let Some(image) = cache.get_image(&key, settings.ttl_days) {
-            return Ok(image);
-        }
-        let image = download_public_image("mangadex", url).await?;
-        let _ = cache.put_image(&key, &image.0, &image.1, settings.max_mb, settings.ttl_days);
-        Ok(image)
+        download_public_image("mangadex", url).await
     }
 
     pub fn artwork_providers(&self) -> Result<Vec<ArtworkProviderInfo>, RuntimeError> {
@@ -1202,12 +1166,6 @@ impl Runtime {
         {
             self.artwork.reset_tvdb_cache().await;
         }
-        if input.fanart_api_key.is_some()
-            || input.tvdb_api_key.is_some()
-            || input.tvdb_pin.is_some()
-        {
-            self.clear_all_artwork_caches()?;
-        }
         // Keep accepting legacy requests, but source availability is no longer configurable.
         if let Some(provider) = input.default_provider.as_deref()
             && (["posterdb", "fanart", "tvdb", "anilist", "mediux"].contains(&provider)
@@ -1314,15 +1272,6 @@ impl Runtime {
                 "{provider} is disabled in Database settings."
             ))));
         }
-        let cache_key = format!(
-            "artwork:{provider}:{server_id}:{item_id}:{}",
-            id_override.unwrap_or("")
-        );
-        let cache_settings = self.artwork_cache_settings(server_id)?;
-        let cache = self.server_artwork_cache(server_id)?;
-        if let Some(cached) = cache.get_json(&cache_key, cache_settings.ttl_days) {
-            return Ok(Some(Ok(scoped_artwork(cached, server_id))));
-        }
         let Some(detail) = self.get_item_detail(server_id, item_id).await? else {
             return Ok(None);
         };
@@ -1359,14 +1308,6 @@ impl Runtime {
                 message: Some(message),
             },
         };
-        if response.message.is_none() {
-            let _ = cache.put_json(
-                &cache_key,
-                &response,
-                cache_settings.max_mb,
-                cache_settings.ttl_days,
-            );
-        }
         Ok(Some(Ok(scoped_artwork(response, server_id))))
     }
 
@@ -1381,15 +1322,6 @@ impl Runtime {
             return Ok(Some(Err(format!(
                 "{provider} is disabled in Database settings."
             ))));
-        }
-        let cache_key = format!(
-            "artwork-search:{provider}:{server_id}:{item_id}:v2:{}",
-            query.trim().to_lowercase()
-        );
-        let cache_settings = self.artwork_cache_settings(server_id)?;
-        let cache = self.server_artwork_cache(server_id)?;
-        if let Some(cached) = cache.get_json(&cache_key, cache_settings.ttl_days) {
-            return Ok(Some(Ok(scoped_search(cached, server_id))));
         }
         let Some(detail) = self.get_item_detail(server_id, item_id).await? else {
             return Ok(None);
@@ -1429,41 +1361,15 @@ impl Runtime {
                 message: Some(message),
             },
         };
-        if response.message.is_none() {
-            let _ = cache.put_json(
-                &cache_key,
-                &response,
-                cache_settings.max_mb,
-                cache_settings.ttl_days,
-            );
-        }
         Ok(Some(Ok(scoped_search(response, server_id))))
     }
 
     pub async fn mediux_image(
         &self,
-        server_id: i64,
+        _server_id: i64,
         url: &str,
     ) -> Result<(Vec<u8>, String), String> {
-        let settings = self
-            .artwork_cache_settings(server_id)
-            .map_err(|error| error.to_string())?;
-        let cache = self
-            .server_artwork_cache(server_id)
-            .map_err(|error| error.to_string())?;
-        let key = format!("mediux-image:{url}");
-        if let Some(cached) = cache.get_image(&key, settings.ttl_days) {
-            return Ok(cached);
-        }
-        let fetched = fetch_mediux_thumb(url).await?;
-        let _ = cache.put_image(
-            &key,
-            &fetched.0,
-            &fetched.1,
-            settings.max_mb,
-            settings.ttl_days,
-        );
-        Ok(fetched)
+        fetch_mediux_thumb(url).await
     }
 
     pub async fn posterdb_status(&self, message: &str) -> Result<PosterDbStatus, RuntimeError> {
@@ -1489,7 +1395,6 @@ impl Runtime {
             store.set_setting("posterdb_password", &input.password)?;
         }
         self.artwork.posterdb().reset().await;
-        self.clear_all_artwork_caches()?;
         self.posterdb_status("").await
     }
 
@@ -1507,7 +1412,7 @@ impl Runtime {
 
     pub async fn posterdb_search(
         &self,
-        server_id: i64,
+        _server_id: i64,
         term: &str,
     ) -> Result<PosterSearchResults, String> {
         if !self
@@ -1517,11 +1422,8 @@ impl Runtime {
         {
             return Err("ThePosterDB is disabled in Database settings.".to_owned());
         }
-        let settings = self
-            .artwork_cache_settings(server_id)
-            .map_err(|error| error.to_string())?;
         let store = self.server_store().map_err(|error| error.to_string())?;
-        let result = self
+        self
             .artwork
             .posterdb()
             .search(
@@ -1533,14 +1435,7 @@ impl Runtime {
                     .get_setting("posterdb_password")
                     .map_err(|error| error.to_string())?,
             )
-            .await?;
-        let preview = posterdb_top_three(result.clone());
-        let cache = self
-            .server_artwork_cache(server_id)
-            .map_err(|error| error.to_string())?;
-        let key = format!("posterdb-prewarm-search:{}", term.trim().to_lowercase());
-        let _ = cache.put_json(&key, &preview, settings.max_mb, settings.ttl_days);
-        Ok(result)
+            .await
     }
 
     pub fn posterdb_search_preview(
@@ -1555,27 +1450,11 @@ impl Runtime {
         {
             return Ok(None);
         }
-        let settings = self
-            .artwork_cache_settings(server_id)
-            .map_err(|error| error.to_string())?;
-        let cache = self
-            .server_artwork_cache(server_id)
-            .map_err(|error| error.to_string())?;
-        let key = format!("posterdb-prewarm-search:{}", term.trim().to_lowercase());
-        Ok(cache.get_json(&key, settings.ttl_days))
+        let _ = (server_id, term);
+        Ok(None)
     }
 
     pub async fn posterdb_set(&self, server_id: i64, url: &str) -> Result<PosterSet, String> {
-        let settings = self
-            .artwork_cache_settings(server_id)
-            .map_err(|error| error.to_string())?;
-        let cache = self
-            .server_artwork_cache(server_id)
-            .map_err(|error| error.to_string())?;
-        let key = format!("posterdb-set:{url}");
-        if let Some(cached) = cache.get_json(&key, settings.ttl_days) {
-            return Ok(scoped_set(cached, server_id));
-        }
         let store = self.server_store().map_err(|error| error.to_string())?;
         let result = self
             .artwork
@@ -1590,7 +1469,6 @@ impl Runtime {
                     .map_err(|error| error.to_string())?,
             )
             .await?;
-        let _ = cache.put_json(&key, &result, settings.max_mb, settings.ttl_days);
         Ok(scoped_set(result, server_id))
     }
 
@@ -1599,20 +1477,9 @@ impl Runtime {
         server_id: i64,
         ids: &[String],
     ) -> Result<std::collections::HashMap<String, i64>, String> {
-        let settings = self
-            .artwork_cache_settings(server_id)
-            .map_err(|error| error.to_string())?;
-        let mut sorted_ids = ids.to_vec();
-        sorted_ids.sort();
-        let cache = self
-            .server_artwork_cache(server_id)
-            .map_err(|error| error.to_string())?;
-        let key = format!("posterdb-verify:{}", sorted_ids.join(","));
-        if let Some(cached) = cache.get_json(&key, settings.ttl_days) {
-            return Ok(cached);
-        }
+        let _ = server_id;
         let store = self.server_store().map_err(|error| error.to_string())?;
-        let result = self
+        self
             .artwork
             .posterdb()
             .verify_titles(
@@ -1624,28 +1491,16 @@ impl Runtime {
                     .get_setting("posterdb_password")
                     .map_err(|error| error.to_string())?,
             )
-            .await?;
-        let _ = cache.put_json(&key, &result, settings.max_mb, settings.ttl_days);
-        Ok(result)
+            .await
     }
 
     pub async fn posterdb_image(
         &self,
-        server_id: i64,
+        _server_id: i64,
         url: &str,
     ) -> Result<(Vec<u8>, String), String> {
-        let settings = self
-            .artwork_cache_settings(server_id)
-            .map_err(|error| error.to_string())?;
-        let cache = self
-            .server_artwork_cache(server_id)
-            .map_err(|error| error.to_string())?;
-        let key = format!("posterdb-image:{url}");
-        if let Some(cached) = cache.get_image(&key, settings.ttl_days) {
-            return Ok(cached);
-        }
         let store = self.server_store().map_err(|error| error.to_string())?;
-        let result = self
+        self
             .artwork
             .posterdb()
             .image(
@@ -1658,15 +1513,7 @@ impl Runtime {
                     .map_err(|error| error.to_string())?,
                 true,
             )
-            .await?;
-        let _ = cache.put_image(
-            &key,
-            &result.0,
-            &result.1,
-            settings.max_mb,
-            settings.ttl_days,
-        );
-        Ok(result)
+            .await
     }
 
     pub async fn apply_download(
@@ -1715,6 +1562,3 @@ impl Runtime {
     }
 }
 
-#[cfg(test)]
-#[path = "artwork_tests.rs"]
-mod regression_tests;

@@ -5,7 +5,7 @@ import FindMissingMetadata from "../components/FindMissingMetadata";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { LibraryBackdrop } from "../lib/libraryNavigation";
 import { useNavigate, useSearchParams } from "../lib/libraryNavigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ListFilter, MoreHorizontal, Search, ServerCrash, Sparkles } from "lucide-react";
 import { useTrackingOverlays } from "../lib/libraryDisplay";
 import { api, imageUrl } from "../api/client";
@@ -31,7 +31,6 @@ type TitleSort = "title" | "newest" | "oldest" | "recently-added";
 export default function MediaLibraryPage() {
   const navigate = useNavigate();
   const toast = useToast();
-  const queryClient = useQueryClient();
   const { selectedServer, isLoading: serversLoading } = useServers();
   const serverId = selectedServer?.id ?? null;
   const libraryTabKey = serverId == null ? null : `posterview.libraryTab.${serverId}`;
@@ -53,7 +52,6 @@ export default function MediaLibraryPage() {
   const [artworkFilter, setArtworkFilter] = useState<ArtworkFilter>("all");
   const [titleSort, setTitleSort] = useState<TitleSort>("title");
   const [automaticRootId, setAutomaticRootId] = useState<string | null>(null);
-  const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [showBackdrop, setShowBackdrop] = useState(mediaLibraryBackdropEnabled);
   const [overlayStrength, setOverlayStrength] = useState(backdropOverlay);
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
@@ -68,21 +66,6 @@ export default function MediaLibraryPage() {
   const [trackingOverlays, setTrackingOverlays, displayStatus] = useTrackingOverlays();
   const restoredScrollKeyRef = useRef<string | null>(null);
 
-  const refreshMut = useMutation({
-    mutationFn: ({ itemId }: { itemId: string }) =>
-      api.refreshArtworkItem(serverId!, itemId),
-    onMutate: ({ itemId }) => setRefreshingId(itemId),
-    onSuccess: (result, { itemId }) => {
-      queryClient.removeQueries({
-        queryKey: ["artwork"],
-        predicate: (query) => query.queryKey.includes(itemId),
-      });
-      queryClient.invalidateQueries({ queryKey: ["artwork-cache"] });
-      toast.push(result.ok ? "success" : "error", result.message);
-    },
-    onError: (error: Error) => toast.push("error", error.message),
-    onSettled: () => setRefreshingId(null),
-  });
 
   // Whether a collection's member movies/shows are replaced by a single
   // collection tile (Emby/Jellyfin only — Plex ignores this server-side for
@@ -571,10 +554,8 @@ export default function MediaLibraryPage() {
                 coloredTitle={browsesFolders && bookInfo.data?.[item.id]?.colored_edition && displayStatus.coloredTitle}
                 badge={browsesFolders && !trackingOverlays ? undefined : bookInfo.data?.[item.id]?.status ?? (newMissingIds.has(item.id) ? "NEW" : undefined)}
                 onOpen={() => openItem(item)}
-                onRefresh={() => refreshMut.mutate({ itemId: item.id })}
                 onEditMetadata={() => setMetadataItem(item)}
                 onFindMetadata={item.type === "movie" || item.type === "show" ? () => setFindItem(item) : undefined}
-                refreshing={refreshingId === item.id}
               />
             ))}
           </div>

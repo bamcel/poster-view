@@ -728,10 +728,10 @@ async fn jellyfin_library_discovery_is_normalized() {
     assert_eq!(
         body,
         serde_json::json!([
-            {"id":"anime","title":"Anime","type":"show"},
-            {"id":"movies","title":"Movies","type":"movie"},
-            {"id":"shows","title":"TV Shows","type":"show"},
-            {"id":"collections","title":"Collections","type":"collection"}
+            {"id":"anime","title":"Anime","type":"show","anime":false},
+            {"id":"movies","title":"Movies","type":"movie","anime":false},
+            {"id":"shows","title":"TV Shows","type":"show","anime":false},
+            {"id":"collections","title":"Collections","type":"collection","anime":false}
         ])
     );
 
@@ -1050,86 +1050,4 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
     assert_eq!(credentials["configured"], true);
     assert_eq!(credentials["email"], "viewer@example.com");
     assert!(credentials.get("password").is_none());
-}
-
-#[tokio::test]
-async fn artwork_cache_defaults_to_250_mb_and_can_be_configured_and_cleared() {
-    let directory = tempdir().unwrap();
-    let runtime = Arc::new(Runtime::new(directory.path()));
-    runtime.initialize().unwrap();
-    let server = runtime
-        .create_server(&posterview_contracts::ServerCreate {
-            name: "Living Room".to_owned(),
-            server_type: posterview_contracts::ServerType::Jellyfin,
-            base_url: "http://127.0.0.1:8096".to_owned(),
-            token: "test".to_owned(),
-            is_default: true,
-            nfo_metadata_enabled: false,
-        })
-        .unwrap();
-    let second_server = runtime
-        .create_server(&posterview_contracts::ServerCreate {
-            name: "Bedroom".to_owned(),
-            server_type: posterview_contracts::ServerType::Emby,
-            base_url: "http://127.0.0.1:8097".to_owned(),
-            token: "test".to_owned(),
-            is_default: false,
-            nfo_metadata_enabled: false,
-        })
-        .unwrap();
-    let app = router(runtime, PathBuf::from("missing-ui"));
-
-    let status = app
-        .clone()
-        .oneshot(
-            Request::get(format!("/api/artwork/cache/{}", server.id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let status: serde_json::Value =
-        serde_json::from_slice(&status.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(status["max_mb"], 250);
-    assert_eq!(status["ttl_days"], 30);
-
-    let updated = app
-        .clone()
-        .oneshot(
-            Request::put(format!("/api/artwork/cache/{}", server.id))
-                .header("content-type", "application/json")
-                .body(Body::from(r#"{"max_mb":500,"ttl_days":60}"#))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let updated: serde_json::Value =
-        serde_json::from_slice(&updated.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(updated["max_mb"], 500);
-    assert_eq!(updated["ttl_days"], 60);
-
-    let independent = app
-        .clone()
-        .oneshot(
-            Request::get(format!("/api/artwork/cache/{}", second_server.id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let independent: serde_json::Value =
-        serde_json::from_slice(&independent.into_body().collect().await.unwrap().to_bytes())
-            .unwrap();
-    assert_eq!(independent["max_mb"], 250);
-    assert_eq!(independent["server_name"], "Bedroom");
-
-    let cleared = app
-        .oneshot(
-            Request::delete(format!("/api/artwork/cache/{}", server.id))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(cleared.status(), StatusCode::OK);
 }

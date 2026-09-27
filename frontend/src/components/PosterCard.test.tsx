@@ -56,42 +56,42 @@ it("keeps colored effects opt-in and separate from progress badges", () => {
 });
 it("keeps only the latest right-click menu open and dismisses it with Escape", () => {
   render(<>
-    <PosterCard title="First" onOpen={vi.fn()} onRefresh={vi.fn()} />
-    <PosterCard title="Second" onOpen={vi.fn()} onRefresh={vi.fn()} />
+    <PosterCard title="First" onOpen={vi.fn()} onEditMetadata={vi.fn()} />
+    <PosterCard title="Second" onOpen={vi.fn()} onEditMetadata={vi.fn()} />
   </>);
   fireEvent.contextMenu(screen.getByTitle("First · right-click for options"));
   fireEvent.contextMenu(screen.getByTitle("Second · right-click for options"));
-  expect(screen.getAllByRole("menuitem", { name: "Refresh artwork data" })).toHaveLength(1);
+  expect(screen.getAllByRole("menuitem", { name: "Edit Metadata" })).toHaveLength(1);
   fireEvent.keyDown(window, { key: "Escape" });
-  expect(screen.queryByRole("menuitem", { name: "Refresh artwork data" })).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: "Edit Metadata" })).toBeNull();
 });
 
-it("dismisses the menu when leaving the card without refreshing artwork", () => {
-  const refresh = vi.fn();
-  render(<PosterCard title="Movie" onOpen={vi.fn()} onRefresh={refresh} />);
+it("dismisses the menu when leaving the card without editing metadata", () => {
+  const edit = vi.fn();
+  render(<PosterCard title="Movie" onOpen={vi.fn()} onEditMetadata={edit} />);
   const card = screen.getByTitle("Movie · right-click for options");
   fireEvent.contextMenu(card);
   fireEvent.mouseLeave(card.parentElement!);
-  expect(screen.queryByRole("menuitem", { name: "Refresh artwork data" })).toBeNull();
-  expect(refresh).not.toHaveBeenCalled();
+  expect(screen.queryByRole("menuitem", { name: "Edit Metadata" })).toBeNull();
+  expect(edit).not.toHaveBeenCalled();
 });
 
 it("opens options from the keyboard, focuses the action, and returns focus on Escape", () => {
-  render(<PosterCard title="Movie" onOpen={vi.fn()} onRefresh={vi.fn()} />);
+  render(<PosterCard title="Movie" onOpen={vi.fn()} onEditMetadata={vi.fn()} />);
   const trigger = screen.getByTitle("Movie · right-click for options");
   fireEvent.keyDown(trigger, { key: "F10", shiftKey: true });
-  const action = screen.getByRole("menuitem", { name: "Refresh artwork data" });
+  const action = screen.getByRole("menuitem", { name: "Edit Metadata" });
   expect(document.activeElement).toBe(action);
   fireEvent.keyDown(action, { key: "Escape" });
   expect(screen.queryByRole("menu")).toBeNull();
   expect(document.activeElement).toBe(trigger);
 });
 
-it("shows compact refresh and metadata actions and opens the editor action", () => {
+it("shows the compact metadata action and opens the editor", () => {
   const editMetadata = vi.fn();
-  render(<PosterCard title="Manga" onOpen={vi.fn()} onRefresh={vi.fn()} onEditMetadata={editMetadata} />);
+  render(<PosterCard title="Manga" onOpen={vi.fn()} onEditMetadata={editMetadata} />);
   fireEvent.contextMenu(screen.getByTitle("Manga · right-click for options"));
-  expect(screen.getByRole("menuitem", { name: "Refresh artwork data" }).className).toContain("whitespace-nowrap");
+  expect(screen.getByRole("menuitem", { name: "Edit Metadata" }).className).toContain("whitespace-nowrap");
   fireEvent.click(screen.getByRole("menuitem", { name: "Edit Metadata" }));
   expect(editMetadata).toHaveBeenCalledOnce();
 });

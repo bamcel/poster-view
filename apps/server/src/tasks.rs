@@ -6,6 +6,7 @@ use axum::{
 use posterview_runtime::{ScheduledTask, TaskConfig};
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use axum::{
         body::Body,
@@ -35,7 +36,7 @@ mod tests {
         let runtime = posterview_runtime::Runtime::new(dir.path());
         runtime.initialize().unwrap();
         // Read the built-ins before connecting servers: scope must be discovered at run time.
-        assert_eq!(runtime.scheduled_tasks().unwrap().len(), 4);
+        assert_eq!(runtime.scheduled_tasks().unwrap().len(), 5);
         for name in ["One", "Two"] {
             runtime
                 .create_server(&posterview_contracts::ServerCreate {
@@ -53,7 +54,7 @@ mod tests {
         let task = &runtime.scheduled_tasks().unwrap()[0];
         assert_eq!(task.status, "running", "{}", task.message);
         assert_eq!(
-            task.total, 4,
+            task.total, 6,
             "IDs shared by different servers must remain distinct"
         );
         runtime.task_action("missing_credits", "cancel").unwrap();

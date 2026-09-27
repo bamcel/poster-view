@@ -724,7 +724,11 @@ pub async fn get_video_inventory(config: ConnectionConfig<'_>, library_id: &str,
         let before = items.len();
         for row in rows.into_iter().flatten() {
             let item = if plex { plex_media_item(row) } else { emby_media_item(row) };
-            if let Some(item) = item { if seen.insert(item.id.clone()) { items.push(item); } }
+            if let Some(item) = item
+                && seen.insert(item.id.clone())
+            {
+                items.push(item);
+            }
         }
         offset += count;
         let total = data.get(if plex { "totalSize" } else { "TotalRecordCount" }).and_then(Value::as_u64);

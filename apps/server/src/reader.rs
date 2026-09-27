@@ -191,23 +191,22 @@ impl ReaderStore {
                 total += 1;
                 if let Some((saved_revision, data)) =
                     states.get(candidate.to_string_lossy().as_ref())
+                    && revision(&candidate).ok().as_ref() == Some(saved_revision)
                 {
-                    if revision(&candidate).ok().as_ref() == Some(saved_revision) {
-                        let saved =
-                            serde_json::from_str::<serde_json::Value>(data).unwrap_or_default();
-                        let progress = saved["progress"].as_f64().unwrap_or_else(|| {
-                            if saved["finished"] == true {
-                                100.0
-                            } else {
-                                0.0
-                            }
-                        });
-                        if progress >= reading_threshold {
-                            started += 1;
+                    let saved =
+                        serde_json::from_str::<serde_json::Value>(data).unwrap_or_default();
+                    let progress = saved["progress"].as_f64().unwrap_or_else(|| {
+                        if saved["finished"] == true {
+                            100.0
+                        } else {
+                            0.0
                         }
-                        if progress >= finished_threshold {
-                            finished += 1;
-                        }
+                    });
+                    if progress >= reading_threshold {
+                        started += 1;
+                    }
+                    if progress >= finished_threshold {
+                        finished += 1;
                     }
                 }
             }

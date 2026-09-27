@@ -38,7 +38,9 @@ impl Runtime {
         if !config.enabled || config.client.is_empty() { return Err("Enable AniDB and register its client in Settings → Search Providers.".into()); }
         let cache = ArtworkCache::at(self.data_dir.join("anidb-cache"));
         let mut gate = GATE.lock().await;
-        if cached { if let Some(xml) = cache.get_json::<String>(id, 30) { return Ok(xml); } }
+        if cached && let Some(xml) = cache.get_json::<String>(id, 30) {
+            return Ok(xml);
+        }
         if let Some(next) = *gate {
             if next.saturating_duration_since(tokio::time::Instant::now()) > Duration::from_secs(6) { return Err("AniDB is cooling down after a provider error. Retry later.".into()); }
             tokio::time::sleep_until(next).await;
@@ -94,10 +96,12 @@ fn parse_metadata(xml: &str, id: &str, movie: bool) -> Result<FetchedVideoMetada
         if !value.is_empty() && value != "0000-00-00" { out.fields.insert(field.into(), json!(value)); }
     }
     if let Some(year) = text(&root, "startdate").get(..4).and_then(|s| s.parse::<u32>().ok()).filter(|y| *y > 0) { out.fields.insert("year".into(), json!(year)); }
-    if let Some(titles) = root.get_child("titles") {
-        if let Some(title) = children(titles, "title").find(|t| t.attributes.get("type").is_some_and(|s| s == "main")) {
-            if let Some(value) = title.get_text() { out.fields.insert("original_title".into(), json!(value.trim())); }
-        }
+    if let Some(titles) = root.get_child("titles")
+        && let Some(title) = children(titles, "title")
+            .find(|t| t.attributes.get("type").is_some_and(|s| s == "main"))
+        && let Some(value) = title.get_text()
+    {
+        out.fields.insert("original_title".into(), json!(value.trim()));
     }
     if let Some(tags) = root.get_child("tags") {
         let tags: Vec<_> = children(tags, "tag").filter(|t| !["spoiler", "localspoiler", "globalspoiler"].iter().any(|key| t.attributes.get(*key).is_some_and(|s| s == "true" || s.parse::<u32>().is_ok_and(|n| n > 0)))).map(|t| text(t, "name")).filter(|s| !s.is_empty()).collect();
