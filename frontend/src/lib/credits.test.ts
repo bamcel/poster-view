@@ -8,8 +8,8 @@ afterEach(() => localStorage.clear());
 it("separates original and English performances without deleting other languages", () => {
   const rows = displayCredits([source([credit("ja"), credit("en"), credit("fr"), credit(null), credit(null, { category: "crew", role: "Director" })])]);
   const groups = castGroups(rows, "ja", { mode: "both", language: "en" });
-  expect(groups.map(g => g.label)).toEqual(["Original cast · Japanese", "English cast", "Cast · language unspecified"]);
-  expect(groups.map(g => g.credits.length)).toEqual([1, 1, 1]);
+  expect(groups.map(g => g.label)).toEqual(["Original cast · Japanese", "English cast"]);
+  expect(groups.map(g => g.credits.length)).toEqual([1, 1]);
   expect(castGroups(rows, "ja", { mode: "dub", language: "fr" })[0].credits).toHaveLength(1);
   expect(rows).toHaveLength(5);
 });
@@ -19,7 +19,7 @@ it("coalesces identical labels but retains alternate dubs and roles", () => {
 });
 it("does not assign an unknown language to the original or selected dub", () => {
   const rows = displayCredits([source([credit(null)])]);
-  expect(castGroups(rows, null, { mode: "both", language: "en" }).map(g => g.credits.length)).toEqual([0, 0, 1]);
+  expect(castGroups(rows, null, { mode: "both", language: "en" }).map(g => g.credits.length)).toEqual([0, 0]);
   expect(castGroups(rows, "ja", { mode: "dub", language: "en" })[0].credits).toHaveLength(0);
 });
 it("uses English plus original by default and isolates browser preference keys", () => {

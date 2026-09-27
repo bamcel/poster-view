@@ -38,7 +38,7 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
   const languages = [...new Set(["en", "ja", "es", "fr", "de", "it", "pt", "ko", "zh", preference.language, ...(original ? [original] : []), ...sources.flatMap(s => s.credits.map(c => c.language).filter((v): v is string => !!v))])].sort((a, b) => languageName(a).localeCompare(languageName(b)));
   const groups = castGroups(credits, original, preference);
   const crew = credits.filter(c => c.category === "crew");
-  const tabs = groups.map(group => ({ id: group.label, label: group.label.startsWith("Original cast · ") ? `${group.label.split(" · ")[1]} Cast` : group.label === "Original cast" ? "Primary Cast" : group.label.includes("unspecified") ? "Cast · Unspecified language" : group.label.replace(/ cast$/, " Cast"), credits: group.credits, characters: false }));
+  const tabs = groups.map(group => ({ id: group.label, label: group.label.startsWith("Original cast · ") ? `${group.label.split(" · ")[1]} Cast` : group.label === "Original cast" ? "Primary Cast" : group.label.replace(/ cast$/, " Cast"), credits: group.credits, characters: false }));
   if (!display.value.hide_crew) tabs.push({ id: "crew", label: "Crew", credits: crew, characters: false });
   tabs.push({ id: "characters", label: "Characters", credits: credits.filter(c => c.category === "cast" && c.character), characters: true });
   const selectedTab = tabs.find(value => value.id === tab) ?? tabs[0];
@@ -99,7 +99,6 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
       <div role="tabpanel" id={`credit-panel-${item.id}`} aria-labelledby={`credit-tab-${item.id}-${encodeURIComponent(selectedTab.id)}`} className="mt-5">
         <CreditCarousel key={`${selectedTab.id}:${sourceFilter}`} credits={selectedTab.credits} characters={selectedTab.characters} label={selectedTab.label} />
         {!original && selectedTab.id === "Original cast" && <p className="mt-3 text-sm text-muted">Choose the original language in Edit Metadata → Provider matching.</p>}
-        {selectedTab.id.includes("unspecified") && <p className="mt-3 text-xs text-muted">These providers do not identify the performance language.</p>}
       </div>
     </>}
   </section>;

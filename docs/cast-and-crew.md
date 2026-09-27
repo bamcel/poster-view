@@ -23,7 +23,7 @@ MyAnimeList's documented official API v2 does not expose anime characters, voice
 - All available language-tagged credits are captured during import. Changing the view never deletes another cast language.
 - Preferences are saved on PosterView per authenticated username across devices and movie/TV libraries. Existing browser-only cast preferences are superseded by the new account defaults. This does not introduce new accounts or change authentication.
 - Set **Title’s original language** when the providers do not identify it, including AniList-only imports. This series metadata is saved in the database. An actor's language, a title's production country, and the language used to translate a provider response are not reliable substitutes for the series' original language.
-- Credits without a confirmed performance language appear separately as **language unspecified**, not as an invented English dub. TMDb/TheTVDB credits generally belong here because their credit records do not identify the performance language.
+- Credits without a confirmed performance language remain saved but are excluded from cast language tabs. They are not assigned an assumed original or dubbed language.
 - AniList's dub-group labels and role notes are retained. Multiple recordings in the same language remain separate. Where a provider does not supply this distinction, PosterView cannot reconstruct it.
 - Crew has its own tab unless **Hide Crew** is enabled. Sources can be viewed together or by provider. The title-specific original-language correction is under **Edit Metadata → Provider matching & imported metadata**.
 
@@ -55,6 +55,6 @@ Tests cover original/dub filtering, missing language handling, alternate dub gro
 
 ## Cast carousel and characters
 
-The display uses a single horizontal portrait row with tabs for the selected cast languages, Crew (unless hidden in preferences), and Characters. Use the mouse wheel over the row, touch scrolling, the side arrows, or keyboard arrows. At either end, wheel input returns to normal page scrolling. Language tabs follow the saved primary/selected-language preferences; untagged performances remain explicitly unspecified.
+The display uses a single horizontal portrait row with tabs for the selected cast languages, Crew (unless hidden in preferences), and Characters. Use the mouse wheel over the row, touch scrolling, the side arrows, or keyboard arrows. At either end, wheel input returns to normal page scrolling. Language tabs follow the saved primary/selected-language preferences; untagged performances do not create an additional cast tab.
 
 Characters are grouped by displayed name within the selected title/source filter. Open a character to see its saved biography and performers by language. Biographies may contain spoilers and are collapsed initially. AniList descriptions are captured with cast imports and stored in PosterView; run Find Missing Metadata or refresh the AniList credit source to populate existing entries. The fill-only task fills an absent biography without replacing one already saved. Other providers still contribute their available character names, images, and performer relationships. A missing biography is explicitly identified rather than invented.

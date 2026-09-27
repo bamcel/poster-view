@@ -44,6 +44,5 @@ export function castGroups(credits: DisplayCredit[], original: string | null, pr
   if (preference.mode === "all") for (const language of [...new Set(cast.map(c => c.language).filter((v): v is string => !!v))].sort()) {
     groups.push({ label: `${languageName(language)} cast${language === original ? " · Original" : ""}`, credits: cast.filter(c => c.language === language) });
   }
-  if (preference.mode !== "dub" && cast.some(c => !c.language)) groups.push({ label: "Cast · language unspecified", credits: cast.filter(c => !c.language) });
   return groups;
 }
