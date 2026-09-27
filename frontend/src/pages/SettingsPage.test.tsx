@@ -457,5 +457,9 @@ it("saves the shared TMDB token from Search Providers and clears the input", asy
   await screen.findByText("Token saved");
   expect((input as HTMLInputElement).value).toBe("");
   expect(client.getQueryData(["credit-settings"])).toEqual({ tmdb_configured: true, tvdb_configured: false });
+  vi.mocked(api.testArtworkProvider).mockResolvedValue({ ok: true, message: "TMDB API connection succeeded." });
+  fireEvent.click(within(input.closest("form")!).getByRole("button", { name: "Test Connection" }));
+  await screen.findByText("TMDB API connection succeeded.");
+  expect(api.testArtworkProvider).toHaveBeenCalledWith({ provider: "tmdb" });
   client.clear();
 });

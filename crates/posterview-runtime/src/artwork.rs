@@ -1316,6 +1316,7 @@ impl Runtime {
     ) -> Result<ArtworkProviderTestResult, RuntimeError> {
         let store = self.server_store()?;
         let result = match input.provider.as_str() {
+            "tmdb" => self.artwork.test_tmdb(&store.get_setting("tmdb_access_token")?).await,
             "fanart" => {
                 let key = input
                     .fanart_api_key
@@ -1365,6 +1366,7 @@ impl Runtime {
             Ok(()) => ArtworkProviderTestResult {
                 ok: true,
                 message: match input.provider.as_str() {
+                    "tmdb" => "TMDB API connection succeeded.",
                     "fanart" => "Fanart.tv API connection succeeded.",
                     "tvdb" => "TheTVDB API connection succeeded.",
                     "comicvine" => "ComicVine API connection succeeded.",

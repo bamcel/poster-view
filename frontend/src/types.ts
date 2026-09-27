@@ -197,7 +197,7 @@ export interface ArtworkRefreshResult {
 }
 
 export interface ArtworkProviderTestRequest {
-  provider: "fanart" | "tvdb" | "comicvine";
+  provider: "fanart" | "tvdb" | "comicvine" | "tmdb";
   fanart_api_key?: string;
   tvdb_api_key?: string;
   tvdb_pin?: string;

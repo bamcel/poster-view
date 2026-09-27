@@ -911,12 +911,14 @@ function TmdbCredentialsFields() {
   const client = useQueryClient();
   const toast = useToast();
   const settings = useQuery({ queryKey: ["credit-settings"], queryFn: creditsApi.settings });
+  const test = useMutation({ mutationFn: () => api.testArtworkProvider({ provider: "tmdb" }) });
   const save = useMutation({
     mutationFn: () => creditsApi.saveToken(token.trim()),
     onMutate: () => reportSettingsSave("saving"),
     onSuccess: value => {
       client.setQueryData(["credit-settings"], value);
       setToken("");
+      test.reset();
       reportSettingsSave("saved");
       toast.push("success", "TMDB credentials saved.");
     },
@@ -934,8 +936,11 @@ function TmdbCredentialsFields() {
         <input type="password" autoComplete="off" className={`${compactInputCls} mt-1 w-full`} value={token} onChange={event => { setToken(event.target.value); save.reset(); }} placeholder={settings.data?.tmdb_configured ? "Leave blank to keep saved token" : "Paste API Read Access Token"} />
       </label>
       <button type="submit" className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-surface disabled:opacity-50" disabled={!token.trim() || save.isPending}>{save.isPending ? "Saving…" : "Save token"}</button>
+      <button type="button" className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-surface disabled:opacity-50" disabled={!settings.data?.tmdb_configured || test.isPending || save.isPending || !!token.trim()} onClick={() => test.mutate()}>{test.isPending ? "Testing…" : "Test Connection"}</button>
     </div>
-    <p className="mt-2 text-xs text-faint">Use the API Read Access Token, not the API key. Saving replaces the existing token.</p>
+    <p className="mt-2 text-xs text-faint">Use the API Read Access Token, not the API key. Save changes before testing the connection.</p>
+    {test.data && <p role="status" className={`mt-2 text-sm ${test.data.ok ? "text-green-400" : "text-red-400"}`}>{test.data.message}</p>}
+    {test.isError && <p role="alert" className="mt-2 text-sm text-red-400">{test.error.message}</p>}
     {save.isError && <p role="alert" className="mt-2 text-sm text-red-400">{save.error.message}</p>}
   </form>;
 }
