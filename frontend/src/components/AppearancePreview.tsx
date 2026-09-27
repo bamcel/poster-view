@@ -8,7 +8,7 @@ import ItemDetailPage from "../pages/ItemDetailPage";
 import SeasonDetailPage from "../pages/SeasonDetailPage";
 
 export default function AppearancePreview({ onClose }: { onClose: () => void }) {
-  const [fitToWindow, setFitToWindow] = useState(false);
+  const [fitToWindow, setFitToWindow] = useState(true);
   const viewportRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0, screenWidth: window.innerWidth, screenHeight: window.innerHeight });
   useLayoutEffect(() => {
@@ -47,7 +47,7 @@ export default function AppearancePreview({ onClose }: { onClose: () => void }) 
       <button type="button" aria-label="Back in preview" disabled={history.index === 0} onClick={() => navigate(-1)} className="rounded-lg p-2 hover:bg-surface-2 disabled:opacity-40"><ArrowLeft className="size-4" /></button>
       <button type="button" aria-label="Preview library home" onClick={() => navigate("/")} className="rounded-lg p-2 hover:bg-surface-2"><Home className="size-4" /></button>
       <span className="min-w-0 flex-1 text-sm font-semibold">Live Preview</span>
-      <button type="button" aria-label="Fit to window" title={fitToWindow ? "Return to pane-sized preview" : "Fit full desktop layout, including side panels"} aria-pressed={fitToWindow} onClick={() => setFitToWindow(value => !value)} className={`rounded-lg p-2 hover:bg-surface-2 ${fitToWindow ? "bg-elevated text-accent" : ""}`}><Maximize className="size-4" /></button>
+      <button type="button" aria-label="Pane-sized preview" title={fitToWindow ? "Switch to pane-sized preview" : "Fit full desktop layout, including side panels"} aria-pressed={!fitToWindow} onClick={() => setFitToWindow(value => !value)} className={`rounded-lg p-2 hover:bg-surface-2 ${!fitToWindow ? "bg-elevated text-accent" : ""}`}><Maximize className="size-4" /></button>
       <button type="button" aria-label="Close split view" onClick={onClose} className="rounded-lg p-2 hover:bg-surface-2"><X className="size-4" /></button>
     </div>
     <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-hidden">

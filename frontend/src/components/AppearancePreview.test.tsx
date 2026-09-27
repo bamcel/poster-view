@@ -58,7 +58,7 @@ it("navigates library, series and seasons without replacing Settings or losing l
   expect(close).toHaveBeenCalledOnce();
 });
 
-it("fits the full desktop with sidebar and retains navigation and filters when toggled or resized", () => {
+it("fits the full desktop by default and selects the icon only for pane-sized preview", () => {
   vi.stubGlobal("innerWidth", 1600);
   vi.stubGlobal("innerHeight", 900);
   let paneWidth = 640;
@@ -67,12 +67,11 @@ it("fits the full desktop with sidebar and retains navigation and filters when t
   render(<MemoryRouter initialEntries={["/settings?tab=appearance"]}><Location /><AppearancePreview onClose={vi.fn()} /></MemoryRouter>);
   fireEvent.change(screen.getByLabelText("Filter titles"), { target: { value: "Example" } });
   fireEvent.click(screen.getByText("Open series"));
-  const toggle = screen.getByRole("button", { name: "Fit to window" });
-  fireEvent.click(toggle);
+  const toggle = screen.getByRole("button", { name: "Pane-sized preview" });
   const frame = screen.getByTestId("preview-desktop-frame");
   expect(frame.style.width).toBe("1600px");
   expect(frame.style.transform).toBe("scale(0.4)");
-  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  expect(toggle.getAttribute("aria-pressed")).toBe("false");
   expect(screen.getByRole("heading", { name: "Series show" })).toBeTruthy();
   const sidebar = frame.querySelector("aside")!;
   expect(sidebar).toBeTruthy();
@@ -86,5 +85,8 @@ it("fits the full desktop with sidebar and retains navigation and filters when t
   expect((screen.getByLabelText("Filter titles") as HTMLInputElement).value).toBe("Example");
   fireEvent.click(toggle);
   expect(frame.style.transform).toBe("");
+  expect(toggle.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(toggle);
+  expect(frame.style.transform).toBe("scale(0.5)");
   expect(toggle.getAttribute("aria-pressed")).toBe("false");
 });
