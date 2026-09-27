@@ -1,7 +1,7 @@
 // Browse the active server: pick a library, then a searchable grid of titles.
 // Double-clicking a poster opens the item detail.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,6 +10,7 @@ import { useTrackingOverlays } from "../lib/libraryDisplay";
 import { api, imageUrl } from "../api/client";
 import { useServers } from "../lib/serverContext";
 import PosterCard from "../components/PosterCard";
+import BulkEditionEditor from "../components/BulkEditionEditor";
 import LibraryPopup from "../components/LibraryPopup";
 import LibraryMetadataEditor from "../components/LibraryMetadataEditor";
 import type { MediaItem } from "../types";
@@ -40,6 +41,11 @@ export default function DashboardPage() {
   const folderId = searchParams.get("folder");
   const folderTitle = searchParams.get("folder_title");
   const [filter, setFilter] = useState("");
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const selectionAnchor = useRef<string | null>(null);
+  useEffect(() => { setSelectedIds(new Set()); setSelectionMode(false); setBulkOpen(false); selectionAnchor.current = null; }, [serverId, libraryId, folderId]);
   const [metadataItem, setMetadataItem] = useState<MediaItem | null>(null);
   const [artworkFilter, setArtworkFilter] = useState<ArtworkFilter>("all");
   const [titleSort, setTitleSort] = useState<TitleSort>("title");
@@ -51,7 +57,6 @@ export default function DashboardPage() {
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
   const libraryBodyRef = useRef<HTMLDivElement>(null);
-  const [trackingOverlays, setTrackingOverlays, displayStatus] = useTrackingOverlays();
   const restoredScrollKeyRef = useRef<string | null>(null);
 
   const refreshMut = useMutation({
@@ -121,6 +126,7 @@ export default function DashboardPage() {
     (selectedLibrary?.type === "other" &&
       isBookRelatedLibraryName(selectedLibrary.title));
   const showGroupCollections = libraryId !== "collections" && !browsesFolders;
+  const [trackingOverlays, setTrackingOverlays, displayStatus] = useTrackingOverlays(browsesFolders);
   const parentId =
     folderId ?? automaticRootId ?? (browsesFolders ? libraryId : null);
 
@@ -185,7 +191,7 @@ export default function DashboardPage() {
   // during background refreshes instead of flashing the server's folder names.
   const waitingForBookTitles = browsesFolders && (itemsQ.data?.length ?? 0) > 0 && bookInfo.isPending;
   const items = useMemo(() => {
-    const all = (itemsQ.data ?? []).map(item => ({ ...item, title: bookInfo.data?.[item.id]?.title || item.title }));
+    const all = (itemsQ.data ?? []).map(item => ({ ...item, title: (browsesFolders && bookInfo.data?.[item.id]?.title) || item.title }));
     const q = filter.trim().toLowerCase();
     const filtered = all.filter((item) => {
       if (q && !item.title.toLowerCase().includes(q)) return false;
@@ -199,9 +205,9 @@ export default function DashboardPage() {
       if (titleSort === "recently-added") {
         return Date.parse(b.added_at ?? "") - Date.parse(a.added_at ?? "") || a.title.localeCompare(b.title);
       }
-      return bookTitleOrder(a, b, bookInfo.data ?? {});
+      return browsesFolders ? bookTitleOrder(a, b, bookInfo.data ?? {}) : a.title.localeCompare(b.title);
     });
-  }, [artworkFilter, filter, itemsQ.data, titleSort, bookInfo.data]);
+  }, [artworkFilter, filter, itemsQ.data, titleSort, bookInfo.data, browsesFolders]);
 
   useEffect(() => {
     const update = (event: Event) => setShowBackdrop((event as CustomEvent<boolean>).detail);
@@ -225,6 +231,21 @@ export default function DashboardPage() {
       window.removeEventListener("storage", updateFromStorage);
     };
   }, []);
+
+  const selectedItems = (itemsQ.data ?? []).filter(item => selectedIds.has(item.id)).map(item => ({ ...item, title: bookInfo.data?.[item.id]?.title || item.title }));
+  const canBulkEdit = browsesFolders && selectedItems.length > 0 && selectedItems.every(item => item.type === "folder");
+  function selectItem(id: string, range: boolean) {
+    setSelectionMode(true);
+    const anchor = items.findIndex(item => item.id === selectionAnchor.current);
+    const end = items.findIndex(item => item.id === id);
+    setSelectedIds(previous => {
+      const next = new Set(previous);
+      if (range && anchor >= 0 && end >= 0) items.slice(Math.min(anchor, end), Math.max(anchor, end) + 1).forEach(item => next.add(item.id));
+      else if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+    selectionAnchor.current = id;
+  }
 
   const backdropUrls = useMemo(
     () => Array.from(new Set((itemsQ.data ?? []).map((item) => imageUrl(serverId!, item.background)).filter((url): url is string => Boolean(url)))),
@@ -304,7 +325,7 @@ export default function DashboardPage() {
   }
 
   const browseableLibs = librariesQ.data ?? [];
-  const itemDetailUrl = (itemId: string) => {
+  const itemDetailUrl = (itemId: string, editMetadata = false) => {
     const context = new URLSearchParams();
     if (selectedLibrary) {
       context.set("library_type", selectedLibrary.type);
@@ -313,6 +334,7 @@ export default function DashboardPage() {
     if (libraryId) context.set("return_library", libraryId);
     if (folderId) context.set("return_folder", folderId);
     if (folderTitle) context.set("return_folder_title", folderTitle);
+    if (editMetadata) context.set("edit_metadata", "1");
     const query = context.toString();
     return `/server/${serverId}/item/${itemId}${query ? `?${query}` : ""}`;
   };
@@ -395,7 +417,7 @@ export default function DashboardPage() {
             </button>
           )}
           <div className="col-start-2 flex items-center gap-2">
-          <div className="relative w-[min(21rem,calc(100vw-13rem))]">
+          <div className={browsesFolders ? "relative w-[min(21rem,calc(100vw-13rem))]" : "relative w-[min(21rem,calc(100vw-10rem))]"}>
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
             <input
               value={filter}
@@ -406,7 +428,7 @@ export default function DashboardPage() {
               style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
             />
           </div>
-          <LibraryPopup title="Filter & Sort" label="Filter and sort titles" icon={<ListFilter className="size-4" />} style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)` }}>
+          <LibraryFilter popup={browsesFolders} active={artworkFilter !== "all" || titleSort !== "title"} style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)` }}>
               <label className="block text-xs font-semibold text-muted">
                 Artwork
                 <select
@@ -440,8 +462,8 @@ export default function DashboardPage() {
                   <Switch label="Group Collections filter" checked={groupCollections} onChange={toggleGroupCollections} />
                 </div>
               )}
-          </LibraryPopup>
-          <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4" />}>
+          </LibraryFilter>
+          {browsesFolders && <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4" />}>
               {browsesFolders ? <>
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <span className="text-sm text-muted">Tracking Overlays</span>
@@ -462,19 +484,27 @@ export default function DashboardPage() {
                   <p className="text-xs text-faint">Changes save automatically when you leave a field. Reading must be lower than Finished.</p>
                 </form>}
                 <div className="mt-6 border-t border-border pt-4">
-                  <div className="flex items-center justify-between gap-3"><span className="text-sm text-muted">Colored Edition Effect</span>
-                    <Switch label="Colored Edition Effect" checked={displayStatus.coloredEffect !== "off"} onChange={() => { if (!displayStatus.busy) displayStatus.setColoredEffect(displayStatus.coloredEffect === "off" ? "shimmer" : "off"); }} />
-                  </div>
+                  <h3 className="text-sm font-medium text-muted">Colored Edition Effects</h3>
                   <p className="mt-2 text-xs text-faint">Only applies when the NFO Edition field is Colored.</p>
-                  {displayStatus.coloredEffect !== "off" && <label className="mt-3 block text-sm text-muted">Effect<select className="mt-2 w-full rounded-lg border border-border bg-input p-3 text-white" value={displayStatus.coloredEffect} disabled={displayStatus.busy} onChange={event => displayStatus.setColoredEffect(event.target.value as "shimmer" | "badge")}><option value="shimmer">Poster Shimmer</option><option value="badge">Colored Badge</option></select></label>}
+                  <div className="mt-3 flex items-center justify-between gap-3"><span className="text-sm text-muted">Poster Shimmer</span><Switch label="Poster Shimmer" checked={["shimmer", "both"].includes(displayStatus.coloredEffect)} onChange={() => { if (!displayStatus.busy) displayStatus.toggleColoredEffect("shimmer"); }} /></div>
+                  <div className="mt-3 flex items-center justify-between gap-3"><span className="text-sm text-muted">Colored Badge</span><Switch label="Colored Badge" checked={["badge", "both"].includes(displayStatus.coloredEffect)} onChange={() => { if (!displayStatus.busy) displayStatus.toggleColoredEffect("badge"); }} /></div>
+                  <div className="mt-3 flex items-center justify-between gap-3"><span className="text-sm text-muted">Colored Title</span><Switch label="Colored Title" checked={displayStatus.coloredTitle} onChange={() => { if (!displayStatus.busy) displayStatus.setColoredTitle(!displayStatus.coloredTitle); }} /></div>
                 </div>
                 {displayStatus.error && <p role="alert" className="mt-2 text-xs text-muted">{displayStatus.error}</p>}
               </> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
-          </LibraryPopup>
+          </LibraryPopup>}
           </div>
         </div>
       </div>
 
+        {selectionMode && <div className="relative z-20 flex shrink-0 flex-wrap items-center gap-2 px-4 py-2 text-sm sm:px-6 lg:px-8">
+            <span className="mr-2 font-semibold">{selectedItems.length} Selected</span>
+            <button className="rounded-lg border border-border px-3 py-2" onClick={() => setSelectedIds(previous => new Set([...previous, ...items.map(item => item.id)]))}>Select All Filtered</button>
+            <button className="rounded-lg border border-border px-3 py-2" onClick={() => setSelectedIds(new Set())}>Clear</button>
+            <button className="rounded-lg bg-accent px-3 py-2 text-black disabled:opacity-40" disabled={!canBulkEdit} title="Phase 1 supports Edition for book series folders" onClick={() => setBulkOpen(true)}>Bulk Edit</button>
+            <button className="rounded-lg border border-border px-3 py-2" onClick={() => { setSelectionMode(false); setSelectedIds(new Set()); selectionAnchor.current = null; }}>Done</button>
+            {selectedItems.length > 0 && !canBulkEdit && <span className="text-xs text-muted">Select book series folders to edit Edition.</span>}
+        </div>}
       {/* Body */}
       <div
         ref={libraryBodyRef}
@@ -482,6 +512,7 @@ export default function DashboardPage() {
         className="scrollbar-hidden relative z-10 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-6"
       >
         {metadataItem && serverId != null && <LibraryMetadataEditor key={`${serverId}:${metadataItem.id}`} serverId={serverId} item={metadataItem} onClose={() => setMetadataItem(null)} />}
+        {bulkOpen && serverId != null && <BulkEditionEditor serverId={serverId} items={selectedItems} onClose={() => setBulkOpen(false)} />}
         {librariesQ.isError && (
           <EmptyState
             icon={<ServerCrash className="size-10" />}
@@ -521,15 +552,19 @@ export default function DashboardPage() {
             {items.map((item) => (
               <PosterCard
                 key={item.id}
+                selected={selectedIds.has(item.id)}
+                selectionMode={selectionMode}
+                onSelect={browsesFolders ? range => selectItem(item.id, range) : undefined}
                 image={imageUrl(serverId!, item.poster)}
                 title={item.title}
                 subtitle={item.year ? String(item.year) : undefined}
                 kind={item.type}
                 coloredEffect={browsesFolders && bookInfo.data?.[item.id]?.colored_edition ? displayStatus.coloredEffect : "off"}
-                badge={browsesFolders && !trackingOverlays ? undefined : bookInfo.data?.[item.id]?.status ?? (newMissingIds.has(item.id) ? "NEW" : undefined)}
+                coloredTitle={browsesFolders && bookInfo.data?.[item.id]?.colored_edition && displayStatus.coloredTitle}
+                badge={browsesFolders ? (trackingOverlays ? bookInfo.data?.[item.id]?.status ?? (newMissingIds.has(item.id) ? "NEW" : undefined) : undefined) : (newMissingIds.has(item.id) ? "NEW" : undefined)}
                 onOpen={() => openItem(item)}
                 onRefresh={() => refreshMut.mutate({ itemId: item.id })}
-                onEditMetadata={() => setMetadataItem(item)}
+                onEditMetadata={() => browsesFolders ? setMetadataItem(item) : navigate(itemDetailUrl(item.id, true))}
                 refreshing={refreshingId === item.id}
               />
             ))}
@@ -582,4 +617,17 @@ function DashboardBackdrop({ desktopUrls, mobileUrls, overlayStrength }: { deskt
     </div>,
     document.body,
   );
+}
+
+function LibraryFilter({ popup, active, children, style }: { popup: boolean; active: boolean; children: ReactNode; style: CSSProperties }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const outside = (event: PointerEvent) => { if (ref.current && !ref.current.contains(event.target as Node)) ref.current.open = false; };
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && ref.current) ref.current.open = false; };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
+  }, []);
+  if (popup) return <LibraryPopup title="Filter & Sort" label="Filter and sort titles" icon={<ListFilter className="size-4" />} style={style}>{children}</LibraryPopup>;
+  return <details ref={ref} className="group relative"><summary aria-label="Filter and sort titles" className={`grid size-10 cursor-pointer list-none place-items-center rounded-full border text-muted outline-none marker:hidden hover:text-white ${active ? "border-accent text-accent" : "border-border"}`} style={{ ...style, WebkitBackdropFilter: style.backdropFilter }}><ListFilter className="size-4" /></summary><div className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-border bg-sidebar p-4 shadow-2xl">{children}</div></details>;
 }

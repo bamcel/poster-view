@@ -1,6 +1,6 @@
 # Book reader
 
-Open a book-style series on Dashboard and choose **Read** under a volume. An individual
+Open a book-style series on Dashboard and choose **Read** on a volume poster. An individual
 book detail page also has **Read Book**. The reader opens separately from the artwork panel;
 Back returns to the series. Files are resolved from the connected server's item ID, but the
 actual PDF, EPUB or CBZ must be readable under PosterView's `/media` mount (or
@@ -43,6 +43,27 @@ positions and bookmarks with a notice. Renaming a source file creates a new read
 
 Saving never writes the source book, companion images, NFO files or connected server records.
 Back up `reader.sqlite` with the rest of `/config`. Failed progress saves show a retry action.
+
+## Book library preferences
+
+The book library's **…** button opens Preferences. Tracking overlays can be hidden without
+disabling progress saving. Reading starts at 5% and Finished at 95% by default; valid threshold
+edits save automatically when leaving the field. A series finishes only when all its volumes
+finish; adding another unread volume reopens it.
+
+Poster Shimmer, Colored Badge, and Colored Title are independent preferences. They apply only
+when the local NFO Edition is Colored, never by guessing from a folder name. Colored Title
+colors the text, not its background. These preferences are saved for the configured identity.
+
+Local NFO Title controls the displayed series name; optional Sort Title controls ordering.
+Edition offers Standard, Original, Colored, Special, and Custom. Select book series with the
+poster corner circles (Shift-click selects a range), then Bulk Edit to set or explicitly remove
+Edition after review. Not Set makes no changes. Bulk editing preserves other metadata and
+unknown NFO elements, skips missing/unwritable NFOs, and supports retrying failures.
+
+These new library controls are book-only. Other library types keep their existing dropdown
+filters and metadata navigation. No video metadata, cast/crew, scheduler, or global theme
+changes are included in the selective development port.
 
 ## Resource and security boundaries
 

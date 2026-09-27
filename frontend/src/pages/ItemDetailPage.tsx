@@ -14,7 +14,7 @@ import ArtworkPanel from "../components/ArtworkPanel";
 import MetadataEditorModal from "../components/MetadataEditorModal";
 import { Spinner, EmptyState } from "../components/ui";
 import type { Library, NfoMetadata } from "../types";
-import { seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
+import { isBookRelatedLibraryName, seriesInstallmentInfo, seriesInstallmentSummary } from "../lib/mediaKind";
 import { BACKDROP_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, backdropOverlay, backdropOverlayGradients, dashboardBackdropEnabled } from "../lib/dashboardSettings";
 
 function sentenceCaseMetadata(value: string): string {
@@ -23,7 +23,6 @@ function sentenceCaseMetadata(value: string): string {
 }
 
 export default function ItemDetailPage() {
-  const [trackingOverlays, , displayStatus] = useTrackingOverlays();
   const navigate = useNavigate();
   const { serverId: serverIdParam, itemId } = useParams();
   const [searchParams] = useSearchParams();
@@ -84,8 +83,12 @@ export default function ItemDetailPage() {
       setMetadataEditorOpen(false);
     },
   });
-  const item = detailQ.data && { ...detailQ.data, title: detailQ.data.type === "folder" ? metadataQ.data?.title.trim() || detailQ.data.title : detailQ.data.title };
-  const memberInfo = useBookInfo(serverId, item?.members, item?.type === "folder" || item?.type === "book");
+  const bookContext = libraryType === "book" || libraryType === "audiobook" ||
+    (libraryType === "other" && isBookRelatedLibraryName(libraryTitle ?? "")) ||
+    (!libraryType && (detailQ.data?.type === "book" || detailQ.data?.members.some(member => member.type === "book") === true));
+  const [trackingOverlays, , displayStatus] = useTrackingOverlays(bookContext);
+  const item = detailQ.data && { ...detailQ.data, title: bookContext && detailQ.data.type === "folder" ? metadataQ.data?.title.trim() || detailQ.data.title : detailQ.data.title };
+  const memberInfo = useBookInfo(serverId, item?.members, bookContext);
   const backdrop = imageUrl(serverId, item?.background);
   const poster = imageUrl(serverId, item?.poster);
   const logo = imageUrl(serverId, item?.logo);
@@ -349,12 +352,12 @@ export default function ItemDetailPage() {
                     </h2>
                     <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(120px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
                       {item.members.map((m) => (
-                        <div key={m.id}>
                         <PosterCard
                           key={m.id}
                           image={imageUrl(serverId, m.poster)}
                           title={memberInfo.data?.[m.id]?.title || m.title}
                           coloredEffect={memberInfo.data?.[m.id]?.colored_edition ? displayStatus.coloredEffect : "off"}
+                          coloredTitle={memberInfo.data?.[m.id]?.colored_edition && displayStatus.coloredTitle}
                           badge={trackingOverlays ? memberInfo.data?.[m.id]?.status : undefined}
                           subtitle={m.year ? String(m.year) : undefined}
                           kind={m.type}
@@ -365,7 +368,6 @@ export default function ItemDetailPage() {
                             ? () => navigate(`/server/${serverId}/item/${m.id}?${searchParams.toString()}`)
                             : undefined}
                         />
-                        </div>
                       ))}
                     </div>
                   </section>

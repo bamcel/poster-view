@@ -3,12 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { MediaItem, NfoMetadata } from "../types";
 import MetadataEditorModal from "./MetadataEditorModal";
-import VideoMetadataEditor from "./VideoMetadataEditor";
 
 export default function LibraryMetadataEditor({ serverId, item, onClose }: { serverId: number; item: MediaItem; onClose: () => void }) {
-  return createPortal(item.type === "movie" || item.type === "show"
-    ? <VideoMetadataEditor serverId={serverId} itemId={item.id} onClose={onClose} />
-    : <BookEditor serverId={serverId} item={item} onClose={onClose} />, document.body);
+  return createPortal(<BookEditor serverId={serverId} item={item} onClose={onClose} />, document.body);
 }
 function BookEditor({ serverId, item, onClose }: { serverId: number; item: MediaItem; onClose: () => void }) {
   const client = useQueryClient();

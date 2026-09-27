@@ -3,6 +3,30 @@ import { afterEach, expect, it, vi } from "vitest";
 import PosterCard from "./PosterCard";
 
 afterEach(cleanup);
+it("colors title text independently from the badge", () => {
+  const { rerender } = render(<PosterCard title="Colored Title" coloredTitle />);
+  expect(screen.getByText("Colored Title").classList.contains("poster-colored-title")).toBe(true);
+  expect(screen.getByText("Colored Title").classList.contains("poster-colored-badge")).toBe(false);
+  expect(screen.queryByText("COLORED")).toBeNull();
+  rerender(<PosterCard title="Colored Title" coloredEffect="badge" />);
+  expect(screen.getByText("Colored Title").classList.contains("poster-colored-title")).toBe(false);
+  expect(screen.getByText("COLORED")).toBeTruthy();
+});
+it("selects from the hover control without opening the series", () => {
+  const open = vi.fn(); const select = vi.fn();
+  const { rerender } = render(<PosterCard title="Series" onOpen={open} onSelect={select} />);
+  fireEvent.click(screen.getByRole("button", { name: "Select Series" }), { shiftKey: true });
+  expect(select).toHaveBeenCalledWith(true); expect(open).not.toHaveBeenCalled();
+  rerender(<PosterCard title="Series" onOpen={open} onSelect={select} selectionMode selected />);
+  expect(screen.getByRole("button", { name: "Select Series" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByTitle("Series"));
+  expect(select).toHaveBeenCalledWith(false); expect(open).not.toHaveBeenCalled();
+});
+it("renders both colored effects together", () => {
+  const { container } = render(<PosterCard title="Book" image="poster.jpg" coloredEffect="both" />);
+  expect(container.querySelector(".poster-colored-shimmer")).toBeTruthy();
+  expect(screen.getByText("COLORED")).toBeTruthy();
+});
 it("gives each poster a stable random shimmer phase", () => {
   const random = vi.spyOn(Math, "random").mockReturnValueOnce(0.2).mockReturnValueOnce(0.8);
   const { container, rerender } = render(<><PosterCard title="First" image="first.jpg" coloredEffect="shimmer" /><PosterCard title="Second" image="second.jpg" coloredEffect="shimmer" /></>);

@@ -2,12 +2,15 @@
 // Opens on a single click (and Enter for keyboard users) when `onOpen` is set.
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Film, Tv, Library, Pencil, RefreshCw, BookOpen } from "lucide-react";
+import { Film, Tv, Library, Pencil, RefreshCw, BookOpen, Check } from "lucide-react";
 import { useActionMenu } from "../lib/actionMenu";
 import type { ColoredEffect } from "../lib/libraryDisplay";
 import "./posterEffects.css";
 
 interface PosterCardProps {
+  coloredTitle?: boolean;
+  selectionMode?: boolean;
+  onSelect?: (range: boolean) => void;
   coloredEffect?: ColoredEffect;
   image?: string;
   title: string;
@@ -23,6 +26,9 @@ interface PosterCardProps {
 }
 
 export default function PosterCard({
+  coloredTitle = false,
+  selectionMode = false,
+  onSelect,
   coloredEffect = "off",
   image,
   title,
@@ -98,8 +104,8 @@ export default function PosterCard({
           </div>
         )}
 
-        {coloredEffect === "shimmer" && image && !failed && <span aria-hidden="true" style={{ animationDelay: shimmerDelay }} className="poster-colored-shimmer pointer-events-none absolute inset-0" />}
-        {coloredEffect === "badge" && <span className="poster-colored-badge pointer-events-none absolute bottom-2 right-2 overflow-hidden rounded-md px-2 py-1 text-[10px] font-bold tracking-wider shadow" aria-label="Colored edition">COLORED</span>}
+        {(coloredEffect === "shimmer" || coloredEffect === "both") && image && !failed && <span aria-hidden="true" style={{ animationDelay: shimmerDelay }} className="poster-colored-shimmer pointer-events-none absolute inset-0" />}
+        {(coloredEffect === "badge" || coloredEffect === "both") && <span className="poster-colored-badge pointer-events-none absolute bottom-2 right-2 overflow-hidden rounded-md px-2 py-1 text-[10px] font-bold tracking-wider shadow" aria-label="Colored edition">COLORED</span>}
         {badge != null && (
           <span className="absolute right-2 top-2 grid min-w-6 place-items-center rounded-full bg-accent px-1.5 py-0.5 text-xs font-bold text-black shadow">
             {typeof badge === "string" && ["new", "reading", "finished"].includes(badge.toLowerCase()) ? badge.toUpperCase() : badge}
@@ -119,21 +125,21 @@ export default function PosterCard({
           keeps these legible when a card sits over the vivid backdrop image
           on the item detail page's Seasons row. */}
       <div className="mt-2 px-0.5 [text-shadow:0_1px_6px_rgba(0,0,0,0.8)]">
-        <p className="truncate text-sm font-medium text-white/90">{title}</p>
+        <p className={`truncate text-sm font-medium ${coloredTitle ? "poster-colored-title" : "text-white/90"}`}>{title}</p>
         {subtitle && <p className="truncate text-xs text-faint">{subtitle}</p>}
       </div>
     </>
   );
 
   return onOpen ? (
-    <div className="relative" onMouseLeave={() => setMenuOpen(false)}>
+    <div className="group/selection relative" onMouseLeave={() => setMenuOpen(false)}>
       <button
         ref={triggerRef}
         type="button"
         aria-haspopup={onRefresh || onEditMetadata ? "menu" : undefined}
         aria-expanded={onRefresh || onEditMetadata ? menuOpen : undefined}
         aria-controls={menuOpen ? menuId : undefined}
-        onClick={onOpen}
+        onClick={event => selectionMode && onSelect ? onSelect(event.shiftKey) : onOpen()}
         onKeyDown={(event) => {
           if ((onRefresh || onEditMetadata) && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
             event.preventDefault();
@@ -150,6 +156,11 @@ export default function PosterCard({
       >
         {content}
       </button>
+      {onSelect && <button type="button" aria-label={`Select ${title}`} aria-pressed={!!selected}
+        onClick={event => { event.stopPropagation(); onSelect(event.shiftKey); }}
+        className={`absolute left-2 top-2 z-10 grid size-7 place-items-center rounded-full border shadow backdrop-blur-sm transition-opacity focus-visible:opacity-100 ${selected ? "border-accent bg-accent text-black" : "border-white/50 bg-white/20 text-white"} ${selectionMode || selected ? "opacity-100" : "opacity-0 group-hover/selection:opacity-100 group-focus-within/selection:opacity-100 [@media(hover:none)]:opacity-100"}`}>
+        {selected && <Check className="size-4" />}
+      </button>}
       {menuOpen && (onRefresh || onEditMetadata) && (
         <div
           ref={menuRef} id={menuId} role="menu" aria-label={`Artwork options for ${title}`} tabIndex={-1} onKeyDown={menuKeys}

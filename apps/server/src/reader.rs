@@ -53,7 +53,9 @@ impl ReaderStore {
             CREATE TABLE IF NOT EXISTS reader_states (user TEXT NOT NULL, book TEXT NOT NULL, revision TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(user,book));
             CREATE TABLE IF NOT EXISTS library_display_preferences (user TEXT PRIMARY KEY, tracking_overlays INTEGER NOT NULL DEFAULT 1);
             CREATE TABLE IF NOT EXISTS reading_thresholds (user TEXT PRIMARY KEY, reading REAL NOT NULL, finished REAL NOT NULL);
-            CREATE TABLE IF NOT EXISTS colored_edition_preferences (user TEXT PRIMARY KEY, effect TEXT NOT NULL);").map_err(failure)?;
+            CREATE TABLE IF NOT EXISTS colored_edition_preferences (user TEXT PRIMARY KEY, effect TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS colored_title_preferences (user TEXT PRIMARY KEY, enabled INTEGER NOT NULL);
+            INSERT OR IGNORE INTO colored_title_preferences SELECT user, effect IN ('badge','both') FROM colored_edition_preferences;").map_err(failure)?;
         Ok(db)
     }
     fn checked(&self, path: &FsPath) -> Result<PathBuf, HttpError> {
@@ -321,14 +323,14 @@ mod status_tests {
             .unwrap()
             .execute(
                 "INSERT INTO reader_states VALUES (?1,?2,?3,?4)",
-                params!["admin", id, revision(&path).unwrap(), "{\"progress\":1.99}"],
+                params!["admin", id, revision(&path).unwrap(), "{\"progress\":4.99}"],
             )
             .unwrap();
         assert_eq!(store.reading_status(&folder, "admin").unwrap(), None);
         store
             .db()
             .unwrap()
-            .execute("UPDATE reader_states SET state=?1", ["{\"progress\":2}"])
+            .execute("UPDATE reader_states SET state=?1", ["{\"progress\":5}"])
             .unwrap();
         assert_eq!(
             store.reading_status(&folder, "admin").unwrap(),
@@ -337,7 +339,7 @@ mod status_tests {
         store
             .db()
             .unwrap()
-            .execute("UPDATE reader_states SET state=?1", ["{\"progress\":98}"])
+            .execute("UPDATE reader_states SET state=?1", ["{\"progress\":95}"])
             .unwrap();
         assert_eq!(
             store.reading_status(&folder, "admin").unwrap(),
@@ -801,6 +803,8 @@ pub(crate) struct SavedState {
 }
 #[derive(Serialize, Deserialize)]
 pub(crate) struct DisplayPreferences {
+    #[serde(default)]
+    colored_title: bool,
     #[serde(default = "default_effect")]
     colored_effect: String,
     tracking_overlays: bool,
@@ -813,10 +817,10 @@ fn default_effect() -> String {
     "off".into()
 }
 fn default_reading() -> f64 {
-    2.0
+    5.0
 }
 fn default_finished() -> f64 {
-    98.0
+    95.0
 }
 fn thresholds(db: &Connection, user: &str) -> Result<(f64, f64), HttpError> {
     Ok(db
@@ -827,7 +831,7 @@ fn thresholds(db: &Connection, user: &str) -> Result<(f64, f64), HttpError> {
         )
         .optional()
         .map_err(failure)?
-        .unwrap_or((2.0, 98.0)))
+        .unwrap_or((default_reading(), default_finished())))
 }
 pub(crate) async fn load_display_preferences(
     State(state): State<AppState>,
@@ -847,6 +851,7 @@ pub(crate) async fn load_display_preferences(
         let (reading_threshold, finished_threshold) =
             thresholds(&state.reader.db()?, state.auth.username())?;
         Ok(Json(DisplayPreferences {
+            colored_title: state.reader.db()?.query_row("SELECT enabled FROM colored_title_preferences WHERE user=?1", [state.auth.username()], |r| r.get::<_, bool>(0)).optional().map_err(failure)?.unwrap_or(false),
             colored_effect: state
                 .reader
                 .db()?
@@ -870,7 +875,7 @@ pub(crate) async fn save_display_preferences(
     State(state): State<AppState>,
     Json(settings): Json<DisplayPreferences>,
 ) -> Result<Json<DisplayPreferences>, HttpError> {
-    if !["off", "shimmer", "badge"].contains(&settings.colored_effect.as_str()) {
+    if !["off", "shimmer", "badge", "both"].contains(&settings.colored_effect.as_str()) {
         return Err(bad("Unknown colored edition effect."));
     }
     if !settings.reading_threshold.is_finite()
@@ -889,6 +894,7 @@ pub(crate) async fn save_display_preferences(
         tx.execute("INSERT INTO library_display_preferences(user,tracking_overlays) VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET tracking_overlays=excluded.tracking_overlays", params![state.auth.username(), settings.tracking_overlays]).map_err(failure)?;
         tx.execute("INSERT INTO reading_thresholds VALUES (?1,?2,?3) ON CONFLICT(user) DO UPDATE SET reading=excluded.reading,finished=excluded.finished", params![state.auth.username(), settings.reading_threshold, settings.finished_threshold]).map_err(failure)?;
         tx.execute("INSERT INTO colored_edition_preferences VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET effect=excluded.effect", params![state.auth.username(), settings.colored_effect]).map_err(failure)?;
+        tx.execute("INSERT INTO colored_title_preferences VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET enabled=excluded.enabled", params![state.auth.username(), settings.colored_title]).map_err(failure)?;
         tx.commit().map_err(failure)?;
         Ok(Json(settings))
     }).await.map_err(failure)?

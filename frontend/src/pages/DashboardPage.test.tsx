@@ -1,3 +1,34 @@
+
+it.each(["movie", "show", "collection", "other"] as const)("preserves %s library controls, sorting, and metadata navigation", async (type) => {
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Test Library", type }]);
+  vi.mocked(api.getItems).mockResolvedValue([{ id: "two", title: "Title 2", type: "movie" }, { id: "ten", title: "Title 10", type: "movie" }]);
+  const { client, container } = renderDashboard();
+  await screen.findByText("Title 2");
+  expect(screen.queryByRole("button", { name: "Library preferences" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Select Title 2" })).toBeNull();
+  expect(fetcher).not.toHaveBeenCalled();
+  const cards = container.querySelectorAll('button[title*="right-click for options"]');
+  expect(cards[0].getAttribute("title")).toContain("Title 10");
+  const filter = screen.getByLabelText("Filter and sort titles");
+  const details = filter.closest("details")!;
+  fireEvent.click(filter);
+  expect(details.open).toBe(true);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(details.open).toBe(false);
+  fireEvent.click(filter);
+  fireEvent.pointerDown(document.body);
+  expect(details.open).toBe(false);
+  fireEvent.contextMenu(screen.getByTitle("Title 2 · right-click for options"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Edit Metadata" }));
+  expect(screen.queryByRole("dialog", { name: "Metadata editor" })).toBeNull();
+  expect(screen.getByTestId("location").textContent).toContain("/server/1/item/two?");
+  expect(screen.getByTestId("location").textContent).toContain("edit_metadata=1");
+  client.clear();
+});
+
 import {
   cleanup,
   fireEvent,
@@ -50,7 +81,7 @@ function renderDashboard(initialEntry = "/?lib=movies") {
   return { ...result, client };
 }
 
-it.each(["movie", "show", "collection", "book", "audiobook", "other"] as const)(
+it.each(["book", "audiobook"] as const)(
   "opens a Preferences popup for %s libraries", async (type) => {
     vi.mocked(api.getLibraries).mockResolvedValue([{ id: "library", title: "Test Library", type }]);
     vi.mocked(api.getItems).mockResolvedValue([]);
@@ -58,9 +89,6 @@ it.each(["movie", "show", "collection", "book", "audiobook", "other"] as const)(
     await screen.findByRole("button", { name: "Test Library" });
     fireEvent.click(screen.getByRole("button", { name: "Library preferences" }));
     expect(screen.getByRole("dialog", { name: "Preferences" })).toBeTruthy();
-    if (!["book", "audiobook"].includes(type)) {
-      expect(screen.getByText("No preferences available for this library type yet.")).toBeTruthy();
-    }
     fireEvent.click(screen.getByRole("button", { name: "Close Preferences" }));
     expect(screen.queryByRole("dialog", { name: "Preferences" })).toBeNull();
     client.clear();
@@ -96,6 +124,21 @@ it("waits for NFO titles without flashing folder names", async () => {
   complete({ ok: true, json: async () => ({ title: "Chainsaw Man", colored_edition: true }) });
   expect(await screen.findByText("Chainsaw Man")).toBeTruthy();
   expect(screen.queryByText("Chainsaw Man [Colored]")).toBeNull();
+  client.clear();
+});
+
+it("selects a range without navigation and clears selection when done", async () => {
+  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "manga", title: "Manga", type: "book" }]);
+  vi.mocked(api.getItems).mockResolvedValue(["A", "B", "C"].map(id => ({ id, title: id, type: "folder" as const })));
+  const { client } = renderDashboard("/?lib=manga");
+  expect(screen.queryByRole("button", { name: "Select Items" })).toBeNull();
+  fireEvent.click(await screen.findByRole("button", { name: "Select A" }));
+  fireEvent.click(screen.getByRole("button", { name: "Select C" }), { shiftKey: true });
+  expect(screen.getByText("3 Selected")).toBeTruthy();
+  expect(screen.getByTestId("location").textContent).toBe("/?lib=manga");
+  expect((screen.getByRole("button", { name: "Bulk Edit" }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  expect(screen.getByRole("button", { name: "Select A" }).getAttribute("aria-pressed")).toBe("false");
   client.clear();
 });
 
@@ -178,8 +221,8 @@ it("filters by artwork and sorts titles from the compact filter menu", async () 
 });
 
 it("opens the filter popup and closes it through its close button", async () => {
-  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Movies", type: "movie" }]);
-  vi.mocked(api.getItems).mockResolvedValue([{ id: "alien", title: "Alien", type: "movie" }]);
+  vi.mocked(api.getLibraries).mockResolvedValue([{ id: "movies", title: "Books", type: "book" }]);
+  vi.mocked(api.getItems).mockResolvedValue([{ id: "alien", title: "Alien", type: "folder" }]);
 
   const { client } = renderDashboard();
   await screen.findByText("Alien");
