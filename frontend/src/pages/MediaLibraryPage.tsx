@@ -59,6 +59,11 @@ export default function MediaLibraryPage() {
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
+  const toolbarPanelStyle = {
+    backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength),
+    backdropFilter: `blur(${panelBlur}px)`,
+    WebkitBackdropFilter: `blur(${panelBlur}px)`,
+  };
   const libraryBodyRef = useRef<HTMLDivElement>(null);
   const [trackingOverlays, setTrackingOverlays, displayStatus] = useTrackingOverlays();
   const restoredScrollKeyRef = useRef<string | null>(null);
@@ -428,10 +433,10 @@ export default function MediaLibraryPage() {
               aria-label="Search titles"
               placeholder="Search titles"
               className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent focus:text-white md:text-sm"
-              style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
+              style={toolbarPanelStyle}
             />
           </div>
-          <LibraryPopup title="Filter & Sort" label="Filter and sort titles" icon={<ListFilter className="size-4" />} style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)` }}>
+          <LibraryPopup title="Filter & Sort" label="Filter and sort titles" icon={<ListFilter className="size-4" />} style={toolbarPanelStyle}>
               <label className="block text-xs font-semibold text-muted">
                 Artwork
                 <select
@@ -466,7 +471,7 @@ export default function MediaLibraryPage() {
                 </div>
               )}
           </LibraryPopup>
-          <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4" />}>
+          <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4" />} style={toolbarPanelStyle}>
               {browsesFolders ? <>
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <span className="text-sm text-muted">Tracking Overlays</span>
