@@ -26,15 +26,24 @@ export default function ScheduledTasks() {
   const action = useMutation({ mutationFn: ({ id, action }: { id: string; action: string }) => tasksApi.action(id, action), onSuccess: data => client.setQueryData(["scheduled-tasks"], data) });
   const error = tasks.error || action.error;
   return <section className="h-full overflow-y-auto pb-6 pr-2">
-    <h2 className="mb-2 text-xl font-semibold text-muted">Library</h2>
+    <h2 className="mb-2 text-xl font-semibold text-white">Scheduled Tasks</h2>
     <p className="mb-4 text-sm text-muted">Library tasks cover all applicable libraries. Database tasks refresh shared local sources. Schedules run while PosterView is running.</p>
     {error && <p role="alert" className="mb-3 text-sm text-danger">{error.message}</p>}
     {tasks.isLoading && <p className="text-muted">Loading tasks...</p>}
-    <ul className="divide-y divide-border border-b border-border">
-      {tasks.data?.map(task => <li key={task.id} className="py-4">
+    {[
+      { id: "metadata", title: "Library Metadata", description: "Fill missing information across movie and TV libraries." },
+      { id: "credits", title: "Cast & Crew", description: "Retrieve and refresh series cast and crew across TV libraries." },
+      { id: "database", title: "Database Sources", description: "Keep shared local metadata sources up to date." },
+    ].map(group => {
+      const entries = tasks.data?.filter(task => (task.config.kind === "imdb_refresh" ? "database" : ["missing_credits", "refresh_credits"].includes(task.config.kind) ? "credits" : "metadata") === group.id) ?? [];
+      if (!entries.length) return null;
+      return <section key={group.id} aria-labelledby={`tasks-${group.id}`} className="mt-7 border-t border-border pt-5">
+        <header className="mb-2"><h3 id={`tasks-${group.id}`} className="text-lg font-semibold text-white">{group.title}</h3><p className="mt-1 text-sm text-muted">{group.description}</p></header>
+        <ul className="divide-y divide-border">
+      {entries.map(task => <li key={task.id} className="py-4">
         <div className="flex items-center gap-4">
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-semibold">{task.config.name}</h3>
+            <h4 className="text-[1rem] font-semibold leading-snug text-white">{task.config.name}</h4>
             <p className="mt-0.5 text-sm text-muted">{active(task.status) ? `${label(task.status)}: ${task.current_title ?? task.message}` : lastRun(task)}</p>
             <p className="mt-0.5 text-sm text-muted">{task.config.kind === "imdb_refresh" ? "Downloads IMDb titles and ratings into the local database. Enable IMDb in Settings → Database first." : task.config.kind === "missing_metadata" ? "Fills missing metadata and cast & crew across all movie and TV libraries, preserving existing values." : task.config.kind === "missing_credits" ? "Fetches missing cast and crew for series in all TV libraries." : `Refreshes cast and crew older than ${task.config.stale_days} days in all TV libraries.`}</p>
             {task.finished_at && <p className={`mt-1 text-xs ${task.failed || task.needs_matching || task.status === "failed" ? "text-accent" : "text-muted"}`}>{label(task.status)} &middot; {task.updated} updated &middot; {task.needs_matching} need matching &middot; {task.failed} failed</p>}
@@ -53,7 +62,9 @@ export default function ScheduledTasks() {
           </div>
         </details>
       </li>)}
-    </ul>
+        </ul>
+      </section>;
+    })}
   </section>;
 }
 
