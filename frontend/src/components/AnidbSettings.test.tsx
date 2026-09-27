@@ -15,7 +15,8 @@ it("saves registered client settings and tests the saved configuration", async (
   fireEvent.change(screen.getByLabelText("Registered client name"), { target: { value: "myclient" } });
   fireEvent.change(screen.getByLabelText("Client version"), { target: { value: "2" } });
   expect((screen.getByRole("button", { name: "Test Connection" }) as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "Save AniDB settings" }));
+  expect(screen.queryByRole("button", { name: "Save AniDB settings" })).toBeNull();
+  fireEvent.blur(screen.getByLabelText("Client version"));
   await screen.findByText("AniDB settings saved.");
   expect(apiRequest).toHaveBeenLastCalledWith("/anidb/settings", { method: "PUT", body: JSON.stringify({ enabled: true, client: "myclient", version: 2 }) });
   fireEvent.click(screen.getByRole("button", { name: "Test Connection" }));
