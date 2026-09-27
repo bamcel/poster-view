@@ -17,7 +17,6 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
   const [provider, setProvider] = useState("anilist");
   const [term, setTerm] = useState(item.title);
   const [search, setSearch] = useState("");
-  const [sourceFilter, setSourceFilter] = useState("all");
   const [token, setToken] = useState("");
   const [tab, setTab] = useState("");
   const client = useQueryClient();
@@ -27,14 +26,14 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
   const matches = useQuery({ queryKey: ["credit-search", provider, search], queryFn: () => creditsApi.search(provider, search), enabled: sourcesOpen && !!search, retry: false });
   const saved = (value: SeriesCredits) => { client.setQueryData(queryKey, value); };
   const importing = useMutation({ mutationFn: ({ provider, id }: { provider: string; id: string }) => creditsApi.import(serverId, item.id, provider, id), onSuccess: value => { saved(value); setSearch(""); } });
-  const removing = useMutation({ mutationFn: ({ provider, id }: { provider: string; id: string }) => creditsApi.remove(serverId, item.id, provider, id), onSuccess: value => { saved(value); setSourceFilter("all"); } });
+  const removing = useMutation({ mutationFn: ({ provider, id }: { provider: string; id: string }) => creditsApi.remove(serverId, item.id, provider, id), onSuccess: saved });
   const language = useMutation({ mutationFn: (value: string) => creditsApi.language(serverId, item.id, value || null), onSuccess: saved });
   const saveToken = useMutation({ mutationFn: () => creditsApi.saveToken(token.trim()), onSuccess: value => { client.setQueryData(["credit-settings"], value); setToken(""); } });
   const data = query.data;
   const sources = data?.sources ?? [];
   const reportedLanguages = [...new Set(sources.map(s => s.original_language).filter((v): v is string => !!v))];
   const original = data?.original_language ?? (reportedLanguages.length === 1 ? reportedLanguages[0] : null);
-  const credits = displayCredits(sourceFilter === "all" ? sources : sources.filter(s => s.provider === sourceFilter));
+  const credits = displayCredits(sources);
   const languages = [...new Set(["en", "ja", "es", "fr", "de", "it", "pt", "ko", "zh", preference.language, ...(original ? [original] : []), ...sources.flatMap(s => s.credits.map(c => c.language).filter((v): v is string => !!v))])].sort((a, b) => languageName(a).localeCompare(languageName(b)));
   const groups = castGroups(credits, original, preference);
   const crew = credits.filter(c => c.category === "crew");
@@ -94,10 +93,9 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
           const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1;
           if (next >= 0) { event.preventDefault(); setTab(tabs[next].id); (event.currentTarget.parentElement?.children[next] as HTMLElement)?.focus(); }
         }}>{value.label}</button>)}</div>
-        <select className={control} aria-label="Displayed credits source" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}><option value="all">All saved sources</option>{[...new Set(sources.map(s => s.provider))].map(provider => <option key={provider} value={provider}>{creditProviders[provider]}</option>)}</select>
       </div>
       <div role="tabpanel" id={`credit-panel-${item.id}`} aria-labelledby={`credit-tab-${item.id}-${encodeURIComponent(selectedTab.id)}`} className="mt-5">
-        <CreditCarousel key={`${selectedTab.id}:${sourceFilter}`} credits={selectedTab.credits} characters={selectedTab.characters} label={selectedTab.label} />
+        <CreditCarousel key={selectedTab.id} credits={selectedTab.credits} characters={selectedTab.characters} label={selectedTab.label} />
         {!original && selectedTab.id === "Original cast" && <p className="mt-3 text-sm text-muted">Choose the original language in Edit Metadata → Provider matching.</p>}
       </div>
     </>}
