@@ -62,7 +62,7 @@ it("opens, resizes and closes the desktop preview while retaining Appearance con
   Object.defineProperty(window, "innerWidth", { value: 1600, configurable: true });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings?tab=appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
-  fireEvent.click(screen.getByRole("button", { name: "Split View" }));
+  fireEvent.click(screen.getByRole("button", { name: "Live Preview" }));
   expect(screen.getByRole("region", { name: "Live Media Library preview" })).toBeTruthy();
   const divider = screen.getByRole("separator");
   fireEvent.keyDown(divider, { key: "ArrowRight" });
@@ -70,7 +70,28 @@ it("opens, resizes and closes the desktop preview while retaining Appearance con
   expect(screen.getByRole("slider", { name: "Panel Blur" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Close split view" }));
   expect(screen.queryByRole("region", { name: "Live Media Library preview" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Split View" }).getAttribute("aria-pressed")).toBe("false");
+  expect(screen.getByRole("button", { name: "Live Preview" }).getAttribute("aria-pressed")).toBe("false");
+  Object.defineProperty(window, "innerWidth", { value: originalWidth, configurable: true });
+  client.clear();
+});
+
+it("remembers whether Live Preview is open when returning to Appearance", () => {
+  const originalWidth = window.innerWidth;
+  Object.defineProperty(window, "innerWidth", { value: 1600, configurable: true });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const mount = () => render(<MemoryRouter initialEntries={["/settings?tab=appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  const first = mount();
+  fireEvent.click(screen.getByRole("button", { name: "Live Preview" }));
+  first.unmount();
+  const second = mount();
+  expect(screen.getByRole("region", { name: "Live Media Library preview" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Server" }));
+  fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+  expect(screen.getByRole("button", { name: "Live Preview" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "Close split view" }));
+  second.unmount();
+  mount();
+  expect(screen.queryByRole("region", { name: "Live Media Library preview" })).toBeNull();
   Object.defineProperty(window, "innerWidth", { value: originalWidth, configurable: true });
   client.clear();
 });

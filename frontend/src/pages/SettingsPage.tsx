@@ -75,6 +75,7 @@ const TOKEN_LABEL: Record<ServerType, string> = {
 
 type SettingsTab = "servers" | "sources" | "database" | "appearance" | "security" | "tasks";
 const SETTINGS_TAB_KEY = "posterview.settingsTab";
+const LIVE_PREVIEW_KEY = "posterview.appearanceLivePreview";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   { id: "tasks", label: "Scheduled Tasks", icon: <Clock className="size-4" /> },
@@ -152,7 +153,10 @@ export default function SettingsPage() {
 
 function AppearanceSection() {
   const queryClient = useQueryClient();
-  const [splitView, setSplitView] = useState(false);
+  const [splitView, setSplitView] = useState(() => localStorage.getItem(LIVE_PREVIEW_KEY) === "true");
+  useEffect(() => {
+    localStorage.setItem(LIVE_PREVIEW_KEY, String(splitView));
+  }, [splitView]);
   const [desktop, setDesktop] = useState(() => window.innerWidth >= 1280);
   const [settingsWidth, setSettingsWidth] = useState(40);
   const splitRef = useRef<HTMLDivElement>(null);
@@ -327,7 +331,7 @@ function AppearanceSection() {
         <h2 className="flex items-center gap-2 text-lg font-semibold">
           <LayoutDashboard className="size-5 text-accent" /> Media Library
         </h2>
-        <button type="button" aria-pressed={split} onClick={() => setSplitView(value => !value)} className="hidden shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-medium hover:bg-button-hover xl:flex"><Columns2 className="size-4" />Split View</button>
+        <button type="button" aria-pressed={split} onClick={() => setSplitView(value => !value)} className="hidden shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-medium hover:bg-button-hover xl:flex"><Columns2 className="size-4" />Live Preview</button>
         </div>
         <p className="mb-3 text-sm text-faint">Customize media library artwork and panel visibility.</p>
         <div className="rounded-xl border border-border bg-surface-2 p-4">
