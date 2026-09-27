@@ -78,10 +78,15 @@ it.each(["show", "movie"] as const)("shows normal cast including untagged credit
   expect(screen.getByText("Director", { selector: "p.font-semibold" })).toBeTruthy();
 });
 
-it.each(["show", "movie"] as const)("displays language-unspecified cast for non-anime animation %s", async type => {
-  vi.mocked(creditsApi.get).mockResolvedValue({ catalog_id: "1", original_language: "en", sources: [{ ...data.sources[0], provider: "tmdb", credits: [credit("Animation actor", null)] }] });
+it.each(["show", "movie"] as const)("uses standard cast and crew display for non-anime animation %s", async type => {
+  vi.mocked(creditsApi.get).mockResolvedValue({ catalog_id: "1", original_language: "en", sources: [{ ...data.sources[0], provider: "tmdb", credits: [{ ...credit("Animation actor", null), character_image: "https://example.com/hero.jpg" }, credit("Animation director", null, "crew")] }] });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(client);
   render(<QueryClientProvider client={client}><CastCrewPanel serverId={1} item={{ id: "1", title: "Animation", type, seasons: [], members: [], external_ids: { tmdb: "1" }, genres: ["Animation"] }} /></QueryClientProvider>);
   await screen.findByText("Animation actor");
+  expect(screen.getByText("Animation director")).toBeTruthy();
+  expect(screen.getByText("The cast and the people behind this title.")).toBeTruthy();
+  expect(screen.queryByRole("tablist")).toBeNull();
+  expect(screen.queryByRole("tab", { name: "Characters" })).toBeNull();
+  expect(screen.queryByAltText("Hero character portrait")).toBeNull();
   expect(screen.queryByRole("tab", { name: "English Cast" })).toBeNull();
 });

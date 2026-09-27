@@ -36,11 +36,10 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
   const credits = displayCredits(sources);
   const languages = [...new Set(["en", "ja", "es", "fr", "de", "it", "pt", "ko", "zh", preference.language, ...(original ? [original] : []), ...sources.flatMap(s => s.credits.map(c => c.language).filter((v): v is string => !!v))])].sort((a, b) => languageName(a).localeCompare(languageName(b)));
   const anime = item.anime === true;
-  const animated = anime || (item.genres ?? []).some(genre => ["animation", "animated"].includes(genre.trim().toLowerCase()));
   const groups = anime ? castGroups(credits, original, preference) : [{ label: "Cast", credits: credits.filter(credit => credit.category === "cast") }];
   const crew = credits.filter(c => c.category === "crew");
   const tabs = groups.map(group => ({ id: group.label, label: group.label.startsWith("Original cast · ") ? `${group.label.split(" · ")[1]} Cast` : group.label === "Original cast" ? "Primary Cast" : group.label.replace(/ cast$/, " Cast"), credits: [...group.credits, ...(display.value.hide_crew ? [] : crew)], characters: false }));
-  if (animated && credits.some(c => c.category === "cast" && c.character)) tabs.push({ id: "characters", label: "Characters", credits: credits.filter(c => c.category === "cast" && c.character), characters: true });
+  if (anime && credits.some(c => c.category === "cast" && c.character)) tabs.push({ id: "characters", label: "Characters", credits: credits.filter(c => c.category === "cast" && c.character), characters: true });
   const selectedTab = tabs.find(value => value.id === tab) ?? tabs[0];
 
   const busy = importing.isPending || removing.isPending;
@@ -50,7 +49,7 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
   if (!display.value.show && !editing) return null;
   return <section className="mt-10" aria-label="Cast and crew">
     {!editing && <><h2 className="flex items-center gap-2 text-lg font-semibold"><UsersRound className="size-5 text-white/60" />Cast &amp; Crew</h2>
-    <p className="mt-1 text-xs text-white/50">{animated ? "Original performances, dubbed casts, and the people behind this title." : "The cast and the people behind this title."}</p></>}
+    <p className="mt-1 text-xs text-white/50">{anime ? "Original performances, dubbed casts, and the people behind this title." : "The cast and the people behind this title."}</p></>}
     {query.isLoading && <p className="mt-5 text-sm text-white/60" role="status">Loading saved credits…</p>}
     {query.error && <p className="mt-4 text-sm text-red-300" role="alert">Could not load credits: {query.error.message} <button onClick={() => query.refetch()}>Retry</button></p>}
     {error && <p className="mt-4 text-sm text-red-300" role="alert">{error.message}</p>}
@@ -96,7 +95,7 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
         }}>{value.label}</button>)}</div>
       </div>}
       <div role={tabs.length > 1 ? "tabpanel" : undefined} id={`credit-panel-${item.id}`} aria-labelledby={tabs.length > 1 ? `credit-tab-${item.id}-${encodeURIComponent(selectedTab.id)}` : undefined} className="mt-5">
-        <CreditCarousel key={selectedTab.id} credits={selectedTab.credits} characters={selectedTab.characters} label={selectedTab.label} showCharacterPortraits={animated} />
+        <CreditCarousel key={selectedTab.id} credits={selectedTab.credits} characters={selectedTab.characters} label={selectedTab.label} showCharacterPortraits={anime} />
         {!original && selectedTab.id === "Original cast" && <p className="mt-3 text-sm text-muted">Choose the original language in Edit Metadata → Provider matching.</p>}
       </div>
     </>}
