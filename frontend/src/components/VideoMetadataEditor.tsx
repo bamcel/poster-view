@@ -7,7 +7,7 @@ const groups: { title: string; fields: [string, string][] }[] = [
   { title: "Identity & description", fields: [["title", "Title"], ["originaltitle", "Original title"], ["sorttitle", "Sort title"], ["year", "Year"], ["plot", "Plot"], ["outline", "Outline"], ["tagline", "Tagline"]] },
   { title: "Details", fields: [["premiered", "Premiere date"], ["releasedate", "Release date"], ["enddate", "End date"], ["runtime", "Runtime (minutes)"], ["mpaa", "Content rating"], ["status", "Status"], ["rating", "Rating"], ["criticrating", "Critic rating"], ["customrating", "Custom rating"], ["language", "Language"]] },
   { title: "Classification & crew", fields: [["genre", "Genres"], ["tag", "Tags"], ["studio", "Studios"], ["country", "Countries"], ["director", "Directors"], ["credits", "Writing credits"], ["writer", "Writers"], ["trailer", "Trailer links"]] },
-  { title: "NFO Provider IDs", fields: [["imdbid", "IMDb ID"], ["tmdbid", "TMDB ID"], ["tvdbid", "TVDB ID"]] },
+  { title: "NFO Provider IDs", fields: [["imdbid", "IMDb ID"], ["tmdbid", "TMDB ID"], ["tvdbid", "TVDB ID"], ["anidbid", "AniDB ID"], ["anilistid", "AniList ID"], ["malid", "MyAnimeList (MAL) ID"]] },
 ];
 const multiline = new Set(["plot", "outline", ...groups[2].fields.map(([key]) => key)]);
 const button = "rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-40";

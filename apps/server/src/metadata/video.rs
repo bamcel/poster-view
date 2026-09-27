@@ -38,7 +38,7 @@ const SCALARS: &[&str] = &[
 const REPEATED: &[&str] = &[
     "genre", "tag", "studio", "country", "director", "credits", "writer", "trailer",
 ];
-const IDS: &[&str] = &["imdb", "tmdb", "tvdb"];
+const IDS: &[&str] = &["imdb", "tmdb", "tvdb", "anidb", "anilist", "mal"];
 
 #[derive(Deserialize)]
 pub(crate) struct Selection {
@@ -112,6 +112,12 @@ fn parse(xml: &str, kind: &str) -> Result<Element, HttpError> {
 }
 fn id_tags(provider: &str, kind: &str) -> Vec<String> {
     let mut tags = vec![format!("{provider}id")];
+    if matches!(provider, "anidb" | "anilist" | "mal") {
+        tags.push(format!("{provider}_id"));
+    }
+    if provider == "mal" {
+        tags.extend(["myanimelistid".into(), "myanimelist_id".into()]);
+    }
     if provider == "imdb" {
         tags.push("imdb_id".into());
     }
@@ -119,6 +125,9 @@ fn id_tags(provider: &str, kind: &str) -> Vec<String> {
         tags.push("id".into());
     }
     tags
+}
+fn provider_id_type_matches(value: &str, provider: &str) -> bool {
+    value.eq_ignore_ascii_case(provider) || (provider == "mal" && value.eq_ignore_ascii_case("myanimelist"))
 }
 fn fields(root: &Element) -> BTreeMap<String, String> {
     let mut result = BTreeMap::new();
@@ -145,7 +154,7 @@ fn fields(root: &Element) -> BTreeMap<String, String> {
                     .find(|e| {
                         e.attributes
                             .get("type")
-                            .is_some_and(|t| t.eq_ignore_ascii_case(provider))
+                            .is_some_and(|t| provider_id_type_matches(t, provider))
                     })
                     .and_then(Element::get_text)
                     .map(|s| s.into_owned())
@@ -194,7 +203,7 @@ fn render(
         if old.get(key) == Some(value) {
             continue;
         }
-        if matches!(key.as_str(), "year" | "runtime" | "tmdbid" | "tvdbid")
+        if matches!(key.as_str(), "year" | "runtime" | "tmdbid" | "tvdbid" | "anidbid" | "anilistid" | "malid")
             && !value.is_empty()
             && !value.parse::<u32>().is_ok_and(|v| v > 0)
         {
@@ -229,7 +238,7 @@ fn render(
                     && e.name == "uniqueid"
                     && e.attributes
                         .get("type")
-                        .is_some_and(|t| t.eq_ignore_ascii_case(provider))
+                        .is_some_and(|t| provider_id_type_matches(t, provider))
                 {
                     if !value.is_empty() {
                         let mut e = e.clone();
@@ -822,5 +831,32 @@ mod tests {
         fs::remove_file(&target).unwrap();
         std::os::unix::fs::symlink("elsewhere", target).unwrap();
         assert!(store.video_document(&source, "movie", None, true).is_err());
+    }
+}
+
+#[cfg(test)]
+mod anime_id_tests {
+    use super::*;
+    #[test]
+    fn anime_ids_round_trip_aliases_and_clear_without_losing_other_data() {
+        for kind in ["movie", "tvshow"] {
+            let xml = format!("<{kind}><title>Test</title><anidbid>10</anidbid><anilist_id>20</anilist_id><myanimelistid>30</myanimelistid><uniqueid type=\"myanimelist\" default=\"false\">30</uniqueid><custom>keep</custom></{kind}>");
+            let mut values = fields(&parse(&xml, kind).unwrap());
+            assert_eq!(values["malid"], "30");
+            assert_eq!(values["anilistid"], "20");
+            for key in ["anidbid", "anilistid", "malid"] { values.insert(key.into(), "99".into()); }
+            let rendered = render(&values, &xml, kind).unwrap();
+            let root = parse(&rendered, kind).unwrap();
+            assert_eq!(child_text(&root, "myanimelistid"), "99");
+            assert_eq!(child_text(&root, "anilist_id"), "99");
+            assert_eq!(child_text(&root, "custom"), "keep");
+            assert_eq!(nodes(&root, "uniqueid").next().unwrap().get_text().unwrap(), "99");
+            for key in ["anidbid", "anilistid", "malid"] { values.insert(key.into(), String::new()); }
+            let cleared = parse(&render(&values, &rendered, kind).unwrap(), kind).unwrap();
+            assert!(nodes(&cleared, "uniqueid").next().is_none());
+            assert_eq!(fields(&cleared)["malid"], "");
+            values.insert("malid".into(), "invalid".into());
+            assert!(render(&values, &rendered, kind).is_err());
+        }
     }
 }
