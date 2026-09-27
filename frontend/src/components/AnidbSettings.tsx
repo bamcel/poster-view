@@ -3,6 +3,7 @@ import { reportSettingsSave } from "../lib/settingsSaveStatus";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiRequest } from "../api/client";
+import ProviderConnection, { providerStatus } from "./ProviderConnection";
 interface Settings { enabled: boolean; client: string; version: number }
 export default function AnidbSettings() {
   const cache = useQueryClient();
@@ -21,15 +22,15 @@ export default function AnidbSettings() {
     if (!save.isPending && Number.isInteger(next.version) && next.version > 0 && (!next.enabled || !!next.client.trim()) && JSON.stringify(next) !== JSON.stringify(query.data)) save.mutate(next);
   };
   const input = "mt-1 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm";
-  return <form aria-label="AniDB configuration" className="mb-4 space-y-3 rounded-xl border border-border bg-surface-2 p-4" onSubmit={e => { e.preventDefault(); autoSave(); }}>
-    <h3 className="text-sm font-semibold">AniDB</h3>
+  return <ProviderConnection id="anidb" name="AniDB" description="Anime metadata" status={query.isError ? "Configuration unavailable" : save.isPending ? "Saving…" : test.isPending || test.data || test.error ? providerStatus(!!query.data?.client, test.isPending, test.data, test.error) : query.isPending ? "Checking configuration…" : query.data?.enabled ? "Enabled" : "Disabled"} setupUrl="https://anidb.net/perl-bin/animedb.pl?show=client">
+    <form aria-label="AniDB configuration" className="space-y-3" onSubmit={e => { e.preventDefault(); autoSave(); }}>
     <p className="text-xs text-muted">Optional anime metadata source for Find Missing Metadata. Uses confirmed AniDB IDs, preserves existing fields, and caches responses for 30 days.</p>
     <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={value.enabled} disabled={query.isPending || query.isError || save.isPending} onChange={e => { const next = { ...value, enabled: e.target.checked }; change(next); autoSave(next); }} />Enable AniDB metadata</label>
     <div className="grid gap-3 sm:grid-cols-2">
       <label className="text-xs text-muted">Registered client name<input className={input} value={value.client} disabled={query.isPending || query.isError || save.isPending} onChange={e => change({ client: e.target.value })} onBlur={() => autoSave()} maxLength={64} /></label>
       <label className="text-xs text-muted">Client version<input className={input} onBlur={() => autoSave()} type="number" min={1} step={1} value={value.version} disabled={query.isPending || query.isError || save.isPending} onChange={e => change({ version: Number(e.target.value) })} /></label>
     </div>
-    <p className="text-xs text-muted">Use your registered HTTP API client name and version, not your account password. <a className="text-accent underline" href="https://anidb.net/perl-bin/animedb.pl?show=client" target="_blank" rel="noreferrer">AniDB client registration</a></p>
+    <p className="text-xs text-muted">Use your registered HTTP API client name and version, not your account password.</p>
     <div className="flex gap-2">
       <button type="button" className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50" disabled={!query.data?.enabled || !!draft || save.isPending || test.isPending} onClick={() => test.mutate()}>{test.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}Test Connection</button>
     </div>
@@ -38,5 +39,5 @@ export default function AnidbSettings() {
     {save.isSuccess && <p role="status" className="text-xs text-accent">AniDB settings saved.</p>}
     {(query.error || save.error || test.error) && <p role="alert" className="text-xs text-danger">{(query.error || save.error || test.error)?.message}</p>}
     {test.data && <p role="status" className={`text-xs ${test.data.ok ? "text-accent" : "text-danger"}`}>{test.data.message}</p>}
-  </form>;
+  </form></ProviderConnection>;
 }

@@ -46,6 +46,7 @@ import {
   type AppTheme,
   type ThemeColorKey,
 } from "../lib/theme";
+import ProviderConnection, { providerStatus } from "../components/ProviderConnection";
 import SecuritySection from "../components/SecuritySection";
 import AppearancePreview from "../components/AppearancePreview";
 import ScheduledTasks from "../components/ScheduledTasks";
@@ -897,12 +898,14 @@ function ArtworkSourcesSection() {
         {" "}Leave saved key fields blank to keep existing values.
       </p>
 
-      <div className="mb-3 rounded-xl border border-border bg-surface-2 p-3">
-        <EnabledArtworkSourcesFields />
+      <EnabledArtworkSourcesFields />
+      <h3 className="mb-2 mt-6 text-sm font-semibold">Accounts &amp; connections</h3>
+      <p className="mb-3 text-xs text-faint">Expand a provider to configure credentials or test its connection.</p>
+      <div className="overflow-hidden rounded-xl border border-border">
+        <TmdbCredentialsFields />
+        <AnidbSettings />
+        <ArtworkCredentialsFields />
       </div>
-      <TmdbCredentialsFields />
-      <AnidbSettings />
-      <ArtworkCredentialsFields />
 
     </section>
   );
@@ -929,8 +932,8 @@ function TmdbCredentialsFields() {
       toast.push("error", error.message);
     },
   });
-  return <form className="mb-4 rounded-xl border border-border bg-surface-2 p-4" onSubmit={event => { event.preventDefault(); if (token.trim() && !save.isPending) save.mutate(token.trim()); }}>
-    <h3 className="text-sm font-semibold">The Movie Database (TMDB)</h3>
+  return <ProviderConnection id="tmdb" name="TMDB" description="Movie and TV metadata" status={settings.isError ? "Configuration unavailable" : save.isPending ? "Saving…" : providerStatus(settings.data?.tmdb_configured, test.isPending, test.data, test.error)} setupUrl="https://www.themoviedb.org/settings/api">
+    <form onSubmit={event => { event.preventDefault(); if (token.trim() && !save.isPending) save.mutate(token.trim()); }}>
     <p className="mt-1 text-xs text-faint">Movie and TV metadata, cast, and crew. Used by Find Missing Metadata and credit lookups across all libraries.</p>
     <p className="mt-2 text-xs text-muted" role="status">{save.isPending ? "Saving…" : settings.isLoading ? "Checking configuration…" : settings.isError ? "Unable to load configuration." : settings.data?.tmdb_configured ? "Token saved" : "Not configured"}</p>
     <div className="mt-3 flex flex-wrap items-end gap-3">
@@ -943,7 +946,7 @@ function TmdbCredentialsFields() {
     {test.data && <p role="status" className={`mt-2 text-sm ${test.data.ok ? "text-green-400" : "text-red-400"}`}>{test.data.message}</p>}
     {test.isError && <p role="alert" className="mt-2 text-sm text-red-400">{test.error.message}</p>}
     {save.isError && <p role="alert" className="mt-2 text-sm text-red-400">{save.error.message}</p>}
-  </form>;
+  </form></ProviderConnection>;
 }
 
 function DatabaseSection() {
@@ -1004,7 +1007,7 @@ function DefaultArtworkSourceFields({ kind, names }: { kind: "poster" | "ereader
   });
 
   return (
-    <label className="flex w-full flex-col gap-1 text-xs font-medium text-muted sm:w-56 sm:shrink-0">
+    <label className="flex w-full flex-col gap-1 text-xs font-medium text-muted">
       Default provider
       <select
         title={kind === "poster"
@@ -1048,34 +1051,28 @@ function EnabledArtworkSourcesFields() {
 
   return (
     <div>
-      <div className="mb-3">
-        <div className="min-w-0">
-          <h3 className="mb-1 text-sm font-semibold">Show Providers</h3>
-          <p className="text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Sync, and removed from the local cache.</p>
-        </div>
-      </div>
-      <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-2">
         {[
           { label: "Poster", kind: "poster" as const, names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
           { label: "eReader", kind: "ereader" as const, names: ["anilist-manga", "comicvine", "mangadex", "viz"] },
         ].map((group) => (
-          <fieldset key={group.label} className="min-w-0">
-            <legend className="mb-2 text-sm">
-                <span className="block font-medium text-white">{group.label}</span>
+          <fieldset key={group.label} className="min-w-0 rounded-xl border border-border bg-surface-2 p-4">
+            <legend className="flex items-center gap-3 px-1 text-sm">
+                <span className="block font-medium text-white">{group.label} providers</span>
                 <span className="block text-xs text-faint">
-                  {settingsQ.isLoading ? "Loading providers…" : `${group.names.filter((name) => enabled.includes(name)).length} of ${group.names.length} shown`}
+                  {settingsQ.isLoading ? "Loading providers…" : `${group.names.filter((name) => enabled.includes(name)).length} of ${group.names.length} enabled`}
                 </span>
             </legend>
             <div className="mb-3">
               <DefaultArtworkSourceFields kind={group.kind} names={group.names} />
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
         {ARTWORK_DATABASES.filter((source) => group.names.includes(source.name))
           .sort((a, b) => a.label.localeCompare(b.label))
           .map((source) => {
           const checked = enabled.includes(source.name);
           return (
-            <label key={source.name} className="flex items-center justify-between rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm">
+            <label key={source.name} className="flex min-h-9 items-center justify-between gap-3 py-1 text-sm">
               <span>{source.label}</span>
               <input
                 type="checkbox"
@@ -1091,6 +1088,7 @@ function EnabledArtworkSourcesFields() {
           </fieldset>
         ))}
       </div>
+      <p className="mt-3 text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Sync, and removed from the local cache.</p>
     </div>
   );
 }
@@ -1340,21 +1338,11 @@ function ArtworkCredentialsFields() {
   const configured = statusQ.data?.configured;
 
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-      <div className="rounded-xl border border-border bg-surface-2 p-3">
-      <ProviderHeading icon={<KeyRound className="size-4 text-accent" />} name="ThePosterDB" connected={statusQ.data?.logged_in === true} />
+    <>
+      <ProviderConnection id="posterdb" name="ThePosterDB" description="Posters" status={statusQ.isError ? "Configuration unavailable" : providerStatus(configured, loginMut.isPending, loginMut.data ? { ok: loginMut.data.logged_in } : statusQ.data?.logged_in ? { ok: true } : undefined, loginMut.error)} setupUrl="https://theposterdb.com/register">
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field
-          label={
-            <>
-              Email / username{" "}
-              <a href="https://theposterdb.com/register" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">
-                (create account ↗)
-              </a>
-            </>
-          }
-        >
+        <Field label="Email / username">
           <input
             className={compactInputCls}
             value={email}
@@ -1391,7 +1379,7 @@ function ArtworkCredentialsFields() {
       </div>
       <ProviderFeedback name="ThePosterDB" pending={loginMut.isPending} error={loginMut.error?.message}
         result={loginMut.data ? { ok: loginMut.data.logged_in, message: loginMut.data.message } : statusQ.data?.message ? { ok: statusQ.data.logged_in, message: statusQ.data.message } : undefined} />
-      </div>
+      </ProviderConnection>
         <FanartTvdbFields
           fanart={fanart}
           setFanart={setFanart}
@@ -1402,9 +1390,10 @@ function ArtworkCredentialsFields() {
           comicvine={comicvine}
           setComicvine={setComicvine}
           configured={settingsQ.data}
+          configurationError={settingsQ.isError}
           onAutoSave={(kind) => saveMut.mutate(kind)}
         />
-    </div>
+    </>
   );
 }
 
@@ -1418,6 +1407,7 @@ function FanartTvdbFields({
   comicvine,
   setComicvine,
   configured: cfg,
+  configurationError,
   onAutoSave,
 }: {
   fanart: string;
@@ -1429,6 +1419,7 @@ function FanartTvdbFields({
   comicvine: string;
   setComicvine: (value: string) => void;
   configured?: { fanart_configured: boolean; tvdb_configured: boolean; comicvine_configured: boolean };
+  configurationError: boolean;
   onAutoSave: (kind: "fanart" | "tvdb" | "comicvine") => void;
 }) {
 
@@ -1450,19 +1441,8 @@ function FanartTvdbFields({
 
   return (
     <>
-      <div className="rounded-xl border border-border bg-surface-2 p-3">
-        <ProviderHeading name="Fanart.tv" connected={!fanartTestMut.isPending && !fanartTestMut.error && fanartTestMut.data?.ok === true} />
-        <Field
-          label={
-            <>
-              Fanart.tv API Key{" "}
-              {cfg?.fanart_configured && <ConfiguredTag />}{" "}
-              <a href="https://fanart.tv/get-an-api-key/" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">
-                (create account for free key ↗)
-              </a>
-            </>
-          }
-        >
+      <ProviderConnection id="fanart" name="Fanart.tv" description="Artwork" status={configurationError ? "Configuration unavailable" : providerStatus(cfg?.fanart_configured, fanartTestMut.isPending, fanartTestMut.data, fanartTestMut.error)} setupUrl="https://fanart.tv/get-an-api-key/">
+        <Field label="Fanart.tv API Key">
           <input
             className={compactInputCls}
             type="password"
@@ -1481,22 +1461,11 @@ function FanartTvdbFields({
           Test Connection
         </button>
         <ProviderFeedback name="Fanart.tv" pending={fanartTestMut.isPending} result={fanartTestMut.data} error={fanartTestMut.error?.message} />
-      </div>
+      </ProviderConnection>
 
-      <div className="rounded-xl border border-border bg-surface-2 p-3">
-        <ProviderHeading name="TheTVDB" connected={!tvdbTestMut.isPending && !tvdbTestMut.error && tvdbTestMut.data?.ok === true} />
+      <ProviderConnection id="tvdb" name="TheTVDB" description="TV artwork and metadata" status={configurationError ? "Configuration unavailable" : providerStatus(cfg?.tvdb_configured, tvdbTestMut.isPending, tvdbTestMut.data, tvdbTestMut.error)} setupUrl="https://thetvdb.com/dashboard/account/apikey">
         <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
-          <Field
-            label={
-              <>
-                TheTVDB API Key{" "}
-                {cfg?.tvdb_configured && <ConfiguredTag />}{" "}
-                <a href="https://thetvdb.com/dashboard/account/apikey" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">
-                  (create account for free key ↗)
-                </a>
-              </>
-            }
-          >
+          <Field label="TheTVDB API Key">
             <input
               className={compactInputCls}
               type="password"
@@ -1525,17 +1494,16 @@ function FanartTvdbFields({
           Test Connection
         </button>
         <ProviderFeedback name="TheTVDB" pending={tvdbTestMut.isPending} result={tvdbTestMut.data} error={tvdbTestMut.error?.message} />
-      </div>
-      <div className="rounded-xl border border-border bg-surface-2 p-3">
-        <ProviderHeading name="ComicVine" connected={!comicvineTestMut.isPending && !comicvineTestMut.error && comicvineTestMut.data?.ok === true} />
-        <Field label={<><span>ComicVine API Key</span>{cfg?.comicvine_configured && <ConfiguredTag />} <a href="https://comicvine.gamespot.com/api/" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">(request a free key ↗)</a></>}>
+      </ProviderConnection>
+      <ProviderConnection id="comicvine" name="ComicVine" description="Comics metadata" status={configurationError ? "Configuration unavailable" : providerStatus(cfg?.comicvine_configured, comicvineTestMut.isPending, comicvineTestMut.data, comicvineTestMut.error)} setupUrl="https://comicvine.gamespot.com/api/">
+        <Field label="ComicVine API Key">
           <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => { setComicvine(e.target.value); comicvineTestMut.reset(); }} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API Key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
         </Field>
         <button onClick={() => comicvineTestMut.mutate()} disabled={comicvineTestMut.isPending || (!comicvine && !cfg?.comicvine_configured)} className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50">
           {comicvineTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test Connection
         </button>
         <ProviderFeedback name="ComicVine" pending={comicvineTestMut.isPending} result={comicvineTestMut.data} error={comicvineTestMut.error?.message} />
-      </div>
+      </ProviderConnection>
     </>
   );
 }
@@ -1549,24 +1517,6 @@ function ProviderFeedback({ name, pending, result, error }: {
     <span className="font-medium">{name}: {pending ? "Testing connection…" : failed ? "Connection failed. " : "Connection successful. "}</span>
     {!pending && (error || result?.message)}
   </p>;
-}
-
-function ProviderHeading({ name, connected, icon }: { name: string; connected: boolean; icon?: ReactNode }) {
-  return (
-    <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-      {icon ?? <ImageIcon className="size-4 text-accent" />}
-      <span>{name}</span>
-      {connected && <CheckCircle2 className="size-4 text-green-500" aria-label="Connection successful" />}
-    </h3>
-  );
-}
-
-function ConfiguredTag() {
-  return (
-    <span className="ml-1 inline-flex items-center gap-1 text-xs text-accent">
-      <CheckCircle2 className="size-3" /> set
-    </span>
-  );
 }
 
 // ---------------------------------------------------------------------------

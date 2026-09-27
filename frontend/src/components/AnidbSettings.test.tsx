@@ -4,12 +4,13 @@ import { afterEach, expect, it, vi } from "vitest";
 import { api, apiRequest } from "../api/client";
 import AnidbSettings from "./AnidbSettings";
 vi.mock("../api/client", () => ({ apiRequest: vi.fn(), api: { testArtworkProvider: vi.fn() } }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); sessionStorage.clear(); });
 it("saves registered client settings and tests the saved configuration", async () => {
   vi.mocked(apiRequest).mockResolvedValueOnce({ enabled: false, client: "", version: 1 }).mockResolvedValueOnce({ enabled: true, client: "myclient", version: 2 });
   vi.mocked(api.testArtworkProvider).mockResolvedValue({ ok: true, message: "AniDB API connection succeeded." });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<QueryClientProvider client={client}><AnidbSettings /></QueryClientProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Configure AniDB" }));
   await waitFor(() => expect((screen.getByLabelText("Enable AniDB metadata") as HTMLInputElement).disabled).toBe(false));
   fireEvent.click(screen.getByLabelText("Enable AniDB metadata"));
   fireEvent.change(screen.getByLabelText("Registered client name"), { target: { value: "myclient" } });

@@ -315,7 +315,7 @@ it("keeps server libraries in a checkbox dropdown", async () => {
   client.clear();
 });
 
-it("places Show Providers at the top of Search Providers instead of Server or Database", async () => {
+it("places compact provider choices above collapsed connections and remembers expanded rows", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <MemoryRouter>
@@ -325,13 +325,19 @@ it("places Show Providers at the top of Search Providers instead of Server or Da
     </MemoryRouter>,
   );
 
-  expect(screen.queryByText("Show Providers")).toBeNull();
+  expect(screen.queryByRole("group", { name: /Poster providers/ })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Search Providers" }));
-  const providers = await screen.findByRole("heading", { name: "Show Providers" });
-  const section = providers.closest("section")!;
-  expect(section.querySelector("h3")).toBe(providers);
+  const providers = await screen.findByRole("group", { name: /Poster providers/ });
+  expect(screen.getByRole("group", { name: /eReader providers/ })).toBeTruthy();
+  expect(providers.compareDocumentPosition(screen.getByRole("heading", { name: "Accounts & connections" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Test Connection" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Configure ThePosterDB" }));
+  expect(screen.getByRole("textbox", { name: "Email / username" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Database" }));
-  expect(screen.queryByText("Show Providers")).toBeNull();
+  expect(screen.queryByRole("group", { name: /Poster providers/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Search Providers" }));
+  expect(screen.getByRole("button", { name: "Configure ThePosterDB" }).getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByRole("button", { name: "Configure Fanart.tv" }).getAttribute("aria-expanded")).toBe("false");
   client.clear();
 });
 
@@ -391,8 +397,10 @@ it("keeps each provider test result inside its own card", async () => {
   vi.mocked(api.testArtworkProvider).mockImplementation(async ({ provider }) => ({ ok: provider !== "tvdb", message: provider === "tvdb" ? "TheTVDB rejected the credentials." : `${provider} connected.` }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings?tab=sources"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
-  const fanart = (await screen.findByRole("heading", { name: "Fanart.tv" })).parentElement!;
-  const tvdb = screen.getByRole("heading", { name: "TheTVDB" }).parentElement!;
+  fireEvent.click(await screen.findByRole("button", { name: "Configure Fanart.tv" }));
+  fireEvent.click(screen.getByRole("button", { name: "Configure TheTVDB" }));
+  const fanart = screen.getByRole("region", { name: "Fanart.tv connection" });
+  const tvdb = screen.getByRole("region", { name: "TheTVDB connection" });
   await waitFor(() => expect(within(fanart).getByRole("button", { name: "Test Connection" }).hasAttribute("disabled")).toBe(false));
   fireEvent.click(within(fanart).getByRole("button", { name: "Test Connection" }));
   expect(await within(fanart).findByText("fanart connected.", { exact: false })).toBeTruthy();
@@ -449,6 +457,7 @@ it("saves the shared TMDB token from Search Providers and clears the input", asy
   vi.mocked(creditsApi.saveToken).mockResolvedValue({ tmdb_configured: true, tvdb_configured: false });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings?tab=sources"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", { name: "Configure TMDB" }));
   const input = await screen.findByLabelText("TMDB API Read Access Token or API key");
   expect(screen.queryByRole("button", { name: "Save token" })).toBeNull();
   fireEvent.change(input, { target: { value: " test-token " } });
