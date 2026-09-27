@@ -1,4 +1,5 @@
 mod credits;
+mod catalog;
 
 use std::{
     fs,
@@ -104,7 +105,9 @@ impl ServerStore {
         let connection = self.connection()?;
         connection.execute_batch(SCHEMA)?;
         connection.execute_batch(credits::SCHEMA)?;
+        connection.execute_batch(catalog::SCHEMA)?;
         migrate(&connection)?;
+        self.migrate_item_library_settings()?;
         Ok(())
     }
 
@@ -386,7 +389,7 @@ impl ServerStore {
 
     fn connection(&self) -> Result<Connection, StoreError> {
         let connection = Connection::open(&self.db_path)?;
-        connection.execute_batch("PRAGMA foreign_keys = ON;")?;
+        connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")?;
         Ok(connection)
     }
 

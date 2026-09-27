@@ -9,12 +9,13 @@ impl Runtime {
         Ok(serde_json::from_str(&raw).unwrap_or_default())
     }
     pub(crate) fn record_library_items(&self, server: i64, library: &str, ids: impl Iterator<Item=String>) -> Result<(), RuntimeError> {
-        let store = self.server_store()?;
-        for id in ids { store.set_setting(&format!("item_library:{server}:{id}"), library)?; }
+        self.server_store()?.record_library_items(server, library, ids)?;
         Ok(())
     }
     pub(crate) fn item_is_anime(&self, server: i64, item: &str) -> Result<bool, RuntimeError> {
-        let library = self.server_store()?.get_setting(&format!("item_library:{server}:{item}"))?;
+        let Some(library) = self.server_store()?.item_library(server, item)? else {
+            return Ok(false);
+        };
         Ok(self.anime_libraries(server)?.get(&library).copied().unwrap_or(false))
     }
     pub async fn set_library_anime(&self, server_id: i64, library_id: &str, anime: bool) -> Result<(), RuntimeError> {
@@ -27,7 +28,7 @@ impl Runtime {
         let mut ids = Vec::new();
         let kinds = if library.library_type == LibraryType::Other { vec![false, true] } else { vec![library.library_type == LibraryType::Movie] };
         for movie in kinds {
-            let inventory = get_video_inventory(ConnectionConfig { server_type: server.server_type.clone(), base_url: &server.base_url, token: &token }, library_id, movie).await.map_err(RuntimeError::Watchdog)?;
+            let inventory = get_video_inventory(ConnectionConfig { server_type: server.server_type, base_url: &server.base_url, token: &token }, library_id, movie).await.map_err(RuntimeError::Watchdog)?;
             ids.extend(inventory.into_iter().map(|item| item.id));
         }
         self.record_library_items(server_id, library_id, ids.into_iter())?;
@@ -40,15 +41,51 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use posterview_contracts::{ServerCreate, ServerType};
+
     #[test]
     fn explicit_classification_tracks_membership_and_can_be_reversed() {
-        let dir = tempfile::tempdir().unwrap(); let runtime = Runtime::new(dir.path()); runtime.initialize().unwrap();
-        runtime.record_library_items(1, "anime", ["show1".to_string()].into_iter()).unwrap();
-        runtime.server_store().unwrap().set_setting("anime_libraries:1", r#"{"anime":true}"#).unwrap();
-        assert!(runtime.item_is_anime(1, "show1").unwrap());
-        assert!(!runtime.item_is_anime(1, "other").unwrap());
-        assert!(!runtime.item_is_anime(2, "show1").unwrap());
-        runtime.server_store().unwrap().set_setting("anime_libraries:1", r#"{"anime":false}"#).unwrap();
-        assert!(!runtime.item_is_anime(1, "show1").unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let runtime = Runtime::new(dir.path());
+        runtime.initialize().unwrap();
+        let server = runtime
+            .server_store()
+            .unwrap()
+            .create_server(&ServerCreate {
+                name: "Server".into(),
+                server_type: ServerType::Emby,
+                base_url: "http://localhost".into(),
+                token: "token".into(),
+                is_default: true,
+                nfo_metadata_enabled: false,
+            })
+            .unwrap();
+        runtime
+            .record_library_items(
+                server.id,
+                "anime",
+                ["show1".to_string()].into_iter(),
+            )
+            .unwrap();
+        runtime
+            .server_store()
+            .unwrap()
+            .set_setting(
+                &format!("anime_libraries:{}", server.id),
+                r#"{"anime":true}"#,
+            )
+            .unwrap();
+        assert!(runtime.item_is_anime(server.id, "show1").unwrap());
+        assert!(!runtime.item_is_anime(server.id, "other").unwrap());
+        assert!(!runtime.item_is_anime(server.id + 1, "show1").unwrap());
+        runtime
+            .server_store()
+            .unwrap()
+            .set_setting(
+                &format!("anime_libraries:{}", server.id),
+                r#"{"anime":false}"#,
+            )
+            .unwrap();
+        assert!(!runtime.item_is_anime(server.id, "show1").unwrap());
     }
 }

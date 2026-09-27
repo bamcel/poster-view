@@ -335,7 +335,12 @@ impl Runtime {
                 group_collections,
             )
             .await;
-        if let Ok(items) = &result { self.record_library_items(id, library_id, items.iter().map(|item| item.id.clone()))?; }
+        if let Ok(items) = &result {
+            self.record_library_items(id, library_id, items.iter().map(|item| item.id.clone()))?;
+            for item in items {
+                self.record_media_item_artwork(id, item)?;
+            }
+        }
         Ok(Some(result))
     }
 
@@ -351,8 +356,7 @@ impl Runtime {
             .server_store()?
             .decrypted_token(id)?
             .unwrap_or_default();
-        Ok(Some(
-            posterview_infra_media_servers::get_folder_items(
+        let result = posterview_infra_media_servers::get_folder_items(
                 ConnectionConfig {
                     server_type: server.server_type,
                     base_url: &server.base_url,
@@ -360,8 +364,13 @@ impl Runtime {
                 },
                 parent_id,
             )
-            .await,
-        ))
+            .await;
+        if let Ok(items) = &result {
+            for item in items {
+                self.record_media_item_artwork(id, item)?;
+            }
+        }
+        Ok(Some(result))
     }
 
     pub async fn fetch_image(
@@ -420,8 +429,7 @@ impl Runtime {
             .unwrap_or_default();
         let metadata = self.video_metadata_document(id, item_id)?;
         let anime = self.item_is_anime(id, item_id)?;
-        Ok(Some(
-            get_item_detail(
+        let result = get_item_detail(
                 ConnectionConfig {
                     server_type: server.server_type,
                     base_url: &server.base_url,
@@ -429,8 +437,12 @@ impl Runtime {
                 },
                 item_id,
             )
-            .await.map(|mut detail| { metadata.apply(&mut detail); detail.anime = anime; detail }),
-        ))
+            .await
+            .map(|mut detail| { metadata.apply(&mut detail); detail.anime = anime; detail });
+        if let Ok(detail) = &result {
+            self.record_item_detail_artwork(id, detail)?;
+        }
+        Ok(Some(result))
     }
 
     pub async fn get_season_detail(&self, id: i64, series_id: &str, season_id: &str) -> Result<Option<Result<posterview_contracts::SeasonDetail, String>>, RuntimeError> {
@@ -615,6 +627,65 @@ impl Runtime {
         ) {
             tracing::warn!(%error, "could not update a media-server image in the cache");
         }
+    }
+
+    pub(crate) fn record_media_item_artwork(
+        &self,
+        server_id: i64,
+        item: &MediaItem,
+    ) -> Result<usize, RuntimeError> {
+        Ok(self.server_store()?.record_artwork(
+            server_id,
+            &item.id,
+            &item.title,
+            item_type_name(item.item_type),
+            &[
+                ("poster", item.poster.as_deref()),
+                ("background", item.background.as_deref()),
+            ],
+        )?)
+    }
+
+    pub(crate) fn record_item_detail_artwork(
+        &self,
+        server_id: i64,
+        detail: &ItemDetail,
+    ) -> Result<usize, RuntimeError> {
+        let mut changed = self.server_store()?.record_artwork(
+            server_id,
+            &detail.id,
+            &detail.title,
+            item_type_name(detail.item_type),
+            &[
+                ("poster", detail.poster.as_deref()),
+                ("background", detail.background.as_deref()),
+                ("logo", detail.logo.as_deref()),
+            ],
+        )?;
+        for season in &detail.seasons {
+            changed += self.server_store()?.record_artwork(
+                server_id,
+                &season.id,
+                &season.title,
+                "season",
+                &[("poster", season.poster.as_deref())],
+            )?;
+        }
+        for member in &detail.members {
+            changed += self.record_media_item_artwork(server_id, member)?;
+        }
+        Ok(changed)
+    }
+}
+
+const fn item_type_name(item_type: posterview_contracts::ItemType) -> &'static str {
+    match item_type {
+        posterview_contracts::ItemType::Folder => "folder",
+        posterview_contracts::ItemType::Movie => "movie",
+        posterview_contracts::ItemType::Show => "show",
+        posterview_contracts::ItemType::Collection => "collection",
+        posterview_contracts::ItemType::Book => "book",
+        posterview_contracts::ItemType::Audiobook => "audiobook",
     }
 }
 
