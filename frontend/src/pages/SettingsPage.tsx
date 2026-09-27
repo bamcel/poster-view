@@ -73,6 +73,7 @@ const TOKEN_LABEL: Record<ServerType, string> = {
 
 type SettingsTab = "servers" | "sources" | "database" | "appearance" | "security";
 const SETTINGS_TAB_KEY = "posterview.settingsTab";
+const LIVE_PREVIEW_KEY = "posterview.appearanceLivePreview";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   { id: "servers", label: "Server", icon: <ServerIcon className="size-4" /> },
@@ -148,7 +149,10 @@ export default function SettingsPage() {
 
 function AppearanceSection() {
   const queryClient = useQueryClient();
-  const [splitView, setSplitView] = useState(false);
+  const [splitView, setSplitView] = useState(() => localStorage.getItem(LIVE_PREVIEW_KEY) === "true");
+  useEffect(() => {
+    localStorage.setItem(LIVE_PREVIEW_KEY, String(splitView));
+  }, [splitView]);
   const [desktop, setDesktop] = useState(() => window.innerWidth >= 1280);
   const [settingsWidth, setSettingsWidth] = useState(40);
   const splitRef = useRef<HTMLDivElement>(null);

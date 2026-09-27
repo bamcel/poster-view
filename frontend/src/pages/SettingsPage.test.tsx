@@ -76,6 +76,31 @@ it("opens, resizes and closes the desktop preview while retaining Appearance con
   client.clear();
 });
 
+it("restores open and closed split preview state after leaving Appearance", () => {
+  const originalWidth = window.innerWidth;
+  Object.defineProperty(window, "innerWidth", { value: 1600, configurable: true });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const mount = () => render(<MemoryRouter initialEntries={["/settings?tab=appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  try {
+    const first = mount();
+    fireEvent.click(screen.getByRole("button", { name: "Split View" }));
+    fireEvent.click(screen.getByRole("button", { name: "Server" }));
+    fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+    expect(screen.getByRole("region", { name: "Live Dashboard preview" })).toBeTruthy();
+    first.unmount();
+    const second = mount();
+    expect(screen.getByRole("button", { name: "Split View" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Close split view" }));
+    second.unmount();
+    mount();
+    expect(screen.queryByRole("region", { name: "Live Dashboard preview" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Split View" }).getAttribute("aria-pressed")).toBe("false");
+  } finally {
+    Object.defineProperty(window, "innerWidth", { value: originalWidth, configurable: true });
+    client.clear();
+  }
+});
+
 it("coalesces slider saves and does not apply an older response over the latest adjustment", async () => {
   const pending: { settings: AppearanceSettings; resolve: (settings: AppearanceSettings) => void }[] = [];
   vi.mocked(api.saveAppearanceSettings).mockImplementation(settings => new Promise(resolve => pending.push({ settings, resolve })));
