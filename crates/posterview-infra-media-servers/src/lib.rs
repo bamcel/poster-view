@@ -272,7 +272,7 @@ async fn emby_item_detail(
         genres: metadata_labels(&item, "Genres", None),
         rating: item.get("CommunityRating").and_then(Value::as_f64),
         content_rating: item.get("OfficialRating").and_then(Value::as_str).map(str::to_owned),
-        tags: metadata_labels(&item, "Tags", None),
+        tags: emby_tags(&item),
         studios: metadata_labels(&item, "Studios", Some("Name")),
         external_urls: item.get("ExternalUrls").and_then(Value::as_array).into_iter().flatten().filter_map(|link| Some(posterview_contracts::MetadataLink {
             name: link.get("Name")?.as_str()?.to_owned(), url: link.get("Url")?.as_str()?.to_owned(),
@@ -401,6 +401,17 @@ async fn plex_item_detail(
         logo,
         members,
     })
+}
+
+fn emby_tags(item: &Value) -> Vec<String> {
+    // Emby returns named TagItems when Fields=Tags is requested; Jellyfin and
+    // older servers use the string Tags array. Preserve both without duplicates.
+    let mut seen = HashSet::new();
+    metadata_labels(item, "TagItems", Some("Name"))
+        .into_iter()
+        .chain(metadata_labels(item, "Tags", None))
+        .filter(|tag| seen.insert(tag.to_lowercase()))
+        .collect()
 }
 
 fn metadata_labels(item: &Value, field: &str, nested: Option<&str>) -> Vec<String> {
