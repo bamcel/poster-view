@@ -38,9 +38,8 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
   const animated = sources.some(source => source.provider === "anilist" || source.provider === "mal") || Object.entries(item.external_ids).some(([provider, id]) => !!id && ["anilist", "mal", "myanimelist", "anidb"].includes(provider.toLowerCase())) || (item.genres ?? []).some(genre => ["anime", "animation", "animated"].includes(genre.trim().toLowerCase()));
   const groups = animated ? castGroups(credits, original, preference) : [{ label: "Cast", credits: credits.filter(credit => credit.category === "cast") }];
   const crew = credits.filter(c => c.category === "crew");
-  const tabs = groups.map(group => ({ id: group.label, label: group.label.startsWith("Original cast · ") ? `${group.label.split(" · ")[1]} Cast` : group.label === "Original cast" ? "Primary Cast" : group.label.replace(/ cast$/, " Cast"), credits: group.credits, characters: false }));
-  if (!display.value.hide_crew) tabs.push({ id: "crew", label: "Crew", credits: crew, characters: false });
-  if (animated) tabs.push({ id: "characters", label: "Characters", credits: credits.filter(c => c.category === "cast" && c.character), characters: true });
+  const tabs = groups.map(group => ({ id: group.label, label: group.label.startsWith("Original cast · ") ? `${group.label.split(" · ")[1]} Cast` : group.label === "Original cast" ? "Primary Cast" : group.label.replace(/ cast$/, " Cast"), credits: [...group.credits, ...(display.value.hide_crew ? [] : crew)], characters: false }));
+  if (animated && credits.some(c => c.category === "cast" && c.character)) tabs.push({ id: "characters", label: "Characters", credits: credits.filter(c => c.category === "cast" && c.character), characters: true });
   const selectedTab = tabs.find(value => value.id === tab) ?? tabs[0];
 
   const busy = importing.isPending || removing.isPending;
@@ -88,14 +87,14 @@ export default function CastCrewPanel({ serverId, item, editing = false }: { ser
     </div>}
     {!editing && !query.isLoading && !query.error && !sources.length && <p className="py-8 text-center text-sm text-white/65">No saved cast or crew. Use Find Missing Metadata from the title menu.</p>}
     {!editing && sources.length > 0 && <>
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+      {tabs.length > 1 && <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Cast and crew categories">{tabs.map(value => <button key={value.id} role="tab" aria-selected={selectedTab.id === value.id} tabIndex={selectedTab.id === value.id ? 0 : -1} id={`credit-tab-${item.id}-${encodeURIComponent(value.id)}`} aria-controls={`credit-panel-${item.id}`} className={`rounded-full px-4 py-2 text-sm font-medium ${selectedTab.id === value.id ? "bg-accent text-base" : "bg-white/5 text-muted hover:bg-white/10"}`} onClick={() => setTab(value.id)} onKeyDown={event => {
           const index = tabs.indexOf(value);
           const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1;
           if (next >= 0) { event.preventDefault(); setTab(tabs[next].id); (event.currentTarget.parentElement?.children[next] as HTMLElement)?.focus(); }
         }}>{value.label}</button>)}</div>
-      </div>
-      <div role="tabpanel" id={`credit-panel-${item.id}`} aria-labelledby={`credit-tab-${item.id}-${encodeURIComponent(selectedTab.id)}`} className="mt-5">
+      </div>}
+      <div role={tabs.length > 1 ? "tabpanel" : undefined} id={`credit-panel-${item.id}`} aria-labelledby={tabs.length > 1 ? `credit-tab-${item.id}-${encodeURIComponent(selectedTab.id)}` : undefined} className="mt-5">
         <CreditCarousel key={selectedTab.id} credits={selectedTab.credits} characters={selectedTab.characters} label={selectedTab.label} showCharacterPortraits={animated} />
         {!original && selectedTab.id === "Original cast" && <p className="mt-3 text-sm text-muted">Choose the original language in Edit Metadata → Provider matching.</p>}
       </div>

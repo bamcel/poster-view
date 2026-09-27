@@ -21,14 +21,15 @@ it("shows original plus English, supports another dub and displays crew", async 
   await screen.findByText("French actor"); expect(screen.queryByText("English actor")).toBeNull();
   fireEvent.click(screen.getByRole("radio", { name: /Primary Cast Only/ }));
   await waitFor(() => expect(screen.queryByText("French actor")).toBeNull());
-  fireEvent.click(screen.getByRole("tab", { name: "Crew" })); expect(screen.getByText("Director name")).toBeTruthy();
+  expect(screen.getByText("Director name")).toBeTruthy();
+  expect(screen.queryByRole("tab", { name: "Crew" })).toBeNull();
   expect(creditsApi.import).not.toHaveBeenCalled();
   expect(screen.queryByRole("button",{name:"Sources & matching"})).toBeNull();
   expect(screen.queryByRole("button",{name:/Find cast & crew/i})).toBeNull();
 });
 it("hides crew and the whole section without deleting saved credits", async () => {
   mount(); await screen.findByText("Japanese actor");
-  fireEvent.click(screen.getByRole("tab", { name: "Crew" }));await screen.findByText("Director name");
+  await screen.findByText("Director name");
   fireEvent.click(screen.getByRole("switch", { name: "Hide Crew" }));
   await waitFor(() => expect(screen.queryByText("Director name")).toBeNull());expect(screen.getByText("Japanese actor")).toBeTruthy();
   fireEvent.click(screen.getByRole("switch", { name: "Show Cast & Crew" }));
@@ -70,10 +71,9 @@ it.each(["show", "movie"] as const)("shows normal cast including untagged credit
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); clients.push(client);
   render(<QueryClientProvider client={client}><CastCrewPanel serverId={1} item={{ id: "1", title: "Live action", type, seasons: [], members: [], external_ids: { tmdb: "1" }, genres: ["Drama"] }} /></QueryClientProvider>);
   await screen.findByText("Live actor");
-  expect(screen.getByRole("tab", { name: "Cast" })).toBeTruthy();
+  expect(screen.queryByRole("tablist")).toBeNull();
   expect(screen.queryByRole("tab", { name: "English Cast" })).toBeNull();
   expect(screen.queryByRole("tab", { name: "Characters" })).toBeNull();
-  fireEvent.click(screen.getByRole("tab", { name: "Crew" }));
+  
   expect(screen.getByText("Director", { selector: "p.font-semibold" })).toBeTruthy();
 });
-
