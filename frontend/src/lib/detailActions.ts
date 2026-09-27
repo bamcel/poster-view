@@ -1,0 +1,1 @@
+export const detailActionClass = "flex size-10 shrink-0 items-center justify-center rounded-full border border-border bg-black/20 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white disabled:opacity-50";

@@ -18,13 +18,32 @@ function LocationProbe() {
   return <div>{location.pathname}{location.search}</div>;
 }
 
+it.each(["show", "movie", "book", "audiobook", "folder", "collection"] as const)("uses matching icon actions for %s details", async type => {
+  vi.mocked(api.getItemDetail).mockResolvedValue({ id: "title", title: "Title", type, seasons: [], external_ids: {}, members: [] });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/item/7/title"]}><QueryClientProvider client={client}><Routes><Route path="/item/:serverId/:itemId" element={<ItemDetailPage />} /></Routes></QueryClientProvider></MemoryRouter>);
+  const artwork = (await screen.findAllByRole("button", { name: "Edit Artwork" }))[0];
+  const refresh = artwork.previousElementSibling!;
+  expect(artwork.textContent?.trim()).toBe("");
+  expect(refresh.textContent?.trim()).toBe("");
+  expect(artwork.className).toBe(refresh.className);
+  expect(artwork.title).toBe("Edit Artwork");
+  if (type === "show" || type === "movie") {
+    const options = screen.getAllByRole("button", { name: "Title options" })[0];
+    expect(options.className).toBe(artwork.className);
+    expect(options.querySelector("svg")?.classList.contains("size-4")).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Edit Metadata" })[0].className).toBe(artwork.className);
+  }
+  client.clear();
+});
+
 it("opens artwork beside refresh on demand and closes it with X or Escape", async () => {
   vi.mocked(api.getItemDetail).mockResolvedValue({ id: "movie", title: "Movie", type: "movie", seasons: [], external_ids: {}, members: [] });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/item/7/movie"]}><QueryClientProvider client={client}><Routes><Route path="/item/:serverId/:itemId" element={<ItemDetailPage />} /></Routes></QueryClientProvider></MemoryRouter>);
   const buttons = await screen.findAllByRole("button", { name: "Edit Artwork" });
   expect(screen.queryByRole("button", { name: "Close artwork" })).toBeNull();
-  expect(buttons[0].previousElementSibling?.textContent).toContain("Refresh");
+  expect(buttons[0].previousElementSibling?.getAttribute("aria-label")).toBe("Refresh");
   expect(buttons[0].className).toBe(buttons[0].previousElementSibling?.className);
   fireEvent.click(buttons[0]);
   fireEvent.click(screen.getByRole("button", { name: "Close artwork" }));
@@ -94,8 +113,8 @@ it("keeps mobile detail actions together and publisher metadata in a single pill
   const mobileActions = (await screen.findByRole("button", { name: "Refresh artwork" })).parentElement;
   expect(mobileActions?.className).toContain("xl:hidden");
   expect(mobileActions?.querySelectorAll("button")).toHaveLength(3);
-  expect(mobileActions?.textContent).toContain("Edit Metadata");
-  expect(mobileActions?.textContent).toContain("Artwork");
+  expect(mobileActions?.querySelector('button[aria-label="Edit Metadata"]')).toBeTruthy();
+  expect(mobileActions?.querySelector('button[aria-label="Edit Artwork"]')).toBeTruthy();
   const publisherPill = screen.getByText("Publisher").closest("span.inline-flex");
   expect(publisherPill?.className).toContain("shrink-0");
   expect(publisherPill?.textContent).toContain("Publisher · Viz");

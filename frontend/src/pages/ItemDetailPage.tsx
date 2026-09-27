@@ -1,3 +1,4 @@
+import { detailActionClass } from "../lib/detailActions";
 import DetailSynopsis from "../components/DetailSynopsis";
 import FindMissingMetadata, { MissingMetadataMenu } from "../components/FindMissingMetadata";
 // Item detail: a cinematic hero (blurred backdrop, large poster, metadata) with
@@ -95,7 +96,6 @@ export default function ItemDetailPage() {
   const item = detailQ.data && { ...detailQ.data, title: detailQ.data.type === "folder" ? metadataQ.data?.title.trim() || detailQ.data.title : detailQ.data.title };
   const memberInfo = useBookInfo(serverId, item?.members, item?.type === "folder" || item?.type === "book");
   const isSeries = item?.type === "show";
-  const detailActionClass = `flex items-center justify-center rounded-full border border-border bg-black/20 text-sm font-medium text-muted backdrop-blur transition-colors hover:border-white/40 hover:text-white ${isSeries ? "size-10 shrink-0" : "gap-2 px-4 py-2"}`;
   const backdrop = imageUrl(serverId, item?.background);
   const poster = imageUrl(serverId, item?.poster);
   const logo = imageUrl(serverId, item?.logo);
@@ -240,24 +240,24 @@ export default function ItemDetailPage() {
                             onClick={() => { setMetadataImport(null); setMetadataEditorOpen(true); }}
                             className={detailActionClass}
                             aria-label="Edit Metadata"
-                            title={isSeries ? "Edit Metadata" : undefined}
+                            title="Edit Metadata"
                           >
-                            <Pencil className="size-4" aria-hidden="true" />{!isSeries && "Edit Metadata"}
+                            <Pencil className="size-4" aria-hidden="true" />
                           </button>
                         )}
                       <button
                         onClick={() => { void detailQ.refetch(); void metadataQ.refetch(); }}
                         className={detailActionClass}
-                        aria-label={isSeries ? "Refresh Series" : undefined}
+                        aria-label={isSeries ? "Refresh Series" : "Refresh"}
                         title={isSeries ? "Refresh Series" : "Refresh from server"}
                       >
                         <RefreshCw
                           className={`size-4 ${detailQ.isFetching ? "animate-spin" : ""}`} aria-hidden="true"
                         />
-                        {!isSeries && "Refresh"}
+                        
                       </button>
-                      <button type="button" onClick={() => setArtworkOpen(true)} aria-label="Edit Artwork" title={isSeries ? "Edit Artwork" : undefined} aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className={detailActionClass}>
-                        <Images className="size-4" aria-hidden="true" />{!isSeries && "Edit Artwork"}
+                      <button type="button" onClick={() => setArtworkOpen(true)} aria-label="Edit Artwork" title="Edit Artwork" aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className={detailActionClass}>
+                        <Images className="size-4" aria-hidden="true" />
                       </button>
                       </div>
                     </div>
@@ -267,27 +267,30 @@ export default function ItemDetailPage() {
                         <button
                           type="button"
                           onClick={() => { setMetadataImport(null); setMetadataEditorOpen(true); }}
-                          className="flex min-h-11 min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 py-2 text-[11px] font-medium text-muted transition-colors hover:border-white/40 hover:text-white sm:gap-2 sm:px-4 sm:text-sm"
+                          className={detailActionClass}
+                          aria-label="Edit Metadata" title="Edit Metadata"
                         >
-                          <Pencil className="size-3.5 shrink-0 sm:size-4" /> Edit Metadata
+                          <Pencil className="size-4" aria-hidden="true" />
                         </button>
                       )}
                       <button
                         type="button"
                         aria-label="Refresh artwork"
+                        title="Refresh artwork"
                         onClick={() => refreshArtwork.mutate()}
                         disabled={refreshArtwork.isPending}
-                        className="flex min-h-11 min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 py-2 text-[11px] font-medium text-muted transition-colors hover:border-white/40 hover:text-white disabled:opacity-50 sm:gap-2 sm:px-4 sm:text-sm"
+                        className={detailActionClass}
                       >
-                        <RefreshCw className={`size-3.5 shrink-0 sm:size-4 ${refreshArtwork.isPending ? "animate-spin" : ""}`} />
-                        {refreshArtwork.isPending ? "Refreshing…" : "Refresh"}
+                        <RefreshCw aria-hidden="true" className={`size-4 ${refreshArtwork.isPending ? "animate-spin" : ""}`} />
+                        
                       </button>
                       <button
                         type="button"
                         onClick={() => setArtworkOpen(true)}
-                        className="flex min-h-11 min-w-0 items-center gap-1 whitespace-nowrap rounded-full border border-border px-2 py-2 text-[11px] font-medium text-muted transition-colors hover:border-white/40 hover:text-white sm:gap-2 sm:px-4 sm:text-sm"
+                        className={detailActionClass}
+                        aria-label="Edit Artwork" title="Edit Artwork"
                       >
-                        <Images className="size-3.5 shrink-0 sm:size-4" /> Edit Artwork
+                        <Images className="size-4" aria-hidden="true" />
                       </button>
                     </div>
                     <div role="status" aria-live="polite" className="mt-2 break-words text-sm xl:hidden">

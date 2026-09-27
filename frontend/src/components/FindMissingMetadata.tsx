@@ -1,3 +1,4 @@
+import { detailActionClass } from "../lib/detailActions";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -10,7 +11,7 @@ export function MissingMetadataMenu({onFind}:{onFind:()=>void}) {
   const trigger=useRef<HTMLButtonElement>(null); const menu=useRef<HTMLDivElement>(null);
   const keys=useActionMenu(open,()=>setOpen(false),trigger,menu);
   useEffect(()=>{if(!open)return;const close=(e:MouseEvent)=>{if(!menu.current?.contains(e.target as Node)&&!trigger.current?.contains(e.target as Node))setOpen(false);};window.addEventListener("click",close);return()=>window.removeEventListener("click",close);},[open]);
-  return <div className="relative shrink-0"><button ref={trigger} aria-label="Title options" aria-haspopup="menu" aria-expanded={open} onClick={()=>setOpen(!open)} className="grid min-h-11 min-w-11 place-items-center rounded-full border border-border text-muted hover:text-white"><MoreHorizontal className="size-5"/></button>{open&&<div ref={menu} role="menu" tabIndex={-1} onKeyDown={keys} className="absolute right-0 top-full z-30 mt-2 w-max rounded-lg border border-border bg-elevated p-1 shadow-xl"><button role="menuitem" tabIndex={-1} className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-surface-2" onClick={()=>{setOpen(false);trigger.current?.focus();onFind();}}><Search className="size-4"/>Find Missing Metadata</button></div>}</div>;
+  return <div className="relative shrink-0"><button ref={trigger} type="button" title="Title options" aria-label="Title options" aria-haspopup="menu" aria-expanded={open} onClick={()=>setOpen(!open)} className={detailActionClass}><MoreHorizontal className="size-4" aria-hidden="true"/></button>{open&&<div ref={menu} role="menu" tabIndex={-1} onKeyDown={keys} className="absolute right-0 top-full z-30 mt-2 w-max rounded-lg border border-border bg-elevated p-1 shadow-xl"><button role="menuitem" tabIndex={-1} className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-surface-2" onClick={()=>{setOpen(false);trigger.current?.focus();onFind();}}><Search className="size-4"/>Find Missing Metadata</button></div>}</div>;
 }
 export default function FindMissingMetadata({serverId,itemId,title,onClose,onEdit}:{serverId:number;itemId:string;title:string;onClose:()=>void;onEdit:()=>void}) {
   const client=useQueryClient(); const started=useRef(false);
