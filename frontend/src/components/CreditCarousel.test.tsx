@@ -25,6 +25,7 @@ it("overlays character portraits only for animation cast and hides broken images
   const { rerender } = render(<CreditCarousel credits={[credit]} characters={false} label="Cast" showCharacterPortraits />);
   const portrait = screen.getByAltText("Hero character portrait");
   expect(portrait.getAttribute("src")).toBe(credit.character_image);
+    expect(portrait.className).toContain("w-[18%]");
   fireEvent.error(portrait);
   expect(portrait.style.display).toBe("none");
   rerender(<CreditCarousel credits={[credit]} characters={false} label="Cast" />);

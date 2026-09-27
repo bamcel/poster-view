@@ -51,7 +51,7 @@ export default function CreditCarousel({ credits, characters, label, showCharact
             {showCharacterPortraits && !characters && credits[index].category === "cast" && credits[index].character && safeImage(credits[index].character_image) && <img
               src={credits[index].character_image!} alt={`${credits[index].character} character portrait`} title={credits[index].character!}
               loading="lazy" referrerPolicy="no-referrer"
-              className="absolute bottom-2 right-2 aspect-[2/3] w-[36%] rounded-lg border-2 border-surface bg-surface object-cover shadow-lg"
+                  className="absolute bottom-2 right-2 aspect-[2/3] w-[18%] rounded-lg border-2 border-surface bg-surface object-cover shadow-lg"
               onError={event => { event.currentTarget.style.display = "none"; }}
             />}
           </button>
