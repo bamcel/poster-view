@@ -44,6 +44,7 @@ import {
   type AppTheme,
   type ThemeColorKey,
 } from "../lib/theme";
+import ProviderConnection, { providerStatus } from "../components/ProviderConnection";
 import SecuritySection from "../components/SecuritySection";
 import AppearancePreview from "../components/AppearancePreview";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
@@ -885,14 +886,25 @@ function ArtworkSourcesSection() {
         <ImageIcon className="size-5 text-accent" /> Search Providers
       </h2>
       <p className="mb-4 text-sm text-faint">
-        Accounts and API keys used to search and download posters, backgrounds, banners, and logos.
+        Accounts and API keys used to search and download artwork and supported book metadata.
         {" "}Leave saved key fields blank to keep existing values.
       </p>
 
-      <div className="mb-3 rounded-xl border border-border bg-surface-2 p-3">
-        <EnabledArtworkSourcesFields />
+      <DefaultArtworkSourcesFields />
+      <h3 className="mb-2 mt-6 text-sm font-semibold">Accounts &amp; connections</h3>
+      <p className="mb-3 text-xs text-faint">Expand a provider to configure credentials or test its connection.</p>
+      <div className="overflow-hidden rounded-xl border border-border">
+        <ArtworkCredentialsFields />
+        {[
+          { id: "anilist", name: "AniList", description: "Anime artwork", url: "https://anilist.co" },
+          { id: "anilist-manga", name: "AniList Manga", description: "Manga artwork and metadata", url: "https://anilist.co" },
+          { id: "mediux", name: "MediUX", description: "Movie and TV artwork", url: "https://mediux.pro" },
+          { id: "mangadex", name: "MangaDex", description: "Manga covers", url: "https://mangadex.org" },
+          { id: "viz", name: "VIZ", description: "Manga covers", url: "https://www.viz.com" },
+        ].map(provider => <ProviderConnection key={provider.id} id={provider.id} name={provider.name} description={provider.description} status="No credentials required" setupUrl={provider.url} setupLabel="Visit provider">
+          <p className="text-sm text-muted">{provider.name} is available automatically. No account or API key is needed for searches.</p>
+        </ProviderConnection>)}
       </div>
-      <ArtworkCredentialsFields />
 
     </section>
   );
@@ -936,7 +948,6 @@ function DefaultArtworkSourceFields({ kind, names }: { kind: "poster" | "ereader
   const toast = useToast();
   const queryClient = useQueryClient();
   const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
-  const enabled = settingsQ.data?.enabled_providers ?? [];
   const saveMut = useMutation({
     mutationFn: (provider: string) => api.setArtworkSettings(
       kind === "poster" ? { default_provider: provider } : { ereader_default_provider: provider },
@@ -955,7 +966,7 @@ function DefaultArtworkSourceFields({ kind, names }: { kind: "poster" | "ereader
   });
 
   return (
-    <label className="flex w-full flex-col gap-1 text-xs font-medium text-muted sm:w-56 sm:shrink-0">
+    <label className="flex w-full flex-col gap-1 text-xs font-medium text-muted">
       Default provider
       <select
         title={kind === "poster"
@@ -964,9 +975,9 @@ function DefaultArtworkSourceFields({ kind, names }: { kind: "poster" | "ereader
         className={compactInputCls}
         value={(kind === "poster" ? settingsQ.data?.default_provider : settingsQ.data?.ereader_default_provider) ?? ""}
         onChange={(event) => saveMut.mutate(event.target.value)}
-        disabled={settingsQ.isLoading || saveMut.isPending || !names.some((name) => enabled.includes(name))}
+        disabled={settingsQ.isLoading || saveMut.isPending}
       >
-        {ARTWORK_DATABASES.filter((source) => names.includes(source.name) && enabled.includes(source.name)).map((source) => (
+        {ARTWORK_DATABASES.filter((source) => names.includes(source.name)).map((source) => (
           <option key={source.name} value={source.name}>{source.label}</option>
         ))}
       </select>
@@ -974,76 +985,16 @@ function DefaultArtworkSourceFields({ kind, names }: { kind: "poster" | "ereader
   );
 }
 
-function EnabledArtworkSourcesFields() {
-  const toast = useToast();
-  const queryClient = useQueryClient();
-  const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
-  const toggleMut = useMutation({
-    mutationFn: (enabledProviders: string[]) => api.setArtworkSettings({ enabled_providers: enabledProviders }),
-    onMutate: () => reportSettingsSave("saving"),
-    onSuccess: (settings) => {
-      queryClient.setQueryData(["artwork-settings"], settings);
-      queryClient.invalidateQueries({ queryKey: ["artwork-providers"] });
-      queryClient.removeQueries({ queryKey: ["artwork"] });
-      queryClient.removeQueries({ queryKey: ["artwork-search"] });
-      queryClient.removeQueries({ queryKey: ["posterdb-verify"] });
-      queryClient.invalidateQueries({ queryKey: ["artwork-cache"] });
-      reportSettingsSave("saved");
-    },
-    onError: (e: Error) => {
-      reportSettingsSave("error");
-      toast.push("error", e.message);
-    },
-  });
-  const enabled = settingsQ.data?.enabled_providers ?? [];
-
-  return (
-    <div>
-      <div className="mb-3">
-        <div className="min-w-0">
-          <h3 className="mb-1 text-sm font-semibold">Show Providers</h3>
-          <p className="text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Sync, and removed from the local cache.</p>
-        </div>
-      </div>
-      <div className="space-y-4">
-        {[
-          { label: "Poster", kind: "poster" as const, names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
-          { label: "eReader", kind: "ereader" as const, names: ["anilist-manga", "comicvine", "mangadex", "viz"] },
-        ].map((group) => (
-          <fieldset key={group.label} className="min-w-0">
-            <legend className="mb-2 text-sm">
-                <span className="block font-medium text-white">{group.label}</span>
-                <span className="block text-xs text-faint">
-                  {settingsQ.isLoading ? "Loading providers…" : `${group.names.filter((name) => enabled.includes(name)).length} of ${group.names.length} shown`}
-                </span>
-            </legend>
-            <div className="mb-3">
-              <DefaultArtworkSourceFields kind={group.kind} names={group.names} />
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {ARTWORK_DATABASES.filter((source) => group.names.includes(source.name))
-          .sort((a, b) => a.label.localeCompare(b.label))
-          .map((source) => {
-          const checked = enabled.includes(source.name);
-          return (
-            <label key={source.name} className="flex items-center justify-between rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm">
-              <span>{source.label}</span>
-              <input
-                type="checkbox"
-                checked={checked}
-                disabled={settingsQ.isLoading || toggleMut.isPending}
-                onChange={() => toggleMut.mutate(checked ? enabled.filter((name) => name !== source.name) : [...enabled, source.name])}
-                className="size-4 accent-[var(--color-accent)]"
-              />
-            </label>
-          );
-        })}
-            </div>
-          </fieldset>
-        ))}
-      </div>
-    </div>
-  );
+function DefaultArtworkSourcesFields() {
+  return <div className="grid gap-4 lg:grid-cols-2">
+    {[
+      { label: "Poster", kind: "poster" as const, names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
+      { label: "eReader", kind: "ereader" as const, names: ["anilist-manga", "comicvine", "mangadex", "viz"] },
+    ].map(group => <div key={group.kind} role="group" aria-labelledby={`provider-group-${group.kind}`} className="min-w-0 rounded-xl border border-border bg-surface-2 p-4">
+      <h3 id={`provider-group-${group.kind}`} className="mb-3 text-sm font-semibold">{group.label} providers</h3>
+      <DefaultArtworkSourceFields kind={group.kind} names={group.names} />
+    </div>)}
+  </div>;
 }
 
 function ArtworkCacheFields({ server }: { server: Server }) {
@@ -1291,21 +1242,11 @@ function ArtworkCredentialsFields() {
   const configured = statusQ.data?.configured;
 
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-      <div className="rounded-xl border border-border bg-surface-2 p-3">
-      <ProviderHeading icon={<KeyRound className="size-4 text-accent" />} name="ThePosterDB" connected={statusQ.data?.logged_in === true} />
+    <>
+      <ProviderConnection id="posterdb" name="ThePosterDB" description="Posters" status={statusQ.isError ? "Configuration unavailable" : providerStatus(configured, loginMut.isPending, loginMut.data ? { ok: loginMut.data.logged_in } : statusQ.data?.logged_in ? { ok: true } : undefined, loginMut.error)} setupUrl="https://theposterdb.com/register">
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field
-          label={
-            <>
-              Email / username{" "}
-              <a href="https://theposterdb.com/register" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">
-                (create account ↗)
-              </a>
-            </>
-          }
-        >
+        <Field label="Email / username">
           <input
             className={compactInputCls}
             value={email}
@@ -1342,7 +1283,7 @@ function ArtworkCredentialsFields() {
       </div>
       <ProviderFeedback name="ThePosterDB" pending={loginMut.isPending} error={loginMut.error?.message}
         result={loginMut.data ? { ok: loginMut.data.logged_in, message: loginMut.data.message } : statusQ.data?.message ? { ok: statusQ.data.logged_in, message: statusQ.data.message } : undefined} />
-      </div>
+      </ProviderConnection>
         <FanartTvdbFields
           fanart={fanart}
           setFanart={setFanart}
@@ -1353,9 +1294,10 @@ function ArtworkCredentialsFields() {
           comicvine={comicvine}
           setComicvine={setComicvine}
           configured={settingsQ.data}
+          configurationError={settingsQ.isError}
           onAutoSave={(kind) => saveMut.mutate(kind)}
         />
-    </div>
+    </>
   );
 }
 
@@ -1369,6 +1311,7 @@ function FanartTvdbFields({
   comicvine,
   setComicvine,
   configured: cfg,
+  configurationError,
   onAutoSave,
 }: {
   fanart: string;
@@ -1380,6 +1323,7 @@ function FanartTvdbFields({
   comicvine: string;
   setComicvine: (value: string) => void;
   configured?: { fanart_configured: boolean; tvdb_configured: boolean; comicvine_configured: boolean };
+  configurationError: boolean;
   onAutoSave: (kind: "fanart" | "tvdb" | "comicvine") => void;
 }) {
 
@@ -1401,19 +1345,8 @@ function FanartTvdbFields({
 
   return (
     <>
-      <div className="rounded-xl border border-border bg-surface-2 p-3">
-        <ProviderHeading name="Fanart.tv" connected={!fanartTestMut.isPending && !fanartTestMut.error && fanartTestMut.data?.ok === true} />
-        <Field
-          label={
-            <>
-              Fanart.tv API Key{" "}
-              {cfg?.fanart_configured && <ConfiguredTag />}{" "}
-              <a href="https://fanart.tv/get-an-api-key/" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">
-                (create account for free key ↗)
-              </a>
-            </>
-          }
-        >
+      <ProviderConnection id="fanart" name="Fanart.tv" description="Artwork" status={configurationError ? "Configuration unavailable" : providerStatus(cfg?.fanart_configured, fanartTestMut.isPending, fanartTestMut.data, fanartTestMut.error)} setupUrl="https://fanart.tv/get-an-api-key/">
+        <Field label="Fanart.tv API Key">
           <input
             className={compactInputCls}
             type="password"
@@ -1432,22 +1365,11 @@ function FanartTvdbFields({
           Test Connection
         </button>
         <ProviderFeedback name="Fanart.tv" pending={fanartTestMut.isPending} result={fanartTestMut.data} error={fanartTestMut.error?.message} />
-      </div>
+      </ProviderConnection>
 
-      <div className="rounded-xl border border-border bg-surface-2 p-3">
-        <ProviderHeading name="TheTVDB" connected={!tvdbTestMut.isPending && !tvdbTestMut.error && tvdbTestMut.data?.ok === true} />
+      <ProviderConnection id="tvdb" name="TheTVDB" description="TV artwork and metadata" status={configurationError ? "Configuration unavailable" : providerStatus(cfg?.tvdb_configured, tvdbTestMut.isPending, tvdbTestMut.data, tvdbTestMut.error)} setupUrl="https://thetvdb.com/dashboard/account/apikey">
         <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
-          <Field
-            label={
-              <>
-                TheTVDB API Key{" "}
-                {cfg?.tvdb_configured && <ConfiguredTag />}{" "}
-                <a href="https://thetvdb.com/dashboard/account/apikey" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">
-                  (create account for free key ↗)
-                </a>
-              </>
-            }
-          >
+          <Field label="TheTVDB API Key">
             <input
               className={compactInputCls}
               type="password"
@@ -1476,17 +1398,16 @@ function FanartTvdbFields({
           Test Connection
         </button>
         <ProviderFeedback name="TheTVDB" pending={tvdbTestMut.isPending} result={tvdbTestMut.data} error={tvdbTestMut.error?.message} />
-      </div>
-      <div className="rounded-xl border border-border bg-surface-2 p-3">
-        <ProviderHeading name="ComicVine" connected={!comicvineTestMut.isPending && !comicvineTestMut.error && comicvineTestMut.data?.ok === true} />
-        <Field label={<><span>ComicVine API Key</span>{cfg?.comicvine_configured && <ConfiguredTag />} <a href="https://comicvine.gamespot.com/api/" target="_blank" rel="noreferrer" className="text-xs text-muted hover:text-white">(request a free key ↗)</a></>}>
+      </ProviderConnection>
+      <ProviderConnection id="comicvine" name="ComicVine" description="Comics metadata" status={configurationError ? "Configuration unavailable" : providerStatus(cfg?.comicvine_configured, comicvineTestMut.isPending, comicvineTestMut.data, comicvineTestMut.error)} setupUrl="https://comicvine.gamespot.com/api/">
+        <Field label="ComicVine API Key">
           <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => { setComicvine(e.target.value); comicvineTestMut.reset(); }} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API Key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
         </Field>
         <button onClick={() => comicvineTestMut.mutate()} disabled={comicvineTestMut.isPending || (!comicvine && !cfg?.comicvine_configured)} className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50">
           {comicvineTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test Connection
         </button>
         <ProviderFeedback name="ComicVine" pending={comicvineTestMut.isPending} result={comicvineTestMut.data} error={comicvineTestMut.error?.message} />
-      </div>
+      </ProviderConnection>
     </>
   );
 }
@@ -1502,23 +1423,7 @@ function ProviderFeedback({ name, pending, result, error }: {
   </p>;
 }
 
-function ProviderHeading({ name, connected, icon }: { name: string; connected: boolean; icon?: ReactNode }) {
-  return (
-    <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-      {icon ?? <ImageIcon className="size-4 text-accent" />}
-      <span>{name}</span>
-      {connected && <CheckCircle2 className="size-4 text-green-500" aria-label="Connection successful" />}
-    </h3>
-  );
-}
 
-function ConfiguredTag() {
-  return (
-    <span className="ml-1 inline-flex items-center gap-1 text-xs text-accent">
-      <CheckCircle2 className="size-3" /> set
-    </span>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Small form helpers

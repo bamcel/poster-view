@@ -368,68 +368,8 @@ impl Runtime {
     }
 
     fn enabled_artwork_providers(&self) -> Result<std::collections::HashSet<String>, RuntimeError> {
-        let store = self.server_store()?;
-        let stored = store.get_setting("artwork_enabled_providers")?;
-        let mut values = if stored.trim().is_empty() {
-            ARTWORK_PROVIDERS
-                .iter()
-                .map(|value| (*value).to_owned())
-                .collect()
-        } else if stored == "-" {
-            std::collections::HashSet::new()
-        } else {
-            stored
-                .split(',')
-                .filter(|value| ARTWORK_PROVIDERS.contains(value))
-                .map(str::to_owned)
-                .collect()
-        };
-        let legacy_providers = [
-            "posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex",
-        ];
-        if store.get_setting("artwork_viz_migrated")?.is_empty()
-            && legacy_providers
-                .iter()
-                .all(|provider| values.contains(*provider))
-        {
-            values.insert("viz".to_owned());
-            store.set_setting(
-                "artwork_enabled_providers",
-                &values.iter().cloned().collect::<Vec<_>>().join(","),
-            )?;
-        }
-        if store.get_setting("artwork_viz_migrated")?.is_empty() {
-            store.set_setting("artwork_viz_migrated", "true")?;
-        }
-        let pre_comicvine = [
-            "posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex", "viz",
-        ];
-        if store.get_setting("artwork_comicvine_migrated")?.is_empty()
-            && pre_comicvine
-                .iter()
-                .all(|provider| values.contains(*provider))
-        {
-            values.insert("comicvine".to_owned());
-            store.set_setting(
-                "artwork_enabled_providers",
-                &values.iter().cloned().collect::<Vec<_>>().join(","),
-            )?;
-        }
-        if store.get_setting("artwork_comicvine_migrated")?.is_empty() {
-            store.set_setting("artwork_comicvine_migrated", "true")?;
-        }
-        if store.get_setting("artwork_anilist_manga_migrated")?.is_empty() {
-            let previous = ["posterdb", "fanart", "tvdb", "anilist", "mediux", "mangadex", "viz", "comicvine"];
-            if previous.iter().all(|provider| values.contains(*provider)) {
-                values.insert("anilist-manga".to_owned());
-                store.set_setting(
-                    "artwork_enabled_providers",
-                    &values.iter().cloned().collect::<Vec<_>>().join(","),
-                )?;
-            }
-            store.set_setting("artwork_anilist_manga_migrated", "true")?;
-        }
-        Ok(values)
+        // All supported sources are available. Ignore legacy disable preferences.
+        Ok(ARTWORK_PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect())
     }
 
     pub fn artwork_cache_settings(
@@ -1268,33 +1208,7 @@ impl Runtime {
         {
             self.clear_all_artwork_caches()?;
         }
-        if let Some(providers) = &input.enabled_providers {
-            let enabled = ARTWORK_PROVIDERS
-                .iter()
-                .filter(|provider| providers.iter().any(|value| value == **provider))
-                .copied()
-                .collect::<Vec<_>>();
-            let enabled_value = if enabled.is_empty() {
-                "-".to_owned()
-            } else {
-                enabled.join(",")
-            };
-            store.set_setting("artwork_enabled_providers", &enabled_value)?;
-            for provider in ARTWORK_PROVIDERS {
-                if !enabled.contains(&provider) {
-                    let pattern = if provider == "posterdb" {
-                        "posterdb-"
-                    } else {
-                        provider
-                    };
-                    for server in self.list_servers()? {
-                        self.server_artwork_cache(server.id)?
-                            .remove_matching(pattern)?;
-                    }
-                    self.artwork_cache.remove_matching(pattern)?;
-                }
-            }
-        }
+        // Keep accepting legacy requests, but source availability is no longer configurable.
         if let Some(provider) = input.default_provider.as_deref()
             && (["posterdb", "fanart", "tvdb", "anilist", "mediux"].contains(&provider)
                 || provider == "manual")

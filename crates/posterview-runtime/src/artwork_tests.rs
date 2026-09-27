@@ -1,4 +1,17 @@
 use super::*;
+
+#[test]
+fn legacy_disabled_sources_remain_available_without_disable_controls() {
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = Runtime::new(directory.path());
+    runtime.initialize().unwrap();
+    for saved in ["-", "tvdb", "posterdb,fanart"] {
+        runtime.server_store().unwrap().set_setting("artwork_enabled_providers", saved).unwrap();
+        let enabled = runtime.enabled_artwork_providers().unwrap();
+        assert_eq!(enabled.len(), ARTWORK_PROVIDERS.len());
+        assert!(ARTWORK_PROVIDERS.iter().all(|provider| enabled.contains(*provider)));
+    }
+}
 use posterview_contracts::{ItemDetail, ItemType, Server, ServerCreate, ServerType};
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

@@ -291,7 +291,7 @@ it("keeps server libraries in a checkbox dropdown", async () => {
   client.clear();
 });
 
-it("places Show Providers at the top of Search Providers instead of Server or Database", async () => {
+it("groups existing providers without disable controls or new metadata providers", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <MemoryRouter>
@@ -303,9 +303,17 @@ it("places Show Providers at the top of Search Providers instead of Server or Da
 
   expect(screen.queryByText("Show Providers")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Search Providers" }));
-  const providers = await screen.findByRole("heading", { name: "Show Providers" });
+  const providers = await screen.findByRole("heading", { name: "Poster providers" });
   const section = providers.closest("section")!;
   expect(section.querySelector("h3")).toBe(providers);
+  expect(screen.getByRole("group", { name: "eReader providers" })).toBeTruthy();
+  expect(within(section).queryAllByRole("checkbox")).toHaveLength(0);
+  expect(within(section).getAllByRole("combobox")).toHaveLength(2);
+  for (const name of ["AniList", "AniList Manga", "MediUX", "MangaDex", "VIZ"]) {
+    expect(screen.getByRole("button", { name: `Configure ${name}` })).toBeTruthy();
+  }
+  expect(screen.queryByRole("button", { name: "Configure TMDB" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Configure AniDB" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Database" }));
   expect(screen.queryByText("Show Providers")).toBeNull();
   client.clear();
@@ -367,11 +375,15 @@ it("keeps each provider test result inside its own card", async () => {
   vi.mocked(api.testArtworkProvider).mockImplementation(async ({ provider }) => ({ ok: provider !== "tvdb", message: provider === "tvdb" ? "TheTVDB rejected the credentials." : `${provider} connected.` }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings?tab=sources"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
-  const fanart = (await screen.findByRole("heading", { name: "Fanart.tv" })).parentElement!;
-  const tvdb = screen.getByRole("heading", { name: "TheTVDB" }).parentElement!;
+  const fanart = await screen.findByRole("region", { name: "Fanart.tv connection" });
+  const tvdb = screen.getByRole("region", { name: "TheTVDB connection" });
+  expect(within(fanart).queryByRole("img", { name: "Fanart.tv connection verified" })).toBeNull();
+  fireEvent.click(within(fanart).getByRole("button", { name: "Configure Fanart.tv" }));
+  fireEvent.click(within(tvdb).getByRole("button", { name: "Configure TheTVDB" }));
   await waitFor(() => expect(within(fanart).getByRole("button", { name: "Test Connection" }).hasAttribute("disabled")).toBe(false));
   fireEvent.click(within(fanart).getByRole("button", { name: "Test Connection" }));
   expect(await within(fanart).findByText("fanart connected.", { exact: false })).toBeTruthy();
+  expect(within(fanart).getByRole("img", { name: "Fanart.tv connection verified" })).toBeTruthy();
   fireEvent.click(within(tvdb).getByRole("button", { name: "Test Connection" }));
   expect(await within(tvdb).findByText("TheTVDB rejected the credentials.", { exact: false })).toBeTruthy();
   expect(within(fanart).queryByText("TheTVDB rejected the credentials.", { exact: false })).toBeNull();
