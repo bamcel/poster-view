@@ -898,13 +898,22 @@ function ArtworkSourcesSection() {
         {" "}Leave saved key fields blank to keep existing values.
       </p>
 
-      <EnabledArtworkSourcesFields />
+      <DefaultArtworkSourcesFields />
       <h3 className="mb-2 mt-6 text-sm font-semibold">Accounts &amp; connections</h3>
       <p className="mb-3 text-xs text-faint">Expand a provider to configure credentials or test its connection.</p>
       <div className="overflow-hidden rounded-xl border border-border">
         <TmdbCredentialsFields />
         <AnidbSettings />
         <ArtworkCredentialsFields />
+        {[
+          { id: "anilist", name: "AniList", description: "Anime artwork", url: "https://anilist.co" },
+          { id: "anilist-manga", name: "AniList Manga", description: "Manga artwork and metadata", url: "https://anilist.co" },
+          { id: "mediux", name: "MediUX", description: "Movie and TV artwork", url: "https://mediux.pro" },
+          { id: "mangadex", name: "MangaDex", description: "Manga covers", url: "https://mangadex.org" },
+          { id: "viz", name: "VIZ", description: "Manga covers", url: "https://www.viz.com" },
+        ].map(provider => <ProviderConnection key={provider.id} id={provider.id} name={provider.name} description={provider.description} status="No credentials required" setupUrl={provider.url} setupLabel="Visit provider">
+          <p className="text-sm text-muted">{provider.name} is available automatically. No account or API key is needed for searches.</p>
+        </ProviderConnection>)}
       </div>
 
     </section>
@@ -988,7 +997,6 @@ function DefaultArtworkSourceFields({ kind, names }: { kind: "poster" | "ereader
   const toast = useToast();
   const queryClient = useQueryClient();
   const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
-  const enabled = settingsQ.data?.enabled_providers ?? [];
   const saveMut = useMutation({
     mutationFn: (provider: string) => api.setArtworkSettings(
       kind === "poster" ? { default_provider: provider } : { ereader_default_provider: provider },
@@ -1016,9 +1024,9 @@ function DefaultArtworkSourceFields({ kind, names }: { kind: "poster" | "ereader
         className={compactInputCls}
         value={(kind === "poster" ? settingsQ.data?.default_provider : settingsQ.data?.ereader_default_provider) ?? ""}
         onChange={(event) => saveMut.mutate(event.target.value)}
-        disabled={settingsQ.isLoading || saveMut.isPending || !names.some((name) => enabled.includes(name))}
+        disabled={settingsQ.isLoading || saveMut.isPending}
       >
-        {ARTWORK_DATABASES.filter((source) => names.includes(source.name) && enabled.includes(source.name)).map((source) => (
+        {ARTWORK_DATABASES.filter((source) => names.includes(source.name)).map((source) => (
           <option key={source.name} value={source.name}>{source.label}</option>
         ))}
       </select>
@@ -1026,71 +1034,16 @@ function DefaultArtworkSourceFields({ kind, names }: { kind: "poster" | "ereader
   );
 }
 
-function EnabledArtworkSourcesFields() {
-  const toast = useToast();
-  const queryClient = useQueryClient();
-  const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
-  const toggleMut = useMutation({
-    mutationFn: (enabledProviders: string[]) => api.setArtworkSettings({ enabled_providers: enabledProviders }),
-    onMutate: () => reportSettingsSave("saving"),
-    onSuccess: (settings) => {
-      queryClient.setQueryData(["artwork-settings"], settings);
-      queryClient.invalidateQueries({ queryKey: ["artwork-providers"] });
-      queryClient.removeQueries({ queryKey: ["artwork"] });
-      queryClient.removeQueries({ queryKey: ["artwork-search"] });
-      queryClient.removeQueries({ queryKey: ["posterdb-verify"] });
-      queryClient.invalidateQueries({ queryKey: ["artwork-cache"] });
-      reportSettingsSave("saved");
-    },
-    onError: (e: Error) => {
-      reportSettingsSave("error");
-      toast.push("error", e.message);
-    },
-  });
-  const enabled = settingsQ.data?.enabled_providers ?? [];
-
-  return (
-    <div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        {[
-          { label: "Poster", kind: "poster" as const, names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
-          { label: "eReader", kind: "ereader" as const, names: ["anilist-manga", "comicvine", "mangadex", "viz"] },
-        ].map((group) => (
-          <div key={group.label} role="group" aria-labelledby={`provider-group-${group.kind}`} className="min-w-0 rounded-xl border border-border bg-surface-2 p-4">
-            <div id={`provider-group-${group.kind}`} className="mb-3 flex items-center gap-3 text-sm">
-                <span className="block font-medium text-white">{group.label} providers</span>
-                <span className="block text-xs text-faint">
-                  {settingsQ.isLoading ? "Loading providers…" : `${group.names.filter((name) => enabled.includes(name)).length} of ${group.names.length} enabled`}
-                </span>
-            </div>
-            <div className="mb-3">
-              <DefaultArtworkSourceFields kind={group.kind} names={group.names} />
-            </div>
-            <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
-        {ARTWORK_DATABASES.filter((source) => group.names.includes(source.name))
-          .sort((a, b) => a.label.localeCompare(b.label))
-          .map((source) => {
-          const checked = enabled.includes(source.name);
-          return (
-            <label key={source.name} className="flex min-h-9 items-center justify-between gap-3 py-1 text-sm">
-              <span>{source.label}</span>
-              <input
-                type="checkbox"
-                checked={checked}
-                disabled={settingsQ.isLoading || toggleMut.isPending}
-                onChange={() => toggleMut.mutate(checked ? enabled.filter((name) => name !== source.name) : [...enabled, source.name])}
-                className="size-4 accent-[var(--color-accent)]"
-              />
-            </label>
-          );
-        })}
-            </div>
-          </div>
-        ))}
-      </div>
-      <p className="mt-3 text-xs text-faint">Disabled sources are hidden from artwork searches, excluded from Sync, and removed from the local cache.</p>
-    </div>
-  );
+function DefaultArtworkSourcesFields() {
+  return <div className="grid gap-4 lg:grid-cols-2">
+    {[
+      { label: "Poster", kind: "poster" as const, names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
+      { label: "eReader", kind: "ereader" as const, names: ["anilist-manga", "comicvine", "mangadex", "viz"] },
+    ].map(group => <div key={group.kind} role="group" aria-labelledby={`provider-group-${group.kind}`} className="min-w-0 rounded-xl border border-border bg-surface-2 p-4">
+      <h3 id={`provider-group-${group.kind}`} className="mb-3 text-sm font-semibold">{group.label} providers</h3>
+      <DefaultArtworkSourceFields kind={group.kind} names={group.names} />
+    </div>)}
+  </div>;
 }
 
 function ArtworkCacheFields({ server }: { server: Server }) {

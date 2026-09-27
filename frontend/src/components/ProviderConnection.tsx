@@ -1,8 +1,8 @@
 import { useId, useState, type ReactNode } from "react";
 import { CheckCircle2, ChevronDown, ExternalLink } from "lucide-react";
 
-export default function ProviderConnection({ id, name, description, status, setupUrl, children }: {
-  id: string; name: string; description: string; status: string; setupUrl: string; children: ReactNode;
+export default function ProviderConnection({ id, name, description, status, setupUrl, setupLabel = "Get credentials", children }: {
+  id: string; name: string; description: string; status: string; setupUrl: string; setupLabel?: string; children: ReactNode;
 }) {
   const key = `posterview.providerExpanded.${id}`;
   const [open, setOpen] = useState(() => sessionStorage.getItem(key) === "true");
@@ -24,7 +24,7 @@ export default function ProviderConnection({ id, name, description, status, setu
       </button>
     </h3>
     <div id={contentId} hidden={!open} className="border-t border-border bg-surface-2 px-4 py-4">
-      <div className="mb-4 flex justify-end"><a href={setupUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-white">Get credentials<ExternalLink className="size-3.5" aria-hidden="true" /></a></div>
+      <div className="mb-4 flex justify-end"><a href={setupUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-white">{setupLabel}<ExternalLink className="size-3.5" aria-hidden="true" /></a></div>
       <div className="max-w-3xl">{children}</div>
     </div>
   </section>;

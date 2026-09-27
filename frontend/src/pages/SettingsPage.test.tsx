@@ -329,6 +329,14 @@ it("places compact provider choices above collapsed connections and remembers ex
   fireEvent.click(screen.getByRole("button", { name: "Search Providers" }));
   const providers = await screen.findByRole("group", { name: /Poster providers/ });
   expect(screen.getByRole("group", { name: /eReader providers/ })).toBeTruthy();
+  expect(within(providers).queryByRole("checkbox")).toBeNull();
+  expect(within(screen.getByRole("group", { name: /eReader providers/ })).queryByRole("checkbox")).toBeNull();
+  expect(within(providers).getAllByRole("option")).toHaveLength(5);
+  for (const name of ["AniList", "AniList Manga", "MediUX", "MangaDex", "VIZ"]) {
+    const row = screen.getByRole("region", { name: `${name} connection` });
+    expect(within(row).getByText("No credentials required")).toBeTruthy();
+    expect(within(row).queryByRole("img")).toBeNull();
+  }
   expect(providers.compareDocumentPosition(screen.getByRole("heading", { name: "Accounts & connections" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Test Connection" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Configure ThePosterDB" }));

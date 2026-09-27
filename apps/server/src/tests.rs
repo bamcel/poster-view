@@ -1030,7 +1030,7 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
     assert_eq!(preferences["ereader_default_provider"], "comicvine");
     assert_eq!(
         preferences["enabled_providers"],
-        serde_json::json!(["tvdb", "mediux", "comicvine"])
+        serde_json::json!(["posterdb", "fanart", "tvdb", "anilist", "anilist-manga", "mediux", "mangadex", "viz", "comicvine"])
     );
 
     let credentials = app
