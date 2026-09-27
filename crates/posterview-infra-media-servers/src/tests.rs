@@ -406,3 +406,30 @@ async fn plex_artwork_removal_fails_safely() {
     .unwrap_err();
     assert!(message.contains("not supported for Plex"));
 }
+
+#[tokio::test]
+async fn emby_family_item_details_read_tag_items_and_legacy_tags() {
+    for (server_type, tags, expected) in [
+        (ServerType::Emby, json!({"TagItems":[{"Name":" Favorite ","Id":1},{"Name":"favorite","Id":2},{"Name":" ","Id":3},{"Id":4}],"Tags":[]}), vec!["Favorite"]),
+        (ServerType::Emby, json!({"TagItems":[{"Name":"Favorite","Id":1}],"Tags":["favorite"," Classic "]}), vec!["Favorite", "Classic"]),
+        (ServerType::Emby, json!({"Tags":["Legacy"]}), vec!["Legacy"]),
+        (ServerType::Jellyfin, json!({"Tags":[" Favorite ","favorite","Classic"]}), vec!["Favorite", "Classic"]),
+        (ServerType::Emby, json!({}), vec![]),
+    ] {
+        let mut item = json!({"Id":"movie","Name":"Movie","Type":"Movie"});
+        item.as_object_mut().unwrap().extend(tags.as_object().unwrap().clone());
+        let app = Router::new()
+            .route("/Users", get(|| async { Json(json!([{"Id":"user"}])) }))
+            .route("/Items", get(move |axum::extract::Query(query): axum::extract::Query<HashMap<String,String>>| {
+                let item = item.clone();
+                async move {
+                    assert!(query["Fields"].split(',').any(|field| field == "Tags"));
+                    Json(json!({"Items":[item]}))
+                }
+            }));
+        let (base_url, task) = serve(app).await;
+        let detail = get_item_detail(ConnectionConfig { server_type, base_url: &base_url, token: "fixture" }, "movie").await.unwrap();
+        task.abort();
+        assert_eq!(detail.tags, expected);
+    }
+}
