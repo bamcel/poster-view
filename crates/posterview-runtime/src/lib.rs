@@ -1,3 +1,5 @@
+mod anidb;
+pub use anidb::AnidbSettings;
 mod artwork;
 mod credits;
 mod video_metadata;

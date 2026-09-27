@@ -62,3 +62,11 @@ Characters are grouped by displayed name within the selected title/source filter
 ### Jikan recovery
 
 Jikan searches, metadata, and credits share serialized requests spaced at least 1.1 seconds apart. Timeouts, connection failures, and HTTP 408/429/500/502/503/504 receive up to three attempts with increasing delays. Numeric Retry-After headers are respected; long waits and exhausted retries open a cooldown of at least 60 seconds. Other providers continue, and saved metadata is preserved. Find Missing Metadata reports temporary Jikan outages in its issues list without counting those alone as failed titles. Rerun the task after the cooldown, or let its next configured schedule retry; no separate retry task is created.
+
+### AniDB metadata fetcher
+
+Enable AniDB under Settings → Search Providers using your registered HTTP API client name and numeric version, then save and test the connection. No AniDB account password is stored. The documented public HTTP endpoint receives only the client registration details and anime ID.
+
+AniDB uses confirmed IDs from the media server or Edit Metadata → Provider matching. Find Missing Metadata (including its existing all-library scheduled task) fills empty descriptions, original titles, dates, tags, studios, directors, and original-work credits. It preserves existing fields, records AniDB provenance, rejects movie/series mismatches and mismatched response IDs, and excludes explicitly marked spoiler tags. It does not auto-match titles, import language-specific cast, or write fetched data to NFOs automatically.
+
+Responses are cached on disk for 30 days (128 MB cap). Requests are serialized with six seconds between requests; provider errors cause a 30-minute cooldown. The test button validates a known anime record using saved settings. Real access requires a client registered with AniDB; no bundled or borrowed client identity is used.

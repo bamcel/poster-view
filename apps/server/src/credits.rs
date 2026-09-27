@@ -272,3 +272,10 @@ mod tests {
         assert_eq!(reply.status(), StatusCode::NOT_FOUND);
     }
 }
+
+pub(crate) async fn anidb_settings(State(state): State<AppState>) -> Result<Json<posterview_runtime::AnidbSettings>, HttpError> {
+    Ok(Json(state.runtime.anidb_settings()?))
+}
+pub(crate) async fn save_anidb_settings(State(state): State<AppState>, Json(input): Json<posterview_runtime::AnidbSettings>) -> Result<Json<posterview_runtime::AnidbSettings>, HttpError> {
+    state.runtime.save_anidb_settings(input).map(Json).map_err(|e| HttpError::bad_request(e.to_string()))
+}

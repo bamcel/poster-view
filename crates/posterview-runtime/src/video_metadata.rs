@@ -312,9 +312,9 @@ impl Runtime {
         item: &str,
         matches: BTreeMap<String, String>,
     ) -> Result<VideoMetadataDocument, RuntimeError> {
-        if matches.len() > 5
+        if matches.len() > 6
             || matches.iter().any(|(p, id)| {
-                !["anilist", "mal", "tvdb", "tmdb", "imdb"].contains(&p.as_str())
+                !["anilist", "mal", "tvdb", "tmdb", "imdb", "anidb"].contains(&p.as_str())
                     || (!id.is_empty()
                         && if p == "imdb" {
                             !(id.starts_with("tt")
@@ -417,7 +417,7 @@ impl Runtime {
         let mut visited = HashSet::new();
         // Revisit the list when one provider discovers a reliable ID for another.
         for _ in 0..2 {
-            for provider in ["tmdb", "tvdb", "anilist", "mal", "imdb"] {
+            for provider in ["tmdb", "tvdb", "anilist", "mal", "imdb", "anidb"] {
                 if let Some(task) = task {
                     if self.cancelled(task)? {
                         return Err(error("Metadata fetch cancelled"));
@@ -427,6 +427,19 @@ impl Runtime {
                     continue;
                 };
                 if !visited.insert(provider.to_string()) {
+                    continue;
+                }
+                if provider == "anidb" {
+                    if self.anidb_settings()?.enabled {
+                        match self.anidb_metadata(&id, movie).await {
+                            Ok(fetched) => {
+                                doc.fill(&item, fetched, &format!("anidb:{id}"), &mut result);
+                                doc.apply(&mut item);
+                                self.store_video_document(server, item_id, &doc)?;
+                            }
+                            Err(message) => result.issues.push(format!("AniDB: {message}")),
+                        }
+                    }
                     continue;
                 }
                 if provider == "imdb" {

@@ -75,6 +75,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/tasks/{id}/{action}", axum::routing::post(tasks::action))
         .route("/api/credits/search", get(credits::search))
         .route("/api/credits/preferences", get(credits::preferences).put(credits::save_preferences))
+        .route("/api/anidb/settings", get(credits::anidb_settings).put(credits::save_anidb_settings))
         .route("/api/credits/settings", get(credits::settings).put(credits::save_settings))
         .route("/api/servers/{id}/items/{item_id}/credits", get(credits::get).post(credits::import).put(credits::language).delete(credits::remove))
         .route("/api/reader/open/{server}/{item}", get(reader::open))

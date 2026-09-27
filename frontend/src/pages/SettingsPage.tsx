@@ -25,6 +25,7 @@ import {
 import { api, type ServerInput } from "../api/client";
 import { creditsApi } from "../api/credits";
 import { useToast } from "../lib/toast";
+import AnidbSettings from "../components/AnidbSettings";
 import WatchdogStatus from "../components/WatchdogStatus";
 import { ServerTypeBadge, Switch } from "../components/ui";
 import type { AppearanceSettings, ConnectionTest, LibraryVisibility, Server, ServerType } from "../types";
@@ -900,6 +901,7 @@ function ArtworkSourcesSection() {
         <EnabledArtworkSourcesFields />
       </div>
       <TmdbCredentialsFields />
+      <AnidbSettings />
       <ArtworkCredentialsFields />
 
     </section>

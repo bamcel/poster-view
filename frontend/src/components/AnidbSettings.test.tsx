@@ -1,0 +1,25 @@
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, expect, it, vi } from "vitest";
+import { api, apiRequest } from "../api/client";
+import AnidbSettings from "./AnidbSettings";
+vi.mock("../api/client", () => ({ apiRequest: vi.fn(), api: { testArtworkProvider: vi.fn() } }));
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
+it("saves registered client settings and tests the saved configuration", async () => {
+  vi.mocked(apiRequest).mockResolvedValueOnce({ enabled: false, client: "", version: 1 }).mockResolvedValueOnce({ enabled: true, client: "myclient", version: 2 });
+  vi.mocked(api.testArtworkProvider).mockResolvedValue({ ok: true, message: "AniDB API connection succeeded." });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><AnidbSettings /></QueryClientProvider>);
+  await waitFor(() => expect((screen.getByLabelText("Enable AniDB metadata") as HTMLInputElement).disabled).toBe(false));
+  fireEvent.click(screen.getByLabelText("Enable AniDB metadata"));
+  fireEvent.change(screen.getByLabelText("Registered client name"), { target: { value: "myclient" } });
+  fireEvent.change(screen.getByLabelText("Client version"), { target: { value: "2" } });
+  expect((screen.getByRole("button", { name: "Test Connection" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Save AniDB settings" }));
+  await screen.findByText("AniDB settings saved.");
+  expect(apiRequest).toHaveBeenLastCalledWith("/anidb/settings", { method: "PUT", body: JSON.stringify({ enabled: true, client: "myclient", version: 2 }) });
+  fireEvent.click(screen.getByRole("button", { name: "Test Connection" }));
+  await screen.findByText("AniDB API connection succeeded.");
+  expect(api.testArtworkProvider).toHaveBeenCalledWith({ provider: "anidb" });
+  client.clear();
+});
