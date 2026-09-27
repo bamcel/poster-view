@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { videoMetadataApi, type VideoDocument } from "../api/videoMetadata";
 import VideoMetadataEditor from "./VideoMetadataEditor";
 
+vi.mock("./VideoMetadataTools", () => ({ default: () => <div>Provider matching</div> }));
 vi.mock("../api/videoMetadata", () => ({ videoMetadataApi: { get: vi.fn(), preview: vi.fn(), save: vi.fn() } }));
 const doc: VideoDocument = { kind: "movie", target: "/media/Film/movie.nfo", choices: ["movie.nfo"], can_write: true, revision: "original XML", xml: "<movie><title>Original</title></movie>", fields: { title: "Original" }, actors: [{ name: "Actor", role: "Hero" }] };
 beforeEach(() => { vi.mocked(videoMetadataApi.get).mockResolvedValue(structuredClone(doc)); });

@@ -25,6 +25,7 @@ import {
 import { api, type ServerInput } from "../api/client";
 import { creditsApi } from "../api/credits";
 import { useToast } from "../lib/toast";
+import LibraryTypeSetting from "../components/LibraryTypeSetting";
 import AnidbSettings from "../components/AnidbSettings";
 import WatchdogStatus from "../components/WatchdogStatus";
 import { ServerTypeBadge, Switch } from "../components/ui";
@@ -864,7 +865,7 @@ function ServerCard({
           )}
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {visibilityQ.data?.libraries.map((library) => (
-              <label key={library.id} className="flex min-h-11 min-w-0 items-center gap-2 text-sm text-muted">
+              <div key={library.id} className="min-w-0 rounded-lg border border-border p-2"><label className="flex min-h-11 min-w-0 items-center gap-2 text-sm text-muted">
                 <input
                   type="checkbox"
                   checked={library.visible}
@@ -873,7 +874,7 @@ function ServerCard({
                   className="size-4 accent-[var(--color-accent)]"
                 />
                 <span className="min-w-0 break-words">{library.title}</span>
-              </label>
+              </label><LibraryTypeSetting serverId={server.id} library={library} /></div>
             ))}
           </div>
         </div>

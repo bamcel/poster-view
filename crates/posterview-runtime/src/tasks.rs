@@ -444,31 +444,34 @@ impl Runtime {
                     .unwrap_or_default();
                 for library in libraries
                     .iter()
-                    .filter(|l| l.library_type == posterview_contracts::LibraryType::Show || l.library_type == posterview_contracts::LibraryType::Movie)
+                    .filter(|l| l.anime || l.library_type == posterview_contracts::LibraryType::Show || l.library_type == posterview_contracts::LibraryType::Movie)
                 {
                     if self.cancelled(&task.id)? {
                         return Ok(());
                     }
-                    let inventory = posterview_infra_media_servers::get_video_inventory(
-                        posterview_infra_media_servers::ConnectionConfig {
-                            server_type: server.server_type.clone(),
-                            base_url: &server.base_url,
-                            token: &token,
-                        },
-                        &library.id,
-                        library.library_type == posterview_contracts::LibraryType::Movie,
-                    )
-                    .await
-                    .map_err(invalid)?;
-                    for item in inventory {
-                        if matches!(item.item_type, ItemType::Show | ItemType::Movie)
-                            && seen.insert((server.id, item.id.clone()))
-                        {
-                            items.push(WorkItem {
-                                server_id: server.id,
-                                id: item.id,
-                                title: item.title,
-                            });
+                    for movie in if library.anime && library.library_type == posterview_contracts::LibraryType::Other { vec![false, true] } else { vec![library.library_type == posterview_contracts::LibraryType::Movie] } {
+                        let inventory = posterview_infra_media_servers::get_video_inventory(
+                            posterview_infra_media_servers::ConnectionConfig {
+                                server_type: server.server_type.clone(),
+                                base_url: &server.base_url,
+                                token: &token,
+                            },
+                            &library.id,
+                            movie,
+                        )
+                        .await
+                        .map_err(invalid)?;
+                        self.record_library_items(server.id, &library.id, inventory.iter().map(|item| item.id.clone()))?;
+                        for item in inventory {
+                            if matches!(item.item_type, ItemType::Show | ItemType::Movie)
+                                && seen.insert((server.id, item.id.clone()))
+                            {
+                                items.push(WorkItem {
+                                    server_id: server.id,
+                                    id: item.id,
+                                    title: item.title,
+                                });
+                            }
                         }
                     }
                 }
@@ -551,6 +554,7 @@ impl Runtime {
         let saved = self.series_credits(item.server_id, &item.id)?;
         let settings = self.credit_provider_settings()?;
         for provider in &config.providers {
+            if !detail.anime && ["anilist", "mal"].contains(&provider.as_str()) { continue; }
             if (provider == "tmdb" && !settings.tmdb_configured)
                 || (provider == "tvdb" && !settings.tvdb_configured)
             {

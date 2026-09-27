@@ -279,3 +279,10 @@ pub(crate) async fn anidb_settings(State(state): State<AppState>) -> Result<Json
 pub(crate) async fn save_anidb_settings(State(state): State<AppState>, Json(input): Json<posterview_runtime::AnidbSettings>) -> Result<Json<posterview_runtime::AnidbSettings>, HttpError> {
     state.runtime.save_anidb_settings(input).map(Json).map_err(|e| HttpError::bad_request(e.to_string()))
 }
+
+#[derive(Deserialize)]
+pub(crate) struct LibraryAnimeUpdate { anime: bool }
+pub(crate) async fn library_anime(State(state): State<AppState>, Path((server, library)): Path<(i64, String)>, Json(input): Json<LibraryAnimeUpdate>) -> Result<Json<serde_json::Value>, HttpError> {
+    state.runtime.set_library_anime(server, &library, input.anime).await.map_err(error)?;
+    Ok(Json(serde_json::json!({"anime": input.anime})))
+}

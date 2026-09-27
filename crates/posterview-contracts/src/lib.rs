@@ -101,6 +101,7 @@ pub enum LibraryType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Library {
+    pub anime: bool,
     pub id: String,
     pub title: String,
     #[serde(rename = "type")]
@@ -159,6 +160,8 @@ pub struct Season {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ItemDetail {
+    #[serde(default)]
+    pub anime: bool,
     #[serde(skip_serializing)]
     pub source_path: Option<String>,
     pub file_name: Option<String>,

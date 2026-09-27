@@ -145,6 +145,7 @@ mod tests {
     fn parses_numbered_viz_volume_cards() {
         let html = r#"<article><img data-original="https://dw9to29mmj727.cloudfront.net/products/one.jpg" /><a href="/manga-books/manga/food-wars-volume-1/product/1">Food Wars!: Shokugeki no Soma, Vol. 1</a></article>"#;
         let item = ItemDetail {
+        anime: false,
             id: "series".to_owned(),
             title: "Food Wars!".to_owned(),
             year: None,
@@ -187,6 +188,7 @@ mod tests {
     #[ignore = "requires live VIZ access"]
     async fn live_food_wars_catalog_contains_all_volumes() {
         let item = ItemDetail {
+        anime: false,
             id: "series".to_owned(),
             title: "Food Wars!".to_owned(),
             year: None,

@@ -239,6 +239,7 @@ async fn emby_item_detail(
         .collect();
     let poster = emby_detail_poster(&item, item_type, &members);
     Ok(ItemDetail {
+        anime: false,
         source_path: item.get("Path").and_then(Value::as_str).map(str::to_owned),
         file_name: item
             .get("Path")
@@ -378,6 +379,7 @@ async fn plex_item_detail(
         .find(|image| image.get("type").and_then(Value::as_str) == Some("clearLogo"))
         .and_then(|image| relative_ref(image.get("url")));
     Ok(ItemDetail {
+        anime: false,
         source_path: plex_source_path(item),
         file_name: item
             .pointer("/Media/0/Part/0/file")
@@ -1148,6 +1150,7 @@ async fn plex_libraries(
         .iter()
         .filter_map(|item| {
             Some(Library {
+        anime: false,
                 id: value_as_string(item.get("key")?)?,
                 title: item
                     .get("title")
@@ -1211,6 +1214,7 @@ async fn emby_libraries(
                 return None;
             }
             Some(Library {
+        anime: false,
                 id: item.get("Id")?.as_str()?.to_owned(),
                 title: item
                     .get("Name")
@@ -1316,7 +1320,7 @@ fn value_as_string(value: &Value) -> Option<String> {
 
 fn collections_library() -> Library {
     Library {
-        id: "collections".to_owned(),
+        anime: false,        id: "collections".to_owned(),
         title: "Collections".to_owned(),
         library_type: LibraryType::Collection,
     }

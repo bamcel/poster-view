@@ -18,6 +18,7 @@ fn book_sync_queues_changed_links_or_stale_cache_but_skips_unchanged_books() {
 
 fn provider_test_item(item_type: ItemType, external_ids: &[(&str, &str)]) -> ItemDetail {
     ItemDetail {
+        anime: false,
         source_path: None,
         file_name: None,
         volume: None,

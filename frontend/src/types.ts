@@ -23,6 +23,7 @@ export interface ConnectionTest {
 }
 
 export interface Library {
+  anime?: boolean;
   id: string;
   title: string;
   type: "movie" | "show" | "collection" | "book" | "audiobook" | "other";
@@ -55,6 +56,7 @@ export interface Season {
 }
 
 export interface ItemDetail extends MediaItem {
+  anime?: boolean;
   file_name?: string | null;
   volume?: string | null;
   summary?: string | null;

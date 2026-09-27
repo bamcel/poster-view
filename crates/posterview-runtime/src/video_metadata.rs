@@ -33,6 +33,7 @@ mod tests {
     use super::*;
     fn item() -> ItemDetail {
         ItemDetail {
+        anime: false,
             source_path: None,
             file_name: None,
             volume: None,
@@ -424,7 +425,7 @@ impl Runtime {
         let mut visited = HashSet::new();
         // Revisit the list when one provider discovers a reliable ID for another.
         for _ in 0..2 {
-            for provider in ["tmdb", "tvdb", "anilist", "mal", "imdb", "anidb"] {
+            for provider in if item.anime { vec!["anilist", "mal", "anidb", "tmdb", "tvdb", "imdb"] } else { vec!["tmdb", "tvdb", "imdb"] } {
                 if let Some(task) = task {
                     if self.cancelled(task)? {
                         return Err(error("Metadata fetch cancelled"));

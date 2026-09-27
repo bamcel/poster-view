@@ -1,3 +1,4 @@
+mod library_anime;
 mod anidb;
 pub use anidb::AnidbSettings;
 mod artwork;
@@ -236,13 +237,14 @@ impl Runtime {
             .server_store()?
             .decrypted_token(id)?
             .unwrap_or_default();
+        let profiles = self.anime_libraries(id)?;
         Ok(Some(
             get_libraries(ConnectionConfig {
                 server_type: server.server_type,
                 base_url: &server.base_url,
                 token: &token,
             })
-            .await,
+            .await.map(|mut libraries| { for library in &mut libraries { library.anime = profiles.get(&library.id).copied().unwrap_or(false); } libraries }),
         ))
     }
 
@@ -323,8 +325,7 @@ impl Runtime {
             .server_store()?
             .decrypted_token(id)?
             .unwrap_or_default();
-        Ok(Some(
-            get_items(
+        let result = get_items(
                 ConnectionConfig {
                     server_type: server.server_type,
                     base_url: &server.base_url,
@@ -333,8 +334,9 @@ impl Runtime {
                 library_id,
                 group_collections,
             )
-            .await,
-        ))
+            .await;
+        if let Ok(items) = &result { self.record_library_items(id, library_id, items.iter().map(|item| item.id.clone()))?; }
+        Ok(Some(result))
     }
 
     pub async fn get_folder_items(
@@ -417,6 +419,7 @@ impl Runtime {
             .decrypted_token(id)?
             .unwrap_or_default();
         let metadata = self.video_metadata_document(id, item_id)?;
+        let anime = self.item_is_anime(id, item_id)?;
         Ok(Some(
             get_item_detail(
                 ConnectionConfig {
@@ -426,7 +429,7 @@ impl Runtime {
                 },
                 item_id,
             )
-            .await.map(|mut detail| { metadata.apply(&mut detail); detail }),
+            .await.map(|mut detail| { metadata.apply(&mut detail); detail.anime = anime; detail }),
         ))
     }
 

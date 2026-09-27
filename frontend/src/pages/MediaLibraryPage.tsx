@@ -398,7 +398,7 @@ export default function MediaLibraryPage() {
                       : "border-transparent text-muted hover:text-white"
                   }`}
                 >
-                  {lib.title}
+                  {lib.title}{lib.anime && <span className="ml-2 text-xs text-accent">Anime</span>}
                 </button>
               ))}
             </div>
@@ -499,7 +499,7 @@ export default function MediaLibraryPage() {
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-3"><span className="text-sm text-muted">Colored Title</span><Switch label="Colored Title" checked={displayStatus.coloredTitle} onChange={() => { if (!displayStatus.busy) displayStatus.setColoredTitle(!displayStatus.coloredTitle); }} /></div>
                 {displayStatus.error && <p role="alert" className="mt-2 text-xs text-muted">{displayStatus.error}</p>}
-              </> : (selectedLibrary?.type === "show" || selectedLibrary?.type === "movie") ? <CastPreferences /> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
+              </> : (selectedLibrary?.anime || selectedLibrary?.type === "show" || selectedLibrary?.type === "movie") ? <CastPreferences /> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
           </LibraryPopup>
           </div>
         </div>

@@ -74,3 +74,9 @@ Responses are cached on disk for 30 days (128 MB cap). Requests are serialized w
 Fetch Missing Cast & Crew and Refresh Cast & Crew scan both movie and TV libraries. Movie credits use movie-specific provider endpoints. A task already in progress retains its saved inventory; start a fresh run after updating to include movies.
 
 Character biographies display in full immediately when a character profile is opened, without a disclosure or spoiler label.
+
+### Explicit Anime libraries
+
+Settings → Server → Show Libraries now includes a PosterView library type selector for video libraries. Choose Anime and wait for the initial title index to finish. This is a local classification; the connected server's movie/series type stays intact. Regular TV Series includes live-action and non-anime animation. Existing libraries default to the standard flow until explicitly classified as Anime.
+
+Anime libraries prioritize AniList, MAL, and AniDB before TMDB/TVDB when filling missing metadata and use primary/dub cast tabs. Standard libraries use TMDB/TVDB/IMDb and a combined cast row, regardless of anime-like genres or IDs. Anime classification is attached to each library's indexed movie/series titles, updated during browsing and scheduled scans, and included in title detail responses. Both movie and series inventories are included for Anime libraries reported as Other by the server. Start a fresh scheduled run after changing types; an active run keeps its existing inventory.
