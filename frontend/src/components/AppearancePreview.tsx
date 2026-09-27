@@ -1,12 +1,26 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createSearchParams, matchPath, type NavigateFunction, type NavigateOptions, type To, type SetURLSearchParams } from "react-router-dom";
-import { ArrowLeft, Home, X } from "lucide-react";
+import { ArrowLeft, Home, Maximize, X } from "lucide-react";
+import Layout from "./Layout";
 import { LibraryNavigationContext } from "../lib/libraryNavigation";
 import DashboardPage from "../pages/DashboardPage";
 import ItemDetailPage from "../pages/ItemDetailPage";
 import SeasonDetailPage from "../pages/SeasonDetailPage";
 
 export default function AppearancePreview({ onClose }: { onClose: () => void }) {
+  const [fitToWindow, setFitToWindow] = useState(true);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 0, height: 0, screenWidth: window.innerWidth, screenHeight: window.innerHeight });
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current!;
+    const measure = () => setSize({ width: viewport.clientWidth, height: viewport.clientHeight, screenWidth: window.innerWidth, screenHeight: window.innerHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    window.addEventListener("resize", measure);
+    return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
+  }, []);
+  const scale = Math.min(1, size.width / Math.max(1, size.screenWidth), size.height / Math.max(1, size.screenHeight));
   const [history, setHistory] = useState({ entries: ["/"], index: 0 });
   const location = history.entries[history.index];
   const url = useMemo(() => new URL(location, "http://preview.local"), [location]);
@@ -33,15 +47,23 @@ export default function AppearancePreview({ onClose }: { onClose: () => void }) 
       <button type="button" aria-label="Back in preview" disabled={history.index === 0} onClick={() => navigate(-1)} className="rounded-lg p-2 hover:bg-surface-2 disabled:opacity-40"><ArrowLeft className="size-4" /></button>
       <button type="button" aria-label="Preview library home" onClick={() => navigate("/")} className="rounded-lg p-2 hover:bg-surface-2"><Home className="size-4" /></button>
       <span className="min-w-0 flex-1 text-sm font-semibold">Live Preview</span>
+      <button type="button" aria-label="Pane-sized preview" title={fitToWindow ? "Switch to pane-sized preview" : "Fit full desktop layout, including side panels"} aria-pressed={!fitToWindow} onClick={() => setFitToWindow(value => !value)} className={`rounded-lg p-2 hover:bg-surface-2 ${!fitToWindow ? "bg-elevated text-accent" : ""}`}><Maximize className="size-4" /></button>
       <button type="button" aria-label="Close split view" onClick={onClose} className="rounded-lg p-2 hover:bg-surface-2"><X className="size-4" /></button>
     </div>
-    <div className="appearance-preview @container/library relative isolate min-h-0 flex-1 overflow-hidden [contain:layout_paint]">
+    <div ref={viewportRef} className="relative min-h-0 flex-1 overflow-hidden">
+    <div data-testid="preview-desktop-frame" className={`${fitToWindow ? "" : "appearance-preview"} @container/library relative isolate h-full overflow-hidden [contain:layout_paint]`}
+      style={fitToWindow ? { width: size.screenWidth, height: size.screenHeight, transform: `scale(${scale})`, transformOrigin: "top left", left: Math.max(0, (size.width - size.screenWidth * scale) / 2), top: Math.max(0, (size.height - size.screenHeight * scale) / 2) } : undefined}>
+      <LibraryNavigationContext.Provider value={navigation}>
+      <Layout preview showPreviewChrome={fitToWindow}>
       <div className="h-full" hidden={url.pathname !== "/"}>
         <LibraryNavigationContext.Provider value={libraryNavigation.current}><DashboardPage /></LibraryNavigationContext.Provider>
       </div>
       <LibraryNavigationContext.Provider value={navigation}>
         {url.pathname === "/" ? null : season ? <SeasonDetailPage /> : item ? <ItemDetailPage /> : <div className="p-6 text-sm text-muted">This page is available outside the preview. Use Back or Library Home to continue previewing.</div>}
       </LibraryNavigationContext.Provider>
+      </Layout>
+      </LibraryNavigationContext.Provider>
+    </div>
     </div>
   </section>;
 }

@@ -5,7 +5,8 @@ import { LayoutDashboard, History, LogOut, Settings, Server as ServerIcon } from
 import { useServers } from "../lib/serverContext";
 import { Logo, ServerTypeBadge } from "./ui";
 import { api } from "../api/client";
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
+import { useNavigate as useLibraryNavigate } from "../lib/libraryNavigation";
 import { AuthSessionContext } from "../lib/authContext";
 import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
@@ -15,10 +16,11 @@ const navItems = [
 ];
 const DASHBOARD_LOCATION_PREFIX = "posterview.dashboardLocation.";
 
-export default function Layout() {
+export default function Layout({ children, preview = false, showPreviewChrome = true }: { children?: ReactNode; preview?: boolean; showPreviewChrome?: boolean }) {
+  const previewNavigate = useLibraryNavigate();
   const { servers, selectedId, setSelectedId } = useServers();
   const location = useLocation();
-  const showSignOut = useContext(AuthSessionContext)?.password_required !== false;
+  const showSignOut = useContext(AuthSessionContext)?.password_required !== false && !preview;
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
@@ -29,6 +31,7 @@ export default function Layout() {
   );
 
   useEffect(() => {
+    if (preview) return;
     const itemMatch = location.pathname.match(/^\/server\/(\d+)\/item\/[^/]+$/);
     if (itemMatch) {
       const routeServerId = Number(itemMatch[1]);
@@ -46,10 +49,10 @@ export default function Layout() {
     setDashboardLocation(selectedId == null
       ? "/"
       : sessionStorage.getItem(`${DASHBOARD_LOCATION_PREFIX}${selectedId}`) || "/");
-  }, [location.pathname, location.search, selectedId]);
+  }, [location.pathname, location.search, selectedId, preview]);
 
   const navigationItems = [
-    { to: dashboardLocation, label: "Dashboard", icon: LayoutDashboard, end: true },
+    { to: preview ? "/" : dashboardLocation, label: "Dashboard", icon: LayoutDashboard, end: true },
     ...navItems,
   ];
   const openDashboardRoot = () => {
@@ -80,7 +83,14 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-full flex-col md:flex-row">
+    <div className={`flex h-full flex-col md:flex-row ${preview && !showPreviewChrome ? "[&>aside]:hidden [&>header]:hidden [&>div]:hidden" : ""}`}
+      onClickCapture={preview ? event => {
+        const anchor = (event.target as Element).closest("a");
+        if (!anchor || !event.currentTarget.contains(anchor) || !anchor.closest("aside, header")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (anchor.getAttribute("href") === "/") void previewNavigate("/");
+      } : undefined}>
       <header className="relative z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-sidebar/90 px-3 backdrop-blur-xl md:hidden">
         <NavLink to="/" onClick={openDashboardRoot} aria-label="Go to Dashboard" className="mr-auto min-w-0">
           <Logo className="w-36 overflow-hidden [&>img]:max-w-full [&>img]:translate-y-[5px] sm:w-auto sm:[&>img]:max-w-none" />
@@ -144,7 +154,7 @@ export default function Layout() {
               end={end}
               className={({ isActive }) =>
                 `flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors ${
-                  isActive
+                  (preview ? label === "Dashboard" : isActive)
                     ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]"
                     : "text-muted hover:bg-input-hover hover:text-white"
                 }`
@@ -202,7 +212,7 @@ export default function Layout() {
       </aside>
 
       <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
-        <Outlet />
+        {children ?? <Outlet />}
       </main>
     </div>
   );
