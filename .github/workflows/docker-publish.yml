@@ -5,7 +5,7 @@ name: Publish Docker image
 # source itself — Unraid's Docker template being the motivating case.
 on:
   push:
-    branches: [main, experimental]
+    branches: [main, experimental, development]
   workflow_dispatch:
 
 concurrency:
@@ -18,7 +18,7 @@ env:
 
 jobs:
   build-and-push:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/experimental'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/experimental' || github.ref == 'refs/heads/development'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -42,6 +42,7 @@ jobs:
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=experimental,enable=${{ github.ref == 'refs/heads/experimental' }}
+            type=raw,value=development,enable=${{ github.ref == 'refs/heads/development' }}
             type=sha,format=short
 
       - uses: docker/build-push-action@v6
