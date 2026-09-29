@@ -52,8 +52,10 @@ publish `ghcr.io/bamcel/poster-view:experimental`; testing pushes never update `
 The testing branch starts from the current main version. Changes reach main only
 when deliberately merged. `experimental` is updated on pushes, not on a nightly schedule.
 
-In Unraid, select **experimental** from the app's branch options after the template
-refreshes, or edit the container's Repository to `ghcr.io/bamcel/poster-view:experimental`.
+In Unraid Community Apps, installing PosterView opens a release-channel picker. Choose
+**Stable** (`latest`), **Experimental**, or **Development**. If an older cached template does
+not show the picker, refresh Community Apps or edit the container's Repository to
+`ghcr.io/bamcel/poster-view:experimental`.
 For isolated testing, create a second container named `PosterView-Experimental`, choose
 a different host port (for example `7980` mapped to container port `7979`), and use
 `/mnt/user/appdata/posterview-experimental` for `/config`. Do not share the live appdata
