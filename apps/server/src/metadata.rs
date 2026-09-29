@@ -1014,6 +1014,41 @@ mod tests {
         (dir, store)
     }
 
+    #[tokio::test]
+    async fn nfo_colored_detection_follows_custom_media_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = temp.path().join("config");
+        let runtime = std::sync::Arc::new(posterview_runtime::Runtime::new(&config));
+        runtime.initialize().unwrap();
+        for root_name in ["data", "media", "tvshows", "custom-root"] {
+            let media = temp.path().join(root_name);
+            let series = media.join("Manga");
+            fs::create_dir_all(&series).unwrap();
+            let nfo = series.join("Manga.nfo");
+            fs::write(&nfo, "<series><title>Local Manga</title><edition>Colored</edition></series>").unwrap();
+            let metadata = std::sync::Arc::new(crate::metadata::MetadataStore::new(media.clone()));
+            metadata.remember_source(1, "manga", series.to_str().unwrap());
+            let state = AppState {
+                runtime: runtime.clone(),
+                auth: crate::AuthState::for_tests(""),
+                login_backdrop: crate::login_backdrop::LoginBackdrop::new(&config),
+                metadata,
+                reader: std::sync::Arc::new(crate::reader::ReaderStore::new(media.clone(), config.join("reader.sqlite"))),
+            };
+            let fields = state.metadata.read_for_source(series.to_str().unwrap()).unwrap().unwrap();
+            assert_eq!(fields.edition, "Colored");
+            let book = serde_json::to_value(crate::reader::info(State(state.clone()), axum::extract::Path((1, "manga".into()))).await.unwrap().0).unwrap();
+            assert!(book["colored_edition"].as_bool().unwrap(), "{root_name}");
+            assert_eq!(book["title"].as_str(), Some("Local Manga"));
+            fs::write(&nfo, "<series><title>Local Manga</title><edition>Standard</edition></series>").unwrap();
+            let standard = serde_json::to_value(crate::reader::info(State(state), axum::extract::Path((1, "manga".into()))).await.unwrap().0).unwrap();
+            assert_eq!(standard["colored_edition"], false);
+            assert!(config.join("reader.sqlite").is_file());
+            assert!(!media.join("reader.sqlite").exists());
+            assert!(!media.join("posterview.db").exists());
+        }
+    }
+
     #[test]
     fn resolved_item_sources_are_reused_for_metadata_saves() {
         let (_directory, store) = setup();

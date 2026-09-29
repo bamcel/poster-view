@@ -7,6 +7,12 @@ actual PDF, EPUB or CBZ must be readable under PosterView's `/media` mount (or
 `POSTERVIEW_MEDIA_DIR`). Server filesystem paths must match the mount. Audiobooks, CBR,
 CB7, MOBI and DRM-protected files are not supported in this release.
 
+The development Unraid template defaults media to `/data` with `POSTERVIEW_MEDIA_DIR=/data`.
+This variable must match the media mount's absolute container path, including when changed
+to `/media` or `/tvshows`. Keep application storage at `/config` with
+`POSTERVIEW_DATA_DIR=/config`; NFO edition detection and colored manga effects use the
+configured media root, while reader preferences remain in `/config/reader.sqlite`.
+
 ## Controls
 
 - PDF and CBZ: Book/Comic, Manga (right-to-left default), and Webtoon (vertical scrolling).

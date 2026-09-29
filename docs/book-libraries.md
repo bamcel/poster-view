@@ -119,6 +119,13 @@ Keep NFO-managed folders beneath `POSTERVIEW_MEDIA_DIR` (normally `/media`). The
 runs as UID/GID 10001 and needs directory traversal and write permission. Never mount the media
 library over `/config`, which is reserved for PosterView's database and caches.
 
+The development Unraid template defaults media to `/data` and exposes
+`POSTERVIEW_MEDIA_DIR=/data`. Match that variable to the media mount's absolute container
+destination (for example `/media` or `/tvshows` when customized), not its host path.
+Keep the appdata mount at `/config` and `POSTERVIEW_DATA_DIR=/config` so `/data` is never
+selected as legacy application storage. Local NFO edition detection and colored effects
+follow the configured media root.
+
 ## Troubleshooting
 
 - **Series cover landed in the library root:** update to the latest image and verify the media

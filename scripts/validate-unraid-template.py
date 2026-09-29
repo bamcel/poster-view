@@ -82,6 +82,18 @@ def validate_template(source: Path) -> None:
         names.add(name)
         targets.add(target)
 
+    configs = {config.attrib["Target"]: config for config in root.findall("Config")}
+    for target, value in (("POSTERVIEW_DATA_DIR", "/config"), ("POSTERVIEW_MEDIA_DIR", "/data")):
+        config = configs.get(target)
+        if config is None or config.attrib.get("Type") != "Variable":
+            fail(f"{source}: {target} must be exposed as a variable")
+        if config.attrib.get("Default") != value or (config.text or "").strip() != value:
+            fail(f"{source}: {target} must default to {value}")
+    for target in ("/config", "/data"):
+        config = configs.get(target)
+        if config is None or config.attrib.get("Type") != "Path":
+            fail(f"{source}: missing {target} container mount")
+
 
 def main() -> int:
     try:

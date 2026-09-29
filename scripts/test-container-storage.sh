@@ -1,7 +1,7 @@
 #!/bin/sh
 # Run inside a disposable built image (no user volumes):
 # docker run --rm --entrypoint sh -v "$PWD/scripts/test-container-storage.sh:/test.sh:ro" posterview:latest /test.sh fresh
-# Scenarios: fresh, legacy, both, custom, media, new-media, legacy-media,
+# Scenarios: fresh, legacy, both, custom, media, unraid-media, new-media, legacy-media,
 # runtime, empty-legacy (mount an empty /data volume).
 set -eu
 scenario=${1:-fresh}
@@ -45,6 +45,13 @@ fi
 expected=/config
 case "$scenario" in
     fresh) ;;
+    unraid-media)
+        export POSTERVIEW_DATA_DIR=/config POSTERVIEW_MEDIA_DIR=/data
+        mkdir -p /data/Manga
+        printf '<series><title>Fixture Manga</title><edition>Colored</edition></series>' > /data/Manga/Manga.nfo
+        chown -R 1234:1234 /data/Manga
+        mountpoint -q /data
+        ;;
     new-media) mkdir -p /media /data/media ;;
     legacy-media) mkdir -p /data/media ;;
     empty-legacy) expected=/data; mountpoint -q /data ;;
@@ -76,6 +83,14 @@ export expected scenario
     test "$POSTERVIEW_DATA_DIR" = "$expected"
     test "$(id -u)" = 10001
     test -w "$expected"
+    if [ "$scenario" = unraid-media ]; then
+        test "$POSTERVIEW_DATA_DIR" = /config
+        test "$POSTERVIEW_MEDIA_DIR" = /data
+        test -r /data/Manga/Manga.nfo
+        grep -q "<edition>Colored</edition>" /data/Manga/Manga.nfo
+        test "$(stat -c %u /data/Manga/Manga.nfo)" = 1234
+        test ! -f /data/posterview.db
+    fi
     if [ "$scenario" = fresh ] || [ "$scenario" = new-media ]; then
         test "$POSTERVIEW_MEDIA_DIR" = /media
     fi
