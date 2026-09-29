@@ -68,7 +68,7 @@ it("shows a populated manga edition immediately after volumes", async () => {
   client.clear();
 });
 
-it("keeps mobile detail actions together and publisher metadata in a single pill", async () => {
+it("keeps book detail actions in the shared anime position and publisher metadata in a single pill", async () => {
   vi.mocked(api.getItemDetail).mockResolvedValue({ id: "manga", title: "Manga", type: "folder", seasons: [], external_ids: {}, members: [] });
   vi.mocked(api.getNfoMetadata).mockResolvedValue({
     title: "Manga", year: "", publisher: "Viz", edition: "", volumes: "", status: "", plot: "",
@@ -78,11 +78,12 @@ it("keeps mobile detail actions together and publisher metadata in a single pill
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/item/7/manga"]}><QueryClientProvider client={client}><Routes><Route path="/item/:serverId/:itemId" element={<ItemDetailPage />} /></Routes></QueryClientProvider></MemoryRouter>);
 
-  const mobileActions = (await screen.findByRole("button", { name: "Refresh artwork" })).parentElement;
-  expect(mobileActions?.className).toContain("xl:hidden");
-  expect(mobileActions?.querySelectorAll("button")).toHaveLength(3);
-  expect(mobileActions?.querySelector('button[aria-label="Edit Metadata"]')).toBeTruthy();
-  expect(mobileActions?.querySelector('button[aria-label="Edit Artwork"]')).toBeTruthy();
+  const actions = await screen.findByTestId("detail-actions");
+  expect(actions.className).toBe("flex flex-wrap items-center gap-2");
+  expect(actions.querySelectorAll(":scope > button")).toHaveLength(3);
+  expect(actions.querySelector('button[aria-label="Edit Metadata"]')).toBeTruthy();
+  expect(actions.querySelector('button[aria-label="Refresh"]')).toBeTruthy();
+  expect(actions.querySelector('button[aria-label="Edit Artwork"]')).toBeTruthy();
   const publisherPill = screen.getByText("Publisher").closest("span.inline-flex");
   expect(publisherPill?.className).toContain("shrink-0");
   expect(publisherPill?.textContent).toContain("Publisher · Viz");
@@ -153,19 +154,17 @@ it("makes manga volume files readable while nested folders remain openable", asy
   client.clear();
 });
 
-it("refreshes artwork for the current server and title, prevents duplicate requests, and displays failures", async () => {
+it("places movie refresh and artwork controls in the shared anime action position", async () => {
   vi.mocked(api.getItemDetail).mockResolvedValue({ id: "movie", title: "Movie", type: "movie", seasons: [], external_ids: {}, members: [] });
-  let finish!: (value: Awaited<ReturnType<typeof api.refreshArtworkItem>>) => void;
-  vi.mocked(api.refreshArtworkItem).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/item/7/movie"]}><QueryClientProvider client={client}><Routes><Route path="/item/:serverId/:itemId" element={<ItemDetailPage />} /></Routes></QueryClientProvider></MemoryRouter>);
-  expect((await screen.findByTitle("Refresh from server")).parentElement?.className).toContain("hidden");
-  expect(screen.getByTitle("Refresh from server").parentElement?.className).toContain("xl:flex");
-  fireEvent.click(await screen.findByRole("button", { name: "Refresh artwork" }));
-  await waitFor(() => expect(api.refreshArtworkItem).toHaveBeenCalledWith(7, "movie"));
-  expect((await screen.findByRole("button", { name: "Refresh artwork" })).hasAttribute("disabled")).toBe(true);
-  finish({ ok: false, message: "Provider unavailable", providers_warmed: 0 });
-  expect(await screen.findByText("Provider unavailable")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Refresh artwork" }).hasAttribute("disabled")).toBe(false);
+  const actions = await screen.findByTestId("detail-actions");
+  expect(actions.className).toBe("flex flex-wrap items-center gap-2");
+  expect(actions.querySelectorAll(":scope > button")).toHaveLength(2);
+  expect(actions.querySelector('button[aria-label="Refresh"]')).toBeTruthy();
+  expect(actions.querySelector('button[aria-label="Edit Artwork"]')).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Refresh artwork" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(api.getItemDetail).toHaveBeenCalledTimes(2));
   client.clear();
 });

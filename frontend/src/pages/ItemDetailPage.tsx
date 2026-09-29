@@ -56,16 +56,6 @@ export default function ItemDetailPage() {
   );
   const [metadataImport, setMetadataImport] = useState<{ fields: NfoMetadata; sourceLabel: string } | null>(null);
   const queryClient = useQueryClient();
-  const refreshArtwork = useMutation({
-    mutationFn: () => api.refreshArtworkItem(serverId, itemId!),
-    onSuccess: (result) => {
-      if (!result.ok) return;
-      queryClient.invalidateQueries({ queryKey: ["artwork"], predicate: (query) => query.queryKey[2] === serverId && query.queryKey[3] === itemId });
-      queryClient.invalidateQueries({ queryKey: ["artwork-search"], predicate: (query) => query.queryKey[2] === serverId && query.queryKey[3] === itemId });
-      queryClient.invalidateQueries({ queryKey: ["artwork-cache", serverId] });
-    },
-  });
-
   const detailQ = useQuery({
     queryKey: ["item-detail", serverId, itemId],
     queryFn: () => api.getItemDetail(serverId, itemId!),
@@ -205,7 +195,7 @@ export default function ItemDetailPage() {
                     legible over a vivid/bright backdrop image, since the exact
                     gradient fade point can't account for every image. */}
                   <div className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries ? "text-left" : "text-center sm:text-left"}`}>
-                    <div className={isSeries ? "flex flex-col gap-4" : "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"}>
+                    <div className="flex flex-col gap-4">
                       <div className="min-w-0">
                         {logo ? (
                           <img
@@ -230,7 +220,7 @@ export default function ItemDetailPage() {
                                     : item.year}
                         </p>}
                       </div>
-                      <div className={isSeries ? "flex flex-wrap items-center gap-2" : "hidden shrink-0 flex-wrap items-center justify-end gap-2 xl:flex"}>
+                      <div data-testid="detail-actions" className="flex flex-wrap items-center gap-2">
                         {metadataQ.data && (
                           <button
                             type="button"
@@ -257,41 +247,6 @@ export default function ItemDetailPage() {
                         <Images className="size-4" aria-hidden="true" />
                       </button>
                       </div>
-                    </div>
-                    <div className={isSeries ? "hidden" : "mt-3 flex flex-wrap items-center justify-center gap-1.5 sm:justify-start sm:gap-2 xl:hidden"}>
-                      {metadataQ.data && (
-                        <button
-                          type="button"
-                          onClick={() => { setMetadataImport(null); setMetadataEditorOpen(true); }}
-                          className={detailActionClass}
-                          aria-label="Edit Metadata" title="Edit Metadata"
-                        >
-                          <Pencil className="size-4" aria-hidden="true" />
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        aria-label="Refresh artwork"
-                        title="Refresh artwork"
-                        onClick={() => refreshArtwork.mutate()}
-                        disabled={refreshArtwork.isPending}
-                        className={detailActionClass}
-                      >
-                        <RefreshCw aria-hidden="true" className={`size-4 ${refreshArtwork.isPending ? "animate-spin" : ""}`} />
-
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setArtworkOpen(true)}
-                        className={detailActionClass}
-                        aria-label="Edit Artwork" title="Edit Artwork"
-                      >
-                        <Images className="size-4" aria-hidden="true" />
-                      </button>
-                    </div>
-                    <div role="status" aria-live="polite" className="mt-2 break-words text-sm xl:hidden">
-                      {refreshArtwork.isError ? <p className="text-danger">{refreshArtwork.error.message}</p>
-                        : refreshArtwork.data ? <p className={refreshArtwork.data.ok ? "text-success" : "text-danger"}>{refreshArtwork.data.message}</p> : null}
                     </div>
 
                     {!isSeries && !metadataQ.data && item.summary && (
