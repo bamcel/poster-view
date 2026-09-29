@@ -325,6 +325,11 @@ export default function DashboardPage() {
   }
 
   const browseableLibs = librariesQ.data ?? [];
+  const toolbarControlStyle: CSSProperties = {
+    backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength),
+    backdropFilter: `blur(${panelBlur}px)`,
+    WebkitBackdropFilter: `blur(${panelBlur}px)`,
+  };
   const itemDetailUrl = (itemId: string, editMetadata = false) => {
     const context = new URLSearchParams();
     if (selectedLibrary) {
@@ -425,10 +430,10 @@ export default function DashboardPage() {
               aria-label="Search titles"
               placeholder="Search titles"
               className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent focus:text-white md:text-sm"
-              style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
+              style={toolbarControlStyle}
             />
           </div>
-          <LibraryFilter popup={browsesFolders} active={artworkFilter !== "all" || titleSort !== "title"} style={{ backgroundColor: translucentPanelColor("--color-surface-2", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)` }}>
+          <LibraryFilter popup={browsesFolders} active={artworkFilter !== "all" || titleSort !== "title"} style={toolbarControlStyle}>
               <label className="block text-xs font-semibold text-muted">
                 Artwork
                 <select
@@ -463,7 +468,7 @@ export default function DashboardPage() {
                 </div>
               )}
           </LibraryFilter>
-          {browsesFolders && <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4" />}>
+          {browsesFolders && <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4" />} style={toolbarControlStyle}>
               {browsesFolders ? <>
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <span className="text-sm text-muted">Tracking Overlays</span>
