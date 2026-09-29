@@ -10,6 +10,8 @@ fernet.workspace = true
 posterview-contracts.workspace = true
 rusqlite.workspace = true
 thiserror.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

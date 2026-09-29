@@ -566,3 +566,4 @@ pub struct PosterSearchResults {
 pub struct VerifyTitlesRequest {
     pub ids: Vec<String>,
 }
+pub mod native;

@@ -11,6 +11,7 @@ axum.workspace = true
 image.workspace = true
 posterview-contracts.workspace = true
 posterview-runtime.workspace = true
+posterview-infra-sqlite.workspace = true
 posterview-url-security.workspace = true
 serde.workspace = true
 serde_json.workspace = true

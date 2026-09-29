@@ -28,6 +28,7 @@ mod error;
 mod login_backdrop;
 mod metadata;
 mod reader;
+mod native;
 pub use auth::AuthState;
 pub use config::ServerConfig;
 use error::HttpError;
@@ -64,6 +65,8 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 
     let protected = Router::new()
+        .route("/api/native/libraries", get(native::list).post(native::create))
+        .route("/api/native/libraries/{id}", axum::routing::put(native::update))
         .route("/api/reader/open/{server}/{item}", get(reader::open))
         .route("/api/reader/books/{id}", get(reader::manifest))
         .route("/api/reader/info/{server}/{item}", get(reader::info))

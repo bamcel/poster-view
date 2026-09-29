@@ -46,6 +46,7 @@ import {
 } from "../lib/theme";
 import ProviderConnection, { providerStatus } from "../components/ProviderConnection";
 import SecuritySection from "../components/SecuritySection";
+import NativeLibrariesSection from "../components/NativeLibrariesSection";
 import AppearancePreview from "../components/AppearancePreview";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
 import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROP_OVERLAY, DEFAULT_BACKDROPS_ENABLED, DEFAULT_PANEL_OVERLAY, DEFAULT_PANEL_SOLIDITY, DEFAULT_PILL_BACKGROUND_OPACITY, pillBackgroundOpacity, setPillBackgroundOpacity, backdropBlur, backdropOverlay, dashboardAppearance, dashboardBackdropEnabled, panelOverlay, panelSolidity, setBackdropBlur, setBackdropOverlay, setDashboardBackdropEnabled, setPanelOverlay, setPanelSolidity } from "../lib/dashboardSettings";
@@ -71,12 +72,13 @@ const TOKEN_LABEL: Record<ServerType, string> = {
   emby: "API Key",
 };
 
-type SettingsTab = "servers" | "sources" | "database" | "appearance" | "security";
+type SettingsTab = "servers" | "libraries" | "sources" | "database" | "appearance" | "security";
 const SETTINGS_TAB_KEY = "posterview.settingsTab";
 const LIVE_PREVIEW_KEY = "posterview.appearanceLivePreview";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   { id: "servers", label: "Server", icon: <ServerIcon className="size-4" /> },
+  { id: "libraries", label: "Libraries", icon: <HardDrive className="size-4" /> },
   { id: "sources", label: "Search Providers", icon: <ImageIcon className="size-4" /> },
   { id: "database", label: "Database", icon: <Database className="size-4" /> },
   { id: "appearance", label: "Appearance", icon: <Palette className="size-4" /> },
@@ -131,12 +133,13 @@ export default function SettingsPage() {
             </button>
           ))}</div>
           <span role="status" className={`shrink-0 self-end text-xs sm:self-auto ${saveStatus === "error" ? "text-danger" : "text-accent"}`}>
-            {saveStatus === "saving" ? "Saving settings…" : saveStatus === "error" ? "Settings could not be saved." : "Settings saved automatically."}
+            {tab === "libraries" ? "Save changes in the library dialog." : saveStatus === "saving" ? "Saving settings…" : saveStatus === "error" ? "Settings could not be saved." : "Settings saved automatically."}
           </span>
         </div>
 
         <div className="min-h-0 flex-1">
           {tab === "servers" && <ServersSection />}
+          {tab === "libraries" && <NativeLibrariesSection />}
           {tab === "sources" && <ArtworkSourcesSection />}
           {tab === "database" && <DatabaseSection />}
           {tab === "appearance" && <AppearanceSection />}

@@ -51,6 +51,10 @@ pub enum StoreError {
     InvalidSecretKey,
     #[error("invalid server type stored in database: {0}")]
     InvalidServerType(String),
+    #[error("{0}")]
+    Validation(String),
+    #[error("Library changed since it was opened. Reload before saving.")]
+    RevisionConflict,
 }
 
 #[derive(Debug)]
@@ -89,6 +93,7 @@ impl ServerStore {
         let connection = self.connection()?;
         connection.execute_batch(SCHEMA)?;
         migrate(&connection)?;
+        native::migrate(&connection)?;
         Ok(())
     }
 
@@ -370,7 +375,7 @@ impl ServerStore {
 
     fn connection(&self) -> Result<Connection, StoreError> {
         let connection = Connection::open(&self.db_path)?;
-        connection.execute_batch("PRAGMA foreign_keys = ON;")?;
+        connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")?;
         Ok(connection)
     }
 
@@ -610,3 +615,4 @@ mod tests {
         assert_eq!(store.list_history(None, None, None, None).unwrap().len(), 2);
     }
 }
+mod native;

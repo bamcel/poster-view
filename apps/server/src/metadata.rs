@@ -152,7 +152,7 @@ impl MetadataStore {
         }
     }
 
-    fn directory(&self, relative: &str, allow_root: bool) -> Result<PathBuf, HttpError> {
+    pub(crate) fn directory(&self, relative: &str, allow_root: bool) -> Result<PathBuf, HttpError> {
         if relative.contains('\\')
             || relative.contains(':')
             || relative.contains('\0')

@@ -1066,8 +1066,10 @@ dependencies = [
  "fernet",
  "posterview-contracts",
  "rusqlite",
+ "serde_json",
  "tempfile",
  "thiserror",
+ "uuid",
 ]
 
 [[package]]
@@ -1099,6 +1101,7 @@ dependencies = [
  "http-body-util",
  "image",
  "posterview-contracts",
+ "posterview-infra-sqlite",
  "posterview-runtime",
  "posterview-url-security",
  "reqwest",
