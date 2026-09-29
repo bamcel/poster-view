@@ -22,6 +22,16 @@ it("selects from the hover control without opening the series", () => {
   fireEvent.click(screen.getByTitle("Series"));
   expect(select).toHaveBeenCalledWith(false); expect(open).not.toHaveBeenCalled();
 });
+it("keeps the mobile selection control square while preserving its compact desktop size", () => {
+  render(<PosterCard title="Series" onOpen={vi.fn()} onSelect={vi.fn()} />);
+  const selector = screen.getByRole("button", { name: "Select Series" });
+  expect(selector.className).toContain("size-11");
+  expect(selector.className).toContain("min-h-11");
+  expect(selector.className).toContain("min-w-11");
+  expect(selector.className).toContain("md:size-7");
+  expect(selector.className).toContain("md:min-h-7");
+  expect(selector.className).toContain("md:min-w-7");
+});
 it("renders both colored effects together", () => {
   const { container } = render(<PosterCard title="Book" image="poster.jpg" coloredEffect="both" />);
   expect(container.querySelector(".poster-colored-shimmer")).toBeTruthy();
