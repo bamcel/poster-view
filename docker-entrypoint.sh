@@ -28,28 +28,15 @@ if [ -z "${POSTERVIEW_MEDIA_DIR:-}" ]; then
         case "$media_mount/" in "$POSTERVIEW_DATA_DIR/"*) continue ;; esac
         [ -d "$media_mount" ] || continue
         media_count=$((media_count + 1))
-        if [ "$media_count" -eq 1 ]; then
-            POSTERVIEW_MEDIA_DIR=$media_mount
-        else
-            # Use the deepest shared directory, comparing whole path components.
-            while :; do
-                case "$media_mount/" in "$POSTERVIEW_MEDIA_DIR/"*) break ;; esac
-                POSTERVIEW_MEDIA_DIR=$(dirname "$POSTERVIEW_MEDIA_DIR")
-                [ "$POSTERVIEW_MEDIA_DIR" != / ] || break
-            done
-        fi
+        POSTERVIEW_MEDIA_DIR=$media_mount
     done <<EOF
 $media_mounts
 EOF
-    if [ "$media_count" -gt 1 ] && [ "$POSTERVIEW_MEDIA_DIR" = / ]; then
-        echo "PosterView: media mounts must share a container parent such as /data or /media. Use /data/anime, /data/tv, and /data/movies instead of unrelated top-level paths." >&2
+    if [ "$media_count" -gt 1 ]; then
+        echo "PosterView: multiple media mounts found. Mount media beneath one common container directory, or explicitly set POSTERVIEW_MEDIA_DIR to the desired root." >&2
         exit 1
     fi
     POSTERVIEW_MEDIA_DIR=${POSTERVIEW_MEDIA_DIR:-/media}
-    case "$POSTERVIEW_DATA_DIR/" in "$POSTERVIEW_MEDIA_DIR/"*)
-        echo "PosterView: detected media root includes application storage. Keep media mounts under a separate parent from application storage." >&2
-        exit 1 ;;
-    esac
 fi
 export POSTERVIEW_MEDIA_DIR
 

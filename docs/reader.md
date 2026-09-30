@@ -9,7 +9,7 @@ CB7, MOBI and DRM-protected files are not supported in this release.
 
 The development Unraid template defaults media to `/data`. Change only the mount's
 **Container Path** to `/media`, `/tvshows`, or another absolute directory. The entrypoint
-automatically detects media mounts beneath a shared container parent without exposing a media variable.
+automatically detects a single media directory mount without exposing a media variable.
 Keep appdata at `/config`; the template sets `POSTERVIEW_DATA_DIR=/config` internally.
 NFO reading and colored manga effects follow the detected media root; reader preferences
 remain in `/config/reader.sqlite`. Remove any old `POSTERVIEW_MEDIA_DIR` override when
