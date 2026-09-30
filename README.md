@@ -221,7 +221,8 @@ Change only its **Container Path** to use `/media`, `/tvshows`, or another absol
 The entrypoint automatically detects a single media directory mount. Keep all media beneath
 one common root. Application storage stays at `/config`, with a hidden
 `POSTERVIEW_DATA_DIR=/config` setting to prevent legacy detection of the `/data` media mount.
-An explicit `POSTERVIEW_MEDIA_DIR` remains available for advanced setups and takes precedence.
+A single detected media mount overrides any old `POSTERVIEW_MEDIA_DIR` value automatically.
+Without a detected mount, that variable remains available for advanced setups.
 Without a media mount, the media root falls back to `/media`.
 
 PosterView's administrator username defaults to `admin`. Change it with `POSTERVIEW_USERNAME`
@@ -332,8 +333,8 @@ UI to port `7979`, persists `/config` to `/mnt/user/appdata/posterview`, and add
 For the development template, use the raw URL above with `main` replaced by `development`
 and choose the `development` image branch. Its media container path defaults to `/data`.
 Keep **Config** mounted at `/config`. Change only **Media Path**'s container destination.
-Existing containers must remove their old `POSTERVIEW_MEDIA_DIR` variable to enable automatic
-detection and retain `POSTERVIEW_DATA_DIR=/config`. Image updates do not update saved templates.
+Existing containers can keep an old `POSTERVIEW_MEDIA_DIR` value: a single detected mount
+automatically overrides it. Retain `POSTERVIEW_DATA_DIR=/config`. Image updates do not update saved templates.
 
 Unraid's own **Template repositories** field (Add Container → scroll to the bottom → paste the
 same raw URL → Save) is the "official" way to register a template and should also work. The

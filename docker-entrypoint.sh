@@ -15,7 +15,8 @@ if [ -z "${POSTERVIEW_DATA_DIR:-}" ]; then
     fi
 fi
 export POSTERVIEW_DATA_DIR
-if [ -z "${POSTERVIEW_MEDIA_DIR:-}" ]; then
+configured_media_dir=${POSTERVIEW_MEDIA_DIR:-}
+{
     # Discover directory mounts without granting access to the container filesystem.
     # /config and legacy application storage must never become media roots.
     media_mounts=$(awk '{print $5}' /proc/self/mountinfo | sort -u)
@@ -28,16 +29,22 @@ if [ -z "${POSTERVIEW_MEDIA_DIR:-}" ]; then
         case "$media_mount/" in "$POSTERVIEW_DATA_DIR/"*) continue ;; esac
         [ -d "$media_mount" ] || continue
         media_count=$((media_count + 1))
-        POSTERVIEW_MEDIA_DIR=$media_mount
+        detected_media_dir=$media_mount
     done <<EOF
 $media_mounts
 EOF
-    if [ "$media_count" -gt 1 ]; then
-        echo "PosterView: multiple media mounts found. Mount media beneath one common container directory, or explicitly set POSTERVIEW_MEDIA_DIR to the desired root." >&2
+    if [ "$media_count" -eq 1 ]; then
+        POSTERVIEW_MEDIA_DIR=$detected_media_dir
+        if [ -n "$configured_media_dir" ] && [ "$configured_media_dir" != "$detected_media_dir" ]; then
+            echo "PosterView: using detected media mount $detected_media_dir instead of configured $configured_media_dir."
+        fi
+    elif [ "$media_count" -gt 1 ] && [ -z "$configured_media_dir" ]; then
+        echo "PosterView: multiple media mounts found. Use one media mount, or explicitly set POSTERVIEW_MEDIA_DIR to the desired root." >&2
         exit 1
+    else
+        POSTERVIEW_MEDIA_DIR=${configured_media_dir:-/media}
     fi
-    POSTERVIEW_MEDIA_DIR=${POSTERVIEW_MEDIA_DIR:-/media}
-fi
+}
 export POSTERVIEW_MEDIA_DIR
 
 mkdir -p "$POSTERVIEW_DATA_DIR"

@@ -12,8 +12,7 @@ The development Unraid template defaults media to `/data`. Change only the mount
 automatically detects a single media directory mount without exposing a media variable.
 Keep appdata at `/config`; the template sets `POSTERVIEW_DATA_DIR=/config` internally.
 NFO reading and colored manga effects follow the detected media root; reader preferences
-remain in `/config/reader.sqlite`. Remove any old `POSTERVIEW_MEDIA_DIR` override when
-switching an existing container to automatic detection. Use your chosen root in place of
+remain in `/config/reader.sqlite`. A single detected media mount overrides old `POSTERVIEW_MEDIA_DIR` values automatically. Use your chosen root in place of
 `/media` in the examples.
 
 ## Controls
