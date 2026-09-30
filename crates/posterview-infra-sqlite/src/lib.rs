@@ -616,3 +616,5 @@ mod tests {
     }
 }
 mod native;
+
+mod native_catalog;

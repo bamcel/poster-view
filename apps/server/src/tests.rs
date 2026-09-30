@@ -382,7 +382,7 @@ async fn administrator_session_protects_api_routes() {
         .unwrap();
     assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
 
-    for (method, path) in [("GET", "/api/native/libraries"), ("POST", "/api/native/libraries"), ("PUT", "/api/native/libraries/example")] {
+    for (method, path) in [("GET", "/api/native/libraries"), ("POST", "/api/native/libraries"), ("PUT", "/api/native/libraries/example"), ("DELETE", "/api/native/libraries/example"), ("GET", "/api/native/libraries/example/scan"), ("POST", "/api/native/libraries/example/scan"), ("GET", "/api/native/libraries/example/items"), ("PUT", "/api/native/libraries/example/items/item"), ("GET", "/api/native/libraries/example/items/item/artwork/poster"), ("POST", "/api/native/libraries/example/items/item/artwork/poster")] {
         let denied = app.clone().oneshot(Request::builder().method(method).uri(path).header("content-type", "application/json").body(Body::from("{}")).unwrap()).await.unwrap();
         assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
     }

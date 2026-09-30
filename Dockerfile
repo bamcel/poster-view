@@ -16,7 +16,7 @@ RUN cargo build --locked --release --package posterview-server
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl util-linux passwd \
+    && apt-get install -y --no-install-recommends ca-certificates curl util-linux passwd ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=rust-build /src/target/release/posterview-server /app/posterview-server

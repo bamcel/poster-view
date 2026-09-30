@@ -16,6 +16,7 @@ posterview-url-security.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
+regex.workspace = true
 tempfile.workspace = true
 subtle.workspace = true
 tokio.workspace = true

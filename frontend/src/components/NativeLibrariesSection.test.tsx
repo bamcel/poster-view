@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import NativeLibrariesSection, { LibraryDialog } from "./NativeLibrariesSection";
 import { nativeLibraries, type NativeLibrary } from "../api/nativeLibraries";
 
-vi.mock("../api/nativeLibraries", () => ({ nativeLibraries: { list: vi.fn(), save: vi.fn(), folders: vi.fn() } }));
+vi.mock("../api/nativeLibraries", async importOriginal => ({...(await importOriginal<typeof import("../api/nativeLibraries")>()), nativeLibraries: { list: vi.fn(), save: vi.fn(), folders: vi.fn(), status: vi.fn(), catalog: vi.fn(), scan: vi.fn(), remove: vi.fn() } }));
 const saved: NativeLibrary = { id: "library", name: "Anime", library_type: "anime", anime_content: "both", paths: ["Shows", "Movies"], revision: 1, created_at: "", updated_at: "" };
 function mount(component: React.ReactNode) {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{component}</QueryClientProvider>);
@@ -26,8 +26,9 @@ it("creates an Anime library with multiple media folders and no remote-server im
   fireEvent.click(await screen.findByRole("checkbox", { name: "Shows" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Movies" }));
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
   fireEvent.click(screen.getByRole("button", { name: "Create library" }));
-  await waitFor(() => expect(nativeLibraries.save).toHaveBeenCalledWith({ name: "Anime", library_type: "anime", anime_content: "both", paths: ["Shows", "Movies"], revision: null }, undefined));
+  await waitFor(() => expect(nativeLibraries.save).toHaveBeenCalledWith({ name: "Anime", library_type: "anime", anime_content: "both", paths: ["Shows", "Movies"], options: {read_nfo: true, save_nfo: false, local_artwork: true, fetch_missing: true}, revision: null }, undefined));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 });
 
@@ -63,4 +64,14 @@ it("submits the existing revision when editing and keeps errors visible", async 
   fireEvent.click(screen.getByRole("button", { name: "Save library" }));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Library changed since it was opened.");
   expect(nativeLibraries.save).toHaveBeenCalledWith(expect.objectContaining({ revision: 1 }), "library");
+});
+
+it("opens the indexed catalog from a library card", async () => {
+  vi.mocked(nativeLibraries.list).mockResolvedValue([saved]);
+  vi.mocked(nativeLibraries.status).mockResolvedValue({status: "complete", count: 0, warnings: []});
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue([]);
+  mount(<NativeLibrariesSection />);
+  fireEvent.click(await screen.findByRole("button", {name: "Open library"}));
+  expect(await screen.findByRole("button", {name: "Scan library"})).toBeTruthy();
+  expect(screen.getByRole("button", {name: "Delete library"})).toBeTruthy();
 });

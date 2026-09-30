@@ -1,0 +1,476 @@
+use crate::{ServerStore, StoreError};
+use posterview_contracts::native::{NativeArtwork, NativeCatalogEntry, NativeScanStatus};
+use rusqlite::{OptionalExtension, params};
+use serde_json::{Value, json};
+
+fn invalid(message: &str) -> StoreError {
+    StoreError::Validation(message.into())
+}
+impl ServerStore {
+    pub fn native_nfo_content(&self, path: &str) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .connection()?
+            .query_row(
+                "SELECT content_xml FROM catalog_nfo_documents WHERE relative_path=?1",
+                [path],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten())
+    }
+
+    pub fn record_native_nfo(
+        &self,
+        library: &str,
+        item: &str,
+        path: &str,
+        xml: &str,
+    ) -> Result<(), StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction()?;
+        tx.execute("INSERT INTO catalog_nfo_documents(id,relative_path,profile,parse_status,content_xml) VALUES(?1,?2,'local','parsed',?3) ON CONFLICT(relative_path) DO UPDATE SET content_xml=excluded.content_xml,revision=revision+1,parse_status='parsed'",params![uuid::Uuid::new_v4().to_string(),path,xml])?;
+        tx.execute("INSERT OR IGNORE INTO catalog_item_nfo SELECT ?1,id FROM catalog_nfo_documents WHERE relative_path=?2",params![item,path])?;
+        tx.execute("UPDATE native_catalog_sources SET snapshot_json=json_set(snapshot_json,'$.nfo_path',?1) WHERE library_id=?2 AND item_id=?3",params![path,library,item])?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn native_scan_status(&self, library: &str) -> Result<NativeScanStatus, StoreError> {
+        let db = self.connection()?;
+        let text: Option<String> = db
+            .query_row(
+                "SELECT status_json FROM native_library_scans WHERE library_id=?1",
+                [library],
+                |r| r.get(0),
+            )
+            .optional()?;
+        text.map(|v| serde_json::from_str(&v).map_err(|_| invalid("Invalid scan status.")))
+            .unwrap_or(Ok(NativeScanStatus {
+                status: "not_scanned".into(),
+                ..Default::default()
+            }))
+    }
+    pub fn begin_native_scan(&self, library: &str) -> Result<(), StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM native_libraries WHERE id=?1)",
+            [library],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            return Err(invalid("Library not found."));
+        }
+        let running: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_scans WHERE library_id=?1 AND json_extract(status_json,'$.status')='scanning')",[library],|r|r.get(0))?;
+        if running {
+            return Err(invalid("This library is already scanning."));
+        }
+        tx.execute("INSERT INTO native_library_scans VALUES(?1,?2) ON CONFLICT(library_id) DO UPDATE SET status_json=excluded.status_json",params![library,json!({"status":"scanning","count":0,"warnings":[]}).to_string()])?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn finish_native_scan(
+        &self,
+        library: &str,
+        status: &NativeScanStatus,
+    ) -> Result<(), StoreError> {
+        self.connection()?.execute(
+            "UPDATE native_library_scans SET status_json=?1 WHERE library_id=?2",
+            params![
+                serde_json::to_string(status).map_err(|_| invalid("Invalid status."))?,
+                library
+            ],
+        )?;
+        Ok(())
+    }
+    pub fn recover_native_scans(&self) -> Result<(), StoreError> {
+        self.connection()?.execute("UPDATE native_library_scans SET status_json=?1 WHERE json_extract(status_json,'$.status')='scanning'",[json!({"status":"interrupted","count":0,"warnings":["Scan interrupted by a restart. Scan again to continue."]}).to_string()])?;
+        Ok(())
+    }
+    pub fn delete_native_library(&self, library: &str, revision: i64) -> Result<(), StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current: Option<i64> = tx
+            .query_row(
+                "SELECT revision FROM native_libraries WHERE id=?1",
+                [library],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if current != Some(revision) {
+            return Err(StoreError::RevisionConflict);
+        }
+        let running: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_scans WHERE library_id=?1 AND json_extract(status_json,'$.status')='scanning')",[library],|r|r.get(0))?;
+        if running {
+            return Err(invalid(
+                "Wait for the scan to finish before deleting the library.",
+            ));
+        }
+        // Children first because catalog hierarchy uses RESTRICT, not cascade.
+        tx.execute("UPDATE catalog_items SET parent_id=NULL WHERE id IN (SELECT item_id FROM native_catalog_sources WHERE library_id=?1)",[library])?;
+        tx.execute("DELETE FROM catalog_items WHERE id IN (SELECT item_id FROM native_catalog_sources WHERE library_id=?1)",[library])?;
+        tx.execute("DELETE FROM native_libraries WHERE id=?1", [library])?;
+        tx.execute(
+            "DELETE FROM catalog_files WHERE id NOT IN (SELECT file_id FROM catalog_item_files)",
+            [],
+        )?;
+        tx.execute("DELETE FROM catalog_nfo_documents WHERE id NOT IN (SELECT document_id FROM catalog_item_nfo)",[])?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn native_catalog(&self, library: &str) -> Result<Vec<NativeCatalogEntry>, StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction()?;
+        let mut stmt = tx.prepare("SELECT s.snapshot_json,s.item_id,s.available,i.revision FROM native_catalog_sources s JOIN catalog_items i ON i.id=s.item_id WHERE s.library_id=?1 ORDER BY i.sort_title,i.title")?;
+        let rows = stmt
+            .query_map([library], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, bool>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut result = Vec::new();
+        for (snapshot, id, available, revision) in rows {
+            let mut entry: NativeCatalogEntry =
+                serde_json::from_str(&snapshot).map_err(|_| invalid("Invalid catalog record."))?;
+            entry.id = id.clone();
+            entry.available = available;
+            entry.revision = revision;
+            entry.metadata = json!({});
+            let mut fields = tx
+                .prepare("SELECT field,value_json FROM catalog_metadata_fields WHERE item_id=?1")?;
+            for row in fields.query_map([&id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })? {
+                let (field, value) = row?;
+                entry.metadata[&field] =
+                    serde_json::from_str(&value).map_err(|_| invalid("Invalid metadata value."))?;
+            }
+            entry.title = entry.metadata["title"]
+                .as_str()
+                .unwrap_or(&entry.title)
+                .into();
+            entry.artwork = tx
+                .prepare(
+                    "SELECT kind,path,source FROM catalog_artwork WHERE item_id=?1 ORDER BY kind",
+                )?
+                .query_map([&id], |r| {
+                    Ok(NativeArtwork {
+                        kind: r.get(0)?,
+                        path: r.get(1)?,
+                        source: r.get(2)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            result.push(entry);
+        }
+        Ok(result)
+    }
+    pub fn ingest_native_catalog(
+        &self,
+        library: &str,
+        revision: i64,
+        entries: &[NativeCatalogEntry],
+    ) -> Result<(), StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current: i64 = tx.query_row(
+            "SELECT revision FROM native_libraries WHERE id=?1",
+            [library],
+            |r| r.get(0),
+        )?;
+        if current != revision {
+            return Err(StoreError::RevisionConflict);
+        }
+        tx.execute(
+            "UPDATE native_catalog_sources SET available=0 WHERE library_id=?1",
+            [library],
+        )?;
+        for entry in entries {
+            let existing:Option<String>=tx.query_row("SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,entry.path],|r|r.get(0)).optional()?;
+            let id = existing.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            let mut snapshot = entry.clone();
+            snapshot.id = id.clone();
+            snapshot.nfo_xml = None;
+            tx.execute("INSERT INTO catalog_items(id,kind,title) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET revision=revision+1",params![id,entry.kind,entry.title])?;
+            tx.execute(
+                "INSERT OR IGNORE INTO native_library_items VALUES(?1,?2)",
+                params![library, id],
+            )?;
+            tx.execute("INSERT INTO native_catalog_sources VALUES(?1,?2,?3,?4,1) ON CONFLICT(library_id,relative_path) DO UPDATE SET snapshot_json=excluded.snapshot_json,available=1",params![library,entry.path,id,serde_json::to_string(&snapshot).map_err(|_|invalid("Invalid snapshot."))?])?;
+            if let Some(fields) = entry.metadata.as_object() {
+                for (field, value) in fields {
+                    if field.starts_with('_') || value.is_null() {
+                        continue;
+                    }
+                    let source = entry.metadata["_sources"][field]
+                        .as_str()
+                        .unwrap_or("filename");
+                    tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=revision+1 WHERE locked=0 AND source<>'manual' AND (excluded.source='nfo' OR source<>'nfo' OR json_type(value_json)='null' OR value_json IN ('[]','{}') OR (json_type(value_json)='text' AND trim(json_extract(value_json,'$'))=''))",params![id,field,value.to_string(),source])?;
+                }
+            }
+            let effective: Value = {
+                let mut fields = tx.prepare(
+                    "SELECT field,value_json FROM catalog_metadata_fields WHERE item_id=?1",
+                )?;
+                let mut values = json!({});
+                for row in fields.query_map([&id], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })? {
+                    let (field, value) = row?;
+                    values[&field] =
+                        serde_json::from_str(&value).map_err(|_| invalid("Invalid metadata."))?;
+                }
+                values
+            };
+            tx.execute("UPDATE catalog_items SET title=?1,original_title=?2,sort_title=?3,synopsis=?4,year=?5 WHERE id=?6",params![effective["title"].as_str().unwrap_or(&entry.title),effective["originaltitle"].as_str(),effective["sorttitle"].as_str(),effective["plot"].as_str(),effective["year"].as_i64(),id])?;
+            project_metadata(&tx, &id, &effective)?;
+            tx.execute("DELETE FROM catalog_artwork WHERE item_id=?1 AND locked=0 AND NOT EXISTS(SELECT 1 FROM json_each(?2) a WHERE json_extract(a.value,'$.kind')=catalog_artwork.kind AND json_extract(a.value,'$.path')=catalog_artwork.path)",params![id,serde_json::to_string(&entry.artwork).map_err(|_|invalid("Invalid artwork records."))?])?;
+            for art in &entry.artwork {
+                tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,?4,0) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source=excluded.source WHERE locked=0 AND (excluded.source='local' OR source<>'local')",params![id,art.kind,art.path,art.source])?;
+            }
+            tx.execute("DELETE FROM catalog_item_files WHERE item_id=?1", [&id])?;
+            for file in &entry.files {
+                let path = file["path"]
+                    .as_str()
+                    .ok_or_else(|| invalid("Missing file path."))?;
+                tx.execute("INSERT INTO catalog_files(id,relative_path,size_bytes,modified_at) VALUES(?1,?2,?3,?4) ON CONFLICT(relative_path) DO UPDATE SET size_bytes=excluded.size_bytes,modified_at=excluded.modified_at,available=1",params![uuid::Uuid::new_v4().to_string(),path,file["size"].as_i64(),file["modified"].as_str()])?;
+                tx.execute("INSERT INTO catalog_item_files SELECT ?1,id FROM catalog_files WHERE relative_path=?2",params![id,path])?;
+                if let Some(streams) = file["media_info"]["streams"].as_array() {
+                    tx.execute("DELETE FROM catalog_media_streams WHERE file_id=(SELECT id FROM catalog_files WHERE relative_path=?1)",[path])?;
+                    for stream in streams {
+                        if let (Some(index), Some(kind)) =
+                            (stream["index"].as_i64(), stream["codec_type"].as_str())
+                        {
+                            if ["video", "audio", "subtitle"].contains(&kind) {
+                                tx.execute("INSERT INTO catalog_media_streams SELECT id,?1,?2,?3 FROM catalog_files WHERE relative_path=?4",params![index,kind,stream.to_string(),path])?;
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(path) = &entry.nfo_path {
+                tx.execute("INSERT INTO catalog_nfo_documents(id,relative_path,profile,parse_status) VALUES(?1,?2,?3,'parsed') ON CONFLICT(relative_path) DO UPDATE SET revision=revision+1,parse_status='parsed'",params![uuid::Uuid::new_v4().to_string(),path,if entry.kind.starts_with("book") {"posterview-book"} else {"video"}])?;
+                tx.execute(
+                    "UPDATE catalog_nfo_documents SET content_xml=?1 WHERE relative_path=?2",
+                    params![entry.nfo_xml, path],
+                )?;
+                tx.execute("INSERT OR IGNORE INTO catalog_item_nfo SELECT ?1,id FROM catalog_nfo_documents WHERE relative_path=?2",params![id,path])?;
+            }
+        }
+        for entry in entries {
+            tx.execute("UPDATE catalog_items SET parent_id=(SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2) WHERE id=(SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?3)",params![library,entry.parent_path,entry.path])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn edit_native_entry(
+        &self,
+        library: &str,
+        item: &str,
+        revision: i64,
+        fields: &Value,
+    ) -> Result<(), StoreError> {
+        let fields = fields
+            .as_object()
+            .ok_or_else(|| invalid("Metadata must be an object."))?;
+        if fields.get("title").is_some_and(|v| {
+            v.as_str()
+                .is_none_or(|v| v.trim().is_empty() || v.len() > 512)
+        }) {
+            return Err(invalid("Choose a title of 1–512 characters."));
+        }
+        for field in ["genres", "tags", "studios", "publishers"] {
+            if let Some(value) = fields.get(field) {
+                if !value
+                    .as_array()
+                    .is_some_and(|v| v.iter().all(|v| v.as_str().is_some()))
+                {
+                    return Err(invalid(
+                        "Genres, tags, studios, and publishers must be lists of names.",
+                    ));
+                }
+            }
+        }
+        if let Some(credits) = fields.get("credits") {
+            if !credits.as_array().is_some_and(|v| {
+                v.iter().all(|c| {
+                    c["name"].as_str().is_some_and(|v| !v.trim().is_empty())
+                        && ["cast", "crew", "voice", "author", "illustrator", "narrator"]
+                            .contains(&c["category"].as_str().unwrap_or("cast"))
+                })
+            }) {
+                return Err(invalid(
+                    "Each credit needs a name and a supported category.",
+                ));
+            }
+        }
+        if fields.len() > 100 || fields.contains_key("_sources") {
+            return Err(invalid("Invalid metadata fields."));
+        }
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current:Option<i64>=tx.query_row("SELECT i.revision FROM catalog_items i JOIN native_catalog_sources s ON s.item_id=i.id WHERE s.library_id=?1 AND i.id=?2",params![library,item],|r|r.get(0)).optional()?;
+        if current != Some(revision) {
+            return Err(StoreError::RevisionConflict);
+        }
+        for (field, value) in fields {
+            let previous: Option<String> = tx
+                .query_row(
+                    "SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field=?2",
+                    params![item, field],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if previous.as_deref() == Some(value.to_string().as_str()) {
+                continue;
+            }
+            if field.starts_with('_') || field.len() > 80 || value.to_string().len() > 200_000 {
+                return Err(invalid("Invalid metadata field."));
+            }
+            tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='manual',locked=1,revision=revision+1",params![item,field,value.to_string()])?;
+        }
+        let mut effective = json!({});
+        {
+            let mut stmt = tx
+                .prepare("SELECT field,value_json FROM catalog_metadata_fields WHERE item_id=?1")?;
+            for row in stmt.query_map([item], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })? {
+                let (field, value) = row?;
+                effective[&field] =
+                    serde_json::from_str(&value).map_err(|_| invalid("Invalid metadata."))?;
+            }
+        }
+        project_metadata(&tx, item, &effective)?;
+        tx.execute("UPDATE catalog_items SET title=COALESCE(?1,title),sort_title=?2,synopsis=?3,year=?4,revision=revision+1 WHERE id=?5",params![effective["title"].as_str(),effective["sorttitle"].as_str(),effective["plot"].as_str(),effective["year"].as_i64(),item])?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn save_native_artwork(
+        &self,
+        library: &str,
+        item: &str,
+        art: &NativeArtwork,
+    ) -> Result<(), StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction()?;
+        let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2)",params![library,item],|r|r.get(0))?;
+        if !exists {
+            return Err(invalid("Catalog item not found."));
+        }
+        tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,'manual',1) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source='manual',locked=1",params![item,art.kind,art.path])?;
+        tx.execute(
+            "UPDATE catalog_items SET revision=revision+1 WHERE id=?1",
+            [item],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+}
+fn project_metadata(
+    tx: &rusqlite::Transaction<'_>,
+    id: &str,
+    fields: &Value,
+) -> Result<(), StoreError> {
+    tx.execute("DELETE FROM catalog_item_terms WHERE item_id=?1", [id])?;
+    for (field, kind) in [
+        ("genres", "genre"),
+        ("tags", "tag"),
+        ("studios", "studio"),
+        ("publishers", "publisher"),
+    ] {
+        if let Some(values) = fields[field].as_array() {
+            for name in values.iter().filter_map(Value::as_str) {
+                tx.execute(
+                    "INSERT OR IGNORE INTO catalog_terms VALUES(?1,?2,?3)",
+                    params![uuid::Uuid::new_v4().to_string(), kind, name],
+                )?;
+                tx.execute("INSERT OR IGNORE INTO catalog_item_terms SELECT ?1,id FROM catalog_terms WHERE kind=?2 AND name=?3",params![id,kind,name])?;
+            }
+        }
+    }
+    tx.execute("DELETE FROM catalog_identifiers WHERE item_id=?1", [id])?;
+    if let Some(ids) = fields["identifiers"].as_object() {
+        for (provider, value) in ids {
+            let value = value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string());
+            tx.execute(
+                "INSERT OR IGNORE INTO catalog_identifiers VALUES(?1,?2,'media',?3)",
+                params![id, provider, value],
+            )?;
+        }
+    }
+    tx.execute("DELETE FROM catalog_credits WHERE item_id=?1", [id])?;
+    if let Some(credits) = fields["credits"].as_array() {
+        for (position, credit) in credits.iter().enumerate() {
+            let Some(name) = credit["name"].as_str() else {
+                continue;
+            };
+            let person = if let (Some(provider), Some(provider_id)) =
+                (credit["provider"].as_str(), credit.get("provider_id"))
+            {
+                format!(
+                    "{provider}:{}",
+                    provider_id
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| provider_id.to_string())
+                )
+            } else {
+                let existing:Option<String>=tx.query_row("SELECT id FROM catalog_people WHERE name=?1 AND id NOT LIKE 'anilist:%' AND id NOT LIKE 'tmdb:%'",[name],|r|r.get(0)).optional()?;
+                existing.unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+            };
+            tx.execute("INSERT INTO catalog_people(id,name,image_path) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET name=excluded.name,image_path=COALESCE(excluded.image_path,image_path)",params![person,name,credit["image"].as_str()])?;
+            tx.execute("INSERT INTO catalog_credits(id,item_id,person_id,category,role,position) VALUES(?1,?2,?3,?4,?5,?6)",params![uuid::Uuid::new_v4().to_string(),id,person,credit["category"].as_str().unwrap_or("cast"),credit["role"].as_str().unwrap_or(""),position as i64])?;
+        }
+    }
+    tx.execute(
+        "DELETE FROM catalog_character_appearances WHERE item_id=?1",
+        [id],
+    )?;
+    if let Some(characters) = fields["characters"].as_array() {
+        for character in characters {
+            let Some(name) = character["name"].as_str() else {
+                continue;
+            };
+            let char_id = character["id"]
+                .as_str()
+                .map(|v| format!("anilist:{v}"))
+                .unwrap_or_else(|| format!("name:{name}"));
+            tx.execute("INSERT INTO catalog_characters VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET name=excluded.name,biography=excluded.biography,image_path=excluded.image_path",params![char_id,name,character["biography"].as_str(),character["image"].as_str()])?;
+            tx.execute("INSERT OR IGNORE INTO catalog_character_appearances(item_id,character_id,role) VALUES(?1,?2,?3)",params![id,char_id,character["role"].as_str().unwrap_or("")])?;
+            tx.execute("UPDATE catalog_credits SET character_id=?1 WHERE item_id=?2 AND category='voice' AND role=?3",params![char_id,id,name])?;
+        }
+    }
+    if let Some(episode) = fields["episode"].as_i64() {
+        tx.execute("INSERT OR REPLACE INTO catalog_episode_numbers(item_id,scheme,season_number,episode_number) VALUES(?1,'aired',?2,?3)",params![id,fields["season"].as_i64(),episode])?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+    use posterview_contracts::native::{NativeLibraryInput,NativeLibraryType,AnimeContent};
+    #[test]
+    fn fills_empty_local_values_without_overwriting_populated_or_manual_fields(){
+        let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
+        let library=db.save_native_library(None,&NativeLibraryInput{name:"Movies".into(),library_type:NativeLibraryType::Movies,anime_content:AnimeContent::Both,paths:vec!["Movies".into()],revision:None,options:Default::default()}).unwrap();
+        let mut entry=NativeCatalogEntry{id:String::new(),path:"Movies/Test.mp4".into(),kind:"movie".into(),parent_path:None,title:"Test".into(),metadata:json!({"title":"Test","plot":"","_sources":{"title":"nfo","plot":"nfo"}}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+        db.ingest_native_catalog(&library.id,library.revision,&[entry.clone()]).unwrap();
+        entry.metadata["plot"]=json!("Provider filled the gap");entry.metadata["_sources"]["plot"]=json!("tmdb");
+        db.ingest_native_catalog(&library.id,library.revision,&[entry.clone()]).unwrap();
+        let first=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(first.metadata["plot"],"Provider filled the gap");
+        entry.metadata["plot"]=json!("Local plot");entry.metadata["_sources"]["plot"]=json!("nfo");db.ingest_native_catalog(&library.id,library.revision,&[entry.clone()]).unwrap();
+        entry.metadata["plot"]=json!("Provider replacement");entry.metadata["_sources"]["plot"]=json!("tmdb");db.ingest_native_catalog(&library.id,library.revision,&[entry.clone()]).unwrap();
+        let current=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(current.id,first.id);assert_eq!(current.metadata["plot"],"Local plot");
+        db.edit_native_entry(&library.id,&current.id,current.revision,&json!({"plot":"Manual plot"})).unwrap();
+        db.ingest_native_catalog(&library.id,library.revision,&[entry.clone()]).unwrap();assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["plot"],"Manual plot");
+        assert!(db.ingest_native_catalog(&library.id,library.revision+1,&[]).is_err());assert!(db.native_catalog(&library.id).unwrap()[0].available);
+    }
+}

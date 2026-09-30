@@ -1031,6 +1031,7 @@ name = "posterview-contracts"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1104,6 +1105,7 @@ dependencies = [
  "posterview-infra-sqlite",
  "posterview-runtime",
  "posterview-url-security",
+ "regex",
  "reqwest",
  "rusqlite",
  "serde",

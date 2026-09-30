@@ -29,6 +29,8 @@ mod login_backdrop;
 mod metadata;
 mod reader;
 mod native;
+mod native_scan;
+mod native_provider;
 pub use auth::AuthState;
 pub use config::ServerConfig;
 use error::HttpError;
@@ -45,6 +47,7 @@ struct AppState {
 }
 
 pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router {
+    if let Err(e)=posterview_infra_sqlite::ServerStore::new(runtime.data_dir()).recover_native_scans(){tracing::warn!(%e,"Could not recover interrupted native scans");}
     let login_backdrop = login_backdrop::LoginBackdrop::new(runtime.data_dir());
     let refresh_cache = login_backdrop.clone();
     let refresh_runtime = Arc::clone(&runtime);
@@ -66,7 +69,11 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
 
     let protected = Router::new()
         .route("/api/native/libraries", get(native::list).post(native::create))
-        .route("/api/native/libraries/{id}", axum::routing::put(native::update))
+        .route("/api/native/libraries/{id}/scan", get(native::status).post(native::scan))
+        .route("/api/native/libraries/{id}/items", get(native::catalog))
+        .route("/api/native/libraries/{library}/items/{item}", axum::routing::put(native::edit_item))
+        .route("/api/native/libraries/{library}/items/{item}/artwork/{kind}", get(native::artwork).post(native::upload_artwork))
+        .route("/api/native/libraries/{id}", axum::routing::put(native::update).delete(native::delete))
         .route("/api/reader/open/{server}/{item}", get(reader::open))
         .route("/api/reader/books/{id}", get(reader::manifest))
         .route("/api/reader/info/{server}/{item}", get(reader::info))

@@ -112,6 +112,35 @@ pub(crate) fn migrate(db: &Connection) -> Result<(), StoreError> {
         tx.execute_batch(SCHEMA)?;
         tx.execute("INSERT INTO schema_migrations(version,name) VALUES(1,'native_library_and_metadata_foundation')", [])?;
     }
+    let catalog_applied: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=2)",
+        [],
+        |r| r.get(0),
+    )?;
+    if !catalog_applied {
+        tx.execute_batch(
+            r#"
+ALTER TABLE native_libraries ADD COLUMN options_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE catalog_nfo_documents ADD COLUMN content_xml TEXT;
+CREATE TABLE native_catalog_sources (
+ library_id TEXT NOT NULL REFERENCES native_libraries(id) ON DELETE CASCADE,
+ relative_path TEXT NOT NULL, item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+ snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)), available INTEGER NOT NULL DEFAULT 1,
+ PRIMARY KEY(library_id,relative_path), UNIQUE(library_id,item_id)
+);
+CREATE TABLE catalog_artwork (
+ item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE, kind TEXT NOT NULL,
+ path TEXT NOT NULL, source TEXT NOT NULL, locked INTEGER NOT NULL DEFAULT 0,
+ PRIMARY KEY(item_id,kind)
+);
+CREATE TABLE native_library_scans (
+ library_id TEXT PRIMARY KEY REFERENCES native_libraries(id) ON DELETE CASCADE,
+ status_json TEXT NOT NULL CHECK(json_valid(status_json))
+);
+INSERT INTO schema_migrations(version,name) VALUES(2,'native_scan_options_and_artwork');
+"#,
+        )?;
+    }
     tx.commit()?;
     Ok(())
 }
@@ -246,7 +275,7 @@ impl ServerStore {
         let mut connection = self.connection()?;
         // Keep library revisions and their selected roots in one read snapshot.
         let db = connection.transaction()?;
-        let mut statement = db.prepare("SELECT id,name,library_type,anime_content,revision,created_at,updated_at FROM native_libraries ORDER BY name COLLATE NOCASE")?;
+        let mut statement = db.prepare("SELECT id,name,library_type,anime_content,revision,created_at,updated_at,options_json FROM native_libraries ORDER BY name COLLATE NOCASE")?;
         let rows = statement
             .query_map([], |r| {
                 Ok((
@@ -257,12 +286,13 @@ impl ServerStore {
                     r.get::<_, i64>(4)?,
                     r.get::<_, String>(5)?,
                     r.get::<_, String>(6)?,
+                    r.get::<_, String>(7)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
-        rows.into_iter().map(|(id,name,kind,content,revision,created_at,updated_at)| {
+        rows.into_iter().map(|(id,name,kind,content,revision,created_at,updated_at,options_json)| {
             let paths = db.prepare("SELECT relative_path FROM native_library_roots WHERE library_id=?1 ORDER BY position")?.query_map([&id], |r| r.get(0))?.collect::<Result<Vec<String>,_>>()?;
-            Ok(NativeLibrary { id,name,library_type: serde_json::from_value(serde_json::Value::String(kind)).map_err(|e| StoreError::Validation(e.to_string()))?,anime_content: serde_json::from_value(serde_json::Value::String(content)).map_err(|e| StoreError::Validation(e.to_string()))?,paths,revision,created_at,updated_at })
+            Ok(NativeLibrary { id,name,library_type: serde_json::from_value(serde_json::Value::String(kind)).map_err(|e| StoreError::Validation(e.to_string()))?,anime_content: serde_json::from_value(serde_json::Value::String(content)).map_err(|e| StoreError::Validation(e.to_string()))?,paths,revision,created_at,updated_at,options: serde_json::from_str(&options_json).map_err(|e| StoreError::Validation(e.to_string()))? })
         }).collect()
     }
 
@@ -288,6 +318,12 @@ impl ServerStore {
             return Err(StoreError::RevisionConflict);
         }
         if previous.is_some() {
+            let running:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_scans WHERE library_id=?1 AND json_extract(status_json,'$.status')='scanning')",[&id],|r|r.get(0))?;
+            if running {
+                return Err(StoreError::Validation(
+                    "Wait for the scan to finish before editing the library.".into(),
+                ));
+            }
             let (kind, content): (String, String) = tx.query_row(
                 "SELECT library_type,anime_content FROM native_libraries WHERE id=?1",
                 [&id],
@@ -317,6 +353,14 @@ impl ServerStore {
         }
         tx.execute("INSERT INTO native_libraries(id,name,library_type,anime_content) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET name=excluded.name,library_type=excluded.library_type,anime_content=excluded.anime_content,revision=native_libraries.revision+1,updated_at=datetime('now')",params![id,input.name.trim(),input.library_type.as_str(),input.anime_content.as_str()])?;
         tx.execute(
+            "UPDATE native_libraries SET options_json=?1 WHERE id=?2",
+            params![
+                serde_json::to_string(&input.options)
+                    .map_err(|e| StoreError::Validation(e.to_string()))?,
+                id
+            ],
+        )?;
+        tx.execute(
             "DELETE FROM native_library_roots WHERE library_id=?1",
             [&id],
         )?;
@@ -334,6 +378,7 @@ impl ServerStore {
             library_type: input.library_type,
             anime_content: input.anime_content,
             paths: input.paths.clone(),
+            options: input.options.clone(),
             revision,
             created_at,
             updated_at,
@@ -360,6 +405,7 @@ mod tests {
             anime_content: AnimeContent::Both,
             paths: vec!["Anime/Shows".into(), "Anime/Movies".into()],
             revision: None,
+            options: Default::default(),
         };
         let saved = store.save_native_library(None, &input).unwrap();
         assert_eq!(store.get_setting("existing").unwrap(), "keep");

@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, ChevronRight, Folder, FolderPlus, Loader2, Pencil, Plus, Search, X } from "lucide-react";
-import { nativeLibraries, type NativeLibrary, type NativeLibraryInput, type NativeLibraryType } from "../api/nativeLibraries";
+import NativeCatalogPanel from "./NativeCatalogPanel";
+import { defaultNativeOptions, nativeLibraries, type NativeLibrary, type NativeLibraryInput, type NativeLibraryType } from "../api/nativeLibraries";
 
 const TYPES: Record<NativeLibraryType, string> = { movies: "Movies", shows: "TV Shows", anime: "Anime", books: "Books" };
 const INPUT = "w-full rounded-xl border border-edge bg-base px-3 py-2.5 text-sm text-white focus:border-accent focus:outline-none";
 const BUTTON = "rounded-xl border border-edge px-3 py-2 text-sm text-muted hover:bg-base hover:text-white disabled:opacity-50";
-const STEPS = ["General", "Folders", "Review"];
+const STEPS = ["General", "Folders", "Metadata", "Review"];
 const displayPath = (path: string) => `/media${path ? `/${path}` : ""}`;
 
 function overlap(paths: string[]): boolean {
@@ -16,6 +17,7 @@ function overlap(paths: string[]): boolean {
 
 export default function NativeLibrariesSection() {
   const libraries = useQuery({ queryKey: ["native-libraries"], queryFn: nativeLibraries.list });
+  const [catalogLibrary, setCatalogLibrary] = useState<NativeLibrary | null>(null);
   const [editing, setEditing] = useState<NativeLibrary | "new" | null>(null);
   const client = useQueryClient();
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -26,7 +28,7 @@ export default function NativeLibrariesSection() {
         <p className="mt-1 max-w-xl text-sm text-muted">Organize your mounted media independently of connected servers.</p></div>
       <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-base" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />Add library</button>
     </div>
-    <p className="my-5 rounded-xl border border-edge bg-panel p-4 text-sm text-muted">Library setup is available now. Automatic indexing and metadata fetching will follow; creating a library saves its configuration without starting a scan.</p>
+    <p className="my-5 rounded-xl border border-edge bg-panel p-4 text-sm text-muted">New libraries scan after creation. Local metadata and artwork take priority; missing information can be fetched from providers. Open a library to browse, scan again, or delete its configuration.</p>
     {libraries.isPending && <p role="status" className="text-muted">Loading libraries…</p>}
     {libraries.error && <div role="alert" className="text-danger">{libraries.error.message} <button className={BUTTON} onClick={() => void libraries.refetch()}>Retry</button></div>}
     {libraries.data?.length === 0 && <div className="rounded-2xl border border-dashed border-edge p-10 text-center text-muted"><FolderPlus className="mx-auto mb-3 size-8 text-accent" /><p>No native libraries yet.</p><p className="mt-1 text-sm">Choose a type and select folders inside /media to get started.</p></div>}
@@ -34,14 +36,15 @@ export default function NativeLibrariesSection() {
       <div className="flex items-start justify-between gap-3"><div><h3 className="font-medium text-white">{library.name}</h3><p className="mt-1 text-xs text-accent">{TYPES[library.library_type]}{library.library_type === "anime" ? ` · ${library.anime_content === "both" ? "Shows and movies" : library.anime_content === "shows" ? "Shows only" : "Movies only"}` : ""}</p></div>
         <button aria-label={`Edit ${library.name}`} className={BUTTON} onClick={event => { trigger.current = event.currentTarget; setEditing(library); }}><Pencil className="size-4" /></button></div>
       <ul className="mt-4 space-y-1 text-xs text-muted">{library.paths.map(path => <li className="break-all" key={path}>{displayPath(path)}</li>)}</ul>
-      <p className="mt-4 text-xs text-faint">Configured · Not indexed</p>
+      <button className={`${BUTTON} mt-4`} onClick={() => setCatalogLibrary(library)}>Open library</button>
     </article>)}</div>
+    {catalogLibrary && <NativeCatalogPanel library={catalogLibrary} onClose={() => setCatalogLibrary(null)} onDeleted={() => {setCatalogLibrary(null); void client.invalidateQueries({queryKey: ["native-libraries"]});}} />}
     {editing && <LibraryDialog library={editing === "new" ? undefined : editing} onClose={close} onSaved={() => { void client.invalidateQueries({ queryKey: ["native-libraries"] }); close(); }} />}
   </section>;
 }
 
 export function LibraryDialog({ library, onClose, onSaved }: { library?: NativeLibrary; onClose: () => void; onSaved: () => void }) {
-  const initial = useRef<NativeLibraryInput>(library ? { name: library.name, library_type: library.library_type, anime_content: library.anime_content, paths: library.paths, revision: library.revision } : { name: "", library_type: "movies", anime_content: "both", paths: [], revision: null });
+  const initial = useRef<NativeLibraryInput>(library ? { name: library.name, library_type: library.library_type, anime_content: library.anime_content, paths: library.paths, options: { ...defaultNativeOptions, ...library.options }, revision: library.revision } : { name: "", library_type: "movies", anime_content: "both", paths: [], options: { ...defaultNativeOptions }, revision: null });
   const [draft, setDraft] = useState(initial.current);
   const [step, setStep] = useState(0);
   const [path, setPath] = useState("");
@@ -77,7 +80,7 @@ export function LibraryDialog({ library, onClose, onSaved }: { library?: NativeL
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="library-dialog-title" className="flex h-full w-full max-w-5xl flex-col overflow-hidden border border-edge bg-panel shadow-2xl sm:h-[min(760px,90dvh)] sm:rounded-2xl">
       <header className="flex items-center justify-between border-b border-edge px-5 py-4"><div><h2 id="library-dialog-title" className="text-lg font-semibold text-white">{library ? "Edit library" : "Create library"}</h2><p className="mt-1 text-xs text-muted">Native media · No server import</p></div><button aria-label="Close library dialog" disabled={save.isPending} className={BUTTON} onClick={() => closeRef.current()}><X className="size-5" /></button></header>
       <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-        <nav aria-label="Library setup sections" className="flex gap-2 border-b border-edge p-3 sm:w-44 sm:shrink-0 sm:flex-col sm:border-b-0 sm:border-r">{STEPS.map((label, index) => <button key={label} aria-current={step === index ? "step" : undefined} disabled={save.isPending} onClick={() => setStep(index)} className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm ${step === index ? "bg-accent/15 text-accent" : "text-muted hover:bg-base"}`}><span className="text-xs opacity-60">{index + 1}</span>{label}</button>)}</nav>
+        <nav aria-label="Library setup sections" className="flex shrink-0 gap-2 overflow-x-auto border-b border-edge p-3 sm:w-44 sm:shrink-0 sm:flex-col sm:border-b-0 sm:border-r">{STEPS.map((label, index) => <button key={label} aria-current={step === index ? "step" : undefined} disabled={save.isPending} onClick={() => setStep(index)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-sm ${step === index ? "bg-accent/15 text-accent" : "text-muted hover:bg-base"}`}><span className="text-xs opacity-60">{index + 1}</span>{label}</button>)}</nav>
         <main className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-7">
           {discard && <div className="mb-5 rounded-xl border border-edge bg-base p-4" role="alert"><p className="text-sm text-white">Discard your unsaved changes?</p><div className="mt-3 flex gap-2"><button className={BUTTON} onClick={() => setDiscard(false)}>Keep editing</button><button className={`${BUTTON} text-danger`} onClick={onClose}>Discard changes</button></div></div>}
           {step === 0 && <div className="space-y-6"><div><h3 className="font-medium text-white">General</h3><p className="mt-1 text-sm text-muted">Choose how this collection is organized.</p></div>
@@ -98,11 +101,19 @@ export function LibraryDialog({ library, onClose, onSaved }: { library?: NativeL
             {overlap(draft.paths) && <p role="alert" className="text-sm text-danger">Selected folders overlap. Select a parent folder or its children, rather than both.</p>}
             {draft.paths.length > 32 && <p role="alert" className="text-sm text-danger">Choose at most 32 folders.</p>}
           </div>}
-          {step === 2 && <div className="space-y-5"><div><h3 className="font-medium text-white">Review your library</h3><p className="mt-1 text-sm text-muted">Folders are validated before the configuration is saved.</p></div><dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm"><dt className="text-faint">Name</dt><dd className="break-all text-white">{draft.name || "Not set"}</dd><dt className="text-faint">Type</dt><dd className="text-white">{TYPES[draft.library_type]}</dd>{draft.library_type === "anime" && <><dt className="text-faint">Content</dt><dd className="text-white">{draft.anime_content === "both" ? "Shows and movies" : draft.anime_content === "shows" ? "Shows only" : "Movies only"}</dd></>}</dl><div className="rounded-xl border border-edge p-4"><h4 className="mb-2 text-sm text-white">Media roots</h4>{draft.paths.map(p => <p key={p} className="break-all text-sm text-muted">{displayPath(p)}</p>)}</div><p className="text-sm text-muted">This saves your native library configuration. It does not modify media files or start automatic indexing.</p>{(basicsInvalid || pathsInvalid) && <p role="alert" className="text-sm text-danger">Enter a name and select 1–32 folders without overlaps before saving.</p>}</div>}
+          {step === 2 && <div className="space-y-6"><div><h3 className="font-medium text-white">Metadata and artwork</h3><p className="mt-1 text-sm text-muted">The database always stores your library metadata and artwork records. Local files take priority; manual edits remain locked during rescans.</p></div>
+            {([
+              ["read_nfo", "Read local NFO metadata", "Use existing NFO files before fetching metadata. Books keep their custom series NFO format."],
+              ["save_nfo", "Save metadata to NFO", "Write metadata beside your media. Requires write permission. Existing unknown XML fields are preserved; invalid NFO files are never replaced."],
+              ["local_artwork", "Use local artwork", "Discover supported posters, backdrops, banners, logos, and thumbnails beside your media."],
+              ["fetch_missing", "Fetch missing metadata and artwork", "Use AniList for Anime and Books, and TMDB for movies, shows, and episode details. TMDB uses the credential in Search Providers. Uncertain matches need review."],
+            ] as const).map(([key, label, help]) => <label key={key} className="flex items-start gap-3 rounded-xl border border-edge bg-base p-4"><input type="checkbox" className="mt-1 size-4 accent-accent" aria-label={label} checked={draft.options?.[key] ?? defaultNativeOptions[key]} onChange={e => setDraft(previous => ({...previous, options: {...defaultNativeOptions, ...previous.options, [key]: e.target.checked}}))} /><span><span className="text-sm font-medium text-white">{label}</span><span className="mt-1 block text-xs leading-relaxed text-muted">{help}</span></span></label>)}
+          </div>}
+          {step === 3 && <div className="space-y-5"><div><h3 className="font-medium text-white">Review your library</h3><p className="mt-1 text-sm text-muted">Folders are validated before the configuration is saved.</p></div><dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm"><dt className="text-faint">Name</dt><dd className="break-all text-white">{draft.name || "Not set"}</dd><dt className="text-faint">Type</dt><dd className="text-white">{TYPES[draft.library_type]}</dd>{draft.library_type === "anime" && <><dt className="text-faint">Content</dt><dd className="text-white">{draft.anime_content === "both" ? "Shows and movies" : draft.anime_content === "shows" ? "Shows only" : "Movies only"}</dd></>}</dl><div className="rounded-xl border border-edge p-4"><h4 className="mb-2 text-sm text-white">Media roots</h4>{draft.paths.map(p => <p key={p} className="break-all text-sm text-muted">{displayPath(p)}</p>)}</div><p className="text-sm text-muted">New libraries scan after saving. Local files are written only when Save metadata to NFO is enabled. Existing libraries can be scanned from Open library.</p>{(basicsInvalid || pathsInvalid) && <p role="alert" className="text-sm text-danger">Enter a name and select 1–32 folders without overlaps before saving.</p>}</div>}
           {save.error && <p role="alert" className="mt-5 text-sm text-danger">{save.error.message}</p>}
         </main>
       </div>
-      <footer className="flex items-center justify-between gap-3 border-t border-edge px-5 py-4"><button className={BUTTON} disabled={save.isPending} onClick={() => step ? setStep(step - 1) : closeRef.current()}>{step ? "Back" : "Cancel"}</button>{step < 2 ? <button className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={save.isPending || (step === 0 ? basicsInvalid : pathsInvalid)} onClick={() => setStep(step + 1)}>Next</button> : <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={basicsInvalid || pathsInvalid || save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{save.isPending ? "Saving…" : library ? "Save library" : "Create library"}</button>}</footer>
+      <footer className="flex items-center justify-between gap-3 border-t border-edge px-5 py-4"><button className={BUTTON} disabled={save.isPending} onClick={() => step ? setStep(step - 1) : closeRef.current()}>{step ? "Back" : "Cancel"}</button>{step < 3 ? <button className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={save.isPending || (step === 0 ? basicsInvalid : pathsInvalid)} onClick={() => setStep(step + 1)}>Next</button> : <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={basicsInvalid || pathsInvalid || save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{save.isPending ? "Saving…" : library ? "Save library" : "Create library"}</button>}</footer>
     </div>
   </div>, document.body);
 }
