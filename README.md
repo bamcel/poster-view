@@ -218,7 +218,7 @@ auto-detection; update that value too if you previously set it yourself. When bo
 locations contain state, `/config` takes precedence. Nothing is moved or merged.
 The development Unraid template defaults its optional **Media Path** container mount to `/data`.
 Change only its **Container Path** to use `/media`, `/tvshows`, or another absolute path.
-The entrypoint automatically detects a single media directory mount. Keep all media beneath
+The entrypoint automatically detects media mounts beneath a shared container parent. Keep all media beneath
 one common root. Application storage stays at `/config`, with a hidden
 `POSTERVIEW_DATA_DIR=/config` setting to prevent legacy detection of the `/data` media mount.
 An explicit `POSTERVIEW_MEDIA_DIR` remains available for advanced setups and takes precedence.
@@ -341,6 +341,23 @@ local-file method above is recommended instead because it's what's actually been
 working — **the file has to land in `templates-user/`, not `templates/`** (the latter is treated
 as Community-Applications/system-managed and silently produces a blank/default Add Container
 form, even with a valid template selected from the dropdown).
+
+### Multiple media mounts on Unraid
+
+Add another **Path** entry for each share. For example:
+
+| Host Path | Container Path |
+|---|---|
+| `/mnt/user/anime` | `/data/anime` |
+| `/mnt/user/tv` | `/data/tv` |
+| `/mnt/user/movies` | `/data/movies` |
+
+Replace the original broad `/mnt/user` mapping with these entries. PosterView automatically
+uses their shared `/data` parent for folder browsing, NFO metadata, and the book reader.
+You can add more mounts beneath the same parent; no media variable is required.
+`/media/anime`, `/media/tv`, and `/media/movies` work the same way. Unrelated top-level
+mounts such as `/anime` and `/tv` are rejected instead of exposing the container filesystem.
+Keep `/config` separate. Remove any old `POSTERVIEW_MEDIA_DIR` override to enable detection.
 
 ## Quick start (development)
 

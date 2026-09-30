@@ -45,6 +45,16 @@ fi
 expected=/config
 case "$scenario" in
     fresh) ;;
+    multi-media)
+        export POSTERVIEW_DATA_DIR=/config
+        export detected_media="${2:?common media root required}"
+        for library in anime tv movies; do
+            mountpoint -q "$detected_media/$library"
+            mkdir -p "$detected_media/$library/Manga"
+            printf '<series><edition>Colored</edition></series>' > "$detected_media/$library/Manga/Manga.nfo"
+            chown -R 1234:1234 "$detected_media/$library/Manga"
+        done
+        ;;
     auto-media)
         export POSTERVIEW_DATA_DIR=/config
         mkdir -p "${2:?media mount required}/Manga"
@@ -90,6 +100,15 @@ export expected scenario
     test "$POSTERVIEW_DATA_DIR" = "$expected"
     test "$(id -u)" = 10001
     test -w "$expected"
+    if [ "$scenario" = multi-media ]; then
+        test "$POSTERVIEW_MEDIA_DIR" = "$detected_media"
+        for library in anime tv movies; do
+            test -r "$POSTERVIEW_MEDIA_DIR/$library/Manga/Manga.nfo"
+            grep -q "<edition>Colored</edition>" "$POSTERVIEW_MEDIA_DIR/$library/Manga/Manga.nfo"
+            test "$(stat -c %u "$POSTERVIEW_MEDIA_DIR/$library/Manga/Manga.nfo")" = 1234
+        done
+        test ! -f "$POSTERVIEW_MEDIA_DIR/posterview.db"
+    fi
     if [ "$scenario" = auto-media ]; then
         test "$POSTERVIEW_DATA_DIR" = /config
         test "$POSTERVIEW_MEDIA_DIR" = "$detected_media"
