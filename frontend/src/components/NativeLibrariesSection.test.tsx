@@ -66,12 +66,19 @@ it("submits the existing revision when editing and keeps errors visible", async 
   expect(nativeLibraries.save).toHaveBeenCalledWith(expect.objectContaining({ revision: 1 }), "library");
 });
 
-it("opens the indexed catalog from a library card", async () => {
+it("scans and deletes directly from the library card without a popup", async () => {
   vi.mocked(nativeLibraries.list).mockResolvedValue([saved]);
-  vi.mocked(nativeLibraries.status).mockResolvedValue({status: "complete", count: 0, warnings: []});
-  vi.mocked(nativeLibraries.catalog).mockResolvedValue([]);
+  vi.mocked(nativeLibraries.status).mockResolvedValue({status: "complete", count: 4, warnings: []});
+  vi.mocked(nativeLibraries.scan).mockResolvedValue(undefined);
+  vi.mocked(nativeLibraries.remove).mockResolvedValue(undefined);
   mount(<NativeLibrariesSection />);
-  fireEvent.click(await screen.findByRole("button", {name: "Open library"}));
-  expect(await screen.findByRole("button", {name: "Scan library"})).toBeTruthy();
-  expect(screen.getByRole("button", {name: "Delete library"})).toBeTruthy();
+  fireEvent.click(await screen.findByRole("button", {name: "Scan files"}));
+  await waitFor(() => expect(nativeLibraries.scan).toHaveBeenCalledWith(saved.id));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await waitFor(() => expect((screen.getByRole("button", {name: "Delete library"}) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", {name: "Delete library"}));
+  expect(nativeLibraries.remove).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", {name: "Confirm deletion"}));
+  await waitFor(() => expect(nativeLibraries.remove).toHaveBeenCalledWith(saved.id, saved.revision));
+  expect(screen.queryByRole("dialog")).toBeNull();
 });

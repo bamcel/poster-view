@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, ChevronRight, Folder, FolderPlus, Loader2, Pencil, Plus, Search, X } from "lucide-react";
-import NativeCatalogPanel from "./NativeCatalogPanel";
 import { defaultNativeOptions, nativeLibraries, type NativeLibrary, type NativeLibraryInput, type NativeLibraryType } from "../api/nativeLibraries";
 
 const TYPES: Record<NativeLibraryType, string> = { movies: "Movies", shows: "TV Shows", anime: "Anime", books: "Books" };
@@ -17,7 +16,6 @@ function overlap(paths: string[]): boolean {
 
 export default function NativeLibrariesSection() {
   const libraries = useQuery({ queryKey: ["native-libraries"], queryFn: nativeLibraries.list });
-  const [catalogLibrary, setCatalogLibrary] = useState<NativeLibrary | null>(null);
   const [editing, setEditing] = useState<NativeLibrary | "new" | null>(null);
   const client = useQueryClient();
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -28,7 +26,7 @@ export default function NativeLibrariesSection() {
         <p className="mt-1 max-w-xl text-sm text-muted">Organize your mounted media independently of connected servers.</p></div>
       <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-base" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />Add library</button>
     </div>
-    <p className="my-5 rounded-xl border border-edge bg-panel p-4 text-sm text-muted">New libraries scan after creation. Local metadata and artwork take priority; missing information can be fetched from providers. Open a library to browse, scan again, or delete its configuration.</p>
+    <p className="my-5 rounded-xl border border-edge bg-panel p-4 text-sm text-muted">New libraries scan after creation. Local metadata and artwork take priority; missing information can be fetched from providers. Scan files or delete a library directly from its card.</p>
     {libraries.isPending && <p role="status" className="text-muted">Loading libraries…</p>}
     {libraries.error && <div role="alert" className="text-danger">{libraries.error.message} <button className={BUTTON} onClick={() => void libraries.refetch()}>Retry</button></div>}
     {libraries.data?.length === 0 && <div className="rounded-2xl border border-dashed border-edge p-10 text-center text-muted"><FolderPlus className="mx-auto mb-3 size-8 text-accent" /><p>No native libraries yet.</p><p className="mt-1 text-sm">Choose a type and select folders inside /media to get started.</p></div>}
@@ -36,11 +34,26 @@ export default function NativeLibrariesSection() {
       <div className="flex items-start justify-between gap-3"><div><h3 className="font-medium text-white">{library.name}</h3><p className="mt-1 text-xs text-accent">{TYPES[library.library_type]}{library.library_type === "anime" ? ` · ${library.anime_content === "both" ? "Shows and movies" : library.anime_content === "shows" ? "Shows only" : "Movies only"}` : ""}</p></div>
         <button aria-label={`Edit ${library.name}`} className={BUTTON} onClick={event => { trigger.current = event.currentTarget; setEditing(library); }}><Pencil className="size-4" /></button></div>
       <ul className="mt-4 space-y-1 text-xs text-muted">{library.paths.map(path => <li className="break-all" key={path}>{displayPath(path)}</li>)}</ul>
-      <button className={`${BUTTON} mt-4`} onClick={() => setCatalogLibrary(library)}>Open library</button>
+      <LibraryActions library={library} />
     </article>)}</div>
-    {catalogLibrary && <NativeCatalogPanel library={catalogLibrary} onClose={() => setCatalogLibrary(null)} onDeleted={() => {setCatalogLibrary(null); void client.invalidateQueries({queryKey: ["native-libraries"]});}} />}
     {editing && <LibraryDialog library={editing === "new" ? undefined : editing} onClose={close} onSaved={() => { void client.invalidateQueries({ queryKey: ["native-libraries"] }); close(); }} />}
   </section>;
+}
+
+function LibraryActions({ library }: { library: NativeLibrary }) {
+  const client = useQueryClient();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const status = useQuery({ queryKey: ["native-scan", library.id], queryFn: () => nativeLibraries.status(library.id), refetchInterval: query => query.state.data?.status === "scanning" ? 2000 : false });
+  const scan = useMutation({ mutationFn: () => nativeLibraries.scan(library.id), onSuccess: () => { void client.invalidateQueries({queryKey: ["native-scan", library.id]}); } });
+  const remove = useMutation({ mutationFn: () => nativeLibraries.remove(library.id, library.revision), onSuccess: () => { void client.invalidateQueries({queryKey: ["native-libraries"]}); } });
+  const busy = status.data?.status === "scanning" || scan.isPending || remove.isPending;
+  return <div className="mt-4 space-y-3">
+    {status.data && <p role="status" className="text-xs text-muted">{status.data.status === "scanning" ? "Scanning files…" : status.data.status.replaceAll("_", " ")} · {status.data.count} items</p>}
+    <div className="flex flex-wrap gap-2"><button className={BUTTON} disabled={busy} onClick={() => scan.mutate()}>Scan files</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={() => setConfirmDelete(true)}>Delete library</button></div>
+    {confirmDelete && <div className="rounded-xl border border-edge bg-base p-3"><p className="text-sm text-muted">Delete {library.name}? Media and NFO files will be kept.</p><div className="mt-3 flex flex-wrap gap-2"><button className={BUTTON} disabled={busy} onClick={() => setConfirmDelete(false)}>Cancel</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={() => remove.mutate()}>Confirm deletion</button></div></div>}
+    {(scan.error || remove.error || status.error) && <p role="alert" className="text-sm text-danger">{(scan.error || remove.error || status.error)?.message}</p>}
+    {!!status.data?.warnings.length && <details className="text-xs text-muted"><summary className="cursor-pointer">{status.data.warnings.length} scan notices</summary><ul className="mt-2 space-y-1">{status.data.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul></details>}
+  </div>;
 }
 
 export function LibraryDialog({ library, onClose, onSaved }: { library?: NativeLibrary; onClose: () => void; onSaved: () => void }) {
@@ -109,7 +122,7 @@ export function LibraryDialog({ library, onClose, onSaved }: { library?: NativeL
               ["fetch_missing", "Fetch missing metadata and artwork", "Use AniList for Anime and Books, and TMDB for movies, shows, and episode details. TMDB uses the credential in Search Providers. Uncertain matches need review."],
             ] as const).map(([key, label, help]) => <label key={key} className="flex items-start gap-3 rounded-xl border border-edge bg-base p-4"><input type="checkbox" className="mt-1 size-4 accent-accent" aria-label={label} checked={draft.options?.[key] ?? defaultNativeOptions[key]} onChange={e => setDraft(previous => ({...previous, options: {...defaultNativeOptions, ...previous.options, [key]: e.target.checked}}))} /><span><span className="text-sm font-medium text-white">{label}</span><span className="mt-1 block text-xs leading-relaxed text-muted">{help}</span></span></label>)}
           </div>}
-          {step === 3 && <div className="space-y-5"><div><h3 className="font-medium text-white">Review your library</h3><p className="mt-1 text-sm text-muted">Folders are validated before the configuration is saved.</p></div><dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm"><dt className="text-faint">Name</dt><dd className="break-all text-white">{draft.name || "Not set"}</dd><dt className="text-faint">Type</dt><dd className="text-white">{TYPES[draft.library_type]}</dd>{draft.library_type === "anime" && <><dt className="text-faint">Content</dt><dd className="text-white">{draft.anime_content === "both" ? "Shows and movies" : draft.anime_content === "shows" ? "Shows only" : "Movies only"}</dd></>}</dl><div className="rounded-xl border border-edge p-4"><h4 className="mb-2 text-sm text-white">Media roots</h4>{draft.paths.map(p => <p key={p} className="break-all text-sm text-muted">{displayPath(p)}</p>)}</div><p className="text-sm text-muted">New libraries scan after saving. Local files are written only when Save metadata to NFO is enabled. Existing libraries can be scanned from Open library.</p>{(basicsInvalid || pathsInvalid) && <p role="alert" className="text-sm text-danger">Enter a name and select 1–32 folders without overlaps before saving.</p>}</div>}
+          {step === 3 && <div className="space-y-5"><div><h3 className="font-medium text-white">Review your library</h3><p className="mt-1 text-sm text-muted">Folders are validated before the configuration is saved.</p></div><dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm"><dt className="text-faint">Name</dt><dd className="break-all text-white">{draft.name || "Not set"}</dd><dt className="text-faint">Type</dt><dd className="text-white">{TYPES[draft.library_type]}</dd>{draft.library_type === "anime" && <><dt className="text-faint">Content</dt><dd className="text-white">{draft.anime_content === "both" ? "Shows and movies" : draft.anime_content === "shows" ? "Shows only" : "Movies only"}</dd></>}</dl><div className="rounded-xl border border-edge p-4"><h4 className="mb-2 text-sm text-white">Media roots</h4>{draft.paths.map(p => <p key={p} className="break-all text-sm text-muted">{displayPath(p)}</p>)}</div><p className="text-sm text-muted">New libraries scan after saving. Local files are written only when Save metadata to NFO is enabled. Existing libraries can be scanned from their library card.</p>{(basicsInvalid || pathsInvalid) && <p role="alert" className="text-sm text-danger">Enter a name and select 1–32 folders without overlaps before saving.</p>}</div>}
           {save.error && <p role="alert" className="mt-5 text-sm text-danger">{save.error.message}</p>}
         </main>
       </div>

@@ -34,7 +34,7 @@ artwork references original media files; downloaded/uploaded images are managed 
 ## Scanning and browsing
 
 New libraries start a background scan after creation. Existing configurations must be scanned manually.
-Choose Open library, then Scan library. Local results are published before network enrichment;
+Choose Scan files directly on the library card. Local results are published before network enrichment;
 status refreshes while scanning. The catalog supports search, series/season/episode navigation,
 metadata editing, cast/crew editing, character information, and artwork upload.
 
