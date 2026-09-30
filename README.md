@@ -216,13 +216,13 @@ volume. Do not delete or recreate the volume. Compose keeps the `posterview-data
 volume name and mounts it at `/config`. An explicit `POSTERVIEW_DATA_DIR` overrides
 auto-detection; update that value too if you previously set it yourself. When both
 locations contain state, `/config` takes precedence. Nothing is moved or merged.
-The development Unraid template defaults its optional **Media Path** container mount to `/data`
-and sets `POSTERVIEW_MEDIA_DIR=/data`. The variable must match that mount's **container path**,
-not the host directory. To use `/media`, `/tvshows`, or another absolute container path, change
-both the mount destination and `POSTERVIEW_MEDIA_DIR` together. Application data stays mounted
-at `/config`, with `POSTERVIEW_DATA_DIR=/config` explicitly set so the entrypoint cannot mistake
-the `/data` media mount for legacy application storage. Other container configurations retain
-the `/media` media-root default unless overridden.
+The development Unraid template defaults its optional **Media Path** container mount to `/data`.
+Change only its **Container Path** to use `/media`, `/tvshows`, or another absolute path.
+The entrypoint automatically detects a single media directory mount. Keep all media beneath
+one common root. Application storage stays at `/config`, with a hidden
+`POSTERVIEW_DATA_DIR=/config` setting to prevent legacy detection of the `/data` media mount.
+An explicit `POSTERVIEW_MEDIA_DIR` remains available for advanced setups and takes precedence.
+Without a media mount, the media root falls back to `/media`.
 
 PosterView's administrator username defaults to `admin`. Change it with `POSTERVIEW_USERNAME`
 in your `.env` file or the **Administrator Username** field in the Unraid XML template, then
@@ -331,10 +331,9 @@ UI to port `7979`, persists `/config` to `/mnt/user/appdata/posterview`, and add
 
 For the development template, use the raw URL above with `main` replaced by `development`
 and choose the `development` image branch. Its media container path defaults to `/data`.
-Keep **Config** mounted at `/config` and **Application Data Directory** set to `/config`.
-**Media Directory** (`POSTERVIEW_MEDIA_DIR`) must match **Media Path**'s container destination;
-change both together when using `/media`, `/tvshows`, or another absolute root. Existing
-installations need these fields updated manually; fetching a template does not remap saved containers.
+Keep **Config** mounted at `/config`. Change only **Media Path**'s container destination.
+Existing containers must remove their old `POSTERVIEW_MEDIA_DIR` variable to enable automatic
+detection and retain `POSTERVIEW_DATA_DIR=/config`. Image updates do not update saved templates.
 
 Unraid's own **Template repositories** field (Add Container → scroll to the bottom → paste the
 same raw URL → Save) is the "official" way to register a template and should also work. The

@@ -119,12 +119,14 @@ Keep NFO-managed folders beneath `POSTERVIEW_MEDIA_DIR` (normally `/media`). The
 runs as UID/GID 10001 and needs directory traversal and write permission. Never mount the media
 library over `/config`, which is reserved for PosterView's database and caches.
 
-The development Unraid template defaults media to `/data` and exposes
-`POSTERVIEW_MEDIA_DIR=/data`. Match that variable to the media mount's absolute container
-destination (for example `/media` or `/tvshows` when customized), not its host path.
-Keep the appdata mount at `/config` and `POSTERVIEW_DATA_DIR=/config` so `/data` is never
-selected as legacy application storage. Local NFO edition detection and colored effects
-follow the configured media root.
+The development Unraid template defaults media to `/data`. Change only the mount's
+**Container Path** to `/media`, `/tvshows`, or another absolute directory. The entrypoint
+automatically detects a single media directory mount without exposing a media variable.
+Keep appdata at `/config`; the template sets `POSTERVIEW_DATA_DIR=/config` internally.
+NFO reading and colored manga effects follow the detected media root; reader preferences
+remain in `/config/reader.sqlite`. Remove any old `POSTERVIEW_MEDIA_DIR` override when
+switching an existing container to automatic detection. Use your chosen root in place of
+`/media` in the examples.
 
 ## Troubleshooting
 

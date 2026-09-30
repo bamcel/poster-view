@@ -83,12 +83,14 @@ def validate_template(source: Path) -> None:
         targets.add(target)
 
     configs = {config.attrib["Target"]: config for config in root.findall("Config")}
-    for target, value in (("POSTERVIEW_DATA_DIR", "/config"), ("POSTERVIEW_MEDIA_DIR", "/data")):
+    for target, value in (("POSTERVIEW_DATA_DIR", "/config"),):
         config = configs.get(target)
         if config is None or config.attrib.get("Type") != "Variable":
             fail(f"{source}: {target} must be exposed as a variable")
         if config.attrib.get("Default") != value or (config.text or "").strip() != value:
             fail(f"{source}: {target} must default to {value}")
+    if "POSTERVIEW_MEDIA_DIR" in configs:
+        fail(f"{source}: media root must be auto-detected, not exposed as a variable")
     for target in ("/config", "/data"):
         config = configs.get(target)
         if config is None or config.attrib.get("Type") != "Path":

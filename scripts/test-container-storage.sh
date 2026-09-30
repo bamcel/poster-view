@@ -45,6 +45,13 @@ fi
 expected=/config
 case "$scenario" in
     fresh) ;;
+    auto-media)
+        export POSTERVIEW_DATA_DIR=/config
+        mkdir -p "${2:?media mount required}/Manga"
+        printf '<series><edition>Colored</edition></series>' > "$2/Manga/Manga.nfo"
+        export detected_media="$2"
+        mountpoint -q "$2"
+        ;;
     unraid-media)
         export POSTERVIEW_DATA_DIR=/config POSTERVIEW_MEDIA_DIR=/data
         mkdir -p /data/Manga
@@ -83,6 +90,11 @@ export expected scenario
     test "$POSTERVIEW_DATA_DIR" = "$expected"
     test "$(id -u)" = 10001
     test -w "$expected"
+    if [ "$scenario" = auto-media ]; then
+        test "$POSTERVIEW_DATA_DIR" = /config
+        test "$POSTERVIEW_MEDIA_DIR" = "$detected_media"
+        test -r "$POSTERVIEW_MEDIA_DIR/Manga/Manga.nfo"
+    fi
     if [ "$scenario" = unraid-media ]; then
         test "$POSTERVIEW_DATA_DIR" = /config
         test "$POSTERVIEW_MEDIA_DIR" = /data

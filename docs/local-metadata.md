@@ -14,11 +14,14 @@ rename the file.
 `/config` stores PosterView's database, credentials, settings, and caches. Keep that volume and add
 a separate writable media bind mount at `/media`:
 
-The development Unraid template instead defaults media to `/data` and explicitly sets
-`POSTERVIEW_MEDIA_DIR=/data` and `POSTERVIEW_DATA_DIR=/config`. Keep appdata mounted at
-`/config`. The media variable must match the media mount's container destination; changing
-it to `/media`, `/tvshows`, or another absolute path also requires changing the mount destination.
-For that template, replace `/media` in the examples below with your chosen media root.
+The development Unraid template defaults media to `/data`. Change only the mount's
+**Container Path** to `/media`, `/tvshows`, or another absolute directory. The entrypoint
+automatically detects a single media directory mount without exposing a media variable.
+Keep appdata at `/config`; the template sets `POSTERVIEW_DATA_DIR=/config` internally.
+NFO reading and colored manga effects follow the detected media root; reader preferences
+remain in `/config/reader.sqlite`. Remove any old `POSTERVIEW_MEDIA_DIR` override when
+switching an existing container to automatic detection. Use your chosen root in place of
+`/media` in the examples.
 
 ```text
 /media/
@@ -50,7 +53,7 @@ ownership. Mount media under `/media`, not `/config`; `/config` is application s
 libraries may be mounted beneath `/media`.
 
 For a native installation, set `POSTERVIEW_MEDIA_DIR` to an absolute common media root before
-starting the server. In the container it normally remains `/media`. PosterView rejects local paths
+starting the server. Containers detect a single media directory mount; an explicit override takes precedence. PosterView rejects local paths
 outside this root.
 
 ## Review and save metadata
