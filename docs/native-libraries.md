@@ -1,7 +1,7 @@
 # Native libraries: initial foundation
 
 Settings → Libraries creates and edits native configurations without importing a connected server.
-The dialog has Basics, Folders, and Review sections. Movies, TV Shows, Anime, and Books are supported
+The dialog has General, Folders, and Review sections. Movies, TV Shows, Anime, and Books are supported
 configuration types; Anime defaults to shows and movies. These configurations are not yet indexed
 or exposed as browsable native catalogs. Automatic scanning, provider enrichment, and native reader
 integration are subsequent work. No settings for unavailable services are exposed.

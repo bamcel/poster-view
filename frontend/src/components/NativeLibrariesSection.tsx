@@ -7,7 +7,7 @@ import { nativeLibraries, type NativeLibrary, type NativeLibraryInput, type Nati
 const TYPES: Record<NativeLibraryType, string> = { movies: "Movies", shows: "TV Shows", anime: "Anime", books: "Books" };
 const INPUT = "w-full rounded-xl border border-edge bg-base px-3 py-2.5 text-sm text-white focus:border-accent focus:outline-none";
 const BUTTON = "rounded-xl border border-edge px-3 py-2 text-sm text-muted hover:bg-base hover:text-white disabled:opacity-50";
-const STEPS = ["Basics", "Folders", "Review"];
+const STEPS = ["General", "Folders", "Review"];
 const displayPath = (path: string) => `/media${path ? `/${path}` : ""}`;
 
 function overlap(paths: string[]): boolean {
@@ -80,7 +80,7 @@ export function LibraryDialog({ library, onClose, onSaved }: { library?: NativeL
         <nav aria-label="Library setup sections" className="flex gap-2 border-b border-edge p-3 sm:w-44 sm:shrink-0 sm:flex-col sm:border-b-0 sm:border-r">{STEPS.map((label, index) => <button key={label} aria-current={step === index ? "step" : undefined} disabled={save.isPending} onClick={() => setStep(index)} className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm ${step === index ? "bg-accent/15 text-accent" : "text-muted hover:bg-base"}`}><span className="text-xs opacity-60">{index + 1}</span>{label}</button>)}</nav>
         <main className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-7">
           {discard && <div className="mb-5 rounded-xl border border-edge bg-base p-4" role="alert"><p className="text-sm text-white">Discard your unsaved changes?</p><div className="mt-3 flex gap-2"><button className={BUTTON} onClick={() => setDiscard(false)}>Keep editing</button><button className={`${BUTTON} text-danger`} onClick={onClose}>Discard changes</button></div></div>}
-          {step === 0 && <div className="space-y-6"><div><h3 className="font-medium text-white">Library basics</h3><p className="mt-1 text-sm text-muted">Choose how this collection is organized.</p></div>
+          {step === 0 && <div className="space-y-6"><div><h3 className="font-medium text-white">General</h3><p className="mt-1 text-sm text-muted">Choose how this collection is organized.</p></div>
             <label className="block text-sm text-muted">Name<input autoComplete="off" maxLength={120} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} className={`${INPUT} mt-2`} placeholder="e.g. Anime, Movies, Manga" /></label>
             <label className="block text-sm text-muted">Library type<select className={`${INPUT} mt-2`} value={draft.library_type} onChange={e => setDraft({ ...draft, library_type: e.target.value as NativeLibraryType })}>{Object.entries(TYPES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             {draft.library_type === "anime" && <label className="block text-sm text-muted">Anime content<select aria-label="Anime content" aria-describedby="anime-content-help" className={`${INPUT} mt-2`} value={draft.anime_content} onChange={e => setDraft({ ...draft, anime_content: e.target.value as NativeLibraryInput["anime_content"] })}><option value="both">Shows and movies</option><option value="shows">Shows only</option><option value="movies">Movies only</option></select><span id="anime-content-help" className="mt-2 block text-xs text-faint">Anime is a dedicated library type. Each title will retain its movie or series identity.</span></label>}
