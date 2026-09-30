@@ -559,6 +559,12 @@ mod scan_tests {
             "<movie><title>Film</title><year>2020</year><tag>Favorite</tag></movie>",
         )
         .unwrap();
+        for folder in ["backdrops", "Backdrops", "backdrop"] {
+            let extras = series.parent().unwrap().join(folder);
+            fs::create_dir_all(extras.join("nested")).unwrap();
+            fs::write(extras.join("NCOP.mp4"), b"fixture").unwrap();
+            fs::write(extras.join("nested/NCED.S01E99.mkv"), b"fixture").unwrap();
+        }
         let db = store(&state);
         db.set_setting("existing", "untouched").unwrap();
         let library = db

@@ -74,3 +74,5 @@ Migration 2 adds library source options, stable path-to-item mappings, scan stat
 and NFO XML storage to migration 1's catalog foundations. Both migrations preserve existing settings,
 connections, history, credentials, and reader storage. Scan ingestion is transactional; manual field
 protection, local-source priority, hierarchy, and relational projections apply within that transaction.
+
+Backdrop folders (`backdrop` and `backdrops`, case-insensitive) are excluded from recursive media scans, including nested NCOP/NCED videos. Original files are left untouched.

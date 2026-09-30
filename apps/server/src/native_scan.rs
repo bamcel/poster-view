@@ -56,6 +56,11 @@ fn walk(
             continue;
         }
         if kind.is_dir() {
+            // Backdrop directories can contain theme/credit videos, not library items.
+            let name = child.file_name().to_string_lossy().to_ascii_lowercase();
+            if matches!(name.as_str(), "backdrop" | "backdrops") {
+                continue;
+            }
             state.metadata.directory(&relative(root, &path)?, true)?;
             walk(state, root, &path, files, depth + 1)?;
         } else if kind.is_file() {
