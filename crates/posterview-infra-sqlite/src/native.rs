@@ -153,6 +153,48 @@ fn validate(input: &NativeLibraryInput) -> Result<(), StoreError> {
     if input.paths.is_empty() || input.paths.len() > 32 {
         return Err(invalid("Select between 1 and 32 media folders."));
     }
+    let options = &input.options;
+    if !["en", "ja", "fr", "de", "es", "it", "pt", "ko", "zh"]
+        .contains(&options.metadata_language.as_str())
+        || !["en", "ja", "fr", "de", "es", "it", "pt", "ko", "zh"]
+            .contains(&options.image_language.as_str())
+        || ![
+            "US", "GB", "JP", "CA", "AU", "FR", "DE", "ES", "IT", "BR", "KR", "CN",
+        ]
+        .contains(&options.certification_country.as_str())
+        || options.sample_ignore_mb > 10000
+    {
+        return Err(invalid(
+            "Invalid library language, country, or sample size.",
+        ));
+    }
+    for providers in [&options.metadata_providers, &options.image_providers] {
+        for (kind, list) in providers {
+            if !["movie", "series", "episode", "book_series"].contains(&kind.as_str())
+                || list.len() > 2
+                || list
+                    .iter()
+                    .any(|p| !["anilist", "tmdb"].contains(&p.as_str()))
+                || list.iter().enumerate().any(|(i, p)| list[..i].contains(p))
+                || (kind == "episode" && list.iter().any(|p| p != "tmdb"))
+                || (kind == "book_series" && list.iter().any(|p| p != "anilist"))
+                || (matches!(
+                    input.library_type,
+                    posterview_contracts::native::NativeLibraryType::Movies
+                        | posterview_contracts::native::NativeLibraryType::Shows
+                ) && list.iter().any(|p| p == "anilist"))
+            {
+                return Err(invalid("Invalid metadata or image provider order."));
+            }
+        }
+    }
+    if options
+        .image_types
+        .iter()
+        .any(|v| !["poster", "backdrop", "thumb", "logo", "banner"].contains(&v.as_str()))
+    {
+        return Err(invalid("Invalid image type."));
+    }
     for (i, path) in input.paths.iter().enumerate() {
         if !path.is_empty()
             && path
@@ -392,6 +434,44 @@ impl ServerStore {
 mod tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryType};
+    #[test]
+    fn library_options_roundtrip_and_reject_invalid_provider_orders() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ServerStore::new(dir.path());
+        store.initialize().unwrap();
+        let mut input = NativeLibraryInput {
+            name: "Anime".into(),
+            library_type: NativeLibraryType::Anime,
+            anime_content: AnimeContent::Both,
+            paths: vec!["Anime".into()],
+            revision: None,
+            options: Default::default(),
+        };
+        input.options.metadata_language = "ja".into();
+        input.options.certification_country = "JP".into();
+        input
+            .options
+            .metadata_providers
+            .insert("series".into(), vec!["tmdb".into(), "anilist".into()]);
+        input
+            .options
+            .image_providers
+            .insert("series".into(), vec![]);
+        let saved = store.save_native_library(None, &input).unwrap();
+        assert_eq!(store.native_libraries().unwrap()[0].options, saved.options);
+        input
+            .options
+            .metadata_providers
+            .insert("series".into(), vec!["tmdb".into(), "tmdb".into()]);
+        assert!(store.save_native_library(None, &input).is_err());
+        input.options.metadata_providers.clear();
+        input.options.sample_ignore_mb = 10001;
+        assert!(store.save_native_library(None, &input).is_err());
+        let old: posterview_contracts::native::NativeLibraryOptions =
+            serde_json::from_str(r#"{"read_nfo":false}"#).unwrap();
+        assert!(!old.read_nfo);
+        assert_eq!(old.metadata_language, "en");
+    }
     #[test]
     fn upgrade_preserves_settings_and_library_edits_are_atomic() {
         let dir = tempfile::tempdir().unwrap();

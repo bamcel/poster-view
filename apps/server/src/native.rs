@@ -533,6 +533,45 @@ mod scan_tests {
             )),
         }
     }
+    #[test]
+    fn sample_size_setting_controls_inclusion() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let media = temp.path().join("media/Movies");
+        fs::create_dir_all(&media).unwrap();
+        fs::write(media.join("Film.sample.mp4"), b"fixture").unwrap();
+        let db = store(&state);
+        let mut library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        assert!(
+            crate::native_scan::collect(&state, &library)
+                .unwrap()
+                .0
+                .is_empty()
+        );
+        library.options.sample_ignore_mb = 0;
+        assert_eq!(
+            crate::native_scan::collect(&state, &library)
+                .unwrap()
+                .0
+                .len(),
+            1
+        );
+    }
     #[tokio::test]
     async fn scans_mixed_anime_preserves_manual_edits_and_deletes_only_catalog() {
         let temp = tempfile::tempdir().unwrap();

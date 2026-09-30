@@ -76,3 +76,35 @@ connections, history, credentials, and reader storage. Scan ingestion is transac
 protection, local-source priority, hierarchy, and relational projections apply within that transaction.
 
 Backdrop folders (`backdrop` and `backdrops`, case-insensitive) are excluded from recursive media scans, including nested NCOP/NCED videos. Original files are left untouched.
+
+## Library settings
+
+Creation and editing use General, Folders, Library Settings, Metadata, Artwork,
+Advanced, and Review sections. Existing settings JSON receives defaults for new
+options without a destructive database migration.
+
+Working options:
+
+- Metadata language and certification country for TMDB; AniList title preference
+  uses English or Japanese (other languages fall back to English/Romaji).
+- Preferred TMDB image language, with neutral images and provider defaults as fallbacks.
+- Embedded video title fallback when no NFO title exists; internet identification
+  can replace this fallback, but local NFO and manual values keep priority.
+- Ignore filenames containing `sample` below a chosen size in MiB (default 300,
+  0 disables the rule). Backdrop directories remain excluded.
+- NFO reader and saver, local artwork, internet gap filling, adult metadata matching.
+- Independent metadata and image provider enablement/order per media type. Explicit
+  empty lists disable every source for that type. Lower priority sources fill gaps.
+  AniList supports Anime movies/series and manga book series; TMDB supports movies,
+  series, and episodes. TMDB credentials remain in Search Providers.
+- Download toggles for poster, backdrop, thumbnail, logo, and banner artwork.
+  One missing image per selected type is downloaded when a provider offers it;
+  local artwork remains independent of these download toggles.
+
+Unavailable features are visible but disabled and labeled: extra providers,
+season internet fetchers, real-time monitoring, global-search exclusion, merged
+folder view, `.plexignore`, automatic series grouping, scheduled metadata refresh,
+collections, minimum artwork width, artwork writeback/local caching, lazy image
+fetching, chapter generation, and video resume settings. They do not save active
+options or promise background behavior. Provider artwork is currently downloaded
+during a scan into application data; manual scans retain populated metadata.

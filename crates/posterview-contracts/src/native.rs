@@ -71,6 +71,15 @@ pub struct NativeLibraryOptions {
     pub save_nfo: bool,
     pub local_artwork: bool,
     pub fetch_missing: bool,
+    pub metadata_language: String,
+    pub certification_country: String,
+    pub image_language: String,
+    pub prefer_embedded_titles: bool,
+    pub sample_ignore_mb: u32,
+    pub allow_adult_metadata: bool,
+    pub metadata_providers: std::collections::BTreeMap<String, Vec<String>>,
+    pub image_providers: std::collections::BTreeMap<String, Vec<String>>,
+    pub image_types: Vec<String>,
 }
 impl Default for NativeLibraryOptions {
     fn default() -> Self {
@@ -79,6 +88,18 @@ impl Default for NativeLibraryOptions {
             save_nfo: false,
             local_artwork: true,
             fetch_missing: true,
+            metadata_language: "en".into(),
+            certification_country: "US".into(),
+            image_language: "en".into(),
+            prefer_embedded_titles: false,
+            sample_ignore_mb: 300,
+            allow_adult_metadata: false,
+            metadata_providers: Default::default(),
+            image_providers: Default::default(),
+            image_types: ["poster", "backdrop", "thumb", "logo", "banner"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
         }
     }
 }

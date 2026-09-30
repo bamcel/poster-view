@@ -395,6 +395,18 @@ pub(crate) fn collect(
         let dir = file
             .parent()
             .ok_or_else(|| bad("Missing media directory."))?;
+        let info = fs::metadata(&file).map_err(bad)?;
+        if library.options.sample_ignore_mb > 0
+            && file
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .contains("sample")
+            && info.len() < u64::from(library.options.sample_ignore_mb) * 1024 * 1024
+        {
+            continue;
+        }
         let stem = file
             .file_stem()
             .unwrap_or_default()
@@ -559,7 +571,6 @@ pub(crate) fn collect(
         if library.options.local_artwork {
             entry.artwork = local_art(&root, dir, Some(&stem));
         }
-        let info = fs::metadata(&file).map_err(bad)?;
         let media_info = if !books && !probe_unavailable {
             match probe(&file) {
                 Ok(v) => v,
@@ -576,6 +587,18 @@ pub(crate) fn collect(
         } else {
             Value::Null
         };
+        if library.options.prefer_embedded_titles
+            && entry.metadata["_sources"]["title"] == "filename"
+        {
+            if let Some(title) = media_info["format"]["tags"]["title"]
+                .as_str()
+                .filter(|v| !v.trim().is_empty())
+            {
+                entry.title = title.trim().into();
+                entry.metadata["title"] = json!(entry.title);
+                entry.metadata["_sources"]["title"] = json!("embedded");
+            }
+        }
         entry.files.push(json!({"media_info":media_info,"path":file_path,"size":info.len(),"modified":info.modified().ok().and_then(|m|m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_secs().to_string()),"extension":ext}));
         entries.insert(file_path, entry);
     }

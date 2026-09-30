@@ -21,7 +21,10 @@ fn fill(entry: &mut NativeCatalogEntry, field: &str, value: Value, source: &str)
     if missing(&value) {
         return;
     }
-    let from_filename = entry.metadata["_sources"][field].as_str() == Some("filename");
+    let from_filename = matches!(
+        entry.metadata["_sources"][field].as_str(),
+        Some("filename" | "embedded")
+    );
     if missing(&entry.metadata[field]) || (field == "title" && from_filename) {
         entry.metadata[field] = value;
         entry.metadata["_sources"][field] = json!(source);
@@ -103,6 +106,7 @@ async fn anilist(
     client: &reqwest::Client,
     entry: &NativeCatalogEntry,
     manga: bool,
+    allow_adult: bool,
 ) -> Result<Value, String> {
     let id = entry.metadata["identifiers"]["anilist"]
         .as_str()
@@ -112,7 +116,7 @@ async fn anilist(
     let selected = if let Some(id) = id {
         id
     } else {
-        let body=response(client.post("https://graphql.anilist.co").json(&json!({"query":"query($search:String,$type:MediaType){Page(perPage:10){media(search:$search,type:$type){id format title{english romaji native} startDate{year}}}}","variables":{"search":search_title(entry),"type":media_type}})).send().await.map_err(|_|"AniList connection failed.")?).await?;
+        let body=response(client.post("https://graphql.anilist.co").json(&json!({"query":"query($search:String,$type:MediaType,$adult:Boolean){Page(perPage:10){media(search:$search,type:$type,isAdult:$adult){id format title{english romaji native} startDate{year}}}}","variables":{"search":search_title(entry),"type":media_type,"adult":if allow_adult {Value::Null} else {json!(false)}}})).send().await.map_err(|_|"AniList connection failed.")?).await?;
         let candidates = body["data"]["Page"]["media"]
             .as_array()
             .ok_or("AniList search failed.")?;
@@ -120,16 +124,25 @@ async fn anilist(
             .as_i64()
             .ok_or("Invalid AniList ID.")?
     };
-    response(client.post("https://graphql.anilist.co").json(&json!({"query":"query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors(language:JAPANESE){id name{full} image{large}}}} staff(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}","variables":{"id":selected,"type":media_type}})).send().await.map_err(|_|"AniList connection failed.")?).await
+    response(client.post("https://graphql.anilist.co").json(&json!({"query":"query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors(language:JAPANESE){id name{full} image{large}}}} staff(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}","variables":{"id":selected,"type":media_type}})).send().await.map_err(|_|"AniList connection failed.")?).await
 }
 async fn tmdb(
     client: &reqwest::Client,
     entry: &NativeCatalogEntry,
     token: &str,
     series_id: Option<&str>,
+    options: &posterview_contracts::native::NativeLibraryOptions,
 ) -> Result<Value, String> {
     let request = |path: String| {
-        let r = client.get(format!("https://api.themoviedb.org/3/{path}"));
+        let r = client
+            .get(format!("https://api.themoviedb.org/3/{path}"))
+            .query(&[
+                ("language", options.metadata_language.as_str()),
+                (
+                    "include_image_language",
+                    &format!("{},null", options.image_language),
+                ),
+            ]);
         if token.len() == 32 {
             r.query(&[("api_key", token)])
         } else {
@@ -174,7 +187,10 @@ async fn tmdb(
     } else {
         let body = response(
             request(format!("search/{kind}"))
-                .query(&[("query", search_title(entry))])
+                .query(&[
+                    ("query", search_title(entry)),
+                    ("include_adult", options.allow_adult_metadata.to_string()),
+                ])
                 .send()
                 .await
                 .map_err(|_| "TMDB connection failed.")?,
@@ -188,12 +204,35 @@ async fn tmdb(
     };
     response(
         request(format!("{kind}/{id}"))
-            .query(&[("append_to_response", "credits,external_ids,keywords,images")])
+            .query(&[(
+                "append_to_response",
+                if kind == "movie" {
+                    "credits,external_ids,keywords,images,release_dates"
+                } else {
+                    "credits,external_ids,keywords,images,content_ratings"
+                },
+            )])
             .send()
             .await
             .map_err(|_| "TMDB connection failed.")?,
     )
     .await
+}
+fn image_path<'a>(data: &'a Value, list: &str, fallback: &str, language: &str) -> Option<&'a str> {
+    let images = data["images"][list].as_array();
+    images
+        .and_then(|v| {
+            v.iter()
+                .find(|a| a["iso_639_1"] == language && a["file_path"].is_string())
+        })
+        .or_else(|| {
+            images.and_then(|v| {
+                v.iter()
+                    .find(|a| a["iso_639_1"].is_null() && a["file_path"].is_string())
+            })
+        })
+        .and_then(|a| a["file_path"].as_str())
+        .or(data[fallback].as_str())
 }
 async fn download(state: &AppState, client: &reqwest::Client, url: &str) -> Result<String, String> {
     let url = reqwest::Url::parse(url).map_err(|_| "Invalid artwork URL.")?;
@@ -299,239 +338,329 @@ pub(crate) async fn enrich(
             .iter()
             .all(|field| !missing(&entry.metadata[*field]));
         if metadata_complete
-            && entry.artwork.iter().any(|a| a.kind == "poster")
-            && entry.artwork.iter().any(|a| a.kind == "backdrop")
+            && library
+                .options
+                .image_types
+                .iter()
+                .all(|kind| entry.artwork.iter().any(|a| &a.kind == kind))
         {
             continue;
         }
-        let use_anilist = (library.library_type == NativeLibraryType::Anime
+        let default = if (library.library_type == NativeLibraryType::Anime
             || library.library_type == NativeLibraryType::Books)
-            && (missing(&entry.metadata["identifiers"]["tmdb"])
-                || !missing(&entry.metadata["identifiers"]["anilist"]));
-        let result = if use_anilist && entry.kind != "episode" {
-            anilist(
-                &client,
-                entry,
-                library.library_type == NativeLibraryType::Books,
-            )
-            .await
-        } else if !token.is_empty() {
-            let series = entry
-                .parent_path
-                .as_ref()
-                .map(|v| v.split("/@season-").next().unwrap_or(v));
-            tmdb(
-                &client,
-                entry,
-                &token,
-                series.and_then(|v| series_ids.get(v)).map(String::as_str),
-            )
-            .await
+            && entry.kind != "episode"
+        {
+            vec!["anilist".to_owned()]
         } else {
-            if !warnings.iter().any(|v| {
-                v == "TMDB credentials are not configured; video metadata fetching was skipped."
-            }) {
-                warnings.push(
-                    "TMDB credentials are not configured; video metadata fetching was skipped."
-                        .into(),
-                );
-            }
-            continue;
+            vec!["tmdb".to_owned()]
         };
-        let data = match result {
-            Ok(v) => v,
-            Err(e) => {
-                limited = e.contains("rate limit");
-                warnings.push(format!("{}: {e}", entry.title));
+        let metadata_order = library
+            .options
+            .metadata_providers
+            .get(&entry.kind)
+            .unwrap_or(&default);
+        let image_order = library
+            .options
+            .image_providers
+            .get(&entry.kind)
+            .unwrap_or(&default);
+        // Fetch each provider once; metadata and artwork have independent priorities.
+        let mut providers = metadata_order.clone();
+        for provider in image_order {
+            if !providers.contains(provider) {
+                providers.push(provider.clone());
+            }
+        }
+        let mut image_candidates = BTreeMap::<String, Vec<(String, String)>>::new();
+        for provider_name in providers {
+            if limited {
+                break;
+            }
+            let use_anilist = provider_name == "anilist";
+            let result = if use_anilist && entry.kind != "episode" {
+                anilist(
+                    &client,
+                    entry,
+                    library.library_type == NativeLibraryType::Books,
+                    library.options.allow_adult_metadata,
+                )
+                .await
+            } else if !token.is_empty() {
+                let series = entry
+                    .parent_path
+                    .as_ref()
+                    .map(|v| v.split("/@season-").next().unwrap_or(v));
+                tmdb(
+                    &client,
+                    entry,
+                    &token,
+                    series.and_then(|v| series_ids.get(v)).map(String::as_str),
+                    &library.options,
+                )
+                .await
+            } else {
+                if !warnings.iter().any(|v| {
+                    v == "TMDB credentials are not configured; video metadata fetching was skipped."
+                }) {
+                    warnings.push(
+                        "TMDB credentials are not configured; video metadata fetching was skipped."
+                            .into(),
+                    );
+                }
+                continue;
+            };
+            let data = match result {
+                Ok(v) => v,
+                Err(e) => {
+                    limited = e.contains("rate limit");
+                    warnings.push(format!("{}: {e}", entry.title));
+                    continue;
+                }
+            };
+            let ani = use_anilist && entry.kind != "episode";
+            let provider = if ani { "anilist" } else { "tmdb" };
+            let data = if ani {
+                data["data"]["Media"].clone()
+            } else {
+                data
+            };
+            if data.is_null() {
+                warnings.push(format!("{}: provider returned no metadata.", entry.title));
                 continue;
             }
-        };
-        let ani = use_anilist && entry.kind != "episode";
-        let provider = if ani { "anilist" } else { "tmdb" };
-        let data = if ani {
-            data["data"]["Media"].clone()
-        } else {
-            data
-        };
-        if data.is_null() {
-            warnings.push(format!("{}: provider returned no metadata.", entry.title));
-            continue;
-        }
-        let mut fields = json!({});
-        let mut artwork = Vec::new();
-        if ani {
-            if data["characters"]["pageInfo"]["hasNextPage"] == true
-                || data["staff"]["pageInfo"]["hasNextPage"] == true
+            if !library.options.allow_adult_metadata
+                && (data["isAdult"] == true || data["adult"] == true)
             {
-                warnings.push(format!("{}: character/staff lists contain more than 100 entries; the initial scan stores the first 100 per list.",entry.title));
+                warnings.push(format!(
+                    "{}: adult metadata matching is disabled.",
+                    entry.title
+                ));
+                continue;
             }
-            fields["title"] = data["title"]["english"]
+            let mut fields = json!({});
+            let mut artwork = Vec::new();
+            if ani {
+                if data["characters"]["pageInfo"]["hasNextPage"] == true
+                    || data["staff"]["pageInfo"]["hasNextPage"] == true
+                {
+                    warnings.push(format!("{}: character/staff lists contain more than 100 entries; the initial scan stores the first 100 per list.",entry.title));
+                }
+                fields["title"] = data["title"][if library.options.metadata_language == "ja" {
+                    "native"
+                } else {
+                    "english"
+                }]
                 .as_str()
                 .or(data["title"]["romaji"].as_str())
                 .map(|v| json!(v))
                 .unwrap_or(Value::Null);
-            fields["originaltitle"] = data["title"]["native"].clone();
-            fields["plot"] = data["description"].clone();
-            fields["year"] = data["startDate"]["year"].clone();
-            fields["genres"] = data["genres"].clone();
-            fields["status"] = data["status"].clone();
-            fields["runtime"] = data["duration"].clone();
-            fields["volumes"] = data["volumes"].clone();
-            fields["episodes"] = data["episodes"].clone();
-            fields["tags"] = json!(
-                data["tags"]
-                    .as_array()
-                    .unwrap_or(&Vec::new())
-                    .iter()
-                    .filter_map(|v| v["name"].as_str())
-                    .collect::<Vec<_>>()
-            );
-            fields["studios"] = json!(
-                data["studios"]["nodes"]
-                    .as_array()
-                    .unwrap_or(&Vec::new())
-                    .iter()
-                    .filter_map(|v| v["name"].as_str())
-                    .collect::<Vec<_>>()
-            );
-            let mut characters = Vec::new();
-            let mut credits = Vec::new();
-            for edge in data["characters"]["edges"]
-                .as_array()
-                .unwrap_or(&Vec::new())
-            {
-                let node = &edge["node"];
-                characters.push(json!({"id":node["id"].to_string(),"name":node["name"]["full"],"biography":node["description"],"image":node["image"]["large"],"role":edge["role"]}));
-                for actor in edge["voiceActors"].as_array().unwrap_or(&Vec::new()) {
-                    credits.push(json!({"name":actor["name"]["full"],"provider_id":actor["id"],"role":node["name"]["full"],"category":"voice","image":actor["image"]["large"]}));
-                }
-            }
-            for edge in data["staff"]["edges"].as_array().unwrap_or(&Vec::new()) {
-                credits.push(json!({"name":edge["node"]["name"]["full"],"role":edge["role"],"provider_id":edge["node"]["id"],"category":"crew","image":edge["node"]["image"]["large"]}));
-            }
-            fields["characters"] = json!(characters);
-            fields["credits"] = json!(credits);
-            for (kind, value) in [
-                ("poster", &data["coverImage"]["extraLarge"]),
-                ("backdrop", &data["bannerImage"]),
-            ] {
-                if let Some(url) = value.as_str() {
-                    artwork.push((kind, url.to_owned()));
-                }
-            }
-        } else {
-            fields["title"] = data["title"]
-                .as_str()
-                .or(data["name"].as_str())
-                .map(|v| json!(v))
-                .unwrap_or(Value::Null);
-            fields["originaltitle"] = data["original_title"]
-                .as_str()
-                .or(data["original_name"].as_str())
-                .map(|v| json!(v))
-                .unwrap_or(Value::Null);
-            fields["plot"] = data["overview"].clone();
-            let date = data["release_date"]
-                .as_str()
-                .or(data["first_air_date"].as_str())
-                .or(data["air_date"].as_str());
-            fields["year"] = date
-                .and_then(|v| v.get(..4)?.parse::<i64>().ok())
-                .map(|v| json!(v))
-                .unwrap_or(Value::Null);
-            fields["premiered"] = date.map(|v| json!(v)).unwrap_or(Value::Null);
-            fields["runtime"] = data["runtime"].clone();
-            fields["status"] = data["status"].clone();
-            fields["rating"] = data["vote_average"].clone();
-            for (field, key) in [("genres", "genres"), ("studios", "production_companies")] {
-                fields[field] = json!(
-                    data[key]
+                fields["originaltitle"] = data["title"]["native"].clone();
+                fields["plot"] = data["description"].clone();
+                fields["year"] = data["startDate"]["year"].clone();
+                fields["genres"] = data["genres"].clone();
+                fields["status"] = data["status"].clone();
+                fields["runtime"] = data["duration"].clone();
+                fields["volumes"] = data["volumes"].clone();
+                fields["episodes"] = data["episodes"].clone();
+                fields["tags"] = json!(
+                    data["tags"]
                         .as_array()
                         .unwrap_or(&Vec::new())
                         .iter()
                         .filter_map(|v| v["name"].as_str())
                         .collect::<Vec<_>>()
                 );
-            }
-            let tags = data["keywords"]["keywords"]
-                .as_array()
-                .or(data["keywords"]["results"].as_array());
-            fields["tags"] = json!(
-                tags.unwrap_or(&Vec::new())
-                    .iter()
-                    .filter_map(|v| v["name"].as_str())
-                    .collect::<Vec<_>>()
-            );
-            let mut credits = Vec::new();
-            for (key, category) in [("cast", "cast"), ("crew", "crew")] {
-                for v in data["credits"][key].as_array().unwrap_or(&Vec::new()) {
-                    credits.push(json!({"name":v["name"],"role":v["character"].as_str().or(v["job"].as_str()),"category":category,"provider_id":v["id"],"image":v["profile_path"]}));
-                }
-            }
-            fields["credits"] = json!(credits);
-            for (kind, key) in [
-                ("poster", "poster_path"),
-                ("backdrop", "backdrop_path"),
-                ("thumb", "still_path"),
-            ] {
-                if let Some(path) = data[key].as_str() {
-                    artwork.push((kind, format!("https://image.tmdb.org/t/p/original{path}")));
-                }
-            }
-            for key in ["logos", "banners"] {
-                if let Some(path) = data["images"][key]
+                fields["studios"] = json!(
+                    data["studios"]["nodes"]
+                        .as_array()
+                        .unwrap_or(&Vec::new())
+                        .iter()
+                        .filter_map(|v| v["name"].as_str())
+                        .collect::<Vec<_>>()
+                );
+                let mut characters = Vec::new();
+                let mut credits = Vec::new();
+                for edge in data["characters"]["edges"]
                     .as_array()
-                    .and_then(|v| v.first())
-                    .and_then(|v| v["file_path"].as_str())
+                    .unwrap_or(&Vec::new())
                 {
-                    artwork.push((
-                        if key == "logos" { "logo" } else { "banner" },
-                        format!("https://image.tmdb.org/t/p/original{path}"),
-                    ));
+                    let node = &edge["node"];
+                    characters.push(json!({"id":node["id"].to_string(),"name":node["name"]["full"],"biography":node["description"],"image":node["image"]["large"],"role":edge["role"]}));
+                    for actor in edge["voiceActors"].as_array().unwrap_or(&Vec::new()) {
+                        credits.push(json!({"name":actor["name"]["full"],"provider_id":actor["id"],"role":node["name"]["full"],"category":"voice","image":actor["image"]["large"]}));
+                    }
+                }
+                for edge in data["staff"]["edges"].as_array().unwrap_or(&Vec::new()) {
+                    credits.push(json!({"name":edge["node"]["name"]["full"],"role":edge["role"],"provider_id":edge["node"]["id"],"category":"crew","image":edge["node"]["image"]["large"]}));
+                }
+                fields["characters"] = json!(characters);
+                fields["credits"] = json!(credits);
+                for (kind, value) in [
+                    ("poster", &data["coverImage"]["extraLarge"]),
+                    ("backdrop", &data["bannerImage"]),
+                ] {
+                    if let Some(url) = value.as_str() {
+                        artwork.push((kind, url.to_owned()));
+                    }
+                }
+            } else {
+                fields["title"] = data["title"]
+                    .as_str()
+                    .or(data["name"].as_str())
+                    .map(|v| json!(v))
+                    .unwrap_or(Value::Null);
+                fields["originaltitle"] = data["original_title"]
+                    .as_str()
+                    .or(data["original_name"].as_str())
+                    .map(|v| json!(v))
+                    .unwrap_or(Value::Null);
+                fields["plot"] = data["overview"].clone();
+                let date = data["release_date"]
+                    .as_str()
+                    .or(data["first_air_date"].as_str())
+                    .or(data["air_date"].as_str());
+                fields["year"] = date
+                    .and_then(|v| v.get(..4)?.parse::<i64>().ok())
+                    .map(|v| json!(v))
+                    .unwrap_or(Value::Null);
+                fields["premiered"] = date.map(|v| json!(v)).unwrap_or(Value::Null);
+                fields["runtime"] = data["runtime"].clone();
+                fields["status"] = data["status"].clone();
+                fields["rating"] = data["vote_average"].clone();
+                for (field, key) in [("genres", "genres"), ("studios", "production_companies")] {
+                    fields[field] = json!(
+                        data[key]
+                            .as_array()
+                            .unwrap_or(&Vec::new())
+                            .iter()
+                            .filter_map(|v| v["name"].as_str())
+                            .collect::<Vec<_>>()
+                    );
+                }
+                let tags = data["keywords"]["keywords"]
+                    .as_array()
+                    .or(data["keywords"]["results"].as_array());
+                fields["tags"] = json!(
+                    tags.unwrap_or(&Vec::new())
+                        .iter()
+                        .filter_map(|v| v["name"].as_str())
+                        .collect::<Vec<_>>()
+                );
+                let mut credits = Vec::new();
+                for (key, category) in [("cast", "cast"), ("crew", "crew")] {
+                    for v in data["credits"][key].as_array().unwrap_or(&Vec::new()) {
+                        credits.push(json!({"name":v["name"],"role":v["character"].as_str().or(v["job"].as_str()),"category":category,"provider_id":v["id"],"image":v["profile_path"]}));
+                    }
+                }
+                fields["credits"] = json!(credits);
+                for (kind, list, fallback) in [
+                    ("poster", "posters", "poster_path"),
+                    ("backdrop", "backdrops", "backdrop_path"),
+                    ("thumb", "stills", "still_path"),
+                    ("logo", "logos", "logo_path"),
+                    ("banner", "banners", "banner_path"),
+                ] {
+                    if let Some(path) =
+                        image_path(&data, list, fallback, &library.options.image_language)
+                    {
+                        artwork.push((kind, format!("https://image.tmdb.org/t/p/original{path}")));
+                    }
+                }
+            }
+            if let Some(credits) = fields["credits"].as_array_mut() {
+                for credit in credits {
+                    credit["provider"] = json!(provider);
+                }
+            }
+            if metadata_order.iter().any(|p| p == provider) {
+                let ratings = if entry.kind == "movie" {
+                    data["release_dates"]["results"].as_array()
+                } else {
+                    data["content_ratings"]["results"].as_array()
+                };
+                if let Some(rating) = ratings.and_then(|v| {
+                    v.iter()
+                        .find(|r| r["iso_3166_1"] == library.options.certification_country)
+                }) {
+                    fields["mpaa"] = if entry.kind == "movie" {
+                        rating["release_dates"]
+                            .as_array()
+                            .and_then(|v| {
+                                v.iter().find_map(|r| {
+                                    r["certification"].as_str().filter(|s| !s.is_empty())
+                                })
+                            })
+                            .map(|v| json!(v))
+                            .unwrap_or(Value::Null)
+                    } else {
+                        rating["rating"].clone()
+                    };
+                }
+                for (field, value) in fields.as_object().unwrap() {
+                    fill(entry, field, value.clone(), provider);
+                }
+            }
+            let provider_id = data["id"].to_string();
+            if entry.metadata["identifiers"].is_null() {
+                entry.metadata["identifiers"] = json!({});
+            }
+            if entry.metadata["identifiers"][provider].is_null() {
+                entry.metadata["identifiers"][provider] = json!(provider_id);
+                entry.metadata["_sources"]["identifiers"] = json!(provider);
+            }
+            if entry.kind == "series" {
+                if let Some(id) = entry.metadata["identifiers"]["tmdb"].as_str() {
+                    series_ids.insert(entry.path.clone(), id.to_owned());
+                }
+            }
+            fill(entry, &format!("{provider}_data"), data, provider);
+            image_candidates.insert(
+                provider.into(),
+                artwork
+                    .into_iter()
+                    .map(|(kind, url)| (kind.to_owned(), url))
+                    .collect(),
+            );
+            tokio::time::sleep(Duration::from_millis(if ani { 1200 } else { 250 })).await;
+        }
+        for provider in image_order {
+            for (kind, url) in image_candidates.get(provider).into_iter().flatten() {
+                if !library.options.image_types.contains(kind)
+                    || entry.artwork.iter().any(|a| a.kind == *kind)
+                {
+                    continue;
+                }
+                match download(state, &client, url).await {
+                    Ok(path) => entry.artwork.push(NativeArtwork {
+                        kind: kind.clone(),
+                        path,
+                        source: provider.clone(),
+                    }),
+                    Err(e) => warnings.push(format!("{} ({kind}): {e}", entry.title)),
                 }
             }
         }
-        if let Some(credits) = fields["credits"].as_array_mut() {
-            for credit in credits {
-                credit["provider"] = json!(provider);
-            }
-        }
-        for (field, value) in fields.as_object().unwrap() {
-            fill(entry, field, value.clone(), provider);
-        }
-        let provider_id = data["id"].to_string();
-        if entry.metadata["identifiers"].is_null() {
-            entry.metadata["identifiers"] = json!({});
-        }
-        if entry.metadata["identifiers"][provider].is_null() {
-            entry.metadata["identifiers"][provider] = json!(provider_id);
-            entry.metadata["_sources"]["identifiers"] = json!(provider);
-        }
-        if entry.kind == "series" {
-            if let Some(id) = entry.metadata["identifiers"]["tmdb"].as_str() {
-                series_ids.insert(entry.path.clone(), id.to_owned());
-            }
-        }
-        fill(entry, &format!("{provider}_data"), data, provider);
-        for (kind, url) in artwork {
-            if entry.artwork.iter().any(|a| a.kind == kind) {
-                continue;
-            }
-            match download(state, &client, &url).await {
-                Ok(path) => entry.artwork.push(NativeArtwork {
-                    kind: kind.into(),
-                    path,
-                    source: provider.into(),
-                }),
-                Err(e) => warnings.push(format!("{} ({kind}): {e}", entry.title)),
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(if ani { 1200 } else { 250 })).await;
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn image_language_uses_preferred_then_neutral_then_default() {
+        let data = json!({"poster_path":"/default.jpg", "images":{"posters":[{"iso_639_1":null,"file_path":"/neutral.jpg"},{"iso_639_1":"ja","file_path":"/ja.jpg"}]}});
+        assert_eq!(
+            image_path(&data, "posters", "poster_path", "ja"),
+            Some("/ja.jpg")
+        );
+        assert_eq!(
+            image_path(&data, "posters", "poster_path", "en"),
+            Some("/neutral.jpg")
+        );
+        assert_eq!(
+            image_path(&data, "stills", "poster_path", "en"),
+            Some("/default.jpg")
+        );
+    }
     #[test]
     fn ambiguous_matches_are_not_selected() {
         let entry = NativeCatalogEntry {

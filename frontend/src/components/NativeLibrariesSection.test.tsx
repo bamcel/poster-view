@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import NativeLibrariesSection, { LibraryDialog } from "./NativeLibrariesSection";
-import { nativeLibraries, type NativeLibrary } from "../api/nativeLibraries";
+import { defaultNativeOptions, nativeLibraries, type NativeLibrary } from "../api/nativeLibraries";
 
 vi.mock("../api/nativeLibraries", async importOriginal => ({...(await importOriginal<typeof import("../api/nativeLibraries")>()), nativeLibraries: { list: vi.fn(), save: vi.fn(), folders: vi.fn(), status: vi.fn(), catalog: vi.fn(), scan: vi.fn(), remove: vi.fn() } }));
 const saved: NativeLibrary = { id: "library", name: "Anime", library_type: "anime", anime_content: "both", paths: ["Shows", "Movies"], revision: 1, created_at: "", updated_at: "" };
@@ -27,8 +27,9 @@ it("creates an Anime library with multiple media folders and no remote-server im
   fireEvent.click(screen.getByRole("checkbox", { name: "Movies" }));
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  fireEvent.click(screen.getByRole("button", { name: /Review/ }));
   fireEvent.click(screen.getByRole("button", { name: "Create library" }));
-  await waitFor(() => expect(nativeLibraries.save).toHaveBeenCalledWith({ name: "Anime", library_type: "anime", anime_content: "both", paths: ["Shows", "Movies"], options: {read_nfo: true, save_nfo: false, local_artwork: true, fetch_missing: true}, revision: null }, undefined));
+  await waitFor(() => expect(nativeLibraries.save).toHaveBeenCalledWith({ name: "Anime", library_type: "anime", anime_content: "both", paths: ["Shows", "Movies"], options: defaultNativeOptions, revision: null }, undefined));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 });
 
