@@ -158,3 +158,14 @@ it("searches all available titles and filters missing artwork", async () => {
   });
   expect(screen.queryByText("Example Series")).toBeNull();
 });
+
+it("opens an old duplicate-series link through its grouped identity", async () => {
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue([
+    {...series,metadata:{...series.metadata,identifiers:{tvdb:"79525"}}},
+    {...series,id:"alternate",path:"Anime/Akito",artwork:[],metadata:{...series.metadata,identifiers:{tvdb:"79525"}}},
+    season,episode,
+  ]);
+  mount("/?native_library=native&native_item=alternate");
+  await screen.findByRole("heading",{name:"Example Series"});
+  expect(screen.getByRole("button",{name:/Open Season 1/})).toBeTruthy();
+});

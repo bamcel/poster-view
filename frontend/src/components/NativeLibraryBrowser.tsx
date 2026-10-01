@@ -19,6 +19,7 @@ import {
 } from "../api/nativeLibraries";
 import type { ItemDetail } from "../types";
 import PosterCard from "./PosterCard";
+import { nativeCatalogView } from "../lib/nativeCatalogView";
 import DashboardBackdrop from "./DashboardBackdrop";
 import TitleMetadata from "./TitleMetadata";
 import ItemAbout from "./ItemAbout";
@@ -180,10 +181,19 @@ export default function NativeLibraryBrowser({
         queryKey: ["native-catalog", library.id],
       });
   }, [status.data?.status, client, library.id]);
-  const entries = (catalog.data ?? []).filter((e) => e.available);
+  const view = useMemo(
+    () => nativeCatalogView(catalog.data ?? []),
+    [catalog.data],
+  );
+  const entries = view.entries;
   const selected =
     params.get("native_library") === library.id
-      ? entries.find((e) => e.id === params.get("native_item"))
+      ? entries.find(
+          (e) =>
+            e.id ===
+            (view.aliases.get(params.get("native_item") ?? "") ??
+              params.get("native_item")),
+        )
       : undefined;
   const open = (entry: NativeCatalogEntry) => {
     setParams((previous) => {

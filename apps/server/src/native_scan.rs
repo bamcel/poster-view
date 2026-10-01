@@ -54,6 +54,36 @@ pub(crate) fn credit_video(path: &Path) -> bool {
         .is_some_and(|name| PATTERN.is_match(&name.to_string_lossy()))
 }
 
+fn season_folder(name: &str) -> Option<i64> {
+    if name.eq_ignore_ascii_case("specials") || name.eq_ignore_ascii_case("special") {
+        return Some(0);
+    }
+    static SEASON: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)^(?:season|s)[ ._-]*(\d{1,3})$").unwrap()
+    });
+    SEASON.captures(name).and_then(|m| m[1].parse().ok())
+}
+
+fn series_directory(dir: &Path, boundary: &Path) -> PathBuf {
+    let seasonal = season_folder(&dir.file_name().unwrap_or_default().to_string_lossy()).is_some();
+    let fallback = if seasonal && dir != boundary {
+        dir.parent().unwrap_or(dir)
+    } else {
+        dir
+    };
+    // Named season folders can be nested beneath the series NFO (e.g. R2).
+    // Never walk outside the library's selected root.
+    for candidate in fallback.ancestors().take_while(|p| p.starts_with(boundary)) {
+        // Old scans may have written a mistaken tvshow.nfo inside Specials.
+        if season_folder(&candidate.file_name().unwrap_or_default().to_string_lossy()).is_none()
+            && candidate.join("tvshow.nfo").is_file()
+        {
+            return candidate.to_path_buf();
+        }
+    }
+    fallback.to_path_buf()
+}
+
 fn walk(
     state: &AppState,
     root: &Path,
@@ -400,10 +430,15 @@ pub(crate) fn collect(
     progress.report("discovering", 0, None, 0, "", true);
     let mut files = Vec::new();
     let mut warnings = Vec::new();
-    for selected in &library.paths {
-        let dir = state.metadata.directory(selected, true)?;
-        walk(state, &root, &dir, &mut files, 0, &mut progress)?;
+    let scan_roots = library
+        .paths
+        .iter()
+        .map(|path| state.metadata.directory(path, true))
+        .collect::<Result<Vec<_>, _>>()?;
+    for dir in &scan_roots {
+        walk(state, &root, dir, &mut files, 0, &mut progress)?;
     }
+    let mut series_directories = BTreeMap::<PathBuf, PathBuf>::new();
     files.sort();
     files.dedup();
     let mut video_counts = BTreeMap::<PathBuf, usize>::new();
@@ -426,7 +461,6 @@ pub(crate) fn collect(
     let episode =
         regex::Regex::new(r"(?i)(?:s(\d{1,3})[ ._-]*e(\d{1,4})|(\d{1,3})x(\d{1,4}))").unwrap();
     let anime_number = regex::Regex::new(r"(?i) - (\d{1,3})(?:v\d)?(?:\s|\[|$)").unwrap();
-    let season_dir = regex::Regex::new(r"(?i)^(?:season|s)[ ._-]*(\d{1,3})$").unwrap();
     let year_regex = regex::Regex::new(r"(?:\(|\[|\s)((?:19|20)\d{2})(?:\)|\]|$)").unwrap();
     let mut entries = BTreeMap::<String, NativeCatalogEntry>::new();
     let mut probe_unavailable = false;
@@ -541,9 +575,13 @@ pub(crate) fn collect(
                 if library.library_type == NativeLibraryType::Anime
                     && library.anime_content != AnimeContent::Movies
                 {
-                    anime_number
-                        .captures(&stem)
-                        .map(|m| (1, m[1].parse().unwrap()))
+                    anime_number.captures(&stem).map(|m| {
+                        (
+                            season_folder(&dir.file_name().unwrap_or_default().to_string_lossy())
+                                .unwrap_or(1),
+                            m[1].parse().unwrap(),
+                        )
+                    })
                 } else {
                     None
                 }
@@ -565,10 +603,21 @@ pub(crate) fn collect(
         }
         let mut parent = None;
         if books || show {
-            let mut series_dir = dir.to_path_buf();
-            if season_dir.is_match(&dir.file_name().unwrap_or_default().to_string_lossy()) {
-                series_dir = dir.parent().unwrap_or(dir).to_path_buf();
-            }
+            let series_dir = if books {
+                dir.to_path_buf()
+            } else {
+                series_directories
+                    .entry(dir.to_path_buf())
+                    .or_insert_with(|| {
+                        let boundary = scan_roots
+                            .iter()
+                            .filter(|path| dir.starts_with(path))
+                            .max_by_key(|path| path.components().count())
+                            .unwrap_or(&root);
+                        series_directory(dir, boundary)
+                    })
+                    .clone()
+            };
             let series_path = relative(&root, &series_dir)?;
             if !entries.contains_key(&series_path) {
                 let mut series = blank(
@@ -609,10 +658,14 @@ pub(crate) fn collect(
                             season_path.clone(),
                             "season",
                             Some(series_path.clone()),
-                            format!("Season {season}"),
+                            if season == 0 {
+                                "Specials".into()
+                            } else {
+                                format!("Season {season}")
+                            },
                         );
-                        if season_dir
-                            .is_match(&dir.file_name().unwrap_or_default().to_string_lossy())
+                        if season_folder(&dir.file_name().unwrap_or_default().to_string_lossy())
+                            .is_some()
                         {
                             if library.options.read_nfo {
                                 apply_nfo(

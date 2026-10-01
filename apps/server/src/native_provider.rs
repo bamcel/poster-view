@@ -57,6 +57,44 @@ fn fill(entry: &mut NativeCatalogEntry, field: &str, value: Value, source: &str)
         entry.metadata["_sources"][field] = json!(source);
     }
 }
+fn extend_anilist_lists(entry: &mut NativeCatalogEntry, fields: &Value, data: &Value) {
+    let previous = &entry.metadata["anilist_data"];
+    let partial = previous["characters"]["pageInfo"]["hasNextPage"] == true
+        || previous["staff"]["pageInfo"]["hasNextPage"] == true;
+    if !partial || previous["id"] != data["id"] {
+        return;
+    }
+    for field in ["characters", "credits"] {
+        if !matches!(
+            entry.metadata["_sources"][field].as_str(),
+            Some("anilist" | "database")
+        ) {
+            continue;
+        }
+        let Some(incoming) = fields[field].as_array() else {
+            continue;
+        };
+        let Some(existing) = entry.metadata[field].as_array_mut() else {
+            continue;
+        };
+        for value in incoming {
+            let duplicate = existing.iter().any(|old| {
+                if field == "characters" {
+                    old["id"] == value["id"]
+                } else {
+                    old["name"] == value["name"]
+                        && old["role"] == value["role"]
+                        && old["category"] == value["category"]
+                }
+            });
+            if !duplicate {
+                existing.push(value.clone());
+            }
+        }
+    }
+    entry.metadata["anilist_data"] = data.clone();
+}
+
 fn merge_identifiers(entry: &mut NativeCatalogEntry, ids: &Value, source: &str) {
     if entry.metadata["identifiers"].is_null() {
         entry.metadata["identifiers"] = json!({});
@@ -72,9 +110,15 @@ pub(super) async fn response(response: reqwest::Response) -> Result<Value, Strin
     if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
         return Err("Provider rate limit reached. Retry the scan later.".into());
     }
-    let mut response = response
-        .error_for_status()
-        .map_err(|_| "Metadata provider request failed.")?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!(
+            "Metadata provider returned HTTP {} ({}).",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("request failed")
+        ));
+    }
+    let mut response = response;
     let mut bytes = Vec::new();
     while let Some(chunk) = response
         .chunk()
@@ -162,8 +206,82 @@ async fn anilist(
             .as_i64()
             .ok_or("Invalid AniList ID.")?
     };
-    response(client.post("https://graphql.anilist.co").json(&json!({"query":"query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors(language:JAPANESE){id name{full} image{large}}}} staff(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}","variables":{"id":selected,"type":media_type}})).send().await.map_err(|_|"AniList connection failed.")?).await
+    let mut body = response(client.post("https://graphql.anilist.co").json(&json!({"query":"query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors(language:JAPANESE){id name{full} image{large}}}} staff(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}","variables":{"id":selected,"type":media_type}})).send().await.map_err(|_|"AniList connection failed.")?).await?;
+    // Fetch remaining connection pages without discarding the usable first page
+    // if a later request fails. Each request shares the provider rate gate.
+    for page in 2..=50 {
+        let media = &body["data"]["Media"];
+        if !["characters", "staff"]
+            .iter()
+            .any(|field| media[field]["pageInfo"]["hasNextPage"] == true)
+        {
+            break;
+        }
+        let gate = crate::workers::provider("anilist").await;
+        drop(gate);
+        let query = "query($id:Int,$type:MediaType,$page:Int){Media(id:$id,type:$type){characters(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors(language:JAPANESE){id name{full} image{large}}}} staff(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}";
+        let result = match client
+            .post("https://graphql.anilist.co")
+            .json(&json!({"query":query,"variables":{"id":selected,"type":media_type,"page":page}}))
+            .send()
+            .await
+        {
+            Ok(result) => response(result).await,
+            Err(_) => {
+                Err("AniList connection failed while loading additional cast/crew pages.".into())
+            }
+        };
+        match result {
+            Ok(next) if next["data"]["Media"].is_object() => {
+                if let Err(error) =
+                    merge_anilist_page(&mut body["data"]["Media"], &next["data"]["Media"])
+                {
+                    body["data"]["Media"]["_pagination_warning"] = json!(error);
+                    break;
+                }
+            }
+            Ok(_) => {
+                body["data"]["Media"]["_pagination_warning"] = json!(
+                    "AniList returned no additional cast/crew data; the imported lists are incomplete."
+                );
+                break;
+            }
+            Err(error) => {
+                body["data"]["Media"]["_pagination_warning"] = json!(format!(
+                    "Additional cast/crew pages could not be loaded: {error}"
+                ));
+                break;
+            }
+        }
+    }
+    Ok(body)
 }
+fn merge_anilist_page(media: &mut Value, next: &Value) -> Result<(), String> {
+    for field in ["characters", "staff"] {
+        if media[field]["pageInfo"]["hasNextPage"] != true {
+            continue;
+        }
+        if !next[field]["pageInfo"]["hasNextPage"].is_boolean() || !next[field]["edges"].is_array()
+        {
+            return Err(
+                "AniList returned an incomplete cast/crew page; earlier pages were retained."
+                    .into(),
+            );
+        }
+        if let Some(edges) = next[field]["edges"].as_array() {
+            if let Some(existing) = media[field]["edges"].as_array_mut() {
+                for edge in edges {
+                    if !existing.contains(edge) {
+                        existing.push(edge.clone());
+                    }
+                }
+            }
+            media[field]["pageInfo"] = next[field]["pageInfo"].clone();
+        }
+    }
+    Ok(())
+}
+
 async fn tmdb(
     client: &reqwest::Client,
     entry: &NativeCatalogEntry,
@@ -188,8 +306,9 @@ async fn tmdb(
         }
     };
     if entry.kind == "episode" || entry.kind == "season" {
-        let series = series_id
-            .ok_or("Series must have a TMDB ID before episode metadata can be fetched.")?;
+        let series = series_id.ok_or(
+            "Parent series needs a TMDB ID before season or episode metadata can be fetched.",
+        )?;
         if series.is_empty() || !series.chars().all(|c| c.is_ascii_digit()) {
             return Err("Invalid series TMDB ID.".into());
         }
@@ -602,7 +721,7 @@ async fn enrich_one(
                     image_candidates.insert(provider_name.clone(), data.artwork);
                 }
                 Err(e) => {
-                    if e.contains("rate limit") {
+                    if e.contains("rate limit") || e.starts_with("Configure ") {
                         context
                             .blocked
                             .lock()
@@ -667,14 +786,14 @@ async fn enrich_one(
         let data = match result {
             Ok(v) => v,
             Err(e) => {
-                if e.contains("rate limit") {
+                if e.contains("rate limit") || e.starts_with("Configure ") {
                     context
                         .blocked
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .insert(provider_name.clone());
                 }
-                warnings.push(format!("{}: {e}", entry.title));
+                warnings.push(format!("{} ({provider_name}): {e}", entry.title));
                 continue;
             }
         };
@@ -701,10 +820,19 @@ async fn enrich_one(
         let mut fields = json!({});
         let mut artwork = Vec::new();
         if ani {
-            if data["characters"]["pageInfo"]["hasNextPage"] == true
+            if let Some(message) = data["_pagination_warning"].as_str() {
+                if message.contains("rate limit") {
+                    context
+                        .blocked
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert("anilist".into());
+                }
+                warnings.push(format!("{} (anilist): {message}", entry.title));
+            } else if data["characters"]["pageInfo"]["hasNextPage"] == true
                 || data["staff"]["pageInfo"]["hasNextPage"] == true
             {
-                warnings.push(format!("{}: character/staff lists contain more than 100 entries; the initial scan stores the first 100 per list.",entry.title));
+                warnings.push(format!("{} (anilist): character/staff lists exceed the 5,000-entry scan safety limit and are incomplete.", entry.title));
             }
             fields["title"] = data["title"][if library.options.metadata_language == "ja" {
                 "native"
@@ -856,9 +984,12 @@ async fn enrich_one(
                     rating["rating"].clone()
                 };
             }
-            for (field, value) in fields.as_object().unwrap() {
-                fill(entry, field, value.clone(), provider);
-            }
+        }
+        if ani {
+            extend_anilist_lists(entry, &fields, &data);
+        }
+        for (field, value) in fields.as_object().unwrap() {
+            fill(entry, field, value.clone(), provider);
         }
         if ani {
             if let Some(mal) = data["idMal"].as_u64() {
@@ -963,6 +1094,55 @@ async fn download_candidates(
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn extending_old_provider_lists_preserves_local_and_manual_credits() {
+        for source in ["nfo", "manual"] {
+            let mut entry = local_entry("series");
+            entry.metadata = json!({"anilist_data":{"id":1,"characters":{"pageInfo":{"hasNextPage":true}}},"characters":[{"id":"1"}],"credits":[{"name":"Local actor"}],"_sources":{"characters":"database","credits":source}});
+            let fields =
+                json!({"characters":[{"id":"1"},{"id":"2"}],"credits":[{"name":"Provider actor"}]});
+            extend_anilist_lists(&mut entry, &fields, &json!({"id":1}));
+            assert_eq!(entry.metadata["characters"].as_array().unwrap().len(), 2);
+            assert_eq!(entry.metadata["credits"][0]["name"], "Local actor");
+        }
+    }
+
+    #[tokio::test]
+    async fn provider_http_failures_report_status_without_request_secrets() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                axum::Router::new().route(
+                    "/",
+                    axum::routing::get(|| async { axum::http::StatusCode::UNAUTHORIZED }),
+                ),
+            )
+            .await
+            .unwrap();
+        });
+        let result = reqwest::Client::new()
+            .get(format!("http://{address}/?apikey=secret"))
+            .send()
+            .await
+            .unwrap();
+        let error = response(result).await.unwrap_err();
+        assert!(error.contains("HTTP 401"));
+        assert!(!error.contains("secret"));
+        server.abort();
+    }
+
+    #[test]
+    fn additional_anilist_pages_append_lists_without_replacing_first_page() {
+        let mut media = serde_json::json!({"characters":{"pageInfo":{"hasNextPage":true},"edges":[{"node":{"id":1}}]},"staff":{"pageInfo":{"hasNextPage":false},"edges":[{"node":{"id":3}}]}});
+        let next = serde_json::json!({"characters":{"pageInfo":{"hasNextPage":false},"edges":[{"node":{"id":1}},{"node":{"id":2}}]},"staff":{"pageInfo":{"hasNextPage":false},"edges":[]}});
+        super::merge_anilist_page(&mut media, &next).unwrap();
+        assert_eq!(media["characters"]["edges"].as_array().unwrap().len(), 2);
+        assert_eq!(media["characters"]["pageInfo"]["hasNextPage"], false);
+        assert_eq!(media["staff"]["edges"].as_array().unwrap().len(), 1);
+    }
+
     use super::*;
     fn local_entry(kind: &str) -> NativeCatalogEntry {
         NativeCatalogEntry {

@@ -1013,6 +1013,73 @@ pub(crate) mod scan_tests {
         assert_eq!(db.get_setting("existing").unwrap(), "untouched");
     }
     #[tokio::test]
+    async fn specials_and_named_season_folders_use_the_parent_series() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let show = temp.path().join("media/Anime/Code Geass");
+        for (folder, file) in [
+            ("Season 1", "Show.S01E01.mkv"),
+            ("Specials", "Show.S00E01.mkv"),
+            ("Special", "Show - 02.mkv"),
+            ("R2", "Show.S02E01.mkv"),
+            ("Specials/Tanya Mini", "Show.S00E03.mkv"),
+        ] {
+            fs::create_dir_all(show.join(folder)).unwrap();
+            fs::write(show.join(folder).join(file), b"fixture").unwrap();
+        }
+        fs::write(show.join("tvshow.nfo"), "<tvshow><title>Code Geass</title><tvdbid>79525</tvdbid><plot>Local plot</plot></tvshow>").unwrap();
+        // A sidecar left by the old scanner must not create another Specials show.
+        fs::write(
+            show.join("Specials/tvshow.nfo"),
+            "<tvshow><title>Specials</title><year>1991</year></tvshow>",
+        )
+        .unwrap();
+        let db = store(&state);
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Anime".into(),
+                    library_type: NativeLibraryType::Anime,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Anime".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        run_scan(state.clone(), library.clone()).await.unwrap();
+        let entries = db.native_catalog(&library.id).unwrap();
+        let shows = entries
+            .iter()
+            .filter(|e| e.available && e.kind == "series")
+            .collect::<Vec<_>>();
+        assert_eq!(shows.len(), 1);
+        assert_eq!(shows[0].title, "Code Geass");
+        let specials = entries
+            .iter()
+            .find(|e| e.kind == "season" && e.metadata["season"] == 0)
+            .unwrap();
+        assert_eq!(specials.title, "Specials");
+        assert_eq!(
+            specials.parent_path.as_deref(),
+            Some(shows[0].path.as_str())
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|e| e.kind == "episode"
+                    && e.parent_path.as_deref() == Some(specials.path.as_str()))
+                .count(),
+            3
+        );
+        assert_eq!(entries.iter().filter(|e| e.kind == "season").count(), 3);
+    }
+
+    #[tokio::test]
     async fn invalid_nfo_is_not_replaced_and_book_profile_is_preserved() {
         let temp = tempfile::tempdir().unwrap();
         let state = state(temp.path());
