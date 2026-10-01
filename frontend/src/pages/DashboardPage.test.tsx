@@ -343,7 +343,7 @@ it.each(["book", "other"] as const)(
   },
 );
 
-it("switches between server and manual catalogs directly on the dashboard", async () => {
+it("lists manual libraries after server libraries in the same dashboard navigation", async () => {
   vi.mocked(api.getLibraries).mockResolvedValue([{id: "movies", title: "Server Movies", type: "movie"}]);
   vi.mocked(api.getItems).mockResolvedValue([{id: "remote", title: "Server Title", type: "movie"}]);
   vi.mocked(nativeLibraries.list).mockResolvedValue([{id: "manual", name: "Local Anime", library_type: "anime", anime_content: "both", paths: ["Anime"], options: defaultNativeOptions, revision: 1, created_at: "", updated_at: ""}]);
@@ -351,13 +351,15 @@ it("switches between server and manual catalogs directly on the dashboard", asyn
   vi.mocked(nativeLibraries.catalog).mockResolvedValue([{id: "local", title: "Manual Title", kind: "series", path: "Anime/Example", parent_path: null, metadata: {title: "Manual Title"}, artwork: [], files: [], nfo_path: null, available: true, revision: 1}]);
   const {client} = renderDashboard();
   await screen.findByText("Server Title");
-  fireEvent.click(screen.getByRole("button", {name: "Manual libraries"}));
+  fireEvent.click(screen.getByRole("button", {name: "Local Anime · Manual library"}));
   await screen.findByText("Manual Title");
   expect(screen.getByRole("region", {name: "Local Anime library"})).toBeTruthy();
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(nativeLibraries.catalog).toHaveBeenCalledWith("manual");
-  expect(localStorage.getItem("posterview.dashboardSource")).toBe("manual");
-  fireEvent.click(screen.getByRole("button", {name: "Media · Server libraries"}));
+  expect(screen.queryByLabelText("Library source")).toBeNull();
+  const tabs = screen.getByRole("group", {name: "Libraries"}).querySelectorAll("button");
+  expect(Array.from(tabs).map(tab => tab.textContent)).toEqual(["Server Movies", "Local AnimeManual"]);
+  fireEvent.click(screen.getByRole("button", {name: "Server Movies"}));
   await screen.findByText("Server Title");
   expect(screen.queryByText("Manual Title")).toBeNull();
   client.clear();
@@ -372,7 +374,7 @@ it("opens manual title links and returns to the same manual library", async () =
   expect(screen.queryByLabelText("Library source")).toBeNull();
   fireEvent.click(screen.getByRole("button",{name:"Back"}));
   await screen.findByLabelText("Search titles");
-  expect(screen.getByRole("button",{name:"Manual libraries"}).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button",{name:"Local Anime · Manual library"}).getAttribute("aria-pressed")).toBe("true");
   expect(screen.getByRole("region",{name:"Local Anime library"})).toBeTruthy();
   client.clear();
 });

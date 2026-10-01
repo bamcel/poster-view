@@ -181,13 +181,13 @@ throttled to twice per second and the interface polls every two seconds.
 
 ## Dashboard comparison
 
-The Dashboard source buttons switch between the active server's libraries and
-Manual libraries. Manual libraries use their own tab list and show their native
-catalog directly on the page, including search, artwork, scan progress, metadata
-and child items. The source and last manual library are remembered locally.
-Server library selection remains separate, so switching back preserves its
-existing navigation context. Without a connected server, the Dashboard opens
-manual libraries automatically. Manage manual libraries in Settings → Libraries.
+The Dashboard uses one library tab row: the active server's libraries appear first,
+followed by manual libraries with a small Manual label to distinguish matching
+names. Manual libraries show their native catalog directly on the page, including
+search, artwork, scan progress, metadata and child items. Library and item selection
+are represented in the URL, so Back returns to the correct library. Without a
+connected server, the Dashboard opens manual libraries automatically. Manage
+manual libraries in Settings → Libraries.
 
 
 ## Background workers

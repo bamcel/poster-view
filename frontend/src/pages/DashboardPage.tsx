@@ -1,4 +1,5 @@
-import NativeDashboard from "../components/NativeDashboard";
+import NativeLibraryBrowser from "../components/NativeLibraryBrowser";
+import { nativeLibraries } from "../api/nativeLibraries";
 // Browse the active server: pick a library, then a searchable grid of titles.
 // Double-clicking a poster opens the item detail.
 
@@ -29,18 +30,30 @@ type TitleSort = "title" | "newest" | "oldest" | "recently-added";
 
 export default function DashboardPage() {
   const { selectedServer, isLoading } = useServers();
-  const [dashboardParams] = useSearchParams();
-  const [source, setSource] = useState(() => dashboardParams.has("native_item") || localStorage.getItem("posterview.dashboardSource") === "manual" ? "manual" : "server");
-  const manual = source === "manual" || !selectedServer || dashboardParams.has("native_item");
-  const manualDetail = manual && dashboardParams.has("native_item");
+  const [params, setParams] = useSearchParams();
+  const servers = useQuery({queryKey: ["libraries", selectedServer?.id], queryFn: () => api.getLibraries(selectedServer!.id), enabled: !!selectedServer});
+  const manualLibraries = useQuery({queryKey: ["native-libraries"], queryFn: nativeLibraries.list});
+  const manual = params.has("native_library") || !selectedServer;
+  const library = manualLibraries.data?.find(l => l.id === params.get("native_library")) ?? manualLibraries.data?.[0];
+  const select = (id: string, native: boolean) => {
+    if (native) localStorage.setItem("posterview.manualLibraryTab", id);
+    else if (selectedServer) sessionStorage.setItem(`posterview.libraryTab.${selectedServer.id}`, id);
+    setParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.delete("native_item"); next.delete("folder"); next.delete("folder_title");
+      if (native) { next.set("native_library", id); next.delete("lib"); }
+      else { next.set("lib", id); next.delete("native_library"); }
+      return next;
+    });
+  };
   if (isLoading) return <Spinner label="Loading…" />;
-  const choose = (value: string) => { setSource(value); localStorage.setItem("posterview.dashboardSource", value); };
   return <div className="flex h-full min-h-0 flex-col">
-    {!manualDetail && <div aria-label="Library source" className="relative z-20 flex shrink-0 flex-wrap items-center gap-2 border-b border-edge px-5 py-3">
-      <button aria-pressed={!manual} disabled={!selectedServer} onClick={() => choose("server")} className={`rounded-xl border px-4 py-2 text-sm disabled:opacity-40 ${!manual ? "border-accent bg-accent/10 text-accent" : "border-edge text-muted"}`}>{selectedServer ? `${selectedServer.name} · Server libraries` : "Server libraries"}</button>
-      <button aria-pressed={manual} onClick={() => choose("manual")} className={`rounded-xl border px-4 py-2 text-sm ${manual ? "border-accent bg-accent/10 text-accent" : "border-edge text-muted"}`}>Manual libraries</button>
+    {!params.has("native_item") && <div role="group" aria-label="Libraries" className="relative z-20 flex shrink-0 gap-1 overflow-x-auto border-b border-border bg-sidebar px-4 pt-0 sm:px-6 md:pt-[75px] lg:px-8">
+      {servers.isLoading && <span className="py-2 text-sm text-muted">Loading server libraries…</span>}
+      {(servers.data ?? []).map(l => <button key={`server:${l.id}`} title={l.title} aria-pressed={!manual && params.get("lib") === l.id} onClick={() => select(l.id, false)} className={`min-h-11 max-w-64 shrink-0 truncate border-b-2 px-4 py-2 text-sm font-medium ${!manual && params.get("lib") === l.id ? "border-accent text-white" : "border-transparent text-muted hover:text-white"}`}>{l.title}</button>)}
+      {(manualLibraries.data ?? []).map(l => <button key={`manual:${l.id}`} title={`${l.name} · Manual library`} aria-label={`${l.name} · Manual library`} aria-pressed={manual && library?.id === l.id} onClick={() => select(l.id, true)} className={`min-h-11 max-w-64 shrink-0 truncate border-b-2 px-4 py-2 text-sm font-medium ${manual && library?.id === l.id ? "border-accent text-white" : "border-transparent text-muted hover:text-white"}`}>{l.name}<span className="ml-2 rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted">Manual</span></button>)}
     </div>}
-    <div className="min-h-0 flex-1">{manual ? <NativeDashboard /> : selectedServer && <ServerDashboard serverId={selectedServer.id} />}</div>
+    <div className="min-h-0 flex-1">{manual ? library ? <NativeLibraryBrowser key={library.id} library={library} /> : <div className="p-5 text-muted">{manualLibraries.isPending ? "Loading manual libraries…" : manualLibraries.error ? manualLibraries.error.message : "Add a manual library in Settings → Libraries."}</div> : selectedServer && <ServerDashboard serverId={selectedServer.id} />}</div>
   </div>;
 }
 
@@ -376,33 +389,8 @@ function ServerDashboard({serverId}: {serverId: number}) {
         <DashboardBackdrop desktopUrls={backdropUrls} mobileUrls={posterBackdropUrls} overlayStrength={overlayStrength} />
       )}
       {/* Header */}
-      <div className="relative z-10 border-b border-border px-4 pt-0 sm:px-6 md:pt-[75px] lg:px-8">
+      <div className="relative z-10 px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
-          {/* Library tabs */}
-          <div className="col-start-1 row-start-1 min-w-0">
-            <div role="group" aria-label="Libraries" className="flex gap-1 overflow-x-auto pb-px">
-              {librariesQ.isLoading && (
-                <span className="py-2 text-sm text-faint">
-                  Loading libraries…
-                </span>
-              )}
-              {browseableLibs.map((lib) => (
-                <button
-                  key={lib.id}
-                  title={lib.title}
-                  aria-pressed={libraryId === lib.id}
-                  onClick={() => selectLibrary(lib.id)}
-                  className={`min-h-11 max-w-64 shrink-0 truncate border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-                    libraryId === lib.id
-                      ? "border-accent text-white"
-                      : "border-transparent text-muted hover:text-white"
-                  }`}
-                >
-                  {lib.title}
-                </button>
-              ))}
-            </div>
-          </div>
           {showGroupCollections && (
             <label className="col-start-2 row-start-1 hidden items-center justify-end gap-2 text-sm text-muted md:flex">
               <span className="max-w-20 text-center sm:max-w-none sm:text-left">Group Collections</span>
