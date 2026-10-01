@@ -26,6 +26,7 @@ import AnimatedArtwork from "./AnimatedArtwork";
 import ArtworkPanel from "./ArtworkPanel";
 import IdentifyPanel from "./IdentifyPanel";
 import LibraryPopup from "./LibraryPopup";
+import AnimePreferences, {useAnimePreferences} from "./AnimePreferences";
 import { animeVoiceGroups, voiceName } from "../lib/nativeVoiceCast";
 import { nativeCatalogView } from "../lib/nativeCatalogView";
 import DashboardBackdrop from "./DashboardBackdrop";
@@ -413,8 +414,8 @@ export default function NativeLibraryBrowser({
                   </label>
                 </div>
               </details>
-              <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style}>
-                <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>
+              <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style} editorStyle={library.library_type === "anime"}>
+                {library.library_type === "anime" ? <AnimePreferences library={library.id}/> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
               </LibraryPopup>
             </div>
           </div>
@@ -495,6 +496,7 @@ function NativeDetail({
   showBackdrop: boolean;
   overlay: number;
 }) {
+  const {value:animePreferences} = useAnimePreferences(library.id);
   const parent = entries.find((e) => e.path === entry.parent_path);
   const series =
     entry.kind === "series"
@@ -792,7 +794,7 @@ function NativeDetail({
                   ))}
               </dl>
             )}
-            {Array.isArray(entry.metadata.characters) &&
+            {(library.library_type !== "anime" || animePreferences.characters) && Array.isArray(entry.metadata.characters) &&
               entry.metadata.characters.length > 0 && (
                 <section className="mt-8">
                   <h2 className="mb-4 text-xl font-semibold">Characters</h2>
@@ -820,7 +822,7 @@ function NativeDetail({
                 </section>
               )}
 
-            {voiceCast?.groups.map(group => <section key={group.title} className="mt-8">
+            {animePreferences.casts && voiceCast?.groups.filter((_,index)=> index===0 ? animePreferences.original || (voiceCast.groups.length===1 && animePreferences.dub) : animePreferences.dub).map(group => <section key={group.title} className="mt-8">
               <h2 className="mb-4 text-xl font-semibold">{group.title}</h2>
               {group.cast.length ? <div className="flex gap-4 overflow-x-auto pb-3">{group.cast.map((person, i) => <div key={i} className="w-36 shrink-0 rounded-xl border border-border bg-black/20 p-4">
                 <PersonPortrait person={person} images={portraitImages} />

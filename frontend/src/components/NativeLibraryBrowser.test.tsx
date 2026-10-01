@@ -260,3 +260,12 @@ it("edits genre rows without saving until the fixed save button is clicked", asy
   fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
   await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",series,expect.objectContaining({genres:["Comedy"]})));
 });
+
+it("hides anime character and cast rows according to saved preferences",async()=>{
+ localStorage.setItem("posterview.animePreferences.native",JSON.stringify({characters:false,casts:true,original:false,dub:true}));
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series,metadata:{...series.metadata,country_of_origin:"JP",characters:[{name:"Character"}],voice_cast:[{name:"Original actor",language:"Japanese"},{name:"Dub actor",language:"English"}]}}]);
+ mount("/?native_library=native&native_item=show");
+ expect(await screen.findByRole("heading",{name:"English Cast"})).toBeTruthy();
+ expect(screen.queryByRole("heading",{name:"Japanese Cast"})).toBeNull();
+ expect(screen.queryByRole("heading",{name:"Characters"})).toBeNull();
+});
