@@ -67,6 +67,7 @@ pub struct NativeLibrary {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NativeLibraryOptions {
+    pub server_sync: NativeServerSync,
     pub read_nfo: bool,
     pub save_nfo: bool,
     pub local_artwork: bool,
@@ -86,6 +87,7 @@ pub struct NativeLibraryOptions {
 impl Default for NativeLibraryOptions {
     fn default() -> Self {
         Self {
+            server_sync: NativeServerSync::default(),
             read_nfo: true,
             save_nfo: false,
             local_artwork: true,
@@ -144,3 +146,20 @@ pub struct NativeScanProgress {
     pub total: Option<usize>,
     pub current: String,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NativeServerSync {
+    pub enabled: bool,
+    #[serde(default="sync_all_servers")]
+    pub push_to_all: bool,
+    pub push_server_ids: Vec<i64>,
+    pub server_id: Option<i64>,
+    pub library_id: String,
+    pub override_locked: bool,
+    pub write_nfo: bool,
+}
+
+fn sync_all_servers()->bool{true}
+
+impl Default for NativeServerSync {fn default()->Self{Self{enabled:false,push_to_all:true,push_server_ids:Vec::new(),server_id:None,library_id:String::new(),override_locked:false,write_nfo:false}}}

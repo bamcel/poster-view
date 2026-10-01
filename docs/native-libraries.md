@@ -30,7 +30,7 @@ larger lists generate an explicit notice. Provider failures leave local data usa
 Metadata, identities, file records, credits, terms, characters, NFO associations, and artwork references
 are stored in native tables in posterview.db. NFO XML is retained in its document record. Local
 artwork references original media files; downloaded/uploaded images are managed under
-/config/native-artwork. Reader preferences remain in reader.sqlite. No server catalog is imported.
+/config/native-artwork. Reader preferences remain in reader.sqlite. Server metadata import is optional and updates only matched manual items.
 
 ## Scanning and browsing
 
@@ -265,7 +265,7 @@ Manual titles use the same artwork source panel and lookup UI as connected-serve
 
 Applying an image stores a managed image in application storage and records a locked manual artwork choice in the native database. The catalog revision changes and the dashboard refreshes immediately. Rescans preserve that choice. If **Save artwork into media folders** is enabled, the explicit selection also replaces the corresponding media-folder image using the configured naming rules. Season poster targets and episode thumbnails are supported. Changes are blocked while the library is scanning.
 
-Removal clears the database artwork reference without deleting local media-folder images. A later scan can rediscover those local images. Provider downloads use the existing validated download and cache paths, with manual-library requests isolated from connected-server caches.
+Explicit static artwork removal clears the database reference and removes the recorded static sidecar, retaining a managed backup. With Connected Server Sync enabled, it also queues deletion on supported linked servers. Animated variants are removed separately and do not delete the static selection. Provider downloads use the existing validated download and cache paths, with manual-library requests isolated from connected-server caches.
 
 ### MyAnimeList artwork
 
@@ -287,7 +287,7 @@ WebM files loop silently. Before storing an upload, PosterView inspects its vide
 
 Animations run only while visible, in the active browser tab, and when reduced motion is not enabled. A cached static frame is used otherwise, including when video playback fails. WebM responses support byte ranges. Static fallbacks are accessible using `still=1` on a native artwork URL, for future clients that need a conventional image.
 
-The existing 20 MB artwork limit applies. WebM supports VP8, VP9, and AV1 video, up to 16 megapixels and two minutes per animation. Stored static frames are scaled to at most 1920 pixels per side. Animated uploads and their fallback frames use application storage; local animations also require a prepared cache copy. Enabling media-folder artwork saves a correctly named `.gif` or `.webm` copy rather than converting it to JPEG. Ordinary static artwork retains existing JPEG/PNG naming. Connected-server artwork uploads remain subject to that server's image API; WebM uploads are available only for manual libraries. Poster rotation is unchanged.
+The existing 20 MB artwork limit applies. WebM supports VP8, VP9, and AV1 video, up to 16 megapixels and two minutes per animation. Stored static frames are scaled to at most 1920 pixels per side. Animated uploads and their fallback frames use application storage; local animations also require a prepared cache copy. Animated uploads remain in application storage as separate logical `poster-animated`, `backdrop-animated`, and corresponding artwork variants; they are not written alongside media. Ordinary static artwork retains existing JPEG/PNG naming. Connected-server uploads use static images; animated GIF/WebM uploads are available only for manual libraries. Poster rotation is unchanged.
 
 
 ### Correcting an identification
@@ -301,3 +301,19 @@ Saving replaces the item's IDs in the manual database, protects the confirmed ID
 The metadata editor includes an explicit title lock. Enable it for a custom title that must survive NFO reads and provider refreshes. Identify keeps the entered title when selecting results and does not automatically lock it. Existing protected titles remain locked until you clear this option.
 
 Identify results use poster cards organized by provider tabs. Selecting a record resolves provider-declared cross references and places linked records first for review. Linking follows known IDs only; providers with no published links still require a separate selection or manual ID. Missing credentials and conflicting links are reported, and nothing is saved until you confirm. AniDB title-index results have no posters until the selected record is retrieved.
+
+## Connected Server Sync
+
+In the library dialog's Advanced section, enable **Connected Server Sync**, then choose a source server and library. For a mixed manual library whose shows and movies occupy separate server libraries, select **All matching libraries**; only uniquely matched existing manual items are synchronized. Sync is off by default. **Push changes to all connected servers** is on by default; turn it off to select additional destinations. The source still receives PosterView edits. One source supplies incoming values and recovery, avoiding competing incoming server values. Disable sync and save the library to pause synchronization.
+
+Emby and Jellyfin support the shared metadata fields exposed in the import controls: titles, IDs, year, descriptions, ratings, release date, status, genres, tags, studios, cast/crew, episode numbering, and runtime. Plex is an outgoing static-artwork destination only, supporting posters, episode thumbnails, backdrops, and logos; Plex image deletion is currently unavailable and is skipped with an activity notice. Unsupported artwork types are skipped. Provider API credentials are not migrated.
+
+Initial linking imports current source values into matched manual items. Subsequent PosterView edits are durably queued and pushed; successful source changes are pulled every 30 seconds. Each field is checked against its last server snapshot before updating. If both sides changed while disconnected and edit order cannot be established, the source server's current value wins. Locked local fields are preserved unless **Override locked metadata** is enabled. Manual dashboards poll their catalog every 30 seconds while sync is enabled. This is polling rather than instantaneous server event delivery.
+
+Matching uses unique exact paths or compatible confirmed provider IDs for movies/series/books, and linked parents plus season/episode numbers for child items. Ambiguous and unmatched items are skipped, with counts and notices. **Correct item link** accepts a source item ID only after validating library membership and media type. No title-only fuzzy matching or whole-library comparison is performed, and server-only items are not added to the manual catalog.
+
+**Import metadata** defaults all shared field selections on, with lock override and NFO writing off. Uncheck fields you want preserved. **Write imported metadata to NFO files** and the ongoing **Write synced metadata to NFO files** merge selected shared values into existing XML, preserving unknown/custom elements and unselected fields. Corrected shared provider IDs replace previous IDs. Missing NFO files are created when the media folder is accessible. Stale or invalid XML is not overwritten; write failures are reported while database changes remain saved.
+
+Static artwork stays separate from animated variants. Incoming source images are saved in application storage and optionally to media-folder sidecars. Animated originals retain their own database references and do not push to connected servers. A per-library **Display animated artwork** preference applies to all types; disable it to display the last synchronized static selection. Offline previews retain last confirmed data. Explicit shared artwork deletions are queued both ways; failed reads or omitted response fields do not imply deletion. Previous static references and bounded shared-value snapshots are retained for recovery.
+
+Library cards provide **Sync now**, **Import metadata**, **Correct item link**, **Restore server values**, pending counts, last success, and notices. Recovery discards pending outgoing edits before pulling source values, preserving enhanced data and animations. Failed destination operations remain queued across restarts; one unavailable destination does not roll back successful local edits or other destinations. Characters, language-specific voice cast, animated artwork, visual preferences, and other PosterView enhancements are excluded from shared metadata sync. Database scan reads do not generate outgoing edit events, and self-written sidecars are suppressed by the file monitor.

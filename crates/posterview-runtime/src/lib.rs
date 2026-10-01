@@ -577,7 +577,7 @@ impl Runtime {
         Ok(())
     }
 
-    pub(crate) fn invalidate_media_item_images(
+    pub fn invalidate_media_item_images(
         &self,
         server_id: i64,
         item_id: &str,

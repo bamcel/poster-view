@@ -607,6 +607,7 @@ pub(crate) async fn apply(
             ));
         }
     }
+    crate::native_sync::changed(&state,&library,&item,json!({"title":updated.title,"year":updated.metadata["year"],"identifiers":updated.metadata["identifiers"]}),None).await;
     Ok(Json(
         json!({"entry":updated,"warnings":warnings,"message":"Identification saved. Scan files to fetch missing metadata using the corrected IDs."}),
     ))

@@ -1356,12 +1356,12 @@ pub async fn find_artwork_item(config: ConnectionConfig<'_>, path: &str, kind: &
     select_artwork_item(rows.as_array().map(Vec::as_slice).unwrap_or_default(), path, kind, ids, plex)
 }
 
-fn select_artwork_item(rows: &[Value], path: &str, kind: &str, ids: &Value, plex: bool) -> Result<String,String> {
+pub fn select_artwork_item(rows: &[Value], path: &str, kind: &str, ids: &Value, plex: bool) -> Result<String,String> {
     let normalize = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_string();
     let mut paths = Vec::new();
     let mut matches = Vec::new();
     for row in rows {
-        let expected = match kind { "series" => if plex { "show" } else { "Series" }, "movie" => if plex { "movie" } else { "Movie" }, "season" => if plex { "season" } else { "Season" }, "episode" => if plex { "episode" } else { "Episode" }, "book" => "Book", _ => continue };
+        let expected = match kind { "series" => if plex { "show" } else { "Series" }, "movie" => if plex { "movie" } else { "Movie" }, "season" => if plex { "season" } else { "Season" }, "episode" => if plex { "episode" } else { "Episode" }, "book" => "Book", "book_series" if !plex => "Folder", _ => continue };
         if row[if plex { "type" } else { "Type" }].as_str() != Some(expected) { continue; }
         let Some(id) = row[if plex { "ratingKey" } else { "Id" }].as_str() else { continue; };
         let exact = if plex {
@@ -1425,4 +1425,50 @@ mod artwork_sync_http_tests {
         set_image(config, &id, "thumb", b"test-image", "image/png").await.unwrap();
         handle.abort();
     }
+}
+
+/// Read a complete library snapshot; no title-only matching or guessed identifiers.
+pub async fn sync_library_items(config: ConnectionConfig<'_>, library: &str) -> Result<Vec<Value>,String> {
+    if config.server_type == ServerType::Plex { return Err("Shared metadata synchronization currently requires Emby or Jellyfin.".into()); }
+    let client = media_client(&config)?;
+    let mut rows = Vec::new();
+    let mut seen=std::collections::HashSet::new();
+    loop {
+        let offset = rows.len().to_string();
+        let response = emby_family_auth(client.get(format!("{}/Items", config.base_url.trim_end_matches('/'))).query(&[("ParentId",library),("Recursive","true"),("Fields","Path,ProviderIds,Overview,People,Genres,Tags,Studios,SortName,OriginalTitle,Taglines,DateCreated,PremiereDate,ProductionYear,CommunityRating,OfficialRating,IndexNumber,ParentIndexNumber,RunTimeTicks,Status,ImageTags,BackdropImageTags"),("Limit","500"),("StartIndex",&offset),("EnableTotalRecordCount","true")]), &config).send().await.map_err(|_|"Server library request failed.".to_string())?;
+        if !response.status().is_success() { return Err(format!("Server library returned {}.",response.status())); }
+        let data:Value=response.json().await.map_err(|_|"Invalid server library response.".to_string())?;
+        let batch=data["Items"].as_array().ok_or("Server response has no item list.")?;
+        if batch.is_empty() {break;}
+        for row in batch {let id=row["Id"].as_str().ok_or("Server item has no ID.")?;if !seen.insert(id.to_string()){return Err("Server repeated an item while paging; synchronization stopped.".into());}}
+        rows.extend(batch.iter().cloned());
+        if data["TotalRecordCount"].as_u64().is_some_and(|total|rows.len()>=total as usize) || (data["TotalRecordCount"].is_null()&&batch.len()<500) {break;}
+        if rows.len()>200_000 {return Err("Library exceeds synchronization item limit.".into());}
+    }
+    Ok(rows)
+}
+pub async fn sync_update_item(config: ConnectionConfig<'_>, item: &Value) -> Result<(),String> {
+    if config.server_type == ServerType::Plex { return Err("Plex metadata synchronization is unavailable.".into()); }
+    let id=item["Id"].as_str().ok_or("Server item has no ID.")?;
+    let client=media_client(&config)?;
+    let response=emby_family_auth(client.post(format!("{}/Items/{id}",config.base_url.trim_end_matches('/'))).json(item),&config).send().await.map_err(|_|"Metadata upload failed.".to_string())?;
+    upload_result(response,"Media server","API key").await
+}
+pub async fn sync_image(config:ConnectionConfig<'_>, id:&str, image_type:&str) -> Result<Vec<u8>,String> {
+    let client=media_client(&config)?;
+    let response=emby_family_auth(client.get(format!("{}/Items/{id}/Images/{image_type}/0",config.base_url.trim_end_matches('/'))),&config).send().await.map_err(|_|"Artwork download failed.".to_string())?;
+    if !response.status().is_success() {return Err(format!("Artwork download returned {}.",response.status()));}
+    if response.content_length().is_some_and(|len|len>20*1024*1024) {return Err("Artwork exceeds 20 MB.".into());}
+    let bytes=response.bytes().await.map_err(|_|"Artwork download failed.".to_string())?;
+    if bytes.len()>20*1024*1024 {return Err("Artwork exceeds 20 MB.".into());}
+    Ok(bytes.to_vec())
+}
+
+/// Fetch the full editable DTO before POST to avoid clearing unselected server fields.
+pub async fn sync_item(config:ConnectionConfig<'_>, id:&str)->Result<Value,String>{
+    let client=media_client(&config)?;
+    let user=emby_user_id(&client,&config,"Media server").await?;
+    let response=emby_family_auth(client.get(format!("{}/Users/{user}/Items/{id}",config.base_url.trim_end_matches('/'))),&config).send().await.map_err(|_|"Server item request failed.".to_string())?;
+    if !response.status().is_success(){return Err(format!("Server item returned {}.",response.status()));}
+    response.json().await.map_err(|_|"Invalid server item.".into())
 }

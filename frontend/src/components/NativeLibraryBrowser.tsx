@@ -26,6 +26,7 @@ import AnimatedArtwork from "./AnimatedArtwork";
 import ArtworkPanel from "./ArtworkPanel";
 import IdentifyPanel from "./IdentifyPanel";
 import LibraryPopup from "./LibraryPopup";
+import ArtworkPreferences, {animatedArtworkEnabled,useAnimatedArtworkPreference} from "./ArtworkPreferences";
 import AnimePreferences, {useAnimePreferences} from "./AnimePreferences";
 import { animeVoiceGroups, voiceName } from "../lib/nativeVoiceCast";
 import { nativeCatalogView } from "../lib/nativeCatalogView";
@@ -66,8 +67,9 @@ function artwork(
   entry: NativeCatalogEntry | undefined,
   kind: string,
 ) {
+  if (animatedArtworkEnabled(library.id) && entry?.artwork.some(a=>a.kind===`${kind}-animated`)) kind=`${kind}-animated`;
   return entry?.artwork.some((a) => a.kind === kind)
-    ? `${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${entry.revision}&format=${entry.artwork.find(a => a.kind === kind)?.path.split(".").pop()?.toLowerCase() ?? ""}`
+    ? `${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${entry.revision}&format=${entry.artwork.find(a => a.kind === kind)?.path.split(".").pop()?.toLowerCase() ?? ""}${!animatedArtworkEnabled(library.id) ? "&still=1" : ""}`
     : undefined;
 }
 function picture(
@@ -138,7 +140,7 @@ function PersonPortrait({person, images}: {person: Record<string, unknown>; imag
     : value;
   let src: string | undefined;
   try {
-    const url = new URL(source);
+    const url = source.startsWith("/api/servers/") ? new URL(source,window.location.origin) : new URL(source);
     if (["https:", "http:"].includes(url.protocol) && !url.username && !url.password) src = url.href;
   } catch { /* A missing or unsupported portrait uses the placeholder. */ }
   const [failed, setFailed] = useState(false);
@@ -193,6 +195,7 @@ export default function NativeLibraryBrowser({
 }: {
   library: NativeLibrary;
 }) {
+  useAnimatedArtworkPreference(library.id);
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
   const status = useQuery({
@@ -206,7 +209,7 @@ export default function NativeLibraryBrowser({
     queryFn: () => nativeLibraries.catalog(library.id),
     staleTime: 60_000,
     gcTime: 30 * 60_000,
-    refetchInterval: status.data?.status === "scanning" ? 5000 : false,
+    refetchInterval: status.data?.status === "scanning" ? 5000 : library.options?.server_sync?.enabled ? 30_000 : false,
   });
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("title");
@@ -416,7 +419,7 @@ export default function NativeLibraryBrowser({
                 </div>
               </details>
               <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style} editorStyle={library.library_type === "anime"}>
-                {library.library_type === "anime" ? <AnimePreferences library={library.id}/> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
+                <div className="space-y-7"><ArtworkPreferences library={library.id}/>{library.library_type === "anime" && <AnimePreferences library={library.id}/>}</div>
               </LibraryPopup>
             </div>
           </div>
@@ -497,6 +500,7 @@ function NativeDetail({
   showBackdrop: boolean;
   overlay: number;
 }) {
+  useAnimatedArtworkPreference(library.id);
   const {value:animePreferences} = useAnimePreferences(library.id);
   const parent = entries.find((e) => e.path === entry.parent_path);
   const series =

@@ -48,35 +48,10 @@ fn destination(entry: &NativeCatalogEntry, kind: &str) -> Result<(String, String
     Ok((folder, name.into()))
 }
 
-/// Keep the managed original authoritative; write a correctly encoded, atomic sidecar copy.
-/// Automatic scans never replace a user's existing media-folder image.
-pub(crate) fn write(
-    state: &AppState,
-    entry: &NativeCatalogEntry,
-    art: &NativeArtwork,
-    replace: bool,
-) -> Result<(), String> {
-    let Some(managed) = art.path.strip_prefix("@managed/") else {
-        return Ok(());
-    };
-    if !matches!(
-        (
-            Path::new(managed).components().next(),
-            Path::new(managed).components().nth(1)
-        ),
-        (Some(std::path::Component::Normal(_)), None)
-    ) || managed.contains(['/', '\\'])
-    {
-        return Err("Invalid managed artwork path.".into());
-    }
-    let (folder, name) = destination(entry, &art.kind)?;
-    let directory = state
-        .metadata
-        .directory(&folder, true)
-        .map_err(|e| e.detail)?;
+fn sidecar_name(entry:&NativeCatalogEntry,directory:&Path,name:String)->Result<String,String>{
     // A flat movie folder needs filename-prefixed sidecars to avoid title collisions.
-    let name = if entry.kind == "movie"
-        && fs::read_dir(&directory)
+    Ok(if entry.kind == "movie"
+        && fs::read_dir(directory)
             .map_err(|e| e.to_string())?
             .filter_map(Result::ok)
             .filter(|f| {
@@ -110,7 +85,37 @@ pub(crate) fn write(
         )
     } else {
         name
+    })
+}
+
+/// Keep the managed original authoritative; write a correctly encoded, atomic sidecar copy.
+/// Automatic scans never replace a user's existing media-folder image.
+pub(crate) fn write(
+    state: &AppState,
+    entry: &NativeCatalogEntry,
+    art: &NativeArtwork,
+    replace: bool,
+) -> Result<(), String> {
+    if art.kind.ends_with("-animated") || art.path.ends_with(".gif") || art.path.ends_with(".webm") { return Ok(()); }
+    let Some(managed) = art.path.strip_prefix("@managed/") else {
+        return Ok(());
     };
+    if !matches!(
+        (
+            Path::new(managed).components().next(),
+            Path::new(managed).components().nth(1)
+        ),
+        (Some(std::path::Component::Normal(_)), None)
+    ) || managed.contains(['/', '\\'])
+    {
+        return Err("Invalid managed artwork path.".into());
+    }
+    let (folder, name) = destination(entry, &art.kind)?;
+    let directory = state
+        .metadata
+        .directory(&folder, true)
+        .map_err(|e| e.detail)?;
+    let name = sidecar_name(entry, &directory, name)?;
     let animated = managed.ends_with(".gif") || managed.ends_with(".webm");
     let name = if animated {
         Path::new(&name)
@@ -191,4 +196,31 @@ pub(crate) fn write(
         Ok(())
     })?;
     Ok(())
+}
+
+/// Remove only the recorded static sidecar, retaining a managed backup for recovery.
+pub(crate) fn remove_static(state:&AppState,library:&str,entry:&NativeCatalogEntry,kind:&str)->Result<(),String>{
+    let Some(art)=entry.artwork.iter().find(|a|a.kind==kind)else{return Ok(());};
+    if art.path.ends_with(".gif")||art.path.ends_with(".webm"){
+      let mut animated=art.clone();animated.kind=format!("{kind}-animated");
+      posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir()).save_native_artwork(library,&entry.id,&animated).map_err(|e|e.to_string())?;
+      return Ok(());
+    }
+    if art.path.starts_with("@managed/"){
+      let mut backup=art.clone();backup.kind=format!("{kind}-previous");
+      posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir()).save_native_artwork(library,&entry.id,&backup).map_err(|e|e.to_string())?;
+    }
+    let root=match state.metadata.directory("",true){Ok(root)=>root,Err(_) if art.path.starts_with("@managed/")=>return Ok(()),Err(e)=>return Err(e.detail)};
+    let recorded=if art.path.starts_with("@managed/"){None}else{Some(root.join(&art.path))};
+    let (folder,name)=destination(entry,kind)?;
+    let directory=match state.metadata.directory(&folder,true){Ok(directory)=>directory,Err(_) if art.path.starts_with("@managed/")=>return Ok(()),Err(e)=>return Err(e.detail)};
+    let name=sidecar_name(entry,&directory,name)?;
+    let target=recorded.unwrap_or_else(||directory.join(name));
+    if !target.exists(){return Ok(());}
+    let parent=target.parent().ok_or("Invalid artwork path.")?;
+    if !parent.canonicalize().map_err(|e|e.to_string())?.starts_with(&root)||std::fs::symlink_metadata(&target).map_err(|e|e.to_string())?.is_symlink(){return Err("Unsafe artwork path.".into());}
+    let bytes=std::fs::read(&target).map_err(|e|e.to_string())?;
+    let managed=crate::native_provider::store_image(state,&bytes)?;
+    posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir()).save_native_artwork(library,&entry.id,&NativeArtwork{kind:format!("{kind}-previous"),path:managed,source:"manual".into()}).map_err(|e|e.to_string())?;
+    crate::native_monitor::own_write(&target,||std::fs::remove_file(&target).map_err(|e|e.to_string()))
 }

@@ -317,10 +317,7 @@ mod tests {
             db.save_native_artwork(&library.id, &entry.id, &art)
                 .unwrap();
             crate::native_artwork::write(&state, &entry, &art, true).unwrap();
-            assert_eq!(
-                fs::read(temp.path().join("media/Shows/Example").join(filename)).unwrap(),
-                bytes
-            );
+            assert!(!temp.path().join("media/Shows/Example").join(filename).exists());
             let (status, headers, original) = crate::native::artwork(
                 axum::extract::State(state.clone()),
                 axum::extract::Path((library.id.clone(), entry.id.clone(), kind.into())),

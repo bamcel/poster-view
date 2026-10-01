@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+chrono.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 image.workspace = true

@@ -1,3 +1,4 @@
+import ConnectedServerSync, {SyncActions} from "./ConnectedServerSync";
 import NativeScanProgress from "./NativeScanProgress";
 import { useEffect, useRef, useState } from "react";
 import LibrarySettings from "./NativeLibrarySettings";
@@ -51,6 +52,7 @@ function LibraryActions({ library }: { library: NativeLibrary }) {
   const busy = status.data?.status === "scanning" || scan.isPending || remove.isPending;
   return <div className="mt-4 space-y-3">
     {status.data && <NativeScanProgress status={status.data} />}
+    {library.options?.server_sync?.enabled&&<SyncActions library={library.id}/>}
     <div className="flex flex-wrap gap-2"><button className={BUTTON} disabled={busy} onClick={() => scan.mutate()}>Scan files</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={() => setConfirmDelete(true)}>Delete library</button></div>
     {confirmDelete && <div className="rounded-xl border border-edge bg-base p-3"><p className="text-sm text-muted">Delete {library.name}? Media and NFO files will be kept.</p><div className="mt-3 flex flex-wrap gap-2"><button className={BUTTON} disabled={busy} onClick={() => setConfirmDelete(false)}>Cancel</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={() => remove.mutate()}>Confirm deletion</button></div></div>}
     {(scan.error || remove.error || status.error) && <p role="alert" className="text-sm text-danger">{(scan.error || remove.error || status.error)?.message}</p>}
@@ -119,6 +121,7 @@ export function LibraryDialog({ library, onClose, onSaved }: { library?: NativeL
             {draft.paths.length > 32 && <p role="alert" className="text-sm text-danger">Choose at most 32 folders.</p>}
           </div>}
           {[2, 3, 4, 5].includes(step) && <LibrarySettings options={{...defaultNativeOptions, ...draft.options}} type={draft.library_type} animeContent={draft.anime_content} section={step} onChange={options => setDraft(previous => ({...previous, options}))} />}
+          {step === 5 && <ConnectedServerSync value={draft.options?.server_sync} library={library?.id} onChange={server_sync=>setDraft(previous=>({...previous,options:{...defaultNativeOptions,...previous.options,server_sync}}))}/>}
           {step === 6 && <div className="space-y-5"><div><h3 className="font-medium text-white">Review your library</h3><p className="mt-1 text-sm text-muted">Folders are validated before the configuration is saved.</p></div><dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm"><dt className="text-faint">Name</dt><dd className="break-all text-white">{draft.name || "Not set"}</dd><dt className="text-faint">Type</dt><dd className="text-white">{TYPES[draft.library_type]}</dd>{draft.library_type === "anime" && <><dt className="text-faint">Content</dt><dd className="text-white">{draft.anime_content === "both" ? "Mixed" : draft.anime_content === "shows" ? "Shows only" : "Movies only"}</dd></>}</dl><div className="rounded-xl border border-edge p-4"><h4 className="mb-2 text-sm text-white">Media roots</h4>{draft.paths.map(p => <p key={p} className="break-all text-sm text-muted">{displayPath(p)}</p>)}</div><p className="text-sm text-muted">New libraries scan after saving. Local files are written only when Save metadata to NFO is enabled. Existing libraries can be scanned from their library card.</p>{(basicsInvalid || pathsInvalid) && <p role="alert" className="text-sm text-danger">Enter a name and select 1–32 folders without overlaps before saving.</p>}</div>}
           {save.error && <p role="alert" className="mt-5 text-sm text-danger">{save.error.message}</p>}
         </main>

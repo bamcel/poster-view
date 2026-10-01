@@ -252,7 +252,7 @@ impl ServerStore {
                     let source = entry.metadata["_sources"][field]
                         .as_str()
                         .unwrap_or("filename");
-                    tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=revision+1 WHERE locked=0 AND (source<>'manual' OR field='title') AND (excluded.source='nfo' OR source<>'nfo' OR json_type(value_json)='null' OR value_json IN ('[]','{}') OR (json_type(value_json)='text' AND trim(json_extract(value_json,'$'))=''))",params![id,field,value.to_string(),source])?;
+                    tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=revision+1 WHERE locked=0 AND source<>'server' AND (source<>'manual' OR field='title') AND (excluded.source='nfo' OR source<>'nfo' OR json_type(value_json)='null' OR value_json IN ('[]','{}') OR (json_type(value_json)='text' AND trim(json_extract(value_json,'$'))=''))",params![id,field,value.to_string(),source])?;
                 }
             }
             let effective: Value = {
@@ -396,6 +396,34 @@ impl ServerStore {
         tx.execute("UPDATE catalog_items SET title=COALESCE(?1,title),sort_title=?2,synopsis=?3,year=?4,revision=revision+1 WHERE id=?5",params![effective["title"].as_str(),effective["sorttitle"].as_str(),effective["plot"].as_str(),effective["year"].as_i64(),item])?;
         tx.commit()?;
         Ok(())
+    }
+    /// Apply only selected shared fields, respecting field locks and optimistic revisions.
+    pub fn sync_native_metadata(&self, library:&str, item:&str, revision:i64, fields:&Value, override_locked:bool) -> Result<(),StoreError> {
+        let mut db=self.connection()?;
+        let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current:Option<i64>=tx.query_row("SELECT i.revision FROM catalog_items i JOIN native_catalog_sources s ON s.item_id=i.id WHERE s.library_id=?1 AND i.id=?2 AND s.available=1",params![library,item],|r|r.get(0)).optional()?;
+        if current!=Some(revision) {return Err(StoreError::RevisionConflict);}
+        let mut changed=false;
+        for (field,value) in fields.as_object().ok_or_else(||invalid("Invalid shared metadata."))? {
+            if field.starts_with('_') || field.len()>80 || value.to_string().len()>200_000 {return Err(invalid("Invalid shared metadata field."));}
+            if field=="title" && value.as_str().is_none_or(|v|v.trim().is_empty()) {continue;}
+            let previous:Option<(String,bool)>=tx.query_row("SELECT value_json,locked FROM catalog_metadata_fields WHERE item_id=?1 AND field=?2",params![item,field],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
+            if previous.as_ref().is_some_and(|(_,locked)|*locked && !override_locked) {continue;}
+            if previous.as_ref().is_some_and(|(v,_)|v==&value.to_string()) {
+                tx.execute("UPDATE catalog_metadata_fields SET source='server' WHERE item_id=?1 AND field=?2",params![item,field])?;
+                continue;
+            }
+            tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'server',0) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='server',revision=revision+1",params![item,field,value.to_string()])?;
+            changed=true;
+        }
+        if changed {
+            let mut effective=json!({});
+            {let mut stmt=tx.prepare("SELECT field,value_json FROM catalog_metadata_fields WHERE item_id=?1")?;
+            for row in stmt.query_map([item],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))? {let (field,value)=row?;effective[&field]=serde_json::from_str(&value).map_err(|_|invalid("Invalid metadata."))?;}}
+            project_metadata(&tx,item,&effective)?;
+            tx.execute("UPDATE catalog_items SET title=COALESCE(?1,title),sort_title=?2,synopsis=?3,year=?4,revision=revision+1 WHERE id=?5",params![effective["title"].as_str(),effective["sorttitle"].as_str(),effective["plot"].as_str(),effective["year"].as_i64(),item])?;
+        }
+        tx.commit()?;Ok(())
     }
     pub fn remove_native_artwork(&self, library: &str, item: &str, kind: &str) -> Result<(), StoreError> {
         let mut db = self.connection()?;

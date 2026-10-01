@@ -821,12 +821,11 @@ fn write_nfo_inner(
     entry: &NativeCatalogEntry,
     replace_ids: bool,
 ) -> Result<(String, String), String> {
-    if entry.kind == "season" && entry.nfo_path.is_none() {
-        return Err("Season writeback is not supported.".into());
-    }
     let media_root = state.metadata.directory("", true).map_err(|e| e.detail)?;
     let target = if let Some(path) = &entry.nfo_path {
         media_root.join(path)
+    } else if entry.kind == "season" {
+        media_root.join(&entry.path).join("season.nfo")
     } else if entry.kind == "series" {
         media_root.join(&entry.path).join("tvshow.nfo")
     } else if entry.kind == "book_series" {
@@ -871,6 +870,7 @@ fn write_nfo_inner(
             "movie" => "movie",
             "episode" => "episodedetails",
             "series" => "tvshow",
+            "season" => "season",
             "book" => "book",
             _ => "series",
         })
@@ -881,6 +881,10 @@ fn write_nfo_inner(
         "sorttitle",
         "plot",
         "year",
+        "tagline",
+        "rating",
+        "mpaa",
+        "premiered",
         "season",
         "episode",
         "runtime",
@@ -896,7 +900,7 @@ fn write_nfo_inner(
             v.into()
         } else if v.is_number() {
             v.to_string()
-        } else {
+        } else if v.is_null() {String::new()} else {
             continue;
         };
         xml.children
@@ -971,7 +975,7 @@ fn write_nfo_inner(
                     e.children.push(XMLNode::Text(text.into()));
                     actor.children.push(XMLNode::Element(e));
                 }
-                if let Some(image) = credit["image"].as_str().filter(|v| !v.trim().is_empty()) {
+                if let Some(image) = credit["image"].as_str().filter(|v| !v.trim().is_empty() && !v.starts_with("/api/servers/")) {
                     actor
                         .children
                         .retain(|n| !matches!(n,XMLNode::Element(e) if e.name=="thumb"));

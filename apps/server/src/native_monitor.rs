@@ -14,7 +14,8 @@ use std::{
 // Keep fingerprints until the file changes, including delayed events from long scans.
 // The lock spans the atomic rename: an event cannot race fingerprint registration.
 type WriteStamp = (u64, std::time::SystemTime);
-static OWN_WRITES: std::sync::LazyLock<std::sync::Mutex<BTreeMap<PathBuf, (Instant, WriteStamp)>>> =
+type OwnWriteRegistry = BTreeMap<PathBuf, (Instant, Option<WriteStamp>)>;
+static OWN_WRITES: std::sync::LazyLock<std::sync::Mutex<OwnWriteRegistry>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(BTreeMap::new()));
 
 fn stamp(path: &Path) -> Option<WriteStamp> {
@@ -39,9 +40,7 @@ pub(crate) fn own_write<T>(
     }
     let result = write();
     if result.is_ok() {
-        if let Some(value) = stamp(path) {
-            writes.insert(path.to_path_buf(), (Instant::now(), value));
-        }
+        writes.insert(path.to_path_buf(), (Instant::now(), stamp(path)));
     }
     result
 }
@@ -57,7 +56,7 @@ fn external_change(path: &Path, kind: &EventKind) -> bool {
     let mut writes = OWN_WRITES.lock().unwrap_or_else(|e| e.into_inner());
     if writes
         .get(path)
-        .is_some_and(|(_, expected)| stamp(path).as_ref() == Some(expected))
+        .is_some_and(|(_, expected)| stamp(path).as_ref() == expected.as_ref())
     {
         false
     } else {

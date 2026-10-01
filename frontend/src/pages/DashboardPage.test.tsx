@@ -8,7 +8,7 @@ it.each(["movie", "show", "collection", "other"] as const)("preserves %s library
   vi.mocked(api.getItems).mockResolvedValue([{ id: "two", title: "Title 2", type: "movie" }, { id: "ten", title: "Title 10", type: "movie" }]);
   const { client, container } = renderDashboard();
   await screen.findByText("Title 2");
-  expect(screen.queryByRole("button", { name: "Library preferences" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Library preferences" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Select Title 2" })).toBeNull();
   expect(fetcher).not.toHaveBeenCalled();
   const cards = container.querySelectorAll('button[title*="right-click for options"]');
@@ -40,7 +40,7 @@ import {
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import DashboardPage from "./DashboardPage";
 import { api } from "../api/client";
 vi.mock("../components/LibraryMetadataEditor", () => ({ default: ({ item, onClose }: { item: { title: string }; onClose: () => void }) => <div role="dialog" aria-label="Metadata editor">{item.title}<button onClick={onClose}>Close Editor</button></div> }));
@@ -60,6 +60,7 @@ vi.mock("../api/client", () => ({
   api: { getLibraries: vi.fn(), getItems: vi.fn() },
   imageUrl: (_serverId: number, image?: string | null) => image ? `/api/image/${image}` : undefined,
 }));
+beforeEach(()=>{vi.mocked(nativeLibraries.list).mockResolvedValue([]);});
 afterEach(() => {
   cleanup();
   sessionStorage.clear();

@@ -36,6 +36,7 @@ mod native_provider_extra;
 mod native_monitor;
 mod native_artwork;
 mod native_artwork_sync;
+mod native_sync;
 mod native_animation;
 mod native_identify;
 mod native_progress;
@@ -74,6 +75,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         login_backdrop,
     };
     native_monitor::start(state.clone());
+    native_sync::start(state.clone());
     let index = ui_dir.join("index.html");
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 
@@ -83,11 +85,13 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/native/libraries", get(native::list).post(native::create))
         .route("/api/native/libraries/{id}/scan", get(native::status).post(native::scan))
         .route("/api/native/libraries/{id}/items", get(native::catalog))
+        .route("/api/native/libraries/{id}/sync", get(native_sync::status).post(native_sync::run))
+        .route("/api/native/libraries/{id}/sync/links", axum::routing::put(native_sync::link))
         .route("/api/native/libraries/{library}/items/{item}/identify/resolve", axum::routing::post(native_identify::resolve))
         .route("/api/native/libraries/{library}/items/{item}/identify/search", axum::routing::post(native_identify::search))
         .route("/api/native/libraries/{library}/items/{item}/identify", axum::routing::post(native_identify::apply))
         .route("/api/native/libraries/{library}/items/{item}", axum::routing::put(native::edit_item))
-        .route("/api/native/libraries/{library}/items/{item}/artwork/{kind}", get(native::artwork).post(native::upload_artwork))
+        .route("/api/native/libraries/{library}/items/{item}/artwork/{kind}", get(native::artwork).post(native::upload_artwork).delete(native::remove_variant))
         .route("/api/native/libraries/{id}", axum::routing::put(native::update).delete(native::delete))
         .route("/api/reader/open/{server}/{item}", get(reader::open))
         .route("/api/reader/books/{id}", get(reader::manifest))
@@ -650,6 +654,9 @@ async fn upload_image(
     }
     if !(content_type.starts_with("image/") || server_id == 0 && content_type == "video/webm") {
         return Err(HttpError::bad_request("That file isn't an image."));
+    }
+    if server_id != 0 && native_animation::is_animated(&bytes) {
+        return Err(HttpError::bad_request("Animated artwork belongs to manual libraries. Select static artwork for the connected server."));
     }
     if server_id == 0 {
         return native::apply_panel_artwork(state, item_id, target, Some(bytes.to_vec())).await.map(Json);
