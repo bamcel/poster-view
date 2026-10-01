@@ -76,6 +76,94 @@ pub struct Request {
     override_locked: Option<bool>,
     write_nfo: Option<bool>,
     recover: bool,
+    generation: String,
+}
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct RetryState {
+    partner: String,
+    failures: u32,
+    retry_after: i64,
+    paused: bool,
+    epoch: u64,
+}
+fn retry_key(library: &str) -> String {
+    format!("native-server-retry:{library}")
+}
+fn load_retry(state: &AppState, library: &str) -> Result<RetryState, String> {
+    let raw = db(state)
+        .get_setting(&retry_key(library))
+        .map_err(|e| e.to_string())?;
+    if raw.is_empty() {
+        Ok(RetryState::default())
+    } else {
+        serde_json::from_str(&raw).map_err(|_| "Invalid sync retry state.".into())
+    }
+}
+fn save_retry(state: &AppState, library: &str, retry: &RetryState) -> Result<(), String> {
+    db(state)
+        .set_setting(
+            &retry_key(library),
+            &serde_json::to_string(retry).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())
+}
+fn reset_retry(state: &AppState, library: &str, partner: String) -> Result<(), String> {
+    let old = load_retry(state, library)?;
+    save_retry(
+        state,
+        library,
+        &RetryState {
+            partner,
+            epoch: old.epoch.saturating_add(1),
+            ..Default::default()
+        },
+    )
+}
+fn defer_retry(retry: &mut RetryState, time: i64) {
+    retry.failures = retry.failures.saturating_add(1);
+    retry.paused = retry.failures >= 3;
+    retry.retry_after = if retry.paused {
+        0
+    } else {
+        time + if retry.failures == 1 { 120 } else { 300 }
+    };
+}
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct ImportProgress {
+    request: String,
+    completed: std::collections::BTreeSet<String>,
+    recovery_started: bool,
+}
+fn progress_key(library: &str) -> String {
+    format!("native-server-import-progress:{library}")
+}
+fn load_progress(state: &AppState, library: &str, request: &str) -> Result<ImportProgress, String> {
+    let raw = db(state)
+        .get_setting(&progress_key(library))
+        .map_err(|e| e.to_string())?;
+    let progress: ImportProgress = if raw.is_empty() {
+        ImportProgress::default()
+    } else {
+        serde_json::from_str(&raw).map_err(|_| "Invalid import progress.")?
+    };
+    Ok(if progress.request == request {
+        progress
+    } else {
+        ImportProgress {
+            request: request.into(),
+            ..Default::default()
+        }
+    })
+}
+fn save_progress(state: &AppState, library: &str, progress: &ImportProgress) -> Result<(), String> {
+    db(state)
+        .set_setting(
+            &progress_key(library),
+            &serde_json::to_string(progress).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())
 }
 fn db(state: &AppState) -> ServerStore {
     ServerStore::new(state.runtime.data_dir())
@@ -225,8 +313,22 @@ pub(crate) async fn status(
         .find(|l| l.id == library)
         .ok_or_else(HttpError::not_found)?;
     let value = load(&state, &library).map_err(HttpError::bad_request)?;
+    let retry = load_retry(&state, &library).map_err(HttpError::bad_request)?;
+    let applies = retry.partner == partner(lib);
+    let status = if applies && retry.paused {
+        "paused"
+    } else if applies && retry.retry_after > chrono::Utc::now().timestamp() {
+        "retry_wait"
+    } else {
+        &value.status
+    };
+    let retry_at = if applies && retry.retry_after > 0 {
+        chrono::DateTime::from_timestamp(retry.retry_after, 0).map(|time| time.to_rfc3339())
+    } else {
+        None
+    };
     Ok(Json(
-        json!({"enabled":lib.options.server_sync.enabled,"status":value.status,"last_success":value.last_success,"pending":value.pending.len()+value.mirrors.values().map(|v|v.len()).sum::<usize>(),"linked_items":value.items.iter().map(|(item,value)|json!({"item":item,"server_item":value.remote})).collect::<Vec<_>>(),"matched":value.matched,"unmatched":value.unmatched,"failed":value.failed,"notices":value.notices,"activity":value.activity}),
+        json!({"enabled":lib.options.server_sync.enabled,"status":status,"retry_at":retry_at,"retry_attempts":retry.failures,"last_success":value.last_success,"pending":value.pending.len()+value.mirrors.values().map(|v|v.len()).sum::<usize>(),"linked_items":value.items.iter().map(|(item,value)|json!({"item":item,"server_item":value.remote})).collect::<Vec<_>>(),"matched":value.matched,"unmatched":value.unmatched,"failed":value.failed,"notices":value.notices,"activity":value.activity}),
     ))
 }
 pub(crate) async fn run(
@@ -248,8 +350,21 @@ pub(crate) async fn run(
     }
     // Persist an import request; work runs off the HTTP request and survives restarts.
     let _guard = QUEUE_LOCK.lock().await;
-    db(&state).set_setting(&format!("native-server-import:{library}"),&serde_json::to_string(&json!({"fields":request.fields,"override_locked":request.override_locked,"write_nfo":request.write_nfo,"recover":request.recover})).unwrap()).map_err(|e|HttpError::bad_request(e.to_string()))?;
+    // Sync now resumes the existing request rather than starting another full import.
+    if request.fields.is_some()
+        || request.override_locked.is_some()
+        || request.write_nfo.is_some()
+        || request.recover
+    {
+        db(&state).set_setting(&format!("native-server-import:{library}"),&serde_json::to_string(&json!({"fields":request.fields,"override_locked":request.override_locked,"write_nfo":request.write_nfo,"recover":request.recover,"generation":uuid::Uuid::new_v4().to_string()})).unwrap()).map_err(|e|HttpError::bad_request(e.to_string()))?;
+    }
     let mut value = load(&state, &library).map_err(HttpError::bad_request)?;
+    reset_retry(
+        &state,
+        &library,
+        partner(&active(&state, &library).ok_or_else(HttpError::not_found)?),
+    )
+    .map_err(HttpError::bad_request)?;
     value.status = "queued".into();
     save(&state, &library, &value).map_err(HttpError::bad_request)?;
     drop(_guard);
@@ -335,6 +450,9 @@ pub(crate) async fn changed(
         }
     }
 
+    if let Err(error) = reset_retry(state, library, partner(&lib)) {
+        return format!(" Sync retry reset failed: {error}");
+    }
     value.status = "pending".into();
     if let Err(e) = save_queue(state, library, &value).and_then(|_| save(state, library, &value)) {
         return format!(" Sync queue failed: {e}");
@@ -353,6 +471,7 @@ pub(crate) async fn changed(
 pub(crate) fn start(state: AppState) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
             let libraries = db(&state).native_libraries().unwrap_or_default();
@@ -361,11 +480,7 @@ pub(crate) fn start(state: AppState) {
                 .filter(|l| l.options.server_sync.enabled)
             {
                 if let Err(error) = reconcile(&state, &lib.id).await {
-                    if let Ok(mut value) = load(&state, &lib.id) {
-                        value.status = "unavailable".into();
-                        value.notices = vec![error];
-                        let _ = save(&state, &lib.id, &value);
-                    }
+                    tracing::warn!(%error,"Scheduled server sync waiting for retry");
                 }
             }
         }
@@ -399,6 +514,30 @@ fn shared(remote: &Value, kind: &str) -> Value {
         result[*field] = v;
     }
     result
+}
+fn observed_tags(remote: &Value, kind: &str, previous: &Value) -> Value {
+    let mut current = tags(remote, kind);
+    for (key, value) in current.as_object_mut().unwrap() {
+        let available = remote
+            .get(if key == "backdrop" {
+                "BackdropImageTags"
+            } else {
+                "ImageTags"
+            })
+            .is_some();
+        if !available {
+            *value = previous.get(key).cloned().unwrap_or(Value::Null);
+        }
+    }
+    current
+}
+fn source_changed(remote: &Value, kind: &str, previous: &ItemState) -> bool {
+    shared(remote, kind)
+        .as_object()
+        .into_iter()
+        .flatten()
+        .any(|(field, value)| !same_field(field, Some(value), previous.metadata.get(field)))
+        || observed_tags(remote, kind, &previous.tags) != previous.tags
 }
 fn same_field(field: &str, left: Option<&Value>, right: Option<&Value>) -> bool {
     if field != "credits" {
@@ -525,6 +664,54 @@ async fn reconcile(state: &AppState, library: &str) -> Result<(), String> {
     {
         return Ok(());
     }
+    let mut retry = load_retry(state, library)?;
+    if retry.partner != partner(&lib) {
+        let _queue_guard = QUEUE_LOCK.lock().await;
+        reset_retry(state, library, partner(&lib))?;
+        retry = load_retry(state, library)?;
+    }
+    if retry.paused || retry.retry_after > chrono::Utc::now().timestamp() {
+        return Ok(());
+    }
+    let result = reconcile_inner(state, library).await;
+    let _queue_guard = QUEUE_LOCK.lock().await;
+    let mut current_retry = load_retry(state, library)?;
+    // A new explicit action gets its own budget and must not be penalized by the older run.
+    if current_retry.epoch == retry.epoch {
+        let mut saved = load(state, library)?;
+        let unfinished = saved.failed > 0
+            || !saved.pending.is_empty()
+            || saved.mirrors.values().any(|changes| !changes.is_empty());
+        if result.is_err() || unfinished {
+            if let Err(error) = &result {
+                saved.failed = saved.failed.max(1);
+                saved.notices = vec![error.clone()];
+                saved.status = "unavailable".into();
+                save(state, library, &saved)?;
+            }
+            defer_retry(&mut current_retry, chrono::Utc::now().timestamp());
+            save_retry(state, library, &current_retry)?;
+        } else {
+            current_retry.failures = 0;
+            current_retry.retry_after = 0;
+            current_retry.paused = false;
+            save_retry(state, library, &current_retry)?;
+        }
+    }
+    result
+}
+async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> {
+    let Some(lib) = active(state, library) else {
+        return Ok(());
+    };
+    if db(state)
+        .native_scan_status(library)
+        .map_err(|e| e.to_string())?
+        .status
+        == "scanning"
+    {
+        return Ok(());
+    }
     let server = state
         .runtime
         .list_servers()
@@ -561,24 +748,25 @@ async fn reconcile(state: &AppState, library: &str) -> Result<(), String> {
     } else {
         Some(serde_json::from_str(&request_raw).map_err(|_| "Invalid import request.")?)
     };
-    let override_locked = request
-        .as_ref()
-        .and_then(|r| r.override_locked)
-        .unwrap_or(lib.options.server_sync.override_locked);
-    let write_nfo = request
-        .as_ref()
-        .and_then(|r| r.write_nfo)
-        .unwrap_or(lib.options.server_sync.write_nfo);
-    if request.as_ref().is_some_and(|r| r.recover) {
+    let mut progress = load_progress(state, library, &request_raw)?;
+    if request.as_ref().is_some_and(|r| r.recover) && !progress.recovery_started {
         let _guard = QUEUE_LOCK.lock().await;
         saved.pending.clear();
         saved.mirrors.clear();
         save_queue(state, library, &saved)?;
+        progress.recovery_started = true;
+        save_progress(state, library, &progress)?;
     }
-    // Additional destinations can still receive edits while the source is offline.
-    push_destinations(state, &lib, &mut saved).await;
+    // Each destination gets at most one attempt per cycle. Source outages do not block outgoing destinations.
     save(state, library, &saved)?;
-    let rows = sync_library_items(config.clone(), source_library(&lib)).await?;
+    let rows = match sync_library_items(config.clone(), source_library(&lib)).await {
+        Ok(rows) => rows,
+        Err(error) => {
+            push_destinations(state, &lib, &mut saved).await;
+            save(state, library, &saved)?;
+            return Err(error);
+        }
+    };
     let root = state.metadata.directory("", true).map_err(|e| e.detail)?;
     let mut entries = db(state)
         .native_catalog(library)
@@ -591,7 +779,12 @@ async fn reconcile(state: &AppState, library: &str) -> Result<(), String> {
     });
     let mut links = BTreeMap::new();
     let mut used = std::collections::BTreeSet::new();
-    saved.status = "syncing".into();
+    if request.is_some()
+        || !saved.pending.is_empty()
+        || saved.mirrors.values().any(|v| !v.is_empty())
+    {
+        saved.status = "syncing".into();
+    }
     saved.matched = 0;
     saved.unmatched = 0;
     saved.failed = 0;
@@ -626,6 +819,16 @@ async fn reconcile(state: &AppState, library: &str) -> Result<(), String> {
             .iter()
             .find(|r| r["Id"] == id)
             .ok_or("Linked server item missing.")?;
+        let completion_key = format!("{}:{id}", entry.id);
+        let request = request
+            .as_ref()
+            .filter(|_| !progress.completed.contains(&completion_key));
+        let override_locked = request
+            .and_then(|r| r.override_locked)
+            .unwrap_or(lib.options.server_sync.override_locked);
+        let write_nfo = request
+            .and_then(|r| r.write_nfo)
+            .unwrap_or(lib.options.server_sync.write_nfo);
         let previous = saved.items.get(&entry.id).cloned();
         let mut snapshot = previous.clone().unwrap_or_default();
         let pending = saved.pending.get(&entry.id).cloned();
@@ -634,12 +837,12 @@ async fn reconcile(state: &AppState, library: &str) -> Result<(), String> {
             .is_none_or(|p| p.remote != id || p.metadata.is_null());
         let force = request.is_some() || first;
         let force_images = first || request.as_ref().is_some_and(|r| r.recover);
-        if !force
-            && pending.is_none()
-            && shared(remote, &entry.kind) == snapshot.metadata
-            && tags(remote, &entry.kind) == snapshot.tags
-        {
+        if !force && pending.is_none() && !source_changed(remote, &entry.kind, &snapshot) {
             continue;
+        }
+        if saved.status != "syncing" {
+            saved.status = "syncing".into();
+            save(state, library, &saved)?;
         }
         let recover = request.as_ref().is_some_and(|r| r.recover);
         let work=async {
@@ -698,7 +901,7 @@ async fn reconcile(state: &AppState, library: &str) -> Result<(), String> {
      }
     }
    }
-   let image_tags=tags(&remote,&entry.kind);
+   let image_tags=observed_tags(&remote,&entry.kind,&snapshot.tags);
    for (kind,tag) in image_tags.as_object().into_iter().flatten(){
     if !force_images && snapshot.tags.get(kind)==Some(tag){continue;}
     let existing=current.artwork.iter().find(|a|&a.kind==kind);
@@ -719,7 +922,10 @@ async fn reconcile(state: &AppState, library: &str) -> Result<(), String> {
    let accepted=Value::Object(fields.as_object().into_iter().flatten().filter_map(|(field,_)|updated.metadata.get(field).map(|value|(field.clone(),value.clone()))).collect());
    let changed_art=Value::Object(image_tags.as_object().into_iter().flatten().filter(|(kind,tag)|force_images||snapshot.tags.get(*kind)!=Some(*tag)||pending.as_ref().is_some_and(|p|p["art"].get(*kind).is_some())).map(|(kind,_)|(kind.clone(),json!(true))).collect());
    if accepted.as_object().is_some_and(|v|!v.is_empty())||changed_art.as_object().is_some_and(|v|!v.is_empty()){mirror_accepted(state,&lib,&entry.id,&accepted,&changed_art,pending.as_ref()).await?;}
-   snapshot.remote=id.clone();snapshot.metadata=metadata;snapshot.tags=image_tags;
+   snapshot.remote=id.clone();
+   if snapshot.metadata.is_null(){snapshot.metadata=json!({});}
+   for (field,value) in metadata.as_object().into_iter().flatten(){snapshot.metadata[field]=value.clone();}
+   snapshot.tags=image_tags;
    Ok::<(),String>(())
   }.await;
         match work {
@@ -729,6 +935,12 @@ async fn reconcile(state: &AppState, library: &str) -> Result<(), String> {
                     acknowledge(state, library, &entry.id, expected, None).await?;
                 }
                 saved.pending.remove(&entry.id);
+                if request.is_some() {
+                    // Snapshot first, then mark completion: retries never skip an uncommitted item.
+                    save(state, library, &saved)?;
+                    progress.completed.insert(completion_key);
+                    save_progress(state, library, &progress)?;
+                }
             }
             Err(error) => {
                 saved.failed += 1;
@@ -778,6 +990,9 @@ async fn reconcile(state: &AppState, library: &str) -> Result<(), String> {
     {
         db(state)
             .set_setting(&import_key, "")
+            .map_err(|e| e.to_string())?;
+        db(state)
+            .set_setting(&progress_key(library), "")
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -1074,6 +1289,7 @@ pub(crate) async fn link(
 #[cfg(test)]
 mod tests {
     use super::*;
+    static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     use posterview_contracts::{
         ServerCreate, ServerType,
         native::{
@@ -1081,6 +1297,237 @@ mod tests {
             NativeServerSync,
         },
     };
+    #[test]
+    fn failed_attempts_back_off_then_pause() {
+        let mut retry = RetryState::default();
+        defer_retry(&mut retry, 1000);
+        assert_eq!(retry.retry_after, 1120);
+        assert!(!retry.paused);
+        defer_retry(&mut retry, 2000);
+        assert_eq!(retry.retry_after, 2300);
+        assert!(!retry.paused);
+        defer_retry(&mut retry, 3000);
+        assert!(retry.paused);
+        assert_eq!(retry.retry_after, 0);
+    }
+    #[test]
+    fn unchanged_partial_responses_do_not_restart_sync() {
+        let previous = ItemState {
+            metadata: json!({"title":"Example","plot":"Description","sorttitle":null,"credits":[{"name":"Actor","role":"Hero","category":"cast","type":"Actor","provider":"server","server_person_id":"1"}]}),
+            tags: tags(&json!({"ImageTags":{},"BackdropImageTags":[]}), "series"),
+            ..Default::default()
+        };
+        let partial = json!({"Name":"Example","Overview":"Description","People":[{"Name":"Actor","Role":"Hero","Type":"Actor"}],"ImageTags":{},"BackdropImageTags":[]});
+        assert!(!source_changed(&partial, "series", &previous));
+        assert!(!source_changed(
+            &json!({"Name":"Example"}),
+            "series",
+            &previous
+        ));
+        assert!(source_changed(
+            &json!({"Name":"Changed"}),
+            "series",
+            &previous
+        ));
+    }
+    fn sync_fixture(state: &AppState, url: String) -> NativeLibrary {
+        let store = db(state);
+        let server = store
+            .create_server(&ServerCreate {
+                name: "Emby".into(),
+                server_type: ServerType::Emby,
+                base_url: url,
+                token: "test".into(),
+                is_default: true,
+                nfo_metadata_enabled: false,
+            })
+            .unwrap();
+        store
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Anime".into(),
+                    library_type: NativeLibraryType::Anime,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Anime".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        server_sync: NativeServerSync {
+                            enabled: true,
+                            push_to_all: false,
+                            server_id: Some(server.id),
+                            library_id: "library".into(),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap()
+    }
+    #[tokio::test]
+    async fn source_failures_stop_after_three_attempts_and_sync_now_resumes_existing_import() {
+        let _test_guard = TEST_LOCK.lock().await;
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        let app = axum::Router::new().route(
+            "/Items",
+            axum::routing::get(move || {
+                let counter = counter.clone();
+                async move {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server_task = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::native::scan_tests::state(temp.path());
+        let lib = sync_fixture(&state, url);
+        let request = json!({"fields":["plot"],"generation":"original-import"}).to_string();
+        db(&state)
+            .set_setting(&format!("native-server-import:{}", lib.id), &request)
+            .unwrap();
+        let mut progress = ImportProgress {
+            request: request.clone(),
+            ..Default::default()
+        };
+        progress.completed.insert("successful-item:123".into());
+        save_progress(&state, &lib.id, &progress).unwrap();
+        for attempt in 1..=3 {
+            if attempt > 1 {
+                let mut retry = load_retry(&state, &lib.id).unwrap();
+                retry.retry_after = 0;
+                save_retry(&state, &lib.id, &retry).unwrap();
+            }
+            assert!(reconcile(&state, &lib.id).await.is_err());
+            assert_eq!(calls.load(Ordering::SeqCst), attempt);
+            reconcile(&state, &lib.id).await.unwrap();
+            assert_eq!(calls.load(Ordering::SeqCst), attempt);
+        }
+        assert!(load_retry(&state, &lib.id).unwrap().paused);
+        let response = status(State(state.clone()), Path(lib.id.clone()))
+            .await
+            .unwrap();
+        assert_eq!(response.0["status"], "paused");
+        let _ = run(
+            State(state.clone()),
+            Path(lib.id.clone()),
+            Json(Request::default()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            db(&state)
+                .get_setting(&format!("native-server-import:{}", lib.id))
+                .unwrap(),
+            request
+        );
+        assert!(
+            load_progress(&state, &lib.id, &request)
+                .unwrap()
+                .completed
+                .contains("successful-item:123")
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while calls.load(Ordering::SeqCst) < 4
+                || load_retry(&state, &lib.id).unwrap().failures == 0
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!load_retry(&state, &lib.id).unwrap().paused);
+        server_task.abort();
+    }
+    #[tokio::test]
+    async fn failed_import_retries_only_unfinished_items() {
+        let _test_guard = TEST_LOCK.lock().await;
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        };
+        let good = Arc::new(AtomicUsize::new(0));
+        let bad = Arc::new(AtomicUsize::new(0));
+        let fail = Arc::new(AtomicBool::new(true));
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(2, 2)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let png = png.into_inner();
+        let successful = good.clone();
+        let failed = bad.clone();
+        let failing = fail.clone();
+        let good_png = png.clone();
+        let app=axum::Router::new().route("/Items",axum::routing::get(||async{Json(json!({"Items":[{"Id":"123","Type":"Series","Name":"First","ProviderIds":{"Tvdb":"42"},"Overview":"First plot","ImageTags":{"Primary":"good"},"BackdropImageTags":[]},{"Id":"124","Type":"Series","Name":"Second","ProviderIds":{"Tvdb":"43"},"Overview":"Second plot","ImageTags":{"Primary":"bad"},"BackdropImageTags":[]}],"TotalRecordCount":2}))}))
+        .route("/Items/123/Images/Primary/0",axum::routing::get(move||{let reads=successful.clone();let png=good_png.clone();async move{reads.fetch_add(1,Ordering::SeqCst);(axum::http::StatusCode::OK,png)}}))
+        .route("/Items/124/Images/Primary/0",axum::routing::get(move||{let reads=failed.clone();let failing=failing.clone();let png=png.clone();async move{reads.fetch_add(1,Ordering::SeqCst);if failing.load(Ordering::SeqCst){(axum::http::StatusCode::SERVICE_UNAVAILABLE,Vec::new())}else{(axum::http::StatusCode::OK,png)}}}));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server_task = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::native::scan_tests::state(temp.path());
+        for (name, id) in [("First", "42"), ("Second", "43")] {
+            let folder = temp.path().join(format!("media/Anime/{name}"));
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join(format!("{name}.S01E01.mkv")), b"fixture").unwrap();
+            std::fs::write(
+                folder.join("tvshow.nfo"),
+                format!(
+                    "<tvshow><title>{name}</title><uniqueid type=\"tvdb\">{id}</uniqueid></tvshow>"
+                ),
+            )
+            .unwrap();
+        }
+        let lib = sync_fixture(&state, url);
+        crate::native::run_scan(state.clone(), lib.clone())
+            .await
+            .unwrap();
+        let request = json!({"fields":["plot"],"generation":"test-import"}).to_string();
+        db(&state)
+            .set_setting(&format!("native-server-import:{}", lib.id), &request)
+            .unwrap();
+        reconcile(&state, &lib.id).await.unwrap();
+        assert_eq!(good.load(Ordering::SeqCst), 1);
+        assert_eq!(bad.load(Ordering::SeqCst), 1);
+        assert_eq!(load(&state, &lib.id).unwrap().failed, 1);
+        let mut retry = load_retry(&state, &lib.id).unwrap();
+        retry.retry_after = 0;
+        save_retry(&state, &lib.id, &retry).unwrap();
+        reconcile(&state, &lib.id).await.unwrap();
+        assert_eq!(good.load(Ordering::SeqCst), 1);
+        assert_eq!(bad.load(Ordering::SeqCst), 2);
+        fail.store(false, Ordering::SeqCst);
+        let mut retry = load_retry(&state, &lib.id).unwrap();
+        retry.retry_after = 0;
+        save_retry(&state, &lib.id, &retry).unwrap();
+        reconcile(&state, &lib.id).await.unwrap();
+        assert_eq!(good.load(Ordering::SeqCst), 1);
+        assert_eq!(bad.load(Ordering::SeqCst), 3);
+        assert_eq!(load(&state, &lib.id).unwrap().status, "synced");
+        assert!(
+            db(&state)
+                .get_setting(&format!("native-server-import:{}", lib.id))
+                .unwrap()
+                .is_empty()
+        );
+        reconcile(&state, &lib.id).await.unwrap();
+        assert_eq!(good.load(Ordering::SeqCst), 1);
+        assert_eq!(bad.load(Ordering::SeqCst), 3);
+        server_task.abort();
+    }
     #[test]
     fn replaces_shared_ids_without_retaining_removed_ids() {
         let mut dto = json!({"ProviderIds":{"Tvdb":"1","Tmdb":"2"},"CustomRating":"preserve"});
@@ -1109,6 +1556,7 @@ mod tests {
     #[tokio::test]
     async fn pulls_initial_metadata_preserves_enhancements_and_pushes_edits_without_erasing_server_fields()
      {
+        let _test_guard = TEST_LOCK.lock().await;
         use axum::{Router, extract::State as AxumState, routing::get};
         use std::sync::{Arc, Mutex};
         let temp = tempfile::tempdir().unwrap();

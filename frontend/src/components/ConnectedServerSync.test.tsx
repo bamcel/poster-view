@@ -29,3 +29,13 @@ it("imports all shared fields by default with optional lock override and NFO wri
  fireEvent.click(screen.getByRole("button",{name:"Import selected fields"}));
  await waitFor(()=>expect(nativeLibraries.sync).toHaveBeenCalledWith("anime",expect.objectContaining({override_locked:false,write_nfo:false,fields:expect.not.arrayContaining(["identifiers"])})));
 });
+
+it("shows paused retries and allows Sync now to resume pending work",async()=>{
+ vi.mocked(nativeLibraries.syncStatus).mockResolvedValue({enabled:true,status:"paused",retry_attempts:3,retry_at:null,pending:1,matched:1,unmatched:0,failed:1,notices:["Artwork download returned 503."],activity:[]} as never);
+ vi.mocked(nativeLibraries.sync).mockResolvedValue({status:"queued"} as never);
+ mount(<SyncActions library="anime"/>);
+ expect(await screen.findByText(/Automatic sync paused after three unsuccessful attempts/)).toBeTruthy();
+ const retry=screen.getByRole("button",{name:"Sync now"});expect((retry as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.click(retry);
+ await waitFor(()=>expect(nativeLibraries.sync).toHaveBeenCalledWith("anime",{}));
+});

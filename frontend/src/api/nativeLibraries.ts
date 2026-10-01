@@ -66,4 +66,4 @@ export interface NativeScanStatus { progress?: {phase: string; processed: number
 export interface IdentificationCandidate {poster?:string|null;provider:string;id:string;title:string;year:number|null;format:string|null;overview:string|null;identifiers:Record<string,string>}
 export interface IdentificationGroup {provider:string;results:IdentificationCandidate[];error?:string}
 
-export interface SyncStatus {enabled:boolean;status:string;last_success:string|null;pending:number;matched:number;unmatched:number;failed:number;notices:string[];activity:string[];}
+export interface SyncStatus {enabled:boolean;status:string;retry_at?:string|null;retry_attempts?:number;last_success:string|null;pending:number;matched:number;unmatched:number;failed:number;notices:string[];activity:string[];}
