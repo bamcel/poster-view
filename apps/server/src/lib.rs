@@ -33,6 +33,7 @@ mod native_scan;
 mod native_provider;
 mod native_provider_extra;
 mod native_monitor;
+mod native_artwork;
 pub use auth::AuthState;
 pub use config::ServerConfig;
 use error::HttpError;

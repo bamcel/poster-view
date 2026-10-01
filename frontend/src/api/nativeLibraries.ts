@@ -2,13 +2,13 @@ import { apiRequest } from "./client";
 
 export type NativeLibraryType = "movies" | "shows" | "anime" | "books";
 export interface NativeLibraryOptions {
-  read_nfo: boolean; save_nfo: boolean; local_artwork: boolean; fetch_missing: boolean;
+  read_nfo: boolean; save_nfo: boolean; local_artwork: boolean; save_artwork: boolean; fetch_missing: boolean;
   metadata_language: string; certification_country: string; image_language: string;
   prefer_embedded_titles: boolean; real_time_monitor: boolean; sample_ignore_mb: number; allow_adult_metadata: boolean;
   metadata_providers: Record<string, string[]>; image_providers: Record<string, string[]>; image_types: string[];
 }
 export const defaultNativeOptions: NativeLibraryOptions = {
-  read_nfo: true, save_nfo: false, local_artwork: true, fetch_missing: true,
+  read_nfo: true, save_nfo: false, local_artwork: true, save_artwork: false, fetch_missing: true,
   metadata_language: "en", certification_country: "US", image_language: "en", prefer_embedded_titles: false, real_time_monitor: false,
   sample_ignore_mb: 300, allow_adult_metadata: false, metadata_providers: {}, image_providers: {},
   image_types: ["poster", "backdrop", "thumb", "logo", "banner"],

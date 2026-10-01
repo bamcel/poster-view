@@ -107,7 +107,7 @@ Working options:
 
 Unavailable features are visible but disabled and labeled: global-search exclusion, merged
 folder view, `.plexignore`, automatic series grouping, scheduled metadata refresh,
-collections, minimum artwork width, artwork writeback/local caching, lazy image
+collections, minimum artwork width, local image caching, lazy image
 fetching, chapter generation, and video resume settings. They do not save active
 options or promise background behavior. Provider artwork is currently downloaded
 during a scan into application data; manual scans retain populated metadata.
@@ -138,3 +138,35 @@ an active scan to finish. Hidden paths and backdrop directories are ignored.
 Turning monitoring off or deleting a library removes its watchers. Monitoring
 uses the same scanner, local-source priority, and manual-edit protection as
 Scan files; it does not enable scheduled internet metadata refresh.
+
+
+## Artwork in media folders
+
+Enable **Artwork → Artwork Storage → Save artwork into media folders** in a
+manual library. It is off by default and requires writable media mounts. A scan
+also exports already downloaded/uploaded images, even when internet fetching
+is disabled. Managed originals and database references remain in application
+data. Local images are left in place.
+
+Sidecar names and encodings:
+
+| Artwork | Filename | Location |
+| --- | --- | --- |
+| Poster | `poster.jpg` | Movie or series folder |
+| Backdrop | `fanart.jpg` | Movie or series folder |
+| Landscape/thumbnail | `landscape.jpg` | Movie or series folder |
+| Clearlogo | `clearlogo.png` | Movie or series folder |
+| Season poster | `season01-poster.jpg`, `season02-poster.jpg`, etc. | Series folder |
+| Episode thumbnail | `<video filename without extension>.jpg` | Beside the episode |
+| Banner / disc | `banner.jpg` / `disc.png` | Movie or series folder |
+
+PNG clearlogos preserve transparency; JPG sidecars are encoded as JPEG, even
+when the original download/upload was PNG or WebP. Movies sharing a flat folder
+use `<filename>-poster.jpg`, `<filename>-fanart.jpg`, etc. to avoid collisions.
+Individual books keep filename-based cover images.
+
+Scans preserve existing sidecars. Explicit manual uploads replace the matching
+sidecar atomically. Identical writes are skipped to avoid repeated monitoring
+rescans. Failed exports appear in scan notices; upload errors explain that the
+managed image was saved even if the sidecar write failed. Season posters and
+episode thumbnails are recognized as local artwork on subsequent scans.

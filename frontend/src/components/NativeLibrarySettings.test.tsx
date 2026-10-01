@@ -32,9 +32,11 @@ it("keeps provider priorities scoped by media type and supports disabling every 
 });
 it("stores image choices separately from metadata and shows playback as unavailable", () => {
   const view = render(<Harness section={4} />);
+  fireEvent.click(screen.getByRole("switch", {name: "Save artwork into media folders"}));
   fireEvent.click(screen.getByRole("switch", {name: "Download logo"}));
   fireEvent.click(screen.getByLabelText("Series Image Fetchers: TheMovieDb"));
   const options = JSON.parse(screen.getByTestId("options").textContent!);
+  expect(options.save_artwork).toBe(true);
   expect(options.image_types).not.toContain("logo");
   expect(options.image_providers.series).toEqual(["anilist", "tmdb"]);
   expect(options.metadata_providers).toEqual({});

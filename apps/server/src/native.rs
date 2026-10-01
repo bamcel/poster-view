@@ -228,6 +228,28 @@ async fn run_scan(
     .await
     .map_err(|_| HttpError::bad_request("Catalog save interrupted."))?
     .map_err(error)?;
+    if library.options.save_artwork {
+        let write_state = state.clone();
+        let id = library.id.clone();
+        warnings.extend(
+            tokio::task::spawn_blocking(move || {
+                let entries = store(&write_state).native_catalog(&id).map_err(error)?;
+                let mut issues = Vec::new();
+                for entry in entries.iter().filter(|e| e.available) {
+                    for art in &entry.artwork {
+                        if let Err(e) =
+                            crate::native_artwork::write(&write_state, entry, art, false)
+                        {
+                            issues.push(format!("{}: artwork write failed: {e}", entry.title));
+                        }
+                    }
+                }
+                Ok::<_, HttpError>(issues)
+            })
+            .await
+            .map_err(|_| HttpError::bad_request("Artwork write interrupted."))??,
+        );
+    }
     if library.options.save_nfo {
         let write_state = state.clone();
         let id = library.id.clone();
@@ -364,27 +386,35 @@ pub(crate) async fn upload_artwork(
         .map_err(|_| HttpError::bad_request("Unable to read artwork upload."))?;
     tokio::task::spawn_blocking(move || {
         let db = store(&state);
-        if !db
+        let entry = db
             .native_catalog(&library)
             .map_err(error)?
-            .iter()
-            .any(|e| e.id == item)
-        {
-            return Err(HttpError::not_found());
-        }
+            .into_iter()
+            .find(|e| e.id == item)
+            .ok_or_else(HttpError::not_found)?;
+        let config = db
+            .native_libraries()
+            .map_err(error)?
+            .into_iter()
+            .find(|e| e.id == library)
+            .ok_or_else(HttpError::not_found)?;
         let path =
             crate::native_provider::store_image(&state, &bytes).map_err(HttpError::bad_request)?;
-        db.save_native_artwork(
-            &library,
-            &item,
-            &posterview_contracts::native::NativeArtwork {
-                kind,
-                path,
-                source: "manual".into(),
-            },
-        )
-        .map_err(error)?;
-        Ok(())
+        let art = posterview_contracts::native::NativeArtwork {
+            kind,
+            path,
+            source: "manual".into(),
+        };
+        db.save_native_artwork(&library, &item, &art)
+            .map_err(error)?;
+        if config.options.save_artwork {
+            crate::native_artwork::write(&state, &entry, &art, true).map_err(|e| {
+                HttpError::bad_request(format!(
+                    "Artwork saved in the database, but media-folder write failed: {e}"
+                ))
+            })?;
+        }
+        Ok::<_, HttpError>(())
     })
     .await
     .map_err(|_| HttpError::bad_request("Artwork save interrupted."))??;
@@ -643,6 +673,127 @@ mod scan_tests {
                 .0
                 .len(),
             1
+        );
+    }
+    #[tokio::test]
+    async fn saves_encoded_artwork_sidecars_and_reads_them_on_rescan() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let media = temp.path().join("media");
+        let series = media.join("Shows/Example");
+        fs::create_dir_all(series.join("Season 01")).unwrap();
+        fs::create_dir_all(series.join("Season 02")).unwrap();
+        fs::write(series.join("Season 02/Example.S02E01.mkv"), b"fixture").unwrap();
+        fs::write(series.join("Season 01/Example.S01E01.mkv"), b"fixture").unwrap();
+        let db = store(&state);
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Shows".into(),
+                    library_type: NativeLibraryType::Shows,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Shows".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        save_artwork: true,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        run_scan(state.clone(), library.clone()).await.unwrap();
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgba8(2, 2)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        let managed = crate::native_provider::store_image(&state, bytes.get_ref()).unwrap();
+        for entry in db.native_catalog(&library.id).unwrap() {
+            let kinds: &[&str] = match entry.kind.as_str() {
+                "series" => &["poster", "backdrop", "landscape", "logo"],
+                "season" => &["poster"],
+                "episode" => &["thumb"],
+                _ => &[],
+            };
+            for kind in kinds {
+                db.save_native_artwork(
+                    &library.id,
+                    &entry.id,
+                    &posterview_contracts::native::NativeArtwork {
+                        kind: (*kind).into(),
+                        path: managed.clone(),
+                        source: "manual".into(),
+                    },
+                )
+                .unwrap();
+            }
+        }
+        run_scan(state.clone(), library.clone()).await.unwrap();
+        for path in [
+            "poster.jpg",
+            "fanart.jpg",
+            "landscape.jpg",
+            "season01-poster.jpg",
+            "season02-poster.jpg",
+            "Season 01/Example.S01E01.jpg",
+        ] {
+            assert_eq!(
+                image::guess_format(&fs::read(series.join(path)).unwrap()).unwrap(),
+                image::ImageFormat::Jpeg
+            );
+        }
+        assert_eq!(
+            image::guess_format(&fs::read(series.join("clearlogo.png")).unwrap()).unwrap(),
+            image::ImageFormat::Png
+        );
+        let (entries, _) = crate::native_scan::collect(&state, &library).unwrap();
+        let season = entries
+            .iter()
+            .find(|e| e.kind == "season" && e.metadata["season"] == 1)
+            .unwrap();
+        assert!(
+            season
+                .artwork
+                .iter()
+                .any(|a| a.path.ends_with("season01-poster.jpg"))
+        );
+        let episode = entries.iter().find(|e| e.kind == "episode").unwrap();
+        assert!(
+            episode
+                .artwork
+                .iter()
+                .any(|a| a.kind == "thumb" && a.path.ends_with("Example.S01E01.jpg"))
+        );
+        fs::write(series.join("poster.jpg"), b"preserve existing sidecar").unwrap();
+        run_scan(state.clone(), library.clone()).await.unwrap();
+        assert_eq!(
+            fs::read(series.join("poster.jpg")).unwrap(),
+            b"preserve existing sidecar"
+        );
+        let show = db
+            .native_catalog(&library.id)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.kind == "series")
+            .unwrap();
+        let art = show.artwork.iter().find(|a| a.kind == "poster").unwrap();
+        crate::native_artwork::write(&state, &show, art, true).unwrap();
+        assert_eq!(
+            image::guess_format(&fs::read(series.join("poster.jpg")).unwrap()).unwrap(),
+            image::ImageFormat::Jpeg
+        );
+        let modified = fs::metadata(series.join("poster.jpg"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        crate::native_artwork::write(&state, &show, art, true).unwrap();
+        assert_eq!(
+            fs::metadata(series.join("poster.jpg"))
+                .unwrap()
+                .modified()
+                .unwrap(),
+            modified
         );
     }
     #[tokio::test]

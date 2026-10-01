@@ -281,16 +281,33 @@ fn local_art(root: &Path, dir: &Path, stem: Option<&str>) -> Vec<NativeArtwork> 
             .unwrap_or_default()
             .to_string_lossy()
             .to_ascii_lowercase();
+        if stem.is_some_and(|s| base == s.to_lowercase()) {
+            if let Ok(path) = relative(root, &path) {
+                result.insert(
+                    "thumb".to_owned(),
+                    NativeArtwork {
+                        kind: "thumb".into(),
+                        path,
+                        source: "local".into(),
+                    },
+                );
+            }
+        }
         for (name, kind) in names {
             if base == name
                 || (stem.is_some_and(|s| base == format!("{}-{name}", s.to_lowercase())))
             {
                 if let Ok(path) = relative(root, &path) {
-                    result.entry(kind.to_owned()).or_insert(NativeArtwork {
+                    let art = NativeArtwork {
                         kind: kind.into(),
                         path,
                         source: "local".into(),
-                    });
+                    };
+                    if stem.is_some_and(|s| base == format!("{}-{name}", s.to_lowercase())) {
+                        result.insert(kind.to_owned(), art);
+                    } else {
+                        result.entry(kind.to_owned()).or_insert(art);
+                    }
                 }
             }
         }
@@ -530,6 +547,21 @@ pub(crate) fn collect(
                                 s.artwork = local_art(&root, dir, None);
                             }
                         }
+                        if library.options.local_artwork {
+                            let prefix = format!("season{season:02}-");
+                            for art in
+                                local_art(&root, &series_dir, Some(&format!("season{season:02}")))
+                                    .into_iter()
+                                    .filter(|a| {
+                                        Path::new(&a.path).file_name().is_some_and(|n| {
+                                            n.to_string_lossy().to_lowercase().starts_with(&prefix)
+                                        })
+                                    })
+                            {
+                                s.artwork.retain(|a| a.kind != art.kind);
+                                s.artwork.push(art);
+                            }
+                        }
                         s.metadata["season"] = json!(season);
                         s
                     });
@@ -573,6 +605,15 @@ pub(crate) fn collect(
         }
         if library.options.local_artwork {
             entry.artwork = local_art(&root, dir, Some(&stem));
+            if entry.kind == "episode" {
+                entry.artwork.retain(|a| {
+                    Path::new(&a.path).file_stem().is_some_and(|n| {
+                        let n = n.to_string_lossy().to_lowercase();
+                        n == stem.to_lowercase()
+                            || n.starts_with(&format!("{}-", stem.to_lowercase()))
+                    })
+                });
+            }
         }
         let media_info = if !books && !probe_unavailable {
             match probe(&file) {
