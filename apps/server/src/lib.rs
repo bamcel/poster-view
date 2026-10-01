@@ -644,6 +644,9 @@ async fn upload_image(
     if !content_type.starts_with("image/") {
         return Err(HttpError::bad_request("That file isn't an image."));
     }
+    if server_id == 0 {
+        return native::apply_panel_artwork(state, item_id, target, Some(bytes.to_vec())).await.map(Json);
+    }
     state
         .runtime
         .apply_image(
@@ -677,6 +680,9 @@ async fn remove_artwork(
     State(state): State<AppState>,
     Json(input): Json<RemoveImageRequest>,
 ) -> Result<impl IntoResponse, HttpError> {
+    if input.server_id == 0 {
+        return native::apply_panel_artwork(state, input.item_id, input.target, None).await.map(Json);
+    }
     state
         .runtime
         .remove_image(input.server_id, &input.item_id, &input.target)
@@ -882,10 +888,11 @@ async fn manga_selection(
     State(state): State<AppState>,
     Query(query): Query<MangaItemQuery>,
 ) -> Result<impl IntoResponse, HttpError> {
-    state
-        .runtime
-        .get_server(query.server_id)?
-        .ok_or_else(HttpError::not_found)?;
+    if query.server_id == 0 {
+        state.runtime.get_item_detail(0, &query.item_id).await?.ok_or_else(HttpError::not_found)?.map_err(HttpError::bad_request)?;
+    } else {
+        state.runtime.get_server(query.server_id)?.ok_or_else(HttpError::not_found)?;
+    }
     Ok(Json(
         state
             .runtime
@@ -898,10 +905,11 @@ async fn save_manga_selection(
     Query(query): Query<MangaItemQuery>,
     Json(selection): Json<posterview_contracts::MangaSelection>,
 ) -> Result<impl IntoResponse, HttpError> {
-    state
-        .runtime
-        .get_server(query.server_id)?
-        .ok_or_else(HttpError::not_found)?;
+    if query.server_id == 0 {
+        state.runtime.get_item_detail(0, &query.item_id).await?.ok_or_else(HttpError::not_found)?.map_err(HttpError::bad_request)?;
+    } else {
+        state.runtime.get_server(query.server_id)?.ok_or_else(HttpError::not_found)?;
+    }
     if (!selection.mangadex_id.is_empty()
         && !posterview_runtime::valid_manga_id(&selection.mangadex_id))
         || selection.title.len() > 1000
@@ -1039,6 +1047,11 @@ async fn apply_download(
     State(state): State<AppState>,
     Json(input): Json<ApplyRequest>,
 ) -> Result<impl IntoResponse, HttpError> {
+    if input.server_id == 0 {
+        if state.runtime.get_item_detail(0, &input.item_id).await?.is_none() { return Err(HttpError::not_found()); }
+        let (bytes, _) = state.runtime.download_artwork_image(&input).await.map_err(|e| HttpError::bad_gateway(e.to_string()))?;
+        return native::apply_panel_artwork(state, input.item_id, input.target, Some(bytes)).await.map(Json);
+    }
     state
         .runtime
         .apply_download(&input)

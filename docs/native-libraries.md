@@ -236,7 +236,7 @@ Auxiliary folders (`extras`, `extra`, `trailers`, `featurettes`, `behind the sce
 
 NCOP/NCED credit-video filename tokens (including numbered and versioned variants) are excluded even outside auxiliary folders. Manual library browsing shows available entries only; a rescan hides previously indexed exclusions while retaining catalog history.
 
-Manual Dashboard browsing uses the shared poster cards, library backdrop, title information, synopsis, About section, and detail action styling from connected-server views. Series open into seasons, seasons into episode thumbnail lists, and episodes into their own detail views. Metadata and artwork editing are separate dialogs. Manual title links use `native_library` and `native_item` URL parameters so refresh and browser history preserve the selected title. Library scanning and removal remain in Settings → Libraries.
+Manual Dashboard browsing uses the shared poster cards, library backdrop, title information, synopsis, About section, and detail action styling from connected-server views. Series open into seasons, seasons into episode thumbnail lists, and episodes into their own detail views. Metadata opens in an editor dialog; artwork opens in the shared provider panel. Manual title links use `native_library` and `native_item` URL parameters so refresh and browser history preserve the selected title. Library scanning and removal remain in Settings → Libraries.
 
 `Specials` and `Special` folders belong to their parent series as season 0. Named season folders beneath a series `tvshow.nfo` also inherit that series, within the selected library root. A rescan marks old standalone Specials records unavailable.
 
@@ -258,3 +258,11 @@ Anime series and movies show original-language voice cast first, followed by voi
 AniList supplies voice actors and portraits for each available language. Missing language casts are shown explicitly rather than substituted. Original language uses stored original-language metadata first, then infers language from country of origin when available; country is a fallback, not a verification of the audio track.
 
 After updating, run **Scan files** once for existing anime libraries with AniList enabled as a metadata downloader and missing-metadata fetching enabled. This backfills multilingual voice cast even for otherwise complete titles. A successful result is recorded, including empty casts, so missing dub data does not cause repeated enrichment on every scan. Changing the preferred language then uses the stored multilingual cast.
+
+## Manual-library artwork panel
+
+Manual titles use the same artwork source panel and lookup UI as connected-server titles, including ThePosterDB, AniList, Fanart, TheTVDB, Mediux, book providers, manual uploads, and removal. Provider credentials remain in Search Providers settings. Searches use the native catalog's title and stored provider identifiers, with parent-series identifiers available for seasons and episodes. No connected media server is required.
+
+Applying an image stores a managed image in application storage and records a locked manual artwork choice in the native database. The catalog revision changes and the dashboard refreshes immediately. Rescans preserve that choice. If **Save artwork into media folders** is enabled, the explicit selection also replaces the corresponding media-folder image using the configured naming rules. Season poster targets and episode thumbnails are supported. Changes are blocked while the library is scanning.
+
+Removal clears the database artwork reference without deleting local media-folder images. A later scan can rediscover those local images. Provider downloads use the existing validated download and cache paths, with manual-library requests isolated from connected-server caches.

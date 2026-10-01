@@ -1,4 +1,6 @@
 mod artwork;
+mod native_artwork;
+pub use native_artwork::native_artwork_target;
 mod artwork_cache;
 mod history;
 mod nfo_sources;
@@ -395,6 +397,9 @@ impl Runtime {
         id: i64,
         item_id: &str,
     ) -> Result<Option<Result<ItemDetail, String>>, RuntimeError> {
+        if id == 0 {
+            return self.native_artwork_detail(item_id).map(|detail| detail.map(Ok));
+        }
         let Some(server) = self.server_store()?.get_server(id)? else {
             return Ok(None);
         };

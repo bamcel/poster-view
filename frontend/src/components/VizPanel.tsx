@@ -1,3 +1,4 @@
+import { invalidateArtworkItems } from "../lib/artworkTarget";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Database, ExternalLink, Search } from "lucide-react";
@@ -102,7 +103,7 @@ export default function VizPanel({
         client.invalidateQueries({
           queryKey: ["item-detail", serverId, item.id],
         }),
-        client.invalidateQueries({ queryKey: ["items", serverId] }),
+        invalidateArtworkItems(client, serverId, item.id),
       ]);
       toast.push("success", result.message);
     },
@@ -149,7 +150,7 @@ export default function VizPanel({
         client.invalidateQueries({
           queryKey: ["item-detail", serverId, item.id],
         }),
-        client.invalidateQueries({ queryKey: ["items", serverId] }),
+        invalidateArtworkItems(client, serverId, item.id),
       ]);
       toast.push("success", `Updated ${completed} volume covers.`);
     } catch (error) {

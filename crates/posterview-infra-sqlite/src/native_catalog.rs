@@ -392,6 +392,16 @@ impl ServerStore {
         tx.commit()?;
         Ok(())
     }
+    pub fn remove_native_artwork(&self, library: &str, item: &str, kind: &str) -> Result<(), StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction()?;
+        let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2)",params![library,item],|r|r.get(0))?;
+        if !exists { return Err(invalid("Catalog item not found.")); }
+        tx.execute("DELETE FROM catalog_artwork WHERE item_id=?1 AND kind=?2",params![item,kind])?;
+        tx.execute("UPDATE catalog_items SET revision=revision+1 WHERE id=?1",[item])?;
+        tx.commit()?;
+        Ok(())
+    }
     pub fn save_native_artwork(
         &self,
         library: &str,

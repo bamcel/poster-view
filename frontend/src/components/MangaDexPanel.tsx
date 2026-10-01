@@ -1,3 +1,4 @@
+import { invalidateArtworkItems } from "../lib/artworkTarget";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink, Search } from "lucide-react";
@@ -146,7 +147,7 @@ export default function MangaDexPanel({
         client.invalidateQueries({
           queryKey: ["item-detail", serverId, item.id],
         }),
-        client.invalidateQueries({ queryKey: ["items", serverId] }),
+        invalidateArtworkItems(client, serverId, item.id),
       ]);
       try {
         const selection = await api.saveMangaSelection(serverId, item.id, {
@@ -226,7 +227,7 @@ export default function MangaDexPanel({
         client.invalidateQueries({
           queryKey: ["item-detail", serverId, item.id],
         }),
-        client.invalidateQueries({ queryKey: ["items", serverId] }),
+        invalidateArtworkItems(client, serverId, item.id),
       ]);
       toast.push(
         "success",

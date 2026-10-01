@@ -1,3 +1,4 @@
+import { invalidateArtworkItems } from "../lib/artworkTarget";
 import { useMemo, useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -21,7 +22,7 @@ export default function RemoveArtwork({ serverId, item, includeFolderBackdrop = 
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] }),
-      queryClient.invalidateQueries({ queryKey: ["items", serverId] }),
+      invalidateArtworkItems(queryClient, serverId, item.id),
     ]);
   };
 

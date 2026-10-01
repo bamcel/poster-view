@@ -442,6 +442,28 @@ pub(crate) async fn edit_item(
     .await
     .map_err(|_| HttpError::bad_request("Metadata save interrupted."))?
 }
+pub(crate) async fn apply_panel_artwork(state: AppState, target: String, kind: posterview_contracts::ImageTarget, bytes: Option<Vec<u8>>) -> Result<posterview_contracts::ApplyResult, HttpError> {
+    tokio::task::spawn_blocking(move || {
+        let (library, item) = posterview_runtime::native_artwork_target(&target).ok_or_else(HttpError::not_found)?;
+        let db = store(&state);
+        if db.native_scan_status(library).map_err(error)?.status == "scanning" { return Err(HttpError::bad_request("Wait for the library scan to finish before editing artwork.")); }
+        let entry = db.native_catalog(library).map_err(error)?.into_iter().find(|entry| entry.id == item && entry.available).ok_or_else(HttpError::not_found)?;
+        let kind = match kind { posterview_contracts::ImageTarget::Background => "backdrop", posterview_contracts::ImageTarget::Logo => "logo", posterview_contracts::ImageTarget::Poster if entry.kind == "episode" => "thumb", _ => "poster" };
+        let Some(bytes) = bytes else {
+            db.remove_native_artwork(library, item, kind).map_err(error)?;
+            return Ok(posterview_contracts::ApplyResult {ok:true,message:"Artwork removed from the database. Local media files are preserved and may be rediscovered by a scan.".into()});
+        };
+        let path = crate::native_provider::store_image(&state, &bytes).map_err(HttpError::bad_request)?;
+        let art = posterview_contracts::native::NativeArtwork {kind:kind.into(),path,source:"manual".into()};
+        db.save_native_artwork(library,item,&art).map_err(error)?;
+        let config = db.native_libraries().map_err(error)?.into_iter().find(|l|l.id == library).ok_or_else(HttpError::not_found)?;
+        let message = if config.options.save_artwork {
+            match crate::native_artwork::write(&state,&entry,&art,true) { Ok(()) => "Artwork saved in the database and media folder.".into(), Err(e) => format!("Artwork saved in the database, but media-folder write failed: {e}") }
+        } else { "Artwork saved in the database.".into() };
+        Ok(posterview_contracts::ApplyResult {ok:true,message})
+    }).await.map_err(|_|HttpError::bad_request("Artwork save interrupted."))?
+}
+
 pub(crate) async fn upload_artwork(
     State(state): State<AppState>,
     Path((library, item, kind)): Path<(String, String, String)>,
@@ -641,6 +663,47 @@ pub(crate) mod scan_tests {
                 dir.join("config/reader.sqlite"),
             )),
         }
+    }
+    #[tokio::test]
+    async fn shared_artwork_panel_uses_native_identifiers_and_persists_manual_choices() {
+        use posterview_contracts::ImageTarget;
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let media = temp.path().join("media/Shows/Example/Season 01");
+        fs::create_dir_all(&media).unwrap();
+        fs::write(media.join("Example.S01E01.mkv"), b"fixture").unwrap();
+        fs::write(media.parent().unwrap().join("tvshow.nfo"), b"<tvshow><title>Example</title><uniqueid type=\"anilist\">123</uniqueid></tvshow>").unwrap();
+        let db = store(&state);
+        let library = db.save_native_library(None, &NativeLibraryInput {name:"Shows".into(),library_type:NativeLibraryType::Anime,anime_content:AnimeContent::Both,paths:vec!["Shows".into()],revision:None,options:NativeLibraryOptions {fetch_missing:false,save_artwork:true,..Default::default()}}).unwrap();
+        run_scan(state.clone(), library.clone()).await.unwrap();
+        let entries = db.native_catalog(&library.id).unwrap();
+        let series = entries.iter().find(|e| e.kind == "series").unwrap();
+        let target = format!("native:{}:{}",library.id,series.id);
+        let detail = state.runtime.get_item_detail(0,&target).await.unwrap().unwrap().unwrap();
+        assert_eq!(detail.external_ids["anilist"],"123");
+        assert!(detail.seasons[0].id.starts_with(&format!("native:{}:",library.id)));
+        assert!(state.runtime.get_item_detail(0,&format!("native:other:{}",series.id)).await.unwrap().is_none());
+        assert!(state.runtime.artwork_cache_settings(0).is_ok());
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgba8(2,2).write_to(&mut bytes,image::ImageFormat::Png).unwrap();
+        assert!(apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,Some(bytes.get_ref().clone())).await.unwrap().ok);
+        let art = db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap();
+        assert_eq!(art.source,"manual");
+        assert!(temp.path().join("media/Shows/Example/poster.jpg").exists());
+        run_scan(state.clone(),library.clone()).await.unwrap();
+        assert_eq!(db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap().path,art.path);
+        assert!(apply_panel_artwork(state.clone(),detail.seasons[0].id.clone(),ImageTarget::Poster,Some(bytes.get_ref().clone())).await.unwrap().ok);
+        assert!(temp.path().join("media/Shows/Example/season01-poster.jpg").exists());
+        let episode = entries.iter().find(|e|e.kind=="episode").unwrap();
+        assert!(apply_panel_artwork(state.clone(),format!("native:{}:{}",library.id,episode.id),ImageTarget::Poster,Some(bytes.into_inner())).await.unwrap().ok);
+        assert!(db.native_artwork(&library.id,&episode.id,"thumb").unwrap().is_some());
+        assert!(apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,Some(b"invalid".to_vec())).await.is_err());
+        db.begin_native_scan(&library.id).unwrap();
+        assert!(apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,None).await.is_err());
+        db.finish_native_scan(&library.id,&posterview_contracts::native::NativeScanStatus {status:"complete".into(),count:0,warnings:vec![],progress:None}).unwrap();
+        assert!(apply_panel_artwork(state,target,ImageTarget::Poster,None).await.unwrap().ok);
+        assert!(db.native_artwork(&library.id,&series.id,"poster").unwrap().is_none());
+        assert!(temp.path().join("media/Shows/Example/poster.jpg").exists());
     }
     #[tokio::test]
     async fn monitoring_scans_new_files_and_can_be_disabled() {

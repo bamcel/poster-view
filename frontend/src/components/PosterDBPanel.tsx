@@ -1,3 +1,4 @@
+import { invalidateArtworkItems } from "../lib/artworkTarget";
 // The ThePosterDB side module shown on the item detail page.
 //
 // Navigation is a stack so you can drill in and back out, all in-app:
@@ -135,7 +136,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
 
   async function refreshArtwork() {
     await queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] });
-    await queryClient.invalidateQueries({ queryKey: ["items", serverId] });
+    await invalidateArtworkItems(queryClient, serverId, item.id);
   }
 
   async function apply(

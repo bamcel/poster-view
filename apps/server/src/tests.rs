@@ -1198,3 +1198,31 @@ async fn native_provider_credentials_are_encrypted_and_not_returned() {
     let response=app.oneshot(Request::put("/api/native/providers/settings").header("content-type","application/json").body(Body::from(r#"{"anidb_client":"INVALID CLIENT"}"#)).unwrap()).await.unwrap();
     assert_eq!(response.status(),StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn native_artwork_shared_upload_and_remove_routes_work_without_a_media_server() {
+    use posterview_contracts::native::*;
+    let directory = tempdir().unwrap();
+    let runtime = Arc::new(Runtime::new(directory.path())); runtime.initialize().unwrap();
+    let db = posterview_infra_sqlite::ServerStore::new(directory.path());
+    let library = db.save_native_library(None, &NativeLibraryInput {name:"Movies".into(),library_type:NativeLibraryType::Movies,anime_content:AnimeContent::Both,paths:vec!["Movies".into()],revision:None,options:Default::default()}).unwrap();
+    let entry = NativeCatalogEntry {id:String::new(),path:"Movies/Example.mkv".into(),kind:"movie".into(),parent_path:None,title:"Example".into(),metadata:serde_json::json!({"identifiers":{"tmdb":123}}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+    db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();
+    let entry = db.native_catalog(&library.id).unwrap().remove(0);
+    let target = format!("native:{}:{}",library.id,entry.id);
+    let app = router(runtime,PathBuf::from("missing-ui"));
+    let mut image = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::new_rgba8(2,2).write_to(&mut image,image::ImageFormat::Png).unwrap();
+    let mut body = format!("--boundary\r\nContent-Disposition: form-data; name=\"server_id\"\r\n\r\n0\r\n--boundary\r\nContent-Disposition: form-data; name=\"item_id\"\r\n\r\n{target}\r\n--boundary\r\nContent-Disposition: form-data; name=\"target\"\r\n\r\nbackground\r\n--boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.png\"\r\nContent-Type: image/png\r\n\r\n").into_bytes();
+    body.extend(image.into_inner()); body.extend(b"\r\n--boundary--\r\n");
+    let response = app.clone().oneshot(Request::post("/api/artwork/upload").header("content-type","multipart/form-data; boundary=boundary").body(Body::from(body)).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::OK);
+    assert!(db.native_artwork(&library.id,&entry.id,"backdrop").unwrap().is_some());
+    let response = app.clone().oneshot(Request::get(format!("/api/native/libraries/{}/items/{}/artwork/backdrop",library.id,entry.id)).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::OK);
+    let response = app.clone().oneshot(Request::post("/api/artwork/remove").header("content-type","application/json").body(Body::from(serde_json::json!({"server_id":0,"item_id":target,"target":"background"}).to_string())).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::OK);
+    assert!(db.native_artwork(&library.id,&entry.id,"backdrop").unwrap().is_none());
+    let response = app.oneshot(Request::post("/api/posterdb/apply").header("content-type","application/json").body(Body::from(serde_json::json!({"server_id":0,"item_id":format!("native:wrong:{}",entry.id),"download_url":"http://127.0.0.1/private.png"}).to_string())).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::NOT_FOUND);
+}

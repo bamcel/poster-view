@@ -20,6 +20,7 @@ import {
 } from "../api/nativeLibraries";
 import type { ItemDetail } from "../types";
 import PosterCard from "./PosterCard";
+import ArtworkPanel from "./ArtworkPanel";
 import { animeVoiceGroups, voiceName } from "../lib/nativeVoiceCast";
 import { nativeCatalogView } from "../lib/nativeCatalogView";
 import DashboardBackdrop from "./DashboardBackdrop";
@@ -441,28 +442,18 @@ export default function NativeLibraryBrowser({
           </div>
         </>
       )}
-      {editEntry && (
-        <Modal
-          title={editor?.kind === "artwork" ? "Edit Artwork" : "Edit Metadata"}
-          onClose={() => setEditor(null)}
-        >
-          {editor?.kind === "artwork" ? (
-            <NativeArtworkEditor
-              library={library}
-              entry={editEntry}
-              saved={updated}
-              scanning={status.data?.status === "scanning"}
-            />
-          ) : (
-            <EntryEditor
-              library={library}
-              entry={editEntry}
-              busy={status.data?.status === "scanning"}
-              onSaved={updated}
-            />
-          )}
+      {editEntry && (editor?.kind === "artwork" ? (
+        <div className="fixed inset-0 z-50 bg-black/65" onClick={() => setEditor(null)}>
+          <section aria-label={`Artwork for ${editEntry.title}`} className="ml-auto h-full w-full max-w-md shadow-2xl" onClick={event => event.stopPropagation()}>
+            <ArtworkPanel serverId={0} item={nativeArtworkItem(library, editEntry, entries)} libraryTitle={library.name} libraryType={library.library_type === "books" ? "book" : library.library_type === "movies" ? "movie" : "show"} onClose={() => setEditor(null)} />
+          </section>
+        </div>
+      ) : (
+        <Modal title="Edit Metadata" onClose={() => setEditor(null)}>
+          <EntryEditor library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated} />
         </Modal>
-      )}
+      ))}
+
     </section>
   );
 }
@@ -875,81 +866,18 @@ function NativeDetail({
   );
 }
 
-function NativeArtworkEditor({
-  library,
-  entry,
-  saved,
-  scanning,
-}: {
-  library: NativeLibrary;
-  entry: NativeCatalogEntry;
-  saved: () => void;
-  scanning: boolean;
-}) {
-  const [kind, setKind] = useState("poster");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap gap-4">
-        {entry.artwork.map((a) => (
-          <div key={a.kind} className="w-28">
-            <div className="h-36 overflow-hidden rounded-xl bg-surface-2">
-              <Artwork src={picture(library, entry, a.kind)} alt={a.kind} />
-            </div>
-            <p className="mt-2 text-xs capitalize text-muted">{a.kind}</p>
-          </div>
-        ))}
-      </div>
-      <label className="block text-sm text-muted">
-        Artwork type
-        <select
-          aria-label="Artwork type"
-          value={kind}
-          onChange={(e) => setKind(e.target.value)}
-          className="ml-3 rounded-lg border border-border bg-input p-2"
-        >
-          {[
-            "poster",
-            "backdrop",
-            "logo",
-            "banner",
-            "thumb",
-            "landscape",
-            "disc",
-          ].map((k) => (
-            <option key={k}>{k}</option>
-          ))}
-        </select>
-      </label>
-      <label className="inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-base">
-        {busy ? "Uploading…" : "Upload artwork"}
-        <input
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          className="sr-only"
-          disabled={busy || scanning}
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            setBusy(true);
-            setError("");
-            try {
-              await nativeLibraries.upload(library.id, entry.id, kind, file);
-              saved();
-            } catch (err) {
-              setError((err as Error).message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        />
-      </label>
-      {error && (
-        <p role="alert" className="text-danger">
-          {error}
-        </p>
-      )}
-    </div>
-  );
+
+function nativeArtworkItem(library: NativeLibrary, entry: NativeCatalogEntry, entries: NativeCatalogEntry[]): ItemDetail {
+  const target = (id: string) => `native:${library.id}:${id}`;
+  const parent = entries.find(e => e.path === entry.parent_path);
+  const series = entry.kind === "episode" ? entries.find(e => e.path === parent?.parent_path) : parent;
+  const ids = {...(series?.metadata.identifiers as Record<string, unknown> ?? {}), ...(entry.metadata.identifiers as Record<string, unknown> ?? {})};
+  return {
+    id: target(entry.id), title: entry.title, year: number(entry.metadata.year),
+    type: ["series", "season", "episode"].includes(entry.kind) ? "show" : entry.kind.startsWith("book") ? "book" : "movie",
+    poster: picture(library, entry, entry.kind === "episode" ? "thumb" : "poster"),
+    background: picture(library, entry, "backdrop"), logo: picture(library, entry, "logo"),
+    external_ids: Object.fromEntries(Object.entries(ids as Record<string, unknown>).map(([key, value]) => [key.toLowerCase(), String(value)])),
+    seasons: entries.filter(e => e.kind === "season" && e.parent_path === entry.path).map(e => ({id:target(e.id),title:e.title,index:number(e.metadata.season)})), members: [],
+  };
 }

@@ -1,3 +1,4 @@
+import { invalidateArtworkItems } from "../lib/artworkTarget";
 // Browses one API-based provider's artwork (Fanart.tv / TheTVDB / AniList) for
 // the current item, grouped into Posters / Backgrounds / Banners / Logos.
 // Poster, background, and logo are applyable; banners are shown (view-only) —
@@ -204,7 +205,7 @@ export default function ArtworkBrowser({
       toast.push(res.ok ? "success" : "error", res.message);
       if (res.ok) {
         await queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] });
-        await queryClient.invalidateQueries({ queryKey: ["items", serverId] });
+        await invalidateArtworkItems(queryClient, serverId, item.id);
       }
     } catch (e) {
       toast.push("error", (e as Error).message);

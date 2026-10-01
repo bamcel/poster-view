@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import NativeLibraryBrowser from "./NativeLibraryBrowser";
+vi.mock("./ArtworkPanel", () => ({default: ({serverId, item}: {serverId:number;item:import("../types").ItemDetail}) => <div data-testid="shared-artwork" data-server={serverId} data-item={item.id} data-seasons={item.seasons.map(s=>s.id).join(",")}>Shared artwork lookup</div>}));
 import {
   nativeLibraries,
   type NativeCatalogEntry,
@@ -135,8 +136,11 @@ it("opens deep links and keeps editing separate from the detail page", async () 
   fireEvent.click(screen.getByRole("button", { name: "Close editor" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Edit Artwork" }));
-  expect(screen.getByRole("dialog", { name: "Edit Artwork" })).toBeTruthy();
-  expect(screen.getByLabelText("Artwork type")).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Artwork for Example Series" })).toBeTruthy();
+  const panel = screen.getByTestId("shared-artwork");
+  expect(panel.getAttribute("data-server")).toBe("0");
+  expect(panel.getAttribute("data-item")).toBe("native:native:show");
+  expect(panel.getAttribute("data-seasons")).toBe("native:native:season");
 });
 it("searches all available titles and filters missing artwork", async () => {
   mount();

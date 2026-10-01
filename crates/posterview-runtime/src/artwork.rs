@@ -378,7 +378,7 @@ impl Runtime {
         server_id: i64,
     ) -> Result<ArtworkCacheSettings, RuntimeError> {
         let store = self.server_store()?;
-        if store.get_server(server_id)?.is_none() {
+        if server_id != 0 && store.get_server(server_id)?.is_none() {
             return Err(RuntimeError::Watchdog("Media server not found.".to_owned()));
         }
         let get = |name: &str, fallback: &str| -> Result<String, RuntimeError> {
@@ -1671,13 +1671,7 @@ impl Runtime {
         Ok(result)
     }
 
-    pub async fn apply_download(
-        &self,
-        input: &ApplyRequest,
-    ) -> Result<Option<ApplyResult>, RuntimeError> {
-        if self.server_store()?.get_server(input.server_id)?.is_none() {
-            return Ok(None);
-        }
+    pub async fn download_artwork_image(&self, input: &ApplyRequest) -> Result<(Vec<u8>, String), RuntimeError> {
         let downloaded = if input.provider == "mangadex" {
             self.mangadex_image(input.server_id, &input.download_url)
                 .await
@@ -1695,6 +1689,17 @@ impl Runtime {
         } else {
             download_public_image(&input.provider, &input.download_url).await
         };
+        downloaded.map_err(RuntimeError::Watchdog)
+    }
+
+    pub async fn apply_download(
+        &self,
+        input: &ApplyRequest,
+    ) -> Result<Option<ApplyResult>, RuntimeError> {
+        if self.server_store()?.get_server(input.server_id)?.is_none() {
+            return Ok(None);
+        }
+        let downloaded = self.download_artwork_image(input).await.map_err(|e| e.to_string());
         let (data, content_type) = match downloaded {
             Ok(image) => image,
             Err(message) => {

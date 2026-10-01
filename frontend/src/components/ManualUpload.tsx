@@ -1,3 +1,4 @@
+import { invalidateArtworkItems } from "../lib/artworkTarget";
 // "Manual" artwork tab: apply your own image (uploaded file or a URL) to a
 // chosen target — the item's poster/background, or a specific season's poster
 // (including Season 0 / Specials). Reuses the same apply plumbing.
@@ -63,7 +64,7 @@ export default function ManualUpload({ serverId, item, includeFolderBackdrop = f
       toast.push(res.ok ? "success" : "error", res.message);
       if (res.ok) {
         await queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] });
-        await queryClient.invalidateQueries({ queryKey: ["items", serverId] });
+        await invalidateArtworkItems(queryClient, serverId, item.id);
       }
     } catch (e) {
       toast.push("error", (e as Error).message);
