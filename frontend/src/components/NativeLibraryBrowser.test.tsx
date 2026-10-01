@@ -73,7 +73,7 @@ const episode = {
   },
   artwork: [{ kind: "thumb", path: "S01E01.jpg", source: "local" }],
 };
-function mount(url = "/") {
+function mount(url = "/", selectedLibrary = library) {
   render(
     <MemoryRouter initialEntries={[url]}>
       <QueryClientProvider
@@ -81,7 +81,7 @@ function mount(url = "/") {
           new QueryClient({ defaultOptions: { queries: { retry: false } } })
         }
       >
-        <NativeLibraryBrowser library={library} />
+        <NativeLibraryBrowser library={selectedLibrary} />
       </QueryClientProvider>
     </MemoryRouter>,
   );
@@ -197,7 +197,7 @@ it("shows stored character and cast portraits including relative TMDB paths", as
     characters: [{name: "Character", image: "https://s4.anilist.co/character.jpg"}],
     credits: [{name: "Actor", image: "/actor.jpg", provider: "tmdb"}, {name: "Writer", image: null}],
   }}]);
-  mount("/?native_library=native&native_item=show");
+  mount("/?native_library=native&native_item=show", {...library,library_type:"shows"});
   expect((await screen.findByRole("img", {name: "Character"})).getAttribute("src")).toBe("https://s4.anilist.co/character.jpg");
   const portrait = screen.getByRole("img", {name: "Actor"});
   expect(portrait.getAttribute("src")).toBe("https://image.tmdb.org/t/p/w185/actor.jpg");
@@ -213,7 +213,7 @@ it("uses cached provider portraits for NFO credits without replacing local portr
     credits: [{name: "Local Actor", image: null}, {name: "Another Actor", image: "https://example.com/local.jpg"}, {name: "Unknown Actor"}],
     tmdb_data: {credits: {cast: [{name: "Local Actor", profile_path: "/cached.jpg"}, {name: "Another Actor", profile_path: "/other.jpg"}], crew: []}},
   }}]);
-  mount("/?native_library=native&native_item=show");
+  mount("/?native_library=native&native_item=show", {...library,library_type:"shows"});
   expect((await screen.findByRole("img", {name: "Local Actor"})).getAttribute("src")).toBe("https://image.tmdb.org/t/p/w185/cached.jpg");
   expect(screen.getByRole("img", {name: "Another Actor"}).getAttribute("src")).toBe("https://example.com/local.jpg");
   expect(screen.queryByRole("img", {name: "Unknown Actor"})).toBeNull();
@@ -222,6 +222,7 @@ it("uses cached provider portraits for NFO credits without replacing local portr
 it("prefers cached AniList portraits over TMDB for matching anime voice cast", async () => {
   vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series, metadata: {...series.metadata,
     credits: [{name: "Actor Name", image: null}],
+    country_of_origin:"JP",voice_cast:[{name:"Actor Name",language:"Japanese",image:null}],
     anilist_data: {characters: {edges: [{voiceActors: [{name: {full: "Name, Actor"}, image: {large: "https://s4.anilist.co/actor.jpg"}}]}]}},
     tmdb_data: {credits: {cast: [{name: "Actor Name", profile_path: "/tmdb.jpg"}]}},
   }}]);
@@ -229,7 +230,7 @@ it("prefers cached AniList portraits over TMDB for matching anime voice cast", a
   expect((await screen.findByRole("img", {name: "Actor Name"})).getAttribute("src")).toBe("https://s4.anilist.co/actor.jpg");
 });
 
-it("shows original and preferred anime voice cast separately and retains production crew", async () => {
+it("shows anime voice casts and hides the separate production crew row", async () => {
   vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series, metadata: {...series.metadata,
     country_of_origin: "KR", voice_cast_schema: 1,
     voice_cast: [{name:"Korean Actor",language:"Korean",role:"Lead",image:"https://example.com/ko.jpg"},{name:"English Actor",language:"English",role:"Lead",image:"https://example.com/en.jpg"}],
@@ -241,10 +242,11 @@ it("shows original and preferred anime voice cast separately and retains product
   expect(screen.getByRole("heading",{name:"English Cast"})).toBeTruthy();
   expect(screen.getAllByText("Korean Actor")).toHaveLength(1);
   expect(screen.queryByText("Other Dub Actor")).toBeNull();
-  // One character card and the explicitly identified production credit remain.
-  expect(screen.getAllByText("Lead Character", {selector:"p.text-sm"})).toHaveLength(2);
-  expect(screen.getByText("Writer")).toBeTruthy();
-  expect(screen.getByText("Director", {selector:"p.text-sm"})).toBeTruthy();
+  // Anime keeps characters and voice casts while hiding the separate crew row.
+  expect(screen.getAllByText("Lead Character", {selector:"p.text-sm"})).toHaveLength(1);
+  expect(screen.queryByText("Writer")).toBeNull();
+  expect(screen.queryByText("Director", {selector:"p.text-sm"})).toBeNull();
+  expect(screen.queryByRole("heading",{name:"Cast and crew"})).toBeNull();
 });
 
 it("edits genre rows without saving until the fixed save button is clicked", async()=>{
@@ -263,9 +265,10 @@ it("edits genre rows without saving until the fixed save button is clicked", asy
 
 it("hides anime character and cast rows according to saved preferences",async()=>{
  localStorage.setItem("posterview.animePreferences.native",JSON.stringify({characters:false,casts:true,original:false,dub:true}));
- vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series,metadata:{...series.metadata,country_of_origin:"JP",characters:[{name:"Character"}],voice_cast:[{name:"Original actor",language:"Japanese"},{name:"Dub actor",language:"English"}]}}]);
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series,metadata:{...series.metadata,country_of_origin:"JP",people:[{name:"Crew member",type:"Director"}],characters:[{name:"Character"}],voice_cast:[{name:"Original actor",language:"Japanese"},{name:"Dub actor",language:"English"}]}}]);
  mount("/?native_library=native&native_item=show");
  expect(await screen.findByRole("heading",{name:"English Cast"})).toBeTruthy();
  expect(screen.queryByRole("heading",{name:"Japanese Cast"})).toBeNull();
  expect(screen.queryByRole("heading",{name:"Characters"})).toBeNull();
+ expect(screen.queryByRole("heading",{name:"Cast and crew"})).toBeNull();
 });

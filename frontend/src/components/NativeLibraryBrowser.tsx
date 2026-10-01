@@ -830,7 +830,7 @@ function NativeDetail({
                 <p className="mt-1 text-xs text-muted">{String(person.role ?? "")}</p>
               </div>)}</div> : <p className="text-sm text-muted">{group.empty}</p>}
             </section>)}
-            {credits.length > 0 && (
+            {library.library_type !== "anime" && credits.length > 0 && (
               <section className="mt-8">
                 <h2 className="mb-4 text-xl font-semibold">Cast and crew</h2>
                 <div className="flex gap-4 overflow-x-auto pb-3">
