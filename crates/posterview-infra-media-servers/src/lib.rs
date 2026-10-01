@@ -468,7 +468,8 @@ pub async fn set_image(
             let endpoint = match target {
                 "background" => "arts",
                 "logo" => "clearLogos",
-                _ => "posters",
+                "poster" | "thumb" => "posters",
+                _ => return Err("Plex does not support this artwork type.".into()),
             };
             let response = client
                 .post(format!(
@@ -538,6 +539,9 @@ async fn remove_emby_image(
     let image_type = match target {
         "background" => "Backdrop",
         "logo" => "Logo",
+        "banner" => "Banner",
+        "thumb" | "landscape" => "Thumb",
+        "disc" => "Disc",
         _ => "Primary",
     };
     let limit = if image_type == "Backdrop" { 25 } else { 1 };
@@ -580,6 +584,9 @@ async fn set_emby_image(
     let image_type = match target {
         "background" => "Backdrop",
         "logo" => "Logo",
+        "banner" => "Banner",
+        "thumb" | "landscape" => "Thumb",
+        "disc" => "Disc",
         _ => "Primary",
     };
     if image_type == "Backdrop" {
@@ -1331,3 +1338,91 @@ fn string_field(value: &Value, field: &str, fallback: &str) -> String {
 mod tests;
 mod seasons;
 pub use seasons::get_season_detail;
+
+/// Resolve artwork destinations without fuzzy title matching.
+pub async fn find_artwork_item(config: ConnectionConfig<'_>, path: &str, kind: &str, ids: &Value) -> Result<String, String> {
+    let client = media_client(&config)?;
+    let base = config.base_url.trim_end_matches('/');
+    let plex = config.server_type == ServerType::Plex;
+    let request = if plex {
+        client.get(format!("{base}/library/all")).header("X-Plex-Token", config.token).header("Accept", "application/json").query(&[("includeGuids", "1"), ("type", match kind { "series" => "2", "season" => "3", "episode" => "4", _ => "1" })])
+    } else {
+        emby_family_auth(client.get(format!("{base}/Items")).query(&[("Recursive", "true"), ("Fields", "Path,ProviderIds"), ("IncludeItemTypes", match kind { "series" => "Series", "season" => "Season", "episode" => "Episode", "movie" => "Movie", "book" => "Book", _ => "" })]), &config)
+    };
+    let response = request.send().await.map_err(|_| "Server lookup failed.".to_string())?;
+    if !response.status().is_success() { return Err(format!("Server lookup returned {}.", response.status())); }
+    let data: Value = response.json().await.map_err(|_| "Invalid server lookup response.".to_string())?;
+    let rows = if plex { &data["MediaContainer"]["Metadata"] } else { &data["Items"] };
+    select_artwork_item(rows.as_array().map(Vec::as_slice).unwrap_or_default(), path, kind, ids, plex)
+}
+
+fn select_artwork_item(rows: &[Value], path: &str, kind: &str, ids: &Value, plex: bool) -> Result<String,String> {
+    let normalize = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_string();
+    let mut paths = Vec::new();
+    let mut matches = Vec::new();
+    for row in rows {
+        let expected = match kind { "series" => if plex { "show" } else { "Series" }, "movie" => if plex { "movie" } else { "Movie" }, "season" => if plex { "season" } else { "Season" }, "episode" => if plex { "episode" } else { "Episode" }, "book" => "Book", _ => continue };
+        if row[if plex { "type" } else { "Type" }].as_str() != Some(expected) { continue; }
+        let Some(id) = row[if plex { "ratingKey" } else { "Id" }].as_str() else { continue; };
+        let exact = if plex {
+            row["Media"].as_array().into_iter().flatten().flat_map(|m|m["Part"].as_array().into_iter().flatten()).any(|p|p["file"].as_str().is_some_and(|v|normalize(v)==normalize(path))) || row["Location"].as_array().into_iter().flatten().any(|p|p["path"].as_str().is_some_and(|v|normalize(v)==normalize(path)))
+        } else { row["Path"].as_str().is_some_and(|v|normalize(v)==normalize(path)) };
+        if exact { paths.push(id.to_string()); }
+        if !["series", "movie", "book"].contains(&kind) { continue; }
+        let mut agreed = false;
+        let mut conflict = false;
+        for (provider, value) in ids.as_object().into_iter().flatten() {
+            let value = value.as_str().map(str::to_string).or_else(||value.as_i64().map(|v|v.to_string())).unwrap_or_default();
+            if value.is_empty() { continue; }
+            let remote = if plex {
+                row["Guid"].as_array().into_iter().flatten().filter_map(|g|g["id"].as_str()).find_map(|g|g.strip_prefix(&format!("{provider}://"))).map(str::to_string)
+            } else { row["ProviderIds"].as_object().into_iter().flatten().find(|(k,_)|k.eq_ignore_ascii_case(provider)).and_then(|(_,v)|v.as_str()).map(str::to_string) };
+            if let Some(remote) = remote { if remote == value { agreed = true; } else { conflict = true; } }
+        }
+        if agreed && !conflict { matches.push(id.to_string()); }
+    }
+    let mut selected = if paths.is_empty() { matches } else { paths };
+    selected.sort(); selected.dedup();
+    match selected.len() { 1 => Ok(selected.remove(0)), 0 => Err("No matching media path or provider IDs; artwork was not pushed.".into()), _ => Err("Multiple matching items; artwork was not pushed.".into()) }
+}
+
+#[cfg(test)]
+mod artwork_matching_tests {
+    use super::*;
+    #[test]
+    fn requires_unique_identity_and_correct_type() {
+        let rows = serde_json::json!([{ "Id":"1", "Type":"Series", "ProviderIds":{"Tvdb":"42"}}, {"Id":"2", "Type":"Movie", "ProviderIds":{"Tvdb":"42"}}]);
+        assert_eq!(select_artwork_item(rows.as_array().unwrap(), "/show", "series", &serde_json::json!({"tvdb":"42"}), false).unwrap(), "1");
+        let duplicate = vec![rows[0].clone(), serde_json::json!({"Id":"3","Type":"Series","ProviderIds":{"Tvdb":"42"}})];
+        assert!(select_artwork_item(&duplicate, "/show", "series", &serde_json::json!({"tvdb":"42"}), false).is_err());
+        assert!(select_artwork_item(&duplicate, "/show", "episode", &serde_json::json!({"tvdb":"42"}), false).is_err());
+    }
+    #[test]
+    fn exact_path_wins_and_conflicting_ids_are_rejected() {
+        let rows = serde_json::json!([{ "Id":"1", "Type":"Series", "Path":"/anime/show", "ProviderIds":{"Tvdb":"42", "Tmdb":"7"}}]);
+        assert_eq!(select_artwork_item(rows.as_array().unwrap(), "/anime/show/", "series", &serde_json::json!({}), false).unwrap(), "1");
+        assert!(select_artwork_item(rows.as_array().unwrap(), "/other", "series", &serde_json::json!({"tvdb":"42","tmdb":"8"}), false).is_err());
+    }
+}
+
+#[cfg(test)]
+mod artwork_sync_http_tests {
+    use super::*;
+    #[tokio::test]
+    async fn resolves_then_uploads_correct_image_type() {
+        use axum::{Router, routing::{get, post}, Json};
+        let app = Router::new().route("/Items", get(|| async { Json(serde_json::json!({"Items":[{"Id":"123","Type":"Episode","Path":"/tv/show/episode.mkv"}]})) }))
+            .route("/Items/123/Images/Thumb", post(|headers: axum::http::HeaderMap, body: String| async move {
+                assert_eq!(headers.get("content-type").unwrap(), "image/png");
+                assert_eq!(BASE64.decode(body).unwrap(), b"test-image");
+                StatusCode::NO_CONTENT
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        let config = ConnectionConfig {server_type:ServerType::Emby, base_url:&url, token:"test-token"};
+        let id = find_artwork_item(config.clone(), "/tv/show/episode.mkv", "episode", &Value::Null).await.unwrap();
+        set_image(config, &id, "thumb", b"test-image", "image/png").await.unwrap();
+        handle.abort();
+    }
+}

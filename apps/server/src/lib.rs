@@ -35,6 +35,7 @@ mod native_jikan;
 mod native_provider_extra;
 mod native_monitor;
 mod native_artwork;
+mod native_artwork_sync;
 mod native_animation;
 mod native_identify;
 mod native_progress;

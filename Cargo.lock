@@ -1229,6 +1229,7 @@ dependencies = [
  "notify",
  "posterview-contracts",
  "posterview-infra-artwork",
+ "posterview-infra-media-servers",
  "posterview-infra-sqlite",
  "posterview-runtime",
  "posterview-url-security",

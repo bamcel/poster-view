@@ -449,7 +449,9 @@ pub(crate) async fn edit_item(
     .map_err(|_| HttpError::bad_request("Metadata save interrupted."))?
 }
 pub(crate) async fn apply_panel_artwork(state: AppState, target: String, kind: posterview_contracts::ImageTarget, bytes: Option<Vec<u8>>) -> Result<posterview_contracts::ApplyResult, HttpError> {
-    tokio::task::spawn_blocking(move || {
+    let save_state = state.clone();
+    let (mut result, saved) = tokio::task::spawn_blocking(move || {
+        let state = save_state;
         let (library, item) = posterview_runtime::native_artwork_target(&target).ok_or_else(HttpError::not_found)?;
         let db = store(&state);
         if db.native_scan_status(library).map_err(error)?.status == "scanning" { return Err(HttpError::bad_request("Wait for the library scan to finish before editing artwork.")); }
@@ -457,7 +459,7 @@ pub(crate) async fn apply_panel_artwork(state: AppState, target: String, kind: p
         let kind = match kind { posterview_contracts::ImageTarget::Background => "backdrop", posterview_contracts::ImageTarget::Logo => "logo", posterview_contracts::ImageTarget::Poster if entry.kind == "episode" => "thumb", _ => "poster" };
         let Some(bytes) = bytes else {
             db.remove_native_artwork(library, item, kind).map_err(error)?;
-            return Ok(posterview_contracts::ApplyResult {ok:true,message:"Artwork removed from the database. Local media files are preserved and may be rediscovered by a scan.".into()});
+            return Ok((posterview_contracts::ApplyResult {ok:true,message:"Artwork removed from the database. Local media files and connected-server images are preserved and may be rediscovered by a scan.".into()}, None));
         };
         let path = crate::workers::blocking(|| crate::native_provider::store_image(&state, &bytes)).map_err(HttpError::bad_request)?;
         let art = posterview_contracts::native::NativeArtwork {kind:kind.into(),path,source:"manual".into()};
@@ -466,8 +468,10 @@ pub(crate) async fn apply_panel_artwork(state: AppState, target: String, kind: p
         let message = if config.options.save_artwork {
             match crate::native_artwork::write(&state,&entry,&art,true) { Ok(()) => "Artwork saved in the database and media folder.".into(), Err(e) => format!("Artwork saved in the database, but media-folder write failed: {e}") }
         } else { "Artwork saved in the database.".into() };
-        Ok(posterview_contracts::ApplyResult {ok:true,message})
-    }).await.map_err(|_|HttpError::bad_request("Artwork save interrupted."))?
+        Ok((posterview_contracts::ApplyResult {ok:true,message}, Some((entry, art))))
+    }).await.map_err(|_|HttpError::bad_request("Artwork save interrupted."))??;
+    if let Some((entry, art)) = saved { result.message.push_str(&crate::native_artwork_sync::push(&state, &entry, &art).await); }
+    Ok(result)
 }
 
 pub(crate) async fn upload_artwork(
@@ -497,7 +501,9 @@ pub(crate) async fn upload_artwork(
         .bytes()
         .await
         .map_err(|_| HttpError::bad_request("Unable to read artwork upload."))?;
-    tokio::task::spawn_blocking(move || {
+    let save_state = state.clone();
+    let (entry, art) = tokio::task::spawn_blocking(move || {
+        let state = save_state;
         let db = store(&state);
         let entry = db
             .native_catalog(&library)
@@ -528,10 +534,12 @@ pub(crate) async fn upload_artwork(
                 ))
             })?;
         }
-        Ok::<_, HttpError>(())
+        Ok::<_, HttpError>((entry, art))
     })
     .await
     .map_err(|_| HttpError::bad_request("Artwork save interrupted."))??;
+    let result = crate::native_artwork_sync::push(&state, &entry, &art).await;
+    if !result.is_empty() { tracing::info!(message=%result, "Manual artwork server synchronization"); }
     Ok(StatusCode::NO_CONTENT)
 }
 pub(crate) async fn artwork(

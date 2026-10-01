@@ -453,3 +453,7 @@ The frontend uses the following stable HTTP API endpoints:
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+### Manual artwork synchronization
+
+Explicit artwork changes in manual libraries are also uploaded to connected Emby, Jellyfin, and Plex servers. Matching requires a unique exact media path or, for movies and series, compatible provider IDs. Season and episode artwork requires matching container paths. Ambiguous or missing matches are skipped; the artwork panel reports each server result without undoing the local database save. GIF and WebM originals remain animated in PosterView; connected servers receive their static preview. Automatic scans do not push artwork, and removing a manual database image does not delete connected-server images. Plex supports posters, episode thumbnails, backgrounds, and logos; other artwork types are skipped.
