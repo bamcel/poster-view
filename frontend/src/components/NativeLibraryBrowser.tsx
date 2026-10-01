@@ -10,6 +10,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  UserRound,
   X,
 } from "lucide-react";
 import {
@@ -97,6 +98,23 @@ function Artwork({
     </div>
   );
 }
+function PersonPortrait({person}: {person: Record<string, unknown>}) {
+  const value = typeof person.image === "string" ? person.image.trim() : "";
+  const source = /^\/[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)$/i.test(value)
+    ? `https://image.tmdb.org/t/p/w185${value}`
+    : value;
+  let src: string | undefined;
+  try {
+    const url = new URL(source);
+    if (["https:", "http:"].includes(url.protocol) && !url.username && !url.password) src = url.href;
+  } catch { /* A missing or unsupported portrait uses the placeholder. */ }
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return <div className="mb-3 aspect-[2/3] overflow-hidden rounded-lg bg-surface-2">
+    {src && !failed ? <img src={src} alt={String(person.name ?? "Portrait")} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center"><UserRound className="size-10 text-muted" aria-hidden="true" /></div>}
+  </div>;
+}
+
 function Modal({
   title,
   onClose,
@@ -752,6 +770,7 @@ function NativeDetail({
                         key={i}
                         className="w-48 shrink-0 rounded-xl border border-border bg-black/20 p-4"
                       >
+                        <PersonPortrait person={character} />
                         <p className="text-sm font-medium">
                           {String(character.name ?? "")}
                         </p>
@@ -776,6 +795,7 @@ function NativeDetail({
                       key={i}
                       className="w-36 shrink-0 rounded-xl border border-border bg-black/20 p-4"
                     >
+                      <PersonPortrait person={credit} />
                       <p className="text-sm font-medium">
                         {String(credit.name ?? "")}
                       </p>

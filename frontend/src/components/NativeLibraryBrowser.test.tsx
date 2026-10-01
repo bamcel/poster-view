@@ -187,3 +187,19 @@ it("refreshes the catalog after an active scan finishes", async () => {
   client.setQueryData(["native-scan", library.id], {status: "complete", count: 3, warnings: []});
   await waitFor(() => expect(nativeLibraries.catalog).toHaveBeenCalledTimes(2));
 });
+
+it("shows stored character and cast portraits including relative TMDB paths", async () => {
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series, metadata: {...series.metadata,
+    characters: [{name: "Character", image: "https://s4.anilist.co/character.jpg"}],
+    credits: [{name: "Actor", image: "/actor.jpg", provider: "tmdb"}, {name: "Writer", image: null}],
+  }}]);
+  mount("/?native_library=native&native_item=show");
+  expect((await screen.findByRole("img", {name: "Character"})).getAttribute("src")).toBe("https://s4.anilist.co/character.jpg");
+  const portrait = screen.getByRole("img", {name: "Actor"});
+  expect(portrait.getAttribute("src")).toBe("https://image.tmdb.org/t/p/w185/actor.jpg");
+  expect(portrait.getAttribute("loading")).toBe("lazy");
+  fireEvent.error(portrait);
+  expect(screen.queryByRole("img", {name: "Actor"})).toBeNull();
+  expect(screen.getByText("Actor")).toBeTruthy();
+  expect(screen.getByText("Writer")).toBeTruthy();
+});
