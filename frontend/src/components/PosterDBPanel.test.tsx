@@ -1,11 +1,11 @@
 import {QueryClient, QueryClientProvider} from "@tanstack/react-query";
-import {cleanup, render, screen, waitFor} from "@testing-library/react";
+import {cleanup, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {afterEach, beforeEach, expect, it, vi} from "vitest";
 import {api} from "../api/client";
 import type {ItemDetail} from "../types";
 import PosterDBBody from "./PosterDBPanel";
 
-vi.mock("../api/client", () => ({api:{posterdbStatus:vi.fn(),posterdbSearch:vi.fn(),posterdbSearchPreview:vi.fn()}}));
+vi.mock("../api/client", () => ({api:{posterdbStatus:vi.fn(),posterdbSearch:vi.fn(),posterdbSearchPreview:vi.fn(),posterdbSet:vi.fn(),posterdbVerify:vi.fn()}}));
 vi.mock("../lib/toast", () => ({useToast:()=>({push:vi.fn()})}));
 const item: ItemDetail = {id:"native:library:movie",title:"1917",type:"movie",seasons:[],members:[],external_ids:{}};
 let client: QueryClient;
@@ -36,4 +36,19 @@ it("does not search without configured credentials",async()=>{
  render(panel());
  await screen.findByText(/Add your ThePosterDB email/);
  expect(api.posterdbSearch).not.toHaveBeenCalled();
+});
+
+it("restores the panel search scroll position after returning from a title",async()=>{
+ vi.mocked(api.posterdbSearch).mockResolvedValue({term:"1917",categories:[{name:"Movies",count:1,results:[{title:"1917 result",url:"https://theposterdb.com/posters/123",media_id:"123"}]}]});
+ vi.mocked(api.posterdbVerify).mockResolvedValue({"123":1});
+ vi.mocked(api.posterdbSet).mockResolvedValue({set_url:"https://theposterdb.com/posters/123",title:"Title posters",posters:[]});
+ render(<div data-testid="scroller" style={{overflowY:"auto"}}>{panel()}</div>);
+ const result=await screen.findByRole("button",{name:/1917 result/});
+ const scroller=screen.getByTestId("scroller"); scroller.scrollTop=640;
+ fireEvent.click(result);
+ const back=await screen.findByRole("button",{name:"Back"});
+ expect(scroller.scrollTop).toBe(0);
+ fireEvent.click(back);
+ await screen.findByRole("button",{name:/1917 result/});
+ expect(scroller.scrollTop).toBe(640);
 });

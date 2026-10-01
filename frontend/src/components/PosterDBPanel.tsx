@@ -11,7 +11,7 @@ import { invalidateArtworkItems } from "../lib/artworkTarget";
 // Thumbnails are proxied through our backend (/api/posterdb/image), so they load
 // without a TPDb session in the browser.
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search,
@@ -63,6 +63,17 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [query, setQuery] = useState(prefill?.term ?? item.title);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const returnPositions = useRef<number[]>([]);
+  const restorePosition = useRef<number | null>(null);
+  function scrollContainer() {
+    let node = bodyRef.current?.parentElement;
+    while (node) {
+      if (/(auto|scroll)/.test(getComputedStyle(node).overflowY)) return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
   const autoSearchKey = useRef("");
   const searchRequest = useRef(0);
   const [search, setSearch] = useState<PosterSearchResults | null>(null);
@@ -75,7 +86,17 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
   const current = stack.length ? stack[stack.length - 1] : null;
   const hasParent = stack.length > 1 || (stack.length === 1 && !!search);
 
+  useLayoutEffect(() => {
+    if (!busyLoad && restorePosition.current !== null) {
+      const container = scrollContainer();
+      if (container) container.scrollTop = restorePosition.current;
+      restorePosition.current = null;
+    }
+  }, [busyLoad, stack, search]);
+
   async function runSearch(term: string) {
+    returnPositions.current = [];
+    restorePosition.current = 0;
     const request = ++searchRequest.current;
     setBusyLoad(true);
     try {
@@ -113,19 +134,26 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
 
   async function openGrid(url: string, opts: { replace?: boolean; label?: string } = {}) {
     ++searchRequest.current;
+    const previousPosition = scrollContainer()?.scrollTop ?? 0;
     setBusyLoad(true);
     try {
       const set = await api.posterdbSet(serverId, url);
       const view: GridView = { set, isTitle: isTitleUrl(url), label: opts.label };
+      returnPositions.current = opts.replace ? [previousPosition] : [...returnPositions.current, previousPosition];
+      restorePosition.current = 0;
       setStack((prev) => (opts.replace ? [view] : [...prev, view]));
     } catch (e) {
+      restorePosition.current = previousPosition;
       toast.push("error", (e as Error).message);
     } finally {
       setBusyLoad(false);
     }
   }
 
-  const goBack = () => setStack((prev) => prev.slice(0, -1));
+  const goBack = () => {
+    restorePosition.current = returnPositions.current.pop() ?? 0;
+    setStack((prev) => prev.slice(0, -1));
+  };
 
   // Default to the current title; explicit hero searches take precedence.
   useEffect(() => {
@@ -239,7 +267,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
   }
 
   return (
-    <>
+    <div ref={bodyRef}>
       <form onSubmit={submit} className="relative mb-3">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
         <input
@@ -298,7 +326,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
           <p className="text-sm">Search ThePosterDB or paste a poster/set link to begin.</p>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
