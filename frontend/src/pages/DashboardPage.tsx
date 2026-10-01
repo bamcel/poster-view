@@ -464,7 +464,7 @@ function ServerDashboard({serverId}: {serverId: number}) {
                 </div>
               )}
           </LibraryFilter>
-          {browsesFolders && <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4" />} style={toolbarControlStyle}>
+          {<LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4" />} style={toolbarControlStyle}>
               {browsesFolders ? <>
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <span className="text-sm text-muted">Tracking Overlays</span>

@@ -8,6 +8,7 @@ import {
   Images,
   Fingerprint,
   ListFilter,
+  MoreHorizontal,
   Pencil,
   RefreshCw,
   Search,
@@ -24,6 +25,7 @@ import PosterCard from "./PosterCard";
 import AnimatedArtwork from "./AnimatedArtwork";
 import ArtworkPanel from "./ArtworkPanel";
 import IdentifyPanel from "./IdentifyPanel";
+import LibraryPopup from "./LibraryPopup";
 import { animeVoiceGroups, voiceName } from "../lib/nativeVoiceCast";
 import { nativeCatalogView } from "../lib/nativeCatalogView";
 import DashboardBackdrop from "./DashboardBackdrop";
@@ -411,6 +413,9 @@ export default function NativeLibraryBrowser({
                   </label>
                 </div>
               </details>
+              <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style}>
+                <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>
+              </LibraryPopup>
             </div>
           </div>
           <div className="scrollbar-hidden relative z-10 min-h-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6 lg:px-8">
