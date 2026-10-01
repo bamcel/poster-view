@@ -592,7 +592,14 @@ async fn tvdb(
             }
         }
     }
-    let types = get("/artwork/types".into(), vec![]).await?["data"].clone();
+    let types = Value::Array(
+        service
+            .native_tvdb_types(&key, &pin)
+            .await?
+            .into_iter()
+            .map(|(id, name)| json!({"id":id,"name":name}))
+            .collect(),
+    );
     Ok(map_tvdb(
         raw,
         selected,

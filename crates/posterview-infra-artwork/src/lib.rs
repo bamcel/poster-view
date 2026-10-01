@@ -264,6 +264,18 @@ impl ArtworkService {
     pub async fn native_tvdb_get(&self, path: &str, query: &[(&str, &str)], key: &str, pin: &str) -> Result<reqwest::Response, String> {
         self.tvdb_get(path, query, key, pin).await
     }
+    pub async fn native_tvdb_types(&self, key: &str, pin: &str) -> Result<HashMap<i64, String>, String> {
+        // Hold the cache lock through initialization so concurrent title workers fetch once.
+        let mut cache = self.tvdb_types.lock().await;
+        if let Some(types) = cache.as_ref() { return Ok(types.clone()); }
+        let response = self.tvdb_get("/artwork/types", &[], key, pin).await?;
+        if !response.status().is_success() { return Err(provider_status_error("TheTVDB", response.status())); }
+        let body: Value = response.json().await.map_err(network_error)?;
+        let records = body.get("data").and_then(Value::as_array).ok_or("TheTVDB returned invalid artwork types.")?;
+        let types: HashMap<i64, String> = records.iter().filter_map(|entry| Some((entry.get("id")?.as_i64()?, entry.get("slug").or_else(|| entry.get("name")).and_then(Value::as_str).unwrap_or("").to_lowercase()))).collect();
+        *cache = Some(types.clone());
+        Ok(types)
+    }
     async fn tvdb_get(
         &self,
         path: &str,
@@ -333,28 +345,7 @@ impl ArtworkService {
             .filter(|value| !value.is_empty())
             .or_else(|| item.external_ids.get("tvdb").map(String::as_str))
             .ok_or_else(|| "This item has no TheTVDB id (TVDB works best for shows).".to_owned())?;
-        if self.tvdb_types.lock().await.is_none() {
-            let response = self.tvdb_get("/artwork/types", &[], key, pin).await?;
-            let body: Value = response.json().await.map_err(network_error)?;
-            let types = body
-                .get("data")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|entry| {
-                    Some((
-                        entry.get("id")?.as_i64()?,
-                        entry
-                            .get("slug")
-                            .or_else(|| entry.get("name"))
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_lowercase(),
-                    ))
-                })
-                .collect();
-            *self.tvdb_types.lock().await = Some(types);
-        }
+        let types = self.native_tvdb_types(key, pin).await?;
         let record = if item.item_type == ItemType::Movie {
             "movies"
         } else {
@@ -370,7 +361,6 @@ impl ArtworkService {
             return Err(provider_status_error("TheTVDB", response.status()));
         }
         let body: Value = response.json().await.map_err(network_error)?;
-        let types = self.tvdb_types.lock().await.clone().unwrap_or_default();
         let mut items = body
             .pointer("/data/artworks")
             .and_then(Value::as_array)
@@ -1029,6 +1019,14 @@ fn percent_decode(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn tvdb_artwork_types_reuse_the_shared_cache() {
+        let service = super::ArtworkService::default();
+        *service.tvdb_types.lock().await = Some(std::collections::HashMap::from([(2, "series-posters".into())]));
+        let types = service.native_tvdb_types("", "").await.unwrap();
+        assert_eq!(types.get(&2).map(String::as_str), Some("series-posters"));
+    }
+
     use super::{slug_type, strip_year};
 
     #[test]

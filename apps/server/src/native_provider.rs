@@ -371,7 +371,12 @@ pub(crate) async fn enrich(
             parents: entries
                 .iter()
                 .filter(|e| e.kind == "series")
-                .map(|e| (e.path.clone(), e.metadata.clone()))
+                .map(|e| {
+                    (
+                        e.path.clone(),
+                        json!({"identifiers": e.metadata["identifiers"]}),
+                    )
+                })
                 .collect(),
             blocked: blocked.clone(),
         });
@@ -399,10 +404,10 @@ pub(crate) async fn enrich(
                 let library = library.clone();
                 let context = context.clone();
                 jobs.spawn(async move {
-                    let mut entries = vec![entry];
+                    let mut entry = entry;
                     let mut warnings = Vec::new();
-                    enrich_one(&state, &library, &mut entries, &mut warnings, &context).await;
-                    (index, entries.remove(0), warnings)
+                    enrich_one(&state, &library, &mut entry, &mut warnings, &context).await;
+                    (index, entry, warnings)
                 });
             }
             let Some(result) = jobs.join_next().await else {
@@ -429,499 +434,452 @@ pub(crate) async fn enrich(
             }
         }
     }
+    let mut seen = std::collections::BTreeSet::new();
+    warnings.retain(|warning| seen.insert(warning.clone()));
 }
 async fn enrich_one(
     state: &AppState,
     library: &NativeLibrary,
-    entries: &mut [NativeCatalogEntry],
+    entry: &mut NativeCatalogEntry,
     warnings: &mut Vec<String>,
     context: &EnrichmentContext,
 ) {
     let client = &context.client;
     let token = &context.token;
-    let mut series_ids = BTreeMap::new();
-    let mut series_metadata = BTreeMap::<String, Value>::new();
     let service = context.service.as_ref();
-    // Identify parents first so episode enrichment can use their stable provider IDs.
-    entries.sort_by_key(|e| match e.kind.as_str() {
-        "series" | "book_series" => 0,
-        "movie" => 1,
-        "season" => 2,
-        _ => 3,
-    });
-    let mut limited = false;
-    for entry in entries.iter_mut() {
-        if entry.kind == "book" {
-            continue;
-        }
-        if entry.kind == "series" {
-            series_metadata.insert(entry.path.clone(), entry.metadata.clone());
-            if let Some(id) = entry.metadata["identifiers"]["tmdb"].as_str() {
-                series_ids.insert(entry.path.clone(), id.to_owned());
-            }
-        }
-        if limited {
-            continue;
-        }
-        let metadata_complete = ["plot", "genres", "credits"]
+    if entry.kind == "book" {
+        return;
+    }
+    let metadata_complete = ["plot", "genres", "credits"]
+        .iter()
+        .all(|field| !missing(&entry.metadata[*field]));
+    if metadata_complete
+        && library
+            .options
+            .image_types
             .iter()
-            .all(|field| !missing(&entry.metadata[*field]));
-        if metadata_complete
-            && library
-                .options
-                .image_types
-                .iter()
-                .all(|kind| entry.artwork.iter().any(|a| &a.kind == kind))
+            .all(|kind| entry.artwork.iter().any(|a| &a.kind == kind))
+    {
+        return;
+    }
+    let default = if (library.library_type == NativeLibraryType::Anime
+        || library.library_type == NativeLibraryType::Books)
+        && !["episode", "season"].contains(&entry.kind.as_str())
+    {
+        vec!["anilist".to_owned()]
+    } else {
+        vec!["tmdb".to_owned()]
+    };
+    let metadata_order = library
+        .options
+        .metadata_providers
+        .get(&entry.kind)
+        .unwrap_or(&default);
+    let image_order = library
+        .options
+        .image_providers
+        .get(&entry.kind)
+        .unwrap_or(&default);
+    // Fetch each provider once; metadata and artwork have independent priorities.
+    let mut providers = metadata_order.clone();
+    for provider in image_order {
+        if !providers.contains(provider) {
+            providers.push(provider.clone());
+        }
+    }
+    let mut image_candidates = BTreeMap::<String, Vec<(String, String)>>::new();
+    for provider_name in providers {
+        if context
+            .blocked
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&provider_name)
         {
             continue;
         }
-        let default = if (library.library_type == NativeLibraryType::Anime
-            || library.library_type == NativeLibraryType::Books)
-            && !["episode", "season"].contains(&entry.kind.as_str())
+        let _slot = crate::workers::network().await;
+        let gate = crate::workers::provider(&provider_name).await;
+        drop(gate);
+        if context
+            .blocked
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&provider_name)
         {
-            vec!["anilist".to_owned()]
-        } else {
-            vec!["tmdb".to_owned()]
-        };
-        let metadata_order = library
-            .options
-            .metadata_providers
-            .get(&entry.kind)
-            .unwrap_or(&default);
-        let image_order = library
-            .options
-            .image_providers
-            .get(&entry.kind)
-            .unwrap_or(&default);
-        // Fetch each provider once; metadata and artwork have independent priorities.
-        let mut providers = metadata_order.clone();
-        for provider in image_order {
-            if !providers.contains(provider) {
-                providers.push(provider.clone());
-            }
+            continue;
         }
-        let mut image_candidates = BTreeMap::<String, Vec<(String, String)>>::new();
-        for provider_name in providers {
-            if context
-                .blocked
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .contains(&provider_name)
+        if !["tmdb", "anilist"].contains(&provider_name.as_str()) {
+            let parent_path = entry
+                .parent_path
+                .as_deref()
+                .map(|v| v.split("/@season-").next().unwrap_or(v));
+            let parent = parent_path
+                .and_then(|v| context.parents.get(v))
+                .cloned()
+                .unwrap_or(Value::Null);
+            match super::native_provider_extra::fetch(
+                state,
+                client,
+                service,
+                &provider_name,
+                library,
+                entry,
+                &parent,
+            )
+            .await
             {
-                continue;
-            }
-            let _slot = crate::workers::network().await;
-            let gate = crate::workers::provider(&provider_name).await;
-            drop(gate);
-            if context
-                .blocked
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .contains(&provider_name)
-            {
-                continue;
-            }
-            if limited {
-                break;
-            }
-            if !["tmdb", "anilist"].contains(&provider_name.as_str()) {
-                let parent_path = entry
-                    .parent_path
-                    .as_deref()
-                    .map(|v| v.split("/@season-").next().unwrap_or(v));
-                let parent = parent_path
-                    .and_then(|v| series_metadata.get(v).or_else(|| context.parents.get(v)))
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                match super::native_provider_extra::fetch(
-                    state,
-                    client,
-                    service,
-                    &provider_name,
-                    library,
-                    entry,
-                    &parent,
-                )
-                .await
-                {
-                    Ok(data) => {
-                        let mut fields = data.fields;
-                        if let Some(credits) = fields["credits"].as_array_mut() {
-                            for credit in credits {
-                                credit["provider"] = json!(provider_name);
+                Ok(data) => {
+                    let mut fields = data.fields;
+                    if let Some(credits) = fields["credits"].as_array_mut() {
+                        for credit in credits {
+                            credit["provider"] = json!(provider_name);
+                        }
+                    }
+                    if metadata_order.contains(&provider_name) {
+                        for (field, value) in fields.as_object().unwrap() {
+                            if field != "identifiers" {
+                                fill(entry, field, value.clone(), &provider_name);
                             }
                         }
-                        if metadata_order.contains(&provider_name) {
-                            for (field, value) in fields.as_object().unwrap() {
-                                if field != "identifiers" {
-                                    fill(entry, field, value.clone(), &provider_name);
-                                }
-                            }
-                        }
-                        merge_identifiers(entry, &fields["identifiers"], &provider_name);
-                        if let Some(id) = data.id {
-                            merge_identifiers(
-                                entry,
-                                &json!({provider_name.clone():id}),
-                                &provider_name,
-                            );
-                        }
-                        fill(
+                    }
+                    merge_identifiers(entry, &fields["identifiers"], &provider_name);
+                    if let Some(id) = data.id {
+                        merge_identifiers(
                             entry,
-                            &format!("{provider_name}_data"),
-                            data.raw,
+                            &json!({provider_name.clone():id}),
                             &provider_name,
                         );
-                        image_candidates.insert(provider_name.clone(), data.artwork);
-                        if entry.kind == "series" {
-                            series_metadata.insert(entry.path.clone(), entry.metadata.clone());
-                            if let Some(id) =
-                                super::native_provider_extra::id(&entry.metadata, "tmdb")
-                            {
-                                series_ids.insert(entry.path.clone(), id);
-                            }
-                        }
                     }
-                    Err(e) => {
-                        if e.contains("rate limit") {
-                            context
-                                .blocked
-                                .lock()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .insert(provider_name.clone());
-                        }
-                        warnings.push(format!("{} ({provider_name}): {e}", entry.title));
-                    }
-                }
-                tokio::time::sleep(Duration::from_millis(300)).await;
-                continue;
-            }
-            let use_anilist = provider_name == "anilist";
-            let result = if use_anilist && entry.kind != "episode" {
-                anilist(
-                    client,
-                    entry,
-                    library.library_type == NativeLibraryType::Books,
-                    library.options.allow_adult_metadata,
-                )
-                .await
-            } else if !token.is_empty() {
-                let series = entry
-                    .parent_path
-                    .as_ref()
-                    .map(|v| v.split("/@season-").next().unwrap_or(v));
-                tmdb(
-                    client,
-                    entry,
-                    token,
-                    series
-                        .and_then(|v| series_ids.get(v))
-                        .map(String::as_str)
-                        .or_else(|| {
-                            series
-                                .and_then(|v| context.parents.get(v))
-                                .and_then(|m| m["identifiers"]["tmdb"].as_str())
-                        }),
-                    &library.options,
-                )
-                .await
-            } else {
-                if !warnings.iter().any(|v| {
-                    v == "TMDB credentials are not configured; video metadata fetching was skipped."
-                }) {
-                    warnings.push(
-                        "TMDB credentials are not configured; video metadata fetching was skipped."
-                            .into(),
+                    fill(
+                        entry,
+                        &format!("{provider_name}_data"),
+                        data.raw,
+                        &provider_name,
                     );
+                    image_candidates.insert(provider_name.clone(), data.artwork);
                 }
-                continue;
-            };
-            let data = match result {
-                Ok(v) => v,
                 Err(e) => {
-                    limited = e.contains("rate limit");
-                    if limited {
+                    if e.contains("rate limit") {
                         context
                             .blocked
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
                             .insert(provider_name.clone());
                     }
-                    warnings.push(format!("{}: {e}", entry.title));
-                    continue;
+                    warnings.push(format!("{} ({provider_name}): {e}", entry.title));
                 }
-            };
-            let ani = use_anilist && entry.kind != "episode";
-            let provider = if ani { "anilist" } else { "tmdb" };
-            let data = if ani {
-                data["data"]["Media"].clone()
-            } else {
-                data
-            };
-            if data.is_null() {
-                warnings.push(format!("{}: provider returned no metadata.", entry.title));
+            }
+            continue;
+        }
+        let use_anilist = provider_name == "anilist";
+        let result = if use_anilist && entry.kind != "episode" {
+            anilist(
+                client,
+                entry,
+                library.library_type == NativeLibraryType::Books,
+                library.options.allow_adult_metadata,
+            )
+            .await
+        } else if !token.is_empty() {
+            let series = entry
+                .parent_path
+                .as_ref()
+                .map(|v| v.split("/@season-").next().unwrap_or(v));
+            tmdb(
+                client,
+                entry,
+                token,
+                series
+                    .and_then(|v| context.parents.get(v))
+                    .and_then(|m| m["identifiers"]["tmdb"].as_str()),
+                &library.options,
+            )
+            .await
+        } else {
+            if !warnings.iter().any(|v| {
+                v == "TMDB credentials are not configured; video metadata fetching was skipped."
+            }) {
+                warnings.push(
+                    "TMDB credentials are not configured; video metadata fetching was skipped."
+                        .into(),
+                );
+            }
+            continue;
+        };
+        let data = match result {
+            Ok(v) => v,
+            Err(e) => {
+                if e.contains("rate limit") {
+                    context
+                        .blocked
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(provider_name.clone());
+                }
+                warnings.push(format!("{}: {e}", entry.title));
                 continue;
             }
-            if !library.options.allow_adult_metadata
-                && (data["isAdult"] == true || data["adult"] == true)
+        };
+        let ani = use_anilist && entry.kind != "episode";
+        let provider = if ani { "anilist" } else { "tmdb" };
+        let data = if ani {
+            data["data"]["Media"].clone()
+        } else {
+            data
+        };
+        if data.is_null() {
+            warnings.push(format!("{}: provider returned no metadata.", entry.title));
+            continue;
+        }
+        if !library.options.allow_adult_metadata
+            && (data["isAdult"] == true || data["adult"] == true)
+        {
+            warnings.push(format!(
+                "{}: adult metadata matching is disabled.",
+                entry.title
+            ));
+            continue;
+        }
+        let mut fields = json!({});
+        let mut artwork = Vec::new();
+        if ani {
+            if data["characters"]["pageInfo"]["hasNextPage"] == true
+                || data["staff"]["pageInfo"]["hasNextPage"] == true
             {
-                warnings.push(format!(
-                    "{}: adult metadata matching is disabled.",
-                    entry.title
-                ));
-                continue;
+                warnings.push(format!("{}: character/staff lists contain more than 100 entries; the initial scan stores the first 100 per list.",entry.title));
             }
-            let mut fields = json!({});
-            let mut artwork = Vec::new();
-            if ani {
-                if data["characters"]["pageInfo"]["hasNextPage"] == true
-                    || data["staff"]["pageInfo"]["hasNextPage"] == true
-                {
-                    warnings.push(format!("{}: character/staff lists contain more than 100 entries; the initial scan stores the first 100 per list.",entry.title));
-                }
-                fields["title"] = data["title"][if library.options.metadata_language == "ja" {
-                    "native"
-                } else {
-                    "english"
-                }]
-                .as_str()
-                .or(data["title"]["romaji"].as_str())
-                .map(|v| json!(v))
-                .unwrap_or(Value::Null);
-                fields["originaltitle"] = data["title"]["native"].clone();
-                fields["plot"] = data["description"].clone();
-                fields["year"] = data["startDate"]["year"].clone();
-                fields["genres"] = data["genres"].clone();
-                fields["status"] = data["status"].clone();
-                fields["runtime"] = data["duration"].clone();
-                fields["volumes"] = data["volumes"].clone();
-                fields["episodes"] = data["episodes"].clone();
-                fields["tags"] = json!(
-                    data["tags"]
-                        .as_array()
-                        .unwrap_or(&Vec::new())
-                        .iter()
-                        .filter_map(|v| v["name"].as_str())
-                        .collect::<Vec<_>>()
-                );
-                fields["studios"] = json!(
-                    data["studios"]["nodes"]
-                        .as_array()
-                        .unwrap_or(&Vec::new())
-                        .iter()
-                        .filter_map(|v| v["name"].as_str())
-                        .collect::<Vec<_>>()
-                );
-                let mut characters = Vec::new();
-                let mut credits = Vec::new();
-                for edge in data["characters"]["edges"]
+            fields["title"] = data["title"][if library.options.metadata_language == "ja" {
+                "native"
+            } else {
+                "english"
+            }]
+            .as_str()
+            .or(data["title"]["romaji"].as_str())
+            .map(|v| json!(v))
+            .unwrap_or(Value::Null);
+            fields["originaltitle"] = data["title"]["native"].clone();
+            fields["plot"] = data["description"].clone();
+            fields["year"] = data["startDate"]["year"].clone();
+            fields["genres"] = data["genres"].clone();
+            fields["status"] = data["status"].clone();
+            fields["runtime"] = data["duration"].clone();
+            fields["volumes"] = data["volumes"].clone();
+            fields["episodes"] = data["episodes"].clone();
+            fields["tags"] = json!(
+                data["tags"]
                     .as_array()
                     .unwrap_or(&Vec::new())
-                {
-                    let node = &edge["node"];
-                    characters.push(json!({"id":node["id"].to_string(),"name":node["name"]["full"],"biography":node["description"],"image":node["image"]["large"],"role":edge["role"]}));
-                    for actor in edge["voiceActors"].as_array().unwrap_or(&Vec::new()) {
-                        credits.push(json!({"name":actor["name"]["full"],"provider_id":actor["id"],"role":node["name"]["full"],"category":"voice","image":actor["image"]["large"]}));
-                    }
-                }
-                for edge in data["staff"]["edges"].as_array().unwrap_or(&Vec::new()) {
-                    credits.push(json!({"name":edge["node"]["name"]["full"],"role":edge["role"],"provider_id":edge["node"]["id"],"category":"crew","image":edge["node"]["image"]["large"]}));
-                }
-                fields["characters"] = json!(characters);
-                fields["credits"] = json!(credits);
-                for (kind, value) in [
-                    ("poster", &data["coverImage"]["extraLarge"]),
-                    ("backdrop", &data["bannerImage"]),
-                ] {
-                    if let Some(url) = value.as_str() {
-                        artwork.push((kind, url.to_owned()));
-                    }
-                }
-            } else {
-                fields["title"] = data["title"]
-                    .as_str()
-                    .or(data["name"].as_str())
-                    .map(|v| json!(v))
-                    .unwrap_or(Value::Null);
-                fields["originaltitle"] = data["original_title"]
-                    .as_str()
-                    .or(data["original_name"].as_str())
-                    .map(|v| json!(v))
-                    .unwrap_or(Value::Null);
-                fields["plot"] = data["overview"].clone();
-                let date = data["release_date"]
-                    .as_str()
-                    .or(data["first_air_date"].as_str())
-                    .or(data["air_date"].as_str());
-                fields["year"] = date
-                    .and_then(|v| v.get(..4)?.parse::<i64>().ok())
-                    .map(|v| json!(v))
-                    .unwrap_or(Value::Null);
-                fields["premiered"] = date.map(|v| json!(v)).unwrap_or(Value::Null);
-                fields["runtime"] = data["runtime"].clone();
-                fields["status"] = data["status"].clone();
-                fields["rating"] = data["vote_average"].clone();
-                for (field, key) in [("genres", "genres"), ("studios", "production_companies")] {
-                    fields[field] = json!(
-                        data[key]
-                            .as_array()
-                            .unwrap_or(&Vec::new())
-                            .iter()
-                            .filter_map(|v| v["name"].as_str())
-                            .collect::<Vec<_>>()
-                    );
-                }
-                let tags = data["keywords"]["keywords"]
+                    .iter()
+                    .filter_map(|v| v["name"].as_str())
+                    .collect::<Vec<_>>()
+            );
+            fields["studios"] = json!(
+                data["studios"]["nodes"]
                     .as_array()
-                    .or(data["keywords"]["results"].as_array());
-                fields["tags"] = json!(
-                    tags.unwrap_or(&Vec::new())
+                    .unwrap_or(&Vec::new())
+                    .iter()
+                    .filter_map(|v| v["name"].as_str())
+                    .collect::<Vec<_>>()
+            );
+            let mut characters = Vec::new();
+            let mut credits = Vec::new();
+            for edge in data["characters"]["edges"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+            {
+                let node = &edge["node"];
+                characters.push(json!({"id":node["id"].to_string(),"name":node["name"]["full"],"biography":node["description"],"image":node["image"]["large"],"role":edge["role"]}));
+                for actor in edge["voiceActors"].as_array().unwrap_or(&Vec::new()) {
+                    credits.push(json!({"name":actor["name"]["full"],"provider_id":actor["id"],"role":node["name"]["full"],"category":"voice","image":actor["image"]["large"]}));
+                }
+            }
+            for edge in data["staff"]["edges"].as_array().unwrap_or(&Vec::new()) {
+                credits.push(json!({"name":edge["node"]["name"]["full"],"role":edge["role"],"provider_id":edge["node"]["id"],"category":"crew","image":edge["node"]["image"]["large"]}));
+            }
+            fields["characters"] = json!(characters);
+            fields["credits"] = json!(credits);
+            for (kind, value) in [
+                ("poster", &data["coverImage"]["extraLarge"]),
+                ("backdrop", &data["bannerImage"]),
+            ] {
+                if let Some(url) = value.as_str() {
+                    artwork.push((kind, url.to_owned()));
+                }
+            }
+        } else {
+            fields["title"] = data["title"]
+                .as_str()
+                .or(data["name"].as_str())
+                .map(|v| json!(v))
+                .unwrap_or(Value::Null);
+            fields["originaltitle"] = data["original_title"]
+                .as_str()
+                .or(data["original_name"].as_str())
+                .map(|v| json!(v))
+                .unwrap_or(Value::Null);
+            fields["plot"] = data["overview"].clone();
+            let date = data["release_date"]
+                .as_str()
+                .or(data["first_air_date"].as_str())
+                .or(data["air_date"].as_str());
+            fields["year"] = date
+                .and_then(|v| v.get(..4)?.parse::<i64>().ok())
+                .map(|v| json!(v))
+                .unwrap_or(Value::Null);
+            fields["premiered"] = date.map(|v| json!(v)).unwrap_or(Value::Null);
+            fields["runtime"] = data["runtime"].clone();
+            fields["status"] = data["status"].clone();
+            fields["rating"] = data["vote_average"].clone();
+            for (field, key) in [("genres", "genres"), ("studios", "production_companies")] {
+                fields[field] = json!(
+                    data[key]
+                        .as_array()
+                        .unwrap_or(&Vec::new())
                         .iter()
                         .filter_map(|v| v["name"].as_str())
                         .collect::<Vec<_>>()
                 );
-                let mut credits = Vec::new();
-                for (key, category) in [("cast", "cast"), ("crew", "crew")] {
-                    for v in data["credits"][key].as_array().unwrap_or(&Vec::new()) {
-                        credits.push(json!({"name":v["name"],"role":v["character"].as_str().or(v["job"].as_str()),"category":category,"provider_id":v["id"],"image":v["profile_path"]}));
-                    }
-                }
-                fields["credits"] = json!(credits);
-                for (kind, list, fallback) in [
-                    ("poster", "posters", "poster_path"),
-                    ("backdrop", "backdrops", "backdrop_path"),
-                    ("thumb", "stills", "still_path"),
-                    ("logo", "logos", "logo_path"),
-                    ("banner", "banners", "banner_path"),
-                ] {
-                    if let Some(path) =
-                        image_path(&data, list, fallback, &library.options.image_language)
-                    {
-                        artwork.push((kind, format!("https://image.tmdb.org/t/p/original{path}")));
-                    }
-                }
             }
-            if let Some(credits) = fields["credits"].as_array_mut() {
-                for credit in credits {
-                    credit["provider"] = json!(provider);
-                }
-            }
-            if metadata_order.iter().any(|p| p == provider) {
-                let ratings = if entry.kind == "movie" {
-                    data["release_dates"]["results"].as_array()
-                } else {
-                    data["content_ratings"]["results"].as_array()
-                };
-                if let Some(rating) = ratings.and_then(|v| {
-                    v.iter()
-                        .find(|r| r["iso_3166_1"] == library.options.certification_country)
-                }) {
-                    fields["mpaa"] = if entry.kind == "movie" {
-                        rating["release_dates"]
-                            .as_array()
-                            .and_then(|v| {
-                                v.iter().find_map(|r| {
-                                    r["certification"].as_str().filter(|s| !s.is_empty())
-                                })
-                            })
-                            .map(|v| json!(v))
-                            .unwrap_or(Value::Null)
-                    } else {
-                        rating["rating"].clone()
-                    };
-                }
-                for (field, value) in fields.as_object().unwrap() {
-                    fill(entry, field, value.clone(), provider);
-                }
-            }
-            if ani {
-                if let Some(mal) = data["idMal"].as_u64() {
-                    merge_identifiers(entry, &json!({"mal":mal.to_string()}), provider);
-                }
-            } else {
-                let ids = json!({"imdb":data["imdb_id"].as_str().or(data["external_ids"]["imdb_id"].as_str()),"tvdb":data["external_ids"]["tvdb_id"].as_u64().map(|v|v.to_string())});
-                merge_identifiers(entry, &ids, provider);
-            }
-            let provider_id = data["id"].to_string();
-            if entry.metadata["identifiers"].is_null() {
-                entry.metadata["identifiers"] = json!({});
-            }
-            if entry.metadata["identifiers"][provider].is_null() {
-                entry.metadata["identifiers"][provider] = json!(provider_id);
-                entry.metadata["_sources"]["identifiers"] = json!(provider);
-            }
-            if entry.kind == "series" {
-                if let Some(id) = entry.metadata["identifiers"]["tmdb"].as_str() {
-                    series_ids.insert(entry.path.clone(), id.to_owned());
-                }
-            }
-            if entry.kind == "series" {
-                series_metadata.insert(entry.path.clone(), entry.metadata.clone());
-            }
-            fill(entry, &format!("{provider}_data"), data, provider);
-            image_candidates.insert(
-                provider.into(),
-                artwork
-                    .into_iter()
-                    .map(|(kind, url)| (kind.to_owned(), url))
-                    .collect(),
+            let tags = data["keywords"]["keywords"]
+                .as_array()
+                .or(data["keywords"]["results"].as_array());
+            fields["tags"] = json!(
+                tags.unwrap_or(&Vec::new())
+                    .iter()
+                    .filter_map(|v| v["name"].as_str())
+                    .collect::<Vec<_>>()
             );
-            tokio::time::sleep(Duration::from_millis(if ani { 1200 } else { 250 })).await;
-        }
-        let mut candidates = BTreeMap::<String, Vec<(String, String)>>::new();
-        for provider in image_order {
-            for (kind, url) in image_candidates.get(provider).into_iter().flatten() {
-                if library.options.image_types.contains(kind)
-                    && !entry.artwork.iter().any(|a| a.kind == *kind)
+            let mut credits = Vec::new();
+            for (key, category) in [("cast", "cast"), ("crew", "crew")] {
+                for v in data["credits"][key].as_array().unwrap_or(&Vec::new()) {
+                    credits.push(json!({"name":v["name"],"role":v["character"].as_str().or(v["job"].as_str()),"category":category,"provider_id":v["id"],"image":v["profile_path"]}));
+                }
+            }
+            fields["credits"] = json!(credits);
+            for (kind, list, fallback) in [
+                ("poster", "posters", "poster_path"),
+                ("backdrop", "backdrops", "backdrop_path"),
+                ("thumb", "stills", "still_path"),
+                ("logo", "logos", "logo_path"),
+                ("banner", "banners", "banner_path"),
+            ] {
+                if let Some(path) =
+                    image_path(&data, list, fallback, &library.options.image_language)
                 {
-                    candidates
-                        .entry(kind.clone())
-                        .or_default()
-                        .push((provider.clone(), url.clone()));
+                    artwork.push((kind, format!("https://image.tmdb.org/t/p/original{path}")));
                 }
             }
         }
-        let mut jobs = tokio::task::JoinSet::new();
-        for (kind, candidates) in candidates {
-            let state = state.clone();
-            let client = client.clone();
-            let title = entry.title.clone();
-            jobs.spawn(async move {
-                let mut warnings = Vec::new();
-                for (provider, url) in candidates {
-                    match download(&state, &client, &url).await {
-                        Ok(path) => {
-                            return (
-                                Some(NativeArtwork {
-                                    kind,
-                                    path,
-                                    source: provider,
-                                }),
-                                warnings,
-                            );
-                        }
-                        Err(e) => warnings.push(format!("{title} ({kind}): {e}")),
-                    }
-                }
-                (None, warnings)
-            });
-        }
-        while let Some(result) = jobs.join_next().await {
-            match result {
-                Ok((art, notices)) => {
-                    if let Some(art) = art {
-                        entry.artwork.push(art);
-                    }
-                    warnings.extend(notices);
-                }
-                Err(error) => warnings.push(format!(
-                    "{}: artwork worker interrupted: {error}",
-                    entry.title
-                )),
+        if let Some(credits) = fields["credits"].as_array_mut() {
+            for credit in credits {
+                credit["provider"] = json!(provider);
             }
         }
-        entry.artwork.sort_by(|a, b| a.kind.cmp(&b.kind));
+        if metadata_order.iter().any(|p| p == provider) {
+            let ratings = if entry.kind == "movie" {
+                data["release_dates"]["results"].as_array()
+            } else {
+                data["content_ratings"]["results"].as_array()
+            };
+            if let Some(rating) = ratings.and_then(|v| {
+                v.iter()
+                    .find(|r| r["iso_3166_1"] == library.options.certification_country)
+            }) {
+                fields["mpaa"] = if entry.kind == "movie" {
+                    rating["release_dates"]
+                        .as_array()
+                        .and_then(|v| {
+                            v.iter()
+                                .find_map(|r| r["certification"].as_str().filter(|s| !s.is_empty()))
+                        })
+                        .map(|v| json!(v))
+                        .unwrap_or(Value::Null)
+                } else {
+                    rating["rating"].clone()
+                };
+            }
+            for (field, value) in fields.as_object().unwrap() {
+                fill(entry, field, value.clone(), provider);
+            }
+        }
+        if ani {
+            if let Some(mal) = data["idMal"].as_u64() {
+                merge_identifiers(entry, &json!({"mal":mal.to_string()}), provider);
+            }
+        } else {
+            let ids = json!({"imdb":data["imdb_id"].as_str().or(data["external_ids"]["imdb_id"].as_str()),"tvdb":data["external_ids"]["tvdb_id"].as_u64().map(|v|v.to_string())});
+            merge_identifiers(entry, &ids, provider);
+        }
+        let provider_id = data["id"].to_string();
+        if entry.metadata["identifiers"].is_null() {
+            entry.metadata["identifiers"] = json!({});
+        }
+        if entry.metadata["identifiers"][provider].is_null() {
+            entry.metadata["identifiers"][provider] = json!(provider_id);
+            entry.metadata["_sources"]["identifiers"] = json!(provider);
+        }
+        fill(entry, &format!("{provider}_data"), data, provider);
+        image_candidates.insert(
+            provider.into(),
+            artwork
+                .into_iter()
+                .map(|(kind, url)| (kind.to_owned(), url))
+                .collect(),
+        );
     }
+    let mut candidates = BTreeMap::<String, Vec<(String, String)>>::new();
+    for provider in image_order {
+        for (kind, url) in image_candidates.get(provider).into_iter().flatten() {
+            if library.options.image_types.contains(kind)
+                && !entry.artwork.iter().any(|a| a.kind == *kind)
+            {
+                candidates
+                    .entry(kind.clone())
+                    .or_default()
+                    .push((provider.clone(), url.clone()));
+            }
+        }
+    }
+    let mut jobs = tokio::task::JoinSet::new();
+    for (kind, candidates) in candidates {
+        let state = state.clone();
+        let client = client.clone();
+        let title = entry.title.clone();
+        jobs.spawn(async move {
+            let mut warnings = Vec::new();
+            for (provider, url) in candidates {
+                match download(&state, &client, &url).await {
+                    Ok(path) => {
+                        return (
+                            Some(NativeArtwork {
+                                kind,
+                                path,
+                                source: provider,
+                            }),
+                            warnings,
+                        );
+                    }
+                    Err(e) => warnings.push(format!("{title} ({kind}): {e}")),
+                }
+            }
+            (None, warnings)
+        });
+    }
+    while let Some(result) = jobs.join_next().await {
+        match result {
+            Ok((art, notices)) => {
+                if let Some(art) = art {
+                    entry.artwork.push(art);
+                }
+                warnings.extend(notices);
+            }
+            Err(error) => warnings.push(format!(
+                "{}: artwork worker interrupted: {error}",
+                entry.title
+            )),
+        }
+    }
+    entry.artwork.sort_by(|a, b| a.kind.cmp(&b.kind));
 }
 #[cfg(test)]
 mod tests {

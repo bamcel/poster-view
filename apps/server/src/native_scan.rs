@@ -473,31 +473,10 @@ pub(crate) fn collect(
             .to_string_lossy()
             .to_lowercase();
         let books = library.library_type == NativeLibraryType::Books;
-        if if books {
-            !["cbz", "epub", "pdf"].contains(&ext.as_str())
-        } else {
-            ![
-                "mkv", "mp4", "avi", "mov", "m4v", "webm", "ts", "mpg", "mpeg", "m2ts",
-            ]
-            .contains(&ext.as_str())
-        } {
-            continue;
-        }
         let dir = file
             .parent()
             .ok_or_else(|| bad("Missing media directory."))?;
         let info = fs::metadata(&file).map_err(bad)?;
-        if library.options.sample_ignore_mb > 0
-            && file
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_ascii_lowercase()
-                .contains("sample")
-            && info.len() < u64::from(library.options.sample_ignore_mb) * 1024 * 1024
-        {
-            continue;
-        }
         let stem = file
             .file_stem()
             .unwrap_or_default()

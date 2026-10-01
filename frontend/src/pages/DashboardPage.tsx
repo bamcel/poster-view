@@ -38,16 +38,14 @@ export default function DashboardPage() {
       <button aria-pressed={!manual} disabled={!selectedServer} onClick={() => choose("server")} className={`rounded-xl border px-4 py-2 text-sm disabled:opacity-40 ${!manual ? "border-accent bg-accent/10 text-accent" : "border-edge text-muted"}`}>{selectedServer ? `${selectedServer.name} · Server libraries` : "Server libraries"}</button>
       <button aria-pressed={manual} onClick={() => choose("manual")} className={`rounded-xl border px-4 py-2 text-sm ${manual ? "border-accent bg-accent/10 text-accent" : "border-edge text-muted"}`}>Manual libraries</button>
     </div>
-    <div className="min-h-0 flex-1">{manual ? <NativeDashboard /> : <ServerDashboard />}</div>
+    <div className="min-h-0 flex-1">{manual ? <NativeDashboard /> : selectedServer && <ServerDashboard serverId={selectedServer.id} />}</div>
   </div>;
 }
 
-function ServerDashboard() {
+function ServerDashboard({serverId}: {serverId: number}) {
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
-  const { selectedServer, isLoading: serversLoading } = useServers();
-  const serverId = selectedServer?.id ?? null;
   const libraryTabKey = serverId == null ? null : `posterview.libraryTab.${serverId}`;
 
   // The selected library lives in the URL (?lib=…) so that navigating into a
@@ -326,19 +324,6 @@ function ServerDashboard() {
     }
     return ids;
   }, [itemsQ.data, sinceTimestamp]);
-
-  if (serversLoading) return <Spinner label="Loading…" />;
-
-  if (!selectedServer) {
-    return (
-      <div className="grid h-full place-items-center p-8">
-        <EmptyState title="No media server yet">
-          Add your Plex, Jellyfin, or Emby server in Settings to start browsing
-          your libraries.
-        </EmptyState>
-      </div>
-    );
-  }
 
   const browseableLibs = librariesQ.data ?? [];
   const toolbarControlStyle: CSSProperties = {
