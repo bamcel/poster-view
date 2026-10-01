@@ -11,7 +11,7 @@ import { invalidateArtworkItems } from "../lib/artworkTarget";
 // Thumbnails are proxied through our backend (/api/posterdb/image), so they load
 // without a TPDb session in the browser.
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Search,
@@ -62,7 +62,9 @@ type GridView = { set: PosterSet; isTitle: boolean; label?: string };
 export default function PosterDBBody({ serverId, item, prefill }: Props) {
   const toast = useToast();
   const queryClient = useQueryClient();
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(prefill?.term ?? item.title);
+  const autoSearchKey = useRef("");
+  const searchRequest = useRef(0);
   const [search, setSearch] = useState<PosterSearchResults | null>(null);
   const [activeCat, setActiveCat] = useState<string | null>(null);
   const [stack, setStack] = useState<GridView[]>([]);
@@ -74,6 +76,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
   const hasParent = stack.length > 1 || (stack.length === 1 && !!search);
 
   async function runSearch(term: string) {
+    const request = ++searchRequest.current;
     setBusyLoad(true);
     try {
       const fullSearch = api.posterdbSearch(serverId, term).then(
@@ -81,7 +84,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
         (error: unknown) => ({ result: null, error }),
       );
       const preview = await api.posterdbSearchPreview(serverId, term).catch(() => null);
-      if (preview) {
+      if (preview && request === searchRequest.current) {
         setSearch(preview);
         setStack([]);
         const first = preview.categories.find((c) => c.results.length) ?? preview.categories[0];
@@ -89,6 +92,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
       }
 
       const { result, error } = await fullSearch;
+      if (request !== searchRequest.current) return;
       if (error) throw error;
       if (!result) return;
       setSearch(result);
@@ -101,13 +105,14 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
         return first?.name ?? null;
       });
     } catch (e) {
-      toast.push("error", (e as Error).message);
+      if (request === searchRequest.current) toast.push("error", (e as Error).message);
     } finally {
-      setBusyLoad(false);
+      if (request === searchRequest.current) setBusyLoad(false);
     }
   }
 
   async function openGrid(url: string, opts: { replace?: boolean; label?: string } = {}) {
+    ++searchRequest.current;
     setBusyLoad(true);
     try {
       const set = await api.posterdbSet(serverId, url);
@@ -122,14 +127,17 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
 
   const goBack = () => setStack((prev) => prev.slice(0, -1));
 
-  // Run a search when the parent requests one (and creds are configured).
+  // Default to the current title; explicit hero searches take precedence.
   useEffect(() => {
-    if (!prefill?.nonce || !prefill.term) return;
-    if (statusQ.data && !statusQ.data.configured) return;
-    setQuery(prefill.term);
-    runSearch(prefill.term);
+    const term = (prefill?.term || item.title).trim();
+    if (!term || !statusQ.data?.configured) return;
+    const key = JSON.stringify([serverId, item.id, term, prefill?.nonce]);
+    if (autoSearchKey.current === key) return;
+    autoSearchKey.current = key;
+    setQuery(term);
+    runSearch(term);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefill?.nonce]);
+  }, [serverId, item.id, item.title, prefill?.term, prefill?.nonce, statusQ.data?.configured]);
 
   const seasonByNumber = (n?: number | null) =>
     n == null ? undefined : item.seasons.find((s) => s.index === n);
