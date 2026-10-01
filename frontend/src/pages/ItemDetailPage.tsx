@@ -290,7 +290,7 @@ export default function ItemDetailPage() {
                 {item.seasons.length > 0 && (
                   <section className="mt-10">
                     <h2 className="mb-3 text-xl font-semibold">Seasons</h2>
-                    <div className="flex gap-5 overflow-x-auto pb-3 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]">
+                    <div className="-mx-2 -mt-2 flex gap-5 overflow-x-auto px-2 pb-3 pt-2 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]">
                       {item.seasons.map((s) => (
                         <PosterCard
                           key={s.id}

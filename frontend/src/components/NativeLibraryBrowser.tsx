@@ -662,7 +662,7 @@ function NativeDetail({
                 <h2 className="mb-3 text-xl font-semibold">
                   {entry.kind === "series" ? "Seasons" : "Volumes"}
                 </h2>
-                <div className="flex gap-5 overflow-x-auto pb-3 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]">
+                <div className="-mx-2 -mt-2 flex gap-5 overflow-x-auto px-2 pb-3 pt-2 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]">
                   {children
                     .filter((e) => e.kind !== "episode")
                     .map((child) => (
