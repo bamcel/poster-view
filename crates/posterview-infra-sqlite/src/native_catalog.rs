@@ -493,7 +493,7 @@ fn project_metadata(
             };
             let char_id = character["id"]
                 .as_str()
-                .map(|v| format!("anilist:{v}"))
+                .map(|v| format!("{}:{v}", if character["provider"] == "jikan" { "mal" } else { "anilist" }))
                 .unwrap_or_else(|| format!("name:{name}"));
             tx.execute("INSERT INTO catalog_characters VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET name=excluded.name,biography=excluded.biography,image_path=excluded.image_path",params![char_id,name,character["biography"].as_str(),character["image"].as_str()])?;
             tx.execute("INSERT OR IGNORE INTO catalog_character_appearances(item_id,character_id,role) VALUES(?1,?2,?3)",params![id,char_id,character["role"].as_str().unwrap_or("")])?;

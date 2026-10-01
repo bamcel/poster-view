@@ -35,7 +35,7 @@ export function animeVoiceGroups(metadata: Person, preferredCode: string) {
   const originCode = metadata.original_language ?? object(metadata.tmdb_data).original_language ?? ({JP:"ja",KR:"ko",CN:"zh",TW:"zh",US:"en",GB:"en"} as Record<string,string>)[country];
   const original = language(originCode);
   const preferred = language(preferredCode) ?? "English";
-  const groups = [{title:original ? `${original} voice cast · Original` : "Original voice cast", cast:original ? combine(cast.filter(person => voiceName(person.language) === voiceName(original))) : [], empty:original ? `No ${original} voice cast provided by AniList.` : "Original language has not been identified."}];
-  if (voiceName(preferred) !== voiceName(original)) groups.push({title:`${preferred} voice cast · Preferred`, cast:combine(cast.filter(person => voiceName(person.language)===voiceName(preferred))), empty:`No ${preferred} voice cast provided by AniList.`});
+  const groups = [{title:original ? `${original} voice cast · Original` : "Original voice cast", cast:original ? combine(cast.filter(person => voiceName(person.language) === voiceName(original))) : [], empty:original ? `No ${original} voice cast available.` : "Original language has not been identified."}];
+  if (voiceName(preferred) !== voiceName(original)) groups.push({title:`${preferred} voice cast · Preferred`, cast:combine(cast.filter(person => voiceName(person.language)===voiceName(preferred))), empty:`No ${preferred} voice cast available.`});
   return {groups, names:new Set(groups.flatMap(group => group.cast).map(person => voiceName(person.name)).filter(Boolean))};
 }

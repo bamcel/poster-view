@@ -270,3 +270,11 @@ Removal clears the database artwork reference without deleting local media-folde
 ### MyAnimeList artwork
 
 The artwork panel includes **MyAnimeList** for anime and **MyAnimeList Manga** for manga/book covers. Both reuse the MyAnimeList client ID saved under **Settings → Search Providers**. Stored `mal` or `myanimelist` identifiers load the main cover automatically; enter a title and choose a search result when an ID is missing or incorrect. The provider offers the largest available main cover, with a medium-image fallback. Applying it follows the same database and media-folder rules as other artwork providers.
+
+### Supplemental anime people data
+
+AniList remains the primary character and voice-cast source. When fetching missing metadata is enabled, anime series and movies with a known MyAnimeList ID also use Jikan to fill missing voice cast, crew, and portraits. Existing portraits and manually edited people fields take priority. Jikan actors remain in the language-specific voice-cast rows; characters remain separate from cast and crew. AniDB remains a supplementary metadata provider.
+
+Jikan is an unofficial public MyAnimeList API and needs no additional credentials. Responses are cached for 24 hours, requests are serialized at least 1.1 seconds apart, and rate-limit responses defer further requests. Successful checks are retained for 30 days even when a language has no cast, preventing repeated requests for unavailable information. Failed checks are deferred for an hour. Saved fallback data is reused on later scans.
+
+After updating, use **Scan files** once to backfill existing anime titles. Titles without a known MyAnimeList ID are skipped rather than matched by a potentially ambiguous name.

@@ -31,6 +31,7 @@ mod reader;
 mod native;
 mod native_scan;
 mod native_provider;
+mod native_jikan;
 mod native_provider_extra;
 mod native_monitor;
 mod native_artwork;

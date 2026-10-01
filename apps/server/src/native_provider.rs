@@ -610,6 +610,7 @@ pub(crate) async fn enrich(
                     let mut entry = entry;
                     let mut warnings = Vec::new();
                     enrich_one(&state, &library, &mut entry, &mut warnings, &context).await;
+                    crate::native_jikan::enrich(&state, &library, &mut entry, &context.client, &mut warnings).await;
                     (index, entry, warnings)
                 });
             }
