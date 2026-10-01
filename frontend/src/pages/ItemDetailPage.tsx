@@ -313,7 +313,7 @@ export default function ItemDetailPage() {
                 )}
 
                 {item.type === "book" && <button className="mt-5 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-base hover:bg-accent-hover" onClick={()=>navigate(`/read/${serverId}/${encodeURIComponent(item.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`)}>Read Book</button>}
-                {(item.type === "show" || item.type === "movie") && <ItemAbout item={item} />}
+                {item.type === "movie" && <ItemAbout item={item} />}
                 {/* Volume cards open the reader; nested folders keep their detail pages. */}
                 {item.members.length > 0 && (
                   <section className="mt-10">
@@ -344,6 +344,7 @@ export default function ItemDetailPage() {
                     </div>
                   </section>
                 )}
+                {item.type === "show" && <ItemAbout item={item} />}
               </>
             )}
           </div>

@@ -772,7 +772,7 @@ function NativeDetail({
                 </div>
               </section>
             )}
-            <ItemAbout item={detail} />
+            {entry.kind !== "series" && <ItemAbout item={detail} />}
             {entry.kind.startsWith("book") && (
               <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
                 {["publisher", "edition", "volumes", "status"]
@@ -869,6 +869,7 @@ function NativeDetail({
                 ))}
               </section>
             )}
+            {entry.kind === "series" && <ItemAbout item={detail} />}
           </div>
         </div>
       </div>
