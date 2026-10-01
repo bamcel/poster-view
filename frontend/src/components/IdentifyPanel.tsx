@@ -20,7 +20,7 @@ export default function IdentifyPanel({library,entry,busy,onSaved}:{library:Nati
     finally{if(current===request.current)setLoading(false);}
   }
   function select(candidate:IdentificationCandidate) {
-    setError("");setTitle(candidate.title);if(candidate.year)setYear(String(candidate.year));
+    setError("");if(candidate.year)setYear(String(candidate.year));
     const next={...ids,...candidate.identifiers};
     // Suggest only unique exact title AND year matches; ambiguous records remain unselected.
     if(candidate.year) for(const group of groups) {
@@ -38,7 +38,7 @@ export default function IdentifyPanel({library,entry,busy,onSaved}:{library:Nati
     } catch(e){setError((e as Error).message);}finally{setSaving(false);}
   }
   return <div className="space-y-5">
-    <p className="text-sm text-muted">Search providers together, select the correct series or movie, then review its IDs before saving. Existing local and manually chosen artwork is preserved.</p>
+    <p className="text-sm text-muted">Search providers together, select the correct series or movie, then review its IDs before saving. Selecting a result keeps your entered title. Existing local and manually chosen artwork is preserved.</p>
     <div className="rounded-xl border border-border bg-surface-2 p-3 text-xs text-muted"><p className="mb-1 font-medium text-white">Media path</p><p className="break-all">{entry.path}</p><p className="mt-2">Current IDs: {Object.entries((entry.metadata.identifiers as Record<string,string>)??{}).map(([key,value])=>`${names[key]??key}: ${value}`).join(" · ")||"None"}</p></div>
     <form className="flex flex-wrap items-end gap-3" onSubmit={event=>{event.preventDefault();void search();}}>
       <label className="min-w-48 flex-1 text-sm">Title<input aria-label="Identification title" className={`${inputClass} mt-1`} value={title} onChange={e=>setTitle(e.target.value)} maxLength={200}/></label>

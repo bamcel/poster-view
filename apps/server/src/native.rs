@@ -207,6 +207,12 @@ async fn run_scan_scoped(
                 &mut entry.metadata,
                 &previous.metadata["credits"],
             );
+            if previous.metadata["_title_locked"] == true {
+                entry.metadata["title"] = previous.metadata["title"].clone();
+                entry.metadata["_title_locked"] = serde_json::json!(true);
+                entry.metadata["_sources"]["title"] = serde_json::json!("manual");
+                entry.title = previous.title.clone();
+            }
             // Carry forward known values so rescans do not discard manual edits or redownload artwork.
             if let Some(fields) = previous.metadata.as_object() {
                 for (field, value) in fields {

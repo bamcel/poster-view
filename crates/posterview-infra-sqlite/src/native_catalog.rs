@@ -173,6 +173,7 @@ impl ServerStore {
             entry.available = available;
             entry.revision = revision;
             entry.metadata = json!({});
+            entry.metadata["_title_locked"] = json!(tx.query_row("SELECT coalesce((SELECT locked FROM catalog_metadata_fields WHERE item_id=?1 AND field='title'),0)",[&id],|r|r.get::<_,i64>(0))? == 1);
             for row in fields.query_map([&id], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
             })? {
@@ -251,7 +252,7 @@ impl ServerStore {
                     let source = entry.metadata["_sources"][field]
                         .as_str()
                         .unwrap_or("filename");
-                    tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=revision+1 WHERE locked=0 AND source<>'manual' AND (excluded.source='nfo' OR source<>'nfo' OR json_type(value_json)='null' OR value_json IN ('[]','{}') OR (json_type(value_json)='text' AND trim(json_extract(value_json,'$'))=''))",params![id,field,value.to_string(),source])?;
+                    tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=revision+1 WHERE locked=0 AND (source<>'manual' OR field='title') AND (excluded.source='nfo' OR source<>'nfo' OR json_type(value_json)='null' OR value_json IN ('[]','{}') OR (json_type(value_json)='text' AND trim(json_extract(value_json,'$'))=''))",params![id,field,value.to_string(),source])?;
                 }
             }
             let effective: Value = {
@@ -359,7 +360,10 @@ impl ServerStore {
         if current != Some(revision) {
             return Err(StoreError::RevisionConflict);
         }
+        let title_lock=fields.get("_title_locked").map(|v|v.as_bool().ok_or_else(||invalid("Title lock must be true or false."))).transpose()?;
+        if let Some(locked)=title_lock {tx.execute("UPDATE catalog_metadata_fields SET locked=?2,source=CASE WHEN ?2=1 THEN 'manual' WHEN source='manual' THEN 'filename' ELSE source END WHERE item_id=?1 AND field='title'",params![item,i64::from(locked)])?;}
         for (field, value) in fields {
+            if field=="_title_locked" {continue;}
             let previous: Option<String> = tx
                 .query_row(
                     "SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field=?2",
@@ -375,6 +379,7 @@ impl ServerStore {
             }
             tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='manual',locked=1,revision=revision+1",params![item,field,value.to_string()])?;
         }
+        if let Some(locked)=title_lock {tx.execute("UPDATE catalog_metadata_fields SET locked=?2 WHERE item_id=?1 AND field='title'",params![item,i64::from(locked)])?;}
         let mut effective = json!({});
         {
             let mut stmt = tx
@@ -436,8 +441,9 @@ impl ServerStore {
             tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND (source IN ('anilist','tmdb','tvdb','mal','anidb','jikan','omdb','fanart') OR field IN ('anilist_data','tmdb_data','tvdb_data','mal_data','anidb_data','jikan_data','jikan_checked','jikan_retry_after','voice_cast_schema'))",[id])?;
             tx.execute("DELETE FROM catalog_artwork WHERE item_id=?1 AND source NOT IN ('manual','local')",[id])?;
         }
-        for (field,value) in [("identifiers",identifiers.clone()),("title",json!(title))].into_iter().chain(year.map(|y|("year",json!(y)))) {
-            tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='manual',locked=1,revision=revision+1",params![item,field,value.to_string()])?;
+        tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'identifiers',?2,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='manual',locked=1,revision=revision+1",params![item,identifiers.to_string()])?;
+        for (field,value) in [("title",json!(title))].into_iter().chain(year.map(|y|("year",json!(y)))) {
+            tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'filename',0) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=CASE WHEN locked=1 THEN source ELSE 'filename' END,revision=revision+1",params![item,field,value.to_string()])?;
         }
         tx.execute("UPDATE catalog_items SET title=?2,sort_title=lower(?2) WHERE id=?1",params![item,title])?;
         for id in affected {
@@ -546,7 +552,7 @@ mod tests{
         assert!(db.identify_native_entry(&library.id,&before.id,before.revision+1,"Correct",Some(2014),&json!({"anilist":"20464"})).is_err());
         assert_eq!(db.native_catalog(&library.id).unwrap()[0].title,"Wrong");
         db.identify_native_entry(&library.id,&before.id,before.revision,"Correct",Some(2014),&json!({"anilist":"20464"})).unwrap();
-        let after=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(after.title,"Correct");assert_eq!(after.metadata["plot"],"Local synopsis");assert_eq!(after.metadata["identifiers"],json!({"anilist":"20464"}));assert!(after.metadata["credits"].is_null());assert_eq!(after.artwork.len(),1);assert_eq!(after.artwork[0].source,"local");assert!(after.revision>before.revision);
+        let after=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(after.title,"Correct");assert_eq!(after.metadata["_title_locked"],false);db.edit_native_entry(&library.id,&after.id,after.revision,&json!({"_title_locked":true})).unwrap();let locked=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(locked.metadata["_title_locked"],true);db.edit_native_entry(&library.id,&locked.id,locked.revision,&json!({"_title_locked":false})).unwrap();assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["_title_locked"],false);assert_eq!(after.metadata["plot"],"Local synopsis");assert_eq!(after.metadata["identifiers"],json!({"anilist":"20464"}));assert!(after.metadata["credits"].is_null());assert_eq!(after.artwork.len(),1);assert_eq!(after.artwork[0].source,"local");assert!(after.revision>before.revision);
     }
     #[test]
     fn fills_empty_local_values_without_overwriting_populated_or_manual_fields(){
