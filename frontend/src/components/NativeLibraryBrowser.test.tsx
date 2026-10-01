@@ -237,8 +237,8 @@ it("shows original and preferred anime voice cast separately and retains product
     credits: [{name:"Korean Actor",category:"voice"},{name:"Other Dub Actor",category:"voice"},{name:"Lead Character"},{name:"Director",category:"crew",role:"Director"},{name:"Lead Character",category:"crew",role:"Writer"}],
   }}]);
   mount("/?native_library=native&native_item=show");
-  expect(await screen.findByRole("heading",{name:"Korean voice cast · Original"})).toBeTruthy();
-  expect(screen.getByRole("heading",{name:"English voice cast · Preferred"})).toBeTruthy();
+  expect(await screen.findByRole("heading",{name:"Korean Cast"})).toBeTruthy();
+  expect(screen.getByRole("heading",{name:"English Cast"})).toBeTruthy();
   expect(screen.getAllByText("Korean Actor")).toHaveLength(1);
   expect(screen.queryByText("Other Dub Actor")).toBeNull();
   // One character card and the explicitly identified production credit remain.
