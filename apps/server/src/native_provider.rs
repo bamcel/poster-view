@@ -17,6 +17,33 @@ fn missing(value: &Value) -> bool {
         || value.as_array().is_some_and(Vec::is_empty)
         || value.as_object().is_some_and(|v| v.is_empty())
 }
+fn metadata_complete(entry: &NativeCatalogEntry) -> bool {
+    let fields: &[&str] = if entry.kind == "season" {
+        &["title"]
+    } else {
+        &["title", "plot"]
+    };
+    fields.iter().all(|field| !missing(&entry.metadata[*field]))
+}
+fn missing_images(entry: &NativeCatalogEntry, library: &NativeLibrary) -> Vec<String> {
+    library
+        .options
+        .image_types
+        .iter()
+        .filter(|kind| {
+            let supported = match entry.kind.as_str() {
+                "episode" => kind.as_str() == "thumb",
+                "season" => kind.as_str() == "poster",
+                _ => true,
+            };
+            supported
+                && !entry.artwork.iter().any(|art| {
+                    art.kind == **kind || (kind.as_str() == "thumb" && art.kind == "landscape")
+                })
+        })
+        .cloned()
+        .collect()
+}
 fn fill(entry: &mut NativeCatalogEntry, field: &str, value: Value, source: &str) {
     if missing(&value) {
         return;
@@ -450,16 +477,7 @@ async fn enrich_one(
     if entry.kind == "book" {
         return;
     }
-    let metadata_complete = ["plot", "genres", "credits"]
-        .iter()
-        .all(|field| !missing(&entry.metadata[*field]));
-    if metadata_complete
-        && library
-            .options
-            .image_types
-            .iter()
-            .all(|kind| entry.artwork.iter().any(|a| &a.kind == kind))
-    {
+    if metadata_complete(entry) && missing_images(entry, library).is_empty() {
         return;
     }
     let default = if (library.library_type == NativeLibraryType::Anime
@@ -480,15 +498,39 @@ async fn enrich_one(
         .image_providers
         .get(&entry.kind)
         .unwrap_or(&default);
-    // Fetch each provider once; metadata and artwork have independent priorities.
-    let mut providers = metadata_order.clone();
-    for provider in image_order {
-        if !providers.contains(provider) {
-            providers.push(provider.clone());
-        }
-    }
+    // Complete essential metadata first, then try image sources in their independent priority.
+    // Cache responses so a provider selected for both purposes is fetched only once.
     let mut image_candidates = BTreeMap::<String, Vec<(String, String)>>::new();
-    for provider_name in providers {
+    let mut attempted = std::collections::BTreeSet::new();
+    for (provider_name, image_phase) in metadata_order
+        .iter()
+        .map(|p| (p.clone(), false))
+        .chain(image_order.iter().map(|p| (p.clone(), true)))
+    {
+        if !image_phase && metadata_complete(entry) {
+            continue;
+        }
+        if image_phase {
+            if missing_images(entry, library).is_empty() {
+                break;
+            }
+            if let Some(artwork) = image_candidates.get(&provider_name) {
+                download_candidates(
+                    state,
+                    client,
+                    library,
+                    entry,
+                    &provider_name,
+                    artwork,
+                    warnings,
+                )
+                .await;
+                continue;
+            }
+            if attempted.contains(&provider_name) {
+                continue;
+            }
+        }
         if context
             .blocked
             .lock()
@@ -508,6 +550,7 @@ async fn enrich_one(
         {
             continue;
         }
+        attempted.insert(provider_name.clone());
         if !["tmdb", "anilist"].contains(&provider_name.as_str()) {
             let parent_path = entry
                 .parent_path
@@ -567,6 +610,21 @@ async fn enrich_one(
                             .insert(provider_name.clone());
                     }
                     warnings.push(format!("{} ({provider_name}): {e}", entry.title));
+                }
+            }
+            drop(_slot);
+            if image_phase {
+                if let Some(artwork) = image_candidates.get(&provider_name) {
+                    download_candidates(
+                        state,
+                        client,
+                        library,
+                        entry,
+                        &provider_name,
+                        artwork,
+                        warnings,
+                    )
+                    .await;
                 }
             }
             continue;
@@ -826,18 +884,40 @@ async fn enrich_one(
                 .map(|(kind, url)| (kind.to_owned(), url))
                 .collect(),
         );
-    }
-    let mut candidates = BTreeMap::<String, Vec<(String, String)>>::new();
-    for provider in image_order {
-        for (kind, url) in image_candidates.get(provider).into_iter().flatten() {
-            if library.options.image_types.contains(kind)
-                && !entry.artwork.iter().any(|a| a.kind == *kind)
-            {
-                candidates
-                    .entry(kind.clone())
-                    .or_default()
-                    .push((provider.clone(), url.clone()));
+        drop(_slot);
+        if image_phase {
+            if let Some(artwork) = image_candidates.get(&provider_name) {
+                download_candidates(
+                    state,
+                    client,
+                    library,
+                    entry,
+                    &provider_name,
+                    artwork,
+                    warnings,
+                )
+                .await;
             }
+        }
+    }
+}
+async fn download_candidates(
+    state: &AppState,
+    client: &reqwest::Client,
+    library: &NativeLibrary,
+    entry: &mut NativeCatalogEntry,
+    provider: &str,
+    artwork: &[(String, String)],
+    warnings: &mut Vec<String>,
+) {
+    let needed = missing_images(entry, library);
+    let mut candidates = BTreeMap::<String, Vec<(String, String)>>::new();
+    for (kind, url) in artwork {
+        if needed.contains(kind) {
+            candidates
+                .entry(kind.clone())
+                .or_default()
+                .push((provider.to_owned(), url.clone()));
         }
     }
     let mut jobs = tokio::task::JoinSet::new();
@@ -884,6 +964,101 @@ async fn enrich_one(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn local_entry(kind: &str) -> NativeCatalogEntry {
+        NativeCatalogEntry {
+            id: "item".into(),
+            path: "Anime/Example/Example.S01E01.mkv".into(),
+            kind: kind.into(),
+            parent_path: None,
+            title: "Example".into(),
+            metadata: json!({"title":"Example","plot":"Local overview"}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: Some("Anime/Example/Example.S01E01.nfo".into()),
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        }
+    }
+    fn library() -> NativeLibrary {
+        NativeLibrary {
+            id: "library".into(),
+            name: "Anime".into(),
+            library_type: NativeLibraryType::Anime,
+            anime_content: posterview_contracts::native::AnimeContent::Both,
+            paths: vec!["Anime".into()],
+            options: Default::default(),
+            revision: 1,
+            created_at: "".into(),
+            updated_at: "".into(),
+        }
+    }
+    #[test]
+    fn optional_metadata_and_inapplicable_artwork_do_not_create_gaps() {
+        let mut episode = local_entry("episode");
+        episode.artwork.push(NativeArtwork {
+            kind: "landscape".into(),
+            path: "Anime/Example/Example.S01E01.jpg".into(),
+            source: "local".into(),
+        });
+        assert!(metadata_complete(&episode));
+        assert!(missing_images(&episode, &library()).is_empty());
+        let mut season = local_entry("season");
+        season.metadata["plot"] = Value::Null;
+        season.artwork.push(NativeArtwork {
+            kind: "poster".into(),
+            path: "Anime/Example/season01-poster.jpg".into(),
+            source: "local".into(),
+        });
+        assert!(metadata_complete(&season));
+        assert!(missing_images(&season, &library()).is_empty());
+        let mut movie = local_entry("movie");
+        assert!(metadata_complete(&movie));
+        movie.metadata["plot"] = Value::Null;
+        assert!(!metadata_complete(&movie));
+        fill(
+            &mut movie,
+            "plot",
+            json!("First provider supplied overview"),
+            "tmdb",
+        );
+        assert!(metadata_complete(&movie));
+        assert!(movie.metadata["genres"].is_null());
+        assert!(movie.metadata["credits"].is_null());
+    }
+    #[tokio::test]
+    async fn local_episode_does_not_call_enabled_providers() {
+        let mut episode = local_entry("episode");
+        episode.artwork.push(NativeArtwork {
+            kind: "thumb".into(),
+            path: "Anime/Example/Example.S01E01.jpg".into(),
+            source: "local".into(),
+        });
+        let mut library = library();
+        library.options.metadata_providers.insert(
+            "episode".into(),
+            vec!["tvdb".into(), "anidb".into(), "tmdb".into()],
+        );
+        library
+            .options
+            .image_providers
+            .insert("episode".into(), vec!["tvdb".into(), "tmdb".into()]);
+        let context = EnrichmentContext {
+            client: reqwest::Client::new(),
+            token: String::new(),
+            service: std::sync::Arc::new(posterview_infra_artwork::ArtworkService::default()),
+            parents: BTreeMap::new(),
+            blocked: Default::default(),
+        };
+        // These providers would reject the deliberately absent credentials if called.
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::native::scan_tests::state(temp.path());
+        let mut warnings = Vec::new();
+        enrich_one(&state, &library, &mut episode, &mut warnings, &context).await;
+        assert!(warnings.is_empty());
+        assert_eq!(episode.artwork.len(), 1);
+        assert_eq!(episode.metadata["plot"], "Local overview");
+    }
     #[test]
     fn image_language_uses_preferred_then_neutral_then_default() {
         let data = json!({"poster_path":"/default.jpg", "images":{"posters":[{"iso_639_1":null,"file_path":"/neutral.jpg"},{"iso_639_1":"ja","file_path":"/ja.jpg"}]}});

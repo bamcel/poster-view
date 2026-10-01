@@ -216,3 +216,16 @@ values use the defaults. Restart the application after changing them. The budget
 are process-wide, so concurrent scans share the same limits. These workers use
 the existing scan and database lifecycle; they do not introduce a durable job
 queue or automatically retry jobs across restarts.
+
+
+Internet gap filling requires title/overview for movies, series, book series, and
+episodes; seasons require a title. Missing genres, cast/crew, and other optional
+fields do not independently trigger lookups. Episode downloads target thumbnails
+only; season downloads target posters only. Local landscape images satisfy a
+thumbnail requirement. Movies and series use their enabled image types.
+
+Metadata providers stop once essential fields are present. Image providers are
+tried separately in their configured order until the applicable images have
+been saved. Responses are reused when a provider serves both purposes. A failed
+image download leaves its type missing, allowing a lower-priority image source
+to try. Local and manual values remain protected.

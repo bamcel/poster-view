@@ -564,11 +564,11 @@ mod tests {
 }
 
 #[cfg(test)]
-mod scan_tests {
+pub(crate) mod scan_tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryOptions, NativeLibraryType};
     use std::{fs, sync::Arc};
-    fn state(dir: &std::path::Path) -> AppState {
+    pub(crate) fn state(dir: &std::path::Path) -> AppState {
         let media = dir.join("media");
         fs::create_dir_all(&media).unwrap();
         let runtime = Arc::new(posterview_runtime::Runtime::new(dir.join("config")));
