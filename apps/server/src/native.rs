@@ -585,6 +585,20 @@ pub(crate) async fn artwork(
         if metadata.len() > 20 * 1024 * 1024 {
             return Err(HttpError::bad_request("Artwork exceeds 20 MB."));
         }
+        // Validate unchanged artwork before reading or processing its contents.
+        let modified = metadata.modified().ok().and_then(|time|time.duration_since(std::time::UNIX_EPOCH).ok()).map(|time|time.as_nanos()).unwrap_or_default();
+        let mut identity = std::hash::DefaultHasher::new();
+        std::hash::Hash::hash(&art.path, &mut identity);
+        let tag = format!("W/\"{}-{}-{}-{}\"", std::hash::Hasher::finish(&identity), metadata.len(), modified, options.get("still").is_some_and(|value|value=="1"));
+        let etag = axum::http::HeaderValue::from_str(&tag).ok();
+        if request_headers.get(axum::http::header::IF_NONE_MATCH).and_then(|value|value.to_str().ok()).is_some_and(|value|value.split(',').any(|candidate|candidate.trim()==tag || candidate.trim()=="*")) {
+            if let Some(etag) = etag.clone() {
+                let mut headers = axum::http::HeaderMap::new();
+                headers.insert(axum::http::header::ETAG, etag);
+                headers.insert(axum::http::header::CACHE_CONTROL, axum::http::HeaderValue::from_static("private, max-age=60"));
+                return Ok((StatusCode::NOT_MODIFIED, headers, Vec::new()));
+            }
+        }
         let mut bytes = std::fs::read(&path).map_err(|_| HttpError::not_found())?;
         if !art.path.starts_with("@managed/") && crate::native_animation::is_animated(&bytes) {
             bytes = crate::native_animation::local(&state, &path, &bytes, options.get("still").is_some_and(|s|s=="1")).map_err(HttpError::bad_request)?;
@@ -609,6 +623,7 @@ pub(crate) async fn artwork(
             axum::http::header::CACHE_CONTROL,
             axum::http::HeaderValue::from_static("private, max-age=60"),
         );
+        if let Some(etag) = etag { headers.insert(axum::http::header::ETAG, etag); }
         let mut status=StatusCode::OK;
         if mime == "video/webm" {
             headers.insert(axum::http::header::ACCEPT_RANGES, axum::http::HeaderValue::from_static("bytes"));
@@ -731,6 +746,20 @@ pub(crate) mod scan_tests {
         assert!(apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,Some(bytes.get_ref().clone())).await.unwrap().ok);
         let art = db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap();
         assert_eq!(art.source,"manual");
+        let image_path = (library.id.clone(), series.id.clone(), "poster".to_string());
+        let (status, headers, image) = artwork(State(state.clone()), Path(image_path.clone()), axum::extract::Query(Default::default()), Default::default()).await.unwrap();
+        assert_eq!(status, StatusCode::OK);
+        assert!(!image.is_empty());
+        let mut conditional = axum::http::HeaderMap::new();
+        conditional.insert(axum::http::header::IF_NONE_MATCH, headers[axum::http::header::ETAG].clone());
+        let (status, _, image) = artwork(State(state.clone()), Path(image_path.clone()), axum::extract::Query(Default::default()), conditional.clone()).await.unwrap();
+        assert_eq!(status, StatusCode::NOT_MODIFIED);
+        assert!(image.is_empty());
+        apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,Some(bytes.get_ref().clone())).await.unwrap();
+        let (status, _, _) = artwork(State(state.clone()), Path(image_path), axum::extract::Query(Default::default()), conditional).await.unwrap();
+        assert_eq!(status, StatusCode::OK);
+        let art = db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap();
+
         assert!(temp.path().join("media/Shows/Example/poster.jpg").exists());
         run_scan(state.clone(),library.clone()).await.unwrap();
         assert_eq!(db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap().path,art.path);

@@ -205,6 +205,7 @@ export default function NativeLibraryBrowser({
     queryKey: ["native-catalog", library.id],
     queryFn: () => nativeLibraries.catalog(library.id),
     staleTime: 60_000,
+    gcTime: 30 * 60_000,
     refetchInterval: status.data?.status === "scanning" ? 5000 : false,
   });
   const [search, setSearch] = useState("");
