@@ -203,3 +203,24 @@ it("shows stored character and cast portraits including relative TMDB paths", as
   expect(screen.getByText("Actor")).toBeTruthy();
   expect(screen.getByText("Writer")).toBeTruthy();
 });
+
+it("uses cached provider portraits for NFO credits without replacing local portraits", async () => {
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series, metadata: {...series.metadata,
+    credits: [{name: "Local Actor", image: null}, {name: "Another Actor", image: "https://example.com/local.jpg"}, {name: "Unknown Actor"}],
+    tmdb_data: {credits: {cast: [{name: "Local Actor", profile_path: "/cached.jpg"}, {name: "Another Actor", profile_path: "/other.jpg"}], crew: []}},
+  }}]);
+  mount("/?native_library=native&native_item=show");
+  expect((await screen.findByRole("img", {name: "Local Actor"})).getAttribute("src")).toBe("https://image.tmdb.org/t/p/w185/cached.jpg");
+  expect(screen.getByRole("img", {name: "Another Actor"}).getAttribute("src")).toBe("https://example.com/local.jpg");
+  expect(screen.queryByRole("img", {name: "Unknown Actor"})).toBeNull();
+});
+
+it("prefers cached AniList portraits over TMDB for matching anime voice cast", async () => {
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series, metadata: {...series.metadata,
+    credits: [{name: "Actor Name", image: null}],
+    anilist_data: {characters: {edges: [{voiceActors: [{name: {full: "Name, Actor"}, image: {large: "https://s4.anilist.co/actor.jpg"}}]}]}},
+    tmdb_data: {credits: {cast: [{name: "Actor Name", profile_path: "/tmdb.jpg"}]}},
+  }}]);
+  mount("/?native_library=native&native_item=show");
+  expect((await screen.findByRole("img", {name: "Actor Name"})).getAttribute("src")).toBe("https://s4.anilist.co/actor.jpg");
+});

@@ -203,6 +203,10 @@ async fn run_scan_scoped(
         .collect();
     for entry in &mut entries {
         if let Some(previous) = existing.get(&entry.path) {
+            crate::native_provider::merge_credit_portraits(
+                &mut entry.metadata,
+                &previous.metadata["credits"],
+            );
             // Carry forward known values so rescans do not discard manual edits or redownload artwork.
             if let Some(fields) = previous.metadata.as_object() {
                 for (field, value) in fields {
@@ -1337,5 +1341,39 @@ pub(crate) mod scan_tests {
                 entry.revision
             );
         }
+    }
+    #[test]
+    fn nfo_saves_preserve_actor_portraits_and_existing_actor_details() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let dir = temp.path().join("media/Movies/Test");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("Test.mkv"), b"fixture").unwrap();
+        fs::write(dir.join("Test.nfo"),"<movie><title>Test</title><actor><name>Actor</name><role>Lead</role><thumb>https://example.com/original.jpg</thumb><custom>keep</custom></actor></movie>").unwrap();
+        let mut entry = posterview_contracts::native::NativeCatalogEntry {
+            id: String::new(),
+            path: "Movies/Test/Test.mkv".into(),
+            kind: "movie".into(),
+            parent_path: None,
+            title: "Test".into(),
+            metadata: serde_json::json!({"title":"Test","credits":[{"name":"Actor","role":"Lead","category":"cast"}]}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: Some("Movies/Test/Test.nfo".into()),
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        let (_, xml) = crate::native_scan::write_nfo(&state, &entry).unwrap();
+        assert!(xml.contains("https://example.com/original.jpg"));
+        assert!(xml.contains("<custom>keep</custom>"));
+        entry.metadata["credits"][0]["image"] =
+            serde_json::json!("https://example.com/updated.jpg");
+        let (_, xml) = crate::native_scan::write_nfo(&state, &entry).unwrap();
+        let (_, metadata) = crate::native_scan::parse_nfo(xml.as_bytes()).unwrap();
+        assert_eq!(
+            metadata["credits"][0]["image"],
+            "https://example.com/updated.jpg"
+        );
     }
 }

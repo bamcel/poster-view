@@ -917,6 +917,13 @@ pub(crate) fn write_nfo(
         }
     }
     if let Some(credits) = entry.metadata["credits"].as_array() {
+        let previous_actors = xml
+            .children
+            .iter()
+            .filter_map(|n| n.as_element())
+            .filter(|e| e.name == "actor")
+            .cloned()
+            .collect::<Vec<_>>();
         xml.children.retain(|n|!matches!(n,XMLNode::Element(e) if ["actor","director","writer","author","illustrator"].contains(&e.name.as_str())));
         for credit in credits {
             let Some(name) = credit["name"].as_str() else {
@@ -925,11 +932,34 @@ pub(crate) fn write_nfo(
             let category = credit["category"].as_str().unwrap_or("cast");
             let role = credit["role"].as_str().unwrap_or("");
             if category == "cast" || category == "voice" {
-                let mut actor = Element::new("actor");
+                let mut actor = previous_actors
+                    .iter()
+                    .find(|actor| {
+                        actor
+                            .get_child("name")
+                            .and_then(|e| e.get_text())
+                            .is_some_and(|v| v == name)
+                            && actor
+                                .get_child("role")
+                                .and_then(|e| e.get_text())
+                                .unwrap_or_default()
+                                == role
+                    })
+                    .cloned()
+                    .unwrap_or_else(|| Element::new("actor"));
+                actor.children.retain(|n|!matches!(n,XMLNode::Element(e) if ["name","role"].contains(&e.name.as_str())));
                 for (tag, text) in [("name", name), ("role", role)] {
                     let mut e = Element::new(tag);
                     e.children.push(XMLNode::Text(text.into()));
                     actor.children.push(XMLNode::Element(e));
+                }
+                if let Some(image) = credit["image"].as_str().filter(|v| !v.trim().is_empty()) {
+                    actor
+                        .children
+                        .retain(|n| !matches!(n,XMLNode::Element(e) if e.name=="thumb"));
+                    let mut thumb = Element::new("thumb");
+                    thumb.children.push(XMLNode::Text(image.into()));
+                    actor.children.push(XMLNode::Element(thumb));
                 }
                 xml.children.push(XMLNode::Element(actor));
             } else if ["author", "illustrator"].contains(&category)

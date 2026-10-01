@@ -97,8 +97,36 @@ function Artwork({
     </div>
   );
 }
-function PersonPortrait({person}: {person: Record<string, unknown>}) {
-  const value = typeof person.image === "string" ? person.image.trim() : "";
+function portraitName(value: unknown): string {
+  return typeof value === "string" ? value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(/\s+/).sort().join(" ") : "";
+}
+function portraitIndex(metadata: Record<string, unknown>): Map<string, string> {
+  const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const list = (value: unknown): Record<string, unknown>[] => Array.isArray(value) ? value.map(record) : [];
+  const ani = record(metadata.anilist_data);
+  const candidates: Record<string, unknown>[] = [];
+  for (const edge of list(record(ani.staff).edges)) {
+    const node = record(edge.node);
+    candidates.push({name: record(node.name).full, image: record(node.image).large});
+  }
+  for (const edge of list(record(ani.characters).edges)) {
+    const node = record(edge.node);
+    candidates.push({name: record(node.name).full, image: record(node.image).large});
+    for (const actor of list(edge.voiceActors)) candidates.push({name: record(actor.name).full, image: record(actor.image).large});
+  }
+  const tmdb = record(record(metadata.tmdb_data).credits);
+  for (const credit of [...list(tmdb.cast), ...list(tmdb.crew)]) candidates.push({name: credit.name, image: credit.profile_path});
+  for (const credit of list(record(metadata.tvdb_data).characters)) candidates.push({name: credit.personName, image: credit.personImgURL});
+  const images = new Map<string, string>();
+  for (const candidate of candidates) {
+    const name = portraitName(candidate.name);
+    if (name && !images.has(name) && typeof candidate.image === "string" && candidate.image.trim()) images.set(name, candidate.image.trim());
+  }
+  return images;
+}
+
+function PersonPortrait({person, images}: {person: Record<string, unknown>; images: Map<string, string>}) {
+  const value = typeof person.image === "string" && person.image.trim() ? person.image.trim() : images.get(portraitName(person.name)) ?? "";
   const source = /^\/[a-zA-Z0-9_-]+\.(jpg|jpeg|png|webp)$/i.test(value)
     ? `https://image.tmdb.org/t/p/w185${value}`
     : value;
@@ -524,6 +552,7 @@ function NativeDetail({
       (entry.kind === "season" ? series?.metadata.plot : "") ??
       "",
   );
+  const portraitImages = useMemo(() => portraitIndex(entry.metadata), [entry.metadata]);
   const credits = Array.isArray(entry.metadata.credits)
     ? (entry.metadata.credits as Record<string, unknown>[])
     : [];
@@ -764,7 +793,7 @@ function NativeDetail({
                         key={i}
                         className="w-48 shrink-0 rounded-xl border border-border bg-black/20 p-4"
                       >
-                        <PersonPortrait person={character} />
+                        <PersonPortrait person={character} images={portraitImages} />
                         <p className="text-sm font-medium">
                           {String(character.name ?? "")}
                         </p>
@@ -789,7 +818,7 @@ function NativeDetail({
                       key={i}
                       className="w-36 shrink-0 rounded-xl border border-border bg-black/20 p-4"
                     >
-                      <PersonPortrait person={credit} />
+                      <PersonPortrait person={credit} images={portraitImages} />
                       <p className="text-sm font-medium">
                         {String(credit.name ?? "")}
                       </p>

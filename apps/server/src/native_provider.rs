@@ -44,9 +44,47 @@ fn missing_images(entry: &NativeCatalogEntry, library: &NativeLibrary) -> Vec<St
         .cloned()
         .collect()
 }
+pub(crate) fn merge_credit_portraits(metadata: &mut Value, incoming: &Value) {
+    if metadata["_sources"]["credits"] == "manual" {
+        return;
+    }
+    let Some(candidates) = incoming.as_array() else {
+        return;
+    };
+    let Some(credits) = metadata["credits"].as_array_mut() else {
+        return;
+    };
+    let mut portraits = BTreeMap::new();
+    for candidate in candidates {
+        if let (Some(name), Some(image)) = (
+            candidate["name"].as_str(),
+            candidate["image"].as_str().filter(|v| !v.trim().is_empty()),
+        ) {
+            portraits.entry(normalized(name)).or_insert(image);
+        }
+    }
+    for credit in credits {
+        if !missing(&credit["image"]) {
+            continue;
+        }
+        let Some(name) = credit["name"]
+            .as_str()
+            .map(normalized)
+            .filter(|v| !v.is_empty())
+        else {
+            continue;
+        };
+        if let Some(image) = portraits.get(&name) {
+            credit["image"] = json!(image);
+        }
+    }
+}
 fn fill(entry: &mut NativeCatalogEntry, field: &str, value: Value, source: &str) {
     if missing(&value) {
         return;
+    }
+    if field == "credits" {
+        merge_credit_portraits(&mut entry.metadata, &value);
     }
     let from_filename = matches!(
         entry.metadata["_sources"][field].as_str(),
@@ -1094,6 +1132,24 @@ async fn download_candidates(
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fills_missing_credit_portraits_without_replacing_local_or_manual_values() {
+        let mut metadata = json!({"credits":[{"name":"Actor","role":"Local role","image":null},{"name":"Other","image":"local.jpg"}],"_sources":{"credits":"nfo"}});
+        merge_credit_portraits(
+            &mut metadata,
+            &json!([{"name":"Actor","image":"provider.jpg"},{"name":"Other","image":"replace.jpg"}]),
+        );
+        assert_eq!(metadata["credits"][0]["image"], "provider.jpg");
+        assert_eq!(metadata["credits"][0]["role"], "Local role");
+        assert_eq!(metadata["credits"][1]["image"], "local.jpg");
+        metadata["credits"][0]["image"] = Value::Null;
+        metadata["_sources"]["credits"] = json!("manual");
+        merge_credit_portraits(
+            &mut metadata,
+            &json!([{"name":"Actor","image":"provider.jpg"}]),
+        );
+        assert!(metadata["credits"][0]["image"].is_null());
+    }
     #[test]
     fn extending_old_provider_lists_preserves_local_and_manual_credits() {
         for source in ["nfo", "manual"] {
