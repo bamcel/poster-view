@@ -419,7 +419,44 @@ pub(crate) fn collect(
             }
         })
     });
+    files.retain(|p| {
+        !(library.options.sample_ignore_mb > 0
+            && p.file_name()
+                .is_some_and(|n| n.to_string_lossy().to_ascii_lowercase().contains("sample"))
+            && fs::metadata(p)
+                .is_ok_and(|m| m.len() < u64::from(library.options.sample_ignore_mb) * 1024 * 1024))
+    });
     let total = files.len();
+    let completed = std::sync::atomic::AtomicUsize::new(0);
+    let reporter = std::sync::Mutex::new(crate::native_progress::Reporter::new(state, &library.id));
+    let unavailable = std::sync::atomic::AtomicBool::new(false);
+    let mut probes = if library.library_type != NativeLibraryType::Books {
+        progress.report("inspecting", 0, Some(total), 0, "", true);
+        crate::workers::parallel(files.clone(), |file| {
+            let result = if unavailable.load(std::sync::atomic::Ordering::Relaxed) {
+                Err("ffprobe is unavailable; media codecs and duration were not inspected.".into())
+            } else {
+                probe(&file)
+            };
+            if result.as_ref().is_err_and(|e| e.contains("unavailable")) {
+                unavailable.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            let done = completed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            reporter.lock().unwrap_or_else(|e| e.into_inner()).report(
+                "inspecting",
+                done,
+                Some(total),
+                0,
+                &relative(&root, &file).unwrap_or_default(),
+                done == total,
+            );
+            (file, result)
+        })
+        .into_iter()
+        .collect::<BTreeMap<_, _>>()
+    } else {
+        BTreeMap::new()
+    };
     progress.report("reading", 0, Some(total), 0, "", true);
     for (index, file) in files.into_iter().enumerate() {
         progress.report(
@@ -650,7 +687,10 @@ pub(crate) fn collect(
             }
         }
         let media_info = if !books && !probe_unavailable {
-            match probe(&file) {
+            match probes
+                .remove(&file)
+                .unwrap_or_else(|| Err("Media inspection did not finish.".into()))
+            {
                 Ok(v) => v,
                 Err(e) => {
                     probe_unavailable = e.contains("unavailable");

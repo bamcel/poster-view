@@ -188,3 +188,31 @@ and child items. The source and last manual library are remembered locally.
 Server library selection remains separate, so switching back preserves its
 existing navigation context. Without a connected server, the Dashboard opens
 manual libraries automatically. Manage manual libraries in Settings → Libraries.
+
+
+## Background workers
+
+Manual-library scans share bounded media and network workers across libraries:
+
+- Two media workers inspect video files with ffprobe and handle image encoding,
+  media-folder artwork export, and NFO writeback. Inspection has its own live
+  progress phase. Catalog assembly and database projection remain coordinated.
+- Four network slots bound metadata requests, artwork downloads, and bulk edition
+  lookups. Provider jobs process root titles first, then seasons, then episodes.
+  Children receive the completed parent identifiers, and provider priority remains
+  sequential within each title. Artwork types download independently, with each
+  type trying its sources in priority order.
+- Provider gates are shared across scans. AniList jobs are spaced by at least
+  1.5 seconds and other provider jobs by 250 ms; AniDB retains its stricter
+  serialized requests, daily quota, and cache. Rate-limited providers are skipped
+  for the remaining jobs in that scan.
+- Bulk edition edits run two requests at once, with per-item results and retries.
+  Stop After Active Items lets the active writes finish and leaves queued items
+  available through Continue Remaining.
+
+Optional environment settings `POSTERVIEW_MEDIA_WORKERS` (default `2`) and
+`POSTERVIEW_NETWORK_WORKERS` (default `4`) accept integers from 1 to 8. Invalid
+values use the defaults. Restart the application after changing them. The budgets
+are process-wide, so concurrent scans share the same limits. These workers use
+the existing scan and database lifecycle; they do not introduce a durable job
+queue or automatically retry jobs across restarts.

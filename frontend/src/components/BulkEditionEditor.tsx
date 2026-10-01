@@ -28,8 +28,11 @@ export default function BulkEditionEditor({ serverId, items, onClose }: { server
     setCancelled(false);
     setStage("running");
     setResults(previous => previous.filter(result => !targets.some(item => item.id === result.id)));
-    for (const item of targets) {
-      if (stopped.current) break;
+    let next = 0;
+    async function worker() {
+      while (!stopped.current) {
+        const item = targets[next++];
+        if (!item) break;
       try {
         await readerRequest("/api/metadata/edition", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ server_id: serverId, item_id: item.id, edition: clearEdition ? "" : edition.trim(), ...(clearEdition ? { clear: true } : {}) }) });
         setResults(previous => [...previous, { id: item.id, title: item.title }]);
@@ -38,7 +41,9 @@ export default function BulkEditionEditor({ serverId, items, onClose }: { server
       } catch (error) {
         setResults(previous => [...previous, { id: item.id, title: item.title, error: error instanceof Error ? error.message : "Update failed." }]);
       }
+      }
     }
+    await Promise.all(Array.from({length: Math.min(2, targets.length)}, () => worker()));
     void client.invalidateQueries({ queryKey: ["book-info"] });
     running.current = false;
     setStage("results");
@@ -64,7 +69,7 @@ export default function BulkEditionEditor({ serverId, items, onClose }: { server
     {(stage === "running" || stage === "results") && <section className="mt-6 space-y-4"><h3 className="text-sm font-semibold">{stage === "running" ? "Updating Metadata" : "Results"}</h3>
       <p role="status" className="text-sm text-muted">{results.filter(result => !result.error).length} updated · {results.filter(result => result.error).length} failed · {remaining.length} remaining</p>
       <ul className="max-h-60 space-y-3 overflow-y-auto text-sm">{results.map(result => <li key={result.id}><span className="font-medium">{result.title}</span><p className={result.error ? "text-red-300" : "text-muted"}>{result.error ?? (clearEdition ? "Edition removed" : `Edition set to ${edition.trim()}`)}</p></li>)}</ul>
-      {stage === "running" ? <button className={button} disabled={cancelled} onClick={() => { stopped.current = true; setCancelled(true); }}>Stop After Current Item</button> : <div className="flex flex-wrap justify-end gap-2">{failures.length > 0 && <button className={button} onClick={() => void apply(failures)}>Retry Failed</button>}{remaining.length > 0 && <button className={button} onClick={() => void apply(remaining)}>Continue Remaining</button>}<button className={button} onClick={onClose}>Done</button></div>}
+      {stage === "running" ? <button className={button} disabled={cancelled} onClick={() => { stopped.current = true; setCancelled(true); }}>Stop After Active Items</button> : <div className="flex flex-wrap justify-end gap-2">{failures.length > 0 && <button className={button} onClick={() => void apply(failures)}>Retry Failed</button>}{remaining.length > 0 && <button className={button} onClick={() => void apply(remaining)}>Continue Remaining</button>}<button className={button} onClick={onClose}>Done</button></div>}
     </section>}
   </dialog>, document.body);
 }

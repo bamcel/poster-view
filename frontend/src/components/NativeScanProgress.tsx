@@ -1,7 +1,7 @@
 import { Loader2 } from "lucide-react";
 import type { NativeScanStatus } from "../api/nativeLibraries";
 
-const phases: Record<string, string> = {discovering: "Discovering files", reading: "Reading local metadata and media info", metadata: "Fetching missing metadata and artwork", saving: "Saving metadata and artwork"};
+const phases: Record<string, string> = {discovering: "Discovering files", inspecting: "Inspecting media files", reading: "Reading local metadata and media info", metadata: "Fetching missing metadata and artwork", saving: "Saving metadata and artwork"};
 export default function NativeScanProgress({status}: {status: NativeScanStatus}) {
   const busy = status.status === "scanning";
   const progress = status.progress;

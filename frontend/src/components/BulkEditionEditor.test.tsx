@@ -36,3 +36,19 @@ it("removes Edition only through an explicit reviewed action", async () => {
   await screen.findByText("Edition removed");
   expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ server_id: 1, item_id: "one", edition: "", clear: true });
 });
+
+it("runs two requests concurrently and stops scheduling queued edits", async () => {
+  const pending: Array<(value: unknown) => void> = [];
+  const fetcher = vi.fn(() => new Promise(resolve => pending.push(resolve)));
+  vi.stubGlobal("fetch", fetcher);
+  render(<QueryClientProvider client={new QueryClient()}><BulkEditionEditor serverId={1} items={["one", "two", "three"].map(id => ({id, title: id, type: "folder" as const}))} onClose={vi.fn()} /></QueryClientProvider>);
+  fireEvent.change(screen.getByLabelText("Edition"), {target: {value: "Standard"}});
+  fireEvent.click(screen.getByText("Review Changes"));
+  fireEvent.click(screen.getByText("Apply Changes"));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  fireEvent.click(screen.getByText("Stop After Active Items"));
+  pending.forEach(resolve => resolve({ok: true, json: async () => ({})}));
+  await screen.findByText("2 updated · 0 failed · 1 remaining");
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(screen.getByText("Continue Remaining")).toBeTruthy();
+});

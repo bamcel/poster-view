@@ -238,16 +238,23 @@ async fn run_scan(
         warnings.extend(
             tokio::task::spawn_blocking(move || {
                 let entries = store(&write_state).native_catalog(&id).map_err(error)?;
-                let mut issues = Vec::new();
-                for entry in entries.iter().filter(|e| e.available) {
-                    for art in &entry.artwork {
-                        if let Err(e) =
-                            crate::native_artwork::write(&write_state, entry, art, false)
-                        {
-                            issues.push(format!("{}: artwork write failed: {e}", entry.title));
+                let issues = crate::workers::parallel(
+                    entries.into_iter().filter(|e| e.available).collect(),
+                    |entry| {
+                        let mut issues = Vec::new();
+                        for art in &entry.artwork {
+                            if let Err(e) =
+                                crate::native_artwork::write(&write_state, &entry, art, false)
+                            {
+                                issues.push(format!("{}: artwork write failed: {e}", entry.title));
+                            }
                         }
-                    }
-                }
+                        issues
+                    },
+                )
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
                 Ok::<_, HttpError>(issues)
             })
             .await
@@ -259,12 +266,20 @@ async fn run_scan(
         let id = library.id.clone();
         let issues = tokio::task::spawn_blocking(move || {
             let entries = store(&write_state).native_catalog(&id).map_err(error)?;
+            let results = crate::workers::parallel(
+                entries
+                    .into_iter()
+                    .filter(|e| e.available && (e.kind != "season" || e.nfo_path.is_some()))
+                    .collect(),
+                |entry| {
+                    let result = crate::native_scan::write_nfo(&write_state, &entry);
+                    (entry, result)
+                },
+            );
             let mut issues = Vec::new();
-            for entry in entries
-                .into_iter()
-                .filter(|e| e.available && (e.kind != "season" || e.nfo_path.is_some()))
-            {
-                match crate::native_scan::write_nfo(&write_state, &entry) {
+            // File writes run concurrently; their database projections commit on this coordinator.
+            for (entry, result) in results {
+                match result {
                     Ok((path, xml)) => store(&write_state)
                         .record_native_nfo(&id, &entry.id, &path, &xml)
                         .map_err(error)?,
@@ -403,8 +418,8 @@ pub(crate) async fn upload_artwork(
             .into_iter()
             .find(|e| e.id == library)
             .ok_or_else(HttpError::not_found)?;
-        let path =
-            crate::native_provider::store_image(&state, &bytes).map_err(HttpError::bad_request)?;
+        let path = crate::workers::blocking(|| crate::native_provider::store_image(&state, &bytes))
+            .map_err(HttpError::bad_request)?;
         let art = posterview_contracts::native::NativeArtwork {
             kind,
             path,
@@ -413,7 +428,8 @@ pub(crate) async fn upload_artwork(
         db.save_native_artwork(&library, &item, &art)
             .map_err(error)?;
         if config.options.save_artwork {
-            crate::native_artwork::write(&state, &entry, &art, true).map_err(|e| {
+            crate::workers::blocking(|| crate::native_artwork::write(&state, &entry, &art, true))
+                .map_err(|e| {
                 HttpError::bad_request(format!(
                     "Artwork saved in the database, but media-folder write failed: {e}"
                 ))

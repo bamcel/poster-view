@@ -733,11 +733,12 @@ pub(crate) async fn update_edition(State(state): State<AppState>, Json(request):
     if (request.clear && !edition.is_empty()) || (!request.clear && edition.is_empty()) || edition.len() > 200 { return Err(invalid("Choose an edition of 1–200 characters, or explicitly request removal.")); }
     let server = state.runtime.list_servers()?.into_iter().find(|server| server.id == request.server_id).ok_or_else(HttpError::not_found)?;
     if !server.nfo_metadata_enabled { return Err(invalid("Enable NFO metadata for this server first.")); }
+    let _slot = crate::workers::network().await;
     let detail = state.runtime.get_item_detail(request.server_id, &request.item_id).await?.ok_or_else(HttpError::not_found)?.map_err(HttpError::bad_gateway)?;
     if detail.item_type != posterview_contracts::ItemType::Folder { return Err(invalid("Select book series folders, not individual volumes.")); }
     let source = item_source(&state, request.server_id, &request.item_id).await?;
     let store = state.metadata.clone();
-    tokio::task::spawn_blocking(move || store.save_edition_for_source(&source, edition).map(Json)).await.map_err(|_| invalid("Edition update failed."))?
+    tokio::task::spawn_blocking(move || crate::workers::blocking(|| store.save_edition_for_source(&source, edition).map(Json))).await.map_err(|_| invalid("Edition update failed."))?
 }
 
 pub(crate) async fn use_comicvine(

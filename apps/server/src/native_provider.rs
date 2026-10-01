@@ -276,6 +276,7 @@ async fn download(state: &AppState, client: &reqwest::Client, url: &str) -> Resu
     {
         return Err("Artwork host is not supported.".into());
     }
+    let slot = crate::workers::network().await;
     let mut response = client
         .get(url)
         .send()
@@ -294,7 +295,11 @@ async fn download(state: &AppState, client: &reqwest::Client, url: &str) -> Resu
         }
         bytes.extend_from_slice(&chunk);
     }
-    store_image(state, &bytes)
+    drop(slot);
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || crate::workers::blocking(|| store_image(&state, &bytes)))
+        .await
+        .map_err(|_| "Artwork processing interrupted.".to_string())?
 }
 pub(crate) fn store_image(state: &AppState, bytes: &[u8]) -> Result<String, String> {
     if bytes.len() > 20 * 1024 * 1024 {
@@ -322,6 +327,13 @@ pub(crate) fn store_image(state: &AppState, bytes: &[u8]) -> Result<String, Stri
     std::fs::write(dir.join(&name), bytes).map_err(|e| e.to_string())?;
     Ok(format!("@managed/{name}"))
 }
+struct EnrichmentContext {
+    client: reqwest::Client,
+    token: String,
+    service: std::sync::Arc<posterview_infra_artwork::ArtworkService>,
+    parents: BTreeMap<String, Value>,
+    blocked: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
+}
 pub(crate) async fn enrich(
     state: &AppState,
     library: &NativeLibrary,
@@ -336,7 +348,7 @@ pub(crate) async fn enrich(
         .redirect(reqwest::redirect::Policy::none())
         .build()
     {
-        Ok(v) => v,
+        Ok(client) => client,
         Err(_) => {
             warnings.push("Unable to create metadata client.".into());
             return;
@@ -345,9 +357,91 @@ pub(crate) async fn enrich(
     let token = ServerStore::new(state.runtime.data_dir())
         .get_setting("tmdb_access_token")
         .unwrap_or_default();
+    let service = std::sync::Arc::new(posterview_infra_artwork::ArtworkService::default());
+    let blocked = std::sync::Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new()));
+    let total = entries.iter().filter(|e| e.kind != "book").count();
+    let mut completed = 0;
+    let mut progress = crate::native_progress::Reporter::new(state, &library.id);
+    progress.report("metadata", 0, Some(total), entries.len(), "", true);
+    for tier in 0..3 {
+        let context = std::sync::Arc::new(EnrichmentContext {
+            client: client.clone(),
+            token: token.clone(),
+            service: service.clone(),
+            parents: entries
+                .iter()
+                .filter(|e| e.kind == "series")
+                .map(|e| (e.path.clone(), e.metadata.clone()))
+                .collect(),
+            blocked: blocked.clone(),
+        });
+        let mut pending = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                e.kind != "book"
+                    && match e.kind.as_str() {
+                        "series" | "book_series" | "movie" => tier == 0,
+                        "season" => tier == 1,
+                        _ => tier == 2,
+                    }
+            })
+            .map(|(i, e)| (i, e.clone()))
+            .collect::<Vec<_>>()
+            .into_iter();
+        let mut jobs = tokio::task::JoinSet::new();
+        loop {
+            while jobs.len() < crate::workers::network_limit() {
+                let Some((index, entry)) = pending.next() else {
+                    break;
+                };
+                let state = state.clone();
+                let library = library.clone();
+                let context = context.clone();
+                jobs.spawn(async move {
+                    let mut entries = vec![entry];
+                    let mut warnings = Vec::new();
+                    enrich_one(&state, &library, &mut entries, &mut warnings, &context).await;
+                    (index, entries.remove(0), warnings)
+                });
+            }
+            let Some(result) = jobs.join_next().await else {
+                break;
+            };
+            completed += 1;
+            match result {
+                Ok((index, entry, notices)) => {
+                    let current = entry.path.clone();
+                    entries[index] = entry;
+                    warnings.extend(notices);
+                    progress.report(
+                        "metadata",
+                        completed,
+                        Some(total),
+                        entries.len(),
+                        &current,
+                        completed == total,
+                    );
+                }
+                Err(error) => {
+                    warnings.push(format!("Metadata worker interrupted: {error}"));
+                }
+            }
+        }
+    }
+}
+async fn enrich_one(
+    state: &AppState,
+    library: &NativeLibrary,
+    entries: &mut [NativeCatalogEntry],
+    warnings: &mut Vec<String>,
+    context: &EnrichmentContext,
+) {
+    let client = &context.client;
+    let token = &context.token;
     let mut series_ids = BTreeMap::new();
     let mut series_metadata = BTreeMap::<String, Value>::new();
-    let service = posterview_infra_artwork::ArtworkService::default();
+    let service = context.service.as_ref();
     // Identify parents first so episode enrichment can use their stable provider IDs.
     entries.sort_by_key(|e| match e.kind.as_str() {
         "series" | "book_series" => 0,
@@ -356,11 +450,7 @@ pub(crate) async fn enrich(
         _ => 3,
     });
     let mut limited = false;
-    let total = entries.len();
-    let mut progress = crate::native_progress::Reporter::new(state, &library.id);
-    progress.report("metadata", 0, Some(total), total, "", true);
-    for (index, entry) in entries.iter_mut().enumerate() {
-        progress.report("metadata", index, Some(total), total, &entry.path, false);
+    for entry in entries.iter_mut() {
         if entry.kind == "book" {
             continue;
         }
@@ -412,6 +502,25 @@ pub(crate) async fn enrich(
         }
         let mut image_candidates = BTreeMap::<String, Vec<(String, String)>>::new();
         for provider_name in providers {
+            if context
+                .blocked
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains(&provider_name)
+            {
+                continue;
+            }
+            let _slot = crate::workers::network().await;
+            let gate = crate::workers::provider(&provider_name).await;
+            drop(gate);
+            if context
+                .blocked
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains(&provider_name)
+            {
+                continue;
+            }
             if limited {
                 break;
             }
@@ -421,13 +530,13 @@ pub(crate) async fn enrich(
                     .as_deref()
                     .map(|v| v.split("/@season-").next().unwrap_or(v));
                 let parent = parent_path
-                    .and_then(|v| series_metadata.get(v))
+                    .and_then(|v| series_metadata.get(v).or_else(|| context.parents.get(v)))
                     .cloned()
                     .unwrap_or(Value::Null);
                 match super::native_provider_extra::fetch(
                     state,
-                    &client,
-                    &service,
+                    client,
+                    service,
                     &provider_name,
                     library,
                     entry,
@@ -473,7 +582,16 @@ pub(crate) async fn enrich(
                             }
                         }
                     }
-                    Err(e) => warnings.push(format!("{} ({provider_name}): {e}", entry.title)),
+                    Err(e) => {
+                        if e.contains("rate limit") {
+                            context
+                                .blocked
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .insert(provider_name.clone());
+                        }
+                        warnings.push(format!("{} ({provider_name}): {e}", entry.title));
+                    }
                 }
                 tokio::time::sleep(Duration::from_millis(300)).await;
                 continue;
@@ -481,7 +599,7 @@ pub(crate) async fn enrich(
             let use_anilist = provider_name == "anilist";
             let result = if use_anilist && entry.kind != "episode" {
                 anilist(
-                    &client,
+                    client,
                     entry,
                     library.library_type == NativeLibraryType::Books,
                     library.options.allow_adult_metadata,
@@ -493,10 +611,17 @@ pub(crate) async fn enrich(
                     .as_ref()
                     .map(|v| v.split("/@season-").next().unwrap_or(v));
                 tmdb(
-                    &client,
+                    client,
                     entry,
-                    &token,
-                    series.and_then(|v| series_ids.get(v)).map(String::as_str),
+                    token,
+                    series
+                        .and_then(|v| series_ids.get(v))
+                        .map(String::as_str)
+                        .or_else(|| {
+                            series
+                                .and_then(|v| context.parents.get(v))
+                                .and_then(|m| m["identifiers"]["tmdb"].as_str())
+                        }),
                     &library.options,
                 )
                 .await
@@ -515,6 +640,13 @@ pub(crate) async fn enrich(
                 Ok(v) => v,
                 Err(e) => {
                     limited = e.contains("rate limit");
+                    if limited {
+                        context
+                            .blocked
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert(provider_name.clone());
+                    }
                     warnings.push(format!("{}: {e}", entry.title));
                     continue;
                 }
@@ -736,23 +868,59 @@ pub(crate) async fn enrich(
             );
             tokio::time::sleep(Duration::from_millis(if ani { 1200 } else { 250 })).await;
         }
+        let mut candidates = BTreeMap::<String, Vec<(String, String)>>::new();
         for provider in image_order {
             for (kind, url) in image_candidates.get(provider).into_iter().flatten() {
-                if !library.options.image_types.contains(kind)
-                    || entry.artwork.iter().any(|a| a.kind == *kind)
+                if library.options.image_types.contains(kind)
+                    && !entry.artwork.iter().any(|a| a.kind == *kind)
                 {
-                    continue;
-                }
-                match download(state, &client, url).await {
-                    Ok(path) => entry.artwork.push(NativeArtwork {
-                        kind: kind.clone(),
-                        path,
-                        source: provider.clone(),
-                    }),
-                    Err(e) => warnings.push(format!("{} ({kind}): {e}", entry.title)),
+                    candidates
+                        .entry(kind.clone())
+                        .or_default()
+                        .push((provider.clone(), url.clone()));
                 }
             }
         }
+        let mut jobs = tokio::task::JoinSet::new();
+        for (kind, candidates) in candidates {
+            let state = state.clone();
+            let client = client.clone();
+            let title = entry.title.clone();
+            jobs.spawn(async move {
+                let mut warnings = Vec::new();
+                for (provider, url) in candidates {
+                    match download(&state, &client, &url).await {
+                        Ok(path) => {
+                            return (
+                                Some(NativeArtwork {
+                                    kind,
+                                    path,
+                                    source: provider,
+                                }),
+                                warnings,
+                            );
+                        }
+                        Err(e) => warnings.push(format!("{title} ({kind}): {e}")),
+                    }
+                }
+                (None, warnings)
+            });
+        }
+        while let Some(result) = jobs.join_next().await {
+            match result {
+                Ok((art, notices)) => {
+                    if let Some(art) = art {
+                        entry.artwork.push(art);
+                    }
+                    warnings.extend(notices);
+                }
+                Err(error) => warnings.push(format!(
+                    "{}: artwork worker interrupted: {error}",
+                    entry.title
+                )),
+            }
+        }
+        entry.artwork.sort_by(|a, b| a.kind.cmp(&b.kind));
     }
 }
 #[cfg(test)]
