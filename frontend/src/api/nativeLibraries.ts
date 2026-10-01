@@ -50,4 +50,4 @@ export const nativeLibraries = {
 
 export interface NativeArtwork { kind: string; path: string; source: string; }
 export interface NativeCatalogEntry { id: string; path: string; kind: string; parent_path: string | null; title: string; metadata: Record<string, unknown>; artwork: NativeArtwork[]; files: {path: string; size: number; extension: string; media_info?: {format?: Record<string, unknown>; streams?: Record<string,unknown>[]} }[]; nfo_path: string | null; available: boolean; revision: number; }
-export interface NativeScanStatus { status: string; count: number; warnings: string[]; }
+export interface NativeScanStatus { progress?: {phase: string; processed: number; total: number | null; current: string}; status: string; count: number; warnings: string[]; }

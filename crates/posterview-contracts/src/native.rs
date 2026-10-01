@@ -130,7 +130,17 @@ pub struct NativeCatalogEntry {
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct NativeScanStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<NativeScanProgress>,
     pub status: String,
     pub count: usize,
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeScanProgress {
+    pub phase: String,
+    pub processed: usize,
+    pub total: Option<usize>,
+    pub current: String,
 }

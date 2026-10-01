@@ -34,6 +34,7 @@ mod native_provider;
 mod native_provider_extra;
 mod native_monitor;
 mod native_artwork;
+mod native_progress;
 pub use auth::AuthState;
 pub use config::ServerConfig;
 use error::HttpError;

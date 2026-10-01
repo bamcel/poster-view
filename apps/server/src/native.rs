@@ -143,6 +143,7 @@ pub(crate) async fn start_scan(state: AppState, id: String) -> Result<(), HttpEr
         let status = match result {
             Ok(status) => status,
             Err(e) => posterview_contracts::native::NativeScanStatus {
+                progress: None,
                 status: "failed".into(),
                 count: 0,
                 warnings: vec![e.detail],
@@ -209,6 +210,7 @@ async fn run_scan(
         db.finish_native_scan(
             &local_library.id,
             &posterview_contracts::native::NativeScanStatus {
+                progress: None,
                 status: "scanning".into(),
                 count: local_entries.len(),
                 warnings: Vec::new(),
@@ -228,6 +230,8 @@ async fn run_scan(
     .await
     .map_err(|_| HttpError::bad_request("Catalog save interrupted."))?
     .map_err(error)?;
+    let mut progress = crate::native_progress::Reporter::new(&state, &library.id);
+    progress.report("saving", 0, None, count, "", true);
     if library.options.save_artwork {
         let write_state = state.clone();
         let id = library.id.clone();
@@ -281,6 +285,7 @@ async fn run_scan(
         );
     }
     Ok(posterview_contracts::native::NativeScanStatus {
+        progress: None,
         status: if warnings.is_empty() {
             "complete"
         } else {
@@ -673,6 +678,55 @@ mod scan_tests {
                 .0
                 .len(),
             1
+        );
+    }
+    #[test]
+    fn scan_progress_updates_during_collection_and_cannot_replace_completed_status() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let media = temp.path().join("media/Books/Example");
+        fs::create_dir_all(&media).unwrap();
+        fs::write(media.join("Volume 1.cbz"), b"fixture").unwrap();
+        let db = store(&state);
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Books".into(),
+                    library_type: NativeLibraryType::Books,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Books".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        db.begin_native_scan(&library.id).unwrap();
+        let (entries, _) = crate::native_scan::collect(&state, &library).unwrap();
+        let status = db.native_scan_status(&library.id).unwrap();
+        assert_eq!(status.status, "scanning");
+        assert_eq!(status.count, entries.len());
+        let progress = status.progress.as_ref().unwrap();
+        assert_eq!(progress.phase, "reading");
+        assert_eq!(progress.processed, 1);
+        assert_eq!(progress.total, Some(1));
+        db.finish_native_scan(
+            &library.id,
+            &posterview_contracts::native::NativeScanStatus {
+                status: "complete".into(),
+                count: entries.len(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        db.update_native_scan_progress(&library.id, &status)
+            .unwrap();
+        assert_eq!(
+            db.native_scan_status(&library.id).unwrap().status,
+            "complete"
         );
     }
     #[tokio::test]

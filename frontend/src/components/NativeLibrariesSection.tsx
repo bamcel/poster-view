@@ -1,3 +1,4 @@
+import NativeScanProgress from "./NativeScanProgress";
 import { useEffect, useRef, useState } from "react";
 import LibrarySettings from "./NativeLibrarySettings";
 import { createPortal } from "react-dom";
@@ -49,7 +50,7 @@ function LibraryActions({ library }: { library: NativeLibrary }) {
   const remove = useMutation({ mutationFn: () => nativeLibraries.remove(library.id, library.revision), onSuccess: () => { void client.invalidateQueries({queryKey: ["native-libraries"]}); } });
   const busy = status.data?.status === "scanning" || scan.isPending || remove.isPending;
   return <div className="mt-4 space-y-3">
-    {status.data && <p role="status" className="text-xs text-muted">{status.data.status === "scanning" ? "Scanning files…" : status.data.status.replaceAll("_", " ")} · {status.data.count} items</p>}
+    {status.data && <NativeScanProgress status={status.data} />}
     <div className="flex flex-wrap gap-2"><button className={BUTTON} disabled={busy} onClick={() => scan.mutate()}>Scan files</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={() => setConfirmDelete(true)}>Delete library</button></div>
     {confirmDelete && <div className="rounded-xl border border-edge bg-base p-3"><p className="text-sm text-muted">Delete {library.name}? Media and NFO files will be kept.</p><div className="mt-3 flex flex-wrap gap-2"><button className={BUTTON} disabled={busy} onClick={() => setConfirmDelete(false)}>Cancel</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={() => remove.mutate()}>Confirm deletion</button></div></div>}
     {(scan.error || remove.error || status.error) && <p role="alert" className="text-sm text-danger">{(scan.error || remove.error || status.error)?.message}</p>}

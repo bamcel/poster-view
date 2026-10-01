@@ -68,6 +68,14 @@ impl ServerStore {
         tx.commit()?;
         Ok(())
     }
+    pub fn update_native_scan_progress(
+        &self,
+        library: &str,
+        status: &NativeScanStatus,
+    ) -> Result<(), StoreError> {
+        self.connection()?.execute("UPDATE native_library_scans SET status_json=?1 WHERE library_id=?2 AND json_extract(status_json,'$.status')='scanning'", params![serde_json::to_string(status).map_err(|_| invalid("Invalid status."))?, library])?;
+        Ok(())
+    }
     pub fn finish_native_scan(
         &self,
         library: &str,

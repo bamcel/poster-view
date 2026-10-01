@@ -36,6 +36,7 @@ fn walk(
     dir: &Path,
     files: &mut Vec<PathBuf>,
     depth: usize,
+    progress: &mut crate::native_progress::Reporter,
 ) -> Result<(), HttpError> {
     if depth > 64 {
         return Err(bad("Folder nesting exceeds the scan limit."));
@@ -62,9 +63,17 @@ fn walk(
                 continue;
             }
             state.metadata.directory(&relative(root, &path)?, true)?;
-            walk(state, root, &path, files, depth + 1)?;
+            walk(state, root, &path, files, depth + 1, progress)?;
         } else if kind.is_file() {
             checked_file(root, &path)?;
+            progress.report(
+                "discovering",
+                files.len() + 1,
+                None,
+                0,
+                &relative(root, &path)?,
+                false,
+            );
             files.push(path);
         }
     }
@@ -363,11 +372,13 @@ pub(crate) fn collect(
     library: &NativeLibrary,
 ) -> Result<(Vec<NativeCatalogEntry>, Vec<String>), HttpError> {
     let root = state.metadata.directory("", true)?;
+    let mut progress = crate::native_progress::Reporter::new(state, &library.id);
+    progress.report("discovering", 0, None, 0, "", true);
     let mut files = Vec::new();
     let mut warnings = Vec::new();
     for selected in &library.paths {
         let dir = state.metadata.directory(selected, true)?;
-        walk(state, &root, &dir, &mut files, 0)?;
+        walk(state, &root, &dir, &mut files, 0, &mut progress)?;
     }
     files.sort();
     files.dedup();
@@ -395,7 +406,30 @@ pub(crate) fn collect(
     let year_regex = regex::Regex::new(r"(?:\(|\[|\s)((?:19|20)\d{2})(?:\)|\]|$)").unwrap();
     let mut entries = BTreeMap::<String, NativeCatalogEntry>::new();
     let mut probe_unavailable = false;
-    for file in files {
+    files.retain(|p| {
+        p.extension().is_some_and(|ext| {
+            let ext = ext.to_string_lossy().to_ascii_lowercase();
+            if library.library_type == NativeLibraryType::Books {
+                ["pdf", "epub", "cbz"].contains(&ext.as_str())
+            } else {
+                [
+                    "mkv", "mp4", "avi", "mov", "m4v", "webm", "ts", "mpg", "mpeg", "m2ts",
+                ]
+                .contains(&ext.as_str())
+            }
+        })
+    });
+    let total = files.len();
+    progress.report("reading", 0, Some(total), 0, "", true);
+    for (index, file) in files.into_iter().enumerate() {
+        progress.report(
+            "reading",
+            index,
+            Some(total),
+            entries.len(),
+            &relative(&root, &file)?,
+            false,
+        );
         let ext = file
             .extension()
             .unwrap_or_default()
@@ -646,6 +680,7 @@ pub(crate) fn collect(
         entry.files.push(json!({"media_info":media_info,"path":file_path,"size":info.len(),"modified":info.modified().ok().and_then(|m|m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_secs().to_string()),"extension":ext}));
         entries.insert(file_path, entry);
     }
+    progress.report("reading", total, Some(total), entries.len(), "", true);
     Ok((entries.into_values().collect(), warnings))
 }
 pub(crate) fn write_nfo(

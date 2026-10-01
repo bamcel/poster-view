@@ -170,3 +170,10 @@ sidecar atomically. Identical writes are skipped to avoid repeated monitoring
 rescans. Failed exports appear in scan notices; upload errors explain that the
 managed image was saved even if the sidecar write failed. Season posters and
 episode thumbnails are recognized as local artwork on subsequent scans.
+
+
+Scan cards show live phases, item counts, and the current relative path. Discovery
+shows files found with an indeterminate indicator; local reading and provider
+fetching show their own processed/total counts and percentage. Percentages are
+per phase, not an estimate of overall completion or remaining time. Updates are
+throttled to twice per second and the interface polls every two seconds.

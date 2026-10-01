@@ -356,7 +356,11 @@ pub(crate) async fn enrich(
         _ => 3,
     });
     let mut limited = false;
-    for entry in entries.iter_mut() {
+    let total = entries.len();
+    let mut progress = crate::native_progress::Reporter::new(state, &library.id);
+    progress.report("metadata", 0, Some(total), total, "", true);
+    for (index, entry) in entries.iter_mut().enumerate() {
+        progress.report("metadata", index, Some(total), total, &entry.path, false);
         if entry.kind == "book" {
             continue;
         }
