@@ -10,8 +10,8 @@ export function stillArtwork(src: string) {
 }
 
 /** Silent artwork plays only when visible, active, and motion is allowed. */
-export default function AnimatedArtwork({src, alt, className, onError, format: override, active = true}: {
-  src: string; alt: string; className?: string; onError?: () => void; format?: string; active?: boolean;
+export default function AnimatedArtwork({src, alt, className, onError, format: override, active = true, fill = false}: {
+  src: string; alt: string; className?: string; onError?: () => void; format?: string; active?: boolean; fill?: boolean;
 }) {
   const format=override ?? artworkFormat(src);
   const animated=format === "webm" || format === "gif";
@@ -41,7 +41,8 @@ export default function AnimatedArtwork({src, alt, className, onError, format: o
   },[play,src]);
   if (!animated) return <img src={src} alt={alt} className={className} loading="lazy" draggable={false} onError={onError}/>;
   const fallback=stillArtwork(src);
-  return <div ref={element} className={className}>
-    {!play && fallback === src ? <span className="sr-only">{alt}: animated preview paused</span> : format === "webm" && play ? <video ref={video} src={src} poster={fallback} aria-label={alt} className="h-full w-full max-h-[inherit] max-w-[inherit] [object-fit:inherit] [object-position:inherit]" autoPlay loop muted playsInline preload="none" onError={()=>setFailed(true)}/> : <img src={format === "gif" && play ? src : fallback} alt={alt} className="h-full w-full max-h-[inherit] max-w-[inherit] [object-fit:inherit] [object-position:inherit]" loading="lazy" draggable={false} onError={onError}/>}
+  const mediaClass = fill ? "absolute inset-0 h-full w-full object-cover object-top" : "h-full w-full max-h-[inherit] max-w-[inherit] [object-fit:inherit] [object-position:inherit]";
+  return <div ref={element} className={className} style={fill ? {position: "absolute", inset: 0, overflow: "hidden"} : undefined}>
+    {!play && fallback === src ? <span className="sr-only">{alt}: animated preview paused</span> : format === "webm" && play ? <video ref={video} src={src} poster={fallback} aria-label={alt} className={mediaClass} autoPlay loop muted playsInline preload="none" onError={()=>setFailed(true)}/> : <img src={format === "gif" && play ? src : fallback} alt={alt} className={mediaClass} loading="lazy" draggable={false} onError={onError}/>}
   </div>;
 }

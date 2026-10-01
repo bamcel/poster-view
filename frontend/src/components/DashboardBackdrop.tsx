@@ -34,6 +34,7 @@ function BackdropLayers({
         <AnimatedArtwork
           key={url}
           src={url}
+          fill
           active={index === activeIndex}
           alt=""
           className={`absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-[2000ms] ease-in-out ${index === activeIndex ? "opacity-100" : "opacity-0"}`}

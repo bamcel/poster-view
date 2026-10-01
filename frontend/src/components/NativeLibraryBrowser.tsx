@@ -583,6 +583,7 @@ function NativeDetail({
           >
             <AnimatedArtwork
               src={backdrop}
+              fill
               alt=""
               className="h-full w-full origin-top scale-[1.02] object-cover object-top"
             />
