@@ -25,7 +25,6 @@ import DashboardBackdrop from "./DashboardBackdrop";
 import TitleMetadata from "./TitleMetadata";
 import ItemAbout from "./ItemAbout";
 import DetailSynopsis from "./DetailSynopsis";
-import NativeScanProgress from "./NativeScanProgress";
 import { EntryEditor } from "./NativeCatalogPanel";
 import { detailActionClass } from "../lib/detailActions";
 import { LibraryBackdrop } from "../lib/libraryNavigation";
@@ -382,11 +381,6 @@ export default function NativeLibraryBrowser({
             </div>
           </div>
           <div className="scrollbar-hidden relative z-10 min-h-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6 lg:px-8">
-            {status.data?.status === "scanning" && (
-              <div className="mb-5">
-                <NativeScanProgress status={status.data} />
-              </div>
-            )}
             <div className="mb-4 flex items-center justify-between text-xs text-faint">
               <span>{visible.length} titles</span>
             </div>

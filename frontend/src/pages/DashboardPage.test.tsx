@@ -378,3 +378,17 @@ it("opens manual title links and returns to the same manual library", async () =
   expect(screen.getByRole("region",{name:"Local Anime library"})).toBeTruthy();
   client.clear();
 });
+
+it("places manual scan progress in the shared library header", async () => {
+  vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"manual",name:"Local Anime",library_type:"anime",anime_content:"both",paths:["Anime"],revision:1,created_at:"",updated_at:""}]);
+  vi.mocked(nativeLibraries.status).mockResolvedValue({status:"scanning",count:12,warnings:[],progress:{phase:"reading",processed:5,total:10,current:"Anime/Show/S01E01.mkv"}});
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue([]);
+  const {client}=renderDashboard("/?native_library=manual");
+  const header = await screen.findByLabelText("Library header");
+  const progress = await screen.findByRole("progressbar");
+  expect(header.contains(progress)).toBe(true);
+  expect(progress.getAttribute("aria-valuenow")).toBe("50");
+  expect(screen.getAllByRole("progressbar")).toHaveLength(1);
+  expect(header.style.backgroundColor).toBeTruthy();
+  client.clear();
+});
