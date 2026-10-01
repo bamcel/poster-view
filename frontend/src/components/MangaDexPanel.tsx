@@ -147,7 +147,7 @@ export default function MangaDexPanel({
         client.invalidateQueries({
           queryKey: ["item-detail", serverId, item.id],
         }),
-        invalidateArtworkItems(client, serverId, item.id),
+        invalidateArtworkItems(client, serverId, targetId, target),
       ]);
       try {
         const selection = await api.saveMangaSelection(serverId, item.id, {

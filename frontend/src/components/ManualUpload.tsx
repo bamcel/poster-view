@@ -63,8 +63,10 @@ export default function ManualUpload({ serverId, item, includeFolderBackdrop = f
           });
       toast.push(res.ok ? "success" : "error", res.message);
       if (res.ok) {
-        await queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] });
-        await invalidateArtworkItems(queryClient, serverId, item.id);
+        await Promise.all([
+          invalidateArtworkItems(queryClient, serverId, target.itemId, target.target),
+          queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] }),
+        ]);
       }
     } catch (e) {
       toast.push("error", (e as Error).message);

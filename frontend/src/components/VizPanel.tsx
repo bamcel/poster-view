@@ -97,13 +97,13 @@ export default function VizPanel({
         download_url: art.download_url,
         item_title: targetTitle,
       }),
-    onSuccess: async (result) => {
+    onSuccess: async (result, variables) => {
       if (!result.ok) throw new Error(result.message);
       await Promise.all([
         client.invalidateQueries({
           queryKey: ["item-detail", serverId, item.id],
         }),
-        invalidateArtworkItems(client, serverId, item.id),
+        invalidateArtworkItems(client, serverId, variables.targetId, variables.target ?? "poster"),
       ]);
       toast.push("success", result.message);
     },

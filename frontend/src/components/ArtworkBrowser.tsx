@@ -210,8 +210,10 @@ export default function ArtworkBrowser({
       });
       toast.push(res.ok ? "success" : "error", res.message);
       if (res.ok) {
-        await queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] });
-        await invalidateArtworkItems(queryClient, serverId, item.id);
+        await Promise.all([
+          invalidateArtworkItems(queryClient, serverId, targetId, target),
+          queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] }),
+        ]);
       }
     } catch (e) {
       toast.push("error", (e as Error).message);

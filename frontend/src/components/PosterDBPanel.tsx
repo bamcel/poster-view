@@ -170,9 +170,11 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
   const seasonByNumber = (n?: number | null) =>
     n == null ? undefined : item.seasons.find((s) => s.index === n);
 
-  async function refreshArtwork() {
-    await queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] });
-    await invalidateArtworkItems(queryClient, serverId, item.id);
+  async function refreshArtwork(targetId = item.id, target?: ImageTarget) {
+    await Promise.all([
+      invalidateArtworkItems(queryClient, serverId, targetId, target),
+      queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] }),
+    ]);
   }
 
   async function apply(
@@ -192,7 +194,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
         item_title: titleOverride ?? item.title,
       });
       toast.push(res.ok ? "success" : "error", res.message);
-      if (res.ok) await refreshArtwork();
+      if (res.ok) await refreshArtwork(targetItemId, target);
     } catch (e) {
       toast.push("error", (e as Error).message);
     } finally {
