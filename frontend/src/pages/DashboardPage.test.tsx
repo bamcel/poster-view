@@ -362,3 +362,17 @@ it("switches between server and manual catalogs directly on the dashboard", asyn
   expect(screen.queryByText("Manual Title")).toBeNull();
   client.clear();
 });
+
+it("opens manual title links and returns to the same manual library", async () => {
+  vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"manual",name:"Local Anime",library_type:"anime",anime_content:"both",paths:["Anime"],revision:1,created_at:"",updated_at:""}]);
+  vi.mocked(nativeLibraries.status).mockResolvedValue({status:"complete",count:1,warnings:[]});
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue([{id:"local",title:"Manual Title",kind:"series",path:"Anime/Example",parent_path:null,metadata:{title:"Manual Title"},artwork:[],files:[],nfo_path:null,available:true,revision:1}]);
+  const {client}=renderDashboard("/?native_library=manual&native_item=local");
+  await screen.findByRole("heading",{name:"Manual Title"});
+  expect(screen.queryByLabelText("Library source")).toBeNull();
+  fireEvent.click(screen.getByRole("button",{name:"Back"}));
+  await screen.findByLabelText("Search titles");
+  expect(screen.getByRole("button",{name:"Manual libraries"}).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("region",{name:"Local Anime library"})).toBeTruthy();
+  client.clear();
+});

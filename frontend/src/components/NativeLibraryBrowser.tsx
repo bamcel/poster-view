@@ -1,0 +1,886 @@
+import { useEffect, useRef, useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { useSearchParams } from "../lib/libraryNavigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  Film,
+  Images,
+  ListFilter,
+  Pencil,
+  RefreshCw,
+  Search,
+  X,
+} from "lucide-react";
+import {
+  nativeLibraries,
+  type NativeCatalogEntry,
+  type NativeLibrary,
+} from "../api/nativeLibraries";
+import type { ItemDetail } from "../types";
+import PosterCard from "./PosterCard";
+import DashboardBackdrop from "./DashboardBackdrop";
+import TitleMetadata from "./TitleMetadata";
+import ItemAbout from "./ItemAbout";
+import DetailSynopsis from "./DetailSynopsis";
+import NativeScanProgress from "./NativeScanProgress";
+import { EntryEditor } from "./NativeCatalogPanel";
+import { detailActionClass } from "../lib/detailActions";
+import { LibraryBackdrop } from "../lib/libraryNavigation";
+import {
+  BACKDROP_OVERLAY_EVENT,
+  DASHBOARD_BACKDROP_EVENT,
+  backdropOverlay,
+  backdropOverlayGradients,
+  dashboardBackdropEnabled,
+  panelSolidity,
+  panelOverlay,
+  backdropBlur,
+  translucentPanelColor,
+} from "../lib/dashboardSettings";
+
+const GRID =
+  "grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(125px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]";
+function number(value: unknown): number | undefined {
+  const n = Number(value);
+  return value != null && value !== "" && Number.isFinite(n) ? n : undefined;
+}
+function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map(String)
+    : typeof value === "string"
+      ? [value]
+      : [];
+}
+function artwork(
+  library: NativeLibrary,
+  entry: NativeCatalogEntry | undefined,
+  kind: string,
+) {
+  return entry?.artwork.some((a) => a.kind === kind)
+    ? `${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${entry.revision}`
+    : undefined;
+}
+function picture(
+  library: NativeLibrary,
+  entry: NativeCatalogEntry | undefined,
+  kind: string,
+) {
+  return (
+    artwork(library, entry, kind) ??
+    (kind === "thumb" ? artwork(library, entry, "landscape") : undefined)
+  );
+}
+function Artwork({
+  src,
+  alt,
+  className = "",
+}: {
+  src?: string;
+  alt: string;
+  className?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return src && !failed ? (
+    <img
+      src={src}
+      alt={alt}
+      onError={() => setFailed(true)}
+      className={`h-full w-full object-cover ${className}`}
+    />
+  ) : (
+    <div className="flex h-full w-full items-center justify-center bg-surface-2">
+      <Film className="size-10 text-faint" />
+      <span className="sr-only">{alt}: no artwork</span>
+    </div>
+  );
+}
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
+  return createPortal(
+    <dialog
+      ref={ref}
+      onCancel={onClose}
+      aria-label={title}
+      className="m-auto max-h-[90dvh] w-[min(56rem,calc(100vw-2rem))] max-w-4xl overflow-y-auto rounded-2xl border border-border bg-sidebar p-5 text-white backdrop:bg-black/70"
+    >
+      <header className="mb-5 flex items-center justify-between gap-4">
+        <h2 className="text-xl font-semibold">{title}</h2>
+        <button
+          autoFocus
+          aria-label="Close editor"
+          className={detailActionClass}
+          onClick={onClose}
+        >
+          <X className="size-4" />
+        </button>
+      </header>
+      {children}
+    </dialog>,
+    document.body,
+  );
+}
+
+export default function NativeLibraryBrowser({
+  library,
+}: {
+  library: NativeLibrary;
+}) {
+  const client = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  const status = useQuery({
+    queryKey: ["native-scan", library.id],
+    queryFn: () => nativeLibraries.status(library.id),
+    refetchInterval: (q) =>
+      q.state.data?.status === "scanning" ? 2000 : false,
+  });
+  const catalog = useQuery({
+    queryKey: ["native-catalog", library.id],
+    queryFn: () => nativeLibraries.catalog(library.id),
+    refetchInterval: status.data?.status === "scanning" ? 5000 : false,
+  });
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("title");
+  const [artFilter, setArtFilter] = useState("all");
+  const [editor, setEditor] = useState<{
+    id: string;
+    kind: "metadata" | "artwork";
+  } | null>(null);
+  const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
+  const [overlay, setOverlay] = useState(backdropOverlay);
+  useEffect(() => {
+    const update = () => {
+      setShowBackdrop(dashboardBackdropEnabled());
+      setOverlay(backdropOverlay());
+    };
+    window.addEventListener(DASHBOARD_BACKDROP_EVENT, update);
+    window.addEventListener(BACKDROP_OVERLAY_EVENT, update);
+    return () => {
+      window.removeEventListener(DASHBOARD_BACKDROP_EVENT, update);
+      window.removeEventListener(BACKDROP_OVERLAY_EVENT, update);
+    };
+  }, []);
+  useEffect(() => {
+    if (status.data?.status && status.data.status !== "scanning")
+      void client.invalidateQueries({
+        queryKey: ["native-catalog", library.id],
+      });
+  }, [status.data?.status, client, library.id]);
+  const entries = (catalog.data ?? []).filter((e) => e.available);
+  const selected =
+    params.get("native_library") === library.id
+      ? entries.find((e) => e.id === params.get("native_item"))
+      : undefined;
+  const open = (entry: NativeCatalogEntry) => {
+    setParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set("native_library", library.id);
+      next.set("native_item", entry.id);
+      return next;
+    });
+  };
+  const back = () => {
+    const parent = entries.find((e) => e.path === selected?.parent_path);
+    if (parent) open(parent);
+    else
+      setParams((previous) => {
+        const next = new URLSearchParams(previous);
+        next.delete("native_item");
+        return next;
+      });
+  };
+  const refresh = () => {
+    void catalog.refetch();
+  };
+  const visible = entries
+    .filter((e) =>
+      search
+        ? e.title.toLowerCase().includes(search.toLowerCase())
+        : !e.parent_path,
+    )
+    .filter(
+      (e) =>
+        artFilter === "all" ||
+        !e.artwork.some(
+          (a) =>
+            a.kind === (artFilter === "missing-poster" ? "poster" : "backdrop"),
+        ),
+    )
+    .sort((a, b) =>
+      sort === "title"
+        ? a.title.localeCompare(b.title)
+        : sort === "newest"
+          ? (number(b.metadata.year) ?? 0) - (number(a.metadata.year) ?? 0)
+          : (number(a.metadata.year) ?? 0) - (number(b.metadata.year) ?? 0),
+    );
+  const updated = () => {
+    void client.invalidateQueries({ queryKey: ["native-catalog", library.id] });
+    setEditor(null);
+  };
+  const editEntry = editor && entries.find((e) => e.id === editor.id);
+  const backgroundUrls = useMemo(
+    () =>
+      (catalog.data ?? [])
+        .filter((e) => e.available && !e.parent_path)
+        .map((e) => picture(library, e, "backdrop"))
+        .filter((url): url is string => !!url)
+        .slice(0, 8),
+    [catalog.data, library],
+  );
+  const posterUrls = useMemo(
+    () =>
+      (catalog.data ?? [])
+        .filter((e) => e.available && !e.parent_path)
+        .map((e) => picture(library, e, "poster"))
+        .filter((url): url is string => !!url)
+        .slice(0, 8),
+    [catalog.data, library],
+  );
+  const style = {
+    backgroundColor: translucentPanelColor(
+      "--color-surface-2",
+      panelSolidity(),
+      panelOverlay(),
+    ),
+    backdropFilter: `blur(${backdropBlur()}px)`,
+  };
+  return (
+    <section
+      aria-label={`${library.name} library`}
+      className="relative flex h-full min-h-0 flex-col overflow-hidden"
+    >
+      {!selected &&
+        showBackdrop &&
+        (backgroundUrls.length > 0 || posterUrls.length > 0) && (
+          <DashboardBackdrop
+            desktopUrls={backgroundUrls}
+            mobileUrls={posterUrls}
+            overlayStrength={overlay}
+          />
+        )}
+      {catalog.isPending && (
+        <p role="status" className="p-8 text-muted">
+          Loading catalog…
+        </p>
+      )}
+      {catalog.error && (
+        <p role="alert" className="p-8 text-danger">
+          {catalog.error.message} <button onClick={refresh}>Retry</button>
+        </p>
+      )}
+      {selected ? (
+        <NativeDetail
+          key={selected.id}
+          library={library}
+          entry={selected}
+          entries={entries}
+          open={open}
+          back={back}
+          refresh={refresh}
+          fetching={catalog.isFetching}
+          edit={(kind) => setEditor({ id: selected.id, kind })}
+          showBackdrop={showBackdrop}
+          overlay={overlay}
+        />
+      ) : (
+        <>
+          <div className="relative z-30 shrink-0 px-4 py-3 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-center gap-2">
+              <div className="relative w-[min(21rem,calc(100vw-10rem))]">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
+                <input
+                  aria-label="Search titles"
+                  placeholder="Search titles"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"
+                  style={style}
+                />
+              </div>
+              <details className="relative">
+                <summary
+                  aria-label="Filter and sort titles"
+                  className="grid size-10 max-md:size-[44px] cursor-pointer list-none place-items-center rounded-full border border-border text-muted marker:hidden"
+                  style={style}
+                >
+                  <ListFilter className="size-4" />
+                </summary>
+                <div className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-border bg-sidebar p-4 shadow-2xl">
+                  <label className="block text-xs font-semibold text-muted">
+                    Artwork
+                    <select
+                      aria-label="Filter by artwork"
+                      className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-white"
+                      value={artFilter}
+                      onChange={(e) => setArtFilter(e.target.value)}
+                    >
+                      <option value="all">All titles</option>
+                      <option value="missing-poster">Missing poster</option>
+                      <option value="missing-backdrop">Missing backdrop</option>
+                    </select>
+                  </label>
+                  <label className="mt-4 block text-xs font-semibold text-muted">
+                    Sort by
+                    <select
+                      aria-label="Sort titles"
+                      className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-white"
+                      value={sort}
+                      onChange={(e) => setSort(e.target.value)}
+                    >
+                      <option value="title">Title A–Z</option>
+                      <option value="newest">Newest year</option>
+                      <option value="oldest">Oldest year</option>
+                    </select>
+                  </label>
+                </div>
+              </details>
+            </div>
+          </div>
+          <div className="scrollbar-hidden relative z-10 min-h-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6 lg:px-8">
+            {status.data?.status === "scanning" && (
+              <div className="mb-5">
+                <NativeScanProgress status={status.data} />
+              </div>
+            )}
+            <div className="mb-4 flex items-center justify-between text-xs text-faint">
+              <span>{visible.length} titles</span>
+            </div>
+            <div className={GRID}>
+              {visible.map((entry) => (
+                <PosterCard
+                  key={entry.id}
+                  title={entry.title}
+                  image={picture(library, entry, "poster")}
+                  subtitle={String(entry.metadata.year ?? "")}
+                  kind={
+                    entry.kind === "series"
+                      ? "show"
+                      : entry.kind.startsWith("book")
+                        ? "book"
+                        : "movie"
+                  }
+                  onOpen={() => open(entry)}
+                  onEditMetadata={() =>
+                    setEditor({ id: entry.id, kind: "metadata" })
+                  }
+                  onRefresh={refresh}
+                />
+              ))}
+            </div>
+            {!catalog.isPending && !visible.length && (
+              <p className="py-12 text-center text-muted">
+                No matching items. Scan the library to discover media.
+              </p>
+            )}
+          </div>
+        </>
+      )}
+      {editEntry && (
+        <Modal
+          title={editor?.kind === "artwork" ? "Edit Artwork" : "Edit Metadata"}
+          onClose={() => setEditor(null)}
+        >
+          {editor?.kind === "artwork" ? (
+            <NativeArtworkEditor
+              library={library}
+              entry={editEntry}
+              saved={updated}
+              scanning={status.data?.status === "scanning"}
+            />
+          ) : (
+            <EntryEditor
+              library={library}
+              entry={editEntry}
+              busy={status.data?.status === "scanning"}
+              onSaved={updated}
+            />
+          )}
+        </Modal>
+      )}
+    </section>
+  );
+}
+
+function NativeDetail({
+  library,
+  entry,
+  entries,
+  open,
+  back,
+  refresh,
+  fetching,
+  edit,
+  showBackdrop,
+  overlay,
+}: {
+  library: NativeLibrary;
+  entry: NativeCatalogEntry;
+  entries: NativeCatalogEntry[];
+  open: (e: NativeCatalogEntry) => void;
+  back: () => void;
+  refresh: () => void;
+  fetching: boolean;
+  edit: (kind: "metadata" | "artwork") => void;
+  showBackdrop: boolean;
+  overlay: number;
+}) {
+  const parent = entries.find((e) => e.path === entry.parent_path);
+  const series =
+    entry.kind === "series"
+      ? entry
+      : entry.kind === "season"
+        ? parent
+        : entries.find((e) => e.path === parent?.parent_path);
+  const children = entries
+    .filter((e) => e.parent_path === entry.path)
+    .sort(
+      (a, b) =>
+        (number(a.kind === "season" ? a.metadata.season : a.metadata.episode) ??
+          0) -
+          (number(
+            b.kind === "season" ? b.metadata.season : b.metadata.episode,
+          ) ?? 0) || a.title.localeCompare(b.title),
+    );
+  const [search, setSearch] = useState("");
+  const isSeries = entry.kind === "series" || entry.kind === "season";
+  const isEpisode = entry.kind === "episode";
+  const detail: ItemDetail = {
+    id: entry.id,
+    title: entry.title,
+    type:
+      entry.kind === "series"
+        ? "show"
+        : entry.kind.startsWith("book")
+          ? "book"
+          : "movie",
+    year: number(entry.metadata.year),
+    rating: number(entry.metadata.rating),
+    content_rating: String(entry.metadata.mpaa ?? ""),
+    tags: strings(entry.metadata.tags),
+    genres: strings(entry.metadata.genres),
+    studios: strings(entry.metadata.studios),
+    seasons: children
+      .filter((e) => e.kind === "season")
+      .map((e) => ({ id: e.id, title: e.title })),
+    members: [],
+    external_ids: Object.fromEntries(
+      Object.entries(
+        typeof entry.metadata.identifiers === "object" &&
+          entry.metadata.identifiers
+          ? entry.metadata.identifiers
+          : {},
+      ).map(([key, value]) => [key, String(value)]),
+    ),
+  };
+  const backdrop =
+    picture(library, entry, "backdrop") ?? picture(library, series, "backdrop");
+  const logo =
+    picture(library, entry, "logo") ??
+    (entry.kind === "season" ? picture(library, series, "logo") : undefined);
+  const poster =
+    picture(library, entry, isEpisode ? "thumb" : "poster") ??
+    picture(library, series, "poster");
+  const overview = String(
+    entry.metadata.plot ??
+      (entry.kind === "season" ? series?.metadata.plot : "") ??
+      "",
+  );
+  const credits = Array.isArray(entry.metadata.credits)
+    ? (entry.metadata.credits as Record<string, unknown>[])
+    : [];
+  return (
+    <>
+      {showBackdrop && backdrop && (
+        <LibraryBackdrop>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-base"
+          >
+            <img
+              src={backdrop}
+              alt=""
+              className="h-full w-full origin-top scale-[1.02] object-cover object-top"
+            />
+            <div
+              className="absolute inset-0 md:hidden"
+              style={{
+                backgroundImage: backdropOverlayGradients(overlay).mobile,
+              }}
+            />
+            <div
+              className="absolute inset-0 hidden md:block"
+              style={{
+                backgroundImage: backdropOverlayGradients(overlay).desktop,
+              }}
+            />
+          </div>
+        </LibraryBackdrop>
+      )}
+      <div className="media-detail scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain">
+        <div className="relative min-h-full">
+          <button
+            onClick={back}
+            aria-label="Back"
+            className="absolute left-5 top-5 z-10 grid size-9 max-md:size-[44px] place-items-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/70"
+          >
+            <ArrowLeft className="size-5" />
+          </button>
+          <div className="relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-10 lg:pt-20">
+            <div
+              className={
+                isSeries
+                  ? "flex flex-row items-start gap-5 sm:gap-8 lg:gap-9"
+                  : "flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6"
+              }
+            >
+              <div
+                className={
+                  isSeries
+                    ? "w-28 shrink-0 sm:w-[25%] sm:max-w-[328px]"
+                    : isEpisode
+                      ? "w-full max-w-md shrink-0 sm:w-[35%]"
+                      : "w-40 shrink-0 min-[390px]:w-44 sm:w-48 lg:w-56"
+                }
+              >
+                <div
+                  className={`${isEpisode ? "aspect-video" : "aspect-[2/3]"} overflow-hidden rounded-xl bg-surface-2 shadow-2xl shadow-black/50 ring-1 ring-white/10`}
+                >
+                  <Artwork src={poster} alt={entry.title} />
+                </div>
+              </div>
+              <div
+                className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries ? "text-left" : "text-center sm:text-left"}`}
+              >
+                {logo ? (
+                  <img
+                    src={logo}
+                    alt={entry.title}
+                    className="max-h-24 max-w-full object-contain object-left sm:max-w-[400px]"
+                  />
+                ) : (
+                  <h1 className="text-3xl font-bold leading-tight sm:text-4xl">
+                    {entry.title}
+                  </h1>
+                )}
+                {entry.kind === "season" && series && (
+                  <button
+                    className="mt-2 text-sm text-accent"
+                    onClick={() => open(series)}
+                  >
+                    {series.title}
+                  </button>
+                )}
+                <TitleMetadata item={detail} />
+                {isEpisode && (
+                  <p className="mt-2 text-sm text-muted">
+                    Season {String(entry.metadata.season ?? "")} · Episode{" "}
+                    {String(entry.metadata.episode ?? "")}
+                  </p>
+                )}
+                <div
+                  data-testid="detail-actions"
+                  className="mt-4 flex flex-wrap items-center gap-2"
+                >
+                  <button
+                    className={detailActionClass}
+                    aria-label="Edit Metadata"
+                    title="Edit Metadata"
+                    onClick={() => edit("metadata")}
+                  >
+                    <Pencil className="size-4" />
+                  </button>
+                  <button
+                    className={detailActionClass}
+                    aria-label="Refresh"
+                    title="Refresh"
+                    onClick={refresh}
+                  >
+                    <RefreshCw
+                      className={`size-4 ${fetching ? "animate-spin" : ""}`}
+                    />
+                  </button>
+                  <button
+                    className={detailActionClass}
+                    aria-label="Edit Artwork"
+                    title="Edit Artwork"
+                    onClick={() => edit("artwork")}
+                  >
+                    <Images className="size-4" />
+                  </button>
+                </div>
+                <div className={isSeries ? "hidden sm:block" : "text-left"}>
+                  <DetailSynopsis text={overview} />
+                </div>
+              </div>
+            </div>
+            {isSeries && (
+              <div className="sm:hidden">
+                <DetailSynopsis text={overview} />
+              </div>
+            )}
+            {children.some((e) => e.kind !== "episode") && (
+              <section className="mt-10">
+                <h2 className="mb-3 text-xl font-semibold">
+                  {entry.kind === "series" ? "Seasons" : "Volumes"}
+                </h2>
+                <div className="flex gap-5 overflow-x-auto pb-3 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]">
+                  {children
+                    .filter((e) => e.kind !== "episode")
+                    .map((child) => (
+                      <PosterCard
+                        key={child.id}
+                        title={child.title}
+                        image={picture(library, child, "poster")}
+                        kind={child.kind.startsWith("book") ? "book" : "show"}
+                        onOpen={() => open(child)}
+                      />
+                    ))}
+                </div>
+              </section>
+            )}
+            {children.some((e) => e.kind === "episode") && (
+              <section className="mt-10">
+                <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                  <h2 className="text-xl font-semibold">Episodes</h2>
+                  <label className="flex items-center gap-2 rounded-full border border-border bg-surface px-4 py-2.5 text-muted">
+                    <Search className="size-4" />
+                    <input
+                      aria-label="Search episodes"
+                      placeholder="Find an episode"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="w-40 bg-transparent text-sm outline-none"
+                    />
+                  </label>
+                </div>
+                <div className="space-y-5">
+                  {children
+                    .filter(
+                      (e) =>
+                        e.kind === "episode" &&
+                        e.title.toLowerCase().includes(search.toLowerCase()),
+                    )
+                    .map((episode) => (
+                      <article
+                        key={episode.id}
+                        className="group flex items-start gap-4 sm:gap-6"
+                      >
+                        <button
+                          aria-label={`Open ${episode.title}`}
+                          onClick={() => open(episode)}
+                          className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-lg bg-base sm:w-64 lg:w-80"
+                        >
+                          <Artwork
+                            src={picture(library, episode, "thumb")}
+                            alt={`${episode.title} episode still`}
+                          />
+                        </button>
+                        <div className="min-w-0 flex-1 py-1">
+                          <button
+                            onClick={() => open(episode)}
+                            className="text-left text-base font-semibold leading-snug text-white"
+                          >
+                            {String(episode.metadata.episode ?? "")}.{" "}
+                            {episode.title}
+                          </button>
+                          <p className="mt-2 text-xs text-muted">
+                            {String(episode.metadata.aired ?? "")}
+                            {episode.metadata.runtime
+                              ? ` · ${episode.metadata.runtime} min`
+                              : ""}
+                          </p>
+                          <DetailSynopsis
+                            text={String(episode.metadata.plot ?? "")}
+                          />
+                        </div>
+                      </article>
+                    ))}
+                </div>
+              </section>
+            )}
+            <ItemAbout item={detail} />
+            {entry.kind.startsWith("book") && (
+              <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
+                {["publisher", "edition", "volumes", "status"]
+                  .filter((k) => entry.metadata[k])
+                  .map((key) => (
+                    <div key={key}>
+                      <dt className="capitalize text-faint">{key}</dt>
+                      <dd className="mt-1 text-muted">
+                        {String(entry.metadata[key])}
+                      </dd>
+                    </div>
+                  ))}
+              </dl>
+            )}
+            {Array.isArray(entry.metadata.characters) &&
+              entry.metadata.characters.length > 0 && (
+                <section className="mt-8">
+                  <h2 className="mb-4 text-xl font-semibold">Characters</h2>
+                  <div className="flex gap-4 overflow-x-auto pb-3">
+                    {(
+                      entry.metadata.characters as Record<string, unknown>[]
+                    ).map((character, i) => (
+                      <div
+                        key={i}
+                        className="w-48 shrink-0 rounded-xl border border-border bg-black/20 p-4"
+                      >
+                        <p className="text-sm font-medium">
+                          {String(character.name ?? "")}
+                        </p>
+                        <p className="mt-1 text-xs text-muted">
+                          {String(character.role ?? "")}
+                        </p>
+                        <p className="mt-2 line-clamp-4 text-xs text-muted">
+                          {String(character.biography ?? "")}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+            {credits.length > 0 && (
+              <section className="mt-8">
+                <h2 className="mb-4 text-xl font-semibold">Cast and crew</h2>
+                <div className="flex gap-4 overflow-x-auto pb-3">
+                  {credits.map((credit, i) => (
+                    <div
+                      key={i}
+                      className="w-36 shrink-0 rounded-xl border border-border bg-black/20 p-4"
+                    >
+                      <p className="text-sm font-medium">
+                        {String(credit.name ?? "")}
+                      </p>
+                      <p className="mt-1 text-xs text-muted">
+                        {String(credit.role ?? credit.category ?? "")}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+            {entry.files.length > 0 && (
+              <section className="mt-8">
+                <h2 className="mb-4 text-xl font-semibold">
+                  Media information
+                </h2>
+                {entry.files.map((file) => (
+                  <div
+                    key={file.path}
+                    className="mb-3 rounded-xl border border-border bg-black/20 p-4"
+                  >
+                    <p className="break-all text-sm text-muted">{file.path}</p>
+                    <p className="mt-2 text-xs text-faint">
+                      {file.extension.toUpperCase()} ·{" "}
+                      {(file.size / 1024 / 1024).toFixed(1)} MB
+                      {file.media_info?.streams
+                        ?.map(
+                          (stream) =>
+                            ` · ${String(stream.codec_name ?? "")}${stream.width ? ` ${stream.width}×${stream.height}` : ""}`,
+                        )
+                        .join("")}
+                    </p>
+                  </div>
+                ))}
+              </section>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function NativeArtworkEditor({
+  library,
+  entry,
+  saved,
+  scanning,
+}: {
+  library: NativeLibrary;
+  entry: NativeCatalogEntry;
+  saved: () => void;
+  scanning: boolean;
+}) {
+  const [kind, setKind] = useState("poster");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap gap-4">
+        {entry.artwork.map((a) => (
+          <div key={a.kind} className="w-28">
+            <div className="h-36 overflow-hidden rounded-xl bg-surface-2">
+              <Artwork src={picture(library, entry, a.kind)} alt={a.kind} />
+            </div>
+            <p className="mt-2 text-xs capitalize text-muted">{a.kind}</p>
+          </div>
+        ))}
+      </div>
+      <label className="block text-sm text-muted">
+        Artwork type
+        <select
+          aria-label="Artwork type"
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+          className="ml-3 rounded-lg border border-border bg-input p-2"
+        >
+          {[
+            "poster",
+            "backdrop",
+            "logo",
+            "banner",
+            "thumb",
+            "landscape",
+            "disc",
+          ].map((k) => (
+            <option key={k}>{k}</option>
+          ))}
+        </select>
+      </label>
+      <label className="inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-base">
+        {busy ? "Uploading…" : "Upload artwork"}
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="sr-only"
+          disabled={busy || scanning}
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            setBusy(true);
+            setError("");
+            try {
+              await nativeLibraries.upload(library.id, entry.id, kind, file);
+              saved();
+            } catch (err) {
+              setError((err as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+      </label>
+      {error && (
+        <p role="alert" className="text-danger">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}

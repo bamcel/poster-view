@@ -3,7 +3,7 @@ import NativeDashboard from "../components/NativeDashboard";
 // Double-clicking a poster opens the item detail.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
-import { LibraryBackdrop } from "../lib/libraryNavigation";
+import DashboardBackdrop from "../components/DashboardBackdrop";
 import { useNavigate, useSearchParams } from "../lib/libraryNavigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ListFilter, MoreHorizontal, Search, ServerCrash, Sparkles } from "lucide-react";
@@ -18,7 +18,7 @@ import type { MediaItem } from "../types";
 import { EmptyState, Spinner, Switch } from "../components/ui";
 import { useToast } from "../lib/toast";
 import { isBookRelatedLibraryName } from "../lib/mediaKind";
-import { BACKDROP_BLUR_EVENT, BACKDROP_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, backdropOverlay, backdropOverlayGradients, dashboardBackdropEnabled, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
+import { BACKDROP_BLUR_EVENT, BACKDROP_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, backdropOverlay, dashboardBackdropEnabled, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
 const GROUP_COLLECTIONS_KEY = "posterview.groupCollections";
 const LAST_VISIT_PREFIX = "posterview.lastVisit.";
@@ -29,15 +29,17 @@ type TitleSort = "title" | "newest" | "oldest" | "recently-added";
 
 export default function DashboardPage() {
   const { selectedServer, isLoading } = useServers();
-  const [source, setSource] = useState(() => localStorage.getItem("posterview.dashboardSource") === "manual" ? "manual" : "server");
-  const manual = source === "manual" || !selectedServer;
+  const [dashboardParams] = useSearchParams();
+  const [source, setSource] = useState(() => dashboardParams.has("native_item") || localStorage.getItem("posterview.dashboardSource") === "manual" ? "manual" : "server");
+  const manual = source === "manual" || !selectedServer || dashboardParams.has("native_item");
+  const manualDetail = manual && dashboardParams.has("native_item");
   if (isLoading) return <Spinner label="Loading…" />;
   const choose = (value: string) => { setSource(value); localStorage.setItem("posterview.dashboardSource", value); };
   return <div className="flex h-full min-h-0 flex-col">
-    <div aria-label="Library source" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-edge px-5 py-3">
+    {!manualDetail && <div aria-label="Library source" className="relative z-20 flex shrink-0 flex-wrap items-center gap-2 border-b border-edge px-5 py-3">
       <button aria-pressed={!manual} disabled={!selectedServer} onClick={() => choose("server")} className={`rounded-xl border px-4 py-2 text-sm disabled:opacity-40 ${!manual ? "border-accent bg-accent/10 text-accent" : "border-edge text-muted"}`}>{selectedServer ? `${selectedServer.name} · Server libraries` : "Server libraries"}</button>
       <button aria-pressed={manual} onClick={() => choose("manual")} className={`rounded-xl border px-4 py-2 text-sm ${manual ? "border-accent bg-accent/10 text-accent" : "border-edge text-muted"}`}>Manual libraries</button>
-    </div>
+    </div>}
     <div className="min-h-0 flex-1">{manual ? <NativeDashboard /> : selectedServer && <ServerDashboard serverId={selectedServer.id} />}</div>
   </div>;
 }
@@ -579,48 +581,6 @@ function ServerDashboard({serverId}: {serverId: number}) {
       </div>
     </div>
   );
-}
-
-function BackdropLayers({ urls, className, source }: { urls: string[]; className: string; source: "mobile" | "desktop" }) {
-  const [activeIndex, setActiveIndex] = useState(() => Math.floor(Math.random() * urls.length));
-
-  useEffect(() => {
-    setActiveIndex(Math.floor(Math.random() * urls.length));
-    if (urls.length < 2) return;
-    const interval = window.setInterval(() => {
-      setActiveIndex((current) => {
-        const offset = 1 + Math.floor(Math.random() * (urls.length - 1));
-        return (current + offset) % urls.length;
-      });
-    }, 12000);
-    return () => window.clearInterval(interval);
-  }, [urls]);
-
-  return (
-    <div className={className} data-backdrop-source={source}>
-      {urls.map((url, index) => (
-        <img
-          key={url}
-          src={url}
-          alt=""
-          aria-hidden="true"
-          draggable={false}
-          className={`absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-[2000ms] ease-in-out ${index === activeIndex ? "opacity-100" : "opacity-0"}`}
-        />
-      ))}
-    </div>
-  );
-}
-
-function DashboardBackdrop({ desktopUrls, mobileUrls, overlayStrength }: { desktopUrls: string[]; mobileUrls: string[]; overlayStrength: number }) {
-  const gradients = backdropOverlayGradients(overlayStrength);
-  return (<LibraryBackdrop>
-    <div className="pointer-events-none fixed inset-0 z-0" aria-hidden="true" data-testid="dashboard-backdrop">
-      {mobileUrls.length > 0 && <BackdropLayers urls={mobileUrls} className="absolute inset-0 md:hidden" source="mobile" />}
-      {desktopUrls.length > 0 && <BackdropLayers urls={desktopUrls} className="absolute inset-0 hidden md:block" source="desktop" />}
-      <div className="absolute inset-0 md:hidden" style={{ backgroundImage: gradients.mobile }} />
-      <div className="absolute inset-0 hidden md:block" style={{ backgroundImage: gradients.desktop }} />
-    </div></LibraryBackdrop>);
 }
 
 function LibraryFilter({ popup, active, children, style }: { popup: boolean; active: boolean; children: ReactNode; style: CSSProperties }) {

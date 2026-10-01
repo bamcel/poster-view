@@ -33,7 +33,7 @@ export default function NativeCatalogPanel({library,onClose,onDeleted,embedded=f
  </main></section></div>;
  return embedded ? panel : createPortal(panel,document.body);
 }
-function EntryEditor({library,entry,busy,onSaved}:{library:NativeLibrary;entry:NativeCatalogEntry;busy:boolean;onSaved:()=>void}){
+export function EntryEditor({library,entry,busy,onSaved}:{library:NativeLibrary;entry:NativeCatalogEntry;busy:boolean;onSaved:()=>void}){
  const [draft,setDraft]=useState<Record<string,unknown>>({...entry.metadata}),[notices,setNotices]=useState<string[]>([]),[artKind,setArtKind]=useState("poster");
  const save=useMutation({mutationFn:()=>nativeLibraries.editItem(library.id,entry,draft),onSuccess:result=>{if(result.warnings.length)setNotices(result.warnings);else onSaved();}});
  const upload=useMutation({mutationFn:(file:File)=>nativeLibraries.upload(library.id,entry.id,artKind,file),onSuccess:onSaved});
