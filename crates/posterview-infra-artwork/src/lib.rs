@@ -261,6 +261,9 @@ impl ArtworkService {
         Ok(token)
     }
 
+    pub async fn native_tvdb_get(&self, path: &str, query: &[(&str, &str)], key: &str, pin: &str) -> Result<reqwest::Response, String> {
+        self.tvdb_get(path, query, key, pin).await
+    }
     async fn tvdb_get(
         &self,
         path: &str,

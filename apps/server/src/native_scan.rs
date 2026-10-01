@@ -152,6 +152,9 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
         ("tmdbid", "tmdb"),
         ("imdbid", "imdb"),
         ("tvdbid", "tvdb"),
+        ("malid", "mal"),
+        ("myanimelistid", "mal"),
+        ("anidbid", "anidb"),
     ] {
         if let Some(v) = fields.get(field).cloned() {
             ids[provider] = v;

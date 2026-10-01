@@ -14,10 +14,11 @@ can contain both shows and movies or either alone.
   are never replaced. The database remains authoritative for manual edits even if writeback fails.
 - Use local artwork: enabled by default. Recognizes poster/cover/folder, fanart/backdrop/background,
   banner, landscape, thumb, logo/clearlogo, and disc in JPEG, PNG, and WebP, including file-prefixed names.
-- Fetch missing metadata and artwork: enabled by default. Anime and book-series identification uses
-  AniList; movies/shows use TMDB. An existing TMDB identity in Anime can also use TMDB. Episode
-  enrichment uses the parent show's TMDB ID and aired season/episode numbers. TMDB uses the saved
-  credential from Search Providers. General novels without an AniList manga identity need manual data.
+- Fetch missing metadata and artwork: enabled by default. AniList is the default for
+  Anime and manga book series; TMDB is the default for other video types. Library
+  settings allow other supported providers and independent image-provider priority.
+  Episode/season enrichment uses the parent series identity and aired numbers.
+  General novels without a supported manga identity need manual data.
 
 Local NFO values and artwork take priority. Only a unique exact title/year/type search result is
 accepted automatically; unresolved matches appear in scan notices. Confirm a provider ID in the
@@ -96,15 +97,44 @@ Working options:
 - Independent metadata and image provider enablement/order per media type. Explicit
   empty lists disable every source for that type. Lower priority sources fill gaps.
   AniList supports Anime movies/series and manga book series; TMDB supports movies,
-  series, and episodes. TMDB credentials remain in Search Providers.
+  series, seasons, and episodes. TheTVDB supports these video types too. MyAnimeList
+  supports Anime movies/series and manga series; OMDb supports movies, series, and
+  episodes. AniDB supports Anime movies, series, and episodes. FanArt is an artwork
+  source for movies, series, and seasons. Credentials are configured in Search Providers.
 - Download toggles for poster, backdrop, thumbnail, logo, and banner artwork.
   One missing image per selected type is downloaded when a provider offers it;
   local artwork remains independent of these download toggles.
 
-Unavailable features are visible but disabled and labeled: extra providers,
-season internet fetchers, real-time monitoring, global-search exclusion, merged
+Unavailable features are visible but disabled and labeled: global-search exclusion, merged
 folder view, `.plexignore`, automatic series grouping, scheduled metadata refresh,
 collections, minimum artwork width, artwork writeback/local caching, lazy image
 fetching, chapter generation, and video resume settings. They do not save active
 options or promise background behavior. Provider artwork is currently downloaded
 during a scan into application data; manual scans retain populated metadata.
+
+
+## Provider configuration and monitoring
+
+Search Providers includes saved credential controls for MyAnimeList (client ID),
+OMDb (API key), and AniDB (registered HTTP client name and version), alongside
+the existing TMDB, TheTVDB, and FanArt controls. Secret credentials are encrypted
+in application storage and are not returned by the settings API. Test buttons
+check saved credentials; selecting a provider does not supply its credentials.
+
+AniDB requires an existing AniDB ID in the item NFO/identification; it does not
+guess anime identities from titles. Its requests are serialized, spaced at least
+three seconds apart, limited to 200 per day, and cached for 24 hours. Rejected
+responses pause requests for 15 minutes. Sequel seasons require their own anime
+identity; automatic episode lookup supports season 1 and specials. FanArt needs
+a TMDB/IMDb movie ID or TVDB series ID. Episode and season providers use the
+parent series identity. Provider failures appear in scan notices and preserve
+local data. Adult classifications are honored where providers expose them.
+
+Enable **real-time monitoring** under Library Settings to automatically rescan
+a library when its files change. It is off by default. Filesystem notifications
+are backed by 15-second polling for network mounts. Changes are debounced for
+five seconds, with a maximum 30-second batching window; a queued scan waits for
+an active scan to finish. Hidden paths and backdrop directories are ignored.
+Turning monitoring off or deleting a library removes its watchers. Monitoring
+uses the same scanner, local-source priority, and manual-edit protection as
+Scan files; it does not enable scheduled internet metadata refresh.

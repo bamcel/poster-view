@@ -30,7 +30,18 @@ fn fill(entry: &mut NativeCatalogEntry, field: &str, value: Value, source: &str)
         entry.metadata["_sources"][field] = json!(source);
     }
 }
-async fn response(response: reqwest::Response) -> Result<Value, String> {
+fn merge_identifiers(entry: &mut NativeCatalogEntry, ids: &Value, source: &str) {
+    if entry.metadata["identifiers"].is_null() {
+        entry.metadata["identifiers"] = json!({});
+    }
+    for (name, value) in ids.as_object().into_iter().flatten() {
+        if !missing(value) && missing(&entry.metadata["identifiers"][name]) {
+            entry.metadata["identifiers"][name] = value.clone();
+            entry.metadata["_sources"]["identifiers"] = json!(source);
+        }
+    }
+}
+pub(super) async fn response(response: reqwest::Response) -> Result<Value, String> {
     if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
         return Err("Provider rate limit reached. Retry the scan later.".into());
     }
@@ -50,7 +61,7 @@ async fn response(response: reqwest::Response) -> Result<Value, String> {
     }
     serde_json::from_slice(&bytes).map_err(|_| "Invalid metadata response.".into())
 }
-fn search_title(entry: &NativeCatalogEntry) -> String {
+pub(super) fn search_title(entry: &NativeCatalogEntry) -> String {
     let re = regex::Regex::new(r"\s*[\[(](?:19|20)\d{2}[\])]\s*$").unwrap();
     re.replace(&entry.title, "").trim().into()
 }
@@ -149,7 +160,7 @@ async fn tmdb(
             r.bearer_auth(token)
         }
     };
-    if entry.kind == "episode" {
+    if entry.kind == "episode" || entry.kind == "season" {
         let series = series_id
             .ok_or("Series must have a TMDB ID before episode metadata can be fetched.")?;
         if series.is_empty() || !series.chars().all(|c| c.is_ascii_digit()) {
@@ -158,11 +169,18 @@ async fn tmdb(
         let season = entry.metadata["season"]
             .as_i64()
             .ok_or("Missing season number.")?;
-        let episode = entry.metadata["episode"]
-            .as_i64()
-            .ok_or("Missing episode number.")?;
+        let suffix = if entry.kind == "episode" {
+            format!(
+                "/episode/{}",
+                entry.metadata["episode"]
+                    .as_i64()
+                    .ok_or("Missing episode number.")?
+            )
+        } else {
+            String::new()
+        };
         return response(
-            request(format!("tv/{series}/season/{season}/episode/{episode}"))
+            request(format!("tv/{series}/season/{season}{suffix}"))
                 .query(&[("append_to_response", "credits,images")])
                 .send()
                 .await
@@ -237,7 +255,21 @@ fn image_path<'a>(data: &'a Value, list: &str, fallback: &str, language: &str) -
 async fn download(state: &AppState, client: &reqwest::Client, url: &str) -> Result<String, String> {
     let url = reqwest::Url::parse(url).map_err(|_| "Invalid artwork URL.")?;
     if url.scheme() != "https"
-        || !matches!(url.host_str(), Some("image.tmdb.org" | "s4.anilist.co"))
+        || !matches!(
+            url.host_str(),
+            Some(
+                "image.tmdb.org"
+                    | "s4.anilist.co"
+                    | "artworks.thetvdb.com"
+                    | "assets.fanart.tv"
+                    | "cdn.myanimelist.net"
+                    | "m.media-amazon.com"
+                    | "ia.media-imdb.com"
+                    | "cdn-eu.anidb.net"
+                    | "cdn-us.anidb.net"
+                    | "img7.anidb.net"
+            )
+        )
         || url.port().is_some_and(|p| p != 443)
         || !url.username().is_empty()
         || url.password().is_some()
@@ -314,6 +346,8 @@ pub(crate) async fn enrich(
         .get_setting("tmdb_access_token")
         .unwrap_or_default();
     let mut series_ids = BTreeMap::new();
+    let mut series_metadata = BTreeMap::<String, Value>::new();
+    let service = posterview_infra_artwork::ArtworkService::default();
     // Identify parents first so episode enrichment can use their stable provider IDs.
     entries.sort_by_key(|e| match e.kind.as_str() {
         "series" | "book_series" => 0,
@@ -323,10 +357,11 @@ pub(crate) async fn enrich(
     });
     let mut limited = false;
     for entry in entries.iter_mut() {
-        if entry.kind == "season" || entry.kind == "book" {
+        if entry.kind == "book" {
             continue;
         }
         if entry.kind == "series" {
+            series_metadata.insert(entry.path.clone(), entry.metadata.clone());
             if let Some(id) = entry.metadata["identifiers"]["tmdb"].as_str() {
                 series_ids.insert(entry.path.clone(), id.to_owned());
             }
@@ -348,7 +383,7 @@ pub(crate) async fn enrich(
         }
         let default = if (library.library_type == NativeLibraryType::Anime
             || library.library_type == NativeLibraryType::Books)
-            && entry.kind != "episode"
+            && !["episode", "season"].contains(&entry.kind.as_str())
         {
             vec!["anilist".to_owned()]
         } else {
@@ -375,6 +410,69 @@ pub(crate) async fn enrich(
         for provider_name in providers {
             if limited {
                 break;
+            }
+            if !["tmdb", "anilist"].contains(&provider_name.as_str()) {
+                let parent_path = entry
+                    .parent_path
+                    .as_deref()
+                    .map(|v| v.split("/@season-").next().unwrap_or(v));
+                let parent = parent_path
+                    .and_then(|v| series_metadata.get(v))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                match super::native_provider_extra::fetch(
+                    state,
+                    &client,
+                    &service,
+                    &provider_name,
+                    library,
+                    entry,
+                    &parent,
+                )
+                .await
+                {
+                    Ok(data) => {
+                        let mut fields = data.fields;
+                        if let Some(credits) = fields["credits"].as_array_mut() {
+                            for credit in credits {
+                                credit["provider"] = json!(provider_name);
+                            }
+                        }
+                        if metadata_order.contains(&provider_name) {
+                            for (field, value) in fields.as_object().unwrap() {
+                                if field != "identifiers" {
+                                    fill(entry, field, value.clone(), &provider_name);
+                                }
+                            }
+                        }
+                        merge_identifiers(entry, &fields["identifiers"], &provider_name);
+                        if let Some(id) = data.id {
+                            merge_identifiers(
+                                entry,
+                                &json!({provider_name.clone():id}),
+                                &provider_name,
+                            );
+                        }
+                        fill(
+                            entry,
+                            &format!("{provider_name}_data"),
+                            data.raw,
+                            &provider_name,
+                        );
+                        image_candidates.insert(provider_name.clone(), data.artwork);
+                        if entry.kind == "series" {
+                            series_metadata.insert(entry.path.clone(), entry.metadata.clone());
+                            if let Some(id) =
+                                super::native_provider_extra::id(&entry.metadata, "tmdb")
+                            {
+                                series_ids.insert(entry.path.clone(), id);
+                            }
+                        }
+                    }
+                    Err(e) => warnings.push(format!("{} ({provider_name}): {e}", entry.title)),
+                }
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                continue;
             }
             let use_anilist = provider_name == "anilist";
             let result = if use_anilist && entry.kind != "episode" {
@@ -600,6 +698,14 @@ pub(crate) async fn enrich(
                     fill(entry, field, value.clone(), provider);
                 }
             }
+            if ani {
+                if let Some(mal) = data["idMal"].as_u64() {
+                    merge_identifiers(entry, &json!({"mal":mal.to_string()}), provider);
+                }
+            } else {
+                let ids = json!({"imdb":data["imdb_id"].as_str().or(data["external_ids"]["imdb_id"].as_str()),"tvdb":data["external_ids"]["tvdb_id"].as_u64().map(|v|v.to_string())});
+                merge_identifiers(entry, &ids, provider);
+            }
             let provider_id = data["id"].to_string();
             if entry.metadata["identifiers"].is_null() {
                 entry.metadata["identifiers"] = json!({});
@@ -612,6 +718,9 @@ pub(crate) async fn enrich(
                 if let Some(id) = entry.metadata["identifiers"]["tmdb"].as_str() {
                     series_ids.insert(entry.path.clone(), id.to_owned());
                 }
+            }
+            if entry.kind == "series" {
+                series_metadata.insert(entry.path.clone(), entry.metadata.clone());
             }
             fill(entry, &format!("{provider}_data"), data, provider);
             image_candidates.insert(

@@ -382,7 +382,7 @@ async fn administrator_session_protects_api_routes() {
         .unwrap();
     assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
 
-    for (method, path) in [("GET", "/api/native/libraries"), ("POST", "/api/native/libraries"), ("PUT", "/api/native/libraries/example"), ("DELETE", "/api/native/libraries/example"), ("GET", "/api/native/libraries/example/scan"), ("POST", "/api/native/libraries/example/scan"), ("GET", "/api/native/libraries/example/items"), ("PUT", "/api/native/libraries/example/items/item"), ("GET", "/api/native/libraries/example/items/item/artwork/poster"), ("POST", "/api/native/libraries/example/items/item/artwork/poster")] {
+    for (method, path) in [("GET", "/api/native/providers/settings"), ("PUT", "/api/native/providers/settings"), ("POST", "/api/native/providers/test/mal"), ("GET", "/api/native/libraries"), ("POST", "/api/native/libraries"), ("PUT", "/api/native/libraries/example"), ("DELETE", "/api/native/libraries/example"), ("GET", "/api/native/libraries/example/scan"), ("POST", "/api/native/libraries/example/scan"), ("GET", "/api/native/libraries/example/items"), ("PUT", "/api/native/libraries/example/items/item"), ("GET", "/api/native/libraries/example/items/item/artwork/poster"), ("POST", "/api/native/libraries/example/items/item/artwork/poster")] {
         let denied = app.clone().oneshot(Request::builder().method(method).uri(path).header("content-type", "application/json").body(Body::from("{}")).unwrap()).await.unwrap();
         assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
     }
@@ -1182,4 +1182,19 @@ async fn saved_connection_tests_use_unsaved_settings_without_changing_the_server
     }
     assert_eq!(runtime.get_server(original.id).unwrap().unwrap(), original);
     task.abort();
+}
+
+#[tokio::test]
+async fn native_provider_credentials_are_encrypted_and_not_returned() {
+    let dir=tempdir().unwrap(); let runtime=Arc::new(Runtime::new(dir.path()));runtime.initialize().unwrap();
+    let app=router(runtime,PathBuf::from("missing-ui"));
+    let response=app.clone().oneshot(Request::put("/api/native/providers/settings").header("content-type","application/json").body(Body::from(r#"{"mal_client_id":"mal-secret-fixture","omdb_api_key":"omdb-secret-fixture","anidb_client":"fixture","anidb_client_version":"1"}"#)).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::OK);
+    let bytes=response.into_body().collect().await.unwrap().to_bytes();let body:serde_json::Value=serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["mal_configured"],true);assert!(!String::from_utf8_lossy(&bytes).contains("secret-fixture"));
+    // Read the store's actual connection separately through its public settings API.
+    let store=posterview_infra_sqlite::ServerStore::new(dir.path());
+    assert_eq!(store.get_setting("mal_client_id").unwrap(),"mal-secret-fixture");
+    let response=app.oneshot(Request::put("/api/native/providers/settings").header("content-type","application/json").body(Body::from(r#"{"anidb_client":"INVALID CLIENT"}"#)).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::BAD_REQUEST);
 }

@@ -22,6 +22,7 @@ import {
   LayoutDashboard,
   Columns2,
 } from "lucide-react";
+import NativeProviderCredentials from "../components/NativeProviderCredentials";
 import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
 import WatchdogStatus from "../components/WatchdogStatus";
@@ -1454,6 +1455,7 @@ function FanartTvdbFields({
         </button>
         <ProviderFeedback name="ComicVine" pending={comicvineTestMut.isPending} result={comicvineTestMut.data} error={comicvineTestMut.error?.message} />
       </ProviderConnection>
+      <NativeProviderCredentials />
     </>
   );
 }

@@ -130,7 +130,7 @@ pub(crate) async fn catalog(
         .map(Json)
         .map_err(error)
 }
-async fn start_scan(state: AppState, id: String) -> Result<(), HttpError> {
+pub(crate) async fn start_scan(state: AppState, id: String) -> Result<(), HttpError> {
     let library = library(&state, &id).await?;
     let db = store(&state);
     let scan_id = id.clone();
@@ -532,6 +532,79 @@ mod scan_tests {
                 dir.join("config/reader.sqlite"),
             )),
         }
+    }
+    #[tokio::test]
+    async fn monitoring_scans_new_files_and_can_be_disabled() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let media = temp.path().join("media/Movies");
+        fs::create_dir_all(&media).unwrap();
+        let db = store(&state);
+        let mut library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        real_time_monitor: true,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        crate::native_monitor::start(state.clone());
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        fs::write(media.join("New.mp4"), b"fixture").unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(25), async {
+            loop {
+                if db
+                    .native_catalog(&library.id)
+                    .unwrap()
+                    .iter()
+                    .any(|e| e.title == "New")
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while db.native_scan_status(&library.id).unwrap().status == "scanning" {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let mut options = library.options.clone();
+        options.real_time_monitor = false;
+        library = db
+            .save_native_library(
+                Some(&library.id),
+                &NativeLibraryInput {
+                    name: library.name.clone(),
+                    library_type: library.library_type,
+                    anime_content: library.anime_content,
+                    paths: library.paths.clone(),
+                    revision: Some(library.revision),
+                    options,
+                },
+            )
+            .unwrap();
+        fs::write(media.join("Ignored.mp4"), b"fixture").unwrap();
+        tokio::time::sleep(std::time::Duration::from_secs(7)).await;
+        assert!(
+            !db.native_catalog(&library.id)
+                .unwrap()
+                .iter()
+                .any(|e| e.title == "Ignored")
+        );
     }
     #[test]
     fn sample_size_setting_controls_inclusion() {

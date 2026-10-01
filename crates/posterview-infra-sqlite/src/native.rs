@@ -145,6 +145,28 @@ INSERT INTO schema_migrations(version,name) VALUES(2,'native_scan_options_and_ar
     Ok(())
 }
 
+fn provider_supported(
+    provider: &str,
+    kind: &str,
+    library: posterview_contracts::native::NativeLibraryType,
+    images: bool,
+) -> bool {
+    use posterview_contracts::native::NativeLibraryType;
+    let anime = library == NativeLibraryType::Anime;
+    match provider {
+        "anilist" => kind == "book_series" || (anime && ["movie", "series"].contains(&kind)),
+        "mal" => kind == "book_series" || (anime && ["movie", "series"].contains(&kind)),
+        "anidb" => {
+            anime
+                && ["movie", "series", "episode"].contains(&kind)
+                && (!images || kind != "episode")
+        }
+        "tmdb" | "tvdb" => kind != "book_series",
+        "omdb" => ["movie", "series", "episode"].contains(&kind),
+        "fanart" => images && ["movie", "series", "season"].contains(&kind),
+        _ => false,
+    }
+}
 fn validate(input: &NativeLibraryInput) -> Result<(), StoreError> {
     let invalid = |m: &str| StoreError::Validation(m.into());
     if input.name.trim().is_empty() || input.name.trim().chars().count() > 120 {
@@ -168,21 +190,17 @@ fn validate(input: &NativeLibraryInput) -> Result<(), StoreError> {
             "Invalid library language, country, or sample size.",
         ));
     }
-    for providers in [&options.metadata_providers, &options.image_providers] {
+    for (images, providers) in [
+        (false, &options.metadata_providers),
+        (true, &options.image_providers),
+    ] {
         for (kind, list) in providers {
-            if !["movie", "series", "episode", "book_series"].contains(&kind.as_str())
-                || list.len() > 2
+            if !["movie", "series", "season", "episode", "book_series"].contains(&kind.as_str())
+                || list.len() > 7
+                || list.iter().enumerate().any(|(i, p)| list[..i].contains(p))
                 || list
                     .iter()
-                    .any(|p| !["anilist", "tmdb"].contains(&p.as_str()))
-                || list.iter().enumerate().any(|(i, p)| list[..i].contains(p))
-                || (kind == "episode" && list.iter().any(|p| p != "tmdb"))
-                || (kind == "book_series" && list.iter().any(|p| p != "anilist"))
-                || (matches!(
-                    input.library_type,
-                    posterview_contracts::native::NativeLibraryType::Movies
-                        | posterview_contracts::native::NativeLibraryType::Shows
-                ) && list.iter().any(|p| p == "anilist"))
+                    .any(|p| !provider_supported(p, kind, input.library_type, images))
             {
                 return Err(invalid("Invalid metadata or image provider order."));
             }
