@@ -45,6 +45,15 @@ pub(crate) fn auxiliary_folder(name: &str) -> bool {
     )
 }
 
+pub(crate) fn credit_video(path: &Path) -> bool {
+    static PATTERN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)(?:^|[^a-z0-9])nc(?:op|ed)s?(?:[0-9]+(?:v[0-9]+)?)?(?:$|[^a-z0-9])")
+            .unwrap()
+    });
+    path.file_stem()
+        .is_some_and(|name| PATTERN.is_match(&name.to_string_lossy()))
+}
+
 fn walk(
     state: &AppState,
     root: &Path,
@@ -441,6 +450,9 @@ pub(crate) fn collect(
             && fs::metadata(p)
                 .is_ok_and(|m| m.len() < u64::from(library.options.sample_ignore_mb) * 1024 * 1024))
     });
+    if library.library_type != NativeLibraryType::Books {
+        files.retain(|p| !credit_video(p));
+    }
     let total = files.len();
     let completed = std::sync::atomic::AtomicUsize::new(0);
     let reporter = std::sync::Mutex::new(crate::native_progress::Reporter::new(state, &library.id));

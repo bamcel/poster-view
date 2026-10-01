@@ -233,3 +233,5 @@ to try. Local and manual values remain protected.
 Real-time monitoring ignores PosterView's own NFO and artwork sidecar writes, including delayed polling notifications, so saving scan results does not queue another scan. External file edits, additions, and deletions remain monitored.
 
 Auxiliary folders (`extras`, `extra`, `trailers`, `featurettes`, `behind the scenes`, `deleted scenes`, and `interviews`, case-insensitive) are also excluded from scanning and monitoring. `Specials` remains included for series special episodes. Rescanning removes previously indexed auxiliary videos from the available catalog without deleting media files.
+
+NCOP/NCED credit-video filename tokens (including numbered and versioned variants) are excluded even outside auxiliary folders. Manual library browsing shows available entries only; a rescan hides previously indexed exclusions while retaining catalog history.

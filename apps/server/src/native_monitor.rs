@@ -156,6 +156,21 @@ mod tests {
     }
 
     #[test]
+    fn credit_video_names_are_bounded_tokens() {
+        for name in [
+            "NCOP.mkv",
+            "NCED01.mp4",
+            "Show - NCOP2v2 [1080p].mkv",
+            "NCOPs.mp4",
+        ] {
+            assert!(crate::native_scan::credit_video(Path::new(name)), "{name}");
+        }
+        for name in ["Once Upon a Time.mkv", "Show S01E01.mkv", "Advanced.mkv"] {
+            assert!(!crate::native_scan::credit_video(Path::new(name)), "{name}");
+        }
+    }
+
+    #[test]
     fn ignores_backdrop_and_temporary_events() {
         let root = Path::new("media");
         assert!(relevant(Path::new("media/Anime/episode.mkv"), root));

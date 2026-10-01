@@ -909,6 +909,13 @@ pub(crate) mod scan_tests {
             fs::write(extras.join("NCOP.mp4"), b"fixture").unwrap();
             fs::write(extras.join("nested/NCED.S01E99.mkv"), b"fixture").unwrap();
         }
+        for name in [
+            "NCOP.mp4",
+            "Show - NCED01.mkv",
+            "[Group] Show NCOP2v2 [1080p].mkv",
+        ] {
+            fs::write(series.parent().unwrap().join(name), b"fixture").unwrap();
+        }
         let db = store(&state);
         db.set_setting("existing", "untouched").unwrap();
         let library = db
