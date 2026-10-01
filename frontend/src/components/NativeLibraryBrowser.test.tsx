@@ -246,3 +246,17 @@ it("shows original and preferred anime voice cast separately and retains product
   expect(screen.getByText("Writer")).toBeTruthy();
   expect(screen.getByText("Director", {selector:"p.text-sm"})).toBeTruthy();
 });
+
+it("edits genre rows without saving until the fixed save button is clicked", async()=>{
+  vi.mocked(nativeLibraries.editItem).mockResolvedValue({entry:series,warnings:[]});
+  mount("/?native_library=native&native_item=show");
+  await screen.findByRole("heading",{name:"Example Series"});
+  fireEvent.click(screen.getByRole("button",{name:"Edit Metadata"}));
+  fireEvent.change(screen.getByLabelText("Add genres"),{target:{value:"Comedy"}});
+  fireEvent.click(screen.getByRole("button",{name:"Add to genres"}));
+  fireEvent.click(screen.getByRole("button",{name:"Remove genres: Action"}));
+  expect(nativeLibraries.editItem).not.toHaveBeenCalled();
+  expect(screen.getByRole("button",{name:"Save metadata"}).closest("footer")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
+  await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",series,expect.objectContaining({genres:["Comedy"]})));
+});

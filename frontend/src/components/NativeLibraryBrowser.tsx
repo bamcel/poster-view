@@ -154,6 +154,7 @@ function Modal({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const metadata = title === "Edit Metadata";
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -165,20 +166,20 @@ function Modal({
       ref={ref}
       onCancel={onClose}
       aria-label={title}
-      className="m-auto max-h-[90dvh] w-[min(56rem,calc(100vw-2rem))] max-w-4xl overflow-y-auto rounded-2xl border border-border bg-sidebar p-5 text-white backdrop:bg-black/70"
+      className={metadata ? "m-auto h-[85dvh] max-h-[900px] w-[min(52rem,calc(100vw-2rem))] max-w-4xl overflow-hidden rounded-2xl border border-border bg-sidebar p-0 text-white backdrop:bg-black/70" : "m-auto max-h-[90dvh] w-[min(56rem,calc(100vw-2rem))] max-w-4xl overflow-y-auto rounded-2xl border border-border bg-sidebar p-5 text-white backdrop:bg-black/70"}
     >
-      <header className="mb-5 flex items-center justify-between gap-4">
-        <h2 className="text-xl font-semibold">{title}</h2>
+      <header className={metadata ? "flex h-16 shrink-0 items-center gap-4 px-6 sm:px-8" : "mb-5 flex items-center justify-between gap-4"}>
+        <h2 className={`text-lg font-semibold ${metadata ? "order-2" : ""}`}>{title}</h2>
         <button
           autoFocus
           aria-label="Close editor"
-          className={detailActionClass}
+          className={metadata ? "rounded-md p-1 text-muted hover:text-white" : detailActionClass}
           onClick={onClose}
         >
           <X className="size-4" />
         </button>
       </header>
-      {children}
+      <div className={metadata ? "h-[calc(100%-4rem)] min-h-0" : ""}>{children}</div>
     </dialog>,
     document.body,
   );
@@ -458,7 +459,7 @@ export default function NativeLibraryBrowser({
         </Modal>
       ) : (
         <Modal title="Edit Metadata" onClose={() => setEditor(null)}>
-          <EntryEditor library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated} />
+          <EntryEditor library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated} dialog />
         </Modal>
       ))}
 
