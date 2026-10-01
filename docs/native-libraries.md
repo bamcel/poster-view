@@ -177,3 +177,14 @@ shows files found with an indeterminate indicator; local reading and provider
 fetching show their own processed/total counts and percentage. Percentages are
 per phase, not an estimate of overall completion or remaining time. Updates are
 throttled to twice per second and the interface polls every two seconds.
+
+
+## Dashboard comparison
+
+The Dashboard source buttons switch between the active server's libraries and
+Manual libraries. Manual libraries use their own tab list and show their native
+catalog directly on the page, including search, artwork, scan progress, metadata
+and child items. The source and last manual library are remembered locally.
+Server library selection remains separate, so switching back preserves its
+existing navigation context. Without a connected server, the Dashboard opens
+manual libraries automatically. Manage manual libraries in Settings → Libraries.

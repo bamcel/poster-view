@@ -1,3 +1,4 @@
+import NativeDashboard from "../components/NativeDashboard";
 // Browse the active server: pick a library, then a searchable grid of titles.
 // Double-clicking a poster opens the item detail.
 
@@ -27,6 +28,21 @@ import { useBookInfo, bookTitleOrder } from "../lib/bookInfo";
 type TitleSort = "title" | "newest" | "oldest" | "recently-added";
 
 export default function DashboardPage() {
+  const { selectedServer, isLoading } = useServers();
+  const [source, setSource] = useState(() => localStorage.getItem("posterview.dashboardSource") === "manual" ? "manual" : "server");
+  const manual = source === "manual" || !selectedServer;
+  if (isLoading) return <Spinner label="Loading…" />;
+  const choose = (value: string) => { setSource(value); localStorage.setItem("posterview.dashboardSource", value); };
+  return <div className="flex h-full min-h-0 flex-col">
+    <div aria-label="Library source" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-edge px-5 py-3">
+      <button aria-pressed={!manual} disabled={!selectedServer} onClick={() => choose("server")} className={`rounded-xl border px-4 py-2 text-sm disabled:opacity-40 ${!manual ? "border-accent bg-accent/10 text-accent" : "border-edge text-muted"}`}>{selectedServer ? `${selectedServer.name} · Server libraries` : "Server libraries"}</button>
+      <button aria-pressed={manual} onClick={() => choose("manual")} className={`rounded-xl border px-4 py-2 text-sm ${manual ? "border-accent bg-accent/10 text-accent" : "border-edge text-muted"}`}>Manual libraries</button>
+    </div>
+    <div className="min-h-0 flex-1">{manual ? <NativeDashboard /> : <ServerDashboard />}</div>
+  </div>;
+}
+
+function ServerDashboard() {
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();

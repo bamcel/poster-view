@@ -1,3 +1,5 @@
+import {nativeLibraries, defaultNativeOptions} from "../api/nativeLibraries";
+vi.mock("../api/nativeLibraries", async original => ({...await original<typeof import("../api/nativeLibraries")>(), nativeLibraries: {list: vi.fn(), status: vi.fn(), catalog: vi.fn(), scan: vi.fn(), remove: vi.fn(), editItem: vi.fn(), upload: vi.fn(), artworkUrl: vi.fn()}}));
 
 it.each(["movie", "show", "collection", "other"] as const)("preserves %s library controls, sorting, and metadata navigation", async (type) => {
   const fetcher = vi.fn();
@@ -340,3 +342,23 @@ it.each(["book", "other"] as const)(
     client.clear();
   },
 );
+
+it("switches between server and manual catalogs directly on the dashboard", async () => {
+  vi.mocked(api.getLibraries).mockResolvedValue([{id: "movies", title: "Server Movies", type: "movie"}]);
+  vi.mocked(api.getItems).mockResolvedValue([{id: "remote", title: "Server Title", type: "movie"}]);
+  vi.mocked(nativeLibraries.list).mockResolvedValue([{id: "manual", name: "Local Anime", library_type: "anime", anime_content: "both", paths: ["Anime"], options: defaultNativeOptions, revision: 1, created_at: "", updated_at: ""}]);
+  vi.mocked(nativeLibraries.status).mockResolvedValue({status: "complete", count: 1, warnings: []});
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue([{id: "local", title: "Manual Title", kind: "series", path: "Anime/Example", parent_path: null, metadata: {title: "Manual Title"}, artwork: [], files: [], nfo_path: null, available: true, revision: 1}]);
+  const {client} = renderDashboard();
+  await screen.findByText("Server Title");
+  fireEvent.click(screen.getByRole("button", {name: "Manual libraries"}));
+  await screen.findByText("Manual Title");
+  expect(screen.getByRole("region", {name: "Local Anime library"})).toBeTruthy();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(nativeLibraries.catalog).toHaveBeenCalledWith("manual");
+  expect(localStorage.getItem("posterview.dashboardSource")).toBe("manual");
+  fireEvent.click(screen.getByRole("button", {name: "Media · Server libraries"}));
+  await screen.findByText("Server Title");
+  expect(screen.queryByText("Manual Title")).toBeNull();
+  client.clear();
+});
