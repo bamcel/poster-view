@@ -1,3 +1,4 @@
+import AnimatedArtwork from "./AnimatedArtwork";
 import { useEffect, useState } from "react";
 import { LibraryBackdrop } from "../lib/libraryNavigation";
 import { backdropOverlayGradients } from "../lib/dashboardSettings";
@@ -30,12 +31,11 @@ function BackdropLayers({
   return (
     <div className={className} data-backdrop-source={source}>
       {urls.map((url, index) => (
-        <img
+        <AnimatedArtwork
           key={url}
           src={url}
+          active={index === activeIndex}
           alt=""
-          aria-hidden="true"
-          draggable={false}
           className={`absolute inset-0 h-full w-full object-cover object-top transition-opacity duration-[2000ms] ease-in-out ${index === activeIndex ? "opacity-100" : "opacity-0"}`}
         />
       ))}

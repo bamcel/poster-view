@@ -1,3 +1,4 @@
+import AnimatedArtwork, {artworkFormat} from "./AnimatedArtwork";
 import { invalidateArtworkItems } from "../lib/artworkTarget";
 // "Manual" artwork tab: apply your own image (uploaded file or a URL) to a
 // chosen target — the item's poster/background, or a specific season's poster
@@ -85,7 +86,7 @@ export default function ManualUpload({ serverId, item, includeFolderBackdrop = f
           {file ? file.name : "Choose an image file…"}
           <input
             type="file"
-            accept="image/*"
+            accept={serverId === 0 ? "image/jpeg,image/png,image/webp,image/gif,video/webm" : "image/*"}
             className="hidden"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           />
@@ -103,6 +104,8 @@ export default function ManualUpload({ serverId, item, includeFolderBackdrop = f
           />
         </div>
       </div>
+
+      {serverId === 0 && <p className="text-xs text-faint">GIF and WebM uploads are supported, up to 20 MB. WebM audio is removed before saving; videos loop silently and pause when off-screen.</p>}
 
       {/* Target */}
       <div>
@@ -123,11 +126,12 @@ export default function ManualUpload({ serverId, item, includeFolderBackdrop = f
       {/* Preview */}
       {preview ? (
         <div className="overflow-hidden rounded-lg border border-border bg-base">
-          <img
+          {file?.type === "video/webm" || artworkFormat(preview) === "webm" ? <div className="flex h-32 items-center justify-center px-4 text-center text-xs text-muted">WebM preview appears after saving and removing audio.</div> : <AnimatedArtwork
             src={preview}
+            format={file?.type === "video/webm" ? "webm" : file?.type === "image/gif" ? "gif" : undefined}
             alt="preview"
             className={`w-full bg-base ${isBackground ? "aspect-video object-cover object-top" : "max-h-64 object-contain"}`}
-          />
+          />}
         </div>
       ) : (
         <div className="grid h-32 place-items-center rounded-lg border border-dashed border-border text-faint">

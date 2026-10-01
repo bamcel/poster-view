@@ -453,7 +453,7 @@ pub(crate) async fn apply_panel_artwork(state: AppState, target: String, kind: p
             db.remove_native_artwork(library, item, kind).map_err(error)?;
             return Ok(posterview_contracts::ApplyResult {ok:true,message:"Artwork removed from the database. Local media files are preserved and may be rediscovered by a scan.".into()});
         };
-        let path = crate::native_provider::store_image(&state, &bytes).map_err(HttpError::bad_request)?;
+        let path = crate::workers::blocking(|| crate::native_provider::store_image(&state, &bytes)).map_err(HttpError::bad_request)?;
         let art = posterview_contracts::native::NativeArtwork {kind:kind.into(),path,source:"manual".into()};
         db.save_native_artwork(library,item,&art).map_err(error)?;
         let config = db.native_libraries().map_err(error)?.into_iter().find(|l|l.id == library).ok_or_else(HttpError::not_found)?;
@@ -531,7 +531,9 @@ pub(crate) async fn upload_artwork(
 pub(crate) async fn artwork(
     State(state): State<AppState>,
     Path((library, item, kind)): Path<(String, String, String)>,
-) -> Result<(axum::http::HeaderMap, Vec<u8>), HttpError> {
+    axum::extract::Query(options): axum::extract::Query<std::collections::HashMap<String,String>>,
+    request_headers: axum::http::HeaderMap,
+) -> Result<(StatusCode, axum::http::HeaderMap, Vec<u8>), HttpError> {
     tokio::task::spawn_blocking(move || {
         let art = store(&state)
             .native_artwork(&library, &item, &kind)
@@ -539,10 +541,10 @@ pub(crate) async fn artwork(
             .ok_or_else(HttpError::not_found)?;
         let path = if let Some(name) = art.path.strip_prefix("@managed/") {
             let (id, ext) = name.rsplit_once('.').ok_or_else(HttpError::not_found)?;
-            if uuid::Uuid::parse_str(id).is_err() || !["jpg", "png", "webp"].contains(&ext) {
+            if uuid::Uuid::parse_str(id).is_err() || !["jpg", "png", "webp", "gif", "webm"].contains(&ext) {
                 return Err(HttpError::not_found());
             }
-            state.runtime.data_dir().join("native-artwork").join(name)
+            state.runtime.data_dir().join("native-artwork").join(if options.get("still").is_some_and(|s|s=="1") && ["gif","webm"].contains(&ext) {format!("{id}.still.png")} else {name.to_string()})
         } else {
             let root = state.metadata.directory("", true)?;
             let path = root.join(&art.path);
@@ -569,14 +571,20 @@ pub(crate) async fn artwork(
         if metadata.len() > 20 * 1024 * 1024 {
             return Err(HttpError::bad_request("Artwork exceeds 20 MB."));
         }
-        let bytes = std::fs::read(&path).map_err(|_| HttpError::not_found())?;
+        let mut bytes = std::fs::read(&path).map_err(|_| HttpError::not_found())?;
+        if !art.path.starts_with("@managed/") && crate::native_animation::is_animated(&bytes) {
+            bytes = crate::native_animation::local(&state, &path, &bytes, options.get("still").is_some_and(|s|s=="1")).map_err(HttpError::bad_request)?;
+        }
+        let mime = if crate::native_animation::is_webm(&bytes) { "video/webm" } else {
         let format =
             image::guess_format(&bytes).map_err(|_| HttpError::bad_request("Invalid artwork."))?;
-        let mime = match format {
+        match format {
             image::ImageFormat::Jpeg => "image/jpeg",
             image::ImageFormat::Png => "image/png",
             image::ImageFormat::WebP => "image/webp",
+            image::ImageFormat::Gif => "image/gif",
             _ => return Err(HttpError::bad_request("Unsupported artwork.")),
+        }
         };
         let mut headers = axum::http::HeaderMap::new();
         headers.insert(
@@ -587,7 +595,27 @@ pub(crate) async fn artwork(
             axum::http::header::CACHE_CONTROL,
             axum::http::HeaderValue::from_static("private, max-age=60"),
         );
-        Ok((headers, bytes))
+        let mut status=StatusCode::OK;
+        if mime == "video/webm" {
+            headers.insert(axum::http::header::ACCEPT_RANGES, axum::http::HeaderValue::from_static("bytes"));
+            if let Some(range)=request_headers.get(axum::http::header::RANGE) {
+                let total=bytes.len();
+                match range.to_str().ok().and_then(|r|crate::native_animation::byte_range(r,total)) {
+                    Some((start,end)) => {
+                        status=StatusCode::PARTIAL_CONTENT;
+                        headers.insert(axum::http::header::CONTENT_RANGE,format!("bytes {start}-{end}/{total}").parse().unwrap());
+                        bytes=bytes[start..=end].to_vec();
+                    }
+                    None => {
+                        status=StatusCode::RANGE_NOT_SATISFIABLE;
+                        headers.insert(axum::http::header::CONTENT_RANGE,format!("bytes */{total}").parse().unwrap());
+                        bytes.clear();
+                    }
+                }
+            }
+        }
+        headers.insert(axum::http::header::CONTENT_LENGTH,bytes.len().to_string().parse().unwrap());
+        Ok((status, headers, bytes))
     })
     .await
     .map_err(|_| HttpError::bad_request("Artwork request interrupted."))?

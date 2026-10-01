@@ -35,6 +35,7 @@ mod native_jikan;
 mod native_provider_extra;
 mod native_monitor;
 mod native_artwork;
+mod native_animation;
 mod native_progress;
 mod workers;
 pub use auth::AuthState;
@@ -642,7 +643,7 @@ async fn upload_image(
     if bytes.is_empty() {
         return Err(HttpError::bad_request("The uploaded file is empty."));
     }
-    if !content_type.starts_with("image/") {
+    if !(content_type.starts_with("image/") || server_id == 0 && content_type == "video/webm") {
         return Err(HttpError::bad_request("That file isn't an image."));
     }
     if server_id == 0 {

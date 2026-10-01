@@ -111,6 +111,15 @@ pub(crate) fn write(
     } else {
         name
     };
+    let animated = managed.ends_with(".gif") || managed.ends_with(".webm");
+    let name = if animated {
+        Path::new(&name)
+            .with_extension(Path::new(managed).extension().unwrap())
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        name
+    };
     let target = directory.join(name);
     match fs::symlink_metadata(&target) {
         Ok(meta) => {
@@ -141,23 +150,27 @@ pub(crate) fn write(
     if bytes.len() > 20 * 1024 * 1024 {
         return Err("Artwork exceeds 20 MB.".into());
     }
-    let reader = image::ImageReader::new(Cursor::new(&bytes))
-        .with_guessed_format()
-        .map_err(|e| e.to_string())?;
-    let (width, height) = reader.into_dimensions().map_err(|e| e.to_string())?;
-    if u64::from(width) * u64::from(height) > 64_000_000 {
-        return Err("Artwork exceeds 64 megapixels.".into());
-    }
-    let image = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
     let mut encoded = Cursor::new(Vec::new());
-    if target.extension().is_some_and(|e| e == "png") {
-        image
-            .write_to(&mut encoded, image::ImageFormat::Png)
-            .map_err(|e| e.to_string())?;
+    if animated {
+        encoded = Cursor::new(bytes);
     } else {
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded, 95)
-            .encode_image(&image.to_rgb8())
+        let reader = image::ImageReader::new(Cursor::new(&bytes))
+            .with_guessed_format()
             .map_err(|e| e.to_string())?;
+        let (width, height) = reader.into_dimensions().map_err(|e| e.to_string())?;
+        if u64::from(width) * u64::from(height) > 64_000_000 {
+            return Err("Artwork exceeds 64 megapixels.".into());
+        }
+        let image = image::load_from_memory(&bytes).map_err(|e| e.to_string())?;
+        if target.extension().is_some_and(|e| e == "png") {
+            image
+                .write_to(&mut encoded, image::ImageFormat::Png)
+                .map_err(|e| e.to_string())?;
+        } else {
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded, 95)
+                .encode_image(&image.to_rgb8())
+                .map_err(|e| e.to_string())?;
+        }
     }
     if fs::read(&target).ok().as_deref() == Some(encoded.get_ref().as_slice()) {
         return Ok(());

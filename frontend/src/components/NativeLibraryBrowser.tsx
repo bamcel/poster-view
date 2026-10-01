@@ -20,6 +20,7 @@ import {
 } from "../api/nativeLibraries";
 import type { ItemDetail } from "../types";
 import PosterCard from "./PosterCard";
+import AnimatedArtwork from "./AnimatedArtwork";
 import ArtworkPanel from "./ArtworkPanel";
 import { animeVoiceGroups, voiceName } from "../lib/nativeVoiceCast";
 import { nativeCatalogView } from "../lib/nativeCatalogView";
@@ -61,7 +62,7 @@ function artwork(
   kind: string,
 ) {
   return entry?.artwork.some((a) => a.kind === kind)
-    ? `${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${entry.revision}`
+    ? `${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${entry.revision}&format=${entry.artwork.find(a => a.kind === kind)?.path.split(".").pop()?.toLowerCase() ?? ""}`
     : undefined;
 }
 function picture(
@@ -86,7 +87,7 @@ function Artwork({
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
   return src && !failed ? (
-    <img
+    <AnimatedArtwork
       src={src}
       alt={alt}
       onError={() => setFailed(true)}
@@ -560,7 +561,7 @@ function NativeDetail({
             aria-hidden="true"
             className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-base"
           >
-            <img
+            <AnimatedArtwork
               src={backdrop}
               alt=""
               className="h-full w-full origin-top scale-[1.02] object-cover object-top"
@@ -616,7 +617,7 @@ function NativeDetail({
                 className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries ? "text-left" : "text-center sm:text-left"}`}
               >
                 {logo ? (
-                  <img
+                  <AnimatedArtwork
                     src={logo}
                     alt={entry.title}
                     className="max-h-24 max-w-full object-contain object-left sm:max-w-[400px]"

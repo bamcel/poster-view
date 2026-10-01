@@ -508,6 +508,16 @@ pub(crate) fn store_image(state: &AppState, bytes: &[u8]) -> Result<String, Stri
     if bytes.len() > 20 * 1024 * 1024 {
         return Err("Artwork exceeds 20 MB.".into());
     }
+    if crate::native_animation::is_animated(bytes) {
+        let (clean, still, extension) = crate::native_animation::prepare(bytes)?;
+        let dir = state.runtime.data_dir().join("native-artwork");
+        std::fs::create_dir_all(&dir).map_err(|e|e.to_string())?;
+        let id = uuid::Uuid::new_v4();
+        std::fs::write(dir.join(format!("{id}.still.png")), still).map_err(|e|e.to_string())?;
+        let name = format!("{id}.{extension}");
+        std::fs::write(dir.join(&name), clean).map_err(|e|e.to_string())?;
+        return Ok(format!("@managed/{name}"));
+    }
     let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
         .map_err(|_| "Invalid artwork image.")?;

@@ -311,7 +311,7 @@ fn local_art(root: &Path, dir: &Path, stem: Option<&str>) -> Vec<NativeArtwork> 
     let Ok(files) = fs::read_dir(dir) else {
         return Vec::new();
     };
-    let mut result = BTreeMap::new();
+    let mut result = BTreeMap::<String, (u8, NativeArtwork)>::new();
     let names = [
         ("poster", "poster"),
         ("cover", "poster"),
@@ -326,7 +326,9 @@ fn local_art(root: &Path, dir: &Path, stem: Option<&str>) -> Vec<NativeArtwork> 
         ("clearlogo", "logo"),
         ("disc", "disc"),
     ];
-    for child in files.flatten() {
+    let mut files=files.flatten().collect::<Vec<_>>();
+    files.sort_by_key(|f|f.file_name());
+    for child in files {
         let path = child.path();
         if !child.file_type().is_ok_and(|t| t.is_file()) || checked_file(root, &path).is_err() {
             continue;
@@ -336,9 +338,10 @@ fn local_art(root: &Path, dir: &Path, stem: Option<&str>) -> Vec<NativeArtwork> 
             .unwrap_or_default()
             .to_string_lossy()
             .to_ascii_lowercase();
-        if !["jpg", "jpeg", "png", "webp"].contains(&ext.as_str()) {
+        if !["jpg", "jpeg", "png", "webp", "gif", "webm"].contains(&ext.as_str()) {
             continue;
         }
+        let animated = u8::from(["gif","webm"].contains(&ext.as_str()));
         let base = path
             .file_stem()
             .unwrap_or_default()
@@ -346,7 +349,7 @@ fn local_art(root: &Path, dir: &Path, stem: Option<&str>) -> Vec<NativeArtwork> 
             .to_ascii_lowercase();
         if stem.is_some_and(|s| base == s.to_lowercase()) {
             if let Ok(path) = relative(root, &path) {
-                result.insert(
+                choose_art(&mut result, 2 + animated,
                     "thumb".to_owned(),
                     NativeArtwork {
                         kind: "thumb".into(),
@@ -367,16 +370,20 @@ fn local_art(root: &Path, dir: &Path, stem: Option<&str>) -> Vec<NativeArtwork> 
                         source: "local".into(),
                     };
                     if stem.is_some_and(|s| base == format!("{}-{name}", s.to_lowercase())) {
-                        result.insert(kind.to_owned(), art);
+                        choose_art(&mut result, 2 + animated, kind.to_owned(), art);
                     } else {
-                        result.entry(kind.to_owned()).or_insert(art);
+                        choose_art(&mut result, animated, kind.to_owned(), art);
                     }
                 }
             }
         }
     }
-    result.into_values().collect()
+    result.into_values().map(|(_,art)|art).collect()
 }
+fn choose_art(result: &mut BTreeMap<String,(u8,NativeArtwork)>, priority:u8, kind:String, art:NativeArtwork) {
+    if result.get(&kind).is_none_or(|(current,_)|priority>*current) {result.insert(kind,(priority,art));}
+}
+
 fn clean_title(stem: &str) -> String {
     let name = regex::Regex::new(r"\[[^\]]*\]")
         .unwrap()
@@ -463,6 +470,9 @@ pub(crate) fn collect_scoped(
     let mut series_directories = BTreeMap::<PathBuf, PathBuf>::new();
     files.sort();
     files.dedup();
+    // Animated artwork is a sidecar, not a movie or episode.
+    let media_stems = files.iter().filter(|p|p.extension().is_some_and(|e|["mkv","mp4","avi","mov","m4v","ts","mpg","mpeg","m2ts"].contains(&e.to_string_lossy().to_ascii_lowercase().as_str()))).map(|p|p.with_extension("")).collect::<std::collections::BTreeSet<_>>();
+    files.retain(|p| !is_artwork_video(p, &media_stems));
     let mut video_counts = BTreeMap::<PathBuf, usize>::new();
     for file in &files {
         let ext = file
@@ -1010,4 +1020,31 @@ pub(crate) fn write_nfo(
         relative(&media_root, &target).map_err(|e| e.detail)?,
         String::from_utf8(bytes).map_err(|e| e.to_string())?,
     ))
+}
+
+fn is_artwork_video(path: &Path, media_stems: &std::collections::BTreeSet<PathBuf>) -> bool {
+    if !path.extension().is_some_and(|e|e.to_string_lossy().eq_ignore_ascii_case("webm")) {return false;}
+    let stem=path.file_stem().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+    media_stems.contains(&path.with_extension("")) || ["poster","cover","folder","fanart","backdrop","background","banner","landscape","thumb","logo","clearlogo","disc"].iter().any(|n|stem==*n || stem.ends_with(&format!("-{n}")))
+}
+
+#[cfg(test)]
+mod animated_artwork_tests {
+    use super::*;
+    #[test]
+    fn artwork_videos_are_excluded_and_animated_sidecars_have_priority() {
+        let temp=tempfile::tempdir().unwrap(); let root=temp.path().canonicalize().unwrap(); let dir=root.as_path();
+        fs::write(dir.join("poster.jpg"),b"static").unwrap();
+        fs::write(dir.join("poster.webm"),b"animated").unwrap();
+        fs::write(dir.join("Episode.mkv"),b"media").unwrap();
+        fs::write(dir.join("Episode.webm"),b"thumb").unwrap();
+        let stems=[dir.join("Episode")].into_iter().collect();
+        assert!(is_artwork_video(&dir.join("poster.webm"),&stems));
+        assert!(is_artwork_video(&dir.join("season01-poster.webm"),&stems));
+        assert!(is_artwork_video(&dir.join("Episode.webm"),&stems));
+        assert!(!is_artwork_video(&dir.join("Movie.webm"),&stems));
+        let art=local_art(dir,dir,Some("Episode"));
+        assert!(art.iter().any(|a|a.kind=="poster" && a.path=="poster.webm"));
+        assert!(art.iter().any(|a|a.kind=="thumb" && a.path=="Episode.webm"));
+    }
 }

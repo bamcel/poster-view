@@ -54,10 +54,10 @@ impl Runtime {
                 .unwrap_or_default()
         };
         let image = |kind: &str| {
-            entry.artwork.iter().find(|a| a.kind == kind).map(|_| {
+            entry.artwork.iter().find(|a| a.kind == kind).map(|art| {
                 format!(
-                    "/api/native/libraries/{library}/items/{item}/artwork/{kind}?v={}",
-                    entry.revision
+                    "/api/native/libraries/{library}/items/{item}/artwork/{kind}?v={}&format={}",
+                    entry.revision, art.path.rsplit_once('.').map(|(_,ext)|ext).unwrap_or("")
                 )
             })
         };

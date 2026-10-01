@@ -6,6 +6,7 @@ import { Film, Tv, Library, Pencil, RefreshCw, BookOpen, Check } from "lucide-re
 import { useActionMenu } from "../lib/actionMenu";
 import type { ColoredEffect } from "../lib/libraryDisplay";
 import "./posterEffects.css";
+import AnimatedArtwork from "./AnimatedArtwork";
 
 interface PosterCardProps {
   coloredTitle?: boolean;
@@ -90,12 +91,10 @@ export default function PosterCard({
         } ${selected ? "ring-2 ring-accent" : "ring-white/5"}`}
       >
         {image && !failed ? (
-          <img
+          <AnimatedArtwork
             src={image}
             alt={title}
-            loading="lazy"
             className="h-full w-full object-cover"
-            draggable={false}
             onError={() => setFailed(true)}
           />
         ) : (
