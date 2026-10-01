@@ -25,6 +25,25 @@ fn metadata_complete(entry: &NativeCatalogEntry) -> bool {
     };
     fields.iter().all(|field| !missing(&entry.metadata[*field]))
 }
+fn needs_voice_cast(entry: &NativeCatalogEntry, library: &NativeLibrary) -> bool {
+    library.library_type == NativeLibraryType::Anime
+        && ["series", "movie"].contains(&entry.kind.as_str())
+        && library
+            .options
+            .metadata_providers
+            .get(&entry.kind)
+            .is_none_or(|providers| providers.iter().any(|p| p == "anilist"))
+        && entry.metadata["voice_cast_schema"] != 1
+}
+fn anilist_voice_cast(data: &Value) -> Value {
+    let mut cast = Vec::new();
+    for edge in data["characters"]["edges"].as_array().into_iter().flatten() {
+        for actor in edge["voiceActors"].as_array().into_iter().flatten() {
+            cast.push(json!({"name":actor["name"]["full"],"provider":"anilist","provider_id":actor["id"],"role":edge["node"]["name"]["full"],"category":"voice","image":actor["image"]["large"],"language":actor["languageV2"]}));
+        }
+    }
+    json!(cast)
+}
 fn missing_images(entry: &NativeCatalogEntry, library: &NativeLibrary) -> Vec<String> {
     library
         .options
@@ -244,7 +263,7 @@ async fn anilist(
             .as_i64()
             .ok_or("Invalid AniList ID.")?
     };
-    let mut body = response(client.post("https://graphql.anilist.co").json(&json!({"query":"query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors(language:JAPANESE){id name{full} image{large}}}} staff(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}","variables":{"id":selected,"type":media_type}})).send().await.map_err(|_|"AniList connection failed.")?).await?;
+    let mut body = response(client.post("https://graphql.anilist.co").json(&json!({"query":"query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal countryOfOrigin isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors{id languageV2 name{full} image{large}}}} staff(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}","variables":{"id":selected,"type":media_type}})).send().await.map_err(|_|"AniList connection failed.")?).await?;
     // Fetch remaining connection pages without discarding the usable first page
     // if a later request fails. Each request shares the provider rate gate.
     for page in 2..=50 {
@@ -257,7 +276,7 @@ async fn anilist(
         }
         let gate = crate::workers::provider("anilist").await;
         drop(gate);
-        let query = "query($id:Int,$type:MediaType,$page:Int){Media(id:$id,type:$type){characters(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors(language:JAPANESE){id name{full} image{large}}}} staff(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}";
+        let query = "query($id:Int,$type:MediaType,$page:Int){Media(id:$id,type:$type){characters(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors{id languageV2 name{full} image{large}}}} staff(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}";
         let result = match client
             .post("https://graphql.anilist.co")
             .json(&json!({"query":query,"variables":{"id":selected,"type":media_type,"page":page}}))
@@ -634,7 +653,10 @@ async fn enrich_one(
     if entry.kind == "book" {
         return;
     }
-    if metadata_complete(entry) && missing_images(entry, library).is_empty() {
+    if metadata_complete(entry)
+        && missing_images(entry, library).is_empty()
+        && !needs_voice_cast(entry, library)
+    {
         return;
     }
     let default = if (library.library_type == NativeLibraryType::Anime
@@ -664,7 +686,10 @@ async fn enrich_one(
         .map(|p| (p.clone(), false))
         .chain(image_order.iter().map(|p| (p.clone(), true)))
     {
-        if !image_phase && metadata_complete(entry) {
+        if !image_phase
+            && metadata_complete(entry)
+            && !(provider_name == "anilist" && needs_voice_cast(entry, library))
+        {
             continue;
         }
         if image_phase {
@@ -914,12 +939,21 @@ async fn enrich_one(
                 let node = &edge["node"];
                 characters.push(json!({"id":node["id"].to_string(),"name":node["name"]["full"],"biography":node["description"],"image":node["image"]["large"],"role":edge["role"]}));
                 for actor in edge["voiceActors"].as_array().unwrap_or(&Vec::new()) {
-                    credits.push(json!({"name":actor["name"]["full"],"provider_id":actor["id"],"role":node["name"]["full"],"category":"voice","image":actor["image"]["large"]}));
+                    credits.push(json!({"name":actor["name"]["full"],"provider_id":actor["id"],"role":node["name"]["full"],"category":"voice","image":actor["image"]["large"],"language":actor["languageV2"]}));
                 }
             }
             for edge in data["staff"]["edges"].as_array().unwrap_or(&Vec::new()) {
                 credits.push(json!({"name":edge["node"]["name"]["full"],"role":edge["role"],"provider_id":edge["node"]["id"],"category":"crew","image":edge["node"]["image"]["large"]}));
             }
+            fields["voice_cast"] = anilist_voice_cast(&data);
+            if entry.metadata["_sources"]["voice_cast"] != "manual" {
+                entry.metadata["voice_cast"] = fields["voice_cast"].clone();
+                entry.metadata["_sources"]["voice_cast"] = json!("anilist");
+            }
+            fields["country_of_origin"] = data["countryOfOrigin"].clone();
+            // A successful empty cast is a known result, not a reason to fetch every scan.
+            entry.metadata["voice_cast_schema"] = json!(1);
+            entry.metadata["_sources"]["voice_cast_schema"] = json!("anilist");
             fields["characters"] = json!(characters);
             fields["credits"] = json!(credits);
             for (kind, value) in [
@@ -1132,6 +1166,29 @@ async fn download_candidates(
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn voice_cast_keeps_languages_and_only_backfills_anime_titles_once() {
+        let data = json!({"characters":{"edges":[{"node":{"name":{"full":"Lead"}},"voiceActors":[{"id":1,"name":{"full":"Original Actor"},"languageV2":"Korean","image":{"large":"original.jpg"}},{"id":2,"name":{"full":"Dub Actor"},"languageV2":"English","image":{"large":"dub.jpg"}}]}]}});
+        let cast = anilist_voice_cast(&data);
+        assert_eq!(cast[0]["language"], "Korean");
+        assert_eq!(cast[1]["language"], "English");
+        assert_eq!(cast[1]["role"], "Lead");
+        let mut entry = local_entry("series");
+        let mut library = library();
+        library.library_type = NativeLibraryType::Anime;
+        assert!(needs_voice_cast(&entry, &library));
+        entry.metadata["voice_cast_schema"] = json!(1);
+        assert!(!needs_voice_cast(&entry, &library));
+        entry.metadata["voice_cast_schema"] = Value::Null;
+        entry.kind = "episode".into();
+        assert!(!needs_voice_cast(&entry, &library));
+        entry.kind = "movie".into();
+        library
+            .options
+            .metadata_providers
+            .insert("movie".into(), vec!["tmdb".into()]);
+        assert!(!needs_voice_cast(&entry, &library));
+    }
     #[test]
     fn fills_missing_credit_portraits_without_replacing_local_or_manual_values() {
         let mut metadata = json!({"credits":[{"name":"Actor","role":"Local role","image":null},{"name":"Other","image":"local.jpg"}],"_sources":{"credits":"nfo"}});

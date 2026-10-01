@@ -251,3 +251,10 @@ Automatic monitoring coalesces changed paths and scans the affected title folder
 Monitor self-write fingerprints remain valid until the file actually changes (bounded to 50,000 tracked paths), so delayed polling notifications from long scans do not expire after a minute. Repeated watcher errors request one recovery scan per outage, rather than continuously rescanning; a real external change or watcher reconfiguration permits another recovery request. Directory rename events remain eligible for reconciliation.
 
 Cast portraits survive NFO saves: actor thumbnail URLs and extra actor fields are preserved, and provider portraits can fill missing images without replacing existing local images or manually locked credit lists. Manual detail pages also resolve missing portraits from matching cached AniList, TMDB, or TVDB people data; no additional network metadata requests are required for that fallback.
+# Anime voice cast
+
+Anime series and movies show original-language voice cast first, followed by voice cast in the library's **Preferred metadata download language**. Matching original and preferred languages produce one group. Actors who voice several characters appear once per group with their character roles combined; production crew remains separate.
+
+AniList supplies voice actors and portraits for each available language. Missing language casts are shown explicitly rather than substituted. Original language uses stored original-language metadata first, then infers language from country of origin when available; country is a fallback, not a verification of the audio track.
+
+After updating, run **Scan files** once for existing anime libraries with AniList enabled as a metadata downloader and missing-metadata fetching enabled. This backfills multilingual voice cast even for otherwise complete titles. A successful result is recorded, including empty casts, so missing dub data does not cause repeated enrichment on every scan. Changing the preferred language then uses the stored multilingual cast.

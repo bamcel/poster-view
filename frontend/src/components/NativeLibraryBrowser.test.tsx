@@ -224,3 +224,16 @@ it("prefers cached AniList portraits over TMDB for matching anime voice cast", a
   mount("/?native_library=native&native_item=show");
   expect((await screen.findByRole("img", {name: "Actor Name"})).getAttribute("src")).toBe("https://s4.anilist.co/actor.jpg");
 });
+
+it("shows original and preferred anime voice cast separately and retains production crew", async () => {
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series, metadata: {...series.metadata,
+    country_of_origin: "KR", voice_cast_schema: 1,
+    voice_cast: [{name:"Korean Actor",language:"Korean",role:"Lead",image:"https://example.com/ko.jpg"},{name:"English Actor",language:"English",role:"Lead",image:"https://example.com/en.jpg"}],
+    credits: [{name:"Korean Actor",category:"voice"},{name:"Director",category:"crew",role:"Director"}],
+  }}]);
+  mount("/?native_library=native&native_item=show");
+  expect(await screen.findByRole("heading",{name:"Korean voice cast · Original"})).toBeTruthy();
+  expect(screen.getByRole("heading",{name:"English voice cast · Preferred"})).toBeTruthy();
+  expect(screen.getAllByText("Korean Actor")).toHaveLength(1);
+  expect(screen.getByText("Director", {selector:"p.text-sm"})).toBeTruthy();
+});
