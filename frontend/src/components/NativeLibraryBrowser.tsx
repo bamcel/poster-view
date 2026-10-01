@@ -152,6 +152,7 @@ export default function NativeLibraryBrowser({
   const catalog = useQuery({
     queryKey: ["native-catalog", library.id],
     queryFn: () => nativeLibraries.catalog(library.id),
+    staleTime: 60_000,
     refetchInterval: status.data?.status === "scanning" ? 5000 : false,
   });
   const [search, setSearch] = useState("");
@@ -175,11 +176,13 @@ export default function NativeLibraryBrowser({
       window.removeEventListener(BACKDROP_OVERLAY_EVENT, update);
     };
   }, []);
+  const previousScanStatus = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (status.data?.status && status.data.status !== "scanning")
+    if (previousScanStatus.current === "scanning" && status.data?.status && status.data.status !== "scanning")
       void client.invalidateQueries({
         queryKey: ["native-catalog", library.id],
       });
+    previousScanStatus.current = status.data?.status;
   }, [status.data?.status, client, library.id]);
   const view = useMemo(
     () => nativeCatalogView(catalog.data ?? []),

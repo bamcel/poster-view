@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -168,4 +168,22 @@ it("opens an old duplicate-series link through its grouped identity", async () =
   mount("/?native_library=native&native_item=alternate");
   await screen.findByRole("heading",{name:"Example Series"});
   expect(screen.getByRole("button",{name:/Open Season 1/})).toBeTruthy();
+});
+
+it("does not reload the catalog when initial scan status is already complete", async () => {
+  vi.mocked(nativeLibraries.catalog).mockClear();
+  mount();
+  await screen.findByText("Example Series");
+  expect(nativeLibraries.catalog).toHaveBeenCalledTimes(1);
+});
+
+it("refreshes the catalog after an active scan finishes", async () => {
+  vi.mocked(nativeLibraries.catalog).mockClear();
+  vi.mocked(nativeLibraries.status).mockResolvedValue({status: "scanning", count: 3, warnings: []});
+  const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<MemoryRouter><QueryClientProvider client={client}><NativeLibraryBrowser library={library} /></QueryClientProvider></MemoryRouter>);
+  await screen.findByText("Example Series");
+  await waitFor(() => expect(client.getQueryData(["native-scan", library.id])).toMatchObject({status: "scanning"}));
+  client.setQueryData(["native-scan", library.id], {status: "complete", count: 3, warnings: []});
+  await waitFor(() => expect(nativeLibraries.catalog).toHaveBeenCalledTimes(2));
 });

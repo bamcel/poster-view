@@ -446,16 +446,9 @@ pub(crate) async fn artwork(
     Path((library, item, kind)): Path<(String, String, String)>,
 ) -> Result<(axum::http::HeaderMap, Vec<u8>), HttpError> {
     tokio::task::spawn_blocking(move || {
-        let entry = store(&state)
-            .native_catalog(&library)
+        let art = store(&state)
+            .native_artwork(&library, &item, &kind)
             .map_err(error)?
-            .into_iter()
-            .find(|e| e.id == item)
-            .ok_or_else(HttpError::not_found)?;
-        let art = entry
-            .artwork
-            .iter()
-            .find(|a| a.kind == kind)
             .ok_or_else(HttpError::not_found)?;
         let path = if let Some(name) = art.path.strip_prefix("@managed/") {
             let (id, ext) = name.rsplit_once('.').ok_or_else(HttpError::not_found)?;
@@ -505,7 +498,7 @@ pub(crate) async fn artwork(
         );
         headers.insert(
             axum::http::header::CACHE_CONTROL,
-            axum::http::HeaderValue::from_static("private, no-cache"),
+            axum::http::HeaderValue::from_static("private, max-age=60"),
         );
         Ok((headers, bytes))
     })

@@ -125,6 +125,20 @@ impl ServerStore {
         tx.commit()?;
         Ok(())
     }
+    /// Fetch one artwork record without deserializing the library's metadata or files.
+    pub fn native_artwork(
+        &self,
+        library: &str,
+        item: &str,
+        kind: &str,
+    ) -> Result<Option<NativeArtwork>, StoreError> {
+        self.connection()?.query_row(
+            "SELECT a.kind,a.path,a.source FROM catalog_artwork a JOIN native_catalog_sources s ON s.item_id=a.item_id WHERE s.library_id=?1 AND s.item_id=?2 AND a.kind=?3 AND s.available=1",
+            params![library,item,kind],
+            |r| Ok(NativeArtwork { kind:r.get(0)?, path:r.get(1)?, source:r.get(2)? }),
+        ).optional().map_err(Into::into)
+    }
+
     pub fn native_catalog(&self, library: &str) -> Result<Vec<NativeCatalogEntry>, StoreError> {
         let mut db = self.connection()?;
         let tx = db.transaction()?;
@@ -140,6 +154,11 @@ impl ServerStore {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         let mut result = Vec::new();
+        let mut fields =
+            tx.prepare("SELECT field,value_json FROM catalog_metadata_fields WHERE item_id=?1")?;
+        let mut artwork = tx.prepare(
+            "SELECT kind,path,source FROM catalog_artwork WHERE item_id=?1 ORDER BY kind",
+        )?;
         for (snapshot, id, available, revision) in rows {
             let mut entry: NativeCatalogEntry =
                 serde_json::from_str(&snapshot).map_err(|_| invalid("Invalid catalog record."))?;
@@ -147,8 +166,6 @@ impl ServerStore {
             entry.available = available;
             entry.revision = revision;
             entry.metadata = json!({});
-            let mut fields = tx
-                .prepare("SELECT field,value_json FROM catalog_metadata_fields WHERE item_id=?1")?;
             for row in fields.query_map([&id], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
             })? {
@@ -160,10 +177,7 @@ impl ServerStore {
                 .as_str()
                 .unwrap_or(&entry.title)
                 .into();
-            entry.artwork = tx
-                .prepare(
-                    "SELECT kind,path,source FROM catalog_artwork WHERE item_id=?1 ORDER BY kind",
-                )?
+            entry.artwork = artwork
                 .query_map([&id], |r| {
                     Ok(NativeArtwork {
                         kind: r.get(0)?,
@@ -480,5 +494,81 @@ mod tests{
         db.edit_native_entry(&library.id,&current.id,current.revision,&json!({"plot":"Manual plot"})).unwrap();
         db.ingest_native_catalog(&library.id,library.revision,&[entry.clone()]).unwrap();assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["plot"],"Manual plot");
         assert!(db.ingest_native_catalog(&library.id,library.revision+1,&[]).is_err());assert!(db.native_catalog(&library.id).unwrap()[0].available);
+    }
+    #[test]
+    fn artwork_lookup_is_scoped_and_does_not_load_catalog_snapshots() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let entry = NativeCatalogEntry {
+            id: String::new(),
+            path: "Movies/Test.mp4".into(),
+            kind: "movie".into(),
+            parent_path: None,
+            title: "Test".into(),
+            metadata: json!({"title":"Test"}),
+            artwork: vec![NativeArtwork {
+                kind: "poster".into(),
+                path: "Movies/poster.jpg".into(),
+                source: "local".into(),
+            }],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
+        let item = db.native_catalog(&library.id).unwrap().remove(0).id;
+        db.connection()
+            .unwrap()
+            .execute(
+                "UPDATE native_catalog_sources SET snapshot_json='{}' WHERE library_id=?1",
+                [&library.id],
+            )
+            .unwrap();
+        assert_eq!(
+            db.native_artwork(&library.id, &item, "poster")
+                .unwrap()
+                .unwrap()
+                .path,
+            "Movies/poster.jpg"
+        );
+        assert!(
+            db.native_artwork("other-library", &item, "poster")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            db.native_artwork(&library.id, &item, "backdrop")
+                .unwrap()
+                .is_none()
+        );
+        db.connection()
+            .unwrap()
+            .execute(
+                "UPDATE native_catalog_sources SET available=0 WHERE library_id=?1",
+                [&library.id],
+            )
+            .unwrap();
+        assert!(
+            db.native_artwork(&library.id, &item, "poster")
+                .unwrap()
+                .is_none()
+        );
     }
 }
