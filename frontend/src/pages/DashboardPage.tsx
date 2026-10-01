@@ -37,14 +37,6 @@ export default function DashboardPage() {
   const manual = params.has("native_library") || !selectedServer;
   const library = manualLibraries.data?.find(l => l.id === params.get("native_library")) ?? manualLibraries.data?.[0];
   const scan = useQuery({queryKey: ["native-scan", library?.id], queryFn: () => nativeLibraries.status(library!.id), enabled: manual && !!library, refetchInterval: q => q.state.data?.status === "scanning" ? 2000 : false});
-  const sidebarStyle = () => ({backgroundColor: translucentPanelColor("--color-sidebar", panelSolidity(), panelOverlay()), backdropFilter: `blur(${backdropBlur()}px)`, WebkitBackdropFilter: `blur(${backdropBlur()}px)`});
-  const [headerStyle, setHeaderStyle] = useState(sidebarStyle);
-  useEffect(() => {
-    const update = () => setHeaderStyle(sidebarStyle());
-    const events = [PANEL_SOLIDITY_EVENT, PANEL_OVERLAY_EVENT, BACKDROP_BLUR_EVENT];
-    events.forEach(event => window.addEventListener(event, update));
-    return () => events.forEach(event => window.removeEventListener(event, update));
-  }, []);
   const select = (id: string, native: boolean) => {
     if (native) localStorage.setItem("posterview.manualLibraryTab", id);
     else if (selectedServer) sessionStorage.setItem(`posterview.libraryTab.${selectedServer.id}`, id);
@@ -58,7 +50,7 @@ export default function DashboardPage() {
   };
   if (isLoading) return <Spinner label="Loading…" />;
   return <div className="flex h-full min-h-0 flex-col">
-    {!params.has("native_item") && <header aria-label="Library header" style={headerStyle} className="relative z-20 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 pt-0 sm:px-6 md:flex-nowrap md:pt-[75px] lg:px-8">
+    {!params.has("native_item") && <header aria-label="Library header" className="relative z-20 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-transparent px-4 pt-0 sm:px-6 md:flex-nowrap md:pt-[75px] lg:px-8">
       <div role="group" aria-label="Libraries" className="flex min-w-0 flex-1 basis-full gap-1 overflow-x-auto md:basis-auto">
       {servers.isLoading && <span className="py-2 text-sm text-muted">Loading server libraries…</span>}
       {(servers.data ?? []).map(l => <button key={`server:${l.id}`} title={l.title} aria-pressed={!manual && params.get("lib") === l.id} onClick={() => select(l.id, false)} className={`min-h-11 max-w-64 shrink-0 truncate border-b-2 px-4 py-2 text-sm font-medium ${!manual && params.get("lib") === l.id ? "border-accent text-white" : "border-transparent text-muted hover:text-white"}`}>{l.title}</button>)}

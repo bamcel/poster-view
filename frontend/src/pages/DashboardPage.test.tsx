@@ -389,6 +389,8 @@ it("places manual scan progress in the shared library header", async () => {
   expect(header.contains(progress)).toBe(true);
   expect(progress.getAttribute("aria-valuenow")).toBe("50");
   expect(screen.getAllByRole("progressbar")).toHaveLength(1);
-  expect(header.style.backgroundColor).toBeTruthy();
+  expect(header.classList.contains("bg-transparent")).toBe(true);
+  expect(header.style.backgroundColor).toBe("");
+  expect(header.style.backdropFilter).toBe("");
   client.clear();
 });
