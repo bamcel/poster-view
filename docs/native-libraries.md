@@ -229,3 +229,5 @@ tried separately in their configured order until the applicable images have
 been saved. Responses are reused when a provider serves both purposes. A failed
 image download leaves its type missing, allowing a lower-priority image source
 to try. Local and manual values remain protected.
+
+Real-time monitoring ignores PosterView's own NFO and artwork sidecar writes, including delayed polling notifications, so saving scan results does not queue another scan. External file edits, additions, and deletions remain monitored.

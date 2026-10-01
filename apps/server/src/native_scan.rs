@@ -866,11 +866,14 @@ pub(crate) fn write_nfo(
     if previous != latest {
         return Err("NFO changed during write; retry after reviewing it.".into());
     }
-    if previous.is_none() {
-        temp.persist_noclobber(&target).map_err(|e| e.to_string())?;
-    } else {
-        temp.persist(&target).map_err(|e| e.to_string())?;
-    }
+    crate::native_monitor::own_write(&target, || {
+        if previous.is_none() {
+            temp.persist_noclobber(&target).map_err(|e| e.to_string())?;
+        } else {
+            temp.persist(&target).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })?;
     Ok((
         relative(&media_root, &target).map_err(|e| e.detail)?,
         String::from_utf8(bytes).map_err(|e| e.to_string())?,

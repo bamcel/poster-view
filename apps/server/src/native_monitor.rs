@@ -11,6 +11,45 @@ use std::{
     time::{Duration, Instant},
 };
 
+// Keep fingerprints beyond the polling interval so delayed watcher events are ignored.
+// The lock spans the atomic rename: an event cannot race fingerprint registration.
+type WriteStamp = (u64, std::time::SystemTime);
+static OWN_WRITES: std::sync::LazyLock<std::sync::Mutex<BTreeMap<PathBuf, (Instant, WriteStamp)>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(BTreeMap::new()));
+
+fn stamp(path: &Path) -> Option<WriteStamp> {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some((metadata.len(), metadata.modified().ok()?))
+}
+
+pub(crate) fn own_write<T>(
+    path: &Path,
+    write: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let mut writes = OWN_WRITES.lock().unwrap_or_else(|e| e.into_inner());
+    writes.retain(|_, (time, _)| time.elapsed() < Duration::from_secs(60));
+    let result = write();
+    if result.is_ok() {
+        if let Some(value) = stamp(path) {
+            writes.insert(path.to_path_buf(), (Instant::now(), value));
+        }
+    }
+    result
+}
+
+fn external_change(path: &Path, kind: &EventKind) -> bool {
+    // Directory modification notifications accompany atomic sidecar writes.
+    // Child create/remove/rename events still report actual folder-content changes.
+    if matches!(kind, EventKind::Modify(_)) && path.is_dir() {
+        return false;
+    }
+    let mut writes = OWN_WRITES.lock().unwrap_or_else(|e| e.into_inner());
+    writes.retain(|_, (time, _)| time.elapsed() < Duration::from_secs(60));
+    !writes
+        .get(path)
+        .is_some_and(|(_, expected)| stamp(path).as_ref() == Some(expected))
+}
+
 fn relevant(path: &Path, root: &Path) -> bool {
     let Ok(relative) = path.strip_prefix(root) else {
         return false;
@@ -36,7 +75,7 @@ pub(crate) fn start(state: AppState) {
                 event=rx.recv()=>{if let Some(event)=event{
                     match event{
                         Ok(event) if !matches!(event.kind,EventKind::Access(_))=>{
-                            for (id,root) in &roots{if event.paths.iter().any(|p|relevant(p,root)){let now=Instant::now();pending.entry(id.clone()).and_modify(|v|v.1=now).or_insert((now,now));}}
+                            for (id,root) in &roots{if event.paths.iter().any(|p|relevant(p,root) && external_change(p,&event.kind)){let now=Instant::now();pending.entry(id.clone()).and_modify(|v|v.1=now).or_insert((now,now));}}
                         }
                         Err(error)=>{tracing::warn!(%error,"Native library monitor event failed; polling remains enabled");overflow.store(true,Ordering::Relaxed);}
                         _=>{}
@@ -85,6 +124,37 @@ pub(crate) fn start(state: AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn own_writes_ignore_delayed_events_but_external_edits_and_removals_remain_visible() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("tvshow.nfo");
+        let kind = EventKind::Modify(notify::event::ModifyKind::Any);
+        own_write(&path, || {
+            std::fs::write(&path, b"local metadata").map_err(|e| e.to_string())
+        })
+        .unwrap();
+        assert!(!external_change(&path, &kind));
+        assert!(!external_change(&path, &kind)); // Both native and polling notifications.
+        std::fs::write(&path, b"external metadata edit").unwrap();
+        assert!(external_change(&path, &kind));
+        std::fs::remove_file(&path).unwrap();
+        assert!(external_change(
+            &path,
+            &EventKind::Remove(notify::event::RemoveKind::File)
+        ));
+        let new_file = directory.path().join("episode.mkv");
+        std::fs::write(&new_file, b"video").unwrap();
+        assert!(external_change(
+            &new_file,
+            &EventKind::Create(notify::event::CreateKind::File)
+        ));
+        assert!(!external_change(directory.path(), &kind));
+        assert!(external_change(
+            directory.path(),
+            &EventKind::Create(notify::event::CreateKind::Folder)
+        ));
+    }
+
     #[test]
     fn ignores_backdrop_and_temporary_events() {
         let root = Path::new("media");

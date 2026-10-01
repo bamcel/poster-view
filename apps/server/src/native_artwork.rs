@@ -167,12 +167,15 @@ pub(crate) fn write(
     temp.write_all(encoded.get_ref())
         .map_err(|e| e.to_string())?;
     temp.as_file().sync_all().map_err(|e| e.to_string())?;
-    if replace {
-        temp.persist(&target).map_err(|e| e.to_string())?;
-    } else if let Err(e) = temp.persist_noclobber(&target) {
-        if e.error.kind() != std::io::ErrorKind::AlreadyExists {
-            return Err(e.to_string());
+    crate::native_monitor::own_write(&target, || {
+        if replace {
+            temp.persist(&target).map_err(|e| e.to_string())?;
+        } else if let Err(e) = temp.persist_noclobber(&target) {
+            if e.error.kind() != std::io::ErrorKind::AlreadyExists {
+                return Err(e.to_string());
+            }
         }
-    }
+        Ok(())
+    })?;
     Ok(())
 }
