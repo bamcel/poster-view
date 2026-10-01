@@ -111,8 +111,6 @@ function portraitIndex(metadata: Record<string, unknown>): Map<string, string> {
     candidates.push({name: record(node.name).full, image: record(node.image).large});
   }
   for (const edge of list(record(ani.characters).edges)) {
-    const node = record(edge.node);
-    candidates.push({name: record(node.name).full, image: record(node.image).large});
     for (const actor of list(edge.voiceActors)) candidates.push({name: record(actor.name).full, image: record(actor.image).large});
   }
   const tmdb = record(record(metadata.tmdb_data).credits);
@@ -555,9 +553,14 @@ function NativeDetail({
   );
   const portraitImages = useMemo(() => portraitIndex(entry.metadata), [entry.metadata]);
   const voiceCast = useMemo(() => library.library_type === "anime" && ["series", "movie"].includes(entry.kind) ? animeVoiceGroups(entry.metadata, library.options?.metadata_language ?? "en") : undefined, [entry.metadata, entry.kind, library.library_type, library.options?.metadata_language]);
+  const characterNames = new Set((Array.isArray(entry.metadata.characters) ? entry.metadata.characters as Record<string, unknown>[] : []).map(character => voiceName(character.name)).filter(Boolean));
   const credits = (Array.isArray(entry.metadata.credits)
     ? (entry.metadata.credits as Record<string, unknown>[])
-    : []).filter(credit => !voiceCast || credit.category === "crew" || !voiceCast.names.has(voiceName(credit.name)));
+    : []).filter(credit => {
+      if (credit.category === "crew") return true;
+      if (credit.category === "character" || characterNames.has(voiceName(credit.name))) return false;
+      return !voiceCast || (credit.category !== "voice" && !voiceCast.names.has(voiceName(credit.name)));
+    });
   return (
     <>
       {showBackdrop && backdrop && (
