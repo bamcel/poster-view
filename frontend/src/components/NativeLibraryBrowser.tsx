@@ -801,7 +801,7 @@ function NativeDetail({
                   <div className="flex gap-4 overflow-x-auto pb-3">
                     {(
                       entry.metadata.characters as Record<string, unknown>[]
-                    ).map((character, i) => (
+                    ).slice().sort((a, b) => Number(/^(?:the\s+)?narrator$/i.test(String(a.name ?? "").trim())) - Number(/^(?:the\s+)?narrator$/i.test(String(b.name ?? "").trim()))).map((character, i) => (
                       <div
                         key={i}
                         className="w-48 shrink-0 rounded-xl border border-border bg-black/20 p-4"
