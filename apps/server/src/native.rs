@@ -1467,4 +1467,12 @@ pub(crate) mod scan_tests {
             "https://example.com/updated.jpg"
         );
     }
+    #[test]
+    fn identification_nfo_replaces_old_ids_and_preserves_unknown_fields(){
+        let temp=tempfile::tempdir().unwrap();let state=state(temp.path());let dir=temp.path().join("media/Movies/Test");fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("Test.nfo"),"<movie><uniqueid type='tvdb'>99</uniqueid><tvdbid>99</tvdbid><uniqueid type='custom'>keep</uniqueid><custom>value</custom></movie>").unwrap();
+        let entry=posterview_contracts::native::NativeCatalogEntry{id:String::new(),path:"Movies/Test/Test.mkv".into(),kind:"movie".into(),parent_path:None,title:"Correct".into(),metadata:serde_json::json!({"title":"Correct","identifiers":{"tmdb":"12"}}),artwork:vec![],files:vec![],nfo_path:Some("Movies/Test/Test.nfo".into()),nfo_xml:None,available:true,revision:1};
+        let (_,xml)=crate::native_scan::write_identification_nfo(&state,&entry).unwrap();let (_,metadata)=crate::native_scan::parse_nfo(xml.as_bytes()).unwrap();assert_eq!(metadata["identifiers"]["tmdb"],"12");assert!(metadata["identifiers"]["tvdb"].is_null());assert!(xml.contains("<custom>value</custom>"));assert!(xml.contains("keep"));
+    }
+
 }

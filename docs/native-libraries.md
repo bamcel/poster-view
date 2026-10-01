@@ -288,3 +288,12 @@ WebM files loop silently. Before storing an upload, PosterView inspects its vide
 Animations run only while visible, in the active browser tab, and when reduced motion is not enabled. A cached static frame is used otherwise, including when video playback fails. WebM responses support byte ranges. Static fallbacks are accessible using `still=1` on a native artwork URL, for future clients that need a conventional image.
 
 The existing 20 MB artwork limit applies. WebM supports VP8, VP9, and AV1 video, up to 16 megapixels and two minutes per animation. Stored static frames are scaled to at most 1920 pixels per side. Animated uploads and their fallback frames use application storage; local animations also require a prepared cache copy. Enabling media-folder artwork saves a correctly named `.gif` or `.webm` copy rather than converting it to JPEG. Ordinary static artwork retains existing JPEG/PNG naming. Connected-server artwork uploads remain subject to that server's image API; WebM uploads are available only for manual libraries. Poster rotation is unchanged.
+
+
+### Correcting an identification
+
+Use **Identify** beside Artwork on a manual series or movie. Search by title and optional year; anime searches AniList, TheTVDB, TMDB, MyAnimeList, and AniDB together. Configure provider credentials under Search Providers. AniDB title searches use a daily cached title index; confirming an AniDB ID requires your registered HTTP client name/version. Its title index has no dates, so those results remain visible with a year filter.
+
+Select and review provider records or enter IDs manually. Unique exact title/year matches are suggestions; sequels and seasons need review, especially with AniDB's separate records. Saving verifies selected searchable IDs and provider-declared cross references, rejecting conflicting links. IMDb accepts a manual ID. Missing credentials or unavailable providers are shown per provider.
+
+Saving replaces the item's IDs in the manual database, locks the corrected title/year/IDs, and clears provider-derived metadata and artwork for the item and its descendants. Local metadata and local/manually selected artwork remain. Identification is blocked during a scan. If NFO saving is enabled, corrected IDs replace previous known-provider IDs while preserving unrelated XML; write conflicts are reported. Use **Scan files** afterward to fetch missing metadata with the corrected IDs.

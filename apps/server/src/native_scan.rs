@@ -814,9 +814,12 @@ pub(crate) fn collect_scoped(
     progress.report("reading", total, Some(total), entries.len(), "", true);
     Ok((entries.into_values().collect(), warnings))
 }
-pub(crate) fn write_nfo(
+pub(crate) fn write_identification_nfo(state: &AppState, entry: &NativeCatalogEntry) -> Result<(String,String),String> { write_nfo_inner(state,entry,true) }
+pub(crate) fn write_nfo(state: &AppState, entry: &NativeCatalogEntry) -> Result<(String,String),String> { write_nfo_inner(state,entry,false) }
+fn write_nfo_inner(
     state: &AppState,
     entry: &NativeCatalogEntry,
+    replace_ids: bool,
 ) -> Result<(String, String), String> {
     if entry.kind == "season" && entry.nfo_path.is_none() {
         return Err("Season writeback is not supported.".into());
@@ -912,6 +915,11 @@ pub(crate) fn write_nfo(
                 xml.children.push(XMLNode::Element(element));
             }
         }
+    }
+    if replace_ids {
+        xml.children.retain(|node| !matches!(node, XMLNode::Element(e) if
+            ["imdbid","tmdbid","tvdbid","anilistid","malid","anidbid"].contains(&e.name.as_str()) ||
+            (e.name=="uniqueid" && e.attributes.get("type").is_some_and(|v| ["imdb","tmdb","tvdb","anilist","mal","anidb"].contains(&v.to_lowercase().as_str())))));
     }
     if let Some(ids) = entry.metadata["identifiers"].as_object() {
         for (provider, id) in ids {

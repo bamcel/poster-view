@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Film,
   Images,
+  Fingerprint,
   ListFilter,
   Pencil,
   RefreshCw,
@@ -22,6 +23,7 @@ import type { ItemDetail } from "../types";
 import PosterCard from "./PosterCard";
 import AnimatedArtwork from "./AnimatedArtwork";
 import ArtworkPanel from "./ArtworkPanel";
+import IdentifyPanel from "./IdentifyPanel";
 import { animeVoiceGroups, voiceName } from "../lib/nativeVoiceCast";
 import { nativeCatalogView } from "../lib/nativeCatalogView";
 import DashboardBackdrop from "./DashboardBackdrop";
@@ -206,7 +208,7 @@ export default function NativeLibraryBrowser({
   const [artFilter, setArtFilter] = useState("all");
   const [editor, setEditor] = useState<{
     id: string;
-    kind: "metadata" | "artwork";
+    kind: "metadata" | "artwork" | "identify";
   } | null>(null);
   const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
   const [overlay, setOverlay] = useState(backdropOverlay);
@@ -287,6 +289,7 @@ export default function NativeLibraryBrowser({
           : (number(a.metadata.year) ?? 0) - (number(b.metadata.year) ?? 0),
     );
   const updated = () => {
+    if(editor) void client.invalidateQueries({queryKey:["item-detail0",0,`native:${library.id}:${editor.id}`]});
     void client.invalidateQueries({ queryKey: ["native-catalog", library.id] });
     setEditor(null);
   };
@@ -449,6 +452,10 @@ export default function NativeLibraryBrowser({
             <ArtworkPanel serverId={0} item={nativeArtworkItem(library, editEntry, entries)} libraryTitle={library.name} libraryType={library.library_type === "books" ? "book" : library.library_type === "movies" ? "movie" : "show"} onClose={() => setEditor(null)} />
           </section>
         </div>
+      ) : editor?.kind === "identify" ? (
+        <Modal title="Identify" onClose={() => setEditor(null)}>
+          <IdentifyPanel library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated}/>
+        </Modal>
       ) : (
         <Modal title="Edit Metadata" onClose={() => setEditor(null)}>
           <EntryEditor library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated} />
@@ -478,7 +485,7 @@ function NativeDetail({
   back: () => void;
   refresh: () => void;
   fetching: boolean;
-  edit: (kind: "metadata" | "artwork") => void;
+  edit: (kind: "metadata" | "artwork" | "identify") => void;
   showBackdrop: boolean;
   overlay: number;
 }) {
@@ -672,6 +679,7 @@ function NativeDetail({
                   >
                     <Images className="size-4" />
                   </button>
+                  {["series","movie"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")}><Fingerprint className="size-4"/></button>}
                 </div>
                 <div className={isSeries ? "hidden sm:block" : "text-left"}>
                   <DetailSynopsis text={overview} />

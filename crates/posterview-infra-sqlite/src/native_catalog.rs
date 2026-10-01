@@ -422,6 +422,33 @@ impl ServerStore {
         tx.commit()?;
         Ok(())
     }
+    /// Explicit identification replaces old provider IDs and invalidates derived data atomically.
+    pub fn identify_native_entry(&self, library:&str, item:&str, revision:i64, title:&str, year:Option<i64>, identifiers:&Value) -> Result<(),StoreError> {
+        let mut db=self.connection()?;let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current:Option<i64>=tx.query_row("SELECT i.revision FROM catalog_items i JOIN native_catalog_sources s ON s.item_id=i.id WHERE s.library_id=?1 AND i.id=?2 AND s.available=1",params![library,item],|r|r.get(0)).optional()?;
+        if current!=Some(revision){return Err(StoreError::RevisionConflict);}
+        let scanning:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_scans WHERE library_id=?1 AND json_extract(status_json,'$.status')='scanning')",[library],|r|r.get(0))?;
+        if scanning{return Err(invalid("Wait for the library scan to finish before identifying an item."));}
+        // A corrected root invalidates automatically identified seasons and episodes too.
+        let mut stmt=tx.prepare("WITH RECURSIVE children(id) AS (SELECT ?1 UNION SELECT i.id FROM catalog_items i JOIN children c ON i.parent_id=c.id) SELECT id FROM children")?;
+        let affected=stmt.query_map([item],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;drop(stmt);
+        for id in &affected {
+            tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND (source IN ('anilist','tmdb','tvdb','mal','anidb','jikan','omdb','fanart') OR field IN ('anilist_data','tmdb_data','tvdb_data','mal_data','anidb_data','jikan_data','jikan_checked','jikan_retry_after','voice_cast_schema'))",[id])?;
+            tx.execute("DELETE FROM catalog_artwork WHERE item_id=?1 AND source NOT IN ('manual','local')",[id])?;
+        }
+        for (field,value) in [("identifiers",identifiers.clone()),("title",json!(title))].into_iter().chain(year.map(|y|("year",json!(y)))) {
+            tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='manual',locked=1,revision=revision+1",params![item,field,value.to_string()])?;
+        }
+        tx.execute("UPDATE catalog_items SET title=?2,sort_title=lower(?2) WHERE id=?1",params![item,title])?;
+        for id in affected {
+            let mut effective=json!({});let mut fields=tx.prepare("SELECT field,value_json FROM catalog_metadata_fields WHERE item_id=?1")?;
+            for row in fields.query_map([&id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))? {let(field,value)=row?;effective[field]=serde_json::from_str(&value).map_err(|_|invalid("Invalid metadata."))?;}
+            drop(fields);project_metadata(&tx,&id,&effective)?;
+            tx.execute("UPDATE catalog_items SET revision=revision+1 WHERE id=?1",[id])?;
+        }
+        tx.commit()?;Ok(())
+    }
+
 }
 fn project_metadata(
     tx: &rusqlite::Transaction<'_>,
@@ -510,6 +537,17 @@ fn project_metadata(
 mod tests{
     use super::*;
     use posterview_contracts::native::{NativeLibraryInput,NativeLibraryType,AnimeContent};
+    #[test]
+    fn identify_resets_provider_data_and_preserves_local_values_atomically(){
+        let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
+        let library=db.save_native_library(None,&NativeLibraryInput{name:"Anime".into(),library_type:NativeLibraryType::Anime,anime_content:AnimeContent::Both,paths:vec!["Anime".into()],revision:None,options:Default::default()}).unwrap();
+        let entry=NativeCatalogEntry{id:String::new(),path:"Anime/Test".into(),kind:"series".into(),parent_path:None,title:"Wrong".into(),metadata:json!({"title":"Wrong","plot":"Local synopsis","year":2024,"identifiers":{"tvdb":"99"},"credits":[{"name":"Wrong actor","category":"cast"}],"_sources":{"title":"tvdb","plot":"nfo","year":"tvdb","identifiers":"tvdb","credits":"tvdb"}}),artwork:vec![NativeArtwork{kind:"poster".into(),path:"Anime/Test/poster.jpg".into(),source:"local".into()},NativeArtwork{kind:"banner".into(),path:"wrong.jpg".into(),source:"tvdb".into()}],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+        db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();let before=db.native_catalog(&library.id).unwrap().remove(0);
+        assert!(db.identify_native_entry(&library.id,&before.id,before.revision+1,"Correct",Some(2014),&json!({"anilist":"20464"})).is_err());
+        assert_eq!(db.native_catalog(&library.id).unwrap()[0].title,"Wrong");
+        db.identify_native_entry(&library.id,&before.id,before.revision,"Correct",Some(2014),&json!({"anilist":"20464"})).unwrap();
+        let after=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(after.title,"Correct");assert_eq!(after.metadata["plot"],"Local synopsis");assert_eq!(after.metadata["identifiers"],json!({"anilist":"20464"}));assert!(after.metadata["credits"].is_null());assert_eq!(after.artwork.len(),1);assert_eq!(after.artwork[0].source,"local");assert!(after.revision>before.revision);
+    }
     #[test]
     fn fills_empty_local_values_without_overwriting_populated_or_manual_fields(){
         let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();

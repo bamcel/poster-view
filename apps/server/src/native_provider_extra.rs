@@ -797,7 +797,7 @@ async fn fanart(
     })
 }
 static ANIDB_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-async fn anidb_document(
+pub(crate) async fn anidb_document(
     state: &AppState,
     client: &reqwest::Client,
     aid: &str,
