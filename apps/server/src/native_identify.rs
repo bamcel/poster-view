@@ -143,8 +143,31 @@ fn candidate(provider: &str, v: &Value, movie: bool) -> Option<Value> {
             }
         }
     }
+    let poster = match provider {
+        "anilist" => v["coverImage"]["large"]
+            .as_str()
+            .or(v["coverImage"]["extraLarge"].as_str())
+            .map(str::to_owned),
+        "tmdb" => v["poster_path"]
+            .as_str()
+            .map(|p| format!("https://image.tmdb.org/t/p/w342{p}")),
+        "tvdb" => v["image_url"]
+            .as_str()
+            .or(v["image"].as_str())
+            .map(str::to_owned),
+        "mal" => v["main_picture"]["large"]
+            .as_str()
+            .or(v["main_picture"]["medium"].as_str())
+            .map(str::to_owned),
+        _ => None,
+    }
+    .filter(|url| {
+        reqwest::Url::parse(url).is_ok_and(|u| {
+            u.scheme() == "https" && u.username().is_empty() && u.password().is_none()
+        })
+    });
     Some(
-        json!({"provider":provider,"id":id,"title":title,"year":year(&date),"overview":overview,"format":format,"identifiers":ids}),
+        json!({"provider":provider,"id":id,"title":title,"year":year(&date),"overview":overview,"format":format,"identifiers":ids,"poster":poster}),
     )
 }
 
@@ -202,9 +225,9 @@ async fn lookup(
     let values: Vec<Value> = match provider {
         "anilist" => {
             let query = if id.is_some() {
-                "query($id:Int){Media(id:$id,type:ANIME){id idMal format title{english romaji native} startDate{year} description(asHtml:false)}}"
+                "query($id:Int){Media(id:$id,type:ANIME){id idMal format coverImage{large} title{english romaji native} startDate{year} description(asHtml:false)}}"
             } else {
-                "query($search:String,$adult:Boolean){Page(perPage:15){media(search:$search,type:ANIME,isAdult:$adult){id idMal format title{english romaji native} startDate{year} description(asHtml:false)}}}"
+                "query($search:String,$adult:Boolean){Page(perPage:15){media(search:$search,type:ANIME,isAdult:$adult){id idMal format coverImage{large} title{english romaji native} startDate{year} description(asHtml:false)}}}"
             };
             let body=response(client.post("https://graphql.anilist.co").json(&json!({"query":query,"variables":{"search":title,"id":id.and_then(|s|s.parse::<u64>().ok()),"adult":if adult {Value::Null}else{json!(false)}}})).send().await.map_err(|_|"AniList connection failed.")?).await?;
             if id.is_some() {
@@ -281,8 +304,32 @@ async fn lookup(
                     .await?,
             )
             .await?;
-            if id.is_some() {
-                vec![body["data"].clone()]
+            if let Some(id) = id {
+                let mut record = body["data"].clone();
+                if let Ok(res) = service
+                    .native_tvdb_get(
+                        &format!(
+                            "/{kind}/{id}/translations/{}",
+                            crate::native_provider_extra::lang(language)
+                        ),
+                        &[],
+                        &token,
+                        &key(state, "tvdb_pin"),
+                    )
+                    .await
+                {
+                    if let Ok(translated) = response(res).await {
+                        for field in ["name", "overview"] {
+                            if translated["data"][field]
+                                .as_str()
+                                .is_some_and(|s| !s.trim().is_empty())
+                            {
+                                record[field] = translated["data"][field].clone();
+                            }
+                        }
+                    }
+                }
+                vec![record]
             } else {
                 body["data"]
                     .as_array()
@@ -307,7 +354,10 @@ async fn lookup(
                 ))
                 .header("X-MAL-CLIENT-ID", token)
                 .query(&[
-                    ("fields", "id,title,start_date,synopsis,media_type"),
+                    (
+                        "fields",
+                        "id,title,start_date,synopsis,media_type,main_picture",
+                    ),
                     ("nsfw", if adult { "true" } else { "false" }),
                 ]);
             let request = if id.is_some() {
@@ -645,8 +695,21 @@ async fn anidb_lookup(
             .and_then(|e| e.get_text())
             .map(|s| s.into_owned())
             .unwrap_or_else(|| title.into());
+        let poster = root
+            .get_child("picture")
+            .and_then(|e| e.get_text())
+            .filter(|s| {
+                s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+            })
+            .map(|s| format!("https://cdn-eu.anidb.net/images/main/{s}"));
+        let date = root
+            .get_child("startdate")
+            .and_then(|e| e.get_text())
+            .map(|s| json!(s))
+            .unwrap_or(Value::Null);
         return Ok(vec![
-            json!({"provider":"anidb","id":id,"title":name,"identifiers":{"anidb":id}}),
+            json!({"provider":"anidb","id":id,"title":name,"year":year(&date),"format":kind,"poster":poster,"identifiers":{"anidb":id}}),
         ]);
     }
     static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
@@ -754,6 +817,20 @@ mod tests {
         )
         .unwrap();
         assert!(v["identifiers"]["tvdb"].is_null());
+        let poster = candidate(
+            "tmdb",
+            &json!({"id":1,"name":"Test","poster_path":"/test.jpg"}),
+            false,
+        )
+        .unwrap();
+        assert_eq!(poster["poster"], "https://image.tmdb.org/t/p/w342/test.jpg");
+        let poster = candidate(
+            "tvdb",
+            &json!({"id":1,"name":"Test","image_url":"javascript:alert(1)"}),
+            false,
+        )
+        .unwrap();
+        assert!(poster["poster"].is_null());
         let v = candidate(
             "anilist",
             &json!({"id":1,"idMal":2,"title":{"romaji":"Test"}}),
@@ -762,4 +839,74 @@ mod tests {
         .unwrap();
         assert_eq!(v["identifiers"]["mal"], "2");
     }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Resolve {
+    provider: String,
+    id: String,
+}
+pub(crate) async fn resolve(
+    State(state): State<AppState>,
+    Path((library, item)): Path<(String, String)>,
+    Json(input): Json<Resolve>,
+) -> Result<Json<Value>, HttpError> {
+    let (lib, entry) = context(&state, &library, &item).await?;
+    if !["anilist", "tmdb", "tvdb", "mal", "anidb"].contains(&input.provider.as_str())
+        || numeric(&json!(input.id)).is_none()
+    {
+        return Err(HttpError::bad_request("Choose a valid provider record."));
+    }
+    let client = client()?;
+    let mut pending =
+        std::collections::VecDeque::from([(input.provider.clone(), input.id.clone())]);
+    let mut seen = std::collections::BTreeSet::new();
+    let mut ids = std::collections::BTreeMap::from([(input.provider, input.id)]);
+    let mut records = vec![];
+    let mut warnings = vec![];
+    while let Some((provider, id)) = pending.pop_front() {
+        if !seen.insert(provider.clone()) {
+            continue;
+        }
+        match lookup(
+            &state,
+            &client,
+            &provider,
+            "",
+            Some(&id),
+            entry.kind == "movie",
+            (
+                lib.options.allow_adult_metadata,
+                &lib.options.metadata_language,
+            ),
+        )
+        .await
+        {
+            Ok(values) => {
+                if let Some(record) = values.first() {
+                    for (name, value) in record["identifiers"].as_object().into_iter().flatten() {
+                        let Some(value) = value.as_str() else {
+                            continue;
+                        };
+                        if ids.get(name).is_some_and(|previous| previous != value) {
+                            warnings.push(format!("Conflicting {name} link was not selected."));
+                            continue;
+                        }
+                        ids.insert(name.clone(), value.to_owned());
+                        if name != "imdb" && !seen.contains(name) {
+                            pending.push_back((name.clone(), value.to_owned()));
+                        }
+                    }
+                    records.push(record.clone());
+                } else {
+                    warnings.push(format!("{provider}: no record for the item's media type."));
+                }
+            }
+            Err(error) => warnings.push(format!("{provider}: {error}")),
+        }
+    }
+    Ok(Json(
+        json!({"identifiers":ids,"candidates":records,"warnings":warnings}),
+    ))
 }

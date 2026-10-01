@@ -43,6 +43,7 @@ export const nativeLibraries = {
   catalog: (id: string) => apiRequest<NativeCatalogEntry[]>(`/native/libraries/${encodeURIComponent(id)}/items`),
   remove: (id: string, revision: number) => apiRequest<void>(`/native/libraries/${encodeURIComponent(id)}`, {method: "DELETE", body: JSON.stringify({revision})}),
   editItem: (library: string, item: NativeCatalogEntry, metadata: Record<string, unknown>) => apiRequest<{entry: NativeCatalogEntry; warnings: string[]}>(`/native/libraries/${encodeURIComponent(library)}/items/${encodeURIComponent(item.id)}`, {method: "PUT", body: JSON.stringify({revision: item.revision, metadata})}),
+  identifyResolve: (library:string,item:string,provider:string,id:string) => apiRequest<{identifiers:Record<string,string>;candidates:IdentificationCandidate[];warnings:string[]}>(`/native/libraries/${encodeURIComponent(library)}/items/${encodeURIComponent(item)}/identify/resolve`,{method:"POST",body:JSON.stringify({provider,id})}),
   identifySearch: (library: string, item: string, title:string, year:number|null) => apiRequest<{groups:IdentificationGroup[]}>(`/native/libraries/${encodeURIComponent(library)}/items/${encodeURIComponent(item)}/identify/search`, {method:"POST",body:JSON.stringify({title,year})}),
   identify: (library:string,item:string,input:{revision:number;title:string;year:number|null;identifiers:Record<string,string>}) => apiRequest<{entry:NativeCatalogEntry;warnings:string[];message:string}>(`/native/libraries/${encodeURIComponent(library)}/items/${encodeURIComponent(item)}/identify`,{method:"POST",body:JSON.stringify(input)}),
   artworkUrl: (library: string, item: string, kind: string) => `/api/native/libraries/${encodeURIComponent(library)}/items/${encodeURIComponent(item)}/artwork/${encodeURIComponent(kind)}`,
@@ -54,5 +55,5 @@ export interface NativeArtwork { kind: string; path: string; source: string; }
 export interface NativeCatalogEntry { id: string; path: string; kind: string; parent_path: string | null; title: string; metadata: Record<string, unknown>; artwork: NativeArtwork[]; files: {path: string; size: number; extension: string; media_info?: {format?: Record<string, unknown>; streams?: Record<string,unknown>[]} }[]; nfo_path: string | null; available: boolean; revision: number; }
 export interface NativeScanStatus { progress?: {phase: string; processed: number; total: number | null; current: string}; status: string; count: number; warnings: string[]; }
 
-export interface IdentificationCandidate {provider:string;id:string;title:string;year:number|null;format:string|null;overview:string|null;identifiers:Record<string,string>}
+export interface IdentificationCandidate {poster?:string|null;provider:string;id:string;title:string;year:number|null;format:string|null;overview:string|null;identifiers:Record<string,string>}
 export interface IdentificationGroup {provider:string;results:IdentificationCandidate[];error?:string}

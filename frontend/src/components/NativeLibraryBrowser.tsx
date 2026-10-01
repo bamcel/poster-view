@@ -157,7 +157,7 @@ function Modal({
   onClose: () => void;
   children: ReactNode;
 }) {
-  const metadata = title === "Edit Metadata";
+  const metadata = title === "Edit Metadata" || title === "Identify";
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
