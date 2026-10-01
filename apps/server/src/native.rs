@@ -892,7 +892,18 @@ pub(crate) mod scan_tests {
             "<movie><title>Film</title><year>2020</year><tag>Favorite</tag></movie>",
         )
         .unwrap();
-        for folder in ["backdrops", "Backdrops", "backdrop"] {
+        for folder in [
+            "backdrops",
+            "Backdrops",
+            "backdrop",
+            "Extras",
+            "extra",
+            "trailers",
+            "featurettes",
+            "behind the scenes",
+            "deleted scenes",
+            "interviews",
+        ] {
             let extras = series.parent().unwrap().join(folder);
             fs::create_dir_all(extras.join("nested")).unwrap();
             fs::write(extras.join("NCOP.mp4"), b"fixture").unwrap();

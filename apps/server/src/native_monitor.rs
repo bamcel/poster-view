@@ -56,7 +56,7 @@ fn relevant(path: &Path, root: &Path) -> bool {
     };
     !relative.components().any(|part| {
         let v = part.as_os_str().to_string_lossy().to_ascii_lowercase();
-        v.starts_with('.') || v == "backdrop" || v == "backdrops"
+        v.starts_with('.') || crate::native_scan::auxiliary_folder(&v)
     })
 }
 pub(crate) fn start(state: AppState) {
@@ -161,6 +161,11 @@ mod tests {
         assert!(relevant(Path::new("media/Anime/episode.mkv"), root));
         assert!(!relevant(Path::new("media/Anime/Backdrops/NCOP.mp4"), root));
         assert!(!relevant(Path::new("media/Anime/.temp"), root));
+        assert!(!relevant(Path::new("media/Anime/Extras/clip.mkv"), root));
+        assert!(relevant(
+            Path::new("media/Anime/Specials/episode.mkv"),
+            root
+        ));
         assert!(!relevant(Path::new("outside/file.mkv"), root));
     }
 }

@@ -30,6 +30,21 @@ fn checked_file(root: &Path, path: &Path) -> Result<(), HttpError> {
     }
     Ok(())
 }
+pub(crate) fn auxiliary_folder(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "backdrop"
+            | "backdrops"
+            | "extras"
+            | "extra"
+            | "trailers"
+            | "featurettes"
+            | "behind the scenes"
+            | "deleted scenes"
+            | "interviews"
+    )
+}
+
 fn walk(
     state: &AppState,
     root: &Path,
@@ -57,9 +72,9 @@ fn walk(
             continue;
         }
         if kind.is_dir() {
-            // Backdrop directories can contain theme/credit videos, not library items.
+            // Auxiliary videos are not standalone library items.
             let name = child.file_name().to_string_lossy().to_ascii_lowercase();
-            if matches!(name.as_str(), "backdrop" | "backdrops") {
+            if auxiliary_folder(&name) {
                 continue;
             }
             state.metadata.directory(&relative(root, &path)?, true)?;
