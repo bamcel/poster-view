@@ -131,6 +131,13 @@ pub(crate) async fn catalog(
         .map_err(error)
 }
 pub(crate) async fn start_scan(state: AppState, id: String) -> Result<(), HttpError> {
+    start_scan_scoped(state, id, None).await
+}
+pub(crate) async fn start_scan_scoped(
+    state: AppState,
+    id: String,
+    scopes: Option<Vec<String>>,
+) -> Result<(), HttpError> {
     let library = library(&state, &id).await?;
     let db = store(&state);
     let scan_id = id.clone();
@@ -139,7 +146,7 @@ pub(crate) async fn start_scan(state: AppState, id: String) -> Result<(), HttpEr
         .map_err(|_| HttpError::bad_request("Scan request interrupted."))?
         .map_err(error)?;
     tokio::spawn(async move {
-        let result = run_scan(state.clone(), library).await;
+        let result = run_scan_scoped(state.clone(), library, scopes).await;
         let status = match result {
             Ok(status) => status,
             Err(e) => posterview_contracts::native::NativeScanStatus {
@@ -154,23 +161,42 @@ pub(crate) async fn start_scan(state: AppState, id: String) -> Result<(), HttpEr
     });
     Ok(())
 }
+fn in_scope(path: &str, scopes: Option<&[String]>) -> bool {
+    scopes.is_none_or(|scopes| {
+        scopes.iter().any(|scope| {
+            scope.is_empty() || path == scope || path.starts_with(&format!("{scope}/"))
+        })
+    })
+}
+#[cfg(test)]
 async fn run_scan(
     state: AppState,
     library: NativeLibrary,
 ) -> Result<posterview_contracts::native::NativeScanStatus, HttpError> {
+    run_scan_scoped(state, library, None).await
+}
+async fn run_scan_scoped(
+    state: AppState,
+    library: NativeLibrary,
+    scopes: Option<Vec<String>>,
+) -> Result<posterview_contracts::native::NativeScanStatus, HttpError> {
     let scan_state = state.clone();
     let scan_library = library.clone();
+    let scan_scopes = scopes.clone();
     let (mut entries, mut warnings) = tokio::task::spawn_blocking(move || {
-        crate::native_scan::collect(&scan_state, &scan_library)
+        crate::native_scan::collect_scoped(&scan_state, &scan_library, scan_scopes.as_deref())
     })
     .await
     .map_err(|_| HttpError::bad_request("File scan interrupted."))??;
     let db = store(&state);
     let id = library.id.clone();
-    let existing = tokio::task::spawn_blocking(move || db.native_catalog(&id))
-        .await
-        .map_err(|_| HttpError::bad_request("Catalog read interrupted."))?
-        .map_err(error)?;
+    let existing_scopes = scopes.clone();
+    let existing = tokio::task::spawn_blocking(move || {
+        db.native_catalog_scoped(&id, existing_scopes.as_deref())
+    })
+    .await
+    .map_err(|_| HttpError::bad_request("Catalog read interrupted."))?
+    .map_err(error)?;
     let existing: std::collections::BTreeMap<_, _> = existing
         .into_iter()
         .map(|entry| (entry.path.clone(), entry))
@@ -205,8 +231,14 @@ async fn run_scan(
     let local_entries = entries.clone();
     let db = store(&state);
     let local_library = library.clone();
+    let local_scopes = scopes.clone();
     tokio::task::spawn_blocking(move || {
-        db.ingest_native_catalog(&local_library.id, local_library.revision, &local_entries)?;
+        db.ingest_native_catalog_scoped(
+            &local_library.id,
+            local_library.revision,
+            &local_entries,
+            local_scopes.as_deref(),
+        )?;
         db.finish_native_scan(
             &local_library.id,
             &posterview_contracts::native::NativeScanStatus {
@@ -224,8 +256,14 @@ async fn run_scan(
     let count = entries.len();
     let db = store(&state);
     let scan_library = library.clone();
+    let final_scopes = scopes.clone();
     tokio::task::spawn_blocking(move || {
-        db.ingest_native_catalog(&scan_library.id, scan_library.revision, &entries)
+        db.ingest_native_catalog_scoped(
+            &scan_library.id,
+            scan_library.revision,
+            &entries,
+            final_scopes.as_deref(),
+        )
     })
     .await
     .map_err(|_| HttpError::bad_request("Catalog save interrupted."))?
@@ -235,11 +273,17 @@ async fn run_scan(
     if library.options.save_artwork {
         let write_state = state.clone();
         let id = library.id.clone();
+        let write_scopes = scopes.clone();
         warnings.extend(
             tokio::task::spawn_blocking(move || {
-                let entries = store(&write_state).native_catalog(&id).map_err(error)?;
+                let entries = store(&write_state)
+                    .native_catalog_scoped(&id, write_scopes.as_deref())
+                    .map_err(error)?;
                 let issues = crate::workers::parallel(
-                    entries.into_iter().filter(|e| e.available).collect(),
+                    entries
+                        .into_iter()
+                        .filter(|e| e.available && in_scope(&e.path, write_scopes.as_deref()))
+                        .collect(),
                     |entry| {
                         let mut issues = Vec::new();
                         for art in &entry.artwork {
@@ -264,12 +308,19 @@ async fn run_scan(
     if library.options.save_nfo {
         let write_state = state.clone();
         let id = library.id.clone();
+        let write_scopes = scopes.clone();
         let issues = tokio::task::spawn_blocking(move || {
-            let entries = store(&write_state).native_catalog(&id).map_err(error)?;
+            let entries = store(&write_state)
+                .native_catalog_scoped(&id, write_scopes.as_deref())
+                .map_err(error)?;
             let results = crate::workers::parallel(
                 entries
                     .into_iter()
-                    .filter(|e| e.available && (e.kind != "season" || e.nfo_path.is_some()))
+                    .filter(|e| {
+                        e.available
+                            && in_scope(&e.path, write_scopes.as_deref())
+                            && (e.kind != "season" || e.nfo_path.is_some())
+                    })
                     .collect(),
                 |entry| {
                     let result = crate::native_scan::write_nfo(&write_state, &entry);
@@ -299,6 +350,16 @@ async fn run_scan(
                 .into(),
         );
     }
+    let count = if scopes.is_some() {
+        let db = store(&state);
+        let id = library.id.clone();
+        tokio::task::spawn_blocking(move || db.native_available_count(&id))
+            .await
+            .map_err(|_| HttpError::bad_request("Catalog count interrupted."))?
+            .map_err(error)?
+    } else {
+        count
+    };
     Ok(posterview_contracts::native::NativeScanStatus {
         progress: None,
         status: if warnings.is_empty() {
@@ -1113,5 +1174,111 @@ pub(crate) mod scan_tests {
                 .contains("<custom>keep</custom>")
         );
         assert!(crate::native_scan::parse_nfo(b"<!DOCTYPE movie><movie/>").is_err());
+    }
+    #[tokio::test]
+    async fn incremental_mixed_scan_preserves_unrelated_items_and_reconciles_renames() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let media = temp.path().join("media/Anime");
+        for name in ["ShowA", "ShowB"] {
+            let dir = media.join(name);
+            fs::create_dir_all(dir.join("Season 1")).unwrap();
+            fs::write(
+                dir.join("tvshow.nfo"),
+                format!("<tvshow><title>{name}</title><plot>Local plot</plot></tvshow>"),
+            )
+            .unwrap();
+            fs::write(dir.join("Season 1/S01E01.mkv"), b"fixture").unwrap();
+        }
+        let library = store(&state)
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Anime".into(),
+                    library_type: NativeLibraryType::Anime,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Anime".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        run_scan(state.clone(), library.clone()).await.unwrap();
+        let before = store(&state).native_catalog(&library.id).unwrap();
+        let untouched = before
+            .iter()
+            .filter(|e| e.path.starts_with("Anime/ShowB"))
+            .cloned()
+            .collect::<Vec<_>>();
+        // A full scan would parse this changed NFO; a scoped scan must never visit it.
+        fs::write(media.join("ShowB/tvshow.nfo"), "<broken>").unwrap();
+        fs::write(media.join("ShowA/Season 1/S01E02.mkv"), b"fixture").unwrap();
+        fs::create_dir_all(media.join("Movie")).unwrap();
+        fs::write(media.join("Movie/Movie.mkv"), b"fixture").unwrap();
+        fs::write(
+            media.join("Movie/Movie.nfo"),
+            "<movie><title>Anime Movie</title><plot>Local movie</plot></movie>",
+        )
+        .unwrap();
+        let status = run_scan_scoped(
+            state.clone(),
+            library.clone(),
+            Some(vec!["Anime/ShowA".into(), "Anime/Movie".into()]),
+        )
+        .await
+        .unwrap();
+        let after = store(&state).native_catalog(&library.id).unwrap();
+        assert!(
+            after
+                .iter()
+                .any(|e| e.available && e.kind == "episode" && e.path.ends_with("S01E02.mkv"))
+        );
+        assert!(
+            after
+                .iter()
+                .any(|e| e.available && e.kind == "movie" && e.title == "Anime Movie")
+        );
+        assert_eq!(status.count, after.iter().filter(|e| e.available).count());
+        for old in &untouched {
+            let current = after.iter().find(|e| e.id == old.id).unwrap();
+            assert!(current.available);
+            assert_eq!(current.revision, old.revision);
+            assert_eq!(current.metadata, old.metadata);
+        }
+        assert!(!status.warnings.iter().any(|w| w.contains("ShowB")));
+        fs::remove_file(media.join("ShowA/Season 1/S01E01.mkv")).unwrap();
+        fs::rename(media.join("ShowA"), media.join("Renamed")).unwrap();
+        run_scan_scoped(
+            state.clone(),
+            library.clone(),
+            Some(vec!["Anime/ShowA".into(), "Anime/Renamed".into()]),
+        )
+        .await
+        .unwrap();
+        let after = store(&state).native_catalog(&library.id).unwrap();
+        assert!(
+            after
+                .iter()
+                .filter(|e| e.path.starts_with("Anime/ShowA/") || e.path == "Anime/ShowA")
+                .all(|e| !e.available)
+        );
+        assert!(
+            after
+                .iter()
+                .any(|e| e.available && e.path == "Anime/Renamed")
+        );
+        assert!(!after.iter().any(|e| e.available
+            && e.path.ends_with("S01E01.mkv")
+            && e.path.starts_with("Anime/Renamed")));
+        assert!(after.iter().any(|e| e.available && e.kind == "movie"));
+        for old in &untouched {
+            assert_eq!(
+                after.iter().find(|e| e.id == old.id).unwrap().revision,
+                old.revision
+            );
+        }
     }
 }

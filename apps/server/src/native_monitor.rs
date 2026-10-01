@@ -59,13 +59,65 @@ fn relevant(path: &Path, root: &Path) -> bool {
         v.starts_with('.') || crate::native_scan::auxiliary_folder(&v)
     })
 }
+struct Pending {
+    first: Instant,
+    last: Instant,
+    // None means watcher overflow/error: reconcile the full library.
+    paths: Option<std::collections::BTreeSet<PathBuf>>,
+}
+impl Pending {
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            first: now,
+            last: now,
+            paths: Some(Default::default()),
+        }
+    }
+}
+fn changed_scope(path: &Path, root: &Path) -> PathBuf {
+    // A configured series root must be reconciled as one hierarchy.
+    if root.join("tvshow.nfo").is_file() {
+        return root.to_owned();
+    }
+    let Ok(relative) = path.strip_prefix(root) else {
+        return root.to_owned();
+    };
+    let Some(first) = relative.components().next() else {
+        return root.to_owned();
+    };
+    let directory = if path.is_file() || (!path.is_dir() && path.extension().is_some()) {
+        path.parent().unwrap_or(root)
+    } else {
+        path
+    };
+    for parent in directory.ancestors().take_while(|p| p.starts_with(root)) {
+        if crate::native_scan::season_folder(
+            &parent.file_name().unwrap_or_default().to_string_lossy(),
+        )
+        .is_none()
+            && parent.join("tvshow.nfo").is_file()
+        {
+            return parent.to_owned();
+        }
+    }
+    let candidate = root.join(first.as_os_str());
+    // Loose media and sidecars share the selected root; reconcile siblings together.
+    if relative.components().count() == 1
+        && (candidate.is_file() || candidate.extension().is_some())
+    {
+        return root.to_owned();
+    }
+    candidate
+}
+
 pub(crate) fn start(state: AppState) {
     tokio::spawn(async move {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<notify::Result<Event>>(1000);
         let overflow = Arc::new(AtomicBool::new(false));
         let mut signature = String::new();
         let mut roots = Vec::<(String, PathBuf)>::new();
-        let mut pending = BTreeMap::<String, (Instant, Instant)>::new();
+        let mut pending = BTreeMap::<String, Pending>::new();
         let mut native = None;
         let mut poll = None;
         let mut tick = tokio::time::interval(Duration::from_secs(1));
@@ -75,7 +127,13 @@ pub(crate) fn start(state: AppState) {
                 event=rx.recv()=>{if let Some(event)=event{
                     match event{
                         Ok(event) if !matches!(event.kind,EventKind::Access(_))=>{
-                            for (id,root) in &roots{if event.paths.iter().any(|p|relevant(p,root) && external_change(p,&event.kind)){let now=Instant::now();pending.entry(id.clone()).and_modify(|v|v.1=now).or_insert((now,now));}}
+                            for (id,root) in &roots {
+                                for path in event.paths.iter().filter(|p| relevant(p,root) && external_change(p,&event.kind)) {
+                                    let job = pending.entry(id.clone()).or_insert_with(Pending::new);
+                                    job.last = Instant::now();
+                                    if let Some(paths) = &mut job.paths { paths.insert(changed_scope(path,root)); }
+                                }
+                            }
                         }
                         Err(error)=>{tracing::warn!(%error,"Native library monitor event failed; polling remains enabled");overflow.store(true,Ordering::Relaxed);}
                         _=>{}
@@ -104,15 +162,23 @@ pub(crate) fn start(state: AppState) {
                             }
                         }
                     }
-                    if overflow.swap(false,Ordering::Relaxed){for (id,_) in &roots{let now=Instant::now();pending.entry(id.clone()).or_insert((now,now));}}
-                    let ready=pending.iter().filter(|(_,times)|times.1.elapsed()>=Duration::from_secs(5)||times.0.elapsed()>=Duration::from_secs(30)).map(|(id,_)|id.clone()).collect::<Vec<_>>();
+                    if overflow.swap(false,Ordering::Relaxed){for (id,_) in &roots{pending.entry(id.clone()).or_insert_with(Pending::new).paths=None;}}
+                    let ready=pending.iter().filter(|(_,times)|times.last.elapsed()>=Duration::from_secs(5)||times.first.elapsed()>=Duration::from_secs(30)).map(|(id,_)|id.clone()).collect::<Vec<_>>();
                     for id in ready{
                         let db=ServerStore::new(state.runtime.data_dir());
                         let enabled=db.native_libraries().ok().is_some_and(|v|v.iter().any(|l|l.id==id&&l.options.real_time_monitor));
                         if !enabled{pending.remove(&id);continue;}
                         if db.native_scan_status(&id).is_ok_and(|s|s.status=="scanning"){continue;}
-                        pending.remove(&id);
-                        if let Err(error)=super::native::start_scan(state.clone(),id).await{tracing::warn!(message=%error.detail,"Automatic native library scan could not start");}
+                        let job = pending.remove(&id).unwrap();
+                        let scopes = if let Some(paths) = job.paths.as_ref() {
+                            let media_root = match state.metadata.directory("",true) { Ok(root)=>root, Err(error)=>{tracing::warn!(message=%error.detail,"Automatic scan root unavailable");continue;} };
+                            let paths = paths.iter().filter(|p| !paths.iter().any(|parent| parent != *p && p.starts_with(parent))).filter_map(|p|p.strip_prefix(&media_root).ok().map(|v|v.to_string_lossy().replace('\\',"/"))).collect::<Vec<_>>();
+                            Some(paths)
+                        } else { None };
+                        if let Err(error)=super::native::start_scan_scoped(state.clone(),id.clone(),scopes).await{
+                            if error.status == axum::http::StatusCode::CONFLICT { pending.insert(id,job); }
+                            tracing::warn!(message=%error.detail,"Automatic native library scan could not start");
+                        }
                     }
                     // Watchers must remain alive while events are being processed.
                     let _=(&native,&poll);
@@ -124,6 +190,28 @@ pub(crate) fn start(state: AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn change_scopes_cover_series_movie_and_deleted_folder_without_neighbors() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let series = root.join("Shows/Example");
+        std::fs::create_dir_all(series.join("Specials")).unwrap();
+        std::fs::write(series.join("tvshow.nfo"), b"<tvshow/>").unwrap();
+        std::fs::write(series.join("Specials/tvshow.nfo"), b"<tvshow/>").unwrap();
+        assert_eq!(
+            changed_scope(&series.join("Specials/S00E01.mkv"), root),
+            series
+        );
+        let movie = root.join("Movie");
+        std::fs::create_dir(&movie).unwrap();
+        assert_eq!(changed_scope(&movie.join("Movie.mkv"), root), movie);
+        assert_eq!(
+            changed_scope(&root.join("Deleted/Season 1/S01E01.mkv"), root),
+            root.join("Deleted")
+        );
+        assert_eq!(changed_scope(&root.join("loose-movie.nfo"), root), root);
+    }
+
     #[test]
     fn own_writes_ignore_delayed_events_but_external_edits_and_removals_remain_visible() {
         let directory = tempfile::tempdir().unwrap();

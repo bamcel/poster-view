@@ -140,11 +140,18 @@ impl ServerStore {
     }
 
     pub fn native_catalog(&self, library: &str) -> Result<Vec<NativeCatalogEntry>, StoreError> {
+        self.native_catalog_scoped(library, None)
+    }
+    pub fn native_available_count(&self, library: &str) -> Result<usize, StoreError> {
+        self.connection()?.query_row("SELECT COUNT(*) FROM native_catalog_sources WHERE library_id=?1 AND available=1", [library], |r|r.get(0)).map_err(Into::into)
+    }
+    pub fn native_catalog_scoped(&self, library: &str, scopes: Option<&[String]>) -> Result<Vec<NativeCatalogEntry>, StoreError> {
+        let scopes = scopes.map(serde_json::to_string).transpose().map_err(|_|invalid("Invalid scan scope."))?;
         let mut db = self.connection()?;
         let tx = db.transaction()?;
-        let mut stmt = tx.prepare("SELECT s.snapshot_json,s.item_id,s.available,i.revision FROM native_catalog_sources s JOIN catalog_items i ON i.id=s.item_id WHERE s.library_id=?1 ORDER BY i.sort_title,i.title")?;
+        let mut stmt = tx.prepare("SELECT s.snapshot_json,s.item_id,s.available,i.revision FROM native_catalog_sources s JOIN catalog_items i ON i.id=s.item_id WHERE s.library_id=?1 AND (?2 IS NULL OR EXISTS(SELECT 1 FROM json_each(?2) scope WHERE scope.value='' OR s.relative_path=scope.value OR substr(s.relative_path,1,length(scope.value)+1)=scope.value||'/')) ORDER BY i.sort_title,i.title")?;
         let rows = stmt
-            .query_map([library], |r| {
+            .query_map(params![library,scopes], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
@@ -196,6 +203,17 @@ impl ServerStore {
         revision: i64,
         entries: &[NativeCatalogEntry],
     ) -> Result<(), StoreError> {
+        self.ingest_native_catalog_scoped(library, revision, entries, None)
+    }
+    /// Reconcile only these media-relative subtrees; unrelated records are untouched.
+    pub fn ingest_native_catalog_scoped(
+        &self, library: &str, revision: i64, entries: &[NativeCatalogEntry], scopes: Option<&[String]>,
+    ) -> Result<(), StoreError> {
+        if let Some(scopes) = scopes {
+            if entries.iter().any(|e| !scopes.iter().any(|scope| scope.is_empty() || e.path == *scope || e.path.starts_with(&format!("{scope}/")))) {
+                return Err(invalid("Catalog entry is outside the scan scope."));
+            }
+        }
         let mut db = self.connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let current: i64 = tx.query_row(
@@ -206,10 +224,13 @@ impl ServerStore {
         if current != revision {
             return Err(StoreError::RevisionConflict);
         }
-        tx.execute(
-            "UPDATE native_catalog_sources SET available=0 WHERE library_id=?1",
-            [library],
-        )?;
+        if let Some(scopes) = scopes {
+            for scope in scopes {
+                tx.execute("UPDATE native_catalog_sources SET available=0 WHERE library_id=?1 AND (?2='' OR relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/')", params![library,scope])?;
+            }
+        } else {
+            tx.execute("UPDATE native_catalog_sources SET available=0 WHERE library_id=?1", [library])?;
+        }
         for entry in entries {
             let existing:Option<String>=tx.query_row("SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,entry.path],|r|r.get(0)).optional()?;
             let id = existing.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());

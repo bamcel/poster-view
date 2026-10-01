@@ -54,7 +54,7 @@ pub(crate) fn credit_video(path: &Path) -> bool {
         .is_some_and(|name| PATTERN.is_match(&name.to_string_lossy()))
 }
 
-fn season_folder(name: &str) -> Option<i64> {
+pub(crate) fn season_folder(name: &str) -> Option<i64> {
     if name.eq_ignore_ascii_case("specials") || name.eq_ignore_ascii_case("special") {
         return Some(0);
     }
@@ -421,9 +421,17 @@ fn probe(path: &Path) -> Result<Value, String> {
     serde_json::from_slice(&fs::read(output.path()).map_err(|e| e.to_string())?)
         .map_err(|_| "Invalid media information.".into())
 }
+#[cfg(test)]
 pub(crate) fn collect(
     state: &AppState,
     library: &NativeLibrary,
+) -> Result<(Vec<NativeCatalogEntry>, Vec<String>), HttpError> {
+    collect_scoped(state, library, None)
+}
+pub(crate) fn collect_scoped(
+    state: &AppState,
+    library: &NativeLibrary,
+    scopes: Option<&[String]>,
 ) -> Result<(Vec<NativeCatalogEntry>, Vec<String>), HttpError> {
     let root = state.metadata.directory("", true)?;
     let mut progress = crate::native_progress::Reporter::new(state, &library.id);
@@ -435,8 +443,22 @@ pub(crate) fn collect(
         .iter()
         .map(|path| state.metadata.directory(path, true))
         .collect::<Result<Vec<_>, _>>()?;
-    for dir in &scan_roots {
-        walk(state, &root, dir, &mut files, 0, &mut progress)?;
+    let targets = scopes
+        .map(|paths| paths.iter().map(|p| root.join(p)).collect::<Vec<_>>())
+        .unwrap_or_else(|| scan_roots.clone());
+    for target in targets {
+        if !scan_roots.iter().any(|dir| target.starts_with(dir)) {
+            return Err(bad("Scan scope is outside the library roots."));
+        }
+        match fs::symlink_metadata(&target) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && scopes.is_some() => continue,
+            Err(e) => return Err(bad(e)),
+            Ok(meta) if meta.is_file() => {
+                checked_file(&root, &target)?;
+                files.push(target);
+            }
+            Ok(_) => walk(state, &root, &target, &mut files, 0, &mut progress)?,
+        }
     }
     let mut series_directories = BTreeMap::<PathBuf, PathBuf>::new();
     files.sort();
