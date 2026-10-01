@@ -1281,4 +1281,61 @@ pub(crate) mod scan_tests {
             );
         }
     }
+    #[tokio::test]
+    async fn manual_scan_nfo_writes_do_not_restart_monitor_scans() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let dir = temp.path().join("media/Movies/Test");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("Test.mkv"), b"fixture").unwrap();
+        fs::write(
+            dir.join("Test.nfo"),
+            "<movie><title>Test</title><plot>Local plot</plot></movie>",
+        )
+        .unwrap();
+        let db = store(&state);
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        save_nfo: true,
+                        real_time_monitor: true,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        crate::native_monitor::start(state.clone());
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        start_scan(state.clone(), library.id.clone()).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while db.native_scan_status(&library.id).unwrap().status == "scanning" {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let before = db.native_catalog(&library.id).unwrap();
+        assert!(!before.is_empty());
+        // Covers a polling pass plus debounce after the manual scan's sidecar writes.
+        tokio::time::sleep(std::time::Duration::from_secs(22)).await;
+        assert_ne!(
+            db.native_scan_status(&library.id).unwrap().status,
+            "scanning"
+        );
+        let after = db.native_catalog(&library.id).unwrap();
+        for entry in before {
+            assert_eq!(
+                after.iter().find(|e| e.id == entry.id).unwrap().revision,
+                entry.revision
+            );
+        }
+    }
 }

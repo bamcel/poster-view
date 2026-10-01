@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-// Keep fingerprints beyond the polling interval so delayed watcher events are ignored.
+// Keep fingerprints until the file changes, including delayed events from long scans.
 // The lock spans the atomic rename: an event cannot race fingerprint registration.
 type WriteStamp = (u64, std::time::SystemTime);
 static OWN_WRITES: std::sync::LazyLock<std::sync::Mutex<BTreeMap<PathBuf, (Instant, WriteStamp)>>> =
@@ -27,7 +27,16 @@ pub(crate) fn own_write<T>(
     write: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
     let mut writes = OWN_WRITES.lock().unwrap_or_else(|e| e.into_inner());
-    writes.retain(|_, (time, _)| time.elapsed() < Duration::from_secs(60));
+    // Bound the registry without expiring fingerprints during a long library scan.
+    if writes.len() >= 50_000 && !writes.contains_key(path) {
+        if let Some(oldest) = writes
+            .iter()
+            .min_by_key(|(_, (time, _))| *time)
+            .map(|(path, _)| path.clone())
+        {
+            writes.remove(&oldest);
+        }
+    }
     let result = write();
     if result.is_ok() {
         if let Some(value) = stamp(path) {
@@ -40,24 +49,49 @@ pub(crate) fn own_write<T>(
 fn external_change(path: &Path, kind: &EventKind) -> bool {
     // Directory modification notifications accompany atomic sidecar writes.
     // Child create/remove/rename events still report actual folder-content changes.
-    if matches!(kind, EventKind::Modify(_)) && path.is_dir() {
+    if matches!(kind, EventKind::Modify(modification) if !matches!(modification, notify::event::ModifyKind::Name(_)))
+        && path.is_dir()
+    {
         return false;
     }
     let mut writes = OWN_WRITES.lock().unwrap_or_else(|e| e.into_inner());
-    writes.retain(|_, (time, _)| time.elapsed() < Duration::from_secs(60));
-    !writes
+    if writes
         .get(path)
         .is_some_and(|(_, expected)| stamp(path).as_ref() == Some(expected))
+    {
+        false
+    } else {
+        writes.remove(path);
+        true
+    }
 }
 
 fn relevant(path: &Path, root: &Path) -> bool {
     let Ok(relative) = path.strip_prefix(root) else {
         return false;
     };
-    !relative.components().any(|part| {
-        let v = part.as_os_str().to_string_lossy().to_ascii_lowercase();
-        v.starts_with('.') || crate::native_scan::auxiliary_folder(&v)
-    })
+    !crate::native_scan::credit_video(path)
+        && !relative.components().any(|part| {
+            let v = part.as_os_str().to_string_lossy().to_ascii_lowercase();
+            v.starts_with('.') || crate::native_scan::auxiliary_folder(&v)
+        })
+}
+#[derive(Default)]
+struct RecoveryGate {
+    requested: bool,
+}
+impl RecoveryGate {
+    fn request(&mut self) -> bool {
+        if self.requested {
+            false
+        } else {
+            self.requested = true;
+            true
+        }
+    }
+    fn reset(&mut self) {
+        self.requested = false;
+    }
 }
 struct Pending {
     first: Instant,
@@ -116,6 +150,7 @@ pub(crate) fn start(state: AppState) {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<notify::Result<Event>>(1000);
         let overflow = Arc::new(AtomicBool::new(false));
         let mut signature = String::new();
+        let mut recovery = RecoveryGate::default();
         let mut roots = Vec::<(String, PathBuf)>::new();
         let mut pending = BTreeMap::<String, Pending>::new();
         let mut native = None;
@@ -129,13 +164,14 @@ pub(crate) fn start(state: AppState) {
                         Ok(event) if !matches!(event.kind,EventKind::Access(_))=>{
                             for (id,root) in &roots {
                                 for path in event.paths.iter().filter(|p| relevant(p,root) && external_change(p,&event.kind)) {
+                                    recovery.reset();
                                     let job = pending.entry(id.clone()).or_insert_with(Pending::new);
                                     job.last = Instant::now();
                                     if let Some(paths) = &mut job.paths { paths.insert(changed_scope(path,root)); }
                                 }
                             }
                         }
-                        Err(error)=>{tracing::warn!(%error,"Native library monitor event failed; polling remains enabled");overflow.store(true,Ordering::Relaxed);}
+                        Err(error) if recovery.request()=>{tracing::warn!(%error,"Native library monitor event failed; requesting one recovery scan");overflow.store(true,Ordering::Relaxed); }
                         _=>{}
                     }
                 }else{return;}}
@@ -148,6 +184,7 @@ pub(crate) fn start(state: AppState) {
                             for library in &libraries{if library.options.real_time_monitor{for path in &library.paths{if let Ok(root)=state.metadata.directory(path,true){next.push((library.id.clone(),root));}}}}
                             let next_signature=format!("{next:?}");
                             if signature!=next_signature{
+                                recovery.reset();
                                 drop(native.take());drop(poll.take());signature=next_signature;
                                 let native_tx=tx.clone();let native_overflow=overflow.clone();
                                 native=notify::RecommendedWatcher::new(move|event|{if native_tx.try_send(event).is_err(){native_overflow.store(true,Ordering::Relaxed);}},Config::default().with_follow_symlinks(false)).ok();
@@ -190,6 +227,43 @@ pub(crate) fn start(state: AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn repeated_watcher_errors_request_only_one_recovery_until_a_real_change() {
+        let mut recovery = RecoveryGate::default();
+        assert!(recovery.request());
+        for _ in 0..100 {
+            assert!(!recovery.request());
+        }
+        recovery.reset();
+        assert!(recovery.request());
+    }
+    #[test]
+    fn delayed_own_write_events_remain_ignored_and_directory_renames_are_external() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("tvshow.nfo");
+        own_write(&path, || {
+            std::fs::write(&path, b"metadata").map_err(|e| e.to_string())
+        })
+        .unwrap();
+        OWN_WRITES.lock().unwrap().get_mut(&path).unwrap().0 =
+            Instant::now() - Duration::from_secs(120);
+        assert!(!external_change(
+            &path,
+            &EventKind::Modify(notify::event::ModifyKind::Any)
+        ));
+        std::fs::write(&path, b"external change").unwrap();
+        assert!(external_change(
+            &path,
+            &EventKind::Modify(notify::event::ModifyKind::Any)
+        ));
+        assert!(external_change(
+            temp.path(),
+            &EventKind::Modify(notify::event::ModifyKind::Name(
+                notify::event::RenameMode::To
+            ))
+        ));
+    }
+
     #[test]
     fn change_scopes_cover_series_movie_and_deleted_folder_without_neighbors() {
         let temp = tempfile::tempdir().unwrap();
