@@ -147,6 +147,42 @@ fn candidate(provider: &str, v: &Value, movie: bool) -> Option<Value> {
         json!({"provider":provider,"id":id,"title":title,"year":year(&date),"overview":overview,"format":format,"identifiers":ids}),
     )
 }
+
+fn localized_tvdb(value: &Value, language: &str) -> Value {
+    let mut result = value.clone();
+    let code = crate::native_provider_extra::lang(language);
+    for (field, map, translated) in [
+        ("name", "translations", "name_translated"),
+        ("overview", "overviews", "overview_translated"),
+    ] {
+        let mapped = value[map][code]
+            .as_str()
+            .or_else(|| value[map][language].as_str())
+            .filter(|s| !s.trim().is_empty());
+        let translated_value = value[translated].as_str().filter(|s| !s.trim().is_empty());
+        // Some API versions encode translated maps as JSON strings.
+        let encoded = translated_value.and_then(|s| serde_json::from_str::<Value>(s).ok());
+        let selected = mapped
+            .map(str::to_owned)
+            .or_else(|| {
+                encoded
+                    .as_ref()
+                    .and_then(|v| v[code].as_str().or_else(|| v[language].as_str()))
+                    .filter(|s| !s.trim().is_empty())
+                    .map(str::to_owned)
+            })
+            .or_else(|| {
+                translated_value
+                    .filter(|s| !s.trim_start().starts_with('{'))
+                    .map(str::to_owned)
+            });
+        if let Some(text) = selected {
+            result[field] = json!(text);
+        }
+    }
+    result
+}
+
 async fn lookup(
     state: &AppState,
     client: &reqwest::Client,
@@ -154,8 +190,9 @@ async fn lookup(
     title: &str,
     id: Option<&str>,
     movie: bool,
-    adult: bool,
+    preferences: (bool, &str),
 ) -> Result<Vec<Value>, String> {
+    let (adult, language) = preferences;
     if provider == "anidb" {
         return anidb_lookup(state, client, title, id, movie).await;
     }
@@ -235,6 +272,7 @@ async fn lookup(
                 vec![
                     ("query", title),
                     ("type", if movie { "movie" } else { "series" }),
+                    ("language", crate::native_provider_extra::lang(language)),
                 ]
             };
             let body = response(
@@ -248,7 +286,12 @@ async fn lookup(
             } else {
                 body["data"]
                     .as_array()
-                    .cloned()
+                    .map(|values| {
+                        values
+                            .iter()
+                            .map(|value| localized_tvdb(value, language))
+                            .collect()
+                    })
                     .ok_or("TheTVDB search failed.")?
             }
         }
@@ -384,10 +427,20 @@ pub(crate) async fn search(
         let title = input.title.clone();
         let movie = entry.kind == "movie";
         let adult = lib.options.allow_adult_metadata;
+        let language = lib.options.metadata_language.clone();
         jobs.spawn(async move {
             (
                 provider,
-                lookup(&state, &client, provider, &title, None, movie, adult).await,
+                lookup(
+                    &state,
+                    &client,
+                    provider,
+                    &title,
+                    None,
+                    movie,
+                    (adult, &language),
+                )
+                .await,
             )
         });
     }
@@ -440,7 +493,10 @@ pub(crate) async fn apply(
             &input.title,
             Some(id),
             entry.kind == "movie",
-            lib.options.allow_adult_metadata,
+            (
+                lib.options.allow_adult_metadata,
+                &lib.options.metadata_language,
+            ),
         )
         .await
         .map_err(HttpError::bad_gateway)?;
@@ -677,6 +733,17 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0]["id"], "123");
         assert!(anidb_titles("<!DOCTYPE x><animetitles/>", "x").is_err());
+    }
+    #[test]
+    fn tvdb_results_use_preferred_language_and_keep_ids() {
+        let raw = json!({"tvdb_id":"278157","name":"Japanese title","overview":"Japanese overview","translations":{"eng":"Haikyu!!","jpn":"Japanese title"},"overviews":{"eng":"Volleyball series"}});
+        let result = localized_tvdb(&raw, "en");
+        assert_eq!(result["name"], "Haikyu!!");
+        assert_eq!(result["overview"], "Volleyball series");
+        assert_eq!(result["tvdb_id"], "278157");
+        assert_eq!(localized_tvdb(&raw, "fr")["name"], "Japanese title");
+        let encoded = json!({"name":"Original","name_translated":"{\"eng\":\"English\"}"});
+        assert_eq!(localized_tvdb(&encoded, "en")["name"], "English");
     }
     #[test]
     fn cross_references_ignore_zero_and_include_mal() {

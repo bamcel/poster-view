@@ -427,7 +427,7 @@ fn map_omdb(raw: Value) -> Data {
         raw,
     }
 }
-fn lang(code: &str) -> &str {
+pub(crate) fn lang(code: &str) -> &str {
     match code {
         "ja" => "jpn",
         "fr" => "fra",
