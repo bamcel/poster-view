@@ -661,3 +661,18 @@ async fn stalled_provider_has_a_bounded_retry_budget() {
         REQUEST_TIMEOUT * 3 + Duration::from_secs(3)
     );
 }
+
+#[test]
+fn myanimelist_artwork_reuses_the_saved_client_id_without_exposing_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Runtime::new(dir.path()); runtime.initialize().unwrap();
+    let sources = runtime.artwork_providers().unwrap();
+    assert!(!sources.iter().find(|p|p.name=="myanimelist").unwrap().configured);
+    runtime.server_store().unwrap().set_setting("mal_client_id","test-client-id").unwrap();
+    for name in ["myanimelist","myanimelist-manga"] {
+        let info = runtime.artwork_providers().unwrap().into_iter().find(|p|p.name==name).unwrap();
+        assert!(info.configured && info.needs_key && info.enabled);
+        assert!(!serde_json::to_string(&info).unwrap().contains("test-client-id"));
+        assert!(runtime.enabled_artwork_providers().unwrap().contains(name));
+    }
+}

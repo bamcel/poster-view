@@ -1,4 +1,5 @@
 mod tmdb_auth;
+mod myanimelist;
 use tmdb_auth::TmdbAuth;
 mod comicvine;
 mod mangadex;
@@ -64,6 +65,12 @@ impl Default for ArtworkService {
 }
 
 impl ArtworkService {
+    pub async fn fetch_myanimelist(&self, provider: &str, key: &str, item: &ItemDetail, id_override: Option<&str>) -> Result<Vec<ArtworkItem>, String> {
+        myanimelist::fetch(&self.client, key, provider, item, id_override).await
+    }
+    pub async fn search_myanimelist(&self, provider: &str, key: &str, query: &str) -> Result<Vec<ArtworkSearchResult>, String> {
+        myanimelist::search(&self.client, key, provider, query).await
+    }
     pub async fn comicvine_metadata(&self, key: &str, id: &str) -> Result<ComicVineMetadata, String> {
         comicvine::metadata(&self.client, key, id).await
     }
@@ -410,6 +417,7 @@ pub async fn download_public_image(provider: &str, url: &str) -> Result<(Vec<u8>
         "tvdb" => &["thetvdb.com"],
         "anilist" => &["anilist.co"],
         "anilist-manga" => &["anilist.co"],
+        "myanimelist" | "myanimelist-manga" => &["cdn.myanimelist.net"],
         "mediux" => &["mediux.pro"],
         "mangadex" => &["uploads.mangadex.org"],
         "viz" => &["dw9to29mmj727.cloudfront.net"],

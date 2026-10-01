@@ -266,3 +266,7 @@ Manual titles use the same artwork source panel and lookup UI as connected-serve
 Applying an image stores a managed image in application storage and records a locked manual artwork choice in the native database. The catalog revision changes and the dashboard refreshes immediately. Rescans preserve that choice. If **Save artwork into media folders** is enabled, the explicit selection also replaces the corresponding media-folder image using the configured naming rules. Season poster targets and episode thumbnails are supported. Changes are blocked while the library is scanning.
 
 Removal clears the database artwork reference without deleting local media-folder images. A later scan can rediscover those local images. Provider downloads use the existing validated download and cache paths, with manual-library requests isolated from connected-server caches.
+
+### MyAnimeList artwork
+
+The artwork panel includes **MyAnimeList** for anime and **MyAnimeList Manga** for manga/book covers. Both reuse the MyAnimeList client ID saved under **Settings → Search Providers**. Stored `mal` or `myanimelist` identifiers load the main cover automatically; enter a title and choose a search result when an ID is missing or incorrect. The provider offers the largest available main cover, with a medium-image fallback. Applying it follows the same database and media-folder rules as other artwork providers.

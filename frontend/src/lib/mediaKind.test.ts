@@ -15,6 +15,10 @@ it("recognizes book-related folder library names case-insensitively", () => {
 });
 
 it("filters providers while keeping manual available everywhere", () => {
+  expect(providerMatchesMediaKind("myanimelist", "screen")).toBe(true);
+  expect(providerMatchesMediaKind("myanimelist", "book")).toBe(false);
+  expect(providerMatchesMediaKind("myanimelist-manga", "book")).toBe(true);
+  expect(providerMatchesMediaKind("myanimelist-manga", "screen")).toBe(false);
   expect(providerMatchesMediaKind("tvdb", "screen")).toBe(true);
   expect(providerMatchesMediaKind("mangadex", "screen")).toBe(false);
   expect(providerMatchesMediaKind("comicvine", "book")).toBe(true);

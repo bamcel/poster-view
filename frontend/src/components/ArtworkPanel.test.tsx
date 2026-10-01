@@ -64,6 +64,15 @@ function show(libraryType: Library["type"]) {
 }
 
 describe("ArtworkPanel cross-library databases", () => {
+  it.each([["movie", "MyAnimeList"], ["book", "MyAnimeList Manga"]] as const)("shows the matching MAL artwork source for %s", async (type, label) => {
+    vi.mocked(api.artworkProviders).mockResolvedValue([
+      {name:"myanimelist",label:"MyAnimeList",configured:true,needs_key:true,enabled:true},
+      {name:"myanimelist-manga",label:"MyAnimeList Manga",configured:true,needs_key:true,enabled:true},
+    ]);
+    show(type);
+    fireEvent.click(await screen.findByRole("button",{name:label}));
+    expect(screen.getByText("Artwork browser")).toBeTruthy();
+  });
   it.each([
     ["book", "AniList Manga", "ThePosterDB"],
     ["movie", "ThePosterDB", "AniList Manga"],

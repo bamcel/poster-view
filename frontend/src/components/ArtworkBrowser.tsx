@@ -22,7 +22,7 @@ import type { ArtworkItem, ArtworkSearchResult, ArtworkType, ImageTarget, ItemDe
 // all three are backed by TheTVDB's search endpoint in the artwork adapter.
 // AniList doesn't need
 // this: its own fetch already accepts a free-text title directly.
-const TITLE_SEARCH_PROVIDERS = new Set(["fanart", "tvdb", "mediux", "anilist-manga"]);
+const TITLE_SEARCH_PROVIDERS = new Set(["fanart", "tvdb", "mediux", "anilist-manga", "myanimelist", "myanimelist-manga"]);
 
 const TYPE_ORDER: ArtworkType[] = ["poster", "background", "logo", "banner"];
 const TYPE_LABEL: Record<ArtworkType, string> = {
@@ -38,6 +38,7 @@ function defaultIdFor(provider: string, item: ItemDetail): string {
   }
   if (provider === "tvdb") return item.external_ids.tvdb ?? "";
   if (provider === "anilist") return item.external_ids.anilist ?? "";
+  if (provider.startsWith("myanimelist")) return item.external_ids.mal ?? item.external_ids.myanimelist ?? "";
   if (provider === "anilist-manga") return "";
   // MediUX addresses movies/shows/collections alike by TMDB id.
   if (provider === "mediux") return item.external_ids.tmdb ?? "";
@@ -48,6 +49,7 @@ function idPlaceholder(provider: string, item: ItemDetail): string {
   if (provider === "fanart") return item.type === "movie" ? "TMDB/IMDb id or a title…" : "TVDB id or a title…";
   if (provider === "tvdb") return "TVDB id or a title…";
   if (provider === "anilist") return "AniList id or title…";
+  if (provider.startsWith("myanimelist")) return "MyAnimeList id or title…";
   if (provider === "anilist-manga") return "AniList manga id or title…";
   if (provider === "mediux") return "TMDB id or a title…";
   return "id…";
@@ -57,6 +59,10 @@ function idPlaceholder(provider: string, item: ItemDetail): string {
 // id, otherwise the site itself (or its search page) for a manual look-up.
 function externalSiteUrl(provider: string, item: ItemDetail, idInput: string): string {
   const id = idInput.trim();
+  if (provider.startsWith("myanimelist")) {
+    const kind = provider === "myanimelist-manga" ? "manga" : "anime";
+    return /^\d+$/.test(id) ? `https://myanimelist.net/${kind}/${id}` : `https://myanimelist.net/${kind}.php?q=${encodeURIComponent(id || item.title)}`;
+  }
   if (provider === "fanart") {
     if (!id) return "https://fanart.tv/";
     return item.type === "movie" ? `https://fanart.tv/movie/${encodeURIComponent(id)}/` : `https://fanart.tv/series/${encodeURIComponent(id)}/`;
@@ -462,5 +468,5 @@ export function ApplyBtn({ label, onClick, busy, disabled }: { label: string; on
 }
 
 function providerLabel(name: string): string {
-  return { fanart: "Fanart.tv", tvdb: "TheTVDB", anilist: "AniList", "anilist-manga": "AniList Manga", mediux: "MediUX" }[name] ?? name;
+  return { fanart: "Fanart.tv", tvdb: "TheTVDB", anilist: "AniList", "anilist-manga": "AniList Manga", myanimelist: "MyAnimeList", "myanimelist-manga": "MyAnimeList Manga", mediux: "MediUX" }[name] ?? name;
 }

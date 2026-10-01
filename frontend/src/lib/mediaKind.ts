@@ -21,8 +21,8 @@ export function artworkMediaKind(
   return "ambiguous";
 }
 
-const SCREEN_PROVIDERS = new Set(["posterdb", "fanart", "tvdb", "anilist", "mediux", "manual"]);
-const BOOK_PROVIDERS = new Set(["anilist-manga", "mangadex", "viz", "comicvine", "manual"]);
+const SCREEN_PROVIDERS = new Set(["posterdb", "fanart", "tvdb", "anilist", "myanimelist", "mediux", "manual"]);
+const BOOK_PROVIDERS = new Set(["anilist-manga", "myanimelist-manga", "mangadex", "viz", "comicvine", "manual"]);
 
 export function providerMatchesMediaKind(provider: string, kind: ArtworkMediaKind): boolean {
   if (kind === "screen") return SCREEN_PROVIDERS.has(provider);

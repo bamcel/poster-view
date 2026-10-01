@@ -64,7 +64,8 @@ fn provider_applies_to_item(provider: &str, item: &ItemDetail) -> bool {
     );
     match provider {
         "anilist-manga" => book,
-        "anilist" => !book,
+        "anilist" | "myanimelist" => !book,
+        "myanimelist-manga" => book,
         "fanart" if item.item_type == ItemType::Movie => true,
         "fanart" if item.item_type == ItemType::Show => true,
         "fanart" => false,
@@ -320,12 +321,17 @@ impl Runtime {
     pub fn artwork_providers(&self) -> Result<Vec<ArtworkProviderInfo>, RuntimeError> {
         let store = self.server_store()?;
         let enabled = self.enabled_artwork_providers()?;
-        Ok(self.artwork.provider_infos(
+        let mut providers = self.artwork.provider_infos(
             &store.get_setting("fanart_api_key")?,
             &store.get_setting("tvdb_api_key")?,
             &store.get_setting("comicvine_api_key")?,
             &enabled,
-        ))
+        );
+        let configured = !store.get_setting("mal_client_id")?.is_empty();
+        for (name,label) in [("myanimelist","MyAnimeList"),("myanimelist-manga","MyAnimeList Manga")] {
+            providers.push(ArtworkProviderInfo {name:name.into(),label:label.into(),configured,needs_key:true,enabled:true});
+        }
+        Ok(providers)
     }
 
     pub fn artwork_settings(&self) -> Result<ArtworkSettings, RuntimeError> {
@@ -1335,7 +1341,10 @@ impl Runtime {
             }
         };
         let store = self.server_store()?;
-        let result = self
+        let result = if matches!(provider, "myanimelist" | "myanimelist-manga") {
+            self.artwork.fetch_myanimelist(provider, &store.get_setting("mal_client_id")?, &detail, id_override).await
+        } else {
+            self
             .artwork
             .fetch(
                 provider,
@@ -1346,7 +1355,8 @@ impl Runtime {
                 &store.get_setting("tvdb_pin")?,
                 &store.get_setting("comicvine_api_key")?,
             )
-            .await;
+            .await
+        };
         let response = match result {
             Ok(items) => ArtworkResults {
                 provider: provider.to_owned(),
@@ -1408,7 +1418,10 @@ impl Runtime {
         } else {
             "series"
         };
-        let result = self
+        let result = if matches!(provider, "myanimelist" | "myanimelist-manga") {
+            self.artwork.search_myanimelist(provider, &store.get_setting("mal_client_id")?, query).await
+        } else {
+            self
             .artwork
             .search(
                 provider,
@@ -1418,7 +1431,8 @@ impl Runtime {
                 &store.get_setting("tvdb_pin")?,
                 &store.get_setting("comicvine_api_key")?,
             )
-            .await;
+            .await
+        };
         let response = match result {
             Ok(results) => ArtworkSearchResults {
                 provider: provider.to_owned(),
