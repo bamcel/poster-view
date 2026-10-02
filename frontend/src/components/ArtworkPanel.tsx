@@ -1,4 +1,4 @@
-import PoserEdit from "./PoserEdit";
+import PosterEdit from "./PosterEdit";
 import { Switch } from "./ui";
 // The right-hand artwork panel. A provider selector across the top switches
 // between ThePosterDB (rich title/set search) and the API-based providers
@@ -7,7 +7,7 @@ import { Switch } from "./ui";
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Images, RefreshCw, X } from "lucide-react";
+import { ChevronDown, Image as PosterIcon, Images, RefreshCw, X } from "lucide-react";
 import { api } from "../api/client";
 import type { ItemDetail, Library, NfoMetadata } from "../types";
 import PosterDBBody from "./PosterDBPanel";
@@ -162,8 +162,8 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
       <div className="border-b border-border p-3">
         <div className="mb-2 flex items-center justify-between gap-3 px-1">
           <div className="flex gap-3" role="tablist" aria-label="Artwork tools">
-            <button role="tab" aria-selected={mode==="artwork"} onClick={()=>setMode("artwork")} className={`flex items-center gap-2 text-sm font-semibold ${mode==="artwork"?"text-accent":"text-muted"}`}><Images className="size-4"/>Artwork</button>
-            <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`text-sm font-semibold ${mode==="edit"?"text-accent":"text-muted"}`}>PoserEdit</button>
+            <button role="tab" aria-selected={mode==="artwork"} onClick={()=>setMode("artwork")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="artwork"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Images className="size-4"/>Artwork</button>
+            <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="edit"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><PosterIcon className="size-4"/>PosterEdit</button>
           </div>
           {onClose && <button type="button" onClick={onClose} aria-label="Close artwork" className="grid size-9 place-items-center rounded-lg text-muted transition-colors hover:bg-white/10 hover:text-white"><X className="size-5" /></button>}
         </div>
@@ -213,7 +213,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
       </div>
 
       <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto p-4">
-        {mode === "edit" ? <PoserEdit key={item.id} serverId={serverId} item={item}/> : <>
+        {mode === "edit" ? <PosterEdit key={item.id} serverId={serverId} item={item}/> : <>
         {provider !== "manual" && provider !== "remove" && (
           <div className="mb-3 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">

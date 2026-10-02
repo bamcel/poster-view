@@ -39,8 +39,7 @@ export default function AnimatedArtwork({src, alt, className, onError, format: o
     if (!player) return;
     if (play) void player.play().catch(()=>{}); else player.pause();
   },[play,src]);
-  if (!animated) return <img src={src} alt={alt} className={className} loading="lazy" draggable={false} onError={onError}/>;
-  const fallback=stillArtwork(src);
+  const fallback=animated ? stillArtwork(src) : src;
   let overlay: {logo:string;x:number;y:number;width:number;opacity:number} | undefined;
   try {
     const value = new URLSearchParams(src.split("?")[1] ?? "").get("logoOverlay");
@@ -50,9 +49,10 @@ export default function AnimatedArtwork({src, alt, className, onError, format: o
     }
   } catch { /* Invalid placement leaves the original artwork visible. */ }
 
+  if (!animated && !overlay) return <img src={src} alt={alt} className={className} loading="lazy" draggable={false} onError={onError}/>;
   const mediaClass = fill ? "absolute inset-0 h-full w-full object-cover object-top" : "h-full w-full max-h-[inherit] max-w-[inherit] [object-fit:inherit] [object-position:inherit]";
   return <div ref={element} className={className} style={fill ? {position: "absolute", inset: 0, overflow: "hidden"} : overlay ? {position:"relative",overflow:"hidden"} : undefined}>
-    {!play && fallback === src ? <span className="sr-only">{alt}: animated preview paused</span> : format === "webm" && play ? <video ref={video} src={src} poster={fallback} aria-label={alt} className={mediaClass} autoPlay loop muted playsInline preload="auto" onError={()=>setFailed(true)}/> : <img src={format === "gif" && play ? src : fallback} alt={alt} className={mediaClass} loading={visible ? "eager" : "lazy"} draggable={false} onError={onError}/>}
+    {animated && !play && fallback === src ? <span className="sr-only">{alt}: animated preview paused</span> : format === "webm" && play ? <video ref={video} src={src} poster={fallback} aria-label={alt} className={mediaClass} autoPlay loop muted playsInline preload="auto" onError={()=>setFailed(true)}/> : <img src={format === "gif" && play ? src : fallback} alt={alt} className={mediaClass} loading={visible ? "eager" : "lazy"} draggable={false} onError={onError}/>}
     {overlay && <img src={overlay.logo} alt="" aria-hidden="true" className="pointer-events-none absolute" style={{left:`${overlay.x}%`,top:`${overlay.y}%`,width:`${overlay.width}%`,opacity:overlay.opacity/100}}/>}
   </div>;
 }

@@ -57,3 +57,11 @@ it("renders saved animated poster logos with their stored placement",()=>{
   expect(logo.style.left).toBe("10%");expect(logo.style.width).toBe("80%");expect(logo.style.opacity).toBe("0.6");
   expect(screen.getByLabelText("Poster")).toBeTruthy();
 });
+
+it("renders a saved overlay on static artwork without replacing its image",()=>{
+ const source="/api/native/libraries/library/items/item/artwork/poster?format=png";
+ const overlay=encodeURIComponent(JSON.stringify({logo:"/api/native/libraries/library/items/item/artwork/logo",x:15,y:72,width:70,opacity:100}));
+ const view=render(<AnimatedArtwork src={`${source}&logoOverlay=${overlay}`} alt="Static poster"/>);
+ expect(screen.getByAltText("Static poster").getAttribute("src")).toBe(`${source}&logoOverlay=${overlay}`);
+ expect(view.container.querySelector('img[aria-hidden="true"]')).toBeTruthy();
+});

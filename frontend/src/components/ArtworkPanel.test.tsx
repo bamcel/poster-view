@@ -108,3 +108,13 @@ describe("ArtworkPanel cross-library databases", () => {
     expect(screen.getByRole("button", { name: /Series backdrop/ })).toBeTruthy();
   });
 });
+
+it("switches matching artwork tool tabs and underlines the selected tab",()=>{
+ render(<QueryClientProvider client={client}><ArtworkPanel serverId={1} item={item}/></QueryClientProvider>);
+ const artwork=screen.getByRole("tab",{name:"Artwork"});const editor=screen.getByRole("tab",{name:"PosterEdit"});
+ expect(artwork.getAttribute("aria-selected")).toBe("true");expect(artwork.className).toContain("border-accent");
+ fireEvent.click(editor);
+ expect(editor.getAttribute("aria-selected")).toBe("true");expect(editor.className).toContain("border-accent");
+ expect(artwork.getAttribute("aria-selected")).toBe("false");expect(editor.querySelector("svg")).toBeTruthy();
+ expect(screen.getByText(/Add a poster and a series logo/)).toBeTruthy();
+});

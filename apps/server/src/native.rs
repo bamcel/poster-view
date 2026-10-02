@@ -439,6 +439,7 @@ pub(crate) async fn edit_item(
     Json(input): Json<EditRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     let library = library(&state, &library_id).await?;
+    let only_visual_fields=input.metadata.as_object().is_some_and(|fields| !fields.is_empty() && fields.keys().all(|key| ["posteredit", "poseredit"].contains(&key.as_str())));
     let changed_fields=input.metadata.clone();
     let sync_state=state.clone();
     let sync_library=library_id.clone();
@@ -454,7 +455,7 @@ pub(crate) async fn edit_item(
             .find(|e| e.id == item)
             .ok_or_else(HttpError::not_found)?;
         let mut warnings = Vec::<String>::new();
-        if library.options.save_nfo && (entry.kind != "season" || entry.nfo_path.is_some()) {
+        if library.options.save_nfo && !only_visual_fields && (entry.kind != "season" || entry.nfo_path.is_some()) {
             match crate::native_scan::write_nfo(&state, &entry) {
                 Ok((path, xml)) => db
                     .record_native_nfo(&library_id, &entry.id, &path, &xml)
@@ -756,6 +757,38 @@ pub(crate) mod scan_tests {
             )),
         }
     }
+    #[tokio::test]
+    async fn overlay_only_edits_do_not_rewrite_nfo_or_artwork() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let folder = temp.path().join("media/Shows/Example");
+        fs::create_dir_all(&folder).unwrap();
+        let xml = "<tvshow><title>Example</title><custom>preserve</custom></tvshow>";
+        fs::write(folder.join("tvshow.nfo"), xml).unwrap();
+        fs::write(folder.join("poster.jpg"), b"original poster").unwrap();
+        let db = store(&state);
+        let library = db.save_native_library(None, &NativeLibraryInput {
+            name: "Shows".into(), library_type: NativeLibraryType::Shows,
+            anime_content: AnimeContent::Both, paths: vec!["Shows".into()], revision: None,
+            options: NativeLibraryOptions { save_nfo: true, ..Default::default() },
+        }).unwrap();
+        let entry = posterview_contracts::native::NativeCatalogEntry {
+            id: String::new(), path: "Shows/Example".into(), kind: "series".into(), parent_path: None,
+            title: "Example".into(), metadata: serde_json::json!({"title":"Example"}),
+            artwork: vec![], files: vec![], nfo_path: Some("Shows/Example/tvshow.nfo".into()),
+            nfo_xml: None, available: true, revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, &[entry]).unwrap();
+        let entry = db.native_catalog(&library.id).unwrap().remove(0);
+        let result = edit_item(State(state), Path((library.id.clone(), entry.id.clone())), Json(EditRequest {
+            revision: entry.revision, metadata: serde_json::json!({"posteredit":{"mode":"overlay","x":15},"poseredit":null}),
+        })).await.unwrap();
+        assert_eq!(result.0["entry"]["metadata"]["posteredit"]["mode"], "overlay");
+        assert_eq!(fs::read_to_string(folder.join("tvshow.nfo")).unwrap(), xml);
+        assert_eq!(fs::read(folder.join("poster.jpg")).unwrap(), b"original poster");
+        assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["posteredit"]["mode"], "overlay");
+    }
+
     #[tokio::test]
     async fn shared_artwork_panel_uses_native_identifiers_and_persists_manual_choices() {
         use posterview_contracts::ImageTarget;
