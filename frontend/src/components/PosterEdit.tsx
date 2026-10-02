@@ -1,3 +1,4 @@
+import RemovePosterOverlay from "./RemovePosterOverlay";
 import {useEffect, useRef, useState} from "react";
 import {useQuery, useQueryClient} from "@tanstack/react-query";
 import {Download, Loader2, RotateCcw} from "lucide-react";
@@ -22,7 +23,7 @@ export default function PosterEdit({serverId,item}: {serverId:number;item:ItemDe
   const catalog=useQuery({queryKey:["native-catalog",library],queryFn:()=>nativeLibraries.catalog(library),enabled:native});
   const entry=catalog.data?.find(e=>e.id===id);
   const saved=(entry?.metadata.posteredit ?? entry?.metadata.poseredit) as Placement | undefined;
-  useEffect(()=>setPlacement(saved ? {...defaults,...saved} : defaults),[item.id,saved]);
+  useEffect(()=>setPlacement(saved ? {...defaults,...saved} : entry?.metadata.posteredit === null || entry?.metadata.poseredit === null ? {...defaults,enabled:false} : defaults),[item.id,saved,entry?.metadata.posteredit,entry?.metadata.poseredit]);
   const current=item.poster?.split("&logoOverlay=")[0];
   const animated=["gif","webm"].includes(artworkFormat(current));
   const original=saved?.poster_path === entry?.artwork.find(a=>a.kind==="poster")?.path ? entry?.artwork.find(a=>a.kind==="poster-edit-original") : undefined;
@@ -83,7 +84,7 @@ export default function PosterEdit({serverId,item}: {serverId:number;item:ItemDe
       document.body.appendChild(link);link.click();link.remove();window.setTimeout(()=>URL.revokeObjectURL(url),60_000);
     } catch(error) {toast.push("error",(error as Error).message);} finally {setBusy(false);}
   };
-  if (!source || !logo) return <p className="text-sm text-muted">Add a poster and a series logo in Artwork before using PosterEdit.</p>;
+  if (!source || !logo) return <div className="space-y-4"><p className="text-sm text-muted">Add a poster and a series logo in Artwork before using PosterEdit.</p><RemovePosterOverlay serverId={serverId} item={item}/></div>;
   return <div className="space-y-4">
     <p className="text-xs leading-5 text-muted">Drag the logo to position it. Save Overlay stores its placement in PosterView without replacing artwork. Download applies and downloads a new PNG poster, following your artwork storage and sync settings{animated ? " using the animation’s static preview frame" : ""}.{!native && " Overlay saving is available for manual libraries; connected-server posters can be replaced and downloaded."}</p>
     <div ref={preview} className="relative aspect-[2/3] overflow-hidden rounded-xl bg-black">
@@ -94,6 +95,7 @@ export default function PosterEdit({serverId,item}: {serverId:number;item:ItemDe
     {([['x','Horizontal position'],['y','Vertical position'],['width','Logo size'],['opacity','Opacity']] as const).map(([key,label])=><label key={key} className="block text-xs text-muted">{label} · {Math.round(placement[key])}%<input aria-label={label} type="range" min={key==='width'?5:0} max={100} value={placement[key]} onChange={e=>update(key,Number(e.target.value))} className="mt-2 w-full accent-accent"/></label>)}
     <div className="flex gap-2"><button type="button" onClick={()=>setPlacement(p=>({...p,x:(100-p.width)/2}))} className="rounded-lg border border-border px-3 py-2 text-sm">Center</button><button type="button" onClick={()=>setPlacement(defaults)} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"><RotateCcw className="size-4"/>Reset</button></div>
     <button type="button" disabled={busy || !native || !entry} onClick={()=>void save()} className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-black disabled:opacity-50">{busy&&<Loader2 className="size-4 animate-spin"/>}Save Overlay</button>
+    <RemovePosterOverlay serverId={serverId} item={item} disabled={busy} onRemoved={()=>setPlacement(p=>({...p,enabled:false}))}/>
     <button type="button" disabled={busy || (native && !entry)} onClick={()=>void download()} className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-semibold text-white hover:border-accent disabled:opacity-50"><Download className="size-4"/>Download</button>
   </div>;
 }

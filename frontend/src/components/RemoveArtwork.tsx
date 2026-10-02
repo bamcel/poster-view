@@ -1,3 +1,4 @@
+import RemovePosterOverlay from "./RemovePosterOverlay";
 import { invalidateArtworkItems } from "../lib/artworkTarget";
 import { useMemo, useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
@@ -85,6 +86,7 @@ export default function RemoveArtwork({ serverId, item, includeFolderBackdrop = 
     <button type="button" onClick={() => void removeAll()} disabled={busy !== null || targets.length === 0} className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-danger/40 bg-danger/10 px-3 text-sm font-semibold text-danger hover:bg-danger/20 disabled:opacity-50">
       {busy === "all" ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />} Remove All
     </button>
+    <RemovePosterOverlay serverId={serverId} item={item} disabled={busy !== null}/>
     {animated.length > 0 && <div className="space-y-2">
       <h4 className="text-sm font-semibold">Animated artwork</h4>
       <p className="text-xs text-faint">Remove animations independently of static artwork.</p>

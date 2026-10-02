@@ -66,3 +66,16 @@ it("saves only overlay placement in the native database",async()=>{
  expect(api.applyUpload).not.toHaveBeenCalled();expect(nativeLibraries.upload).not.toHaveBeenCalled();
 });
 it("explains missing logo before allowing editing",()=>{show("/poster.png","");expect(screen.getByText(/Add a poster and a series logo/)).toBeTruthy();expect(screen.queryByRole("button",{name:"Save Overlay"})).toBeNull();});
+
+it("removes a saved overlay without replacing artwork",async()=>{
+ const entry={id:"series",path:"Series",kind:"series",parent_path:null,files:[],nfo_path:null,available:true,revision:1,title:"Series",metadata:{posteredit:{mode:"overlay",enabled:true,x:15,y:72,width:70,opacity:100}},artwork:[{kind:"poster",path:"poster.jpg",source:"local"}]} as NativeCatalogEntry;
+ const cleared={...entry,revision:2,metadata:{posteredit:null,poseredit:null}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([entry]);
+ vi.mocked(nativeLibraries.editItem).mockImplementation(async()=>{vi.mocked(nativeLibraries.catalog).mockResolvedValue([cleared]);return {entry:cleared,warnings:[]};});
+ show("/poster.png","/logo.png",true);
+ await waitFor(()=>expect((screen.getByRole("button",{name:"Remove Overlay"}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByRole("button",{name:"Remove Overlay"}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("library",entry,{posteredit:null,poseredit:null}));
+ await waitFor(()=>expect(screen.queryByAltText("Drag series logo")).toBeNull());
+ expect(api.applyUpload).not.toHaveBeenCalled();expect(nativeLibraries.upload).not.toHaveBeenCalled();
+});

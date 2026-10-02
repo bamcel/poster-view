@@ -445,6 +445,12 @@ impl ServerStore {
             return Err(invalid("Catalog item not found."));
         }
         tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,'manual',1) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source='manual',locked=1",params![item,art.kind,art.path])?;
+        // A deliberate poster/logo replacement must not inherit an old logo layer.
+        // Backups and server imports leave PosterView's visual preferences intact.
+        if art.source == "manual" && ["poster", "poster-animated", "logo", "logo-animated"].contains(&art.kind.as_str()) {
+            tx.execute("UPDATE catalog_metadata_fields SET value_json='null',source='manual',locked=1,revision=revision+1 WHERE item_id=?1 AND field IN ('posteredit','poseredit')", [item])?;
+        }
+
         tx.execute(
             "UPDATE catalog_items SET revision=revision+1 WHERE id=?1",
             [item],
@@ -568,6 +574,22 @@ fn project_metadata(
 mod tests{
     use super::*;
     use posterview_contracts::native::{NativeLibraryInput,NativeLibraryType,AnimeContent};
+    #[test]
+    fn replacing_poster_artwork_clears_overlays_but_backups_and_server_imports_preserve_them() {
+        let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
+        let library=db.save_native_library(None,&NativeLibraryInput{name:"Anime".into(),library_type:NativeLibraryType::Anime,anime_content:AnimeContent::Both,paths:vec!["Anime".into()],revision:None,options:Default::default()}).unwrap();
+        let entry=NativeCatalogEntry{id:String::new(),path:"Anime/Test".into(),kind:"series".into(),parent_path:None,title:"Test".into(),metadata:json!({"title":"Test","plot":"Keep this"}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+        db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();
+        for (kind,source,cleared) in [("poster-edit-original","manual",false),("backdrop","manual",false),("poster","server",false),("poster","manual",true),("poster-animated","manual",true),("logo","manual",true)] {
+            let entry=db.native_catalog(&library.id).unwrap().remove(0);
+            db.edit_native_entry(&library.id,&entry.id,entry.revision,&json!({"posteredit":{"enabled":true,"mode":"overlay"},"poseredit":{"enabled":true}})).unwrap();
+            db.save_native_artwork(&library.id,&entry.id,&NativeArtwork{kind:kind.into(),path:format!("{kind}.png"),source:source.into()}).unwrap();
+            let after=db.native_catalog(&library.id).unwrap().remove(0);
+            assert_eq!(after.metadata["posteredit"].is_null(),cleared,"{kind}/{source}");
+            assert_eq!(after.metadata["poseredit"].is_null(),cleared);
+            assert_eq!(after.metadata["plot"],"Keep this");
+        }
+    }
     #[test]
     fn identify_resets_provider_data_and_preserves_local_values_atomically(){
         let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
