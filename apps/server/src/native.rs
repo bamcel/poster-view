@@ -439,7 +439,7 @@ pub(crate) async fn edit_item(
     Json(input): Json<EditRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     let library = library(&state, &library_id).await?;
-    let only_visual_fields=input.metadata.as_object().is_some_and(|fields| !fields.is_empty() && fields.keys().all(|key| ["posteredit", "poseredit"].contains(&key.as_str())));
+    let only_visual_fields=input.metadata.as_object().is_some_and(|fields| !fields.is_empty() && fields.keys().all(|key| ["posteredit", "poseredit", "backdropedit"].contains(&key.as_str())));
     let changed_fields=input.metadata.clone();
     let sync_state=state.clone();
     let sync_library=library_id.clone();
@@ -782,10 +782,16 @@ pub(crate) mod scan_tests {
         };
         db.ingest_native_catalog(&library.id, library.revision, &[entry]).unwrap();
         let entry = db.native_catalog(&library.id).unwrap().remove(0);
-        let result = edit_item(State(state), Path((library.id.clone(), entry.id.clone())), Json(EditRequest {
+        let result = edit_item(State(state.clone()), Path((library.id.clone(), entry.id.clone())), Json(EditRequest {
             revision: entry.revision, metadata: serde_json::json!({"posteredit":{"mode":"overlay","x":15},"poseredit":null}),
         })).await.unwrap();
         assert_eq!(result.0["entry"]["metadata"]["posteredit"]["mode"], "overlay");
+        let fresh=db.native_catalog(&library.id).unwrap().remove(0);
+        let backdrop=edit_item(State(state),Path((library.id.clone(),fresh.id.clone())),Json(EditRequest {
+            revision:fresh.revision,metadata:serde_json::json!({"backdropedit":{"x":25,"y":50,"zoom":150,"fit":"cover"}}),
+        })).await.unwrap();
+        assert_eq!(backdrop.0["entry"]["metadata"]["backdropedit"]["zoom"],150);
+
         assert_eq!(fs::read_to_string(folder.join("tvshow.nfo")).unwrap(), xml);
         assert_eq!(fs::read(folder.join("poster.jpg")).unwrap(), b"original poster");
         assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["posteredit"]["mode"], "overlay");

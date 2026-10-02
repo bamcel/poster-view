@@ -1,3 +1,5 @@
+import AnimatedArtwork from "../components/AnimatedArtwork";
+import {connectedBackdropUrl} from "../lib/backdropFraming";
 import DetailSynopsis from "../components/DetailSynopsis";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "../lib/libraryNavigation";
@@ -11,7 +13,7 @@ import { BACKDROP_OVERLAY_EVENT, DASHBOARD_BACKDROP_EVENT, backdropOverlay, back
 function Artwork({ src, alt, className = "", decorative = false }: { src?: string; alt: string; className?: string; decorative?: boolean }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
-  return src && !failed ? <img src={src} alt={decorative ? "" : alt} loading={decorative ? "eager" : "lazy"} onError={() => setFailed(true)} className={`h-full w-full object-cover ${className}`} />
+  return src && !failed ? <AnimatedArtwork src={src} alt={decorative ? "" : alt} onError={() => setFailed(true)} className={`h-full w-full object-cover ${className}`} />
     : <div aria-label={decorative ? undefined : `${alt}: no artwork`} className={`flex h-full w-full items-center justify-center bg-gradient-to-br from-elevated via-surface-2 to-base ${className}`}>{!decorative && <Film className="size-12 text-white/15" aria-hidden="true" />}</div>;
 }
 
@@ -77,7 +79,7 @@ export default function SeasonDetailPage() {
 
   return <div className="media-detail relative isolate h-full overflow-hidden bg-base text-white">
     {showBackdrop && <>
-      <div className="pointer-events-none absolute inset-0 -z-20"><Artwork src={imageUrl(serverId, season?.background || series?.background)} alt="" decorative /></div>
+      <div className="pointer-events-none absolute inset-0 -z-20"><Artwork src={connectedBackdropUrl(imageUrl(serverId, season?.background || series?.background),serverId,(season?.background ? season.id : series?.id)??"")} alt="" decorative /></div>
       <div data-testid="season-backdrop-overlay" className="pointer-events-none absolute inset-0 -z-10" style={{ backgroundImage: backdropOverlayGradients(overlayStrength).desktop }} />
     </>}
     <div ref={scroller} className="h-full overflow-y-auto">

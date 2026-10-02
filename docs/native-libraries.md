@@ -327,3 +327,10 @@ Unsuccessful sync attempts retry after two minutes and then five minutes. After 
 Open Artwork and select PosterEdit to position a series logo over its poster. Drag the logo or use the position, size, and opacity controls. Save Overlay stores editable placement in the manual-library database and displays the logo separately on static or animated artwork in PosterView. It does not replace artwork files or push a combined image to connected servers. Download applies a new combined PNG through the normal poster replacement workflow and downloads a copy. Media-folder saving and connected-server synchronization follow the configured library settings. Animations use their static preview frame. The editable placement is marked as already combined for static artwork so the logo is not rendered twice. Connected-server posters can be downloaded, while overlay saving requires a manual library. Existing placement saved by PoserEdit remains readable.
 
 Generated media-folder artwork is readable by other container users on Linux. Atomic saves preserve existing write permissions and add read access so connected servers can read the images. Reapplying an unchanged image also repairs permissions left by older saves.
+
+
+### Backdrop framing
+
+The artwork panel’s BackdropEdit tab previews the backdrop in a landscape card boundary. Drag the image or adjust horizontal/vertical position, zoom, and Fill/Fit; Save Adjustments stores framing separately from the artwork. Reset Adjustments removes the saved framing. Static images and GIF/WebM animations share the same controls.
+
+Manual-library framing is stored per item in `backdropedit` metadata and used by catalog cards and page backdrops. It does not rewrite NFO or image files or push changes to connected servers. Disabling enhanced artwork uses the unadjusted static artwork. Connected-library framing is saved per server/item in the current browser and is likewise a PosterView display adjustment only.

@@ -1,3 +1,5 @@
+import AnimatedArtwork from "../components/AnimatedArtwork";
+import {connectedBackdropUrl} from "../lib/backdropFraming";
 import { detailActionClass } from "../lib/detailActions";
 import DetailSynopsis from "../components/DetailSynopsis";
 // Item detail: a cinematic hero (blurred backdrop, large poster, metadata) with
@@ -84,7 +86,7 @@ export default function ItemDetailPage() {
   const item = detailQ.data && { ...detailQ.data, title: bookContext && detailQ.data.type === "folder" ? metadataQ.data?.title.trim() || detailQ.data.title : detailQ.data.title };
   const memberInfo = useBookInfo(serverId, item?.members, bookContext);
   const isSeries = item?.type === "show";
-  const backdrop = imageUrl(serverId, item?.background);
+  const backdrop = connectedBackdropUrl(imageUrl(serverId, item?.background),serverId,item?.id??"");
   const poster = imageUrl(serverId, item?.poster);
   const logo = imageUrl(serverId, item?.logo);
   const installmentInfo = item?.type === "folder" ? seriesInstallmentInfo(item.members) : null;
@@ -138,7 +140,8 @@ export default function ItemDetailPage() {
       {showBackdrop && (<LibraryBackdrop>
         <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-base" aria-hidden="true" data-testid="item-backdrop">
           {backdrop && (
-            <img
+            <AnimatedArtwork
+              fill
               src={backdrop}
               alt=""
               className="h-full w-full origin-top scale-[1.02] object-cover object-top"

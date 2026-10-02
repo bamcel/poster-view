@@ -65,3 +65,13 @@ it("renders a saved overlay on static artwork without replacing its image",()=>{
  expect(screen.getByAltText("Static poster").getAttribute("src")).toBe(`${source}&logoOverlay=${overlay}`);
  expect(view.container.querySelector('img[aria-hidden="true"]')).toBeTruthy();
 });
+
+it("applies backdrop framing to static images and animated video inside a clipped boundary",()=>{
+ const framing=encodeURIComponent(JSON.stringify({x:25,y:70,zoom:150,fit:"contain"}));
+ const view=render(<AnimatedArtwork src={`/backdrop.jpg?backdropEdit=${framing}`} alt="Framed backdrop" fill/>);
+ let media=screen.getByAltText("Framed backdrop");
+ expect(media.getAttribute("src")).toBe("/backdrop.jpg");expect(media.style.objectFit).toBe("contain");expect(media.style.objectPosition).toBe("25% 70%");expect(media.style.transform).toBe("scale(1.5)");
+ expect(media.parentElement?.style.overflow).toBe("hidden");
+ view.rerender(<AnimatedArtwork src={`${src}&backdropEdit=${framing}`} alt="Framed backdrop" fill/>);visible(true);
+ media=screen.getByLabelText("Framed backdrop");expect(media.tagName).toBe("VIDEO");expect(media.style.objectPosition).toBe("25% 70%");expect(media.style.transform).toBe("scale(1.5)");
+});

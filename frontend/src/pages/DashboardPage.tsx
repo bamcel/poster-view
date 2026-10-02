@@ -1,3 +1,4 @@
+import {connectedBackdropUrl} from "../lib/backdropFraming";
 import LibraryViewPreferences, { useBackdropView, posterGrid, backdropGrid } from "../components/LibraryViewPreferences";
 import NativeScanProgress from "../components/NativeScanProgress";
 import NativeLibraryBrowser from "../components/NativeLibraryBrowser";
@@ -284,7 +285,7 @@ function ServerDashboard({serverId}: {serverId: number}) {
   }
 
   const backdropUrls = useMemo(
-    () => Array.from(new Set((itemsQ.data ?? []).map((item) => imageUrl(serverId!, item.background)).filter((url): url is string => Boolean(url)))),
+    () => Array.from(new Set((itemsQ.data ?? []).map((item) => connectedBackdropUrl(imageUrl(serverId!, item.background),serverId!,item.id)).filter((url): url is string => Boolean(url)))),
     [itemsQ.data, serverId],
   );
   const posterBackdropUrls = useMemo(
@@ -560,7 +561,7 @@ function ServerDashboard({serverId}: {serverId: number}) {
                 selectionMode={selectionMode}
                 onSelect={browsesFolders ? range => selectItem(item.id, range) : undefined}
                 backdropView={backdropView}
-                image={imageUrl(serverId!, backdropView ? item.background ?? item.poster : item.poster)}
+                image={backdropView && item.background ? connectedBackdropUrl(imageUrl(serverId!,item.background),serverId!,item.id) : imageUrl(serverId!,item.poster)}
                 title={item.title}
                 subtitle={item.year ? String(item.year) : undefined}
                 kind={item.type}
