@@ -49,3 +49,11 @@ it("switches to the static frame while the browser tab is hidden",()=>{
   expect(screen.queryByLabelText("Poster")).toBeNull();
   expect(screen.getByAltText("Poster").getAttribute("src")).toContain("still=1");
 });
+
+it("renders saved animated poster logos with their stored placement",()=>{
+  const overlay=encodeURIComponent(JSON.stringify({logo:"/api/native/libraries/library/items/item/artwork/logo",x:10,y:70,width:80,opacity:60}));
+  const view=render(<AnimatedArtwork src={`${src}&logoOverlay=${overlay}`} alt="Poster"/>);visible(true);
+  const logo=view.container.querySelector('img[aria-hidden="true"]') as HTMLImageElement;
+  expect(logo.style.left).toBe("10%");expect(logo.style.width).toBe("80%");expect(logo.style.opacity).toBe("0.6");
+  expect(screen.getByLabelText("Poster")).toBeTruthy();
+});

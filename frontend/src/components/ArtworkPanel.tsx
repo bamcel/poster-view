@@ -1,3 +1,4 @@
+import PoserEdit from "./PoserEdit";
 import { Switch } from "./ui";
 // The right-hand artwork panel. A provider selector across the top switches
 // between ThePosterDB (rich title/set search) and the API-based providers
@@ -39,6 +40,7 @@ const PROVIDER_GROUPS = [
 ];
 
 export default function ArtworkPanel({ serverId, item, prefill, navigationTarget, anilistMangaId, libraryType, libraryTitle, onReviewMetadata, onClose }: Props) {
+  const [mode, setMode] = useState<"artwork" | "edit">("artwork");
   const [provider, setProvider] = useState("posterdb");
   const [sourceLayout, setSourceLayout] = useState<"list" | "compact">(() =>
     localStorage.getItem(ARTWORK_LAYOUT_KEY) === "compact" ? "compact" : "list",
@@ -159,12 +161,13 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
     >
       <div className="border-b border-border p-3">
         <div className="mb-2 flex items-center justify-between gap-3 px-1">
-          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted">
-            <Images className="size-4 text-accent" /> Artwork
-          </h2>
+          <div className="flex gap-3" role="tablist" aria-label="Artwork tools">
+            <button role="tab" aria-selected={mode==="artwork"} onClick={()=>setMode("artwork")} className={`flex items-center gap-2 text-sm font-semibold ${mode==="artwork"?"text-accent":"text-muted"}`}><Images className="size-4"/>Artwork</button>
+            <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`text-sm font-semibold ${mode==="edit"?"text-accent":"text-muted"}`}>PoserEdit</button>
+          </div>
           {onClose && <button type="button" onClick={onClose} aria-label="Close artwork" className="grid size-9 place-items-center rounded-lg text-muted transition-colors hover:bg-white/10 hover:text-white"><X className="size-5" /></button>}
         </div>
-        {sourceLayout === "list" ? (
+        {mode === "artwork" && <>{sourceLayout === "list" ? (
           <div>
             <div className="flex flex-wrap gap-1">
               {primaryProviderTabs.map(sourceButton)}
@@ -206,10 +209,11 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
         <div className="mt-3 flex items-center justify-end gap-2">
           <span className="text-xs font-medium text-muted">{sourceLayout === "list" ? "List" : "Compact"}</span>
           <Switch label="Compact artwork sources" checked={sourceLayout === "compact"} translucent onChange={() => chooseLayout(sourceLayout === "list" ? "compact" : "list")} />
-        </div>
+        </div></>}
       </div>
 
       <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto p-4">
+        {mode === "edit" ? <PoserEdit key={item.id} serverId={serverId} item={item}/> : <>
         {provider !== "manual" && provider !== "remove" && (
           <div className="mb-3 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">
@@ -242,6 +246,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
         ) : (
           <ArtworkBrowser key={panelVersion} provider={provider} serverId={serverId} item={item} metadataId={provider === "anilist-manga" ? anilistMangaId : undefined} prefill={navigationTarget?.provider === provider ? navigationTarget : undefined} onReviewMetadata={onReviewMetadata} />
         )}
+        </>}
       </div>
     </div>
   );

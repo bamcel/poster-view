@@ -69,8 +69,10 @@ function artwork(
   kind: string,
 ) {
   if (animatedArtworkEnabled(library.id) && entry?.artwork.some(a=>a.kind===`${kind}-animated`)) kind=`${kind}-animated`;
+  const edit = entry?.metadata.poseredit as {enabled?:boolean} | undefined;
+  const overlay = kind === "poster-animated" && edit?.enabled && entry?.artwork.some(a=>a.kind==="logo") ? `&logoOverlay=${encodeURIComponent(JSON.stringify({...edit,logo:`${nativeLibraries.artworkUrl(library.id,entry.id,"logo")}?v=${entry.revision}`}))}` : "";
   return entry?.artwork.some((a) => a.kind === kind)
-    ? `${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${entry.revision}&format=${entry.artwork.find(a => a.kind === kind)?.path.split(".").pop()?.toLowerCase() ?? ""}${!animatedArtworkEnabled(library.id) ? "&still=1" : ""}`
+    ? `${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${entry.revision}&format=${entry.artwork.find(a => a.kind === kind)?.path.split(".").pop()?.toLowerCase() ?? ""}${!animatedArtworkEnabled(library.id) ? "&still=1" : ""}${overlay}`
     : undefined;
 }
 function picture(

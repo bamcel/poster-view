@@ -41,8 +41,18 @@ export default function AnimatedArtwork({src, alt, className, onError, format: o
   },[play,src]);
   if (!animated) return <img src={src} alt={alt} className={className} loading="lazy" draggable={false} onError={onError}/>;
   const fallback=stillArtwork(src);
+  let overlay: {logo:string;x:number;y:number;width:number;opacity:number} | undefined;
+  try {
+    const value = new URLSearchParams(src.split("?")[1] ?? "").get("logoOverlay");
+    if (value) {
+      const parsed = JSON.parse(value);
+      if (typeof parsed.logo === "string" && parsed.logo.startsWith("/api/native/") && [parsed.x,parsed.y,parsed.width,parsed.opacity].every(v=>typeof v === "number" && Number.isFinite(v) && v>=0 && v<=100)) overlay=parsed;
+    }
+  } catch { /* Invalid placement leaves the original artwork visible. */ }
+
   const mediaClass = fill ? "absolute inset-0 h-full w-full object-cover object-top" : "h-full w-full max-h-[inherit] max-w-[inherit] [object-fit:inherit] [object-position:inherit]";
-  return <div ref={element} className={className} style={fill ? {position: "absolute", inset: 0, overflow: "hidden"} : undefined}>
+  return <div ref={element} className={className} style={fill ? {position: "absolute", inset: 0, overflow: "hidden"} : overlay ? {position:"relative",overflow:"hidden"} : undefined}>
     {!play && fallback === src ? <span className="sr-only">{alt}: animated preview paused</span> : format === "webm" && play ? <video ref={video} src={src} poster={fallback} aria-label={alt} className={mediaClass} autoPlay loop muted playsInline preload="auto" onError={()=>setFailed(true)}/> : <img src={format === "gif" && play ? src : fallback} alt={alt} className={mediaClass} loading={visible ? "eager" : "lazy"} draggable={false} onError={onError}/>}
+    {overlay && <img src={overlay.logo} alt="" aria-hidden="true" className="pointer-events-none absolute" style={{left:`${overlay.x}%`,top:`${overlay.y}%`,width:`${overlay.width}%`,opacity:overlay.opacity/100}}/>}
   </div>;
 }

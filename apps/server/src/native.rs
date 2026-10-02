@@ -512,6 +512,7 @@ pub(crate) async fn upload_artwork(
 ) -> Result<StatusCode, HttpError> {
     if ![
         "poster",
+        "poster-edit-original",
         "backdrop",
         "banner",
         "logo",
@@ -559,7 +560,7 @@ pub(crate) async fn upload_artwork(
         };
         db.save_native_artwork(&library, &item, &art)
             .map_err(error)?;
-        if config.options.save_artwork && !animated {
+        if config.options.save_artwork && !animated && art.kind != "poster-edit-original" {
             crate::workers::blocking(|| crate::native_artwork::write(&state, &entry, &art, true))
                 .map_err(|e| {
                 HttpError::bad_request(format!(
@@ -571,6 +572,7 @@ pub(crate) async fn upload_artwork(
     })
     .await
     .map_err(|_| HttpError::bad_request("Artwork save interrupted."))??;
+    if art.kind == "poster-edit-original" { return Ok(StatusCode::NO_CONTENT); }
     let result = crate::native_artwork_sync::push(&state, &sync_library, &entry, &art).await;
     if !result.is_empty() { tracing::info!(message=%result, "Manual artwork server synchronization"); }
     Ok(StatusCode::NO_CONTENT)
