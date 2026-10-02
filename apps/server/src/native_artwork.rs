@@ -178,12 +178,14 @@ pub(crate) fn write(
         }
     }
     if fs::read(&target).ok().as_deref() == Some(encoded.get_ref().as_slice()) {
+        shared_artwork_permissions(&fs::File::open(&target).map_err(|e| e.to_string())?, &target)?;
         return Ok(());
     }
     let mut temp = tempfile::NamedTempFile::new_in(&directory).map_err(|e| e.to_string())?;
     use std::io::Write;
     temp.write_all(encoded.get_ref())
         .map_err(|e| e.to_string())?;
+    shared_artwork_permissions(temp.as_file(), &target)?;
     temp.as_file().sync_all().map_err(|e| e.to_string())?;
     crate::native_monitor::own_write(&target, || {
         if replace {
@@ -223,4 +225,52 @@ pub(crate) fn remove_static(state:&AppState,library:&str,entry:&NativeCatalogEnt
     let managed=crate::native_provider::store_image(state,&bytes)?;
     posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir()).save_native_artwork(library,&entry.id,&NativeArtwork{kind:format!("{kind}-previous"),path:managed,source:"manual".into()}).map_err(|e|e.to_string())?;
     crate::native_monitor::own_write(&target,||std::fs::remove_file(&target).map_err(|e|e.to_string()))
+}
+
+// NamedTempFile defaults to 0600 on Unix. Media sidecars must remain readable
+// by connected servers running with another container UID or GID.
+fn shared_artwork_permissions(file: &fs::File, target: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(target).map(|m| m.permissions().mode() & 0o777).unwrap_or(0o644);
+        file.set_permissions(fs::Permissions::from_mode(mode | 0o444)).map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(unix))]
+    let _ = (file, target);
+    Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod permission_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn unchanged_sidecars_can_be_repaired_without_rewriting_contents() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("season01-poster.jpg");
+        fs::write(&target, b"same poster").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+        shared_artwork_permissions(&fs::File::open(&target).unwrap(), &target).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"same poster");
+        assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o644);
+    }
+
+    #[test]
+    fn atomic_sidecars_are_readable_by_other_container_users() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("poster.jpg");
+        for existing in [None, Some(0o600), Some(0o640), Some(0o664)] {
+            if let Some(mode) = existing {
+                fs::write(&target, b"old").unwrap();
+                fs::set_permissions(&target, fs::Permissions::from_mode(mode)).unwrap();
+            }
+            let temporary = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
+            shared_artwork_permissions(temporary.as_file(), &target).unwrap();
+            temporary.persist(&target).unwrap();
+            let permissions = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+            assert_eq!(permissions, existing.unwrap_or(0o644) | 0o444);
+        }
+    }
 }

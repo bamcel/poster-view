@@ -325,3 +325,5 @@ Unsuccessful sync attempts retry after two minutes and then five minutes. After 
 ### PoserEdit
 
 Open Artwork and select PoserEdit to position a series logo over its poster. Drag the logo or use the position, size, and opacity controls, then save. Static posters are exported as combined PNG artwork through the normal apply and synchronization workflow. Manual libraries retain an original poster in application storage and store editable placement in their database; a newly selected poster becomes the next editing source. Animated posters retain their original animation and display a separate logo overlay in PosterView only. Disabling enhanced animated artwork continues to show the static server-compatible artwork. Connected-server static posters can be edited, but editable placement and animated overlays require a manual library.
+
+Generated media-folder artwork is readable by other container users on Linux. Atomic saves preserve existing write permissions and add read access so connected servers can read the images. Reapplying an unchanged image also repairs permissions left by older saves.
