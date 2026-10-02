@@ -225,6 +225,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/login-backdrop/{name}", get(login_backdrop_image))
         .merge(protected)
         .fallback_service(spa)
+        .layer(tower_http::compression::CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

@@ -161,11 +161,19 @@ impl ServerStore {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         let mut result = Vec::new();
-        let mut fields =
-            tx.prepare("SELECT field,value_json FROM catalog_metadata_fields WHERE item_id=?1")?;
-        let mut artwork = tx.prepare(
-            "SELECT kind,path,source FROM catalog_artwork WHERE item_id=?1 ORDER BY kind",
-        )?;
+        let mut metadata = std::collections::HashMap::<String, Vec<(String, String, bool)>>::new();
+        let mut images = std::collections::HashMap::<String, Vec<NativeArtwork>>::new();
+        // Read related records in batches instead of executing three queries per item.
+        let mut fields = tx.prepare("SELECT f.item_id,f.field,f.value_json,f.locked FROM catalog_metadata_fields f JOIN native_catalog_sources s ON s.item_id=f.item_id WHERE s.library_id=?1 AND (?2 IS NULL OR EXISTS(SELECT 1 FROM json_each(?2) scope WHERE scope.value='' OR s.relative_path=scope.value OR substr(s.relative_path,1,length(scope.value)+1)=scope.value||'/'))")?;
+        for row in fields.query_map(params![library,scopes], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,bool>(3)?)))? {
+            let (id, field, value, locked) = row?;
+            metadata.entry(id).or_default().push((field, value, locked));
+        }
+        let mut artwork = tx.prepare("SELECT a.item_id,a.kind,a.path,a.source FROM catalog_artwork a JOIN native_catalog_sources s ON s.item_id=a.item_id WHERE s.library_id=?1 AND (?2 IS NULL OR EXISTS(SELECT 1 FROM json_each(?2) scope WHERE scope.value='' OR s.relative_path=scope.value OR substr(s.relative_path,1,length(scope.value)+1)=scope.value||'/')) ORDER BY a.kind")?;
+        for row in artwork.query_map(params![library,scopes], |r| Ok((r.get::<_,String>(0)?, NativeArtwork {kind:r.get(1)?,path:r.get(2)?,source:r.get(3)?})))? {
+            let (id, image) = row?;
+            images.entry(id).or_default().push(image);
+        }
         for (snapshot, id, available, revision) in rows {
             let mut entry: NativeCatalogEntry =
                 serde_json::from_str(&snapshot).map_err(|_| invalid("Invalid catalog record."))?;
@@ -173,27 +181,16 @@ impl ServerStore {
             entry.available = available;
             entry.revision = revision;
             entry.metadata = json!({});
-            entry.metadata["_title_locked"] = json!(tx.query_row("SELECT coalesce((SELECT locked FROM catalog_metadata_fields WHERE item_id=?1 AND field='title'),0)",[&id],|r|r.get::<_,i64>(0))? == 1);
-            for row in fields.query_map([&id], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-            })? {
-                let (field, value) = row?;
-                entry.metadata[&field] =
-                    serde_json::from_str(&value).map_err(|_| invalid("Invalid metadata value."))?;
+            entry.metadata["_title_locked"] = json!(false);
+            for (field, value, locked) in metadata.remove(&id).unwrap_or_default() {
+                if field == "title" { entry.metadata["_title_locked"] = json!(locked); }
+                entry.metadata[&field] = serde_json::from_str(&value).map_err(|_| invalid("Invalid metadata value."))?;
             }
             entry.title = entry.metadata["title"]
                 .as_str()
                 .unwrap_or(&entry.title)
                 .into();
-            entry.artwork = artwork
-                .query_map([&id], |r| {
-                    Ok(NativeArtwork {
-                        kind: r.get(0)?,
-                        path: r.get(1)?,
-                        source: r.get(2)?,
-                    })
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
+            entry.artwork = images.remove(&id).unwrap_or_default();
             result.push(entry);
         }
         Ok(result)

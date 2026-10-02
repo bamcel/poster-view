@@ -1,14 +1,20 @@
 import type { NativeCatalogEntry } from "../api/nativeLibraries";
 
+const identifierCache = new WeakMap<NativeCatalogEntry, Record<string, string>>();
+
 function ids(entry: NativeCatalogEntry): Record<string, string> {
+  const cached = identifierCache.get(entry);
+  if (cached) return cached;
   const raw = entry.metadata.identifiers;
-  return raw && typeof raw === "object" && !Array.isArray(raw)
+  const result = raw && typeof raw === "object" && !Array.isArray(raw)
     ? Object.fromEntries(
         Object.entries(raw)
           .filter(([, value]) => value != null && String(value).trim())
           .map(([key, value]) => [key.toLowerCase(), String(value).trim()]),
       )
     : {};
+  identifierCache.set(entry, result);
+  return result;
 }
 function sameSeries(a: NativeCatalogEntry, b: NativeCatalogEntry) {
   const left = ids(a),
