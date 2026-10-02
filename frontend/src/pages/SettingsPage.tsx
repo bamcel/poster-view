@@ -980,6 +980,7 @@ function DatabaseSection() {
 }
 
 const ARTWORK_DATABASES = [
+  { name: "deviantart", label: "DeviantArt" },
   { name: "posterdb", label: "ThePosterDB" },
   { name: "mangadex", label: "MangaDex" },
   { name: "viz", label: "VIZ" },
@@ -1035,8 +1036,8 @@ function DefaultArtworkSourceFields({ kind, names }: { kind: "poster" | "ereader
 function DefaultArtworkSourcesFields() {
   return <div className="grid gap-4 lg:grid-cols-2">
     {[
-      { label: "Poster", kind: "poster" as const, names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
-      { label: "eReader", kind: "ereader" as const, names: ["anilist-manga", "comicvine", "mangadex", "viz"] },
+      { label: "Poster", kind: "poster" as const, names: ["anilist", "fanart", "mediux", "posterdb", "tvdb", "deviantart"] },
+      { label: "eReader", kind: "ereader" as const, names: ["anilist-manga", "comicvine", "mangadex", "viz", "deviantart"] },
     ].map(group => <div key={group.kind} role="group" aria-labelledby={`provider-group-${group.kind}`} className="min-w-0 rounded-xl border border-border bg-surface-2 p-4">
       <h3 id={`provider-group-${group.kind}`} className="mb-3 text-sm font-semibold">{group.label} providers</h3>
       <DefaultArtworkSourceFields kind={group.kind} names={group.names} />
@@ -1331,6 +1332,7 @@ function ArtworkCredentialsFields() {
       <ProviderFeedback name="ThePosterDB" pending={loginMut.isPending} error={loginMut.error?.message}
         result={loginMut.data ? { ok: loginMut.data.logged_in, message: loginMut.data.message } : statusQ.data?.message ? { ok: statusQ.data.logged_in, message: statusQ.data.message } : undefined} />
       </ProviderConnection>
+        <DeviantArtConnection />
         <FanartTvdbFields
           fanart={fanart}
           setFanart={setFanart}
@@ -1515,4 +1517,25 @@ function IconBtn({
       {children}
     </button>
   );
+}
+
+function DeviantArtConnection() {
+  const client = useQueryClient();
+  const settings = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
+  const [id, setId] = useState("");
+  const [secret, setSecret] = useState("");
+  const save = useMutation({
+    mutationFn: () => api.setArtworkSettings({ deviantart_client_id: id.trim() || undefined, deviantart_client_secret: secret || undefined }),
+    onSuccess: () => { setId(""); setSecret(""); client.invalidateQueries({queryKey:["artwork-settings"]}); client.invalidateQueries({queryKey:["artwork-providers"]}); client.invalidateQueries({queryKey:["artwork", "deviantart"]}); reportSettingsSave("saved"); },
+    onError: () => reportSettingsSave("error"),
+  });
+  const test = useMutation({ mutationFn: () => api.testArtworkProvider({provider:"deviantart", deviantart_client_id:id.trim() || undefined, deviantart_client_secret:secret || undefined}) });
+  return <ProviderConnection id="deviantart" name="DeviantArt" description="Public artwork search by tag" setupUrl="https://www.deviantart.com/developers/apps" status={providerStatus(settings.data?.deviantart_configured, test.isPending, test.data, test.error)}>
+    <p className="mb-3 text-xs text-faint">Register a confidential application to obtain a client ID and secret. Credentials stay on the PosterView server.</p>
+    <label className="block text-sm text-muted">Client ID<input className={compactInputCls} value={id} onChange={e=>{setId(e.target.value);test.reset();}} placeholder={settings.data?.deviantart_configured ? "Saved (enter to replace)" : "DeviantArt client ID"}/></label>
+    <label className="mt-2 block text-sm text-muted">Client secret<input type="password" autoComplete="new-password" className={compactInputCls} value={secret} onChange={e=>{setSecret(e.target.value);test.reset();}} placeholder={settings.data?.deviantart_configured ? "••••••" : "DeviantArt client secret"}/></label>
+    <div className="mt-3 flex gap-2"><button className="rounded-lg bg-accent px-3 py-2 text-sm text-black disabled:opacity-50" disabled={save.isPending || (!id && !secret)} onClick={()=>save.mutate()}>Save credentials</button><button className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50" disabled={test.isPending || (!settings.data?.deviantart_configured && (!id || !secret))} onClick={()=>test.mutate()}>Test Connection</button></div>
+    {save.error && <p role="alert" className="mt-2 text-xs text-danger">{save.error.message}</p>}
+    <ProviderFeedback name="DeviantArt" pending={test.isPending} result={test.data} error={test.error?.message}/>
+  </ProviderConnection>;
 }

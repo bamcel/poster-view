@@ -676,3 +676,24 @@ fn myanimelist_artwork_reuses_the_saved_client_id_without_exposing_it() {
         assert!(runtime.enabled_artwork_providers().unwrap().contains(name));
     }
 }
+
+#[tokio::test]
+async fn deviantart_credentials_are_saved_without_being_exposed() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Runtime::new(dir.path()); runtime.initialize().unwrap();
+    assert!(!runtime.artwork_settings().unwrap().deviantart_configured);
+    let settings = runtime.set_artwork_settings(&ArtworkSettingsUpdate {
+        deviantart_client_id: Some("123-client".into()),
+        deviantart_client_secret: Some("private-deviantart-secret".into()),
+        ..Default::default()
+    }).await.unwrap();
+    assert!(settings.deviantart_configured);
+    assert!(!serde_json::to_string(&settings).unwrap().contains("private-deviantart-secret"));
+    assert_eq!(runtime.server_store().unwrap().get_setting("deviantart_client_secret").unwrap(), "private-deviantart-secret");
+    let sources = runtime.artwork_providers().unwrap();
+    let info = sources.iter().find(|p| p.name == "deviantart").unwrap();
+    assert!(info.configured && info.needs_key && info.enabled);
+    assert!(!serde_json::to_string(info).unwrap().contains("123-client"));
+    runtime.set_artwork_settings(&ArtworkSettingsUpdate { deviantart_client_secret: Some("".into()), ..Default::default() }).await.unwrap();
+    assert!(!runtime.artwork_settings().unwrap().deviantart_configured);
+}

@@ -157,6 +157,7 @@ export interface ArtworkSettings {
   fanart_configured: boolean;
   tvdb_configured: boolean;
   comicvine_configured: boolean;
+  deviantart_configured: boolean;
   default_provider: string;
   ereader_default_provider: string;
   enabled_providers: string[];
@@ -198,11 +199,13 @@ export interface ArtworkRefreshResult {
 }
 
 export interface ArtworkProviderTestRequest {
-  provider: "tmdb" | "fanart" | "tvdb" | "comicvine";
+  provider: "tmdb" | "fanart" | "tvdb" | "comicvine" | "deviantart";
   fanart_api_key?: string;
   tvdb_api_key?: string;
   tvdb_pin?: string;
   comicvine_api_key?: string;
+  deviantart_client_id?: string;
+  deviantart_client_secret?: string;
 }
 
 export interface ArtworkProviderTestResult {

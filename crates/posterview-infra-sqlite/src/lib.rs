@@ -395,7 +395,7 @@ impl ServerStore {
 fn is_secret_setting(key: &str) -> bool {
     matches!(
         key,
-        "mal_client_id" | "omdb_api_key" | "posterdb_password" | "fanart_api_key" | "tvdb_api_key" | "tvdb_pin" | "comicvine_api_key"
+        "deviantart_client_id" | "deviantart_client_secret" | "mal_client_id" | "omdb_api_key" | "posterdb_password" | "fanart_api_key" | "tvdb_api_key" | "tvdb_pin" | "comicvine_api_key"
     )
 }
 
@@ -493,7 +493,7 @@ mod tests {
     #[test]
     fn native_provider_keys_are_encrypted_at_rest() {
         let dir=tempfile::tempdir().unwrap();let store=ServerStore::new(dir.path());store.initialize().unwrap();
-        for key in ["mal_client_id","omdb_api_key"] {store.set_setting(key,"secret-fixture").unwrap();assert_eq!(store.get_setting(key).unwrap(),"secret-fixture");let saved:String=store.connection().unwrap().query_row("SELECT value_enc FROM settings WHERE key=?1",[key],|r|r.get(0)).unwrap();assert!(!saved.contains("secret-fixture"));}
+        for key in ["mal_client_id","omdb_api_key","deviantart_client_id","deviantart_client_secret"] {store.set_setting(key,"secret-fixture").unwrap();assert_eq!(store.get_setting(key).unwrap(),"secret-fixture");let saved:String=store.connection().unwrap().query_row("SELECT value_enc FROM settings WHERE key=?1",[key],|r|r.get(0)).unwrap();assert!(!saved.contains("secret-fixture"));}
     }
     #[test]
     fn crud_matches_existing_default_and_token_rules() {
