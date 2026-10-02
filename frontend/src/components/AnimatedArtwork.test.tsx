@@ -22,7 +22,7 @@ it("loops muted video while visible and falls back when offscreen",()=>{
   expect(screen.getByAltText("Poster").getAttribute("src")).toContain("still=1");
   visible(true);
   const video=screen.getByLabelText("Poster") as HTMLVideoElement;
-  expect(video.loop).toBe(true);expect(video.muted).toBe(true);expect(video.autoplay).toBe(true);expect(video.playsInline).toBe(true);expect(video.controls).toBe(false);
+  expect(video.preload).toBe("auto");expect(video.loop).toBe(true);expect(video.muted).toBe(true);expect(video.autoplay).toBe(true);expect(video.playsInline).toBe(true);expect(video.controls).toBe(false);
   visible(false);
   expect(screen.queryByLabelText("Poster")).toBeNull();
   expect(screen.getByAltText("Poster").getAttribute("src")).toContain("still=1");

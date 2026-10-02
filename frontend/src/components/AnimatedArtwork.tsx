@@ -43,6 +43,6 @@ export default function AnimatedArtwork({src, alt, className, onError, format: o
   const fallback=stillArtwork(src);
   const mediaClass = fill ? "absolute inset-0 h-full w-full object-cover object-top" : "h-full w-full max-h-[inherit] max-w-[inherit] [object-fit:inherit] [object-position:inherit]";
   return <div ref={element} className={className} style={fill ? {position: "absolute", inset: 0, overflow: "hidden"} : undefined}>
-    {!play && fallback === src ? <span className="sr-only">{alt}: animated preview paused</span> : format === "webm" && play ? <video ref={video} src={src} poster={fallback} aria-label={alt} className={mediaClass} autoPlay loop muted playsInline preload="none" onError={()=>setFailed(true)}/> : <img src={format === "gif" && play ? src : fallback} alt={alt} className={mediaClass} loading="lazy" draggable={false} onError={onError}/>}
+    {!play && fallback === src ? <span className="sr-only">{alt}: animated preview paused</span> : format === "webm" && play ? <video ref={video} src={src} poster={fallback} aria-label={alt} className={mediaClass} autoPlay loop muted playsInline preload="auto" onError={()=>setFailed(true)}/> : <img src={format === "gif" && play ? src : fallback} alt={alt} className={mediaClass} loading={visible ? "eager" : "lazy"} draggable={false} onError={onError}/>}
   </div>;
 }
