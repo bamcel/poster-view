@@ -482,7 +482,9 @@ pub(crate) async fn apply_panel_artwork(state: AppState, target: String, kind: p
         let state = save_state;
         let (library, item) = posterview_runtime::native_artwork_target(&target).ok_or_else(HttpError::not_found)?;
         let db = store(&state);
-        if db.native_scan_status(library).map_err(error)?.status == "scanning" { return Err(HttpError::bad_request("Wait for the library scan to finish before editing artwork.")); }
+        // Replacements are stored as locked manual selections and survive scanner ingestion.
+        // Keep deletions blocked until reconciliation completes.
+        if bytes.is_none() && db.native_scan_status(library).map_err(error)?.status == "scanning" { return Err(HttpError::bad_request("Wait for the library scan to finish before removing artwork.")); }
         let entry = db.native_catalog(library).map_err(error)?.into_iter().find(|entry| entry.id == item && entry.available).ok_or_else(HttpError::not_found)?;
         let kind = match kind { posterview_contracts::ImageTarget::Background => "backdrop", posterview_contracts::ImageTarget::Logo => "logo", posterview_contracts::ImageTarget::Poster if entry.kind == "episode" => "thumb", _ => "poster" };
         let Some(bytes) = bytes else {
@@ -838,6 +840,18 @@ pub(crate) mod scan_tests {
         assert!(db.native_artwork(&library.id,&episode.id,"thumb").unwrap().is_some());
         assert!(apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,Some(b"invalid".to_vec())).await.is_err());
         db.begin_native_scan(&library.id).unwrap();
+        let mut replacement = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgba8(3,3).write_to(&mut replacement,image::ImageFormat::Png).unwrap();
+        assert!(apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,Some(replacement.get_ref().clone())).await.unwrap().ok);
+        assert!(apply_panel_artwork(state.clone(),detail.seasons[0].id.clone(),ImageTarget::Poster,Some(replacement.get_ref().clone())).await.unwrap().ok);
+        let latest = db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap();
+        let season_id = detail.seasons[0].id.split(':').next_back().unwrap();
+        let latest_season = db.native_artwork(&library.id,season_id,"poster").unwrap().unwrap();
+        assert_ne!(latest.path, art.path);
+        // Reconcile a snapshot captured before those replacements.
+        db.ingest_native_catalog(&library.id,library.revision,&entries).unwrap();
+        assert_eq!(db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap().path,latest.path);
+        assert_eq!(db.native_artwork(&library.id,season_id,"poster").unwrap().unwrap().path,latest_season.path);
         assert!(apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,None).await.is_err());
         db.finish_native_scan(&library.id,&posterview_contracts::native::NativeScanStatus {status:"complete".into(),count:0,warnings:vec![],progress:None}).unwrap();
         assert!(apply_panel_artwork(state,target,ImageTarget::Poster,None).await.unwrap().ok);
