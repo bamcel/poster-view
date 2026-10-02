@@ -1,3 +1,4 @@
+import PeopleRow from "./PeopleRow";
 import { useEffect, useRef, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "../lib/libraryNavigation";
@@ -804,13 +805,13 @@ function NativeDetail({
               entry.metadata.characters.length > 0 && (
                 <section className="mt-8">
                   <h2 className="mb-4 text-xl font-semibold">Characters</h2>
-                  <div className="flex gap-4 overflow-x-auto pb-3">
+                  <PeopleRow label="characters">
                     {(
                       entry.metadata.characters as Record<string, unknown>[]
                     ).slice().sort((a, b) => Number(/^(?:the\s+)?narrator$/i.test(String(a.name ?? "").trim())) - Number(/^(?:the\s+)?narrator$/i.test(String(b.name ?? "").trim()))).map((character, i) => (
                       <div
                         key={i}
-                        className="w-48 shrink-0 rounded-xl border border-border bg-black/20 p-4"
+                        className="w-48 shrink-0 rounded-xl bg-black/20 p-4"
                       >
                         <PersonPortrait person={character} images={portraitImages} />
                         <p className="text-sm font-medium">
@@ -824,26 +825,26 @@ function NativeDetail({
                         </p>
                       </div>
                     ))}
-                  </div>
+                  </PeopleRow>
                 </section>
               )}
 
             {animePreferences.casts && voiceCast?.groups.filter((_,index)=> index===0 ? animePreferences.original || (voiceCast.groups.length===1 && animePreferences.dub) : animePreferences.dub).map(group => <section key={group.title} className="mt-8">
               <h2 className="mb-4 text-xl font-semibold">{group.title}</h2>
-              {group.cast.length ? <div className="flex gap-4 overflow-x-auto pb-3">{group.cast.map((person, i) => <div key={i} className="w-36 shrink-0 rounded-xl border border-border bg-black/20 p-4">
+              {group.cast.length ? <PeopleRow label={group.title}>{group.cast.map((person, i) => <div key={i} className="w-36 shrink-0 rounded-xl bg-black/20 p-4">
                 <PersonPortrait person={person} images={portraitImages} />
                 <p className="text-sm font-medium">{String(person.name ?? "")}</p>
                 <p className="mt-1 text-xs text-muted">{String(person.role ?? "")}</p>
-              </div>)}</div> : <p className="text-sm text-muted">{group.empty}</p>}
+              </div>)}</PeopleRow> : <p className="text-sm text-muted">{group.empty}</p>}
             </section>)}
             {library.library_type !== "anime" && credits.length > 0 && (
               <section className="mt-8">
                 <h2 className="mb-4 text-xl font-semibold">Cast and crew</h2>
-                <div className="flex gap-4 overflow-x-auto pb-3">
+                <PeopleRow label="cast and crew">
                   {credits.map((credit, i) => (
                     <div
                       key={i}
-                      className="w-36 shrink-0 rounded-xl border border-border bg-black/20 p-4"
+                      className="w-36 shrink-0 rounded-xl bg-black/20 p-4"
                     >
                       <PersonPortrait person={credit} images={portraitImages} />
                       <p className="text-sm font-medium">
@@ -854,7 +855,7 @@ function NativeDetail({
                       </p>
                     </div>
                   ))}
-                </div>
+                </PeopleRow>
               </section>
             )}
             {entry.files.length > 0 && (
