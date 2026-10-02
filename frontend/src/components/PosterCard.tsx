@@ -9,6 +9,7 @@ import "./posterEffects.css";
 import AnimatedArtwork from "./AnimatedArtwork";
 
 interface PosterCardProps {
+  backdropView?: boolean;
   coloredTitle?: boolean;
   selectionMode?: boolean;
   onSelect?: (range: boolean) => void;
@@ -27,6 +28,7 @@ interface PosterCardProps {
 }
 
 export default function PosterCard({
+  backdropView = false,
   coloredTitle = false,
   selectionMode = false,
   onSelect,
@@ -84,7 +86,7 @@ export default function PosterCard({
   const content = (
     <>
       <div
-        className={`relative aspect-[2/3] overflow-hidden rounded-xl bg-surface-2 ring-1 transition-all duration-150 ${
+        className={`relative ${backdropView ? "aspect-[3/2]" : "aspect-[2/3]"} overflow-hidden rounded-xl bg-surface-2 ring-1 transition-all duration-150 ${
           onOpen
             ? "group-hover:-translate-y-1 group-hover:ring-2 group-hover:ring-accent"
             : ""

@@ -1,3 +1,4 @@
+import LibraryViewPreferences, { useBackdropView, posterGrid, backdropGrid } from "../components/LibraryViewPreferences";
 import NativeScanProgress from "../components/NativeScanProgress";
 import NativeLibraryBrowser from "../components/NativeLibraryBrowser";
 import { nativeLibraries } from "../api/nativeLibraries";
@@ -72,6 +73,7 @@ function ServerDashboard({serverId}: {serverId: number}) {
   // title and pressing Back returns you to the same library, not the first one.
   const [searchParams, setSearchParams] = useSearchParams();
   const libraryId = searchParams.get("lib");
+  const { enabled: backdropView } = useBackdropView(`server:${serverId}:library:${libraryId}`);
   const folderId = searchParams.get("folder");
   const folderTitle = searchParams.get("folder_title");
   const [filter, setFilter] = useState("");
@@ -465,6 +467,7 @@ function ServerDashboard({serverId}: {serverId: number}) {
               )}
           </LibraryFilter>
           {<LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4" />} style={toolbarControlStyle}>
+              <LibraryViewPreferences library={`server:${serverId}:library:${libraryId}`} />
               {browsesFolders ? <>
                 <div className="mt-4 flex items-center justify-between gap-3">
                   <span className="text-sm text-muted">Tracking Overlays</span>
@@ -492,7 +495,7 @@ function ServerDashboard({serverId}: {serverId: number}) {
                   <div className="mt-3 flex items-center justify-between gap-3"><span className="text-sm text-muted">Colored Title</span><Switch label="Colored Title" checked={displayStatus.coloredTitle} onChange={() => { if (!displayStatus.busy) displayStatus.setColoredTitle(!displayStatus.coloredTitle); }} /></div>
                 </div>
                 {displayStatus.error && <p role="alert" className="mt-2 text-xs text-muted">{displayStatus.error}</p>}
-              </> : <p className="min-h-24 text-sm text-muted">No preferences available for this library type yet.</p>}
+              </> : null}
           </LibraryPopup>}
           </div>
         </div>
@@ -549,14 +552,15 @@ function ServerDashboard({serverId}: {serverId: number}) {
         )}
 
         {!waitingForBookTitles && items.length > 0 && (
-          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(125px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]">
+          <div className={backdropView ? backdropGrid : posterGrid}>
             {items.map((item) => (
               <PosterCard
                 key={item.id}
                 selected={selectedIds.has(item.id)}
                 selectionMode={selectionMode}
                 onSelect={browsesFolders ? range => selectItem(item.id, range) : undefined}
-                image={imageUrl(serverId!, item.poster)}
+                backdropView={backdropView}
+                image={imageUrl(serverId!, backdropView ? item.background ?? item.poster : item.poster)}
                 title={item.title}
                 subtitle={item.year ? String(item.year) : undefined}
                 kind={item.type}

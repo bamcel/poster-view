@@ -1,3 +1,4 @@
+import LibraryViewPreferences, { useBackdropView, posterGrid, backdropGrid } from "./LibraryViewPreferences";
 import PeopleRow from "./PeopleRow";
 import { useEffect, useRef, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -50,8 +51,7 @@ import {
   translucentPanelColor,
 } from "../lib/dashboardSettings";
 
-const GRID =
-  "grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(125px,1fr))] sm:gap-5 sm:[grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]";
+
 function number(value: unknown): number | undefined {
   const n = Number(value);
   return value != null && value !== "" && Number.isFinite(n) ? n : undefined;
@@ -200,6 +200,7 @@ export default function NativeLibraryBrowser({
 }: {
   library: NativeLibrary;
 }) {
+  const { enabled: backdropView } = useBackdropView(library.id);
   useAnimatedArtworkPreference(library.id);
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
@@ -424,7 +425,8 @@ export default function NativeLibraryBrowser({
                 </div>
               </details>
               <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style} editorStyle={library.library_type === "anime"}>
-                <div className="space-y-7"><ArtworkPreferences library={library.id}/>{library.library_type === "anime" && <AnimePreferences library={library.id}/>}</div>
+                <div className="space-y-7"><LibraryViewPreferences library={library.id}/>
+                <ArtworkPreferences library={library.id}/>{library.library_type === "anime" && <AnimePreferences library={library.id}/>}</div>
               </LibraryPopup>
             </div>
           </div>
@@ -432,12 +434,13 @@ export default function NativeLibraryBrowser({
             <div className="mb-4 flex items-center justify-between text-xs text-faint">
               <span>{visible.length} titles</span>
             </div>
-            <div className={GRID}>
+            <div className={backdropView ? backdropGrid : posterGrid}>
               {visible.map((entry) => (
                 <PosterCard
                   key={entry.id}
                   title={entry.title}
-                  image={picture(library, entry, "poster")}
+                  backdropView={backdropView}
+                    image={(backdropView ? picture(library, entry, "backdrop") ?? picture(library, entry, "landscape") : undefined) ?? picture(library, entry, "poster")}
                   subtitle={String(entry.metadata.year ?? "")}
                   kind={
                     entry.kind === "series"
