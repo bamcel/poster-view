@@ -146,7 +146,7 @@ function PersonPortrait({person, images}: {person: Record<string, unknown>; imag
   } catch { /* A missing or unsupported portrait uses the placeholder. */ }
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
-  return <div className="mb-3 aspect-[2/3] overflow-hidden rounded-lg bg-surface-2">
+  return <div data-person-portrait className="mb-3 aspect-[2/3] overflow-hidden rounded-lg bg-surface-2">
     {src && !failed ? <img src={src} alt={String(person.name ?? "Portrait")} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center"><UserRound className="size-10 text-muted" aria-hidden="true" /></div>}
   </div>;
 }
