@@ -96,7 +96,7 @@ export default function PosterCard({
           <AnimatedArtwork
             src={image}
             alt={title}
-            className={`h-full w-full ${backdropView ? "object-contain object-center" : "object-cover"}`}
+            className="h-full w-full object-cover"
             onError={() => setFailed(true)}
           />
         ) : (
