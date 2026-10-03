@@ -829,9 +829,7 @@ function NativeDetail({
                         <p className="mt-1 text-xs text-muted">
                           {String(character.role ?? "")}
                         </p>
-                        <p className="mt-2 line-clamp-4 text-xs text-muted">
-                          {String(character.biography ?? "").replace(/^[\t ]*(?:\*\*|__)?height(?:\*\*|__)?[\t ]*:(?:\*\*|__)?[^\r\n]*(?:\r?\n|$)/gim, "").trim()}
-                        </p>
+
                       </div>
                     ))}
                   </PeopleRow>
