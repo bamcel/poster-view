@@ -468,8 +468,8 @@ export default function NativeLibraryBrowser({
         </>
       )}
       {editEntry && (editor?.kind === "artwork" ? (
-        <div className="fixed inset-0 z-50 bg-transparent" onClick={() => setEditor(null)}>
-          <section aria-label={`Artwork for ${editEntry.title}`} className="ml-auto h-full w-full max-w-md shadow-2xl" onClick={event => event.stopPropagation()}>
+        <div className="pointer-events-none fixed inset-0 z-50 bg-transparent">
+          <section aria-label={`Artwork for ${editEntry.title}`} className="pointer-events-auto ml-auto h-full w-full max-w-md shadow-2xl" onClick={event => event.stopPropagation()}>
             <ArtworkPanel serverId={0} item={nativeArtworkItem(library, editEntry, entries)} libraryTitle={library.name} libraryType={library.library_type === "books" ? "book" : library.library_type === "movies" ? "movie" : "show"} onClose={() => setEditor(null)} />
           </section>
         </div>

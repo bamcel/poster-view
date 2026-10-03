@@ -355,8 +355,8 @@ export default function ItemDetailPage() {
       </div>
 
       {artworkOpen && item && (
-        <div className="item-artwork-overlay fixed inset-0 z-50 bg-transparent xl:relative xl:inset-auto xl:z-[1] xl:h-full xl:w-[clamp(20rem,25vw,23.75rem)] xl:shrink-0 xl:bg-transparent" onClick={() => setArtworkOpen(false)}>
-          <section id="item-artwork-panel" aria-label={`Artwork for ${item.title}`} className="ml-auto h-full w-full max-w-md shadow-2xl xl:max-w-none" onClick={event => event.stopPropagation()}>
+        <div className="item-artwork-overlay pointer-events-none fixed inset-0 z-50 bg-transparent xl:relative xl:inset-auto xl:z-[1] xl:h-full xl:w-[clamp(20rem,25vw,23.75rem)] xl:shrink-0 xl:bg-transparent">
+          <section id="item-artwork-panel" aria-label={`Artwork for ${item.title}`} className="pointer-events-auto ml-auto h-full w-full max-w-md shadow-2xl xl:max-w-none" onClick={event => event.stopPropagation()}>
             <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} anilistMangaId={metadataQ.data?.anilist_id} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onClose={() => setArtworkOpen(false)} onReviewMetadata={(fields, sourceLabel) => { setArtworkOpen(false); setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
           </section>
         </div>
