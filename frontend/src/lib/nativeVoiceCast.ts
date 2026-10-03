@@ -37,5 +37,16 @@ export function animeVoiceGroups(metadata: Person, preferredCode: string) {
   const preferred = language(preferredCode) ?? "English";
   const groups = [{title:original ? `${original} Cast` : "Original voice cast", cast:original ? combine(cast.filter(person => voiceName(person.language) === voiceName(original))) : [], empty:original ? `No ${original} voice cast available.` : "Original language has not been identified."}];
   if (voiceName(preferred) !== voiceName(original)) groups.push({title:`${preferred} Cast`, cast:combine(cast.filter(person => voiceName(person.language)===voiceName(preferred))), empty:`No ${preferred} voice cast available.`});
+  const characters = people(metadata.characters).slice().sort((a, b) => Number(/^(?:the\s+)?narrator$/i.test(String(a.name ?? "").trim())) - Number(/^(?:the\s+)?narrator$/i.test(String(b.name ?? "").trim())));
+  const order = new Map<string, number>();
+  characters.forEach((character, index) => {
+    const name = voiceName(character.name);
+    if (name && !order.has(name)) order.set(name, index);
+  });
+  const rank = (person: Person) => Math.min(...String(person.role ?? "").split(" · ").map(role => order.get(voiceName(role)) ?? Infinity));
+  for (const group of groups) group.cast.sort((a, b) => {
+    const left = rank(a), right = rank(b);
+    return left === right ? 0 : left < right ? -1 : 1;
+  });
   return {groups, names:new Set(groups.flatMap(group => group.cast).map(person => voiceName(person.name)).filter(Boolean))};
 }

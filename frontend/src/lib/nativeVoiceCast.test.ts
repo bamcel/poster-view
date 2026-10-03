@@ -18,3 +18,16 @@ it("shows a missing-dub state without presenting another language as preferred",
  const result = animeVoiceGroups({country_of_origin:"KR",voice_cast:[{name:"Actor",language:"Korean"}]},"en");
  expect(result.groups[1].cast).toHaveLength(0); expect(result.groups[1].empty).toContain("No English voice cast");
 });
+
+it("orders each language by characters, with narrator last and unmatched actors afterward", () => {
+ const result = animeVoiceGroups({country_of_origin:"JP", characters:[{name:"Narrator"},{name:"First Lead"},{name:"Second"}], voice_cast:[
+  {name:"Unknown",language:"Japanese",role:"Other"},
+  {name:"Narration",language:"Japanese",role:"Narrator"},
+  {name:"Second actor",language:"Japanese",role:"Second"},
+  {name:"Lead actor",language:"Japanese",role:"Lead First · Second"},
+  {name:"Dub second",language:"English",role:"Second"},
+  {name:"Dub lead",language:"English",role:"First Lead"}
+ ]},"en");
+ expect(result.groups[0].cast.map(p=>p.name)).toEqual(["Lead actor","Second actor","Narration","Unknown"]);
+ expect(result.groups[1].cast.map(p=>p.name)).toEqual(["Dub lead","Dub second"]);
+});
