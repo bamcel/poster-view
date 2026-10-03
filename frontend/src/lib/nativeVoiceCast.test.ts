@@ -1,5 +1,5 @@
 import {expect, it} from "vitest";
-import {animeVoiceGroups} from "./nativeVoiceCast";
+import {animeVoiceGroups, orderedCharacters} from "./nativeVoiceCast";
 it("uses explicit original language before country and changes preferred cast from stored data", () => {
  const metadata = {country_of_origin:"JP",tmdb_data:{original_language:"ko"},voice_cast:[{name:"Original",language:"Korean"},{name:"Dub",language:"English"}]};
  expect(animeVoiceGroups(metadata,"en").groups[0].title).toBe("Korean Cast");
@@ -30,4 +30,8 @@ it("orders each language by characters, with narrator last and unmatched actors 
  ]},"en");
  expect(result.groups[0].cast.map(p=>p.name)).toEqual(["Lead actor","Second actor","Narration","Unknown"]);
  expect(result.groups[1].cast.map(p=>p.name)).toEqual(["Dub lead","Dub second"]);
+});
+
+it("places characters without portraits last and recognizes fallback portraits", () => {
+ expect(orderedCharacters([{name:"Missing"},{name:"Narrator",image:"https://example.com/n.jpg"},{name:"Lead",image:"https://example.com/l.jpg"},{name:"Fallback"}], new Map([["fallback","https://example.com/f.jpg"]])).map(p=>p.name)).toEqual(["Lead","Fallback","Narrator","Missing"]);
 });

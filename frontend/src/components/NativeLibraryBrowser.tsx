@@ -31,7 +31,7 @@ import IdentifyPanel from "./IdentifyPanel";
 import LibraryPopup from "./LibraryPopup";
 import ArtworkPreferences, {animatedArtworkEnabled,useAnimatedArtworkPreference} from "./ArtworkPreferences";
 import AnimePreferences, {useAnimePreferences} from "./AnimePreferences";
-import { animeVoiceGroups, voiceName } from "../lib/nativeVoiceCast";
+import { animeVoiceGroups, orderedCharacters, voiceName } from "../lib/nativeVoiceCast";
 import { nativeCatalogView } from "../lib/nativeCatalogView";
 import DashboardBackdrop from "./DashboardBackdrop";
 import TitleMetadata from "./TitleMetadata";
@@ -574,7 +574,7 @@ function NativeDetail({
       "",
   );
   const portraitImages = useMemo(() => portraitIndex(entry.metadata), [entry.metadata]);
-  const voiceCast = useMemo(() => library.library_type === "anime" && ["series", "movie"].includes(entry.kind) ? animeVoiceGroups(entry.metadata, library.options?.metadata_language ?? "en") : undefined, [entry.metadata, entry.kind, library.library_type, library.options?.metadata_language]);
+  const voiceCast = useMemo(() => library.library_type === "anime" && ["series", "movie"].includes(entry.kind) ? animeVoiceGroups(entry.metadata, library.options?.metadata_language ?? "en", portraitImages) : undefined, [entry.metadata, entry.kind, library.library_type, library.options?.metadata_language, portraitImages]);
   const characterNames = new Set((Array.isArray(entry.metadata.characters) ? entry.metadata.characters as Record<string, unknown>[] : []).map(character => voiceName(character.name)).filter(Boolean));
   const credits = (Array.isArray(entry.metadata.credits)
     ? (entry.metadata.credits as Record<string, unknown>[])
@@ -815,9 +815,7 @@ function NativeDetail({
                 <section className="mt-8">
                   <h2 className="mb-4 text-xl font-semibold">Characters</h2>
                   <PeopleRow label="characters">
-                    {(
-                      entry.metadata.characters as Record<string, unknown>[]
-                    ).slice().sort((a, b) => Number(/^(?:the\s+)?narrator$/i.test(String(a.name ?? "").trim())) - Number(/^(?:the\s+)?narrator$/i.test(String(b.name ?? "").trim()))).map((character, i) => (
+                    {orderedCharacters(entry.metadata.characters, portraitImages).map((character, i) => (
                       <div
                         key={i}
                         className="w-48 shrink-0 rounded-xl p-4"

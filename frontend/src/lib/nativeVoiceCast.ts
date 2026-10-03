@@ -2,6 +2,11 @@ type Person = Record<string, unknown>;
 const object = (value: unknown): Person => value && typeof value === "object" && !Array.isArray(value) ? value as Person : {};
 const people = (value: unknown): Person[] => Array.isArray(value) ? value.map(object) : [];
 export function voiceName(value: unknown) { return typeof value === "string" ? value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(/\s+/).sort().join(" ") : ""; }
+export function orderedCharacters(value: unknown, images = new Map<string, string>()) {
+  const hasImage = (person: Person) => Boolean(typeof person.image === "string" && person.image.trim() || images.get(voiceName(person.name)));
+  const narrator = (person: Person) => /^(?:the\s+)?narrator$/i.test(String(person.name ?? "").trim());
+  return people(value).slice().sort((a, b) => Number(!hasImage(a)) - Number(!hasImage(b)) || Number(narrator(a)) - Number(narrator(b)));
+}
 function language(value: unknown): string | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
   const code = value.trim().toLowerCase().split(/[-_]/)[0];
@@ -22,7 +27,7 @@ function combine(cast: Person[]) {
   }
   return [...actors.values()];
 }
-export function animeVoiceGroups(metadata: Person, preferredCode: string) {
+export function animeVoiceGroups(metadata: Person, preferredCode: string, images = new Map<string, string>()) {
   const ani = object(metadata.anilist_data);
   let cast = people(metadata.voice_cast);
   if (!Array.isArray(metadata.voice_cast)) {
@@ -37,7 +42,7 @@ export function animeVoiceGroups(metadata: Person, preferredCode: string) {
   const preferred = language(preferredCode) ?? "English";
   const groups = [{title:original ? `${original} Cast` : "Original voice cast", cast:original ? combine(cast.filter(person => voiceName(person.language) === voiceName(original))) : [], empty:original ? `No ${original} voice cast available.` : "Original language has not been identified."}];
   if (voiceName(preferred) !== voiceName(original)) groups.push({title:`${preferred} Cast`, cast:combine(cast.filter(person => voiceName(person.language)===voiceName(preferred))), empty:`No ${preferred} voice cast available.`});
-  const characters = people(metadata.characters).slice().sort((a, b) => Number(/^(?:the\s+)?narrator$/i.test(String(a.name ?? "").trim())) - Number(/^(?:the\s+)?narrator$/i.test(String(b.name ?? "").trim())));
+  const characters = orderedCharacters(metadata.characters, images);
   const order = new Map<string, number>();
   characters.forEach((character, index) => {
     const name = voiceName(character.name);
