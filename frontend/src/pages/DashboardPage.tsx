@@ -56,11 +56,11 @@ export default function DashboardPage() {
       <div role="group" aria-label="Libraries" className="flex min-w-0 flex-1 basis-full gap-1 overflow-x-auto md:basis-auto">
       {servers.isLoading && <span className="py-2 text-sm text-muted">Loading server libraries…</span>}
       {(servers.data ?? []).map(l => <button key={`server:${l.id}`} title={l.title} aria-pressed={!manual && params.get("lib") === l.id} onClick={() => select(l.id, false)} className={`min-h-11 max-w-64 shrink-0 truncate border-b-2 px-4 py-2 text-sm font-medium ${!manual && params.get("lib") === l.id ? "border-accent text-white" : "border-transparent text-muted hover:text-white"}`}>{l.title}</button>)}
-      {(manualLibraries.data ?? []).map(l => <button key={`manual:${l.id}`} title={`${l.name} · Manual library`} aria-label={`${l.name} · Manual library`} aria-pressed={manual && library?.id === l.id} onClick={() => select(l.id, true)} className={`min-h-11 max-w-64 shrink-0 truncate border-b-2 px-4 py-2 text-sm font-medium ${manual && library?.id === l.id ? "border-accent text-white" : "border-transparent text-muted hover:text-white"}`}>{l.name}<span className="ml-2 rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted">Manual</span></button>)}
+      {(manualLibraries.data ?? []).map(l => <button key={`manual:${l.id}`} title={l.name} aria-label={l.name} aria-pressed={manual && library?.id === l.id} onClick={() => select(l.id, true)} className={`min-h-11 max-w-64 shrink-0 truncate border-b-2 px-4 py-2 text-sm font-medium ${manual && library?.id === l.id ? "border-accent text-white" : "border-transparent text-muted hover:text-white"}`}>{l.name}</button>)}
       </div>
       {manual && scan.data?.status === "scanning" && <aside aria-label="Library scan progress" className="ml-auto w-full min-w-0 pb-2 md:w-80 md:shrink-0 md:py-2"><NativeScanProgress status={scan.data} compact /></aside>}
     </header>}
-    <div className="min-h-0 flex-1">{manual ? library ? <NativeLibraryBrowser key={library.id} library={library} /> : <div className="p-5 text-muted">{manualLibraries.isPending ? "Loading manual libraries…" : manualLibraries.error ? manualLibraries.error.message : "Add a manual library in Settings → Libraries."}</div> : selectedServer && <ServerDashboard serverId={selectedServer.id} />}</div>
+    <div className="min-h-0 flex-1">{manual ? library ? <NativeLibraryBrowser key={library.id} library={library} /> : <div className="p-5 text-muted">{manualLibraries.isPending ? "Loading libraries…" : manualLibraries.error ? manualLibraries.error.message : "Add a library in Settings → Libraries."}</div> : selectedServer && <ServerDashboard serverId={selectedServer.id} />}</div>
   </div>;
 }
 

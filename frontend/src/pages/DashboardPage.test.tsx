@@ -352,7 +352,7 @@ it("lists manual libraries after server libraries in the same dashboard navigati
   vi.mocked(nativeLibraries.catalog).mockResolvedValue([{id: "local", title: "Manual Title", kind: "series", path: "Anime/Example", parent_path: null, metadata: {title: "Manual Title"}, artwork: [], files: [], nfo_path: null, available: true, revision: 1}]);
   const {client} = renderDashboard();
   await screen.findByText("Server Title");
-  fireEvent.click(screen.getByRole("button", {name: "Local Anime · Manual library"}));
+  fireEvent.click(screen.getByRole("button", {name: "Local Anime"}));
   await screen.findByText("Manual Title");
   expect(screen.getByRole("region", {name: "Local Anime library"})).toBeTruthy();
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -375,7 +375,7 @@ it("opens manual title links and returns to the same manual library", async () =
   expect(screen.queryByLabelText("Library source")).toBeNull();
   fireEvent.click(screen.getByRole("button",{name:"Back"}));
   await screen.findByLabelText("Search titles");
-  expect(screen.getByRole("button",{name:"Local Anime · Manual library"}).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button",{name:"Local Anime"}).getAttribute("aria-pressed")).toBe("true");
   expect(screen.getByRole("region",{name:"Local Anime library"})).toBeTruthy();
   client.clear();
 });
