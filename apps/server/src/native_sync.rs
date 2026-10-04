@@ -76,6 +76,8 @@ pub struct Request {
     override_locked: Option<bool>,
     write_nfo: Option<bool>,
     recover: bool,
+    push: bool,
+    artwork: Option<bool>,
     generation: String,
 }
 #[derive(Default, Serialize, Deserialize)]
@@ -255,6 +257,7 @@ async fn mirror_accepted(
             .or_default()
             .entry(item.into())
             .or_insert_with(|| json!({"fields":{},"art":{}}));
+        change["override_locked"]=json!(lib.options.server_sync.override_locked);
         for (field, value) in fields.as_object().into_iter().flatten() {
             change["fields"][field] = value.clone();
         }
@@ -355,8 +358,10 @@ pub(crate) async fn run(
         || request.override_locked.is_some()
         || request.write_nfo.is_some()
         || request.recover
+        || request.push
+        || request.artwork.is_some()
     {
-        db(&state).set_setting(&format!("native-server-import:{library}"),&serde_json::to_string(&json!({"fields":request.fields,"override_locked":request.override_locked,"write_nfo":request.write_nfo,"recover":request.recover,"generation":uuid::Uuid::new_v4().to_string()})).unwrap()).map_err(|e|HttpError::bad_request(e.to_string()))?;
+        db(&state).set_setting(&format!("native-server-import:{library}"),&serde_json::to_string(&json!({"fields":request.fields,"override_locked":request.override_locked,"write_nfo":request.write_nfo,"recover":request.recover,"push":request.push,"artwork":request.artwork,"generation":uuid::Uuid::new_v4().to_string()})).unwrap()).map_err(|e|HttpError::bad_request(e.to_string()))?;
     }
     let mut value = load(&state, &library).map_err(HttpError::bad_request)?;
     reset_retry(
@@ -388,6 +393,7 @@ pub(crate) async fn changed(
     let Some(lib) = active(state, library) else {
         return String::new();
     };
+    if lib.options.server_sync.mode == "import_only" { return String::new(); }
     if art.is_some_and(|kind| kind.ends_with("-animated"))
         || (art.is_none()
             && !fields.as_object().is_some_and(|values| {
@@ -680,8 +686,8 @@ async fn reconcile(state: &AppState, library: &str) -> Result<(), String> {
     if current_retry.epoch == retry.epoch {
         let mut saved = load(state, library)?;
         let unfinished = saved.failed > 0
-            || !saved.pending.is_empty()
-            || saved.mirrors.values().any(|changes| !changes.is_empty());
+            || lib.options.server_sync.mode != "import_only" && (!saved.pending.is_empty()
+            || saved.mirrors.values().any(|changes| !changes.is_empty()));
         if result.is_err() || unfinished {
             if let Err(error) = &result {
                 saved.failed = saved.failed.max(1);
@@ -762,7 +768,7 @@ async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> 
     let rows = match sync_library_items(config.clone(), source_library(&lib)).await {
         Ok(rows) => rows,
         Err(error) => {
-            push_destinations(state, &lib, &mut saved).await;
+            if request.as_ref().is_none_or(|r|r.push) && lib.options.server_sync.mode != "import_only" {push_destinations(state, &lib, &mut saved).await;}
             save(state, library, &saved)?;
             return Err(error);
         }
@@ -831,12 +837,20 @@ async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> 
             .unwrap_or(lib.options.server_sync.write_nfo);
         let previous = saved.items.get(&entry.id).cloned();
         let mut snapshot = previous.clone().unwrap_or_default();
-        let pending = saved.pending.get(&entry.id).cloned();
+        let queued_pending=saved.pending.get(&entry.id).cloned();
+        let pending = if request.is_some_and(|r|r.push) {
+            let selected=request.and_then(|r|r.fields.as_ref());
+            let fields:serde_json::Map<String,Value>=FIELDS.iter().filter(|(field,_)|selected.is_none_or(|fields|fields.iter().any(|name|name==field))).filter_map(|(field,_)|entry.metadata.get(*field).map(|value|((*field).to_string(),value.clone()))).collect();
+            let art:serde_json::Map<String,Value>=entry.artwork.iter().filter(|art|request.is_some_and(|r|r.artwork.unwrap_or(true))&&(ART.iter().any(|(kind,_)|*kind==art.kind)||art.kind=="thumb")).map(|art|(art.kind.clone(),json!(true))).collect();
+            Some(json!({"fields":fields,"art":art,"created":now()}))
+        } else if lib.options.server_sync.mode=="import_only" || request.is_some() {None} else {queued_pending.clone()};
         let first = previous
             .as_ref()
             .is_none_or(|p| p.remote != id || p.metadata.is_null());
         let force = request.is_some() || first;
-        let force_images = first || request.as_ref().is_some_and(|r| r.recover);
+        let push = request.map_or(lib.options.server_sync.mode == "push_only", |r|r.push);
+        let import = request.map_or(lib.options.server_sync.mode != "push_only", |r|!r.push);
+        let force_images = first || request.as_ref().is_some_and(|r| r.artwork.unwrap_or(true));
         if !force && pending.is_none() && !source_changed(remote, &entry.kind, &snapshot) {
             continue;
         }
@@ -849,28 +863,28 @@ async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> 
    let mut remote=remote.clone();
    if let Some(pending)=&pending{
     // A missing initial baseline or an offline conflict falls back to server values.
-    if !first && !recover {
+    if (!first || push) && !recover && (request.is_none_or(|r|r.push) || push) {
      let current=shared(&remote,&entry.kind);
      let mut dto:Option<Value>=None;let mut sent=serde_json::Map::new();
      for (field,value) in pending["fields"].as_object().into_iter().flatten(){
-      if current.get(field)==snapshot.metadata.get(field){
+      if push || current.get(field)==snapshot.metadata.get(field){
        if dto.is_none(){dto=Some(sync_item(config.clone(),&id).await?);}
        let full=dto.as_mut().unwrap();
        // Recheck against a fresh complete DTO before writing any field.
-       if shared(full,&entry.kind).get(field)==snapshot.metadata.get(field){to_remote(full,field,value,&entry.kind);sent.insert(field.clone(),shared(full,&entry.kind)[field].clone());}
+       if (push || shared(full,&entry.kind).get(field)==snapshot.metadata.get(field)) && (override_locked || !remote_locked(full,field)){to_remote(full,field,value,&entry.kind);sent.insert(field.clone(),shared(full,&entry.kind)[field].clone());}
       }
      }
      if let Some(dto)=dto {sync_update_item(config.clone(),&dto).await?;remote=sync_item(config.clone(),&id).await?;let confirmed=shared(&remote,&entry.kind);if sent.iter().any(|(field,value)|!same_field(field,confirmed.get(field),Some(value))){return Err("Server did not confirm the metadata update; it remains pending.".into());}state.runtime.invalidate_media_item_images(server.id,&id).map_err(|e|e.to_string())?;}
      for (kind,_) in pending["art"].as_object().into_iter().flatten(){
       if kind.ends_with("-animated"){continue;}
-      if tags(&remote,&entry.kind).get(kind)!=snapshot.tags.get(kind){continue;}
+      if !push && tags(&remote,&entry.kind).get(kind)!=snapshot.tags.get(kind){continue;}
       let art=entry.artwork.iter().find(|a|&a.kind==kind);
-      let target=if kind=="backdrop"{"background"}else{kind};
+      let target=if kind=="backdrop"{"background"}else if kind=="thumb"&&entry.kind=="episode"{"poster"}else{kind};
       if let Some(art)=art {
-       let name=art.path.strip_prefix("@managed/").ok_or("Outgoing artwork must be managed.")?;
-       if name.ends_with(".gif")||name.ends_with(".webm"){continue;}
-       let bytes=tokio::fs::read(state.runtime.data_dir().join("native-artwork").join(name)).await.map_err(|_|"Artwork file unavailable.")?;
-       set_image(config.clone(),&id,target,&bytes,if name.ends_with(".png"){"image/png"}else if name.ends_with(".webp"){"image/webp"}else{"image/jpeg"}).await?;
+       let bytes=outgoing_artwork(state,art).await?;
+       if crate::native_animation::is_animated(&bytes){continue;}
+       let mime=match image::guess_format(&bytes).map_err(|_|"Invalid static artwork.")?{image::ImageFormat::Png=>"image/png",image::ImageFormat::WebP=>"image/webp",_=>"image/jpeg"};
+       set_image(config.clone(),&id,target,&bytes,mime).await?;
       }else{if tags(&remote,&entry.kind)[kind].is_null(){continue;}remove_image(config.clone(),&id,target).await?;}
       state.runtime.invalidate_media_item_images(server.id,&id).map_err(|e|e.to_string())?;
      }
@@ -881,7 +895,7 @@ async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> 
    let mut fields=json!({});
    for (field,v) in metadata.as_object().into_iter().flatten(){
     let selected=request.as_ref().and_then(|r|r.fields.as_ref()).is_none_or(|fields|fields.iter().any(|f|f==field));
-    if selected&&(force||metadata.get(field)!=snapshot.metadata.get(field)||pending.as_ref().is_some_and(|p|p["fields"].get(field).is_some())){fields[field]=v.clone();}
+    if import && selected&&(force||metadata.get(field)!=snapshot.metadata.get(field)||pending.as_ref().is_some_and(|p|p["fields"].get(field).is_some())){fields[field]=v.clone();}
    }
    if let Some(credits)=fields["credits"].as_array_mut(){
     for credit in credits {if let Some(person)=credit["server_person_id"].as_str().filter(|id|!id.is_empty()&&id.chars().all(|c|c.is_ascii_alphanumeric()||c=='-')){credit["image"]=json!(format!("/api/servers/{}/image?ref=%2FItems%2F{}%2FImages%2FPrimary",server.id,person));}}
@@ -902,7 +916,7 @@ async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> 
     }
    }
    let image_tags=observed_tags(&remote,&entry.kind,&snapshot.tags);
-   for (kind,tag) in image_tags.as_object().into_iter().flatten(){
+   for (kind,tag) in image_tags.as_object().into_iter().flatten().filter(|_|import && request.is_none_or(|r|r.artwork.unwrap_or(true))){
     if !force_images && snapshot.tags.get(kind)==Some(tag){continue;}
     let existing=current.artwork.iter().find(|a|&a.kind==kind);
     if tag.is_null(){
@@ -919,9 +933,10 @@ async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> 
     }
    }
    let updated=db(state).native_catalog_scoped(library,Some(&[entry.path.clone()])).map_err(|e|e.to_string())?.into_iter().find(|e|e.id==entry.id).ok_or("Item unavailable.")?;
+   if push {if let Some(pending)=&pending {let mut outgoing_lib=lib.clone();outgoing_lib.options.server_sync.override_locked=override_locked;mirror_accepted(state,&outgoing_lib,&entry.id,&pending["fields"],&pending["art"],queued_pending.as_ref()).await?;}}
    let accepted=Value::Object(fields.as_object().into_iter().flatten().filter_map(|(field,_)|updated.metadata.get(field).map(|value|(field.clone(),value.clone()))).collect());
    let changed_art=Value::Object(image_tags.as_object().into_iter().flatten().filter(|(kind,tag)|force_images||snapshot.tags.get(*kind)!=Some(*tag)||pending.as_ref().is_some_and(|p|p["art"].get(*kind).is_some())).map(|(kind,_)|(kind.clone(),json!(true))).collect());
-   if accepted.as_object().is_some_and(|v|!v.is_empty())||changed_art.as_object().is_some_and(|v|!v.is_empty()){mirror_accepted(state,&lib,&entry.id,&accepted,&changed_art,pending.as_ref()).await?;}
+   if request.is_none() && lib.options.server_sync.mode != "import_only" && (accepted.as_object().is_some_and(|v|!v.is_empty())||changed_art.as_object().is_some_and(|v|!v.is_empty())){mirror_accepted(state,&lib,&entry.id,&accepted,&changed_art,pending.as_ref()).await?;}
    snapshot.remote=id.clone();
    if snapshot.metadata.is_null(){snapshot.metadata=json!({});}
    for (field,value) in metadata.as_object().into_iter().flatten(){snapshot.metadata[field]=value.clone();}
@@ -931,7 +946,7 @@ async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> 
         match work {
             Ok(()) => {
                 saved.items.insert(entry.id.clone(), snapshot);
-                if let Some(expected) = &pending {
+                if let Some(expected) = pending.as_ref().filter(|_|request.is_none()) {
                     acknowledge(state, library, &entry.id, expected, None).await?;
                 }
                 saved.pending.remove(&entry.id);
@@ -956,20 +971,20 @@ async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> 
     let latest = load(state, library)?;
     saved.pending = latest.pending;
     saved.mirrors = latest.mirrors;
-    push_destinations(state, &lib, &mut saved).await;
+    if request.as_ref().is_none_or(|r|r.push) && (lib.options.server_sync.mode != "import_only" || request.as_ref().is_some_and(|r|r.push)) {push_destinations(state, &lib, &mut saved).await;}
     let latest = load(state, library)?;
     saved.pending = latest.pending;
     saved.mirrors = latest.mirrors;
     saved.notices.truncate(50);
     saved.status = if saved.failed > 0 {
         "partial"
-    } else if saved.pending.is_empty() && saved.mirrors.values().all(|v| v.is_empty()) {
+    } else if lib.options.server_sync.mode=="import_only" || saved.pending.is_empty() && saved.mirrors.values().all(|v| v.is_empty()) {
         "synced"
     } else {
         "pending"
     }
     .into();
-    if saved.failed == 0 && saved.pending.is_empty() && saved.mirrors.values().all(|v| v.is_empty())
+    if saved.failed == 0 && (lib.options.server_sync.mode=="import_only" || saved.pending.is_empty() && saved.mirrors.values().all(|v| v.is_empty()))
     {
         saved.last_success = Some(now());
     }
@@ -999,6 +1014,23 @@ async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> 
 }
 fn force_activity(request: &Option<Request>) -> bool {
     request.is_some()
+}
+
+fn remote_locked(remote: &Value, field: &str) -> bool {
+    remote["IsLocked"].as_bool().unwrap_or(false) || remote["LockedFields"].as_array().is_some_and(|locks| FIELDS.iter().find(|(name,_)|*name==field).is_some_and(|(_,name)|locks.iter().any(|value|value==name)))
+}
+
+async fn outgoing_artwork(state: &AppState, art: &NativeArtwork) -> Result<Vec<u8>, String> {
+    let path=if let Some(name)=art.path.strip_prefix("@managed/") {
+        if name.contains(['/', '\\']) {return Err("Invalid managed artwork path.".into());}
+        state.runtime.data_dir().join("native-artwork").join(name)
+    } else {
+        let root=state.metadata.directory("",true).map_err(|e|e.detail)?;
+        let candidate=root.join(&art.path).canonicalize().map_err(|_|"Artwork file unavailable.")?;
+        if !candidate.starts_with(root.canonicalize().map_err(|_|"Media root unavailable.")?) {return Err("Artwork outside media root.".into());}
+        candidate
+    };
+    tokio::fs::read(path).await.map_err(|_|"Artwork file unavailable.".into())
 }
 
 async fn push_destinations(state: &AppState, lib: &NativeLibrary, saved: &mut SyncState) {
@@ -1084,7 +1116,7 @@ async fn push_destinations(state: &AppState, lib: &NativeLibrary, saved: &mut Sy
                 if !plex && change["fields"].as_object().is_some_and(|v| !v.is_empty()) {
                     let mut dto = sync_item(config.clone(), &id).await?;
                     for (field, value) in change["fields"].as_object().into_iter().flatten() {
-                        to_remote(&mut dto, field, value, &entry.kind);
+                        if change["override_locked"].as_bool().unwrap_or(lib.options.server_sync.override_locked) || !remote_locked(&dto,field) {to_remote(&mut dto, field, value, &entry.kind);}
                     }
                     let expected = shared(&dto, &entry.kind);
                     sync_update_item(config.clone(), &dto).await?;
@@ -1108,36 +1140,16 @@ async fn push_destinations(state: &AppState, lib: &NativeLibrary, saved: &mut Sy
                     }
                     let target = if kind == "backdrop" {
                         "background"
+                    } else if kind == "thumb" && entry.kind == "episode" {
+                        "poster"
                     } else {
                         kind
                     };
                     if let Some(art) = entry.artwork.iter().find(|a| &a.kind == kind) {
-                        let name = art
-                            .path
-                            .strip_prefix("@managed/")
-                            .ok_or("Static artwork file is unavailable.")?;
-                        if name.ends_with(".gif") || name.ends_with(".webm") {
-                            continue;
-                        }
-                        let bytes = tokio::fs::read(
-                            state.runtime.data_dir().join("native-artwork").join(name),
-                        )
-                        .await
-                        .map_err(|_| "Static artwork file is unavailable.")?;
-                        set_image(
-                            config.clone(),
-                            &id,
-                            target,
-                            &bytes,
-                            if name.ends_with(".png") {
-                                "image/png"
-                            } else if name.ends_with(".webp") {
-                                "image/webp"
-                            } else {
-                                "image/jpeg"
-                            },
-                        )
-                        .await?;
+                        let bytes=outgoing_artwork(state,art).await?;
+                        if crate::native_animation::is_animated(&bytes){continue;}
+                        let mime=match image::guess_format(&bytes).map_err(|_|"Invalid static artwork.")?{image::ImageFormat::Png=>"image/png",image::ImageFormat::WebP=>"image/webp",_=>"image/jpeg"};
+                        set_image(config.clone(),&id,target,&bytes,mime).await?;
                     } else {
                         if plex {
                             let message = format!(
@@ -1206,6 +1218,55 @@ mod tests {
             NativeServerSync,
         },
     };
+    #[tokio::test]
+    async fn explicit_push_respects_selection_locks_and_keeps_local_values_and_pending_edits() {
+        let _test_guard=TEST_LOCK.lock().await;
+        use std::sync::{Arc,Mutex};
+        let temp=tempfile::tempdir().unwrap();
+        let state=crate::native::scan_tests::state(temp.path());
+        std::fs::create_dir_all(temp.path().join("media/Anime/Example")).unwrap();
+        std::fs::write(temp.path().join("media/Anime/Example/Example.S01E01.mkv"),b"fixture").unwrap();
+        std::fs::write(temp.path().join("media/Anime/Example/tvshow.nfo"),"<tvshow><title>Local title</title><plot>Local plot</plot><uniqueid type=\"tvdb\">42</uniqueid></tvshow>").unwrap();
+        let remote=Arc::new(Mutex::new(json!({"Id":"123","Type":"Series","Name":"Remote title","Overview":"Remote plot","ProviderIds":{"Tvdb":"42"},"LockedFields":["Overview"],"ImageTags":{},"BackdropImageTags":[]})));
+        let app=axum::Router::new()
+          .route("/Items",axum::routing::get(|State(remote):State<Arc<Mutex<Value>>>|async move{Json(json!({"Items":[remote.lock().unwrap().clone()],"TotalRecordCount":1}))}))
+          .route("/Users",axum::routing::get(||async{Json(json!([{"Id":"user","Policy":{"IsAdministrator":true}}]))}))
+          .route("/Users/user/Items/123",axum::routing::get(|State(remote):State<Arc<Mutex<Value>>>|async move{Json(remote.lock().unwrap().clone())}))
+          .route("/Items/123",axum::routing::post(|State(remote):State<Arc<Mutex<Value>>>,Json(value):Json<Value>|async move{*remote.lock().unwrap()=value;axum::http::StatusCode::NO_CONTENT}))
+          .with_state(remote.clone());
+        let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let lib=sync_fixture(&state,format!("http://{}",listener.local_addr().unwrap()));
+        let task=tokio::spawn(async move{axum::serve(listener,app).await.unwrap();});
+        crate::native::run_scan(state.clone(),lib.clone()).await.unwrap();
+        let entry=db(&state).native_catalog(&lib.id).unwrap().into_iter().find(|e|e.kind=="series").unwrap();
+        let mut queue=load(&state,&lib.id).unwrap();queue.partner=partner(&lib);
+        let pending=json!({"fields":{"title":"Queued title"},"art":{}});
+        queue.pending.insert(entry.id.clone(),pending.clone());save_queue(&state,&lib.id,&queue).unwrap();save(&state,&lib.id,&queue).unwrap();
+        let key=format!("native-server-import:{}",lib.id);
+        for (generation,override_locked) in [("locked",false),("override",true)] {
+          db(&state).set_setting(&key,&json!({"push":true,"fields":["plot"],"artwork":false,"override_locked":override_locked,"generation":generation}).to_string()).unwrap();
+          reconcile_inner(&state,&lib.id).await.unwrap();
+          assert_eq!(remote.lock().unwrap()["Overview"],if override_locked{"Local plot"}else{"Remote plot"});
+          assert_eq!(remote.lock().unwrap()["Name"],"Remote title");
+          let current=db(&state).native_catalog(&lib.id).unwrap().into_iter().find(|e|e.id==entry.id).unwrap();
+          assert_eq!(current.title,"Local title");assert_eq!(current.metadata["plot"],"Local plot");
+          assert_eq!(load(&state,&lib.id).unwrap().pending[&entry.id],pending);
+        }
+        let updated=db(&state).save_native_library(Some(&lib.id),&NativeLibraryInput{name:lib.name.clone(),library_type:lib.library_type,anime_content:lib.anime_content,paths:lib.paths.clone(),revision:Some(lib.revision),options:NativeLibraryOptions{server_sync:NativeServerSync{mode:"import_only".into(),override_locked:true,..lib.options.server_sync.clone()},..lib.options.clone()}}).unwrap();
+        remote.lock().unwrap()["Overview"]=json!("Incoming in import mode");
+        assert!(changed(&state,&updated.id,&entry.id,json!({"plot":"Not outgoing"}),None).await.is_empty());
+        reconcile(&state,&lib.id).await.unwrap();
+        let current=db(&state).native_catalog(&lib.id).unwrap().into_iter().find(|e|e.id==entry.id).unwrap();
+        assert_eq!(current.metadata["plot"],"Incoming in import mode");
+        assert_eq!(remote.lock().unwrap()["Name"],"Remote title");
+        assert_eq!(load(&state,&lib.id).unwrap().status,"synced");
+        task.abort();
+    }
+    #[test]
+    fn existing_integration_settings_keep_two_way_mode() {
+        let options:NativeServerSync=serde_json::from_value(json!({"enabled":true,"server_id":1,"library_id":"library"})).unwrap();
+        assert_eq!(options.mode,"two_way");
+    }
     #[test]
     fn failed_attempts_back_off_then_pause() {
         let mut retry = RetryState::default();
@@ -1749,6 +1810,12 @@ mod tests {
                 .title,
             "Server title"
         );
+        let local=store.native_catalog(&lib.id).unwrap().into_iter().find(|e|e.id==current.id).unwrap();
+        store.edit_native_entry(&lib.id,&local.id,local.revision,&json!({"plot":"Explicit multi-server push"})).unwrap();
+        store.set_setting(&format!("native-server-import:{}",lib.id),&json!({"push":true,"fields":["plot"],"artwork":false,"override_locked":true,"generation":"multi-push"}).to_string()).unwrap();
+        reconcile_inner(&state,&lib.id).await.unwrap();
+        assert_eq!(remote.lock().unwrap()["Overview"],"Explicit multi-server push");
+        assert_eq!(mirror.lock().unwrap()["Overview"],"Explicit multi-server push");
         destination_task.abort();
         tokio::task::yield_now().await;
         let mut queued = load(&state, &lib.id).unwrap();

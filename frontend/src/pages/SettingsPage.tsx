@@ -27,7 +27,7 @@ import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
 import WatchdogStatus from "../components/WatchdogStatus";
 import { ServerTypeBadge, Switch } from "../components/ui";
-import type { AppearanceSettings, ConnectionTest, LibraryVisibility, Server, ServerType } from "../types";
+import type { AppearanceSettings, ConnectionTest, Server, ServerType } from "../types";
 import {
   applyTheme,
   applyThemePreferences,
@@ -78,7 +78,7 @@ const SETTINGS_TAB_KEY = "posterview.settingsTab";
 const LIVE_PREVIEW_KEY = "posterview.appearanceLivePreview";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
-  { id: "servers", label: "Server", icon: <ServerIcon className="size-4" /> },
+  { id: "servers", label: "Integrations", icon: <ServerIcon className="size-4" /> },
   { id: "libraries", label: "Libraries", icon: <HardDrive className="size-4" /> },
   { id: "sources", label: "Search Providers", icon: <ImageIcon className="size-4" /> },
   { id: "database", label: "Database", icon: <Database className="size-4" /> },
@@ -600,7 +600,7 @@ function ServersSection() {
   return (
     <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <ServerIcon className="size-5 text-accent" /> Server
+        <ServerIcon className="size-5 text-accent" /> ServerConnect integrations
       </h2>
       <p className="mb-3 text-sm text-faint">
         Connect your media servers and choose which libraries PosterView shows.
@@ -610,7 +610,7 @@ function ServersSection() {
         <div className="rounded-xl border border-border bg-surface-2 p-3">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="mb-1 text-sm font-semibold">Media Servers</h3>
+              <h3 className="mb-1 text-sm font-semibold">Connected servers</h3>
               <p className="text-xs text-faint">
                 Connect Plex, Jellyfin, or Emby. Tokens are encrypted before they're stored.
               </p>
@@ -706,7 +706,7 @@ function ServersSection() {
             onChange={(e) => setForm({ ...form, is_default: e.target.checked })}
             className="size-4 accent-[var(--color-accent)]"
           />
-          Use As Default Server
+          Use As Default Integration
             </label>
 
             <label className="mt-3 flex items-start gap-2 text-sm text-muted">
@@ -776,48 +776,6 @@ function ServerCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const toast = useToast();
-  const queryClient = useQueryClient();
-  const visibilityQ = useQuery({
-    queryKey: ["library-visibility", server.id],
-    queryFn: () => api.getLibraryVisibility(server.id),
-  });
-  const visibilityMut = useMutation({
-    mutationFn: (next: LibraryVisibility) =>
-      api.setLibraryVisibility(
-        server.id,
-        next.libraries.filter((library) => !library.visible).map((library) => library.id),
-      ),
-    onMutate: async (next) => {
-      reportSettingsSave("saving");
-      await queryClient.cancelQueries({ queryKey: ["library-visibility", server.id] });
-      const previous = queryClient.getQueryData<LibraryVisibility>(["library-visibility", server.id]);
-      queryClient.setQueryData(["library-visibility", server.id], next);
-      return { previous };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["libraries", server.id] });
-      reportSettingsSave("saved");
-    },
-    onError: (error: Error, _next, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(["library-visibility", server.id], context.previous);
-      }
-      reportSettingsSave("error");
-      toast.push("error", error.message);
-    },
-  });
-
-  const toggleLibrary = (libraryId: string) => {
-    const current = visibilityQ.data;
-    if (!current) return;
-    visibilityMut.mutate({
-      libraries: current.libraries.map((library) =>
-        library.id === libraryId ? { ...library, visible: !library.visible } : library,
-      ),
-    });
-  };
-
   return (
     <div className="rounded-xl border border-border bg-surface p-3">
       <div className="flex items-start gap-2 sm:gap-3 sm:px-3">
@@ -841,43 +799,7 @@ function ServerCard({
         </IconBtn>
       </div>
 
-      <details className="group mt-3 overflow-hidden rounded-lg bg-window">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm text-muted transition-colors hover:text-white [&::-webkit-details-marker]:hidden">
-          <span className="min-w-0">
-            <span className="block font-medium text-white">Show Libraries</span>
-            <span className="block text-xs text-faint">
-              {visibilityQ.isLoading
-                ? "Loading libraries…"
-                : visibilityQ.isError
-                  ? "Could not load libraries"
-                  : `${visibilityQ.data?.libraries.filter((library) => library.visible).length ?? 0} of ${visibilityQ.data?.libraries.length ?? 0} shown`}
-            </span>
-          </span>
-          <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" />
-        </summary>
-        <div className="p-3 pt-1">
-          {visibilityQ.isError && (
-            <p className="text-xs text-danger">Could not load libraries from this server.</p>
-          )}
-          {visibilityQ.data?.libraries.length === 0 && (
-            <p className="text-xs text-faint">No libraries were found.</p>
-          )}
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {visibilityQ.data?.libraries.map((library) => (
-              <label key={library.id} className="flex min-h-11 min-w-0 items-center gap-2 text-sm text-muted">
-                <input
-                  type="checkbox"
-                  checked={library.visible}
-                  disabled={visibilityMut.isPending}
-                  onChange={() => toggleLibrary(library.id)}
-                  className="size-4 accent-[var(--color-accent)]"
-                />
-                <span className="min-w-0 break-words">{library.title}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      </details>
+      <p className="mt-3 px-3 text-xs text-muted">Integration connection for importing metadata and pushing supported updates. Map libraries in Settings → Libraries.</p>
     </div>
   );
 }

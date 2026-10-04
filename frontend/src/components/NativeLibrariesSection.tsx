@@ -1,3 +1,4 @@
+import ImportServerLibrary from "./ImportServerLibrary";
 import LibraryPosterStrip from "./LibraryPosterStrip";
 import ConnectedServerSync, {SyncActions} from "./ConnectedServerSync";
 import NativeScanProgress from "./NativeScanProgress";
@@ -21,22 +22,24 @@ function overlap(paths: string[]): boolean {
 
 export default function NativeLibrariesSection() {
   const libraries = useQuery({ queryKey: ["native-libraries"], queryFn: nativeLibraries.list });
+  const [importing,setImporting]=useState(false);
   const [editing, setEditing] = useState<NativeLibrary | "new" | null>(null);
   const client = useQueryClient();
   const trigger = useRef<HTMLButtonElement | null>(null);
   const close = () => { setEditing(null); trigger.current?.focus(); };
   return <section className="h-full overflow-y-auto py-3">
     <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><h2 className="text-lg font-semibold text-white">Native libraries</h2>
-        <p className="mt-1 max-w-xl text-sm text-muted">Organize your mounted media independently of connected servers.</p></div>
-      <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-base" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />Add library</button>
+      <div><h2 className="text-lg font-semibold text-white">Libraries</h2>
+        <p className="mt-1 max-w-xl text-sm text-muted">Organize your media in PosterView and integrate connected servers for metadata and artwork.</p></div>
+      <div className="flex flex-wrap gap-2"><button className={BUTTON} onClick={()=>setImporting(true)}>Import library</button><button className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-base" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />Add library</button></div>
     </div>
     <p className="my-5 rounded-xl border border-edge bg-panel p-4 text-sm text-muted">New libraries scan after creation. Local metadata and artwork take priority; missing information can be fetched from providers. Manage each library from its … menu.</p>
     {libraries.isPending && <p role="status" className="text-muted">Loading libraries…</p>}
     {libraries.error && <div role="alert" className="text-danger">{libraries.error.message} <button className={BUTTON} onClick={() => void libraries.refetch()}>Retry</button></div>}
-    {libraries.data?.length === 0 && <div className="rounded-2xl border border-dashed border-edge p-10 text-center text-muted"><FolderPlus className="mx-auto mb-3 size-8 text-accent" /><p>No native libraries yet.</p><p className="mt-1 text-sm">Choose a type and select folders inside /media to get started.</p></div>}
+    {libraries.data?.length === 0 && <div className="rounded-2xl border border-dashed border-edge p-10 text-center text-muted"><FolderPlus className="mx-auto mb-3 size-8 text-accent" /><p>No libraries yet.</p><p className="mt-1 text-sm">Choose a type and select folders inside /media to get started.</p></div>}
     <p className="mb-4 text-sm text-muted">{libraries.data?.length ?? 0} Libraries</p>
     <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">{libraries.data?.map(library => <LibraryCard key={library.id} library={library} onEdit={button=>{trigger.current=button;setEditing(library);}} />)}</div>
+    {importing&&<ImportServerLibrary onClose={()=>setImporting(false)} onSaved={()=>{setImporting(false);void client.invalidateQueries({queryKey:["native-libraries"]});}}/>}
     {editing && <LibraryDialog library={editing === "new" ? undefined : editing} onClose={close} onSaved={() => { void client.invalidateQueries({ queryKey: ["native-libraries"] }); close(); }} />}
   </section>;
 }
@@ -76,8 +79,8 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
   </article>;
 }
 
-export function LibraryDialog({ library, onClose, onSaved }: { library?: NativeLibrary; onClose: () => void; onSaved: () => void }) {
-  const initial = useRef<NativeLibraryInput>(library ? { name: library.name, library_type: library.library_type, anime_content: library.anime_content, paths: library.paths, options: { ...defaultNativeOptions, ...library.options }, revision: library.revision } : { name: "", library_type: "movies", anime_content: "both", paths: [], options: { ...defaultNativeOptions }, revision: null });
+export function LibraryDialog({ library, seed, onClose, onSaved }: { library?: NativeLibrary; seed?: NativeLibraryInput; onClose: () => void; onSaved: () => void }) {
+  const initial = useRef<NativeLibraryInput>(seed ?? (library ? { name: library.name, library_type: library.library_type, anime_content: library.anime_content, paths: library.paths, options: { ...defaultNativeOptions, ...library.options }, revision: library.revision } : { name: "", library_type: "movies", anime_content: "both", paths: [], options: { ...defaultNativeOptions }, revision: null }));
   const [draft, setDraft] = useState(initial.current);
   const [step, setStep] = useState(0);
   const [path, setPath] = useState("");
@@ -113,7 +116,7 @@ export function LibraryDialog({ library, onClose, onSaved }: { library?: NativeL
   const visible = folders.data?.folders.filter(folder => folder.name.toLowerCase().includes(filter.toLowerCase())) ?? [];
   return createPortal(<div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm sm:p-6">
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="library-dialog-title" className="flex h-full w-full max-w-5xl flex-col overflow-hidden border border-edge bg-panel shadow-2xl sm:h-[min(760px,90dvh)] sm:rounded-2xl">
-      <header className="flex items-center justify-between border-b border-edge px-5 py-4"><div><h2 id="library-dialog-title" className="text-lg font-semibold text-white">{library ? "Edit library" : "Create library"}</h2><p className="mt-1 text-xs text-muted">Native media · No server import</p></div><button aria-label="Close library dialog" disabled={save.isPending} className={BUTTON} onClick={() => closeRef.current()}><X className="size-5" /></button></header>
+      <header className="flex items-center justify-between border-b border-edge px-5 py-4"><div><h2 id="library-dialog-title" className="text-lg font-semibold text-white">{library ? "Edit library" : "Create library"}</h2><p className="mt-1 text-xs text-muted">PosterView library</p></div><button aria-label="Close library dialog" disabled={save.isPending} className={BUTTON} onClick={() => closeRef.current()}><X className="size-5" /></button></header>
       <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
         <nav aria-label="Library setup sections" className="flex shrink-0 gap-2 overflow-x-auto border-b border-edge p-3 sm:w-44 sm:shrink-0 sm:flex-col sm:border-b-0 sm:border-r">{STEPS.map((label, index) => <button key={label} aria-current={step === index ? "step" : undefined} disabled={save.isPending} onClick={() => setStep(index)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-sm ${step === index ? "bg-accent/15 text-accent" : "text-muted hover:bg-base"}`}><span className="text-xs opacity-60">{index + 1}</span>{label}</button>)}</nav>
         <main ref={content} className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-7">

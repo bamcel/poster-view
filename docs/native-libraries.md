@@ -341,3 +341,14 @@ Manual-library framing is stored per item in `backdropedit` metadata and used by
 The Libraries settings section shows four static poster previews per manual library with a fading reflection. Libraries with multiple posters continuously slide to the right at one poster width per five seconds, wrapping seamlessly. Movement continues during hover and menu use; offscreen and hidden tabs stop animation work, and reduced-motion users get a stationary strip. Thumbnail requests are lazy and preview lists omit full metadata and episode data.
 
 Each library has a single … menu containing Library, Scan Library Files, configured sync/import/recovery actions, View notices / activity, and Remove. Removal requires confirmation and preserves media, NFO files, and media-folder artwork. The former Correct item link interface and endpoint have been removed; matching continues to use validated paths, provider IDs, and parent relationships.
+
+
+### ServerConnect integrations
+
+The dashboard now browses only PosterView catalogs. Connected-server library tabs and the active-server selector are removed. Server credentials and saved library mappings remain intact; an old dashboard `lib` query resolves to a mapped PosterView library when one exists. Settings → Integrations manages server connections. Old library visibility choices no longer restrict integration library selection.
+
+Settings → Libraries → Import library selects a source server/library and opens the library setup wizard. Choose folders under PosterView’s /media mount; server paths are not assumed to be valid container paths. The new library defaults to import mode with missing-provider fetching disabled, then imports matched server metadata after scanning. Metadata imports currently support Emby and Jellyfin; Plex destinations support static artwork.
+
+Each library integration has Import from server, Push to servers, and Two-way sync modes. Existing integrations keep Two-way sync. Import mode does not enqueue outgoing PosterView edits or propagate imports to secondary servers. Push mode sends outgoing edits without replacing local data from server values. Two-way mode keeps the established baseline/conflict recovery behavior.
+
+Import from server and Push to servers open field selection, including static artwork, lock override, and import-only NFO writing. All metadata fields and static artwork start selected. Explicit push updates only present selected shared fields on confidently matched items, preserves unrelated pending edits, supports both managed images and validated media-folder sidecars, and leaves enhanced metadata/animations local. Empty local artwork does not imply deletion during explicit push. Manual replacement/removal edits continue to use the normal integration queue.

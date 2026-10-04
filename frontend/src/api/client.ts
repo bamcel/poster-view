@@ -124,6 +124,7 @@ export const api = {
     request<ConnectionTest>(`/servers/${id}/test`, { method: "POST", ...(data ? { body: JSON.stringify(data) } : {}) }),
 
   // -- libraries / items --
+  getIntegrationLibraries: async (serverId: number) => (await request<LibraryVisibility>(`/servers/${serverId}/library-visibility`)).libraries,
   getLibraries: (serverId: number) => request<Library[]>(`/servers/${serverId}/libraries`),
   getLibraryVisibility: (serverId: number) =>
     request<LibraryVisibility>(`/servers/${serverId}/library-visibility`),

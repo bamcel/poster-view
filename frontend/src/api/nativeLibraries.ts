@@ -1,8 +1,8 @@
 import { apiRequest } from "./client";
 
 export type NativeLibraryType = "movies" | "shows" | "anime" | "books";
-export interface ServerSyncOptions { enabled:boolean; server_id:number|null; library_id:string; override_locked:boolean; write_nfo:boolean; push_to_all:boolean; push_server_ids:number[]; }
-export const defaultServerSync:ServerSyncOptions={enabled:false,server_id:null,library_id:"",override_locked:false,write_nfo:false,push_to_all:true,push_server_ids:[]};
+export interface ServerSyncOptions { enabled:boolean; mode?:"two_way"|"import_only"|"push_only"; server_id:number|null; library_id:string; override_locked:boolean; write_nfo:boolean; push_to_all:boolean; push_server_ids:number[]; }
+export const defaultServerSync:ServerSyncOptions={enabled:false,mode:"two_way",server_id:null,library_id:"",override_locked:false,write_nfo:false,push_to_all:true,push_server_ids:[]};
 export interface NativeLibraryOptions {
   server_sync?:ServerSyncOptions;
   read_nfo: boolean; save_nfo: boolean; local_artwork: boolean; save_artwork: boolean; fetch_missing: boolean;

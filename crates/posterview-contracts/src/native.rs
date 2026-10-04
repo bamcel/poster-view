@@ -151,6 +151,7 @@ pub struct NativeScanProgress {
 #[serde(default, deny_unknown_fields)]
 pub struct NativeServerSync {
     pub enabled: bool,
+    pub mode: String,
     #[serde(default="sync_all_servers")]
     pub push_to_all: bool,
     pub push_server_ids: Vec<i64>,
@@ -162,4 +163,4 @@ pub struct NativeServerSync {
 
 fn sync_all_servers()->bool{true}
 
-impl Default for NativeServerSync {fn default()->Self{Self{enabled:false,push_to_all:true,push_server_ids:Vec::new(),server_id:None,library_id:String::new(),override_locked:false,write_nfo:false}}}
+impl Default for NativeServerSync {fn default()->Self{Self{enabled:false,mode:"two_way".into(),push_to_all:true,push_server_ids:Vec::new(),server_id:None,library_id:String::new(),override_locked:false,write_nfo:false}}}

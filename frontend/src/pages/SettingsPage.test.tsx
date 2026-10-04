@@ -84,7 +84,7 @@ it("restores open and closed split preview state after leaving Appearance", () =
   try {
     const first = mount();
     fireEvent.click(screen.getByRole("button", { name: "Split View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Server" }));
+    fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
     fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
     expect(screen.getByRole("region", { name: "Live Dashboard preview" })).toBeTruthy();
     first.unmount();
@@ -214,8 +214,8 @@ it("persists and resets Dashboard appearance controls", () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
 
-  expect(screen.getByRole("button", { name: "Server", pressed: true })).toBeTruthy();
-  expect(screen.getByRole("heading", { name: "Server" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Integrations", pressed: true })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "ServerConnect integrations" })).toBeTruthy();
   expect(screen.queryByRole("switch", { name: "Show Backdrops" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
   expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
@@ -278,7 +278,7 @@ it("saves the per-server NFO metadata setting", async () => {
   client.clear();
 });
 
-it("keeps server libraries in a checkbox dropdown", async () => {
+it("shows server connections as integrations without library visibility controls", async () => {
   vi.mocked(api.listServers).mockResolvedValue([
     {
       id: 1,
@@ -309,11 +309,10 @@ it("keeps server libraries in a checkbox dropdown", async () => {
     </MemoryRouter>,
   );
 
-  expect(await screen.findByText("1 of 2 shown")).toBeTruthy();
-  fireEvent.click(screen.getByText("Show Libraries"));
-  fireEvent.click(screen.getByRole("checkbox", { name: "TV Shows" }));
-
-  await waitFor(() => expect(api.setLibraryVisibility).toHaveBeenCalledWith(1, []));
+  expect(await screen.findByText("Jellyfin")).toBeTruthy();
+  expect(screen.queryByText("Show Libraries")).toBeNull();
+  expect(screen.getByText(/Integration connection for importing metadata/)).toBeTruthy();
+  expect(api.setLibraryVisibility).not.toHaveBeenCalled();
   client.clear();
 });
 

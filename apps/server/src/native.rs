@@ -42,6 +42,7 @@ async fn save(
 ) -> Result<Json<NativeLibrary>, HttpError> {
     if input.options.server_sync.enabled {
         let sync = &input.options.server_sync;
+        if !["two_way","import_only","push_only"].contains(&sync.mode.as_str()) { return Err(HttpError::bad_request("Unknown integration mode.")); }
         let server = state.runtime.list_servers().map_err(|e|HttpError::bad_request(e.to_string()))?.into_iter().find(|server|Some(server.id)==sync.server_id).ok_or_else(||HttpError::bad_request("Select a connected server."))?;
         if server.server_type == posterview_contracts::ServerType::Plex { return Err(HttpError::bad_request("Shared metadata sync currently supports Emby and Jellyfin.")); }
         let libraries=state.runtime.get_libraries(server.id).await.map_err(|e|HttpError::bad_request(e.to_string()))?.ok_or_else(HttpError::not_found)?.map_err(HttpError::bad_request)?;
