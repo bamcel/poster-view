@@ -359,7 +359,7 @@ it("lists manual libraries after server libraries in the same dashboard navigati
   expect(nativeLibraries.catalog).toHaveBeenCalledWith("manual");
   expect(screen.queryByLabelText("Library source")).toBeNull();
   const tabs = screen.getByRole("group", {name: "Libraries"}).querySelectorAll("button");
-  expect(Array.from(tabs).map(tab => tab.textContent)).toEqual(["Server Movies", "Local AnimeManual"]);
+  expect(Array.from(tabs).map(tab => tab.textContent)).toEqual(["Server Movies", "Local Anime"]);
   fireEvent.click(screen.getByRole("button", {name: "Server Movies"}));
   await screen.findByText("Server Title");
   expect(screen.queryByText("Manual Title")).toBeNull();
