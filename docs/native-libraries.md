@@ -338,6 +338,6 @@ Manual-library framing is stored per item in `backdropedit` metadata and used by
 
 ### Library settings cards
 
-The Libraries settings section shows four static poster previews per manual library with a fading reflection. Libraries with more than four posters cycle through their artwork one position to the right every five seconds. Movement pauses on hover, when the action menu is open, offscreen, while the document is hidden, and for reduced-motion users. Thumbnail requests are lazy and preview lists omit full metadata and episode data.
+The Libraries settings section shows four static poster previews per manual library with a fading reflection. Libraries with multiple posters continuously slide to the right at one poster width per five seconds, wrapping seamlessly. Movement continues during hover and menu use; offscreen and hidden tabs stop animation work, and reduced-motion users get a stationary strip. Thumbnail requests are lazy and preview lists omit full metadata and episode data.
 
 Each library has a single … menu containing Library, Scan Library Files, configured sync/import/recovery actions, View notices / activity, and Remove. Removal requires confirmation and preserves media, NFO files, and media-folder artwork. The former Correct item link interface and endpoint have been removed; matching continues to use validated paths, provider IDs, and parent relationships.

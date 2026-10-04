@@ -75,6 +75,7 @@ it("groups library actions in the menu and confirms removal", async () => {
   vi.mocked(nativeLibraries.remove).mockResolvedValue(undefined);
   mount(<NativeLibrariesSection />);
   fireEvent.click(await screen.findByLabelText("Actions for Anime"));
+  expect(screen.getByRole("region", {name:"Library actions for Anime"}).parentElement).toBe(document.body);
   fireEvent.click(await screen.findByRole("button", {name: "Scan Library Files"}));
   await waitFor(() => expect(nativeLibraries.scan).toHaveBeenCalledWith(saved.id));
   expect(screen.queryByRole("dialog")).toBeNull();

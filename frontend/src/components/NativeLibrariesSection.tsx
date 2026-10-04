@@ -42,31 +42,35 @@ export default function NativeLibrariesSection() {
 
 function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTMLButtonElement)=>void}) {
   const client = useQueryClient();
-  const [confirmDelete,setConfirmDelete]=useState(false),[open,setOpen]=useState(false),[notices,setNotices]=useState(false),[hover,setHover]=useState(false);
+  const [confirmDelete,setConfirmDelete]=useState(false),[open,setOpen]=useState(false),[notices,setNotices]=useState(false);
   const previews=useQuery({queryKey:["native-previews",library.id],queryFn:()=>nativeLibraries.previews(library.id),enabled:open,staleTime:60_000});
-  const menu=useRef<HTMLDetailsElement>(null);
-  useEffect(()=>{if(!open)return;const close=(event:PointerEvent)=>{if(!menu.current?.contains(event.target as Node)){menu.current?.removeAttribute("open");setOpen(false);}};const key=(event:KeyboardEvent)=>{if(event.key==="Escape"){menu.current?.removeAttribute("open");setOpen(false);menu.current?.querySelector("summary")?.focus();}};document.addEventListener("pointerdown",close);document.addEventListener("keydown",key);return()=>{document.removeEventListener("pointerdown",close);document.removeEventListener("keydown",key);};},[open]);
+  const menu=useRef<HTMLDivElement>(null), action=useRef<HTMLButtonElement>(null);
+  const [position,setPosition]=useState({top:0,left:0});
+  useEffect(()=>{if(!open)return;
+    const place=()=>{const rect=action.current?.getBoundingClientRect();if(!rect)return;const width=Math.min(352,window.innerWidth-24);setPosition({left:Math.max(12,Math.min(rect.right-width,window.innerWidth-width-12)),top:Math.max(12,Math.min(rect.bottom+8,window.innerHeight-200))});};place();
+    const close=(event:PointerEvent)=>{if(!menu.current?.contains(event.target as Node)&&!action.current?.contains(event.target as Node))setOpen(false);};
+    const key=(event:KeyboardEvent)=>{if(event.key==="Escape"){setOpen(false);action.current?.focus();}};
+    document.addEventListener("pointerdown",close);document.addEventListener("keydown",key);window.addEventListener("resize",place);window.addEventListener("scroll",place,true);
+    return()=>{document.removeEventListener("pointerdown",close);document.removeEventListener("keydown",key);window.removeEventListener("resize",place);window.removeEventListener("scroll",place,true);};
+  },[open]);
   const status = useQuery({queryKey:["native-scan",library.id],queryFn:()=>nativeLibraries.status(library.id),refetchInterval:query=>query.state.data?.status==="scanning"?2000:false});
   const syncStatus=useQuery({queryKey:["native-sync",library.id],queryFn:()=>nativeLibraries.syncStatus(library.id),enabled:!!library.options?.server_sync?.enabled,refetchInterval:5000});
   const scan=useMutation({mutationFn:()=>nativeLibraries.scan(library.id),onSuccess:()=>{void client.invalidateQueries({queryKey:["native-scan",library.id]});void client.invalidateQueries({queryKey:["native-previews",library.id]});}});
   const remove=useMutation({mutationFn:()=>nativeLibraries.remove(library.id,library.revision),onSuccess:()=>{void client.invalidateQueries({queryKey:["native-libraries"]});}});
   const busy=status.data?.status==="scanning"||scan.isPending||remove.isPending;
-  return <article onMouseEnter={()=>setHover(true)} onMouseLeave={()=>setHover(false)} className="relative rounded-xl bg-panel pb-4">
-    <LibraryPosterStrip library={library.id} paused={open||hover}/>
+  return <article className="relative rounded-xl bg-panel pb-4">
+    <div className="relative"><LibraryPosterStrip library={library.id}/><button ref={action} aria-label={`Actions for ${library.name}`} aria-expanded={open} onClick={()=>setOpen(!open)} className="absolute bottom-2 right-2 grid size-8 place-items-center rounded-full border border-white/15 bg-black/40 text-white backdrop-blur hover:bg-black/60"><MoreHorizontal className="size-4"/></button></div>
     <div className="px-4 text-center"><h3 className="font-semibold text-white">{library.name}</h3><p className="text-sm text-muted">{TYPES[library.library_type]}{library.library_type==="anime"?` · ${library.anime_content==="both"?"Mixed":library.anime_content==="shows"?"Shows only":"Movies only"}`:""}</p><p className="truncate text-xs text-muted" title={library.paths.map(displayPath).join("\n")}>{library.paths.length===1?displayPath(library.paths[0]):`${library.paths.length} folders`}</p></div>
     <div className="mt-3 px-4 text-xs text-muted">{status.data&&<NativeScanProgress status={status.data}/>} {syncStatus.data&&<p className="mt-2">Sync: {syncStatus.data.status} · {syncStatus.data.pending} pending · {syncStatus.data.failed} failed</p>}</div>
-    <details ref={menu} onToggle={event=>setOpen(event.currentTarget.open)} className="absolute right-2 top-2 z-20">
-      <summary aria-label={`Actions for ${library.name}`} className="grid size-10 cursor-pointer list-none place-items-center rounded-full border border-white/15 bg-black/40 text-white backdrop-blur hover:bg-black/60 [&::-webkit-details-marker]:hidden"><MoreHorizontal className="size-5"/></summary>
-      <div className="mt-2 max-h-[70dvh] w-[min(22rem,calc(100vw-3rem))] overflow-y-auto rounded-2xl border border-edge bg-panel p-4 shadow-2xl">
+    {open&&createPortal(<div ref={menu} role="region" aria-label={`Library actions for ${library.name}`} style={{...position,backgroundColor:"var(--color-surface, #20232b)",maxHeight:`calc(100dvh - ${position.top+12}px)`}} className="fixed z-[90] w-[min(22rem,calc(100vw-24px))] overflow-y-auto rounded-2xl border border-edge p-4 text-white shadow-2xl">
         <div className="mb-3 flex items-center gap-3"><div aria-hidden="true" className="flex w-20 shrink-0 overflow-hidden rounded">{previews.data?.slice(0,4).map(item=><img key={item.id} src={nativeLibraries.artworkUrl(library.id,item.id,"poster")+`?v=${item.revision}`} alt="" className="aspect-[2/3] w-1/4 object-cover"/>)}</div><p className="font-semibold">{library.name}</p></div>
-        <div className="flex flex-col gap-2"><button className={`${BUTTON} flex items-center justify-between`} onClick={event=>onEdit(event.currentTarget)}>Library<Folder className="size-4"/></button><button className={`${BUTTON} flex items-center justify-between`} disabled={busy} onClick={()=>scan.mutate()}>Scan Library Files<RefreshCw className="size-4"/></button>
+        <div className="flex flex-col gap-2"><button className={`${BUTTON} flex items-center justify-between`} onClick={()=>{setOpen(false);if(action.current)onEdit(action.current);}}>Library<Folder className="size-4"/></button><button className={`${BUTTON} flex items-center justify-between`} disabled={busy} onClick={()=>scan.mutate()}>Scan Library Files<RefreshCw className="size-4"/></button>
         {library.options?.server_sync?.enabled&&<SyncActions library={library.id} menu/>}
         <button className={BUTTON} onClick={()=>setNotices(!notices)}>View notices / activity</button>
         {notices&&<div className="space-y-2 text-xs text-muted">{[...(status.data?.warnings??[]),...(syncStatus.data?.notices??[]),...(syncStatus.data?.activity??[])].map((message,i)=><p key={i}>{message}</p>)}{!status.data?.warnings.length&&!syncStatus.data?.notices.length&&!syncStatus.data?.activity.length&&<p>No notices or activity.</p>}</div>}
         <div className="border-t border-edge pt-2"><button className={`${BUTTON} flex w-full items-center justify-between text-danger`} disabled={busy} onClick={()=>setConfirmDelete(true)}>Remove<Trash2 className="size-4"/></button></div></div>
         {confirmDelete&&<div role="alertdialog" aria-label="Remove library confirmation" className="mt-3 rounded-xl border border-edge bg-base p-3"><p className="text-sm text-muted">Remove {library.name}? Media, NFO files, and local artwork will be kept.</p><div className="mt-3 flex gap-2"><button className={BUTTON} disabled={busy} onClick={()=>setConfirmDelete(false)}>Cancel</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={()=>remove.mutate()}>Confirm removal</button></div></div>}
-      </div>
-    </details>
+    </div>,document.body)}
     {(scan.error||remove.error||status.error)&&<p role="alert" className="px-4 text-sm text-danger">{(scan.error||remove.error||status.error)?.message}</p>}
   </article>;
 }
