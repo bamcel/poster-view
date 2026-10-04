@@ -137,6 +137,16 @@ pub(crate) async fn catalog(
         .map(Json)
         .map_err(error)
 }
+pub(crate) async fn previews(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, HttpError> {
+    let Json(entries) = catalog(State(state), Path(id)).await?;
+    Ok(Json(serde_json::Value::Array(entries.into_iter()
+        .filter(|entry| entry.available && ["series", "movie", "book", "book_series"].contains(&entry.kind.as_str()) && entry.artwork.iter().any(|art| art.kind == "poster"))
+        .map(|entry| serde_json::json!({"id":entry.id,"title":entry.title,"revision":entry.revision}))
+        .collect())))
+}
 pub(crate) async fn start_scan(state: AppState, id: String) -> Result<(), HttpError> {
     start_scan_scoped(state, id, None).await
 }

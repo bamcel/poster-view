@@ -1,10 +1,11 @@
+import LibraryPosterStrip from "./LibraryPosterStrip";
 import ConnectedServerSync, {SyncActions} from "./ConnectedServerSync";
 import NativeScanProgress from "./NativeScanProgress";
 import { useEffect, useRef, useState } from "react";
 import LibrarySettings from "./NativeLibrarySettings";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, ChevronRight, Folder, FolderPlus, Loader2, Pencil, Plus, Search, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Folder, FolderPlus, Loader2, MoreHorizontal, RefreshCw, Trash2, Plus, Search, X } from "lucide-react";
 import { defaultNativeOptions, nativeLibraries, type NativeLibrary, type NativeLibraryInput, type NativeLibraryType } from "../api/nativeLibraries";
 
 const TYPES: Record<NativeLibraryType, string> = { movies: "Movies", shows: "TV Shows", anime: "Anime", books: "Books" };
@@ -29,35 +30,45 @@ export default function NativeLibrariesSection() {
         <p className="mt-1 max-w-xl text-sm text-muted">Organize your mounted media independently of connected servers.</p></div>
       <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-base" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />Add library</button>
     </div>
-    <p className="my-5 rounded-xl border border-edge bg-panel p-4 text-sm text-muted">New libraries scan after creation. Local metadata and artwork take priority; missing information can be fetched from providers. Scan files or delete a library directly from its card.</p>
+    <p className="my-5 rounded-xl border border-edge bg-panel p-4 text-sm text-muted">New libraries scan after creation. Local metadata and artwork take priority; missing information can be fetched from providers. Manage each library from its … menu.</p>
     {libraries.isPending && <p role="status" className="text-muted">Loading libraries…</p>}
     {libraries.error && <div role="alert" className="text-danger">{libraries.error.message} <button className={BUTTON} onClick={() => void libraries.refetch()}>Retry</button></div>}
     {libraries.data?.length === 0 && <div className="rounded-2xl border border-dashed border-edge p-10 text-center text-muted"><FolderPlus className="mx-auto mb-3 size-8 text-accent" /><p>No native libraries yet.</p><p className="mt-1 text-sm">Choose a type and select folders inside /media to get started.</p></div>}
-    <div className="grid gap-3 lg:grid-cols-2">{libraries.data?.map(library => <article key={library.id} className="rounded-2xl border border-edge bg-panel p-4">
-      <div className="flex items-start justify-between gap-3"><div><h3 className="font-medium text-white">{library.name}</h3><p className="mt-1 text-xs text-accent">{TYPES[library.library_type]}{library.library_type === "anime" ? ` · ${library.anime_content === "both" ? "Mixed" : library.anime_content === "shows" ? "Shows only" : "Movies only"}` : ""}</p></div>
-        <button aria-label={`Edit ${library.name}`} className={BUTTON} onClick={event => { trigger.current = event.currentTarget; setEditing(library); }}><Pencil className="size-4" /></button></div>
-      <ul className="mt-4 space-y-1 text-xs text-muted">{library.paths.map(path => <li className="break-all" key={path}>{displayPath(path)}</li>)}</ul>
-      <LibraryActions library={library} />
-    </article>)}</div>
+    <p className="mb-4 text-sm text-muted">{libraries.data?.length ?? 0} Libraries</p>
+    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">{libraries.data?.map(library => <LibraryCard key={library.id} library={library} onEdit={button=>{trigger.current=button;setEditing(library);}} />)}</div>
     {editing && <LibraryDialog library={editing === "new" ? undefined : editing} onClose={close} onSaved={() => { void client.invalidateQueries({ queryKey: ["native-libraries"] }); close(); }} />}
   </section>;
 }
 
-function LibraryActions({ library }: { library: NativeLibrary }) {
+function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTMLButtonElement)=>void}) {
   const client = useQueryClient();
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const status = useQuery({ queryKey: ["native-scan", library.id], queryFn: () => nativeLibraries.status(library.id), refetchInterval: query => query.state.data?.status === "scanning" ? 2000 : false });
-  const scan = useMutation({ mutationFn: () => nativeLibraries.scan(library.id), onSuccess: () => { void client.invalidateQueries({queryKey: ["native-scan", library.id]}); } });
-  const remove = useMutation({ mutationFn: () => nativeLibraries.remove(library.id, library.revision), onSuccess: () => { void client.invalidateQueries({queryKey: ["native-libraries"]}); } });
-  const busy = status.data?.status === "scanning" || scan.isPending || remove.isPending;
-  return <div className="mt-4 space-y-3">
-    {status.data && <NativeScanProgress status={status.data} />}
-    {library.options?.server_sync?.enabled&&<SyncActions library={library.id}/>}
-    <div className="flex flex-wrap gap-2"><button className={BUTTON} disabled={busy} onClick={() => scan.mutate()}>Scan files</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={() => setConfirmDelete(true)}>Delete library</button></div>
-    {confirmDelete && <div className="rounded-xl border border-edge bg-base p-3"><p className="text-sm text-muted">Delete {library.name}? Media and NFO files will be kept.</p><div className="mt-3 flex flex-wrap gap-2"><button className={BUTTON} disabled={busy} onClick={() => setConfirmDelete(false)}>Cancel</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={() => remove.mutate()}>Confirm deletion</button></div></div>}
-    {(scan.error || remove.error || status.error) && <p role="alert" className="text-sm text-danger">{(scan.error || remove.error || status.error)?.message}</p>}
-    {!!status.data?.warnings.length && <details className="text-xs text-muted"><summary className="cursor-pointer">{status.data.warnings.length} scan notices</summary><ul className="mt-2 space-y-1">{status.data.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul></details>}
-  </div>;
+  const [confirmDelete,setConfirmDelete]=useState(false),[open,setOpen]=useState(false),[notices,setNotices]=useState(false),[hover,setHover]=useState(false);
+  const previews=useQuery({queryKey:["native-previews",library.id],queryFn:()=>nativeLibraries.previews(library.id),enabled:open,staleTime:60_000});
+  const menu=useRef<HTMLDetailsElement>(null);
+  useEffect(()=>{if(!open)return;const close=(event:PointerEvent)=>{if(!menu.current?.contains(event.target as Node)){menu.current?.removeAttribute("open");setOpen(false);}};const key=(event:KeyboardEvent)=>{if(event.key==="Escape"){menu.current?.removeAttribute("open");setOpen(false);menu.current?.querySelector("summary")?.focus();}};document.addEventListener("pointerdown",close);document.addEventListener("keydown",key);return()=>{document.removeEventListener("pointerdown",close);document.removeEventListener("keydown",key);};},[open]);
+  const status = useQuery({queryKey:["native-scan",library.id],queryFn:()=>nativeLibraries.status(library.id),refetchInterval:query=>query.state.data?.status==="scanning"?2000:false});
+  const syncStatus=useQuery({queryKey:["native-sync",library.id],queryFn:()=>nativeLibraries.syncStatus(library.id),enabled:!!library.options?.server_sync?.enabled,refetchInterval:5000});
+  const scan=useMutation({mutationFn:()=>nativeLibraries.scan(library.id),onSuccess:()=>{void client.invalidateQueries({queryKey:["native-scan",library.id]});void client.invalidateQueries({queryKey:["native-previews",library.id]});}});
+  const remove=useMutation({mutationFn:()=>nativeLibraries.remove(library.id,library.revision),onSuccess:()=>{void client.invalidateQueries({queryKey:["native-libraries"]});}});
+  const busy=status.data?.status==="scanning"||scan.isPending||remove.isPending;
+  return <article onMouseEnter={()=>setHover(true)} onMouseLeave={()=>setHover(false)} className="relative rounded-xl bg-panel pb-4">
+    <LibraryPosterStrip library={library.id} paused={open||hover}/>
+    <div className="px-4 text-center"><h3 className="font-semibold text-white">{library.name}</h3><p className="text-sm text-muted">{TYPES[library.library_type]}{library.library_type==="anime"?` · ${library.anime_content==="both"?"Mixed":library.anime_content==="shows"?"Shows only":"Movies only"}`:""}</p><p className="truncate text-xs text-muted" title={library.paths.map(displayPath).join("\n")}>{library.paths.length===1?displayPath(library.paths[0]):`${library.paths.length} folders`}</p></div>
+    <div className="mt-3 px-4 text-xs text-muted">{status.data&&<NativeScanProgress status={status.data}/>} {syncStatus.data&&<p className="mt-2">Sync: {syncStatus.data.status} · {syncStatus.data.pending} pending · {syncStatus.data.failed} failed</p>}</div>
+    <details ref={menu} onToggle={event=>setOpen(event.currentTarget.open)} className="absolute right-2 top-2 z-20">
+      <summary aria-label={`Actions for ${library.name}`} className="grid size-10 cursor-pointer list-none place-items-center rounded-full border border-white/15 bg-black/40 text-white backdrop-blur hover:bg-black/60 [&::-webkit-details-marker]:hidden"><MoreHorizontal className="size-5"/></summary>
+      <div className="mt-2 max-h-[70dvh] w-[min(22rem,calc(100vw-3rem))] overflow-y-auto rounded-2xl border border-edge bg-panel p-4 shadow-2xl">
+        <div className="mb-3 flex items-center gap-3"><div aria-hidden="true" className="flex w-20 shrink-0 overflow-hidden rounded">{previews.data?.slice(0,4).map(item=><img key={item.id} src={nativeLibraries.artworkUrl(library.id,item.id,"poster")+`?v=${item.revision}`} alt="" className="aspect-[2/3] w-1/4 object-cover"/>)}</div><p className="font-semibold">{library.name}</p></div>
+        <div className="flex flex-col gap-2"><button className={`${BUTTON} flex items-center justify-between`} onClick={event=>onEdit(event.currentTarget)}>Library<Folder className="size-4"/></button><button className={`${BUTTON} flex items-center justify-between`} disabled={busy} onClick={()=>scan.mutate()}>Scan Library Files<RefreshCw className="size-4"/></button>
+        {library.options?.server_sync?.enabled&&<SyncActions library={library.id} menu/>}
+        <button className={BUTTON} onClick={()=>setNotices(!notices)}>View notices / activity</button>
+        {notices&&<div className="space-y-2 text-xs text-muted">{[...(status.data?.warnings??[]),...(syncStatus.data?.notices??[]),...(syncStatus.data?.activity??[])].map((message,i)=><p key={i}>{message}</p>)}{!status.data?.warnings.length&&!syncStatus.data?.notices.length&&!syncStatus.data?.activity.length&&<p>No notices or activity.</p>}</div>}
+        <div className="border-t border-edge pt-2"><button className={`${BUTTON} flex w-full items-center justify-between text-danger`} disabled={busy} onClick={()=>setConfirmDelete(true)}>Remove<Trash2 className="size-4"/></button></div></div>
+        {confirmDelete&&<div role="alertdialog" aria-label="Remove library confirmation" className="mt-3 rounded-xl border border-edge bg-base p-3"><p className="text-sm text-muted">Remove {library.name}? Media, NFO files, and local artwork will be kept.</p><div className="mt-3 flex gap-2"><button className={BUTTON} disabled={busy} onClick={()=>setConfirmDelete(false)}>Cancel</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={()=>remove.mutate()}>Confirm removal</button></div></div>}
+      </div>
+    </details>
+    {(scan.error||remove.error||status.error)&&<p role="alert" className="px-4 text-sm text-danger">{(scan.error||remove.error||status.error)?.message}</p>}
+  </article>;
 }
 
 export function LibraryDialog({ library, onClose, onSaved }: { library?: NativeLibrary; onClose: () => void; onSaved: () => void }) {

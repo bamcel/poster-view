@@ -37,9 +37,9 @@ export interface FolderList {
   folders: { name: string; path: string; has_nfo: boolean }[];
 }
 export const nativeLibraries = {
-  syncLink:(id:string,item:string,server_item:string)=>apiRequest<{ok:boolean}>(`/native/libraries/${encodeURIComponent(id)}/sync/links`,{method:"PUT",body:JSON.stringify({item,server_item})}),
   syncStatus:(id:string)=>apiRequest<SyncStatus>(`/native/libraries/${encodeURIComponent(id)}/sync`),
   sync:(id:string,input:Record<string,unknown>={})=>apiRequest<{status:string}>(`/native/libraries/${encodeURIComponent(id)}/sync`,{method:"POST",body:JSON.stringify(input)}),
+  previews: (id: string) => apiRequest<{id:string;title:string;revision:number}[]>(`/native/libraries/${encodeURIComponent(id)}/previews`),
   list: () => apiRequest<NativeLibrary[]>("/native/libraries"),
   save: (input: NativeLibraryInput, id?: string) => apiRequest<NativeLibrary>(
     `/native/libraries${id ? `/${encodeURIComponent(id)}` : ""}`,

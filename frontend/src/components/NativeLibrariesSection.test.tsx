@@ -4,13 +4,14 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import NativeLibrariesSection, { LibraryDialog } from "./NativeLibrariesSection";
 import { defaultNativeOptions, nativeLibraries, type NativeLibrary } from "../api/nativeLibraries";
 
-vi.mock("../api/nativeLibraries", async importOriginal => ({...(await importOriginal<typeof import("../api/nativeLibraries")>()), nativeLibraries: { list: vi.fn(), save: vi.fn(), folders: vi.fn(), status: vi.fn(), catalog: vi.fn(), scan: vi.fn(), remove: vi.fn() } }));
+vi.mock("../api/nativeLibraries", async importOriginal => ({...(await importOriginal<typeof import("../api/nativeLibraries")>()), nativeLibraries: { list: vi.fn(), save: vi.fn(), folders: vi.fn(), status: vi.fn(), catalog: vi.fn(), previews: vi.fn(), scan: vi.fn(), remove: vi.fn() } }));
 const saved: NativeLibrary = { id: "library", name: "Anime", library_type: "anime", anime_content: "both", paths: ["Shows", "Movies"], revision: 1, created_at: "", updated_at: "" };
 function mount(component: React.ReactNode) {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{component}</QueryClientProvider>);
 }
 beforeEach(() => {
   vi.mocked(nativeLibraries.list).mockResolvedValue([]);
+  vi.mocked(nativeLibraries.previews).mockResolvedValue([]);
   vi.mocked(nativeLibraries.save).mockResolvedValue(saved);
   vi.mocked(nativeLibraries.folders).mockImplementation(async path => ({ root: "/media", path, folders: path ? [{ name: "Season 1", path: `${path}/Season 1`, has_nfo: false }] : [{ name: "Shows", path: "Shows", has_nfo: false }, { name: "Movies", path: "Movies", has_nfo: false }] }));
 });
@@ -67,19 +68,20 @@ it("submits the existing revision when editing and keeps errors visible", async 
   expect(nativeLibraries.save).toHaveBeenCalledWith(expect.objectContaining({ revision: 1 }), "library");
 });
 
-it("scans and deletes directly from the library card without a popup", async () => {
+it("groups library actions in the menu and confirms removal", async () => {
   vi.mocked(nativeLibraries.list).mockResolvedValue([saved]);
   vi.mocked(nativeLibraries.status).mockResolvedValue({status: "complete", count: 4, warnings: []});
   vi.mocked(nativeLibraries.scan).mockResolvedValue(undefined);
   vi.mocked(nativeLibraries.remove).mockResolvedValue(undefined);
   mount(<NativeLibrariesSection />);
-  fireEvent.click(await screen.findByRole("button", {name: "Scan files"}));
+  fireEvent.click(await screen.findByLabelText("Actions for Anime"));
+  fireEvent.click(await screen.findByRole("button", {name: "Scan Library Files"}));
   await waitFor(() => expect(nativeLibraries.scan).toHaveBeenCalledWith(saved.id));
   expect(screen.queryByRole("dialog")).toBeNull();
-  await waitFor(() => expect((screen.getByRole("button", {name: "Delete library"}) as HTMLButtonElement).disabled).toBe(false));
-  fireEvent.click(screen.getByRole("button", {name: "Delete library"}));
+  await waitFor(() => expect((screen.getByRole("button", {name: "Remove"}) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button", {name: "Remove"}));
   expect(nativeLibraries.remove).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", {name: "Confirm deletion"}));
+  fireEvent.click(screen.getByRole("button", {name: "Confirm removal"}));
   await waitFor(() => expect(nativeLibraries.remove).toHaveBeenCalledWith(saved.id, saved.revision));
   expect(screen.queryByRole("dialog")).toBeNull();
 });
