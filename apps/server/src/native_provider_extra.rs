@@ -243,7 +243,7 @@ async fn mal(
     let manga = entry.kind == "book_series";
     let kind = if manga { "manga" } else { "anime" };
     let fields = if manga {
-        "id,title,main_picture,alternative_titles,start_date,synopsis,mean,genres,num_volumes,num_chapters,status,authors,nsfw"
+        "id,title,main_picture,alternative_titles,start_date,synopsis,mean,genres,num_volumes,num_chapters,status,nsfw"
     } else {
         "id,title,main_picture,alternative_titles,start_date,synopsis,mean,genres,num_episodes,average_episode_duration,status,studios,media_type,nsfw"
     };

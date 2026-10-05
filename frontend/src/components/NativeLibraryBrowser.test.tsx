@@ -277,7 +277,7 @@ it("hides anime character and cast rows according to saved preferences",async()=
 });
 
 it("shows book series NFO pills and a wrapping grid of volume covers",async()=>{
- const bookSeries={...series,kind:"book_series",metadata:{year:2020,publisher:"Viz",translatedtitle:"English",volumes:21,sourcematerial:"Original"}};
+ const bookSeries={...series,kind:"book_series",metadata:{year:2020,publisher:"Viz",translatedtitle:"English",volumes:21,sourcematerial:"Original",credits:[{name:"Old Actor",category:"cast"}],characters:[{name:"Old Character"}]}};
  const books=[1,2].map(volume=>({...series,id:`volume${volume}`,path:`${series.path}/Volume ${volume}.cbz`,kind:"book",parent_path:series.path,title:`Volume ${volume}`,metadata:{volume}}));
  vi.mocked(nativeLibraries.catalog).mockResolvedValue([bookSeries,...books]);
  mount("/?native_library=native&native_item=show",{...library,library_type:"books"});
@@ -286,4 +286,5 @@ it("shows book series NFO pills and a wrapping grid of volume covers",async()=>{
  expect(screen.getByText("19 Volumes Missing")).toBeTruthy();
  const heading=screen.getByRole("heading",{name:"Volumes"});expect(heading.nextElementSibling?.className).toContain("grid");
  expect(screen.getByText("2 Volumes")).toBeTruthy();
+ expect(screen.queryByText("Old Actor")).toBeNull();expect(screen.queryByText("Old Character")).toBeNull();
 });

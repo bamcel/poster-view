@@ -265,10 +265,12 @@ async fn anilist(
             .as_i64()
             .ok_or("Invalid AniList ID.")?
     };
-    let mut body = response(client.post("https://graphql.anilist.co").json(&json!({"query":"query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal countryOfOrigin isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors{id languageV2 name{full} image{large}}}} staff(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}","variables":{"id":selected,"type":media_type}})).send().await.map_err(|_|"AniList connection failed.")?).await?;
+    let query = if manga { "query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal countryOfOrigin isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage}}" } else { "query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal countryOfOrigin isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors{id languageV2 name{full} image{large}}}} staff(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}" };
+    let mut body = response(client.post("https://graphql.anilist.co").json(&json!({"query":query,"variables":{"id":selected,"type":media_type}})).send().await.map_err(|_|"AniList connection failed.")?).await?;
     // Fetch remaining connection pages without discarding the usable first page
     // if a later request fails. Each request shares the provider rate gate.
     for page in 2..=50 {
+        if manga { break; }
         let media = &body["data"]["Media"];
         if !["characters", "staff"]
             .iter()
@@ -800,7 +802,7 @@ async fn enrich_one(
                     }
                     if metadata_order.contains(&provider_name) {
                         for (field, value) in fields.as_object().unwrap() {
-                            if field != "identifiers" {
+                            if field != "identifiers" && !(library.library_type == NativeLibraryType::Books && ["credits", "characters", "voice_cast"].contains(&field.as_str())) {
                                 fill(entry, field, value.clone(), &provider_name);
                             }
                         }
@@ -983,6 +985,8 @@ async fn enrich_one(
             for edge in data["staff"]["edges"].as_array().unwrap_or(&Vec::new()) {
                 credits.push(json!({"name":edge["node"]["name"]["full"],"role":edge["role"],"provider_id":edge["node"]["id"],"category":"crew","image":edge["node"]["image"]["large"]}));
             }
+            fields["country_of_origin"] = data["countryOfOrigin"].clone();
+            if library.library_type != NativeLibraryType::Books {
             fields["voice_cast"] = anilist_voice_cast(&data);
             if entry.metadata["_sources"]["voice_cast"] != "manual" {
                 entry.metadata["voice_cast"] = fields["voice_cast"].clone();
@@ -994,6 +998,7 @@ async fn enrich_one(
             entry.metadata["_sources"]["voice_cast_schema"] = json!("anilist");
             fields["characters"] = json!(characters);
             fields["credits"] = json!(credits);
+            }
             for (kind, value) in [
                 ("poster", &data["coverImage"]["extraLarge"]),
                 ("backdrop", &data["bannerImage"]),

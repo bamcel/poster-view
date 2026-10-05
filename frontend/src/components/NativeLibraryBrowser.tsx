@@ -810,7 +810,7 @@ function NativeDetail({
               </section>
             )}
             {entry.kind !== "series" && !entry.kind.startsWith("book") && <ItemAbout item={detail} />}
-            {(library.library_type !== "anime" || animePreferences.characters) && Array.isArray(entry.metadata.characters) &&
+            {library.library_type !== "books" && (library.library_type !== "anime" || animePreferences.characters) && Array.isArray(entry.metadata.characters) &&
               entry.metadata.characters.length > 0 && (
                 <section className="mt-8">
                   <h2 className="mb-4 text-xl font-semibold">Characters</h2>
@@ -842,7 +842,7 @@ function NativeDetail({
                 <p className="mt-1 text-xs text-muted">{String(person.role ?? "")}</p>
               </div>)}</PeopleRow> : <p className="text-sm text-muted">{group.empty}</p>}
             </section>)}
-            {library.library_type !== "anime" && credits.length > 0 && (
+            {library.library_type !== "anime" && library.library_type !== "books" && credits.length > 0 && (
               <section className="mt-8">
                 <h2 className="mb-4 text-xl font-semibold">Cast and crew</h2>
                 <PeopleRow label="cast and crew">
