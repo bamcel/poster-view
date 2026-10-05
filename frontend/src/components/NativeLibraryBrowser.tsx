@@ -440,7 +440,7 @@ export default function NativeLibraryBrowser({
                 <ArtworkPreferences library={library.id}/>{library.library_type === "books" && <BookPreferences/>}{library.library_type === "anime" && <AnimePreferences library={library.id}/>}</div>
               </LibraryPopup>
             </div>
-            {status.data?.status === "scanning" ? <aside aria-label="Library scan progress" className="w-full min-w-0 lg:ml-auto lg:max-w-80"><NativeScanProgress status={status.data} compact/></aside> : <div aria-hidden="true" className="hidden lg:block"/>}
+            {status.data?.status === "scanning" && status.data.show_progress !== false ? <aside aria-label="Library scan progress" className="w-full min-w-0 lg:ml-auto lg:max-w-80"><NativeScanProgress status={status.data} compact/></aside> : <div aria-hidden="true" className="hidden lg:block"/>}
           </div>
           <div className="scrollbar-hidden relative z-10 min-h-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6 lg:px-8">
             <div className="mb-4 flex items-center justify-between text-xs text-faint">

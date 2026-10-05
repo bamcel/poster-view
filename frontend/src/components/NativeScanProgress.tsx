@@ -3,6 +3,7 @@ import type { NativeScanStatus } from "../api/nativeLibraries";
 
 const phases: Record<string, string> = {discovering: "Discovering files", inspecting: "Inspecting media files", reading: "Reading local metadata and media info", metadata: "Fetching missing metadata and artwork", saving: "Saving metadata and artwork"};
 export default function NativeScanProgress({status, compact = false}: {status: NativeScanStatus; compact?: boolean}) {
+  if(status.show_progress === false) return null;
   const busy = status.status === "scanning";
   const progress = status.progress;
   const percent = progress?.total ? Math.min(100, Math.floor(progress.processed / progress.total * 100)) : undefined;

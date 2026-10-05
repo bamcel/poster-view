@@ -15,3 +15,11 @@ it("shows discovery without inventing a percentage, then live reading counts", (
   expect(screen.getByRole("status").textContent).toContain("30 items");
   expect(screen.queryByRole("progressbar")).toBeNull();
 });
+
+it("hides automatic scan progress and shows explicitly requested scans",()=>{
+ const status={status:"scanning",count:20,warnings:[],progress:{phase:"reading",processed:5,total:20,current:"Books/Example"}};
+ const view=render(<NativeScanProgress status={{...status,show_progress:false}}/>);
+ expect(screen.queryByRole("status")).toBeNull();expect(screen.queryByRole("progressbar")).toBeNull();
+ view.rerender(<NativeScanProgress status={{...status,show_progress:true}}/>);
+ expect(screen.getByRole("progressbar")).toBeTruthy();
+});

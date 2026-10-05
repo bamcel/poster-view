@@ -61,7 +61,7 @@ export const nativeLibraries = {
 
 export interface NativeArtwork { kind: string; path: string; source: string; }
 export interface NativeCatalogEntry { id: string; path: string; kind: string; parent_path: string | null; title: string; metadata: Record<string, unknown>; artwork: NativeArtwork[]; files: {path: string; size: number; extension: string; media_info?: {format?: Record<string, unknown>; streams?: Record<string,unknown>[]} }[]; nfo_path: string | null; available: boolean; revision: number; }
-export interface NativeScanStatus { progress?: {phase: string; processed: number; total: number | null; current: string}; status: string; count: number; warnings: string[]; }
+export interface NativeScanStatus { show_progress?: boolean; progress?: {phase: string; processed: number; total: number | null; current: string}; status: string; count: number; warnings: string[]; }
 
 export interface IdentificationCandidate {poster?:string|null;provider:string;id:string;title:string;year:number|null;format:string|null;overview:string|null;identifiers:Record<string,string>}
 export interface IdentificationGroup {provider:string;results:IdentificationCandidate[];error?:string}

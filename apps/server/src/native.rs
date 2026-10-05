@@ -117,10 +117,15 @@ async fn library(state: &AppState, id: &str) -> Result<NativeLibrary, HttpError>
 pub(crate) async fn status(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Json<posterview_contracts::native::NativeScanStatus>, HttpError> {
+) -> Result<Json<serde_json::Value>, HttpError> {
     library(&state, &id).await?;
     let store = store(&state);
-    tokio::task::spawn_blocking(move || store.native_scan_status(&id))
+    tokio::task::spawn_blocking(move || {
+        let status = store.native_scan_status(&id)?;
+        let mut value = serde_json::json!(status);
+        value["show_progress"] = serde_json::json!(store.get_setting(&format!("native-scan-visible:{id}"))? != "false");
+        Ok::<_, posterview_infra_sqlite::StoreError>(value)
+    })
         .await
         .map_err(|_| HttpError::bad_request("Scan status interrupted."))?
         .map(Json)
@@ -149,17 +154,24 @@ pub(crate) async fn previews(
         .collect())))
 }
 pub(crate) async fn start_scan(state: AppState, id: String) -> Result<(), HttpError> {
-    start_scan_scoped(state, id, None).await
+    start_scan_triggered(state, id, None, true).await
 }
 pub(crate) async fn start_scan_scoped(
     state: AppState,
     id: String,
     scopes: Option<Vec<String>>,
 ) -> Result<(), HttpError> {
+    start_scan_triggered(state, id, scopes, false).await
+}
+async fn start_scan_triggered(state: AppState, id: String, scopes: Option<Vec<String>>, manual: bool) -> Result<(), HttpError> {
     let library = library(&state, &id).await?;
     let db = store(&state);
     let scan_id = id.clone();
-    tokio::task::spawn_blocking(move || db.begin_native_scan(&scan_id))
+    tokio::task::spawn_blocking(move || {
+        let initial = db.native_scan_status(&scan_id)?.status == "not_scanned";
+        db.begin_native_scan(&scan_id)?;
+        db.set_setting(&format!("native-scan-visible:{scan_id}"), if manual || initial {"true"} else {"false"})
+    })
         .await
         .map_err(|_| HttpError::bad_request("Scan request interrupted."))?
         .map_err(error)?;
