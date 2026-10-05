@@ -141,6 +141,9 @@ it("opens deep links and keeps editing separate from the detail page", async () 
   expect(panel.getAttribute("data-server")).toBe("0");
   expect(panel.getAttribute("data-item")).toBe("native:native:show");
   expect(panel.getAttribute("data-seasons")).toBe("native:native:season");
+  fireEvent.click(screen.getByRole("button", { name: "Back" }));
+  await waitFor(() => expect(screen.queryByRole("region", {name: "Artwork for Example Series"})).toBeNull());
+  expect(screen.getByLabelText("Search titles")).toBeTruthy();
 });
 it("searches all available titles and filters missing artwork", async () => {
   mount();

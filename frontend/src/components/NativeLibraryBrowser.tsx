@@ -263,6 +263,11 @@ export default function NativeLibraryBrowser({
               params.get("native_item")),
         )
       : undefined;
+  const pageItem = params.get("native_item");
+  const pageLibrary = params.get("native_library");
+  useEffect(() => {
+    setEditor(current => current?.kind === "artwork" ? null : current);
+  }, [pageItem, pageLibrary]);
   const open = (entry: NativeCatalogEntry) => {
     setParams((previous) => {
       const next = new URLSearchParams(previous);

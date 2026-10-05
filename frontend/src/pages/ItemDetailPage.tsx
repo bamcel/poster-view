@@ -51,6 +51,7 @@ export default function ItemDetailPage() {
   const [prefill, setPrefill] = useState<{ term: string; nonce: number }>();
   const [artworkTarget, setArtworkTarget] = useState<{ provider: string; value: string; nonce: number }>();
   const [artworkOpen, setArtworkOpen] = useState(false);
+  useEffect(() => { setArtworkOpen(false); }, [serverId, itemId]);
   const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
   const [overlayStrength, setOverlayStrength] = useState(backdropOverlay);
   const [metadataEditorOpen, setMetadataEditorOpen] = useState(
