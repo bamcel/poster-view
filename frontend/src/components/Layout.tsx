@@ -1,3 +1,4 @@
+import {useServerConnectPlugin} from "./PluginsPage";
 import {useQuery} from "@tanstack/react-query";
 import {nativeLibraries} from "../api/nativeLibraries";
 // App chrome: a left sidebar (logo, nav, active-server picker) + routed content.
@@ -17,6 +18,7 @@ const navItems = [
 ];
 export default function Layout({ children, preview = false, showPreviewChrome = true, previewPath = "/" }: { children?: ReactNode; preview?: boolean; showPreviewChrome?: boolean; previewPath?: string }) {
   const location = useLocation();
+  const serverConnect=useServerConnectPlugin();
   const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,enabled:true});
   const previewNavigate = useLibraryNavigate();
   const showSignOut = useContext(AuthSessionContext)?.password_required !== false && !preview;
@@ -85,7 +87,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
       </header>
       {!preview && <details className="shrink-0 bg-sidebar px-4 py-2 md:hidden"><summary className="text-sm text-muted">Media</summary><nav className="flex flex-col gap-2 py-3">{libraries.data?.map(library=><NavLink key={library.id} to={`/media/${encodeURIComponent(library.id)}`} className="rounded-md bg-elevated px-3 py-2 text-sm">{library.name}</NavLink>)}</nav></details>}
-      {!preview && location.pathname.startsWith("/settings") && <details className="shrink-0 bg-sidebar px-4 py-2 md:hidden"><summary className="text-sm text-muted">Settings pages</summary><nav className="grid grid-cols-2 gap-2 py-3">{[["","Dashboard"],["servers","Server Connect"],["libraries","Libraries"],["sources","Search Providers"],["database","Database"],["appearance","Appearance"],["security","Privacy / Security"]].map(([section,label])=><NavLink key={section} to={`/settings${section ? `/${section}` : ""}`} className="rounded-md bg-elevated px-3 py-2 text-xs">{label}</NavLink>)}</nav></details>}
+      {!preview && location.pathname.startsWith("/settings") && <details className="shrink-0 bg-sidebar px-4 py-2 md:hidden"><summary className="text-sm text-muted">Settings pages</summary><nav className="grid grid-cols-2 gap-2 py-3">{[["","Dashboard"],["plugins","Plugins"],...(serverConnect.data?.pinned?[["servers","Server Connect"]]:[]),["libraries","Libraries"],["sources","Search Providers"],["database","Database"],["appearance","Appearance"],["security","Privacy / Security"]].map(([section,label])=><NavLink key={section} to={`/settings${section ? `/${section}` : ""}`} className="rounded-md bg-elevated px-3 py-2 text-xs">{label}</NavLink>)}</nav></details>}
 
       <aside
         className="relative z-20 hidden w-[14.75rem] shrink-0 flex-col overflow-y-auto border-r border-border px-3 py-5 md:flex"
@@ -118,7 +120,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           ))}
           {<><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Media</h2>{libraries.data?.map(library=>{const Icon=library.library_type==="books"?BookOpen:library.library_type==="movies"?Film:Tv;return <NavLink key={library.id} to={`/media/${encodeURIComponent(library.id)}`} className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${(preview ? previewPath === `/media/${encodeURIComponent(library.id)}` : isActive) ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/><span className="truncate">{library.name}</span></NavLink>;})}{navItems.filter(item=>item.to!=="/settings").map(({to,label,icon:Icon,end})=><NavLink key={to} to={to} end={end} className={({isActive})=>`mt-2 flex h-9 items-center gap-3 rounded-md px-3 text-sm ${isActive?"bg-elevated text-white":"text-muted hover:text-white"}`}><Icon className="size-[18px]"/>{label}</NavLink>)}</>}
 
-          {<><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Settings</h2>{[{section:"",label:"Dashboard",icon:LayoutDashboard},{section:"servers",label:"Server Connect",icon:Server},{section:"libraries",label:"Libraries",icon:HardDrive},{section:"sources",label:"Search Providers",icon:Image},{section:"database",label:"Database",icon:Database},{section:"appearance",label:"Appearance",icon:Palette},{section:"security",label:"Privacy / Security",icon:KeyRound}].map(({section,label,icon:Icon})=><NavLink key={section} to={`/settings${section ? `/${section}` : ""}`} end className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${(preview ? previewPath === `/settings${section ? `/${section}` : ""}` : isActive) ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/>{label}</NavLink>)}</>}
+          {<><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Settings</h2>{[{section:"",label:"Dashboard",icon:LayoutDashboard},{section:"plugins",label:"Plugins",icon:Server},...(serverConnect.data?.pinned?[{section:"servers",label:"Server Connect",icon:Server}]:[]),{section:"libraries",label:"Libraries",icon:HardDrive},{section:"sources",label:"Search Providers",icon:Image},{section:"database",label:"Database",icon:Database},{section:"appearance",label:"Appearance",icon:Palette},{section:"security",label:"Privacy / Security",icon:KeyRound}].map(({section,label,icon:Icon})=><NavLink key={section} to={`/settings${section ? `/${section}` : ""}`} end className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${(preview ? previewPath === `/settings${section ? `/${section}` : ""}` : isActive) ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/>{label}</NavLink>)}</>}
 
         </nav>
 

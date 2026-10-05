@@ -9,6 +9,7 @@ import type { AppearanceSettings } from "../types";
 vi.mock("../components/AppearancePreview", () => ({ default: ({ onClose }: { onClose: () => void }) => <section aria-label="Live Dashboard preview"><button onClick={onClose}>Close split view</button></section> }));
 
 vi.mock("../api/client", () => ({
+  apiRequest:vi.fn(async(url:string)=>{if(url.startsWith("/plugins/"))return {enabled:true,pinned:false};throw new Error("Not configured");}),
   api: {
     listServers: vi.fn(),
     createServer: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock("../api/client", () => ({
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function(){this.setAttribute("open", "");};
   localStorage.clear();
   sessionStorage.clear();
   vi.mocked(api.listServers).mockResolvedValue([]);
@@ -470,3 +472,13 @@ it("saves TMDB credentials on blur and tests the saved connection", async () => 
   client.clear();
 });
 
+
+it("keeps Server Connect pinning off by default inside its plugin popup",async()=>{
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<MemoryRouter initialEntries={["/settings/plugins"]}><QueryClientProvider client={client}><SettingsPage/></QueryClientProvider></MemoryRouter>);
+ fireEvent.click(await screen.findByRole("button",{name:/Server Connect/}));
+ const pin=await screen.findByRole("switch",{name:"Pin to Settings"});
+ expect((pin as HTMLInputElement).checked).toBe(false);
+ expect((screen.getByRole("switch",{name:"Enable Server Connect"}) as HTMLInputElement).checked).toBe(true);
+ client.clear();
+});

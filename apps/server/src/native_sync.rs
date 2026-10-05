@@ -279,6 +279,7 @@ fn now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 fn active(state: &AppState, library: &str) -> Option<NativeLibrary> {
+    if !crate::plugins::enabled(state) { return None; }
     db(state)
         .native_libraries()
         .ok()?
@@ -331,7 +332,7 @@ pub(crate) async fn status(
         None
     };
     Ok(Json(
-        json!({"enabled":lib.options.server_sync.enabled,"status":status,"retry_at":retry_at,"retry_attempts":retry.failures,"last_success":value.last_success,"pending":value.pending.len()+value.mirrors.values().map(|v|v.len()).sum::<usize>(),"linked_items":value.items.iter().map(|(item,value)|json!({"item":item,"server_item":value.remote})).collect::<Vec<_>>(),"matched":value.matched,"unmatched":value.unmatched,"failed":value.failed,"notices":value.notices,"activity":value.activity}),
+        json!({"enabled":lib.options.server_sync.enabled && crate::plugins::enabled(&state),"status":status,"retry_at":retry_at,"retry_attempts":retry.failures,"last_success":value.last_success,"pending":value.pending.len()+value.mirrors.values().map(|v|v.len()).sum::<usize>(),"linked_items":value.items.iter().map(|(item,value)|json!({"item":item,"server_item":value.remote})).collect::<Vec<_>>(),"matched":value.matched,"unmatched":value.unmatched,"failed":value.failed,"notices":value.notices,"activity":value.activity}),
     ))
 }
 pub(crate) async fn run(

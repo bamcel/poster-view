@@ -37,6 +37,7 @@ mod native_monitor;
 mod native_artwork;
 mod native_artwork_sync;
 mod native_sync;
+mod plugins;
 mod native_animation;
 mod native_identify;
 mod native_progress;
@@ -217,6 +218,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route_layer(middleware::from_fn_with_state(auth, require_auth));
 
     Router::new()
+        .route("/api/plugins/server-connect", get(plugins::get).put(plugins::save))
         .route("/api/health", get(health))
         .route("/api/auth/status", get(auth_status))
         .route("/api/auth/login", axum::routing::post(auth_login))
