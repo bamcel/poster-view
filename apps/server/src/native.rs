@@ -398,6 +398,7 @@ async fn run_scan_scoped(
     } else {
         count
     };
+    crate::spawn_backdrop_refresh(&state);
     Ok(posterview_contracts::native::NativeScanStatus {
         progress: None,
         status: if warnings.is_empty() {
@@ -515,6 +516,7 @@ pub(crate) async fn apply_panel_artwork(state: AppState, target: String, kind: p
         Ok((posterview_contracts::ApplyResult {ok:true,message}, Some((entry, art))))
     }).await.map_err(|_|HttpError::bad_request("Artwork save interrupted."))??;
     if let Some((entry, art)) = saved { result.message.push_str(&crate::native_artwork_sync::push(&state, &sync_library, &entry, &art).await); }
+    crate::spawn_backdrop_refresh(&state);
     if removed {if removed_kind=="poster" && store(&state).native_catalog(&sync_library).map_err(error)?.iter().any(|entry|entry.id==remove_target&&entry.kind=="episode"){removed_kind="thumb";}result.message.push_str(&crate::native_sync::changed(&state,&sync_library,&remove_target,serde_json::json!({}),Some(removed_kind)).await);}
     Ok(result)
 }
@@ -587,6 +589,7 @@ pub(crate) async fn upload_artwork(
     .await
     .map_err(|_| HttpError::bad_request("Artwork save interrupted."))??;
     if art.kind == "poster-edit-original" { return Ok(StatusCode::NO_CONTENT); }
+    crate::spawn_backdrop_refresh(&state);
     let result = crate::native_artwork_sync::push(&state, &sync_library, &entry, &art).await;
     if !result.is_empty() { tracing::info!(message=%result, "Manual artwork server synchronization"); }
     Ok(StatusCode::NO_CONTENT)

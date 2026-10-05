@@ -70,52 +70,34 @@ impl LoginBackdrop {
             return;
         }
         let _refresh_guard = RefreshGuard(Arc::clone(&self.refreshing));
-        if let Err(error) = self.refresh_inner(runtime).await {
-            tracing::warn!(%error, "could not refresh the login poster backdrop");
+        let cache = self.clone();
+        let data_dir = runtime.data_dir().to_path_buf();
+        match tokio::task::spawn_blocking(move || cache.refresh_inner(&data_dir)).await {
+            Ok(Ok(())) => {},
+            Ok(Err(error)) => tracing::warn!(%error, "could not refresh the login poster backdrop"),
+            Err(error) => tracing::warn!(%error, "login poster backdrop task interrupted"),
         }
     }
 
-    async fn refresh_inner(&self, runtime: &Runtime) -> Result<(), String> {
-        fs::create_dir_all(&*self.root).map_err(|error| error.to_string())?;
-        let servers = runtime.list_servers().map_err(|error| error.to_string())?;
-        let Some(server) = servers
-            .iter()
-            .find(|server| server.is_default)
-            .or_else(|| servers.first())
-        else {
-            return self.save_manifest(&BackdropManifest::default());
-        };
-        let libraries = runtime
-            .get_libraries(server.id)
-            .await
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| "server disappeared".to_owned())??;
-        let mut references = Vec::new();
-        for library in shuffled(libraries).into_iter().take(MAX_ROWS) {
-            // The login collage only needs representative posters. Collection grouping can
-            // perform many additional media-server requests and needlessly delay first paint.
-            let items = match runtime.get_items(server.id, &library.id, false).await {
-                Ok(Some(Ok(items))) => items,
-                Ok(Some(Err(error))) => {
-                    tracing::warn!(library_id = %library.id, %error, "skipping a library while refreshing the login backdrop");
-                    continue;
-                }
-                Ok(None) => break,
-                Err(error) => {
-                    tracing::warn!(library_id = %library.id, %error, "skipping a library while refreshing the login backdrop");
-                    continue;
-                }
-            };
-            references.extend(
-                shuffled(items)
-                    .into_iter()
-                    .filter_map(|item| item.poster)
-                    .take(POSTERS_PER_ROW),
-            );
-        }
+    fn refresh_inner(&self, data_dir: &Path) -> Result<(), String> {
+        let media_root = std::env::var_os("POSTERVIEW_MEDIA_DIR").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/media"));
+        self.refresh_native(data_dir, &media_root)
+    }
 
+    fn refresh_native(&self, data_dir: &Path, media_root: &Path) -> Result<(), String> {
+        fs::create_dir_all(&*self.root).map_err(|error| error.to_string())?;
+        let store = posterview_infra_sqlite::ServerStore::new(data_dir);
+        let mut references = Vec::new();
+        for library in shuffled(store.native_libraries().map_err(|error| error.to_string())?) {
+            let entries = store.native_catalog(&library.id).map_err(|error| error.to_string())?;
+            references.extend(shuffled(entries).into_iter()
+                .filter(|entry| entry.available && entry.parent_path.is_none())
+                .filter_map(|entry| entry.artwork.into_iter().find(|art| art.kind == "poster"))
+                .filter_map(|art| local_poster(data_dir, media_root, &art.path))
+                .take(POSTERS_PER_ROW));
+        }
         references = shuffled(references);
-        let row_count = MAX_ROWS.min(references.len() / 2);
+        let row_count = if references.is_empty() { 0 } else { MAX_ROWS.min((references.len() / 2).max(1)) };
         if row_count == 0 {
             return self.save_manifest(&BackdropManifest::default());
         }
@@ -127,9 +109,9 @@ impl LoginBackdrop {
         ];
         let mut successful = 0;
         for reference in references.into_iter().take(row_count * POSTERS_PER_ROW) {
-            let Ok(Some(Ok((bytes, _)))) = runtime.fetch_image(server.id, &reference).await else {
-                continue;
-            };
+            let Ok(metadata) = fs::metadata(&reference) else { continue; };
+            if metadata.len() > 20 * 1024 * 1024 { continue; }
+            let Ok(bytes) = fs::read(&reference) else { continue; };
             let Ok(image) = image::load_from_memory(&bytes) else {
                 continue;
             };
@@ -168,6 +150,18 @@ impl LoginBackdrop {
             .map_err(|error| error.to_string())?;
         Ok(())
     }
+}
+
+fn local_poster(data_dir: &Path, media_root: &Path, artwork: &str) -> Option<PathBuf> {
+    let (root, relative) = if let Some(name) = artwork.strip_prefix("@managed/") {
+        (data_dir.join("native-artwork"), PathBuf::from(name))
+    } else {
+        (media_root.to_path_buf(), PathBuf::from(artwork))
+    };
+    if relative.is_absolute() || relative.components().any(|part| !matches!(part, std::path::Component::Normal(_))) { return None; }
+    let root = root.canonicalize().ok()?;
+    let path = root.join(relative).canonicalize().ok()?;
+    (path.starts_with(root) && path.is_file()).then_some(path)
 }
 
 fn shuffled<T>(mut values: Vec<T>) -> Vec<T> {
@@ -210,6 +204,35 @@ mod tests {
         assert_eq!(cache.image("allowed"), Some(b"image".to_vec()));
         assert!(cache.image("unlisted").is_none());
         assert!(cache.image("../allowed").is_none());
+    }
+
+    #[tokio::test]
+    async fn collage_uses_native_posters_without_connected_servers() {
+        use posterview_contracts::native::{NativeLibraryInput, NativeLibraryType, AnimeContent, NativeArtwork};
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::native::scan_tests::state(temp.path());
+        let media = temp.path().join("media");
+        for name in ["One", "Two"] {
+            fs::create_dir_all(media.join(name)).unwrap();
+            fs::write(media.join(name).join(format!("{name}.mkv")), b"fixture").unwrap();
+            image::RgbImage::from_pixel(8, 12, image::Rgb([100, 20, 40])).save(media.join(name).join("poster.jpg")).unwrap();
+        }
+        let store = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
+        let library = store.save_native_library(None, &NativeLibraryInput {name:"Movies".into(), library_type:NativeLibraryType::Movies, anime_content:AnimeContent::Both, paths:vec!["One".into(),"Two".into()], revision:None, options: posterview_contracts::native::NativeLibraryOptions {fetch_missing:false,..Default::default()} }).unwrap();
+        crate::native::run_scan(state.clone(),library.clone()).await.unwrap();
+        let cache = LoginBackdrop::new(state.runtime.data_dir());
+        cache.refresh_native(state.runtime.data_dir(), &media).unwrap();
+        assert_eq!(cache.manifest().rows.iter().map(|row|row.posters.len()).sum::<usize>(),2);
+        assert!(local_poster(state.runtime.data_dir(), &media, "../outside.jpg").is_none());
+        // Saved manual posters must also work without a media-side copy.
+        let managed = state.runtime.data_dir().join("native-artwork");
+        fs::create_dir_all(&managed).unwrap();
+        fs::copy(media.join("One/poster.jpg"),managed.join("manual.jpg")).unwrap();
+        let entry = store.native_catalog(&library.id).unwrap().into_iter().find(|e|e.kind=="movie").unwrap();
+        store.save_native_artwork(&library.id,&entry.id,&NativeArtwork {kind:"poster".into(),path:"@managed/manual.jpg".into(),source:"manual".into()}).unwrap();
+        assert!(local_poster(state.runtime.data_dir(), &media, "@managed/manual.jpg").is_some());
+        cache.refresh_native(state.runtime.data_dir(), &media).unwrap();
+        assert!(!cache.manifest().rows.is_empty());
     }
 
     #[test]
