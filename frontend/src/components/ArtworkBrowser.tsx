@@ -472,7 +472,7 @@ export function ApplyBtn({ label, onClick, busy, disabled }: { label: string; on
     <button
       onClick={onClick}
       disabled={busy || disabled}
-      className="flex w-full min-w-0 items-center justify-center gap-1 rounded bg-accent/15 px-2 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/25 disabled:opacity-60"
+      className="flex w-full min-w-0 items-center justify-center gap-1 rounded border border-border bg-elevated px-2 py-1 text-[11px] font-medium text-white transition-colors hover:border-accent hover:bg-input-hover disabled:opacity-50"
     >
       {busy && <Loader2 className="size-3 animate-spin" />}
       {label}

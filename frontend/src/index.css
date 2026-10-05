@@ -225,3 +225,13 @@ select {
   background-color: color-mix(in srgb, var(--color-pill-background, #fff) min(100%, calc(var(--pill-background-opacity, 5%) * 2.4)), transparent);
   outline-color: var(--color-pill-border, #fff);
 }
+
+/* Muted text is for supporting information; actionable controls retain readable contrast. */
+button:not(:disabled):not([aria-disabled="true"]):is(.text-muted, .text-faint),
+summary:is(.text-muted, .text-faint) {
+  color: var(--color-text);
+}
+button:disabled, button[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

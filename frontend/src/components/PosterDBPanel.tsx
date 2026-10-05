@@ -641,7 +641,7 @@ function ApplyButton({
       onClick={onClick}
       disabled={busy}
       className={`flex min-w-0 items-center justify-center gap-1 rounded px-1 py-1 text-[10px] font-medium transition-colors disabled:opacity-60 ${
-        subtle ? "bg-elevated text-muted hover:text-white" : "bg-accent/15 text-accent hover:bg-accent/25"
+        subtle ? "border border-border bg-elevated text-white hover:bg-input-hover" : "border border-border bg-elevated text-white hover:border-accent hover:bg-input-hover"
       }`}
     >
       {busy && <Loader2 className="size-3 animate-spin" />}
