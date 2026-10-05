@@ -72,3 +72,13 @@ it("hides excluded book providers and supports a local-only library",()=>{
  expect((screen.getByText("Search all providers") as HTMLButtonElement).disabled).toBe(true);
  expect(screen.getByText(/No book metadata providers are enabled/)).toBeTruthy();
 });
+
+it("previews a pasted ComicVine series URL and saves its canonical ID",async()=>{
+ const book={...entry,kind:"book_series"};const match={provider:"comicvine",id:"72430",title:"Food Wars!",year:2012,format:"Book series",overview:null,identifiers:{comicvine:"72430"}};
+ vi.mocked(nativeLibraries.identifyResolve).mockResolvedValue({identifiers:{comicvine:"72430"},candidates:[match],warnings:[]});
+ render(<IdentifyPanel library={library} entry={book} busy={false} onSaved={()=>{}}/>);
+ fireEvent.change(screen.getByLabelText("ComicVine identification ID"),{target:{value:"https://comicvine.gamespot.com/food-wars/4050-72430/"}});
+ fireEvent.click(screen.getByRole("button",{name:"Find ComicVine record"}));
+ await screen.findByText("Selected match: Food Wars!");
+ expect((screen.getByLabelText("ComicVine identification ID") as HTMLInputElement).value).toBe("72430");
+});

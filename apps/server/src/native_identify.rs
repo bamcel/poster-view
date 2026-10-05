@@ -38,6 +38,14 @@ fn numeric(v: &Value) -> Option<String> {
         .or_else(|| v.as_u64().map(|v| v.to_string()))
         .filter(|s| s.parse::<u64>().is_ok_and(|id| id > 0))
 }
+fn comicvine_id(value: &str) -> Option<String> {
+    let value = value.trim();
+    if let Some(id) = numeric(&json!(value)) { return Some(id); }
+    if let Some(id) = value.strip_prefix("4050-") { return numeric(&json!(id)); }
+    let url = reqwest::Url::parse(value).ok()?;
+    if !["https", "http"].contains(&url.scheme()) || !["comicvine.gamespot.com", "www.comicvine.gamespot.com"].contains(&url.host_str()?) { return None; }
+    url.path_segments()?.find_map(|part| part.strip_prefix("4050-").and_then(|id| numeric(&json!(id))))
+}
 fn year(v: &Value) -> Value {
     v.as_i64()
         .or_else(|| v.as_str()?.get(..4)?.parse().ok())
@@ -465,6 +473,7 @@ async fn context(
 }
 fn client() -> Result<reqwest::Client, HttpError> {
     reqwest::Client::builder()
+        .user_agent("PosterView/0.1 (+https://github.com/bamcel/poster-view)")
         .timeout(std::time::Duration::from_secs(20))
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -530,7 +539,7 @@ pub(crate) async fn search(
 pub(crate) async fn apply(
     State(state): State<AppState>,
     Path((library, item)): Path<(String, String)>,
-    Json(input): Json<Apply>,
+    Json(mut input): Json<Apply>,
 ) -> Result<Json<Value>, HttpError> {
     let (lib, entry) = context(&state, &library, &item).await?;
     if input.title.trim().is_empty()
@@ -541,6 +550,9 @@ pub(crate) async fn apply(
         return Err(HttpError::bad_request(
             "Choose a title and at least one provider ID.",
         ));
+    }
+    if let Some(id) = input.identifiers.get_mut("comicvine") {
+        *id = comicvine_id(id).ok_or_else(|| HttpError::bad_request("Enter a ComicVine volume ID or series URL (4050), not an issue URL."))?;
     }
     for (provider, id) in &input.identifiers {
         if (entry.kind == "book_series" && !book_providers(&lib).contains(&provider.as_str()))
@@ -818,6 +830,14 @@ async fn anidb_lookup(
 mod tests {
     use super::*;
     #[test]
+    fn comicvine_urls_resolve_to_volume_ids_only() {
+        assert_eq!(comicvine_id("https://comicvine.gamespot.com/food-wars/4050-72430/"), Some("72430".into()));
+        assert_eq!(comicvine_id("4050-72430"), Some("72430".into()));
+        assert_eq!(comicvine_id("72430"), Some("72430".into()));
+        assert!(comicvine_id("https://comicvine.gamespot.com/issue/4000-72430/").is_none());
+        assert!(comicvine_id("https://example.com/4050-72430/").is_none());
+    }
+    #[test]
     fn book_provider_choices_preserve_exclusions_and_empty_selection() {
         let mut lib: posterview_contracts::native::NativeLibrary = serde_json::from_value(json!({"id":"books","name":"Books","library_type":"books","anime_content":"both","paths":[],"revision":1,"options":{},"created_at":"","updated_at":""})).unwrap();
         assert_eq!(book_providers(&lib), vec!["comicvine", "anilist", "mal"]);
@@ -895,9 +915,12 @@ pub(crate) struct Resolve {
 pub(crate) async fn resolve(
     State(state): State<AppState>,
     Path((library, item)): Path<(String, String)>,
-    Json(input): Json<Resolve>,
+    Json(mut input): Json<Resolve>,
 ) -> Result<Json<Value>, HttpError> {
     let (lib, entry) = context(&state, &library, &item).await?;
+    if input.provider == "comicvine" {
+        input.id = comicvine_id(&input.id).ok_or_else(|| HttpError::bad_request("Enter a ComicVine volume ID or series URL (4050), not an issue URL."))?;
+    }
     if (entry.kind == "book_series" && !book_providers(&lib).contains(&input.provider.as_str()))
         || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "anidb"].contains(&input.provider.as_str())
         || numeric(&json!(input.id)).is_none()
