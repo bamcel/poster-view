@@ -95,3 +95,33 @@ it("starts scans for every library from the top toolbar", async () => {
   await waitFor(() => expect(nativeLibraries.scan).toHaveBeenCalledWith("library"));
   expect(nativeLibraries.scan).toHaveBeenCalledWith("second");
 });
+
+it("closes a dirty library editor with its X",()=>{
+ const close=vi.fn();mount(<LibraryDialog onClose={close} onSaved={vi.fn()}/>);
+ fireEvent.change(screen.getByLabelText("Name"),{target:{value:"Books"}});
+ fireEvent.click(screen.getByRole("button",{name:"Close library dialog"}));
+ expect(close).toHaveBeenCalledOnce();
+});
+it("allows dismissing library actions while removal is pending",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([saved]);
+ vi.mocked(nativeLibraries.status).mockResolvedValue({status:"complete",count:0,warnings:[]});
+ vi.mocked(nativeLibraries.remove).mockImplementation(()=>new Promise(()=>{}));
+ mount(<NativeLibrariesSection/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Actions for Anime"}));
+ fireEvent.click(screen.getByRole("button",{name:"Remove"}));
+ fireEvent.click(screen.getByRole("button",{name:"Confirm removal"}));
+ await screen.findByRole("button",{name:"Removing…"});
+ fireEvent.click(screen.getByRole("button",{name:"Cancel"}));
+ expect(screen.queryByRole("region",{name:"Library actions for Anime"})).toBeNull();
+});
+it("closes the actions and removes the card after successful removal",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValueOnce([saved]).mockResolvedValue([]);
+ vi.mocked(nativeLibraries.status).mockResolvedValue({status:"complete",count:0,warnings:[]});
+ vi.mocked(nativeLibraries.remove).mockResolvedValue(undefined);
+ mount(<NativeLibrariesSection/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Actions for Anime"}));
+ fireEvent.click(screen.getByRole("button",{name:"Remove"}));
+ fireEvent.click(screen.getByRole("button",{name:"Confirm removal"}));
+ await waitFor(()=>expect(screen.queryByRole("region",{name:"Library actions for Anime"})).toBeNull());
+ expect(screen.queryByRole("button",{name:"Actions for Anime"})).toBeNull();
+});
