@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import NativeLibraryBrowser from "./NativeLibraryBrowser";
+vi.mock("../lib/libraryDisplay",()=>({useTrackingOverlays:()=>[true,vi.fn(),{coloredEffect:"both",coloredTitle:true}]}));
 vi.mock("./ArtworkPanel", () => ({default: ({serverId, item}: {serverId:number;item:import("../types").ItemDetail}) => <div data-testid="shared-artwork" data-server={serverId} data-item={item.id} data-seasons={item.seasons.map(s=>s.id).join(",")}>Shared artwork lookup</div>}));
 import {
   nativeLibraries,
@@ -277,7 +278,7 @@ it("hides anime character and cast rows according to saved preferences",async()=
 });
 
 it("shows book series NFO pills and a wrapping grid of volume covers",async()=>{
- const bookSeries={...series,kind:"book_series",metadata:{year:2020,publisher:"Viz",translatedtitle:"English",volumes:21,sourcematerial:"Original",credits:[{name:"Old Actor",category:"cast"}],characters:[{name:"Old Character"}]}};
+ const bookSeries={...series,kind:"book_series",metadata:{edition:"Colored",year:2020,publisher:"Viz",translatedtitle:"English",volumes:21,sourcematerial:"Original",credits:[{name:"Old Actor",category:"cast"}],characters:[{name:"Old Character"}]}};
  const books=[1,2].map(volume=>({...series,id:`volume${volume}`,path:`${series.path}/Volume ${volume}.cbz`,kind:"book",parent_path:series.path,title:`Volume ${volume}`,metadata:{volume}}));
  vi.mocked(nativeLibraries.catalog).mockResolvedValue([bookSeries,...books]);
  mount("/?native_library=native&native_item=show",{...library,library_type:"books"});
@@ -286,5 +287,8 @@ it("shows book series NFO pills and a wrapping grid of volume covers",async()=>{
  expect(screen.getByText("19 Volumes Missing")).toBeTruthy();
  const heading=screen.getByRole("heading",{name:"Volumes"});expect(heading.nextElementSibling?.className).toContain("grid");
  expect(screen.getByText("2 Volumes")).toBeTruthy();
+ expect(screen.getAllByLabelText("Colored edition")).toHaveLength(3);
+ expect(screen.getByRole("heading",{name:"Example Series"}).className).toContain("poster-colored-title");
+ expect(document.querySelectorAll(".poster-colored-shimmer")).toHaveLength(3);
  expect(screen.queryByText("Old Actor")).toBeNull();expect(screen.queryByText("Old Character")).toBeNull();
 });

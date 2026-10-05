@@ -1,3 +1,4 @@
+import {useTrackingOverlays} from "../lib/libraryDisplay";
 import BookSeriesMetadata from "./BookSeriesMetadata";
 import BookPreferences from "./BookPreferences";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
@@ -207,6 +208,7 @@ export default function NativeLibraryBrowser({
   library: NativeLibrary;
 }) {
   const { enabled: backdropView } = useBackdropView(library.id);
+  const [, , bookDisplay] = useTrackingOverlays(library.library_type === "books");
   useAnimatedArtworkPreference(library.id);
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
@@ -451,6 +453,8 @@ export default function NativeLibraryBrowser({
               {visible.map((entry) => (
                 <PosterCard
                   key={entry.id}
+                  coloredEffect={library.library_type === "books" && String(entry.metadata.edition ?? "").trim().toLowerCase() === "colored" ? bookDisplay.coloredEffect : "off"}
+                  coloredTitle={library.library_type === "books" && String(entry.metadata.edition ?? "").trim().toLowerCase() === "colored" && bookDisplay.coloredTitle}
                   title={entry.title}
                   backdropView={backdropView}
                     image={(backdropView ? picture(library, entry, "backdrop") ?? picture(library, entry, "landscape") : undefined) ?? picture(library, entry, "poster")}
@@ -542,6 +546,8 @@ function NativeDetail({
           ) ?? 0) || a.title.localeCompare(b.title, undefined, {numeric:true}),
     );
   const [search, setSearch] = useState("");
+  const [, , bookDisplay] = useTrackingOverlays(library.library_type === "books");
+  const coloredBook = library.library_type === "books" && String(entry.metadata.edition ?? parent?.metadata.edition ?? "").trim().toLowerCase() === "colored";
   const isBookSeries = entry.kind === "book_series";
   const isSeries = entry.kind === "series" || entry.kind === "season";
   const isEpisode = entry.kind === "episode";
@@ -652,9 +658,11 @@ function NativeDetail({
                 }
               >
                 <div
-                  className={`${isEpisode ? "aspect-video" : "aspect-[2/3]"} overflow-hidden rounded-xl bg-surface-2 shadow-2xl shadow-black/50 ring-1 ring-white/10`}
+                  className={`relative ${isEpisode ? "aspect-video" : "aspect-[2/3]"} overflow-hidden rounded-xl bg-surface-2 shadow-2xl shadow-black/50 ring-1 ring-white/10`}
                 >
                   <Artwork src={poster} alt={entry.title} />
+                  {coloredBook && poster && ["shimmer","both"].includes(bookDisplay.coloredEffect) && <span aria-hidden="true" className="poster-colored-shimmer pointer-events-none absolute inset-0"/>}
+                  {coloredBook && ["badge","both"].includes(bookDisplay.coloredEffect) && <span aria-label="Colored edition" className="poster-colored-badge pointer-events-none absolute bottom-2 right-2 rounded-md px-2 py-1 text-[10px] font-bold tracking-wider shadow">COLORED</span>}
                 </div>
               </div>
               <div
@@ -667,7 +675,7 @@ function NativeDetail({
                     className="max-h-24 max-w-full object-contain object-left sm:max-w-[400px]"
                   />
                 ) : (
-                  <h1 className="text-3xl font-bold leading-tight sm:text-4xl">
+                  <h1 className={`text-3xl font-bold leading-tight sm:text-4xl ${coloredBook && bookDisplay.coloredTitle ? "poster-colored-title" : ""}`}>
                     {entry.title}
                   </h1>
                 )}
@@ -740,6 +748,8 @@ function NativeDetail({
                     .map((child) => (
                       <PosterCard
                         key={child.id}
+                        coloredEffect={library.library_type === "books" && String(child.metadata.edition ?? entry.metadata.edition ?? "").trim().toLowerCase() === "colored" ? bookDisplay.coloredEffect : "off"}
+                        coloredTitle={library.library_type === "books" && String(child.metadata.edition ?? entry.metadata.edition ?? "").trim().toLowerCase() === "colored" && bookDisplay.coloredTitle}
                         title={child.title}
                         image={picture(library, child, "poster")}
                         kind={child.kind.startsWith("book") ? "book" : "show"}
