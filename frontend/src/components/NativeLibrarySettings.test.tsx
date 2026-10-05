@@ -53,3 +53,12 @@ it("lets a book library exclude manga metadata providers", () => {
  fireEvent.click(screen.getByLabelText("Book metadata providers: ComicVine"));
  expect(JSON.parse(screen.getByTestId("books").textContent!).metadata_providers.book_series).toEqual([]);
 });
+
+it("offers ComicVine as a book image fetcher without changing metadata providers",()=>{
+ function Books(){const [options,setOptions]=useState({...defaultNativeOptions});return <><NativeLibrarySettings options={options} type="books" animeContent="both" section={4} onChange={setOptions}/><output data-testid="books">{JSON.stringify(options)}</output></>;}
+ render(<Books/>);
+ fireEvent.click(screen.getByLabelText("Book series Image Fetchers: ComicVine"));
+ const options=JSON.parse(screen.getByTestId("books").textContent!);
+ expect(options.image_providers.book_series).toEqual(["anilist","comicvine"]);
+ expect(options.metadata_providers).toEqual({});
+});

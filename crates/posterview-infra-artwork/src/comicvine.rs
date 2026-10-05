@@ -15,6 +15,7 @@ pub struct ComicVineMetadata {
     pub volumes: String,
     pub plot: String,
     pub source_url: String,
+    pub cover_url: Option<String>,
 }
 
 pub async fn metadata(client: &Client, key: &str, id: &str) -> Result<ComicVineMetadata, String> {
@@ -25,11 +26,12 @@ pub async fn metadata(client: &Client, key: &str, id: &str) -> Result<ComicVineM
         client,
         &format!("/volume/4050-{id}/"),
         key,
-        &[("field_list", "id,name,start_year,description,count_of_issues,publisher,site_detail_url")],
+        &[("field_list", "id,name,start_year,description,count_of_issues,publisher,site_detail_url,image")],
     )
     .await?;
     let value = &data["results"];
     Ok(ComicVineMetadata {
+        cover_url: image_url(value, "original_url").or_else(|| image_url(value, "super_url")),
         id: id.to_owned(),
         title: value["name"].as_str().unwrap_or("Untitled").to_owned(),
         year: value["start_year"].as_str().unwrap_or("").to_owned(),
