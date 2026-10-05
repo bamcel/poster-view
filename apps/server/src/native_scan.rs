@@ -768,7 +768,15 @@ pub(crate) fn collect_scoped(
         }
         if library.options.local_artwork {
             entry.artwork = local_art(&root, dir, Some(&stem));
-            if entry.kind == "episode" {
+            if entry.kind == "book" {
+                // Filename-matched book covers are posters, not video thumbnails.
+                if let Some(mut cover) = entry.artwork.iter().find(|art| art.kind == "thumb").cloned() {
+                    cover.kind = "poster".into();
+                    entry.artwork.retain(|art| art.kind != "poster" && art.kind != "thumb");
+                    entry.artwork.push(cover);
+                }
+            }
+            if entry.kind == "episode" || entry.kind == "book" {
                 entry.artwork.retain(|a| {
                     Path::new(&a.path).file_stem().is_some_and(|n| {
                         let n = n.to_string_lossy().to_lowercase();

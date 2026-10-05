@@ -824,6 +824,30 @@ pub(crate) mod scan_tests {
     }
 
     #[tokio::test]
+    async fn book_volumes_use_matching_local_covers_instead_of_the_series_poster() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let media = temp.path().join("media/Books/Example");
+        fs::create_dir_all(&media).unwrap();
+        fs::write(media.join("poster.jpg"), b"series cover").unwrap();
+        for volume in 1..=2 {
+            fs::write(media.join(format!("Volume {volume:02}.cbz")), b"fixture").unwrap();
+            fs::write(media.join(format!("Volume {volume:02}.jpg")), b"volume cover").unwrap();
+        }
+        let db = store(&state);
+        let library = db.save_native_library(None,&NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:NativeLibraryOptions {fetch_missing:false,..Default::default()}}).unwrap();
+        run_scan(state,library.clone()).await.unwrap();
+        let entries = db.native_catalog(&library.id).unwrap();
+        let books: Vec<_> = entries.iter().filter(|e|e.kind=="book").collect();
+        assert_eq!(books.len(),2);
+        for book in books {
+            let expected = std::path::Path::new(&book.path).with_extension("jpg").to_string_lossy().replace('\\',"/");
+            assert_eq!(book.artwork.iter().find(|a|a.kind=="poster").unwrap().path,expected);
+            assert!(!book.artwork.iter().any(|a|a.kind=="thumb"));
+        }
+    }
+
+    #[tokio::test]
     async fn book_artwork_panel_exposes_native_volume_targets_and_saves_covers() {
         let temp = tempfile::tempdir().unwrap();
         let state = state(temp.path());
