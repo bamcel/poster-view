@@ -705,6 +705,11 @@ async fn enrich_one(
         .metadata_providers
         .get(&entry.kind)
         .unwrap_or(&default);
+    // Explicit book identification determines metadata priority independently of artwork.
+    let identified_books: Vec<String> = ["comicvine", "anilist", "mal"].into_iter()
+        .filter(|provider| entry.kind == "book_series" && !missing(&entry.metadata["identifiers"][*provider]))
+        .map(str::to_owned).chain(metadata_order.iter().filter(|p| !["comicvine", "anilist", "mal"].contains(&p.as_str()) || missing(&entry.metadata["identifiers"][p.as_str()])).cloned()).collect();
+    let metadata_order = if entry.kind == "book_series" { &identified_books } else { metadata_order };
     let image_order = library
         .options
         .image_providers

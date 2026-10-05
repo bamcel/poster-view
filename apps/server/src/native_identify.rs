@@ -73,6 +73,7 @@ fn candidate(provider: &str, v: &Value, movie: bool) -> Option<Value> {
             v["overview"].clone(),
             json!(if movie { "Movie" } else { "Series" }),
         ),
+        "comicvine" => (numeric(&v["id"]), v["name"].as_str(), v["start_year"].clone(), v["description"].clone(), json!("Book series")),
         "mal" => (
             numeric(&v["id"]),
             v["title"].as_str(),
@@ -155,6 +156,7 @@ fn candidate(provider: &str, v: &Value, movie: bool) -> Option<Value> {
             .as_str()
             .or(v["image"].as_str())
             .map(str::to_owned),
+        "comicvine" => v["image"]["small_url"].as_str().or(v["image"]["original_url"].as_str()).map(str::to_owned),
         "mal" => v["main_picture"]["large"]
             .as_str()
             .or(v["main_picture"]["medium"].as_str())
@@ -213,9 +215,9 @@ async fn lookup(
     title: &str,
     id: Option<&str>,
     movie: bool,
-    preferences: (bool, &str),
+    preferences: (bool, &str, bool),
 ) -> Result<Vec<Value>, String> {
-    let (adult, language) = preferences;
+    let (adult, language, books) = preferences;
     if provider == "anidb" {
         return anidb_lookup(state, client, title, id, movie).await;
     }
@@ -229,6 +231,7 @@ async fn lookup(
             } else {
                 "query($search:String,$adult:Boolean){Page(perPage:15){media(search:$search,type:ANIME,isAdult:$adult){id idMal format coverImage{large} title{english romaji native} startDate{year} description(asHtml:false)}}}"
             };
+            let query = query.replace("type:ANIME", if books { "type:MANGA" } else { "type:ANIME" });
             let body=response(client.post("https://graphql.anilist.co").json(&json!({"query":query,"variables":{"search":title,"id":id.and_then(|s|s.parse::<u64>().ok()),"adult":if adult {Value::Null}else{json!(false)}}})).send().await.map_err(|_|"AniList connection failed.")?).await?;
             if id.is_some() {
                 vec![body["data"]["Media"].clone()]
@@ -349,7 +352,8 @@ async fn lookup(
             }
             let request = client
                 .get(format!(
-                    "https://api.myanimelist.net/v2/anime{}",
+                    "https://api.myanimelist.net/v2/{}{}",
+                    if books { "manga" } else { "anime" },
                     id.map(|id| format!("/{id}")).unwrap_or_default()
                 ))
                 .header("X-MAL-CLIENT-ID", token)
@@ -382,6 +386,17 @@ async fn lookup(
                     .map(|v| v["node"].clone())
                     .collect()
             }
+        }
+        "comicvine" if books => {
+            let token = key(state, "comicvine_api_key");
+            if token.is_empty() { return Err("Configure a ComicVine API key in Search Providers.".into()); }
+            let path = id.map(|id| format!("volume/4050-{id}/")).unwrap_or_else(|| "search/".into());
+            let request = client.get(format!("https://comicvine.gamespot.com/api/{path}"))
+                .query(&[("api_key", token.as_str()), ("format", "json"), ("field_list", "id,name,start_year,description,image")]);
+            let request = if id.is_some() { request } else { request.query(&[("query", title), ("resources", "volume"), ("limit", "15")]) };
+            let body = response(request.send().await.map_err(|_| "ComicVine connection failed.")?).await?;
+            if body["status_code"].as_i64() != Some(1) { return Err("ComicVine could not retrieve volume records. Check your API key.".into()); }
+            if id.is_some() { vec![body["results"].clone()] } else { body["results"].as_array().cloned().ok_or("ComicVine search failed.")? }
         }
         _ => return Err("Unsupported identification provider.".into()),
     };
@@ -435,8 +450,8 @@ async fn context(
             .into_iter()
             .find(|e| e.id == item && e.available)
             .ok_or_else(HttpError::not_found)?;
-        if !["series", "movie"].contains(&entry.kind.as_str()) {
-            return Err(HttpError::bad_request("Identify a series or movie."));
+        if !["series", "movie", "book_series"].contains(&entry.kind.as_str()) {
+            return Err(HttpError::bad_request("Identify a series, movie, or book series."));
         }
         Ok((lib, entry))
     })
@@ -465,17 +480,20 @@ pub(crate) async fn search(
         ));
     }
     let client = client()?;
-    let providers = if lib.library_type == posterview_contracts::native::NativeLibraryType::Anime {
+    let providers = if entry.kind == "book_series" {
+        vec!["comicvine", "anilist", "mal"]
+    } else if lib.library_type == posterview_contracts::native::NativeLibraryType::Anime {
         vec!["anilist", "tmdb", "tvdb", "mal", "anidb"]
     } else {
         vec!["tmdb", "tvdb"]
     };
     let mut jobs = tokio::task::JoinSet::new();
-    for provider in providers {
+    for provider in providers.iter().copied() {
         let state = state.clone();
         let client = client.clone();
         let title = input.title.clone();
         let movie = entry.kind == "movie";
+        let books = entry.kind == "book_series";
         let adult = lib.options.allow_adult_metadata;
         let language = lib.options.metadata_language.clone();
         jobs.spawn(async move {
@@ -488,7 +506,7 @@ pub(crate) async fn search(
                     &title,
                     None,
                     movie,
-                    (adult, &language),
+                    (adult, &language, books),
                 )
                 .await,
             )
@@ -500,7 +518,7 @@ pub(crate) async fn search(
             result.map_err(|_| HttpError::bad_gateway("Identification provider interrupted."))?;
         groups.push(match result {Ok(results)=>json!({"provider":provider,"results":results.into_iter().filter(|v|input.year.is_none_or(|y|v["year"].is_null() || v["year"]==y)).collect::<Vec<_>>()}),Err(error)=>json!({"provider":provider,"results":[],"error":error})});
     }
-    groups.sort_by_key(|g| g["provider"].as_str().unwrap_or("").to_owned());
+    groups.sort_by_key(|g| providers.iter().position(|p| Some(*p) == g["provider"].as_str()).unwrap_or(usize::MAX));
     Ok(Json(json!({"groups":groups})))
 }
 pub(crate) async fn apply(
@@ -519,7 +537,7 @@ pub(crate) async fn apply(
         ));
     }
     for (provider, id) in &input.identifiers {
-        if !["anilist", "tmdb", "tvdb", "mal", "imdb", "anidb"].contains(&provider.as_str())
+        if !["comicvine", "anilist", "tmdb", "tvdb", "mal", "imdb", "anidb"].contains(&provider.as_str())
             || if provider == "imdb" {
                 !id.starts_with("tt") || numeric(&json!(&id[2..])).is_none()
             } else {
@@ -546,6 +564,7 @@ pub(crate) async fn apply(
             (
                 lib.options.allow_adult_metadata,
                 &lib.options.metadata_language,
+                entry.kind == "book_series",
             ),
         )
         .await
@@ -791,6 +810,14 @@ async fn anidb_lookup(
 mod tests {
     use super::*;
     #[test]
+    fn comicvine_volume_candidate_preserves_identity_and_cover() {
+        let value = candidate("comicvine", &json!({"id":123,"name":"Batman","start_year":"2016","image":{"small_url":"https://comicvine.gamespot.com/test.jpg"}}), false).unwrap();
+        assert_eq!(value["identifiers"]["comicvine"], "123");
+        assert_eq!(value["year"], 2016);
+        assert_eq!(value["format"], "Book series");
+        assert_eq!(value["poster"], "https://comicvine.gamespot.com/test.jpg");
+    }
+    #[test]
     fn anidb_alias_search_is_unique_and_rejects_entities() {
         let xml = "<animetitles><anime aid='123'><title type='main'>Haikyuu!!</title><title type='syn'>Haikyu!</title></anime><anime aid='124'><title type='main'>Haikyuu!! Second Season</title></anime></animetitles>";
         let results = anidb_titles(xml, "Haikyu!").unwrap();
@@ -854,7 +881,7 @@ pub(crate) async fn resolve(
     Json(input): Json<Resolve>,
 ) -> Result<Json<Value>, HttpError> {
     let (lib, entry) = context(&state, &library, &item).await?;
-    if !["anilist", "tmdb", "tvdb", "mal", "anidb"].contains(&input.provider.as_str())
+    if !["comicvine", "anilist", "tmdb", "tvdb", "mal", "anidb"].contains(&input.provider.as_str())
         || numeric(&json!(input.id)).is_none()
     {
         return Err(HttpError::bad_request("Choose a valid provider record."));
@@ -880,6 +907,7 @@ pub(crate) async fn resolve(
             (
                 lib.options.allow_adult_metadata,
                 &lib.options.metadata_language,
+                entry.kind == "book_series",
             ),
         )
         .await

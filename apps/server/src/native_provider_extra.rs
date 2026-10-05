@@ -205,6 +205,13 @@ pub(crate) async fn fetch(
     parent: &Value,
 ) -> Result<Data, String> {
     match provider {
+        "comicvine" if entry.kind == "book_series" => {
+            let selected = numeric(id(&entry.metadata, "comicvine").ok_or("Select a ComicVine series with Identify first.")?)?;
+            let data = state.runtime.comicvine_metadata(&selected).await.map_err(|e| e.to_string())?;
+            let fields = json!({"plot":data.plot,"year":data.year.parse::<i64>().ok(),"publisher":data.publisher,"volumes":data.volumes,"source_url":data.source_url});
+            Ok(Data { id: Some(selected), raw: fields.clone(), fields, artwork: vec![] })
+        }
+
         "mal" => mal(state, client, library, entry).await,
         "omdb" => omdb(state, client, entry, parent).await,
         "tvdb" => tvdb(state, service, library, entry, parent).await,

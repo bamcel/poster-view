@@ -29,7 +29,7 @@ export default function NativeLibrarySettings({options, type, animeContent, sect
   const movies = type === "movies" || (type === "anime" && animeContent !== "shows");
   const groups: [string, string][] = [...(movies ? [["movie", "Movie"] as [string,string]] : []), ...(shows ? [["series", "Series"] as [string,string], ["season", "Season"] as [string,string], ["episode", "Episode"] as [string,string]] : []), ...(type === "books" ? [["book_series", "Book series"] as [string,string]] : [])];
   const providerGroups = (images: boolean) => groups.map(([kind, name]) => {
-    if (kind === "book_series" && !images) return <Group key={kind} title="Book series Metadata"><p className="text-sm leading-relaxed text-muted">Open the book series and select Artwork. Browse the providers to find the correct series, then select it to add its metadata to the NFO.</p></Group>;
+    if (kind === "book_series" && !images) return <Group key={kind} title="Book series Metadata"><p className="text-sm leading-relaxed text-muted">Open the book series and select Identify. Search ComicVine first, or AniList and MyAnimeList for manga and light novels, then save the correct series IDs. Scan files to fetch missing metadata. Enable NFO saving to write metadata to your library folders.</p></Group>;
     const supported = kind === "book_series" ? ["anilist", "mal"] : kind === "season" ? ["tmdb", "tvdb", ...(images ? ["fanart"] : [])] : kind === "episode" ? ["tmdb", "tvdb", "omdb", ...(type === "anime" && !images ? ["anidb"] : [])] : [ ...(type === "anime" ? ["anilist", "mal", "anidb"] : []), "tmdb", "tvdb", "omdb", ...(images ? ["fanart"] : [])];
     const defaults = supported.length ? [supported[0]] : [];
     const key = images ? "image_providers" : "metadata_providers";

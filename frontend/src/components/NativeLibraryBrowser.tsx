@@ -713,7 +713,7 @@ function NativeDetail({
                   >
                     <Images className="size-4" />
                   </button>}
-                  {["series","movie"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")}><Fingerprint className="size-4"/></button>}
+                  {["series","movie","book_series"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")}><Fingerprint className="size-4"/></button>}
                 </div>
                 <div className={isSeries ? "hidden sm:block" : "text-left"}>
                   <DetailSynopsis text={overview} />
