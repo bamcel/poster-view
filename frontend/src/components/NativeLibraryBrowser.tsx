@@ -1,3 +1,4 @@
+import NativeScanProgress from "./NativeScanProgress";
 import {validFraming} from "../lib/backdropFraming";
 import LibraryViewPreferences, { useBackdropView, posterGrid, backdropGrid } from "./LibraryViewPreferences";
 import PeopleRow from "./PeopleRow";
@@ -376,7 +377,8 @@ export default function NativeLibraryBrowser({
         />
       ) : (
         <>
-          <div className="relative z-30 shrink-0 border-b border-border px-4 py-3 sm:px-6 lg:px-8">
+          <div className="relative z-30 grid shrink-0 items-center gap-3 border-b border-border px-4 py-3 sm:px-6 lg:grid-cols-[1fr_auto_1fr] lg:px-8">
+            <div aria-hidden="true" className="hidden lg:block"/>
             <div className="flex items-center justify-center gap-2">
               <div className="relative w-[min(21rem,calc(100vw-10rem))]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
@@ -431,6 +433,7 @@ export default function NativeLibraryBrowser({
                 <ArtworkPreferences library={library.id}/>{library.library_type === "anime" && <AnimePreferences library={library.id}/>}</div>
               </LibraryPopup>
             </div>
+            {status.data?.status === "scanning" ? <aside aria-label="Library scan progress" className="w-full min-w-0 lg:ml-auto lg:max-w-80"><NativeScanProgress status={status.data} compact/></aside> : <div aria-hidden="true" className="hidden lg:block"/>}
           </div>
           <div className="scrollbar-hidden relative z-10 min-h-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6 lg:px-8">
             <div className="mb-4 flex items-center justify-between text-xs text-faint">
