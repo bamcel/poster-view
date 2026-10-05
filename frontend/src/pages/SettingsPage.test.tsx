@@ -153,7 +153,10 @@ it("previews a palette color and saves it as a selectable custom theme", async (
   expect(themeEditor.style.fontSize).toBe("0.5625rem");
   expect(themeEditor.style.lineHeight).toBe("0.75rem");
 
-  fireEvent.change(screen.getByLabelText("Choose Accent color"), { target: { value: "#ff3366" } });
+  fireEvent.click(screen.getByLabelText("Choose Accent color"));
+  expect(screen.getByLabelText("Accent HEX color")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Accent HEX color"), { target: { value: "#ff3366" } });
+  fireEvent.click(screen.getByRole("button", {name:"Done"}));
   expect(document.documentElement.style.getPropertyValue("--color-accent")).toBe("#FF3366");
   fireEvent.click(screen.getByLabelText("Select Color Label"));
   const accentOption = screen.getByRole("button", { name: /^Accent$/ });

@@ -1,3 +1,4 @@
+import HexColorPicker from "../components/HexColorPicker";
 import {useNavigate as useLibraryNavigate} from "../lib/libraryNavigation";
 import PluginsPage from "../components/PluginsPage";
 import ServerSettingsDashboard from "../components/ServerSettingsDashboard";
@@ -348,15 +349,10 @@ function AppearanceSection({preview=false}: {preview?:boolean}) {
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <ColorLabelPicker theme={previewColors} selected={selectedColor} onSelect={setSelectedColor} />
-            <label className="text-xs font-semibold text-muted">
+            <div className="text-xs font-semibold text-muted">
               {THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)?.label}
-              <span className="mt-2 flex h-10 items-center gap-3 rounded-lg border border-border bg-input px-3">
-                <span className="relative size-4 shrink-0 rounded-sm border border-border focus-within:outline focus-within:outline-2 focus-within:outline-accent" style={{ backgroundColor: selectedColorValue }}>
-                  <input aria-label={`Choose ${THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)?.label} color`} type="color" value={selectedColorValue} onChange={(event) => updateColor(event.target.value)} className="absolute inset-0 size-full cursor-pointer opacity-0" />
-                </span>
-                <span className="font-mono text-xs text-white">{selectedColorValue.toUpperCase()}</span>
-              </span>
-            </label>
+              <HexColorPicker label={THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)!.label} value={selectedColorValue} onChange={updateColor}/>
+            </div>
           </div>
           <p className="mt-2 text-xs text-faint">Color changes preview immediately. Save them as a custom theme to keep them.</p>
 
