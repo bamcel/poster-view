@@ -285,6 +285,7 @@ it("shows book series NFO pills and a wrapping grid of volume covers",async()=>{
  await screen.findByRole("heading",{name:"Example Series"});
  expect(screen.getByText("Translation")).toBeTruthy();expect(screen.getByText("English",{exact:false})).toBeTruthy();
  expect(screen.getByText("19 Volumes Missing")).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Fetch Metadata"})).toBeTruthy();
  const heading=screen.getByRole("heading",{name:"Volumes"});expect(heading.nextElementSibling?.className).toContain("grid");
  expect(screen.getByText("2 Volumes")).toBeTruthy();
  expect(screen.getAllByLabelText("Colored edition")).toHaveLength(3);

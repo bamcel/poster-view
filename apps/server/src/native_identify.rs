@@ -991,3 +991,24 @@ pub(crate) async fn resolve(
         json!({"identifiers":ids,"candidates":records,"warnings":warnings}),
     ))
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MetadataPreview { provider: String }
+pub(crate) async fn metadata_preview(State(state): State<AppState>, Path((library,item)): Path<(String,String)>, Json(input): Json<MetadataPreview>) -> Result<Json<Value>,HttpError> {
+    let (lib,entry)=context(&state,&library,&item).await?;
+    if entry.kind != "book_series" || !book_providers(&lib).contains(&input.provider.as_str()) {return Err(HttpError::bad_request("Select an enabled book metadata provider."));}
+    if numeric(&entry.metadata["identifiers"][&input.provider]).is_none() {return Err(HttpError::bad_request("Identify this series with the selected provider first."));}
+    let client=client()?;
+    let fields=if input.provider == "anilist" {
+        let raw=crate::native_provider::anilist(&client,&entry,true,lib.options.allow_adult_metadata).await.map_err(HttpError::bad_gateway)?;
+        json!({"title":raw["title"][if lib.options.metadata_language=="ja" {"native"} else {"english"}].as_str().or(raw["title"]["romaji"].as_str()),"originaltitle":raw["title"]["native"],"plot":raw["description"],"year":raw["startDate"]["year"],"volumes":raw["volumes"],"chapters":raw["chapters"],"status":raw["status"],"country":raw["countryOfOrigin"],"genres":raw["genres"],"tags":raw["tags"].as_array().into_iter().flatten().filter_map(|v|v["name"].as_str()).collect::<Vec<_>>()})
+    } else {
+        crate::native_provider_extra::fetch(&state,&client,&posterview_infra_artwork::ArtworkService::default(),&input.provider,&lib,&entry,&Value::Null).await.map_err(HttpError::bad_gateway)?.fields
+    };
+    let mut fields=fields.as_object().cloned().unwrap_or_default();
+    fields.retain(|key,value| ["title","originaltitle","plot","year","volumes","chapters","publisher","status","country","genres","tags"].contains(&key.as_str()) && !value.is_null() && value.as_str().is_none_or(|text|!text.trim().is_empty()));
+    let prefix=if input.provider=="comicvine" {"edition"} else {"original"};
+    for name in ["year","volumes"] {if let Some(value)=fields.get(name).cloned() {fields.insert(format!("{prefix}_{name}"),value);}}
+    Ok(Json(json!({"provider":input.provider,"fields":fields})))
+}

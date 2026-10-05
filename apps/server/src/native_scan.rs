@@ -901,6 +901,7 @@ fn write_nfo_inner(
         "status",
         "volumes",
         "publisher",
+        "country", "translatedtitle", "sourcematerial", "original_year", "original_volumes", "edition_year", "edition_volumes", "chapters",
     ] {
         let Some(v) = entry.metadata.get(field) else {
             continue;

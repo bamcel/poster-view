@@ -860,6 +860,8 @@ pub(crate) mod scan_tests {
         let entries = db.native_catalog(&library.id).unwrap();
         let series = entries.iter().find(|e| e.kind == "book_series").unwrap();
         let detail = state.runtime.get_item_detail(0,&format!("native:{}:{}",library.id,series.id)).await.unwrap().unwrap().unwrap();
+        let missing_id=crate::native_identify::metadata_preview(State(state.clone()),Path((library.id.clone(),series.id.clone())),Json(serde_json::from_value(serde_json::json!({"provider":"comicvine"})).unwrap())).await.unwrap_err();
+        assert!(missing_id.detail.contains("Identify this series"));
         assert_eq!(detail.item_type, posterview_contracts::ItemType::Folder);
         assert_eq!(detail.members.len(),1);
         let mut bytes = std::io::Cursor::new(Vec::new());

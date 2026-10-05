@@ -1,3 +1,4 @@
+import FetchBookMetadata from "./FetchBookMetadata";
 import {useTrackingOverlays} from "../lib/libraryDisplay";
 import BookSeriesMetadata from "./BookSeriesMetadata";
 import BookPreferences from "./BookPreferences";
@@ -12,6 +13,7 @@ import { useSearchParams } from "../lib/libraryNavigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Database,
   Film,
   Images,
   Fingerprint,
@@ -171,7 +173,7 @@ function Modal({
   onClose: () => void;
   children: ReactNode;
 }) {
-  const metadata = title === "Edit Metadata" || title === "Identify";
+  const metadata = title === "Edit Metadata" || title === "Identify" || title === "Fetch Metadata";
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
@@ -230,7 +232,7 @@ export default function NativeLibraryBrowser({
   const [artFilter, setArtFilter] = useState("all");
   const [editor, setEditor] = useState<{
     id: string;
-    kind: "metadata" | "artwork" | "identify";
+    kind: "metadata" | "artwork" | "identify" | "fetch-metadata";
   } | null>(null);
   const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
   const [overlay, setOverlay] = useState(backdropOverlay);
@@ -488,6 +490,8 @@ export default function NativeLibraryBrowser({
             <ArtworkPanel serverId={0} item={nativeArtworkItem(library, editEntry, entries)} libraryTitle={library.name} libraryType={library.library_type === "books" ? "book" : library.library_type === "movies" ? "movie" : "show"} onClose={() => setEditor(null)} />
           </section>
         </div>
+      ) : editor?.kind === "fetch-metadata" ? (
+        <Modal title="Fetch Metadata" onClose={()=>setEditor(null)}><FetchBookMetadata library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated}/></Modal>
       ) : editor?.kind === "identify" ? (
         <Modal title="Identify" onClose={() => setEditor(null)}>
           <IdentifyPanel library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated}/>
@@ -521,7 +525,7 @@ function NativeDetail({
   back: () => void;
   refresh: () => void;
   fetching: boolean;
-  edit: (kind: "metadata" | "artwork" | "identify") => void;
+  edit: (kind: "metadata" | "artwork" | "identify" | "fetch-metadata") => void;
   showBackdrop: boolean;
   overlay: number;
 }) {
@@ -724,6 +728,7 @@ function NativeDetail({
                   >
                     <Images className="size-4" />
                   </button>}
+                  {entry.kind === "book_series" && <button className={detailActionClass} aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")}><Database className="size-4"/></button>}
                   {["series","movie","book_series"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")}><Fingerprint className="size-4"/></button>}
                 </div>
                 {entry.kind.startsWith("book") && <BookSeriesMetadata metadata={entry.metadata} count={isBookSeries ? children.length : 1}/>}

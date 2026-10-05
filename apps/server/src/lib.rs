@@ -88,6 +88,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/native/libraries/{id}/items", get(native::catalog))
         .route("/api/native/libraries/{id}/previews", get(native::previews))
         .route("/api/native/libraries/{id}/sync", get(native_sync::status).post(native_sync::run))
+        .route("/api/native/libraries/{library}/items/{item}/metadata/preview", axum::routing::post(native_identify::metadata_preview))
         .route("/api/native/libraries/{library}/items/{item}/identify/resolve", axum::routing::post(native_identify::resolve))
         .route("/api/native/libraries/{library}/items/{item}/identify/search", axum::routing::post(native_identify::search))
         .route("/api/native/libraries/{library}/items/{item}/identify", axum::routing::post(native_identify::apply))

@@ -1,0 +1,27 @@
+import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
+import {afterEach,expect,it,vi} from "vitest";
+import FetchBookMetadata from "./FetchBookMetadata";
+import {nativeLibraries,defaultNativeOptions,type NativeLibrary,type NativeCatalogEntry} from "../api/nativeLibraries";
+vi.mock("../api/nativeLibraries",async original=>({...await original<typeof import("../api/nativeLibraries")>(),nativeLibraries:{metadataPreview:vi.fn(),editItem:vi.fn()}}));
+afterEach(()=>{cleanup();vi.clearAllMocks();});
+it("reviews values and applies selected fields from multiple providers without changing others",async()=>{
+ const library={id:"lib",options:{...defaultNativeOptions,save_nfo:true}} as NativeLibrary;
+ const entry={id:"item",revision:2,path:"Books/Example",kind:"book_series",parent_path:null,title:"My title",available:true,artwork:[],files:[],nfo_path:null,metadata:{plot:"Original description",year:2018,title:"My title",identifiers:{comicvine:"1",anilist:"2"}}} as NativeCatalogEntry;
+ const saved=vi.fn();vi.mocked(nativeLibraries.editItem).mockResolvedValue({entry,warnings:[]});
+ vi.mocked(nativeLibraries.metadataPreview).mockImplementation(async(_lib,_item,provider)=>({provider,fields:provider==="comicvine"?{plot:"English description",year:2020,publisher:"Viz"}:{status:"FINISHED",year:2018}}));
+ render(<FetchBookMetadata library={library} entry={entry} busy={false} onSaved={saved}/>);
+ fireEvent.click(screen.getByRole("button",{name:"Fetch"}));await screen.findByText("English description");
+ expect((screen.getByLabelText("Apply Description") as HTMLInputElement).checked).toBe(false);
+ fireEvent.click(screen.getByLabelText("Apply Description"));fireEvent.click(screen.getByLabelText("Apply Display year"));
+ fireEvent.change(screen.getByLabelText("Metadata provider"),{target:{value:"anilist"}});
+ fireEvent.click(screen.getByRole("button",{name:"Fetch"}));await screen.findByText("FINISHED");
+ fireEvent.click(screen.getByRole("button",{name:"Apply 4 selected fields"}));
+ await waitFor(()=>expect(saved).toHaveBeenCalledOnce());
+ expect(nativeLibraries.editItem).toHaveBeenCalledWith("lib",entry,{plot:"English description",year:2020,publisher:"Viz",status:"FINISHED",book_provider_sources:{plot:"comicvine",year:"comicvine",publisher:"comicvine",status:"anilist"}});
+});
+it("shows identification errors without applying metadata",async()=>{
+ vi.mocked(nativeLibraries.metadataPreview).mockRejectedValue(new Error("Identify this series with the selected provider first."));
+ render(<FetchBookMetadata library={{id:"lib",options:defaultNativeOptions} as NativeLibrary} entry={{id:"item",metadata:{}} as NativeCatalogEntry} busy={false} onSaved={()=>{}}/>);
+ fireEvent.click(screen.getByRole("button",{name:"Fetch"}));expect(await screen.findByRole("alert")).toHaveProperty("textContent","Identify this series with the selected provider first.");
+ expect(nativeLibraries.editItem).not.toHaveBeenCalled();
+});

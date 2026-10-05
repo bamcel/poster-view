@@ -243,7 +243,7 @@ fn select<'a>(
     }
     Ok(matches[0])
 }
-async fn anilist(
+pub(super) async fn anilist(
     client: &reqwest::Client,
     entry: &NativeCatalogEntry,
     manga: bool,
