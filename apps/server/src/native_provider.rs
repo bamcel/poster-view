@@ -547,6 +547,18 @@ struct EnrichmentContext {
     parents: BTreeMap<String, Value>,
     blocked: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
 }
+// Persist checks so absent provider fields/images do not trigger requests on every rescan.
+fn check_identity(entry: &NativeCatalogEntry, library: &NativeLibrary, parents: &BTreeMap<String, Value>) -> Value {
+    let parent = entry.parent_path.as_deref().map(|p| p.split("/@season-").next().unwrap_or(p));
+    json!({"title":search_title(entry),"kind":entry.kind,"ids":entry.metadata["identifiers"],
+        "year":entry.metadata["year"],"season":entry.metadata["season"],"episode":entry.metadata["episode"],
+        "parent":parent.and_then(|p|parents.get(p)),"options":library.options})
+}
+fn recently_checked(entry: &NativeCatalogEntry, identity: &Value, now: i64) -> bool {
+    let checked = &entry.metadata["_provider_check"];
+    checked["identity"] == *identity && checked["until"].as_i64().is_some_and(|until| until > now)
+}
+
 pub(crate) async fn enrich(
     state: &AppState,
     library: &NativeLibrary,
@@ -619,8 +631,15 @@ pub(crate) async fn enrich(
                 jobs.spawn(async move {
                     let mut entry = entry;
                     let mut warnings = Vec::new();
-                    enrich_one(&state, &library, &mut entry, &mut warnings, &context).await;
-                    crate::native_jikan::enrich(&state, &library, &mut entry, &context.client, &mut warnings).await;
+                    let identity = check_identity(&entry, &library, &context.parents);
+                    if !recently_checked(&entry, &identity, chrono::Utc::now().timestamp()) {
+                        enrich_one(&state, &library, &mut entry, &mut warnings, &context).await;
+                        crate::native_jikan::enrich(&state, &library, &mut entry, &context.client, &mut warnings).await;
+                        // Retry errors after one hour; successful checks with unavailable fields after one day.
+                        let blocked = !context.blocked.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
+                        let delay = if warnings.is_empty() && !blocked { 86_400 } else { 3_600 };
+                        entry.metadata["_provider_check"] = json!({"identity":check_identity(&entry, &library, &context.parents),"until":chrono::Utc::now().timestamp()+delay});
+                    }
                     (index, entry, warnings)
                 });
             }
@@ -1297,6 +1316,22 @@ mod tests {
             updated_at: "".into(),
         }
     }
+    #[test]
+    fn provider_checks_expire_and_changed_ids_or_settings_bypass_cooldown() {
+        let mut entry = local_entry("series");
+        let mut library = library();
+        let parents = BTreeMap::new();
+        let identity = check_identity(&entry, &library, &parents);
+        entry.metadata["_provider_check"] = json!({"identity":identity,"until":200});
+        assert!(recently_checked(&entry, &identity, 100));
+        assert!(!recently_checked(&entry, &identity, 200));
+        entry.metadata["identifiers"] = json!({"anilist":"123"});
+        assert!(!recently_checked(&entry, &check_identity(&entry, &library, &parents), 100));
+        entry.metadata["identifiers"] = Value::Null;
+        library.options.metadata_language = "ja".into();
+        assert!(!recently_checked(&entry, &check_identity(&entry, &library, &parents), 100));
+    }
+
     #[test]
     fn optional_metadata_and_inapplicable_artwork_do_not_create_gaps() {
         let mut episode = local_entry("episode");
