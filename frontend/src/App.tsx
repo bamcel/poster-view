@@ -1,3 +1,4 @@
+import HomePage from "./pages/HomePage";
 import { Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
 import DashboardPage from "./pages/DashboardPage";
@@ -22,7 +23,8 @@ export default function App() {
             <Route path="/read/:serverId/:itemId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
             <Route path="/reader/:bookId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
             <Route element={<Layout />}>
-              <Route path="/" element={<DashboardPage />} />
+              <Route path="/" element={<HomePage />} />
+              <Route path="/media/:libraryId" element={<DashboardPage />} />
               <Route path="/server/:serverId/series/:seriesId/season/:seasonId" element={<SeasonDetailPage />} />
               <Route path="/history" element={<HistoryPage />} />
               <Route path="/settings/*" element={<SettingsPage />} />

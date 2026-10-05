@@ -1,5 +1,7 @@
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
+import type {ReactNode} from "react";
 import { useState } from "react";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { LibraryBackdrop, Link, useNavigate, useParams, useSearchParams } from "../lib/libraryNavigation";
@@ -81,7 +83,7 @@ it("fits the full desktop by default and selects the icon only for pane-sized pr
   paneWidth = 800;
   act(() => measure());
   expect(frame.style.transform).toBe("scale(0.5)");
-  fireEvent.click(within(sidebar).getByRole("link", { name: "Dashboard" }));
+  fireEvent.click(within(sidebar).getByRole("link", { name: "Home" }));
   expect((screen.getByLabelText("Filter titles") as HTMLInputElement).value).toBe("Example");
   fireEvent.click(toggle);
   expect(frame.style.transform).toBe("");
@@ -90,3 +92,6 @@ it("fits the full desktop by default and selects the icon only for pane-sized pr
   expect(frame.style.transform).toBe("scale(0.5)");
   expect(toggle.getAttribute("aria-pressed")).toBe("false");
 });
+
+function render(node:ReactNode){return rtlRender(<QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>);}
+

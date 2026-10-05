@@ -1,4 +1,4 @@
-import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
+import {cleanup,render,screen,waitFor} from "@testing-library/react";
 import {MemoryRouter,useLocation} from "react-router-dom";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import {afterEach,expect,it,vi} from "vitest";
@@ -13,10 +13,10 @@ afterEach(()=>{cleanup();vi.clearAllMocks();localStorage.clear();});
 it("uses only PosterView libraries and redirects an old server library URL to its mapping",async()=>{
  vi.mocked(nativeLibraries.list).mockResolvedValue([library]);vi.mocked(nativeLibraries.status).mockResolvedValue({status:"complete",count:1,warnings:[]});mount("/?lib=80197");
  await screen.findByText("Catalog Anime");await waitFor(()=>expect(screen.getByRole("status").textContent).toContain("native_library=anime"));
- expect(screen.getByRole("group",{name:"Libraries"}).querySelectorAll("button")).toHaveLength(1);
+ expect(screen.queryByRole("group",{name:"Libraries"})).toBeNull();
 });
 it("changes catalog libraries and clears the previous item",async()=>{
- vi.mocked(nativeLibraries.list).mockResolvedValue([library,{...library,id:"movies",name:"Movies"}]);vi.mocked(nativeLibraries.status).mockResolvedValue({status:"complete",count:1,warnings:[]});mount("/?native_library=anime");
- fireEvent.click(await screen.findByRole("button",{name:"Movies"}));await screen.findByText("Catalog Movies");expect(screen.getByRole("status").textContent).toContain("native_library=movies");
+ vi.mocked(nativeLibraries.list).mockResolvedValue([library,{...library,id:"movies",name:"Movies"}]);vi.mocked(nativeLibraries.status).mockResolvedValue({status:"complete",count:1,warnings:[]});mount("/media/movies?native_library=movies");
+ await screen.findByText("Catalog Movies");expect(screen.getByRole("status").textContent).toContain("native_library=movies");
 });
 it("explains importing a library when no catalog exists",async()=>{vi.mocked(nativeLibraries.list).mockResolvedValue([]);mount();expect(await screen.findByText(/Add a library or import a connected server library/)).toBeTruthy();});

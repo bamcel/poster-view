@@ -1,9 +1,14 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
+import type {ReactNode} from "react";
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import AuthGate from "./AuthGate";
 import Layout from "./Layout";
 import { api } from "../api/client";
+
+vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(async()=>[])}}));
+function render(node:ReactNode){return rtlRender(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>{node}</QueryClientProvider>);}
 
 vi.mock("../api/client", () => ({ api: { authStatus: vi.fn() } }));
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [], selectedId: 7, setSelectedId: vi.fn() }) }));
@@ -48,7 +53,7 @@ it("returns to the PosterView dashboard instead of a server catalog", async () =
   await screen.findByText("/server/7/item/classroom?return_library=novels");
   fireEvent.click(screen.getAllByText("Settings")[0]);
   await screen.findByText("/settings");
-  fireEvent.click(screen.getAllByLabelText("Dashboard")[0]);
+  fireEvent.click(screen.getAllByLabelText("Home")[0]);
   expect(await screen.findByText("/")).toBeTruthy();
 });
 
@@ -69,7 +74,7 @@ it("makes both PosterView logos link to the Dashboard root", async () => {
     </MemoryRouter>,
   );
 
-  const logoLinks = await screen.findAllByRole("link", { name: "Go to Dashboard" });
+  const logoLinks = await screen.findAllByRole("link", { name: "Go to Home" });
   expect(logoLinks).toHaveLength(2);
   fireEvent.click(logoLinks[0]);
   expect(await screen.findByText("/")).toBeTruthy();

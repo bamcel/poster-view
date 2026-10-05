@@ -376,7 +376,7 @@ export default function NativeLibraryBrowser({
         />
       ) : (
         <>
-          <div className="relative z-30 shrink-0 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="relative z-30 shrink-0 border-b border-border px-4 py-3 sm:px-6 lg:px-8">
             <div className="flex items-center justify-center gap-2">
               <div className="relative w-[min(21rem,calc(100vw-10rem))]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
