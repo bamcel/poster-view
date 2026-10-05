@@ -1,3 +1,4 @@
+import BookSeriesMetadata from "./BookSeriesMetadata";
 import BookPreferences from "./BookPreferences";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
 import NativeScanProgress from "./NativeScanProgress";
@@ -531,16 +532,17 @@ function NativeDetail({
         : entries.find((e) => e.path === parent?.parent_path);
   const artworkPlugin=useArtworkPlugin();
   const children = entries
-    .filter((e) => e.parent_path === entry.path)
+    .filter((e) => e.available && e.parent_path === entry.path)
     .sort(
       (a, b) =>
-        (number(a.kind === "season" ? a.metadata.season : a.metadata.episode) ??
+        (number(a.kind === "season" ? a.metadata.season : a.kind === "book" ? a.metadata.volume : a.metadata.episode) ??
           0) -
           (number(
-            b.kind === "season" ? b.metadata.season : b.metadata.episode,
-          ) ?? 0) || a.title.localeCompare(b.title),
+            b.kind === "season" ? b.metadata.season : b.kind === "book" ? b.metadata.volume : b.metadata.episode,
+          ) ?? 0) || a.title.localeCompare(b.title, undefined, {numeric:true}),
     );
   const [search, setSearch] = useState("");
+  const isBookSeries = entry.kind === "book_series";
   const isSeries = entry.kind === "series" || entry.kind === "season";
   const isEpisode = entry.kind === "episode";
   const detail: ItemDetail = {
@@ -635,7 +637,7 @@ function NativeDetail({
           <div className="relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-10 lg:pt-20">
             <div
               className={
-                isSeries
+                isSeries || isBookSeries
                   ? "flex flex-row items-start gap-5 sm:gap-8 lg:gap-9"
                   : "flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6"
               }
@@ -656,7 +658,7 @@ function NativeDetail({
                 </div>
               </div>
               <div
-                className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries ? "text-left" : "text-center sm:text-left"}`}
+                className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries || isBookSeries ? "text-left" : "text-center sm:text-left"}`}
               >
                 {logo ? (
                   <AnimatedArtwork
@@ -677,7 +679,7 @@ function NativeDetail({
                     {series.title}
                   </button>
                 )}
-                <TitleMetadata item={detail} />
+                {isBookSeries ? <p className="mt-2 text-sm text-white/70">{children.length} {children.length === 1 ? "Volume" : "Volumes"}</p> : <TitleMetadata item={detail} />}
                 {isEpisode && (
                   <p className="mt-2 text-sm text-muted">
                     Season {String(entry.metadata.season ?? "")} · Episode{" "}
@@ -716,6 +718,7 @@ function NativeDetail({
                   </button>}
                   {["series","movie","book_series"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")}><Fingerprint className="size-4"/></button>}
                 </div>
+                {entry.kind.startsWith("book") && <BookSeriesMetadata metadata={entry.metadata} count={isBookSeries ? children.length : 1}/>}
                 <div className={isSeries ? "hidden sm:block" : "text-left"}>
                   <DetailSynopsis text={overview} />
                 </div>
@@ -731,7 +734,7 @@ function NativeDetail({
                 <h2 className="mb-3 text-xl font-semibold">
                   {entry.kind === "series" ? "Seasons" : "Volumes"}
                 </h2>
-                <div className="-mx-2 -mt-2 flex gap-5 overflow-x-auto px-2 pb-3 pt-2 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]">
+                <div className={isBookSeries ? posterGrid : "-mx-2 -mt-2 flex gap-5 overflow-x-auto px-2 pb-3 pt-2 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]"}>
                   {children
                     .filter((e) => e.kind !== "episode")
                     .map((child) => (
@@ -806,21 +809,7 @@ function NativeDetail({
                 </div>
               </section>
             )}
-            {entry.kind !== "series" && <ItemAbout item={detail} />}
-            {entry.kind.startsWith("book") && (
-              <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
-                {["publisher", "edition", "volumes", "status"]
-                  .filter((k) => entry.metadata[k])
-                  .map((key) => (
-                    <div key={key}>
-                      <dt className="capitalize text-faint">{key}</dt>
-                      <dd className="mt-1 text-muted">
-                        {String(entry.metadata[key])}
-                      </dd>
-                    </div>
-                  ))}
-              </dl>
-            )}
+            {entry.kind !== "series" && !entry.kind.startsWith("book") && <ItemAbout item={detail} />}
             {(library.library_type !== "anime" || animePreferences.characters) && Array.isArray(entry.metadata.characters) &&
               entry.metadata.characters.length > 0 && (
                 <section className="mt-8">

@@ -275,3 +275,15 @@ it("hides anime character and cast rows according to saved preferences",async()=
  expect(screen.queryByRole("heading",{name:"Characters"})).toBeNull();
  expect(screen.queryByRole("heading",{name:"Cast and crew"})).toBeNull();
 });
+
+it("shows book series NFO pills and a wrapping grid of volume covers",async()=>{
+ const bookSeries={...series,kind:"book_series",metadata:{year:2020,publisher:"Viz",translatedtitle:"English",volumes:21,sourcematerial:"Original"}};
+ const books=[1,2].map(volume=>({...series,id:`volume${volume}`,path:`${series.path}/Volume ${volume}.cbz`,kind:"book",parent_path:series.path,title:`Volume ${volume}`,metadata:{volume}}));
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([bookSeries,...books]);
+ mount("/?native_library=native&native_item=show",{...library,library_type:"books"});
+ await screen.findByRole("heading",{name:"Example Series"});
+ expect(screen.getByText("Translation")).toBeTruthy();expect(screen.getByText("English",{exact:false})).toBeTruthy();
+ expect(screen.getByText("19 Volumes Missing")).toBeTruthy();
+ const heading=screen.getByRole("heading",{name:"Volumes"});expect(heading.nextElementSibling?.className).toContain("grid");
+ expect(screen.getByText("2 Volumes")).toBeTruthy();
+});
