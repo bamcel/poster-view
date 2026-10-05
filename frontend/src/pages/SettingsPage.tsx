@@ -1,8 +1,9 @@
+import ServerSettingsDashboard from "../components/ServerSettingsDashboard";
 // Settings: manage media servers (add/edit/test/delete) and ThePosterDB login.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Navigate, useLocation, useSearchParams } from "react-router-dom";
 import {
   Plus,
   Trash2,
@@ -74,7 +75,7 @@ const TOKEN_LABEL: Record<ServerType, string> = {
 };
 
 type SettingsTab = "servers" | "libraries" | "sources" | "database" | "appearance" | "security";
-const SETTINGS_TAB_KEY = "posterview.settingsTab";
+
 const LIVE_PREVIEW_KEY = "posterview.appearanceLivePreview";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
@@ -87,24 +88,12 @@ const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
 ];
 
 export default function SettingsPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
   const requestedTab = searchParams.get("tab");
-  const storedTab = sessionStorage.getItem(SETTINGS_TAB_KEY);
-  const candidateTab = requestedTab ?? storedTab;
-  const tab: SettingsTab = TABS.some((candidate) => candidate.id === candidateTab)
-    ? (candidateTab as SettingsTab)
-    : "servers";
+  const candidate = location.pathname.split("/")[2];
+  const tab = TABS.find(section => section.id === candidate)?.id;
   const [saveStatus, setSaveStatus] = useState<SettingsSaveStatus>("saved");
-
-  const selectTab = (nextTab: SettingsTab) => {
-    sessionStorage.setItem(SETTINGS_TAB_KEY, nextTab);
-    setSearchParams((previous) => {
-      const next = new URLSearchParams(previous);
-      if (nextTab === "servers") next.delete("tab");
-      else next.set("tab", nextTab);
-      return next;
-    }, { replace: true });
-  };
 
   useEffect(() => {
     const update = (event: Event) => setSaveStatus((event as CustomEvent<SettingsSaveStatus>).detail);
@@ -112,27 +101,14 @@ export default function SettingsPage() {
     return () => window.removeEventListener("posterview:settings-save", update);
   }, []);
 
+  if (requestedTab && TABS.some(section => section.id === requestedTab)) return <Navigate replace to={`/settings/${requestedTab}`} />;
+  if (!tab) return <ServerSettingsDashboard />;
   return (
     <div className="h-full overflow-y-auto px-4 py-4 sm:px-6 lg:px-8 xl:overflow-hidden">
       <div className="flex min-h-full w-full flex-col gap-4 xl:h-full xl:min-h-0">
-        <h1 className="text-2xl font-semibold">Settings</h1>
+        <h1 className="text-2xl font-semibold">{TABS.find(section => section.id === tab)?.label}</h1>
 
         <div className="flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-          <div className="flex flex-nowrap gap-3 overflow-x-auto px-1 pb-3">{TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => selectTab(t.id)}
-              aria-pressed={tab === t.id}
-              className={`flex shrink-0 items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                tab === t.id
-                  ? "border-accent bg-surface-2 text-white"
-                  : "border-transparent text-muted hover:text-white"
-              }`}
-            >
-              {t.icon}
-              {t.label}
-            </button>
-          ))}</div>
           <span role="status" className={`shrink-0 self-end text-xs sm:self-auto ${saveStatus === "error" ? "text-danger" : "text-accent"}`}>
             {tab === "libraries" ? "Save changes in the library dialog." : saveStatus === "saving" ? "Saving settings…" : saveStatus === "error" ? "Settings could not be saved." : "Settings saved automatically."}
           </span>

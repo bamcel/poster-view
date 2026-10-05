@@ -84,8 +84,6 @@ it("restores open and closed split preview state after leaving Appearance", () =
   try {
     const first = mount();
     fireEvent.click(screen.getByRole("button", { name: "Split View" }));
-    fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
-    fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
     expect(screen.getByRole("region", { name: "Live Dashboard preview" })).toBeTruthy();
     first.unmount();
     const second = mount();
@@ -140,14 +138,13 @@ it("previews, saves and resets pill background opacity", async () => {
 it("previews a palette color and saves it as a selectable custom theme", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={["/settings/appearance"]}>
       <QueryClientProvider client={client}>
         <SettingsPage />
       </QueryClientProvider>
     </MemoryRouter>,
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
   fireEvent.click(screen.getByLabelText("Toggle JSON Editor"));
   const themeEditor = screen.getByLabelText("JSON Editor") as HTMLTextAreaElement;
   expect(themeEditor.value).toContain('"name": "Everforest"');
@@ -182,7 +179,7 @@ it("restores the active settings tab from the URL", () => {
     </MemoryRouter>,
   );
 
-  expect(screen.getByRole("button", { name: "Appearance", pressed: true })).toBeTruthy();
+  expect(screen.getByRole("heading", {name:"Appearance"})).toBeTruthy();
   const themeJsonToggle = screen.getByLabelText("Toggle JSON Editor");
   expect(themeJsonToggle.className).toContain("h-10");
   expect(themeJsonToggle.closest("details")?.open).toBe(false);
@@ -195,7 +192,7 @@ it("restores the active settings tab from the URL", () => {
 it("keeps the add server form collapsed until requested", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={["/settings/servers"]}>
       <QueryClientProvider client={client}>
         <SettingsPage />
       </QueryClientProvider>
@@ -212,12 +209,8 @@ it("keeps the add server form collapsed until requested", async () => {
 
 it("persists and resets Dashboard appearance controls", () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/settings/appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
 
-  expect(screen.getByRole("button", { name: "Integrations", pressed: true })).toBeTruthy();
-  expect(screen.getByRole("heading", { name: "ServerConnect integrations" })).toBeTruthy();
-  expect(screen.queryByRole("switch", { name: "Show Backdrops" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
   expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
   const backdropSwitch = screen.getByRole("switch", { name: "Show Backdrops" });
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("false");
@@ -241,29 +234,13 @@ it("persists and resets Dashboard appearance controls", () => {
   client.clear();
 });
 
-it("remembers the active settings tab for the browser session", () => {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const first = render(
-    <MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>,
-  );
-  fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
-  expect(sessionStorage.getItem("posterview.settingsTab")).toBe("appearance");
-  first.unmount();
-
-  render(
-    <MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>,
-  );
-  expect(screen.getByRole("button", { name: "Appearance", pressed: true })).toBeTruthy();
-  client.clear();
-});
-
 it("saves the per-server NFO metadata setting", async () => {
   vi.mocked(api.createServer).mockResolvedValue({
     id: 1, name: "Manga", type: "emby", base_url: "http://emby:8096",
     is_default: true, nfo_metadata_enabled: true, has_token: true, created_at: "", updated_at: "",
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/settings/servers"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
 
   fireEvent.click(await screen.findByRole("button", { name: "Add server" }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Manga" } });
@@ -302,7 +279,7 @@ it("shows server connections as integrations without library visibility controls
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={["/settings/servers"]}>
       <QueryClientProvider client={client}>
         <SettingsPage />
       </QueryClientProvider>
@@ -319,7 +296,7 @@ it("shows server connections as integrations without library visibility controls
 it("groups existing providers without disable controls or new metadata providers", async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={["/settings/sources"]}>
       <QueryClientProvider client={client}>
         <SettingsPage />
       </QueryClientProvider>
@@ -327,7 +304,6 @@ it("groups existing providers without disable controls or new metadata providers
   );
 
   expect(screen.queryByText("Show Providers")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Search Providers" }));
   const providers = await screen.findByRole("heading", { name: "Poster providers" });
   const section = providers.closest("section")!;
   expect(section.querySelector("h3")).toBe(providers);
@@ -339,7 +315,6 @@ it("groups existing providers without disable controls or new metadata providers
   }
   expect(screen.getByRole("button", { name: "Configure TMDB" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Configure AniDB" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Database" }));
   expect(screen.queryByText("Show Providers")).toBeNull();
   client.clear();
 });
@@ -422,7 +397,7 @@ it("identifies the server and affected data before deleting its connection", asy
   vi.mocked(api.listServers).mockResolvedValue([server]);
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<MemoryRouter><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/settings/servers"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
   fireEvent.click(await screen.findByRole("button", { name: "Delete Family Movies" }));
   expect(confirm).toHaveBeenCalledWith(expect.stringContaining('"Family Movies" (http://family:8096, ID 19)'));
   expect(confirm).toHaveBeenCalledWith(expect.stringContaining("artwork cache, and cached media-server images"));
@@ -479,8 +454,7 @@ it("saves TMDB credentials on blur and tests the saved connection", async () => 
   vi.mocked(api.setArtworkSettings).mockResolvedValue({ ...settings, tmdb_configured: true });
   vi.mocked(api.testArtworkProvider).mockResolvedValue({ ok: true, message: "TMDB API connection succeeded." });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<MemoryRouter initialEntries={["/settings?tab=search-providers"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
-  fireEvent.click(screen.getByRole("button", { name: "Search Providers" }));
+  render(<MemoryRouter initialEntries={["/settings/sources"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
   fireEvent.click(screen.getByRole("button", { name: "Configure TMDB" }));
   const region = within(screen.getByRole("region", { name: "TMDB connection" }));
   const input = region.getByLabelText("TMDB API Read Access Token or API key");

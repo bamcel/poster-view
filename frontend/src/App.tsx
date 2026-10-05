@@ -25,7 +25,7 @@ export default function App() {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/server/:serverId/series/:seriesId/season/:seasonId" element={<SeasonDetailPage />} />
               <Route path="/history" element={<HistoryPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/settings/*" element={<SettingsPage />} />
               <Route path="/server/:serverId/item/:itemId" element={<ItemDetailPage />} />
             </Route>
             </Routes>

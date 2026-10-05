@@ -1,6 +1,6 @@
 // App chrome: a left sidebar (logo, nav, active-server picker) + routed content.
 
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { LayoutDashboard, History, LogOut, Settings, } from "lucide-react";
 import { Logo } from "./ui";
 import { api } from "../api/client";
@@ -14,6 +14,7 @@ const navItems = [
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];
 export default function Layout({ children, preview = false, showPreviewChrome = true }: { children?: ReactNode; preview?: boolean; showPreviewChrome?: boolean }) {
+  const location = useLocation();
   const previewNavigate = useLibraryNavigate();
   const showSignOut = useContext(AuthSessionContext)?.password_required !== false && !preview;
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
@@ -72,12 +73,14 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
               <Icon className="size-[18px]" />
             </NavLink>
           ))}
+
         </nav>
         {showSignOut && <button type="button" onClick={signOut} aria-label="Sign out" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white">
           <LogOut className="size-[18px]" />
         </button>}
 
       </header>
+      {!preview && location.pathname.startsWith("/settings") && <details className="shrink-0 bg-sidebar px-4 py-2 md:hidden"><summary className="text-sm text-muted">Settings pages</summary><nav className="grid grid-cols-2 gap-2 py-3">{[["","Server Dashboard"],["servers","Integrations"],["libraries","Libraries"],["sources","Search Providers"],["database","Database"],["appearance","Appearance"],["security","Privacy / Security"]].map(([section,label])=><NavLink key={section} to={`/settings${section ? `/${section}` : ""}`} className="rounded-md bg-elevated px-3 py-2 text-xs">{label}</NavLink>)}</nav></details>}
 
       <aside
         className="relative z-20 hidden w-[14.75rem] shrink-0 flex-col border-r border-border px-3 py-5 md:flex"
@@ -108,6 +111,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
               {label}
             </NavLink>
           ))}
+          {!preview && <div className="ml-6 flex flex-col gap-1 border-l border-border pl-2">{[["", "Server Dashboard"],["servers","Integrations"],["libraries","Libraries"],["sources","Search Providers"],["database","Database"],["appearance","Appearance"],["security","Privacy / Security"]].map(([section,label])=><NavLink key={section} to={`/settings${section ? `/${section}` : ""}`} end className={({isActive})=>`rounded-md px-3 py-2 text-xs ${isActive ? "bg-elevated text-white" : "text-muted hover:bg-input-hover hover:text-white"}`}>{label}</NavLink>)}</div>}
         </nav>
 
         <div className="mt-auto pt-4" />
@@ -115,7 +119,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           <LogOut className="size-[18px]" /> Sign out
         </button>}
 
-        <NavLink to="/settings?tab=servers" className="rounded-lg px-3 py-2 text-sm text-muted hover:bg-white/10 hover:text-white">Server integrations</NavLink>
+
       </aside>
 
       <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
