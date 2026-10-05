@@ -579,16 +579,10 @@ export function ServersSection() {
   const canSubmit = form.name.trim() && form.base_url.trim() && (editingId != null || form.token);
 
   return (
-    <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
-      <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <ServerIcon className="size-5 text-accent" /> Server Connect
-      </h2>
-      <p className="mb-3 text-sm text-faint">
-        Connect your media servers and choose which libraries PosterView shows.
-      </p>
+    <section className="space-y-5">
 
       <div>
-        <div className="rounded-xl border border-border bg-surface-2 p-3">
+        <div className="space-y-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <h3 className="mb-1 text-sm font-semibold">Connected servers</h3>
@@ -616,9 +610,9 @@ export function ServersSection() {
           </div>
 
           {/* Existing servers */}
-          <div className="mb-3 space-y-3">
+          <div className="mb-3 divide-y divide-border">
             {serversQ.data?.length === 0 && (
-              <p className="rounded-lg border border-dashed border-border px-4 py-4 text-center text-sm text-faint">
+              <p className="py-4 text-sm text-faint">
                 No servers yet — use Add server to connect one.
               </p>
             )}
@@ -758,8 +752,8 @@ function ServerCard({
   onDelete: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-3">
-      <div className="flex items-start gap-2 sm:gap-3 sm:px-3">
+    <div className="py-4">
+      <div className="flex items-start gap-2 sm:gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <span className="min-w-0 break-words font-medium">{server.name}</span>
@@ -780,7 +774,7 @@ function ServerCard({
         </IconBtn>
       </div>
 
-      <p className="mt-3 px-3 text-xs text-muted">Integration connection for importing metadata and pushing supported updates. Map libraries in Settings → Libraries.</p>
+      <p className="mt-3 text-xs text-muted">Integration connection for importing metadata and pushing supported updates. Map libraries in Settings → Libraries.</p>
     </div>
   );
 }
