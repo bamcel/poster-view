@@ -79,7 +79,7 @@ type SettingsTab = "servers" | "libraries" | "sources" | "database" | "appearanc
 const LIVE_PREVIEW_KEY = "posterview.appearanceLivePreview";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
-  { id: "servers", label: "Integrations", icon: <ServerIcon className="size-4" /> },
+  { id: "servers", label: "Server Connect", icon: <ServerIcon className="size-4" /> },
   { id: "libraries", label: "Libraries", icon: <HardDrive className="size-4" /> },
   { id: "sources", label: "Search Providers", icon: <ImageIcon className="size-4" /> },
   { id: "database", label: "Database", icon: <Database className="size-4" /> },
@@ -576,7 +576,7 @@ function ServersSection() {
   return (
     <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <ServerIcon className="size-5 text-accent" /> ServerConnect integrations
+        <ServerIcon className="size-5 text-accent" /> Server Connect
       </h2>
       <p className="mb-3 text-sm text-faint">
         Connect your media servers and choose which libraries PosterView shows.
