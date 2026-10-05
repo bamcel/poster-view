@@ -154,6 +154,7 @@ fn provider_supported(
     use posterview_contracts::native::NativeLibraryType;
     let anime = library == NativeLibraryType::Anime;
     match provider {
+        "comicvine" => library == NativeLibraryType::Books && kind == "book_series",
         "anilist" => kind == "book_series" || (anime && ["movie", "series"].contains(&kind)),
         "mal" => kind == "book_series" || (anime && ["movie", "series"].contains(&kind)),
         "anidb" => {
@@ -452,6 +453,24 @@ impl ServerStore {
 mod tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryType};
+    #[test]
+    fn book_libraries_accept_comicvine_metadata_and_image_orders() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ServerStore::new(dir.path());
+        store.initialize().unwrap();
+        let mut input = NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:Default::default()};
+        input.options.metadata_providers.insert("book_series".into(),vec!["comicvine".into(),"anilist".into(),"mal".into()]);
+        input.options.image_providers.insert("book_series".into(),vec!["comicvine".into(),"mal".into()]);
+        let saved = store.save_native_library(None,&input).unwrap();
+        assert_eq!(saved.options,input.options);
+        input.revision = Some(saved.revision);
+        input.options.metadata_providers.insert("book_series".into(),vec!["comicvine".into()]);
+        let updated = store.save_native_library(Some(&saved.id),&input).unwrap();
+        assert_eq!(updated.options.metadata_providers["book_series"],vec!["comicvine"]);
+        input.revision = Some(updated.revision);
+        input.options.image_providers.insert("book_series".into(),vec!["comicvine".into(),"comicvine".into()]);
+        assert!(store.save_native_library(Some(&saved.id),&input).is_err());
+    }
     #[test]
     fn library_options_roundtrip_and_reject_invalid_provider_orders() {
         let dir = tempfile::tempdir().unwrap();
