@@ -51,7 +51,7 @@ it("returns to the PosterView dashboard instead of a server catalog", async () =
   );
 
   await screen.findByText("/server/7/item/classroom?return_library=novels");
-  fireEvent.click(screen.getAllByText("Settings")[0]);
+  fireEvent.click(screen.getByRole("link", {name: "Dashboard"}));
   await screen.findByText("/settings");
   fireEvent.click(screen.getAllByLabelText("Home")[0]);
   expect(await screen.findByText("/")).toBeTruthy();
