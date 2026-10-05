@@ -1,3 +1,4 @@
+import {useArtworkPlugin} from "../lib/artworkPlugin";
 import AnimatedArtwork from "../components/AnimatedArtwork";
 import {connectedBackdropUrl} from "../lib/backdropFraming";
 import { detailActionClass } from "../lib/detailActions";
@@ -29,6 +30,7 @@ function sentenceCaseMetadata(value: string): string {
 }
 
 export default function ItemDetailPage() {
+  const artworkPlugin=useArtworkPlugin();
   const navigate = useNavigate();
   const { serverId: serverIdParam, itemId } = useParams();
   const [searchParams] = useSearchParams();
@@ -247,9 +249,9 @@ export default function ItemDetailPage() {
                         />
 
                       </button>
-                      <button type="button" onClick={() => setArtworkOpen(true)} aria-label="Edit Artwork" title="Edit Artwork" aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className={detailActionClass}>
+                      {artworkPlugin.data?.enabled !== false && <button type="button" onClick={() => setArtworkOpen(true)} aria-label="Edit Artwork" title="Edit Artwork" aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className={detailActionClass}>
                         <Images className="size-4" aria-hidden="true" />
-                      </button>
+                      </button>}
                       </div>
                     </div>
 

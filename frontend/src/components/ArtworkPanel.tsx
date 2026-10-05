@@ -1,3 +1,4 @@
+import {useArtworkPlugin} from "../lib/artworkPlugin";
 import BackdropEdit from "./BackdropEdit";
 import PosterEdit from "./PosterEdit";
 import { Switch } from "./ui";
@@ -41,6 +42,7 @@ const PROVIDER_GROUPS = [
 ];
 
 export default function ArtworkPanel({ serverId, item, prefill, navigationTarget, anilistMangaId, libraryType, libraryTitle, onReviewMetadata, onClose }: Props) {
+  const plugin=useArtworkPlugin();
   const [mode, setMode] = useState<"artwork" | "edit" | "backdrop">("artwork");
   const [provider, setProvider] = useState("posterdb");
   const [sourceLayout, setSourceLayout] = useState<"list" | "compact">(() =>
@@ -62,7 +64,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
     window.addEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
     window.addEventListener(BACKDROP_BLUR_EVENT, updateBlur);
     window.addEventListener(PANEL_OVERLAY_EVENT, updateOverlay);
-    return () => {
+  return () => {
       window.removeEventListener(PANEL_SOLIDITY_EVENT, updateSolidity);
       window.removeEventListener(BACKDROP_BLUR_EVENT, updateBlur);
       window.removeEventListener(PANEL_OVERLAY_EVENT, updateOverlay);
@@ -155,6 +157,10 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
     </button>
   );
 
+    useEffect(()=>{
+    if(plugin.data?.enabled === false) onClose?.();
+    if(mode === "edit" && plugin.data?.poster_edit === false || mode === "backdrop" && plugin.data?.backdrop_edit === false) setMode("artwork");
+  },[plugin.data?.enabled,plugin.data?.poster_edit,plugin.data?.backdrop_edit,mode,onClose]);
   return (
     <div
       className="flex h-full flex-col border-l border-border"
@@ -164,8 +170,8 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
         <div className="mb-2 flex items-center justify-between gap-3 px-1">
           <div className="flex flex-wrap gap-2" role="tablist" aria-label="Artwork tools">
             <button role="tab" aria-selected={mode==="artwork"} onClick={()=>setMode("artwork")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="artwork"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Images className="size-4"/>Artwork</button>
-            <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="edit"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><PosterIcon className="size-4"/>PosterEdit</button>
-            <button role="tab" aria-selected={mode==="backdrop"} onClick={()=>setMode("backdrop")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="backdrop"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Wallpaper className="size-4"/>BackdropEdit</button>
+            {plugin.data?.poster_edit !== false && <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="edit"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><PosterIcon className="size-4"/>PosterEdit</button>}
+            {plugin.data?.backdrop_edit !== false && <button role="tab" aria-selected={mode==="backdrop"} onClick={()=>setMode("backdrop")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="backdrop"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Wallpaper className="size-4"/>BackdropEdit</button>}
           </div>
           {onClose && <button type="button" onClick={onClose} aria-label="Close artwork" className="grid size-9 place-items-center rounded-lg text-muted transition-colors hover:bg-white/10 hover:text-white"><X className="size-5" /></button>}
         </div>

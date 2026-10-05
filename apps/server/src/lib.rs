@@ -218,6 +218,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route_layer(middleware::from_fn_with_state(auth, require_auth));
 
     Router::new()
+        .route("/api/plugins/artwork", get(plugins::artwork_get).put(plugins::artwork_save))
         .route("/api/plugins/server-connect", get(plugins::get).put(plugins::save))
         .route("/api/health", get(health))
         .route("/api/auth/status", get(auth_status))

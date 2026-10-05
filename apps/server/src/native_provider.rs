@@ -568,6 +568,9 @@ pub(crate) async fn enrich(
     if !library.options.fetch_missing {
         return;
     }
+    let mut configured = library.clone();
+    if !crate::plugins::artwork_enabled(state) { configured.options.image_types.clear(); }
+    let library = &configured;
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .redirect(reqwest::redirect::Policy::none())

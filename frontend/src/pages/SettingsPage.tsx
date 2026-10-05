@@ -76,11 +76,12 @@ const TOKEN_LABEL: Record<ServerType, string> = {
   emby: "API Key",
 };
 
-type SettingsTab = "servers" | "plugins" | "libraries" | "sources" | "database" | "appearance" | "security";
+type SettingsTab = "servers" | "plugins" | "artwork" | "libraries" | "sources" | "database" | "appearance" | "security";
 
 const LIVE_PREVIEW_KEY = "posterview.appearanceLivePreview";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
+  { id: "artwork", label: "Artwork", icon: <ImageIcon className="size-4" /> },
   { id: "plugins", label: "Plugins", icon: <ServerIcon className="size-4" /> },
   { id: "servers", label: "Server Connect", icon: <ServerIcon className="size-4" /> },
   { id: "libraries", label: "Libraries", icon: <HardDrive className="size-4" /> },
@@ -98,6 +99,7 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
   const candidate = previewSection ?? location.pathname.split("/")[2];
   const tab = TABS.find(section => section.id === candidate)?.id;
   const [pluginOpen,setPluginOpen]=useState(false);
+  const [artworkOpen,setArtworkOpen]=useState(false);
   const [saveStatus, setSaveStatus] = useState<SettingsSaveStatus>("saved");
 
   useEffect(() => {
@@ -120,7 +122,7 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
         </div>
 
         <div className="min-h-0 flex-1">
-          {(tab === "plugins" || tab === "servers") && <PluginsPage open={tab === "servers" || pluginOpen} onOpen={()=>setPluginOpen(true)} onClose={()=>{setPluginOpen(false);if(tab === "servers") navigate("/settings/plugins");}}/>}
+          {(tab === "plugins" || tab === "servers" || tab === "artwork") && <PluginsPage artworkOpen={tab === "artwork" || artworkOpen} onArtworkOpen={()=>setArtworkOpen(true)} open={tab === "servers" || pluginOpen} onOpen={()=>setPluginOpen(true)} onClose={()=>{setPluginOpen(false);setArtworkOpen(false);if(tab === "servers" || tab === "artwork") navigate("/settings/plugins");}}/>}
           {tab === "libraries" && <NativeLibrariesSection />}
           {tab === "sources" && <ArtworkSourcesSection />}
           {tab === "database" && <DatabaseSection />}
@@ -930,12 +932,12 @@ function DefaultArtworkSourceFields({ kind, names }: { kind: "poster" | "ereader
   );
 }
 
-function DefaultArtworkSourcesFields() {
+export function DefaultArtworkSourcesFields({flat=false}:{flat?:boolean}={}) {
   return <div className="grid gap-4 lg:grid-cols-2">
     {[
       { label: "Poster", kind: "poster" as const, names: ["anilist", "fanart", "mediux", "posterdb", "tvdb", "deviantart"] },
       { label: "eReader", kind: "ereader" as const, names: ["anilist-manga", "comicvine", "mangadex", "viz", "deviantart"] },
-    ].map(group => <div key={group.kind} role="group" aria-labelledby={`provider-group-${group.kind}`} className="min-w-0 rounded-xl border border-border bg-surface-2 p-4">
+    ].map(group => <div key={group.kind} role="group" aria-labelledby={`provider-group-${group.kind}`} className={flat ? "min-w-0 border-b border-border pb-5" : "min-w-0 rounded-xl border border-border bg-surface-2 p-4"}>
       <h3 id={`provider-group-${group.kind}`} className="mb-3 text-sm font-semibold">{group.label} providers</h3>
       <DefaultArtworkSourceFields kind={group.kind} names={group.names} />
     </div>)}

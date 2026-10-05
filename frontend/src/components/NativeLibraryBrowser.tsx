@@ -1,3 +1,4 @@
+import {useArtworkPlugin} from "../lib/artworkPlugin";
 import NativeScanProgress from "./NativeScanProgress";
 import {validFraming} from "../lib/backdropFraming";
 import LibraryViewPreferences, { useBackdropView, posterGrid, backdropGrid } from "./LibraryViewPreferences";
@@ -527,6 +528,7 @@ function NativeDetail({
       : entry.kind === "season"
         ? parent
         : entries.find((e) => e.path === parent?.parent_path);
+  const artworkPlugin=useArtworkPlugin();
   const children = entries
     .filter((e) => e.parent_path === entry.path)
     .sort(
@@ -703,14 +705,14 @@ function NativeDetail({
                       className={`size-4 ${fetching ? "animate-spin" : ""}`}
                     />
                   </button>
-                  <button
+                  {artworkPlugin.data?.enabled !== false && <button
                     className={detailActionClass}
                     aria-label="Edit Artwork"
                     title="Edit Artwork"
                     onClick={() => edit("artwork")}
                   >
                     <Images className="size-4" />
-                  </button>
+                  </button>}
                   {["series","movie"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")}><Fingerprint className="size-4"/></button>}
                 </div>
                 <div className={isSeries ? "hidden sm:block" : "text-left"}>
