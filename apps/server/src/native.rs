@@ -1304,6 +1304,49 @@ pub(crate) mod scan_tests {
         assert_eq!(db.get_setting("existing").unwrap(), "untouched");
     }
     #[tokio::test]
+    async fn series_prefixed_season_folders_use_the_parent_series() {
+        for (name, expected) in [
+            ("Roseanne - Season 01", Some(1)),
+            ("Roseanne - Season 02", Some(2)),
+            ("Roseanne Season 03", Some(3)),
+            ("Roseanne - S04", Some(4)),
+            ("Season01", Some(1)),
+            ("American Horror Story", None),
+            ("Season 1 Extras", None),
+            ("Roseanne - Season 01-02", None),
+        ] {
+            assert_eq!(crate::native_scan::season_folder(name), expected, "{name}");
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let show = temp.path().join("media/Shows/Roseanne");
+        for season in 1..=2 {
+            let folder = show.join(format!("Roseanne - Season {season:02}"));
+            fs::create_dir_all(&folder).unwrap();
+            fs::write(folder.join(format!("Roseanne.S{season:02}E01.mkv")), b"fixture").unwrap();
+            fs::write(folder.join("tvshow.nfo"), "<tvshow><title>Wrong season show</title></tvshow>").unwrap();
+        }
+        let db = store(&state);
+        let library = db.save_native_library(None, &NativeLibraryInput {
+            name: "TV".into(),
+            library_type: NativeLibraryType::Shows,
+            anime_content: AnimeContent::Both,
+            paths: vec!["Shows".into()],
+            revision: None,
+            options: NativeLibraryOptions { fetch_missing: false, ..Default::default() },
+        }).unwrap();
+        run_scan(state.clone(), library.clone()).await.unwrap();
+        let entries = db.native_catalog(&library.id).unwrap();
+        let shows = entries.iter().filter(|e| e.available && e.kind == "series").collect::<Vec<_>>();
+        assert_eq!(shows.len(), 1);
+        assert_eq!(shows[0].title, "Roseanne");
+        let seasons = entries.iter().filter(|e| e.available && e.kind == "season").collect::<Vec<_>>();
+        assert_eq!(seasons.len(), 2);
+        assert!(seasons.iter().all(|e| e.parent_path.as_deref() == Some(shows[0].path.as_str())));
+        assert_eq!(entries.iter().filter(|e| e.available && e.kind == "episode").count(), 2);
+    }
+
+    #[tokio::test]
     async fn specials_and_named_season_folders_use_the_parent_series() {
         let temp = tempfile::tempdir().unwrap();
         let state = state(temp.path());

@@ -40,7 +40,7 @@ status refreshes while scanning. The catalog supports search, series/season/epis
 metadata editing, cast/crew editing, character information, and artwork upload.
 
 Episode filenames use S01E01 or 1x01, or numbers from episode NFOs; Anime also recognizes the
-common ' - 01' numbering pattern. Season folders use Season 01 or S01. Unrecognized mixed Anime
+common ' - 01' numbering pattern. Season folders support Season 01, S01, and series-prefixed names such as Roseanne - Season 01 or Roseanne - S01 inside the series folder. Unrecognized mixed Anime
 videos are treated as movies until identified; complex release layouts may require rearranging files
 or adding NFO identity information. Video formats include MKV, MP4, AVI, MOV, M4V, WebM, TS,
 MPG/MPEG, and M2TS. Book formats include PDF, EPUB, and CBZ. FFprobe ships in the container to

@@ -59,7 +59,7 @@ pub(crate) fn season_folder(name: &str) -> Option<i64> {
         return Some(0);
     }
     static SEASON: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"(?i)^(?:season|s)[ ._-]*(\d{1,3})$").unwrap()
+        regex::Regex::new(r"(?i)^(?:.+?[ ._-]+)?(?:season|s)[ ._-]*(\d{1,3})$").unwrap()
     });
     SEASON.captures(name).and_then(|m| m[1].parse().ok())
 }
