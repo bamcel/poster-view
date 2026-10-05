@@ -181,11 +181,11 @@ function Modal({
       className={metadata ? "m-auto h-[85dvh] max-h-[900px] w-[min(52rem,calc(100vw-2rem))] max-w-4xl overflow-hidden rounded-2xl border border-border bg-sidebar p-0 text-white backdrop:bg-black/70" : "m-auto max-h-[90dvh] w-[min(56rem,calc(100vw-2rem))] max-w-4xl overflow-y-auto rounded-2xl border border-border bg-sidebar p-5 text-white backdrop:bg-black/70"}
     >
       <header className={metadata ? "flex h-16 shrink-0 items-center gap-4 px-6 sm:px-8" : "mb-5 flex items-center justify-between gap-4"}>
-        <h2 className={`text-lg font-semibold ${metadata ? "order-2" : ""}`}>{title}</h2>
+        <h2 className={`text-lg font-semibold`}>{title}</h2>
         <button
           autoFocus
           aria-label="Close editor"
-          className={metadata ? "rounded-md p-1 text-muted hover:text-white" : detailActionClass}
+          className={metadata ? "ml-auto shrink-0 rounded-md p-1 text-muted hover:text-white" : detailActionClass}
           onClick={onClose}
         >
           <X className="size-4" />
