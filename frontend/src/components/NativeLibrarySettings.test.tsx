@@ -62,3 +62,21 @@ it("offers ComicVine as a book image fetcher without changing metadata providers
  expect(options.image_providers.book_series).toEqual(["anilist","comicvine"]);
  expect(options.metadata_providers).toEqual({});
 });
+
+it("omits video setup fields for book libraries and retains relevant settings",()=>{
+ const options={...defaultNativeOptions};
+ const view=render(<NativeLibrarySettings options={options} type="books" animeContent="both" section={2} onChange={()=>{}}/>);
+ expect(screen.queryByLabelText("Certification country")).toBeNull();
+ expect(screen.queryByLabelText("Prefer embedded titles over filenames")).toBeNull();
+ expect(screen.queryByLabelText("Ignore sample files below (MB)")).toBeNull();
+ expect(screen.getByLabelText("Enable real-time monitoring")).toBeTruthy();
+ view.rerender(<NativeLibrarySettings options={options} type="books" animeContent="both" section={3} onChange={()=>{}}/>);
+ expect(screen.getByLabelText("NFO saver")).toBeTruthy();
+ expect(screen.queryByLabelText("Refresh episode placeholder titles such as TBA")).toBeNull();
+ view.rerender(<NativeLibrarySettings options={options} type="books" animeContent="both" section={4} onChange={()=>{}}/>);
+ expect(screen.getByLabelText("Download cover")).toBeTruthy();
+ expect(screen.queryByLabelText("Download thumb")).toBeNull();
+ view.rerender(<NativeLibrarySettings options={options} type="books" animeContent="both" section={5} onChange={()=>{}}/>);
+ expect(screen.queryByText("Playback")).toBeNull();
+ expect(screen.queryByLabelText("Generate chapters for videos without embedded chapters")).toBeNull();
+});

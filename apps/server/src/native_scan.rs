@@ -511,7 +511,7 @@ pub(crate) fn collect_scoped(
         })
     });
     files.retain(|p| {
-        !(library.options.sample_ignore_mb > 0
+        !(library.library_type != NativeLibraryType::Books && library.options.sample_ignore_mb > 0
             && p.file_name()
                 .is_some_and(|n| n.to_string_lossy().to_ascii_lowercase().contains("sample"))
             && fs::metadata(p)

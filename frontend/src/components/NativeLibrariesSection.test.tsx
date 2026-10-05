@@ -125,3 +125,13 @@ it("closes the actions and removes the card after successful removal",async()=>{
  await waitFor(()=>expect(screen.queryByRole("region",{name:"Library actions for Anime"})).toBeNull());
  expect(screen.queryByRole("button",{name:"Actions for Anime"})).toBeNull();
 });
+
+it("skips Advanced and Server Connect when setting up a book library",()=>{
+ mount(<LibraryDialog library={{...saved,library_type:"books"}} onClose={vi.fn()} onSaved={vi.fn()}/>);
+ expect(screen.queryByRole("button",{name:/Advanced/})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:/Artwork/}));
+ fireEvent.click(screen.getByRole("button",{name:"Next"}));
+ expect(screen.getByText("Review your library")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Back"}));
+ expect(screen.getByText("Local Artwork")).toBeTruthy();
+});

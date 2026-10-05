@@ -53,6 +53,8 @@ fn missing_images(entry: &NativeCatalogEntry, library: &NativeLibrary) -> Vec<St
             let supported = match entry.kind.as_str() {
                 "episode" => kind.as_str() == "thumb",
                 "season" => kind.as_str() == "poster",
+                "book_series" => ["poster", "backdrop"].contains(&kind.as_str()),
+                "book" => kind.as_str() == "poster",
                 _ => true,
             };
             supported
