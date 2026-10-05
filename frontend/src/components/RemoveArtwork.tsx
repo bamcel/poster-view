@@ -95,6 +95,7 @@ export default function RemoveArtwork({ serverId, item, includeFolderBackdrop = 
       </button>)}
     </div>}
     <div className="space-y-2">
+      {animated.length > 0 && <h4 className="text-sm font-semibold">Static Artwork</h4>}
       {targets.map((target) => {
         const key = `${target.itemId}:${target.target}`;
         return <button key={`${key}:${target.label}`} type="button" onClick={() => void remove(target)} disabled={busy !== null} className="flex min-h-10 w-full items-center justify-between gap-3 rounded-lg border border-border bg-surface-2 px-3 text-left text-sm text-muted hover:border-danger/50 hover:text-white disabled:opacity-50">
