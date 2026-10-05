@@ -1,3 +1,4 @@
+import {BACKDROP_BLUR_EVENT, PANEL_SOLIDITY_EVENT, PANEL_OVERLAY_EVENT, backdropBlur, panelSolidity, panelOverlay, translucentPanelColor} from "../lib/dashboardSettings";
 import ImportServerLibrary from "./ImportServerLibrary";
 import LibraryPosterStrip from "./LibraryPosterStrip";
 import ConnectedServerSync, {SyncActions} from "./ConnectedServerSync";
@@ -21,6 +22,14 @@ function overlap(paths: string[]): boolean {
 }
 
 export default function NativeLibrariesSection() {
+  const [, refreshAppearance] = useState(0);
+  useEffect(() => {
+    const refresh = () => refreshAppearance(value => value + 1);
+    const events = [BACKDROP_BLUR_EVENT, PANEL_SOLIDITY_EVENT, PANEL_OVERLAY_EVENT];
+    events.forEach(event => window.addEventListener(event, refresh));
+    return () => events.forEach(event => window.removeEventListener(event, refresh));
+  }, []);
+  const actionStyle = {backgroundColor: translucentPanelColor("--color-surface-2", panelSolidity(), panelOverlay()), backdropFilter: `blur(${backdropBlur()}px)`};
   const libraries = useQuery({ queryKey: ["native-libraries"], queryFn: nativeLibraries.list });
   const [importing,setImporting]=useState(false);
   const [editing, setEditing] = useState<NativeLibrary | "new" | null>(null);
@@ -37,9 +46,9 @@ export default function NativeLibrariesSection() {
   return <section className="h-full overflow-y-auto py-3">
     <div className="relative mb-8 flex flex-wrap items-center justify-center gap-3">
       <span className="text-sm text-muted">{libraries.data?.length ?? 0} Libraries</span>
-      <button className="inline-flex items-center gap-2 rounded-full bg-elevated px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent hover:text-base" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />New Library</button>
-      <button className="inline-flex items-center gap-2 rounded-full bg-elevated px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent hover:text-base disabled:opacity-50" disabled={!libraries.data?.length || scanAll.isPending} onClick={() => scanAll.mutate()}><RefreshCw className={`size-4 ${scanAll.isPending ? "animate-spin" : ""}`} />Scan Libraries</button>
-      <button className="inline-flex items-center gap-2 rounded-full bg-elevated px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent hover:text-base" onClick={()=>setImporting(true)}><FolderPlus className="size-4" />Import library</button>
+      <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />New Library</button>
+      <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50" disabled={!libraries.data?.length || scanAll.isPending} onClick={() => scanAll.mutate()}><RefreshCw className={`size-4 ${scanAll.isPending ? "animate-spin" : ""}`} />Scan Libraries</button>
+      <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>setImporting(true)}><FolderPlus className="size-4" />Import library</button>
     </div>
     {scanAll.error && <p role="alert" className="mb-4 text-sm text-danger">{scanAll.error.message}</p>}
     {libraries.isPending && <p role="status" className="text-muted">Loading libraries…</p>}
