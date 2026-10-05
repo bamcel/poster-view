@@ -47,3 +47,20 @@ it("pushes selected PosterView fields explicitly without enabling NFO writes",as
  fireEvent.click(screen.getByRole("button",{name:"Push to servers"}));fireEvent.click(screen.getByRole("checkbox",{name:"Provider IDs"}));fireEvent.click(screen.getByRole("button",{name:"Push selected fields"}));
  await waitFor(()=>expect(nativeLibraries.sync).toHaveBeenCalledWith("anime",expect.objectContaining({push:true,artwork:true,write_nfo:false,fields:expect.not.arrayContaining(["identifiers"])})));
 });
+
+it("allows a configured import to be queued while background sync is active",async()=>{
+ let current = "synced";
+ vi.mocked(nativeLibraries.syncStatus).mockImplementation(async()=>({enabled:true,status:current,pending:0,matched:1,unmatched:0,failed:0,notices:[],activity:[]} as never));
+ vi.mocked(nativeLibraries.sync).mockResolvedValue({status:"queued"});
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<QueryClientProvider client={client}><SyncActions library="anime"/></QueryClientProvider>);
+ await waitFor(()=>expect((screen.getByRole("button",{name:"Import from server"}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByRole("button",{name:"Import from server"}));
+ current="syncing";
+ await client.invalidateQueries({queryKey:["native-sync","anime"]});
+ expect(await screen.findByText(/Your request will be queued/)).toBeTruthy();
+ const submit=screen.getByRole("button",{name:"Import selected fields"});
+ expect((submit as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.click(submit);
+ await waitFor(()=>expect(nativeLibraries.sync).toHaveBeenCalledWith("anime",expect.objectContaining({push:false,artwork:true})));
+});
