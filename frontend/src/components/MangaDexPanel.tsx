@@ -117,7 +117,7 @@ export default function MangaDexPanel({
     item.type === "folder"
       ? item.members.find(
           (member) =>
-            normalizeVolume(detectManga(member).volume) ===
+            !!normalizeVolume(art.manga?.volume) && normalizeVolume(detectManga(member).volume) ===
             normalizeVolume(art.manga?.volume),
         )
       : undefined;

@@ -73,7 +73,7 @@ export default function VizPanel({
     item.type === "folder"
       ? item.members.find(
           (member) =>
-            normalizeVolume(detectManga(member).volume) ===
+            !!normalizeVolume(art.manga?.volume) && normalizeVolume(detectManga(member).volume) ===
             normalizeVolume(art.manga?.volume),
         )
       : undefined;
@@ -229,7 +229,7 @@ export default function VizPanel({
           >
             <ArrowLeft className="size-4" /> Back
           </button>
-          {isComicVine && (
+          {isComicVine && !item.id.startsWith("native:") && (
             <button
               type="button"
               onClick={() => useMetadata.mutate()}

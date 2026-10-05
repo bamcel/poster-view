@@ -291,7 +291,7 @@ export default function ArtworkBrowser({
     </div>
   );
 
-  const metadataActions = provider === "anilist-manga" && resolvedAniListMangaId && (
+  const metadataActions = !item.id.startsWith("native:") && provider === "anilist-manga" && resolvedAniListMangaId && (
     <div className={`mb-3 flex items-center gap-3 ${override ? "justify-between" : "justify-end"}`}>
       {override && <button type="button" onClick={() => { setOverride(undefined); setIdInput(""); }} className="flex items-center gap-1 text-sm text-muted hover:text-white">
         <ArrowLeft className="size-4" /> Back

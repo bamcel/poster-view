@@ -1,0 +1,20 @@
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
+import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
+import {afterEach,expect,it,vi} from "vitest";
+import VizPanel from "./VizPanel";
+import {api} from "../api/client";
+vi.mock("../api/client",()=>({api:{getArtwork:vi.fn(),searchArtwork:vi.fn(),applyPoster:vi.fn()}}));
+vi.mock("../lib/toast",()=>({useToast:()=>({push:vi.fn()})}));
+afterEach(()=>{cleanup();localStorage.clear();vi.clearAllMocks();});
+it.each(["comicvine","viz"] as const)("applies %s covers to native book volumes and exposes custom volume targets",async database=>{
+ const item={id:"native:books:series",title:"Example",type:"folder" as const,seasons:[],external_ids:{},members:[{id:"native:books:volume1",title:"Example Volume 01",type:"book" as const}]};
+ vi.mocked(api.getArtwork).mockResolvedValue({provider:database,items:[{id:"cover",provider:database,type:"poster",kind:"book",thumb_url:"https://example.com/cover.jpg",download_url:"https://example.com/cover.jpg",applyable:true,manga:{mangadex_id:"",volume:"1",locale:null,description:null}}]});
+ vi.mocked(api.applyPoster).mockResolvedValue({ok:true,message:"Saved"});
+ localStorage.setItem(`${database}-catalog:0:${item.id}`,"https://example.com/series");
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><VizPanel serverId={0} item={item} database={database}/></QueryClientProvider>);
+ await screen.findByText("Volume 1");expect(screen.queryByText("Add Metadata")).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Custom"}));
+ expect(screen.getByRole("menuitem",{name:/Example Volume 01/})).toBeTruthy();
+ fireEvent.click(screen.getByRole("menuitem",{name:/Example Volume 01/}));
+ await waitFor(()=>expect(api.applyPoster).toHaveBeenCalledWith(expect.objectContaining({server_id:0,item_id:"native:books:volume1",provider:database})));
+});

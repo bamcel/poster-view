@@ -63,14 +63,15 @@ impl Runtime {
         };
         Ok(Some(ItemDetail {
             source_path: None,
-            file_name: None,
+            file_name: std::path::Path::new(&entry.path).file_name().map(|name| name.to_string_lossy().into_owned()),
             volume: text("volume"),
             id: target.into(),
             title: entry.title.clone(),
             year: entry.metadata["year"].as_i64(),
             item_type: match entry.kind.as_str() {
                 "series" | "season" | "episode" => ItemType::Show,
-                "book" | "book_series" => ItemType::Book,
+                "book_series" => ItemType::Folder,
+                "book" => ItemType::Book,
                 _ => ItemType::Movie,
             },
             poster: image("poster"),
@@ -110,7 +111,9 @@ impl Runtime {
                     Some((key.to_lowercase(), value))
                 })
                 .collect(),
-            members: vec![],
+            members: entries.iter().filter(|e| e.kind == "book" && e.available && e.parent_path.as_deref() == Some(entry.path.as_str())).map(|e| posterview_contracts::MediaItem {
+                id: format!("native:{library}:{}", e.id), title: e.metadata["volume"].as_str().map(str::to_owned).or_else(|| e.metadata["volume"].as_u64().map(|v| v.to_string())).map(|v| format!("{} — Volume {v}", e.title)).unwrap_or_else(|| e.title.clone()), year: e.metadata["year"].as_i64(), item_type: ItemType::Book, poster: None, background: None, added_at: None,
+            }).collect(),
         }))
     }
 }

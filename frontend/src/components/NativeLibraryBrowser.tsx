@@ -914,10 +914,11 @@ function nativeArtworkItem(library: NativeLibrary, entry: NativeCatalogEntry, en
   const ids = {...(series?.metadata.identifiers as Record<string, unknown> ?? {}), ...(entry.metadata.identifiers as Record<string, unknown> ?? {})};
   return {
     id: target(entry.id), title: entry.title, year: number(entry.metadata.year),
-    type: ["series", "season", "episode"].includes(entry.kind) ? "show" : entry.kind.startsWith("book") ? "book" : "movie",
+    type: entry.kind === "book_series" ? "folder" : ["series", "season", "episode"].includes(entry.kind) ? "show" : entry.kind.startsWith("book") ? "book" : "movie",
     poster: picture(library, entry, entry.kind === "episode" ? "thumb" : "poster"),
     background: picture(library, entry, "backdrop"), logo: picture(library, entry, "logo"),
     external_ids: Object.fromEntries(Object.entries(ids as Record<string, unknown>).map(([key, value]) => [key.toLowerCase(), String(value)])),
-    seasons: entries.filter(e => e.kind === "season" && e.parent_path === entry.path).map(e => ({id:target(e.id),title:e.title,index:number(e.metadata.season)})), members: [],
+    volume: entry.metadata.volume == null ? null : String(entry.metadata.volume), file_name: entry.path.split("/").pop(),
+    seasons: entries.filter(e => e.kind === "season" && e.parent_path === entry.path).map(e => ({id:target(e.id),title:e.title,index:number(e.metadata.season)})), members: entries.filter(e=>e.kind==="book" && e.available && e.parent_path===entry.path).map(e=>({id:target(e.id),title:e.title,type:"book",volume:e.metadata.volume == null ? null : String(e.metadata.volume),file_name:e.path.split("/").pop(),poster:picture(library,e,"poster")})),
   };
 }

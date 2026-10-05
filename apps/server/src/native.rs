@@ -812,6 +812,27 @@ pub(crate) mod scan_tests {
     }
 
     #[tokio::test]
+    async fn book_artwork_panel_exposes_native_volume_targets_and_saves_covers() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let media = temp.path().join("media/Books/Example");
+        fs::create_dir_all(&media).unwrap();
+        fs::write(media.join("Example Volume 01.cbz"), b"fixture").unwrap();
+        let db = store(&state);
+        let library = db.save_native_library(None, &NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:NativeLibraryOptions {fetch_missing:false,save_artwork:true,..Default::default()}}).unwrap();
+        run_scan(state.clone(), library.clone()).await.unwrap();
+        let entries = db.native_catalog(&library.id).unwrap();
+        let series = entries.iter().find(|e| e.kind == "book_series").unwrap();
+        let detail = state.runtime.get_item_detail(0,&format!("native:{}:{}",library.id,series.id)).await.unwrap().unwrap().unwrap();
+        assert_eq!(detail.item_type, posterview_contracts::ItemType::Folder);
+        assert_eq!(detail.members.len(),1);
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgba8(2,2).write_to(&mut bytes,image::ImageFormat::Png).unwrap();
+        assert!(apply_panel_artwork(state,detail.members[0].id.clone(),posterview_contracts::ImageTarget::Poster,Some(bytes.into_inner())).await.unwrap().ok);
+        assert!(media.join("Example Volume 01.jpg").exists());
+    }
+
+    #[tokio::test]
     async fn shared_artwork_panel_uses_native_identifiers_and_persists_manual_choices() {
         use posterview_contracts::ImageTarget;
         let temp = tempfile::tempdir().unwrap();
