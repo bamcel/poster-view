@@ -182,7 +182,7 @@ fn candidate(provider: &str, v: &Value, movie: bool) -> Option<Value> {
         })
     });
     Some(
-        json!({"provider":provider,"id":id,"title":title,"year":year(&date),"overview":overview,"format":format,"identifiers":ids,"poster":poster}),
+        json!({"provider":provider,"id":id,"title":title,"year":year(&date),"overview":overview,"format":format,"identifiers":ids,"poster":poster,"publisher":if provider == "comicvine" {v["publisher"]["name"].clone()} else {Value::Null},"volume_count":if provider == "comicvine" {v["count_of_issues"].clone()} else {Value::Null}}),
     )
 }
 
@@ -403,9 +403,15 @@ async fn lookup(
         "comicvine" if books => {
             let token = key(state, "comicvine_api_key");
             if token.is_empty() { return Err("Configure a ComicVine API key in Search Providers.".into()); }
+            if id.is_none() {
+                // The search endpoint sometimes omits these fields; shared search fills them from volume details.
+                let service = posterview_infra_artwork::ArtworkService::default();
+                let results = service.search("comicvine", title, "book", "", "", &token).await?;
+                return Ok(results.into_iter().take(15).filter_map(|record| candidate("comicvine", &json!({"id":record.id,"name":record.name,"start_year":record.year,"publisher":{"name":record.publisher},"count_of_issues":record.volume_count,"image":{"small_url":record.thumb_url}}), false)).collect());
+            }
             let path = id.map(|id| format!("volume/4050-{id}/")).unwrap_or_else(|| "search/".into());
             let request = client.get(format!("https://comicvine.gamespot.com/api/{path}"))
-                .query(&[("api_key", token.as_str()), ("format", "json"), ("field_list", "id,name,start_year,description,image")]);
+                .query(&[("api_key", token.as_str()), ("format", "json"), ("field_list", "id,name,start_year,description,image,publisher,count_of_issues")]);
             let request = if id.is_some() { request } else { request.query(&[("query", title), ("resources", "volume"), ("limit", "15")]) };
             let body = response(request.send().await.map_err(|_| "ComicVine connection failed.")?).await?;
             if body["status_code"].as_i64() != Some(1) { return Err("ComicVine could not retrieve volume records. Check your API key.".into()); }
@@ -848,10 +854,12 @@ mod tests {
     }
     #[test]
     fn comicvine_volume_candidate_preserves_identity_and_cover() {
-        let value = candidate("comicvine", &json!({"id":123,"name":"Batman","start_year":"2016","image":{"small_url":"https://comicvine.gamespot.com/test.jpg"}}), false).unwrap();
+        let value = candidate("comicvine", &json!({"id":123,"name":"Batman","start_year":"2016","publisher":{"name":"DC Comics"},"count_of_issues":12,"image":{"small_url":"https://comicvine.gamespot.com/test.jpg"}}), false).unwrap();
         assert_eq!(value["identifiers"]["comicvine"], "123");
         assert_eq!(value["year"], 2016);
         assert_eq!(value["format"], "Book series");
+        assert_eq!(value["publisher"], "DC Comics");
+        assert_eq!(value["volume_count"], 12);
         assert_eq!(value["poster"], "https://comicvine.gamespot.com/test.jpg");
     }
     #[test]

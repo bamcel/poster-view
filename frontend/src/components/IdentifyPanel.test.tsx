@@ -47,7 +47,7 @@ it("shows posters and prefers automatically linked matches before other results"
 
 it("identifies book series with ComicVine first and manga providers only",async()=>{
  const book={...entry,kind:"book_series",title:"Batman",metadata:{}};
- const match={provider:"comicvine",id:"123",title:"Batman",year:2016,format:"Book series",overview:null,identifiers:{comicvine:"123"}};
+ const match={provider:"comicvine",id:"123",title:"Batman",year:2016,format:"Book series",publisher:"DC Comics",volume_count:12,overview:null,identifiers:{comicvine:"123"}};
  vi.mocked(nativeLibraries.identifySearch).mockResolvedValue({groups:[{provider:"comicvine",results:[match]},{provider:"anilist",results:[]},{provider:"mal",results:[]}]});
  vi.mocked(nativeLibraries.identifyResolve).mockResolvedValue({identifiers:{comicvine:"123"},candidates:[match],warnings:[]});
  vi.mocked(nativeLibraries.identify).mockResolvedValue({entry:book,warnings:[],message:"Saved"});
@@ -55,6 +55,7 @@ it("identifies book series with ComicVine first and manga providers only",async(
  expect(screen.queryByLabelText("TheTVDB identification ID")).toBeNull();
  fireEvent.click(screen.getByText("Search all providers"));
  expect((await screen.findAllByRole("tab"))[0].textContent).toContain("ComicVine");
+ expect(screen.getByText("Publisher: DC Comics")).toBeTruthy();expect(screen.getByText("12 volumes")).toBeTruthy();
  fireEvent.click(screen.getByRole("button",{name:/Batman.*2016/}));
  await waitFor(()=>expect(screen.queryByText("Finding linked provider IDs…")).toBeNull());
  fireEvent.click(screen.getByText("Save identification"));
