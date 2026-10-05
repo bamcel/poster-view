@@ -1,3 +1,4 @@
+import BookPreferences from "./BookPreferences";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
 import NativeScanProgress from "./NativeScanProgress";
 import {validFraming} from "../lib/backdropFraming";
@@ -436,7 +437,7 @@ export default function NativeLibraryBrowser({
               </details>
               <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style} editorStyle={library.library_type === "anime"}>
                 <div className="space-y-7"><LibraryViewPreferences library={library.id}/>
-                <ArtworkPreferences library={library.id}/>{library.library_type === "anime" && <AnimePreferences library={library.id}/>}</div>
+                <ArtworkPreferences library={library.id}/>{library.library_type === "books" && <BookPreferences/>}{library.library_type === "anime" && <AnimePreferences library={library.id}/>}</div>
               </LibraryPopup>
             </div>
             {status.data?.status === "scanning" ? <aside aria-label="Library scan progress" className="w-full min-w-0 lg:ml-auto lg:max-w-80"><NativeScanProgress status={status.data} compact/></aside> : <div aria-hidden="true" className="hidden lg:block"/>}
