@@ -25,19 +25,26 @@ export default function NativeLibrariesSection() {
   const [importing,setImporting]=useState(false);
   const [editing, setEditing] = useState<NativeLibrary | "new" | null>(null);
   const client = useQueryClient();
+  const scanAll = useMutation({mutationFn: async () => {
+    const results = await Promise.allSettled((libraries.data ?? []).map(library => nativeLibraries.scan(library.id)));
+    await client.invalidateQueries({queryKey: ["native-scan"]});
+    await client.invalidateQueries({queryKey: ["native-previews"]});
+    const failures = results.filter(result => result.status === "rejected");
+    if (failures.length) throw new Error(`${failures.length} libraries could not start scanning. Check their scan notices and retry.`);
+  }});
   const trigger = useRef<HTMLButtonElement | null>(null);
   const close = () => { setEditing(null); trigger.current?.focus(); };
   return <section className="h-full overflow-y-auto py-3">
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><h2 className="text-lg font-semibold text-white">Libraries</h2>
-        <p className="mt-1 max-w-xl text-sm text-muted">Organize your media in PosterView and integrate connected servers for metadata and artwork.</p></div>
-      <div className="flex flex-wrap gap-2"><button className={BUTTON} onClick={()=>setImporting(true)}>Import library</button><button className="inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-base" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />Add library</button></div>
+    <div className="relative mb-8 flex flex-wrap items-center justify-center gap-3">
+      <span className="text-sm text-muted">{libraries.data?.length ?? 0} Libraries</span>
+      <button className="inline-flex items-center gap-2 rounded-full bg-elevated px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent hover:text-base" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />New Library</button>
+      <button className="inline-flex items-center gap-2 rounded-full bg-elevated px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent hover:text-base disabled:opacity-50" disabled={!libraries.data?.length || scanAll.isPending} onClick={() => scanAll.mutate()}><RefreshCw className={`size-4 ${scanAll.isPending ? "animate-spin" : ""}`} />Scan Libraries</button>
+      <button className="inline-flex items-center gap-2 rounded-full bg-elevated px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent hover:text-base" onClick={()=>setImporting(true)}><FolderPlus className="size-4" />Import library</button>
     </div>
-    <p className="my-5 rounded-xl border border-edge bg-panel p-4 text-sm text-muted">New libraries scan after creation. Local metadata and artwork take priority; missing information can be fetched from providers. Manage each library from its … menu.</p>
+    {scanAll.error && <p role="alert" className="mb-4 text-sm text-danger">{scanAll.error.message}</p>}
     {libraries.isPending && <p role="status" className="text-muted">Loading libraries…</p>}
     {libraries.error && <div role="alert" className="text-danger">{libraries.error.message} <button className={BUTTON} onClick={() => void libraries.refetch()}>Retry</button></div>}
     {libraries.data?.length === 0 && <div className="rounded-2xl border border-dashed border-edge p-10 text-center text-muted"><FolderPlus className="mx-auto mb-3 size-8 text-accent" /><p>No libraries yet.</p><p className="mt-1 text-sm">Choose a type and select folders inside /media to get started.</p></div>}
-    <p className="mb-4 text-sm text-muted">{libraries.data?.length ?? 0} Libraries</p>
     <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">{libraries.data?.map(library => <LibraryCard key={library.id} library={library} onEdit={button=>{trigger.current=button;setEditing(library);}} />)}</div>
     {importing&&<ImportServerLibrary onClose={()=>setImporting(false)} onSaved={()=>{setImporting(false);void client.invalidateQueries({queryKey:["native-libraries"]});}}/>}
     {editing && <LibraryDialog library={editing === "new" ? undefined : editing} onClose={close} onSaved={() => { void client.invalidateQueries({ queryKey: ["native-libraries"] }); close(); }} />}

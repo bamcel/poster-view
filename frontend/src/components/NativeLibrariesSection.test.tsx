@@ -19,7 +19,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 it("creates an Anime library with multiple media folders and no remote-server import", async () => {
   mount(<NativeLibrariesSection />);
-  fireEvent.click(screen.getByRole("button", { name: "Add library" }));
+  fireEvent.click(screen.getByRole("button", { name: "New Library" }));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Anime" } });
   fireEvent.change(screen.getByLabelText("Library type"), { target: { value: "anime" } });
   expect((screen.getByLabelText("Anime content") as HTMLSelectElement).value).toBe("both");
@@ -85,4 +85,13 @@ it("groups library actions in the menu and confirms removal", async () => {
   fireEvent.click(screen.getByRole("button", {name: "Confirm removal"}));
   await waitFor(() => expect(nativeLibraries.remove).toHaveBeenCalledWith(saved.id, saved.revision));
   expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+it("starts scans for every library from the top toolbar", async () => {
+  vi.mocked(nativeLibraries.list).mockResolvedValue([saved, {...saved, id: "second", name: "TV"}]);
+  mount(<NativeLibrariesSection />);
+  await screen.findByText("2 Libraries");
+  fireEvent.click(screen.getByRole("button", {name: "Scan Libraries"}));
+  await waitFor(() => expect(nativeLibraries.scan).toHaveBeenCalledWith("library"));
+  expect(nativeLibraries.scan).toHaveBeenCalledWith("second");
 });
