@@ -43,3 +43,13 @@ it("stores image choices separately from metadata and shows playback as unavaila
   view.unmount(); render(<Harness section={5} />);
   expect((screen.getByLabelText("Minimum resume percentage") as HTMLInputElement).disabled).toBe(true);
 });
+
+it("lets a book library exclude manga metadata providers", () => {
+ function Books() {const [options,setOptions]=useState({...defaultNativeOptions});return <><NativeLibrarySettings options={options} type="books" animeContent="both" section={3} onChange={setOptions}/><output data-testid="books">{JSON.stringify(options)}</output></>;}
+ render(<Books/>);
+ fireEvent.click(screen.getByLabelText("Book metadata providers: AniList"));
+ fireEvent.click(screen.getByLabelText("Book metadata providers: MyAnimeList"));
+ expect(JSON.parse(screen.getByTestId("books").textContent!).metadata_providers.book_series).toEqual(["comicvine"]);
+ fireEvent.click(screen.getByLabelText("Book metadata providers: ComicVine"));
+ expect(JSON.parse(screen.getByTestId("books").textContent!).metadata_providers.book_series).toEqual([]);
+});

@@ -27,6 +27,11 @@ fn db(state: &AppState) -> ServerStore {
 fn key(state: &AppState, name: &str) -> String {
     db(state).get_setting(name).unwrap_or_default()
 }
+fn book_providers(lib: &posterview_contracts::native::NativeLibrary) -> Vec<&str> {
+    lib.options.metadata_providers.get("book_series")
+        .map(|providers| providers.iter().map(String::as_str).filter(|p| ["comicvine", "anilist", "mal"].contains(p)).collect())
+        .unwrap_or_else(|| vec!["comicvine", "anilist", "mal"])
+}
 fn numeric(v: &Value) -> Option<String> {
     v.as_str()
         .map(str::to_owned)
@@ -481,14 +486,15 @@ pub(crate) async fn search(
     }
     let client = client()?;
     let providers = if entry.kind == "book_series" {
-        vec!["comicvine", "anilist", "mal"]
+        book_providers(&lib)
     } else if lib.library_type == posterview_contracts::native::NativeLibraryType::Anime {
         vec!["anilist", "tmdb", "tvdb", "mal", "anidb"]
     } else {
         vec!["tmdb", "tvdb"]
     };
     let mut jobs = tokio::task::JoinSet::new();
-    for provider in providers.iter().copied() {
+    for selected_provider in providers.iter().copied() {
+        let provider = match selected_provider {"comicvine"=>"comicvine", "anilist"=>"anilist", "mal"=>"mal", "tmdb"=>"tmdb", "tvdb"=>"tvdb", _=>"anidb"};
         let state = state.clone();
         let client = client.clone();
         let title = input.title.clone();
@@ -537,7 +543,8 @@ pub(crate) async fn apply(
         ));
     }
     for (provider, id) in &input.identifiers {
-        if !["comicvine", "anilist", "tmdb", "tvdb", "mal", "imdb", "anidb"].contains(&provider.as_str())
+        if (entry.kind == "book_series" && !book_providers(&lib).contains(&provider.as_str()))
+            || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "imdb", "anidb"].contains(&provider.as_str())
             || if provider == "imdb" {
                 !id.starts_with("tt") || numeric(&json!(&id[2..])).is_none()
             } else {
@@ -573,6 +580,7 @@ pub(crate) async fn apply(
             HttpError::bad_request("That provider ID does not match the library's media type.")
         })?;
         for (name, value) in record["identifiers"].as_object().into_iter().flatten() {
+            if entry.kind == "book_series" && !book_providers(&lib).contains(&name.as_str()) { continue; }
             let Some(value) = value.as_str() else {
                 continue;
             };
@@ -810,6 +818,15 @@ async fn anidb_lookup(
 mod tests {
     use super::*;
     #[test]
+    fn book_provider_choices_preserve_exclusions_and_empty_selection() {
+        let mut lib: posterview_contracts::native::NativeLibrary = serde_json::from_value(json!({"id":"books","name":"Books","library_type":"books","anime_content":"both","paths":[],"revision":1,"options":{},"created_at":"","updated_at":""})).unwrap();
+        assert_eq!(book_providers(&lib), vec!["comicvine", "anilist", "mal"]);
+        lib.options.metadata_providers.insert("book_series".into(), vec!["comicvine".into()]);
+        assert_eq!(book_providers(&lib), vec!["comicvine"]);
+        lib.options.metadata_providers.insert("book_series".into(), vec![]);
+        assert!(book_providers(&lib).is_empty());
+    }
+    #[test]
     fn comicvine_volume_candidate_preserves_identity_and_cover() {
         let value = candidate("comicvine", &json!({"id":123,"name":"Batman","start_year":"2016","image":{"small_url":"https://comicvine.gamespot.com/test.jpg"}}), false).unwrap();
         assert_eq!(value["identifiers"]["comicvine"], "123");
@@ -881,7 +898,8 @@ pub(crate) async fn resolve(
     Json(input): Json<Resolve>,
 ) -> Result<Json<Value>, HttpError> {
     let (lib, entry) = context(&state, &library, &item).await?;
-    if !["comicvine", "anilist", "tmdb", "tvdb", "mal", "anidb"].contains(&input.provider.as_str())
+    if (entry.kind == "book_series" && !book_providers(&lib).contains(&input.provider.as_str()))
+        || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "anidb"].contains(&input.provider.as_str())
         || numeric(&json!(input.id)).is_none()
     {
         return Err(HttpError::bad_request("Choose a valid provider record."));
@@ -915,6 +933,7 @@ pub(crate) async fn resolve(
             Ok(values) => {
                 if let Some(record) = values.first() {
                     for (name, value) in record["identifiers"].as_object().into_iter().flatten() {
+                        if entry.kind == "book_series" && !book_providers(&lib).contains(&name.as_str()) { continue; }
                         let Some(value) = value.as_str() else {
                             continue;
                         };
@@ -927,7 +946,9 @@ pub(crate) async fn resolve(
                             pending.push_back((name.clone(), value.to_owned()));
                         }
                     }
-                    records.push(record.clone());
+                    let mut record = record.clone();
+                    if entry.kind == "book_series" { if let Some(values) = record["identifiers"].as_object_mut() { values.retain(|name, _| book_providers(&lib).contains(&name.as_str())); } }
+                    records.push(record);
                 } else {
                     warnings.push(format!("{provider}: no record for the item's media type."));
                 }

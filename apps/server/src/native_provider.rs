@@ -700,16 +700,13 @@ async fn enrich_one(
     } else {
         vec!["tmdb".to_owned()]
     };
+    let book_default = vec!["comicvine".to_owned(), "anilist".to_owned(), "mal".to_owned()];
+    let metadata_default = if entry.kind == "book_series" { &book_default } else { &default };
     let metadata_order = library
         .options
         .metadata_providers
         .get(&entry.kind)
-        .unwrap_or(&default);
-    // Explicit book identification determines metadata priority independently of artwork.
-    let identified_books: Vec<String> = ["comicvine", "anilist", "mal"].into_iter()
-        .filter(|provider| entry.kind == "book_series" && !missing(&entry.metadata["identifiers"][*provider]))
-        .map(str::to_owned).chain(metadata_order.iter().filter(|p| !["comicvine", "anilist", "mal"].contains(&p.as_str()) || missing(&entry.metadata["identifiers"][p.as_str()])).cloned()).collect();
-    let metadata_order = if entry.kind == "book_series" { &identified_books } else { metadata_order };
+        .unwrap_or(metadata_default);
     let image_order = library
         .options
         .image_providers
@@ -724,6 +721,7 @@ async fn enrich_one(
         .map(|p| (p.clone(), false))
         .chain(image_order.iter().map(|p| (p.clone(), true)))
     {
+        if provider_name == "comicvine" && missing(&entry.metadata["identifiers"]["comicvine"]) { continue; }
         if !image_phase
             && metadata_complete(entry)
             && !(provider_name == "anilist" && needs_voice_cast(entry, library))

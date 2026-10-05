@@ -1,8 +1,8 @@
 import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
 import {afterEach,expect,it,vi} from "vitest";
 import IdentifyPanel from "./IdentifyPanel";
-import {nativeLibraries,type NativeLibrary,type NativeCatalogEntry} from "../api/nativeLibraries";
-vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{identifySearch:vi.fn(),identifyResolve:vi.fn(),identify:vi.fn()}}));
+import {nativeLibraries,defaultNativeOptions,type NativeLibrary,type NativeCatalogEntry} from "../api/nativeLibraries";
+vi.mock("../api/nativeLibraries",async importOriginal=>({...await importOriginal<typeof import("../api/nativeLibraries")>(),nativeLibraries:{identifySearch:vi.fn(),identifyResolve:vi.fn(),identify:vi.fn()}}));
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 const library={id:"lib",library_type:"anime"} as NativeLibrary;
 const entry={id:"item",title:"Haikyu! (2024)",path:"Anime/Haikyu",kind:"series",revision:3,parent_path:null,artwork:[],files:[],nfo_path:null,available:true,metadata:{identifiers:{tvdb:"wrong"}}} as NativeCatalogEntry;
@@ -59,4 +59,16 @@ it("identifies book series with ComicVine first and manga providers only",async(
  await waitFor(()=>expect(screen.queryByText("Finding linked provider IDs…")).toBeNull());
  fireEvent.click(screen.getByText("Save identification"));
  await waitFor(()=>expect(nativeLibraries.identify).toHaveBeenCalledWith("lib","item",expect.objectContaining({identifiers:{comicvine:"123"}})));
+});
+
+it("hides excluded book providers and supports a local-only library",()=>{
+ const book={...entry,kind:"book_series"};
+ const view=render(<IdentifyPanel library={{...library,options:{...defaultNativeOptions,metadata_providers:{book_series:["comicvine"]}}} as NativeLibrary} entry={book} busy={false} onSaved={()=>{}}/>);
+ expect(screen.getByLabelText("ComicVine identification ID")).toBeTruthy();
+ expect(screen.queryByLabelText("AniList identification ID")).toBeNull();
+ expect(screen.queryByLabelText("MyAnimeList identification ID")).toBeNull();
+ view.unmount();
+ render(<IdentifyPanel library={{...library,options:{...defaultNativeOptions,metadata_providers:{book_series:[]}}} as NativeLibrary} entry={book} busy={false} onSaved={()=>{}}/>);
+ expect((screen.getByText("Search all providers") as HTMLButtonElement).disabled).toBe(true);
+ expect(screen.getByText(/No book metadata providers are enabled/)).toBeTruthy();
 });
