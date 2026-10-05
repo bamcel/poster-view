@@ -4,7 +4,7 @@ import {useMutation,useQuery,useQueryClient} from "@tanstack/react-query";
 import {api} from "../api/client";
 import {defaultServerSync,nativeLibraries,type ServerSyncOptions} from "../api/nativeLibraries";
 import {Switch} from "./ui";
-const INPUT="mt-2 w-full rounded-xl border border-edge bg-base px-3 py-2.5 text-sm text-white";
+const INPUT="mt-2 w-full rounded border border-border bg-input px-3 py-2.5 text-sm text-white";
 const BUTTON="rounded-xl border border-edge px-3 py-2 text-sm text-muted hover:bg-base disabled:opacity-50";
 const MENU_ACTION="w-full rounded-md px-3 py-3 text-left text-sm font-medium text-muted transition-colors hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50";
 const fields:Record<string,string>={title:"Title",originaltitle:"Original title",sorttitle:"Sort title",year:"Year",identifiers:"Provider IDs",plot:"Description",tagline:"Tagline",rating:"Community rating",mpaa:"Content rating",premiered:"Release date",status:"Status",genres:"Genres",tags:"Tags",studios:"Studios",credits:"Cast and crew",season:"Season number",episode:"Episode number",runtime:"Runtime"};
@@ -12,7 +12,7 @@ export default function ConnectedServerSync({value=defaultServerSync,onChange,li
  const servers=useQuery({queryKey:["servers"],queryFn:api.listServers});
  const libraries=useQuery({queryKey:["integration-libraries",value.server_id],queryFn:()=>api.getIntegrationLibraries(value.server_id!),enabled:!!value.server_id});
  const update=(patch:Partial<ServerSyncOptions>)=>onChange({...value,...patch});
- return <section className="space-y-4 rounded-2xl border border-edge p-5"><h3 className="font-semibold">Server integrations</h3>
+ return <section className="space-y-4 rounded-xl border border-border bg-window p-5"><h3 className="font-semibold">Server integrations</h3>
  <div className="flex items-center justify-between gap-4"><span>Override locked metadata<p className="text-xs text-muted">Allow incoming shared values to replace locked fields.</p></span><Switch label="Override locked metadata" checked={value.override_locked} onChange={()=>update({override_locked:!value.override_locked})}/></div>
  <div className="flex items-center justify-between gap-4"><span>Enable server integration</span><Switch label="Enable server integration" checked={value.enabled} onChange={()=>update({enabled:!value.enabled})}/></div>
  <label className="block text-sm text-muted">Integration mode<select aria-label="Integration mode" className={INPUT} value={value.mode??"two_way"} onChange={e=>update({mode:e.target.value as ServerSyncOptions["mode"]})}><option value="import_only">Import from server</option><option value="push_only">Push to servers</option><option value="two_way">Two-way sync</option></select></label>

@@ -1,12 +1,12 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { NativeLibraryOptions, NativeLibraryType } from "../api/nativeLibraries";
 
-const INPUT = "mt-2 w-full rounded-xl border border-edge bg-base px-3 py-2.5 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40";
+const INPUT = "mt-2 w-full rounded border border-border bg-input px-3 py-2.5 text-sm text-white disabled:cursor-not-allowed disabled:opacity-40";
 const LANGUAGES = {en: "English", ja: "Japanese", fr: "French", de: "German", es: "Spanish", it: "Italian", pt: "Portuguese", ko: "Korean", zh: "Chinese"};
 const COUNTRIES = {US: "United States", GB: "United Kingdom", JP: "Japan", CA: "Canada", AU: "Australia", FR: "France", DE: "Germany", ES: "Spain", IT: "Italy", BR: "Brazil", KR: "South Korea", CN: "China"};
 const LABELS: Record<string, string> = {anilist: "AniList", tmdb: "TheMovieDb", tvdb: "TheTVDB", anidb: "AniDB", mal: "MyAnimeList", omdb: "The Open Movie Database", fanart: "FanArt", capture: "Image Capture"};
 function Group({title, children}: {title: string; children: React.ReactNode}) {
-  return <section className="space-y-4 rounded-2xl border border-edge p-4 sm:p-5"><h3 className="font-semibold text-white">{title}</h3>{children}</section>;
+  return <section className="space-y-4 rounded-xl border border-border bg-window p-4 sm:p-5"><h3 className="font-semibold text-white">{title}</h3>{children}</section>;
 }
 function Toggle({label, help, checked = false, disabled = false, onChange}: {label: string; help?: string; checked?: boolean; disabled?: boolean; onChange?: (value: boolean) => void}) {
   return <label className={`flex items-start justify-between gap-4 ${disabled ? "text-faint" : "text-muted"}`}><span><span className="block text-sm font-medium">{label}</span>{help && <span className="mt-1 block text-xs leading-relaxed">{help}</span>}{disabled && <span className="mt-1 block text-xs text-faint">Not yet available in PosterView</span>}</span><span className="relative mt-1 shrink-0"><input type="checkbox" role="switch" aria-label={label} disabled={disabled} checked={checked} onChange={e => onChange?.(e.target.checked)} className="peer sr-only" /><span aria-hidden="true" className="block h-6 w-10 rounded-full bg-white/20 transition-colors after:absolute after:left-1 after:top-1 after:size-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-accent peer-checked:after:translate-x-4 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-accent peer-disabled:cursor-not-allowed peer-disabled:opacity-40" /></span></label>;
