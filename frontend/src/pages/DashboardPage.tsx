@@ -1,4 +1,4 @@
-import {useParams} from "react-router-dom";
+import {useParams} from "../lib/libraryNavigation";
 import {useEffect} from "react";
 import {useQuery} from "@tanstack/react-query";
 import {useSearchParams} from "../lib/libraryNavigation";

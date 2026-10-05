@@ -87,11 +87,11 @@ const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   { id: "security", label: "Privacy / Security", icon: <KeyRound className="size-4" /> },
 ];
 
-export default function SettingsPage() {
+export default function SettingsPage({previewSection}: {previewSection?: string} = {}) {
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const requestedTab = searchParams.get("tab");
-  const candidate = location.pathname.split("/")[2];
+  const candidate = previewSection ?? location.pathname.split("/")[2];
   const tab = TABS.find(section => section.id === candidate)?.id;
   const [saveStatus, setSaveStatus] = useState<SettingsSaveStatus>("saved");
 
@@ -101,7 +101,7 @@ export default function SettingsPage() {
     return () => window.removeEventListener("posterview:settings-save", update);
   }, []);
 
-  if (requestedTab && TABS.some(section => section.id === requestedTab)) return <Navigate replace to={`/settings/${requestedTab}`} />;
+  if (!previewSection && requestedTab && TABS.some(section => section.id === requestedTab)) return <Navigate replace to={`/settings/${requestedTab}`} />;
   if (!tab) return <ServerSettingsDashboard />;
   return (
     <div className="h-full overflow-y-auto px-4 py-4 sm:px-6 lg:px-8 xl:overflow-hidden">
@@ -119,7 +119,7 @@ export default function SettingsPage() {
           {tab === "libraries" && <NativeLibrariesSection />}
           {tab === "sources" && <ArtworkSourcesSection />}
           {tab === "database" && <DatabaseSection />}
-          {tab === "appearance" && <AppearanceSection />}
+          {tab === "appearance" && <AppearanceSection preview={!!previewSection} />}
           {tab === "security" && <SecuritySection />}
         </div>
       </div>
@@ -127,7 +127,7 @@ export default function SettingsPage() {
   );
 }
 
-function AppearanceSection() {
+function AppearanceSection({preview=false}: {preview?:boolean}) {
   const queryClient = useQueryClient();
   const [splitView, setSplitView] = useState(() => localStorage.getItem(LIVE_PREVIEW_KEY) === "true");
   useEffect(() => {
@@ -136,7 +136,7 @@ function AppearanceSection() {
   const [desktop, setDesktop] = useState(() => window.innerWidth >= 1280);
   const [settingsWidth, setSettingsWidth] = useState(40);
   const splitRef = useRef<HTMLDivElement>(null);
-  const split = splitView && desktop;
+  const split = splitView && desktop && !preview;
   useEffect(() => {
     const resize = () => setDesktop(window.innerWidth >= 1280);
     window.addEventListener("resize", resize);

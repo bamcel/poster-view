@@ -1,3 +1,5 @@
+import SettingsPage from "../pages/SettingsPage";
+import ServerSettingsDashboard from "./ServerSettingsDashboard";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createSearchParams, matchPath, type NavigateFunction, type NavigateOptions, type To, type SetURLSearchParams } from "react-router-dom";
 import { ArrowLeft, Home, Maximize, X } from "lucide-react";
@@ -24,6 +26,7 @@ export default function AppearancePreview({ onClose }: { onClose: () => void }) 
   const [history, setHistory] = useState({ entries: ["/"], index: 0 });
   const location = history.entries[history.index];
   const url = useMemo(() => new URL(location, "http://preview.local"), [location]);
+  const media = matchPath("/media/:libraryId", url.pathname);
   const item = matchPath("/server/:serverId/item/:itemId", url.pathname);
   const season = matchPath("/server/:serverId/series/:seriesId/season/:seasonId", url.pathname);
   const navigate: NavigateFunction = useCallback((to: To | number, options?: NavigateOptions) => {
@@ -38,9 +41,10 @@ export default function AppearancePreview({ onClose }: { onClose: () => void }) 
     const params = createSearchParams(typeof next === "function" ? next(new URLSearchParams(url.search)) : next);
     void navigate(`${url.pathname}?${params}`, options);
   }, [navigate, url]);
-  const navigation = { navigate, params: (season ?? item)?.params ?? {}, searchParams: url.searchParams, setSearchParams };
+  const navigation = { navigate, params: (season ?? item ?? media)?.params ?? {}, searchParams: url.searchParams, setSearchParams };
   const libraryNavigation = useRef(navigation);
-  if (url.pathname === "/") libraryNavigation.current = navigation;
+  const libraryPage = !!media || url.pathname === "/" && url.searchParams.has("native_library");
+  if (libraryPage) libraryNavigation.current = navigation;
 
   return <section aria-label="Live Dashboard preview" className="flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-base">
     <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-3 py-2">
@@ -54,12 +58,12 @@ export default function AppearancePreview({ onClose }: { onClose: () => void }) 
     <div data-testid="preview-desktop-frame" className={`${fitToWindow ? "" : "appearance-preview"} @container/library relative isolate h-full overflow-hidden [contain:layout_paint]`}
       style={fitToWindow ? { width: size.screenWidth, height: size.screenHeight, transform: `scale(${scale})`, transformOrigin: "top left", left: Math.max(0, (size.width - size.screenWidth * scale) / 2), top: Math.max(0, (size.height - size.screenHeight * scale) / 2) } : undefined}>
       <LibraryNavigationContext.Provider value={navigation}>
-      <Layout preview showPreviewChrome={fitToWindow}>
-      <div className="h-full" hidden={url.pathname !== "/"}>
+      <Layout preview previewPath={url.pathname} showPreviewChrome={fitToWindow}>
+      <div className="h-full" hidden={!libraryPage}>
         <LibraryNavigationContext.Provider value={libraryNavigation.current}><DashboardPage /></LibraryNavigationContext.Provider>
       </div>
       <LibraryNavigationContext.Provider value={navigation}>
-        {url.pathname === "/" ? null : season ? <SeasonDetailPage /> : item ? <ItemDetailPage /> : <div className="p-6 text-sm text-muted">This page is available outside the preview. Use Back or Library Home to continue previewing.</div>}
+        {libraryPage ? null : url.pathname === "/" ? <div className="h-full p-6"><h1 className="text-2xl font-semibold">Home</h1></div> : url.pathname === "/settings" ? <ServerSettingsDashboard/> : url.pathname.startsWith("/settings/") ? <SettingsPage previewSection={url.pathname.split("/")[2]}/> : season ? <SeasonDetailPage /> : item ? <ItemDetailPage /> : <div className="p-6 text-sm text-muted">This page is available outside the preview. Use Back or select a Media library to continue previewing.</div>}
       </LibraryNavigationContext.Provider>
       </Layout>
       </LibraryNavigationContext.Provider>

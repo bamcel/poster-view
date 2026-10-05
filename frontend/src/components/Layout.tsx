@@ -15,9 +15,9 @@ const navItems = [
   { to: "/history", label: "History", icon: History, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];
-export default function Layout({ children, preview = false, showPreviewChrome = true }: { children?: ReactNode; preview?: boolean; showPreviewChrome?: boolean }) {
+export default function Layout({ children, preview = false, showPreviewChrome = true, previewPath = "/" }: { children?: ReactNode; preview?: boolean; showPreviewChrome?: boolean; previewPath?: string }) {
   const location = useLocation();
-  const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,enabled:!preview});
+  const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,enabled:true});
   const previewNavigate = useLibraryNavigate();
   const showSignOut = useContext(AuthSessionContext)?.password_required !== false && !preview;
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
@@ -51,10 +51,11 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
     <div className={`flex h-full flex-col md:flex-row ${preview && !showPreviewChrome ? "[&>aside]:hidden [&>header]:hidden [&>div]:hidden" : ""}`}
       onClickCapture={preview ? event => {
         const anchor = (event.target as Element).closest("a");
-        if (!anchor || !event.currentTarget.contains(anchor) || !anchor.closest("aside, header")) return;
+        if (!anchor || !event.currentTarget.contains(anchor) ) return;
         event.preventDefault();
         event.stopPropagation();
-        if (anchor.getAttribute("href") === "/") void previewNavigate("/");
+        const href=anchor.getAttribute("href");
+        if(href?.startsWith("/")) void previewNavigate(href);
       } : undefined}>
       <header className="relative z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-sidebar/90 px-3 backdrop-blur-xl md:hidden">
         <NavLink to="/" aria-label="Go to Home" className="mr-auto min-w-0">
@@ -105,7 +106,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
               end={end}
               className={({ isActive }) =>
                 `flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors ${
-                  (preview ? label === "Home" : isActive)
+                  (preview ? previewPath === to : isActive)
                     ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]"
                     : "text-muted hover:bg-input-hover hover:text-white"
                 }`
@@ -115,9 +116,9 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
               {label}
             </NavLink>
           ))}
-          {!preview && <><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Media</h2>{libraries.data?.map(library=>{const Icon=library.library_type==="books"?BookOpen:library.library_type==="movies"?Film:Tv;return <NavLink key={library.id} to={`/media/${encodeURIComponent(library.id)}`} className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${isActive ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/><span className="truncate">{library.name}</span></NavLink>;})}{navItems.filter(item=>item.to!=="/settings").map(({to,label,icon:Icon,end})=><NavLink key={to} to={to} end={end} className={({isActive})=>`mt-2 flex h-9 items-center gap-3 rounded-md px-3 text-sm ${isActive?"bg-elevated text-white":"text-muted hover:text-white"}`}><Icon className="size-[18px]"/>{label}</NavLink>)}</>}
-          {preview && navItems.map(({to,label,icon:Icon,end})=><NavLink key={to} to={to} end={end} className="flex h-9 items-center gap-3 rounded-md px-3 text-sm text-muted"><Icon className="size-[18px]"/>{label}</NavLink>)}
-          {!preview && <><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Settings</h2>{[{section:"",label:"Dashboard",icon:LayoutDashboard},{section:"servers",label:"Integrations",icon:Server},{section:"libraries",label:"Libraries",icon:HardDrive},{section:"sources",label:"Search Providers",icon:Image},{section:"database",label:"Database",icon:Database},{section:"appearance",label:"Appearance",icon:Palette},{section:"security",label:"Privacy / Security",icon:KeyRound}].map(({section,label,icon:Icon})=><NavLink key={section} to={`/settings${section ? `/${section}` : ""}`} end className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${isActive ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/>{label}</NavLink>)}</>}
+          {<><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Media</h2>{libraries.data?.map(library=>{const Icon=library.library_type==="books"?BookOpen:library.library_type==="movies"?Film:Tv;return <NavLink key={library.id} to={`/media/${encodeURIComponent(library.id)}`} className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${(preview ? previewPath === `/media/${encodeURIComponent(library.id)}` : isActive) ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/><span className="truncate">{library.name}</span></NavLink>;})}{navItems.filter(item=>item.to!=="/settings").map(({to,label,icon:Icon,end})=><NavLink key={to} to={to} end={end} className={({isActive})=>`mt-2 flex h-9 items-center gap-3 rounded-md px-3 text-sm ${isActive?"bg-elevated text-white":"text-muted hover:text-white"}`}><Icon className="size-[18px]"/>{label}</NavLink>)}</>}
+
+          {<><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Settings</h2>{[{section:"",label:"Dashboard",icon:LayoutDashboard},{section:"servers",label:"Integrations",icon:Server},{section:"libraries",label:"Libraries",icon:HardDrive},{section:"sources",label:"Search Providers",icon:Image},{section:"database",label:"Database",icon:Database},{section:"appearance",label:"Appearance",icon:Palette},{section:"security",label:"Privacy / Security",icon:KeyRound}].map(({section,label,icon:Icon})=><NavLink key={section} to={`/settings${section ? `/${section}` : ""}`} end className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${(preview ? previewPath === `/settings${section ? `/${section}` : ""}` : isActive) ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/>{label}</NavLink>)}</>}
 
         </nav>
 

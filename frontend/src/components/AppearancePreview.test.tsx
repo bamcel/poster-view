@@ -7,6 +7,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { LibraryBackdrop, Link, useNavigate, useParams, useSearchParams } from "../lib/libraryNavigation";
 import AppearancePreview from "./AppearancePreview";
 
+vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(async()=>[{id:"anime",name:"Anime",library_type:"anime"}])}}));
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [], selectedId: null, setSelectedId: vi.fn() }) }));
 let measure: () => void;
 beforeEach(() => {
@@ -41,9 +42,10 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 function Location() { return <output data-testid="outer-location">{useLocation().pathname}{useLocation().search}</output>; }
 
-it("navigates library, series and seasons without replacing Settings or losing library state", () => {
+it("navigates library, series and seasons without replacing Settings or losing library state", async () => {
   const close = vi.fn();
   render(<MemoryRouter initialEntries={["/settings?tab=appearance"]}><Location /><AppearancePreview onClose={close} /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("link", {name:"Anime"}));
   expect(screen.getByRole("region", { name: "Live Dashboard preview" }).contains(screen.getByTestId("preview-backdrop"))).toBe(true);
   fireEvent.change(screen.getByLabelText("Filter titles"), { target: { value: "Example" } });
   fireEvent.click(screen.getByText("Choose library"));
@@ -60,13 +62,14 @@ it("navigates library, series and seasons without replacing Settings or losing l
   expect(close).toHaveBeenCalledOnce();
 });
 
-it("fits the full desktop by default and selects the icon only for pane-sized preview", () => {
+it("fits the full desktop by default and selects the icon only for pane-sized preview", async () => {
   vi.stubGlobal("innerWidth", 1600);
   vi.stubGlobal("innerHeight", 900);
   let paneWidth = 640;
   vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => paneWidth);
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(600);
   render(<MemoryRouter initialEntries={["/settings?tab=appearance"]}><Location /><AppearancePreview onClose={vi.fn()} /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole("link", {name:"Anime"}));
   fireEvent.change(screen.getByLabelText("Filter titles"), { target: { value: "Example" } });
   fireEvent.click(screen.getByText("Open series"));
   const toggle = screen.getByRole("button", { name: "Pane-sized preview" });
@@ -77,13 +80,13 @@ it("fits the full desktop by default and selects the icon only for pane-sized pr
   expect(screen.getByRole("heading", { name: "Series show" })).toBeTruthy();
   const sidebar = frame.querySelector("aside")!;
   expect(sidebar).toBeTruthy();
-  fireEvent.click(within(sidebar).getByRole("link", { name: "Settings" }));
+  expect(within(sidebar).getByRole("heading", {name:"Settings"})).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Series show" })).toBeTruthy();
   expect(screen.getByTestId("outer-location").textContent).toBe("/settings?tab=appearance");
   paneWidth = 800;
   act(() => measure());
   expect(frame.style.transform).toBe("scale(0.5)");
-  fireEvent.click(within(sidebar).getByRole("link", { name: "Home" }));
+  fireEvent.click(within(sidebar).getByRole("link", { name: "Anime" }));
   expect((screen.getByLabelText("Filter titles") as HTMLInputElement).value).toBe("Example");
   fireEvent.click(toggle);
   expect(frame.style.transform).toBe("");
