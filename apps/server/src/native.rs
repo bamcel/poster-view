@@ -263,6 +263,13 @@ async fn run_scan_scoped(
                 }
             }
             for art in &previous.artwork {
+                if entry.kind == "book" && art.source == "local" {
+                    let media = std::path::Path::new(&entry.path);
+                    let stem = media.file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+                    let filename = media.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+                    let image_stem = std::path::Path::new(&art.path).file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
+                    if image_stem != stem && !image_stem.starts_with(&format!("{stem}-")) && image_stem != filename && !image_stem.starts_with(&format!("{filename}-")) {continue;}
+                }
                 let path = if let Some(name) = art.path.strip_prefix("@managed/") {
                     state.runtime.data_dir().join("native-artwork").join(name)
                 } else {
@@ -830,18 +837,20 @@ pub(crate) mod scan_tests {
         let media = temp.path().join("media/Books/Example");
         fs::create_dir_all(&media).unwrap();
         fs::write(media.join("poster.jpg"), b"series cover").unwrap();
-        for volume in 1..=2 {
+        for volume in 1..=3 {
             fs::write(media.join(format!("Volume {volume:02}.cbz")), b"fixture").unwrap();
-            fs::write(media.join(format!("Volume {volume:02}.jpg")), b"volume cover").unwrap();
+            let cover = match volume {1=>"Volume 01.jpg",2=>"Volume 02.cbz.jpg",_=>"Volume 03-cover.PNG"};
+            fs::write(media.join(cover), b"volume cover").unwrap();
         }
         let db = store(&state);
         let library = db.save_native_library(None,&NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:NativeLibraryOptions {fetch_missing:false,..Default::default()}}).unwrap();
         run_scan(state,library.clone()).await.unwrap();
         let entries = db.native_catalog(&library.id).unwrap();
         let books: Vec<_> = entries.iter().filter(|e|e.kind=="book").collect();
-        assert_eq!(books.len(),2);
+        assert_eq!(books.len(),3);
         for book in books {
-            let expected = std::path::Path::new(&book.path).with_extension("jpg").to_string_lossy().replace('\\',"/");
+            let name = match book.title.as_str() {"Volume 01"=>"Volume 01.jpg","Volume 02"=>"Volume 02.cbz.jpg",_=>"Volume 03-cover.PNG"};
+            let expected = format!("Books/Example/{name}");
             assert_eq!(book.artwork.iter().find(|a|a.kind=="poster").unwrap().path,expected);
             assert!(!book.artwork.iter().any(|a|a.kind=="thumb"));
         }

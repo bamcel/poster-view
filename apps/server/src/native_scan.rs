@@ -770,6 +770,16 @@ pub(crate) fn collect_scoped(
         if library.options.local_artwork {
             entry.artwork = local_art(&root, dir, Some(&stem));
             if entry.kind == "book" {
+                entry.artwork.retain(|art| std::path::Path::new(&art.path).file_stem().is_some_and(|name| {
+                    let name = name.to_string_lossy().to_lowercase();
+                    name == stem.to_lowercase() || name.starts_with(&format!("{}-",stem.to_lowercase()))
+                }));
+                // Some book tools append the image extension to the complete media filename.
+                if let Some(name) = file.file_name().and_then(|name| name.to_str()) {
+                    for art in local_art(&root, dir, Some(name)) {
+                        if !entry.artwork.iter().any(|current| current.kind == art.kind) {entry.artwork.push(art);}
+                    }
+                }
                 // Filename-matched book covers are posters, not video thumbnails.
                 if let Some(mut cover) = entry.artwork.iter().find(|art| art.kind == "thumb").cloned() {
                     cover.kind = "poster".into();
@@ -783,6 +793,7 @@ pub(crate) fn collect_scoped(
                         let n = n.to_string_lossy().to_lowercase();
                         n == stem.to_lowercase()
                             || n.starts_with(&format!("{}-", stem.to_lowercase()))
+                            || (entry.kind == "book" && file.file_name().and_then(|name|name.to_str()).is_some_and(|name| n == name.to_lowercase() || n.starts_with(&format!("{}-",name.to_lowercase()))))
                     })
                 });
             }
