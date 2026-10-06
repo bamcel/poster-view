@@ -154,7 +154,7 @@ fn provider_supported(
     use posterview_contracts::native::NativeLibraryType;
     let anime = library == NativeLibraryType::Anime;
     match provider {
-        "comicvine" => library == NativeLibraryType::Books && kind == "book_series",
+        "comicvine" | "mangadex" => library == NativeLibraryType::Books && kind == "book_series",
         "anilist" => kind == "book_series" || (anime && ["movie", "series"].contains(&kind)),
         "mal" => kind == "book_series" || (anime && ["movie", "series"].contains(&kind)),
         "anidb" => {
@@ -459,7 +459,7 @@ mod tests {
         let store = ServerStore::new(dir.path());
         store.initialize().unwrap();
         let mut input = NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:Default::default()};
-        input.options.metadata_providers.insert("book_series".into(),vec!["comicvine".into(),"anilist".into(),"mal".into()]);
+        input.options.metadata_providers.insert("book_series".into(),vec!["comicvine".into(),"anilist".into(),"mal".into(),"mangadex".into()]);
         input.options.image_providers.insert("book_series".into(),vec!["comicvine".into(),"mal".into()]);
         let saved = store.save_native_library(None,&input).unwrap();
         assert_eq!(saved.options,input.options);

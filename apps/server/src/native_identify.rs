@@ -29,7 +29,7 @@ fn key(state: &AppState, name: &str) -> String {
 }
 fn book_providers(lib: &posterview_contracts::native::NativeLibrary) -> Vec<&str> {
     lib.options.metadata_providers.get("book_series")
-        .map(|providers| providers.iter().map(String::as_str).filter(|p| ["comicvine", "anilist", "mal"].contains(p)).collect())
+        .map(|providers| providers.iter().map(String::as_str).filter(|p| ["comicvine", "anilist", "mal", "mangadex"].contains(p)).collect())
         .unwrap_or_else(|| vec!["comicvine", "anilist", "mal"])
 }
 fn numeric(v: &Value) -> Option<String> {
@@ -45,6 +45,9 @@ fn comicvine_id(value: &str) -> Option<String> {
     let url = reqwest::Url::parse(value).ok()?;
     if !["https", "http"].contains(&url.scheme()) || !["comicvine.gamespot.com", "www.comicvine.gamespot.com"].contains(&url.host_str()?) { return None; }
     url.path_segments()?.find_map(|part| part.strip_prefix("4050-").and_then(|id| numeric(&json!(id))))
+}
+fn identification_id(provider: &str, value: &Value) -> bool {
+    if provider=="mangadex" { value.as_str().is_some_and(posterview_infra_artwork::valid_manga_id) } else { numeric(value).is_some() }
 }
 fn year(v: &Value) -> Value {
     v.as_i64()
@@ -400,6 +403,19 @@ async fn lookup(
                     .collect()
             }
         }
+        "mangadex" if books => {
+            let request=client.get(id.map(|id|format!("https://api.mangadex.org/manga/{id}")).unwrap_or_else(||"https://api.mangadex.org/manga".into())).query(&[("includes[]","cover_art")]);
+            let request=if id.is_some(){request}else{request.query(&[("title",title),("limit","15")])};
+            let request=if adult{request.query(&[("contentRating[]","safe"),("contentRating[]","suggestive"),("contentRating[]","erotica"),("contentRating[]","pornographic")])}else{request.query(&[("contentRating[]","safe"),("contentRating[]","suggestive")])};
+            let body=response(request.send().await.map_err(|_|"MangaDex connection failed.")?).await?;
+            let records=if id.is_some(){vec![body["data"].clone()]}else{body["data"].as_array().cloned().ok_or("MangaDex search failed.")?};
+            return Ok(records.iter().filter(|data| adult || !["erotica","pornographic"].contains(&data["attributes"]["contentRating"].as_str().unwrap_or(""))).filter_map(|data|{
+                let id=data["id"].as_str().filter(|id|posterview_infra_artwork::valid_manga_id(id))?;
+                let fields=crate::native_provider_extra::mangadex_fields(data,language);
+                let poster=data["relationships"].as_array().into_iter().flatten().find(|r|r["type"]=="cover_art").and_then(|r|r["attributes"]["fileName"].as_str()).filter(|name|name.bytes().all(|c|c.is_ascii_alphanumeric()||b"-._".contains(&c))).map(|name|format!("https://uploads.mangadex.org/covers/{id}/{name}.256.jpg"));
+                Some(json!({"provider":"mangadex","id":id,"title":fields["title"],"year":fields["year"],"overview":fields["plot"],"format":"Manga","poster":poster,"identifiers":fields["identifiers"]}))
+            }).collect());
+        }
         "comicvine" if books => {
             let token = key(state, "comicvine_api_key");
             if token.is_empty() { return Err("Configure a ComicVine API key in Search Providers.".into()); }
@@ -509,7 +525,7 @@ pub(crate) async fn search(
     };
     let mut jobs = tokio::task::JoinSet::new();
     for selected_provider in providers.iter().copied() {
-        let provider = match selected_provider {"comicvine"=>"comicvine", "anilist"=>"anilist", "mal"=>"mal", "tmdb"=>"tmdb", "tvdb"=>"tvdb", _=>"anidb"};
+        let provider = match selected_provider {"comicvine"=>"comicvine", "anilist"=>"anilist", "mal"=>"mal", "mangadex"=>"mangadex", "tmdb"=>"tmdb", "tvdb"=>"tvdb", _=>"anidb"};
         let state = state.clone();
         let client = client.clone();
         let title = input.title.clone();
@@ -562,11 +578,11 @@ pub(crate) async fn apply(
     }
     for (provider, id) in &input.identifiers {
         if (entry.kind == "book_series" && !book_providers(&lib).contains(&provider.as_str()))
-            || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "imdb", "anidb"].contains(&provider.as_str())
+            || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "imdb", "anidb", "mangadex"].contains(&provider.as_str())
             || if provider == "imdb" {
                 !id.starts_with("tt") || numeric(&json!(&id[2..])).is_none()
             } else {
-                numeric(&json!(id)).is_none()
+                !identification_id(provider, &json!(id))
             }
         {
             return Err(HttpError::bad_request("Invalid provider ID."));
@@ -618,7 +634,7 @@ pub(crate) async fn apply(
             if !id.starts_with("tt") || numeric(&json!(&id[2..])).is_none() {
                 return Err(HttpError::bad_request("Invalid linked IMDb ID."));
             }
-        } else if numeric(&json!(id)).is_none() {
+        } else if !identification_id(provider, &json!(id)) {
             return Err(HttpError::bad_request("Invalid linked provider ID."));
         }
     }
@@ -836,6 +852,12 @@ async fn anidb_lookup(
 mod tests {
     use super::*;
     #[test]
+    fn mangadex_identification_accepts_uuid_instead_of_numeric_ids() {
+        assert!(identification_id("mangadex",&json!("11111111-1111-1111-1111-111111111111")));
+        assert!(!identification_id("mangadex",&json!("123")));
+        assert!(!identification_id("anilist",&json!("11111111-1111-1111-1111-111111111111")));
+    }
+    #[test]
     fn comicvine_urls_resolve_to_volume_ids_only() {
         assert_eq!(comicvine_id("https://comicvine.gamespot.com/food-wars/4050-72430/"), Some("72430".into()));
         assert_eq!(comicvine_id("4050-72430"), Some("72430".into()));
@@ -930,8 +952,8 @@ pub(crate) async fn resolve(
         input.id = comicvine_id(&input.id).ok_or_else(|| HttpError::bad_request("Enter a ComicVine volume ID or series URL (4050), not an issue URL."))?;
     }
     if (entry.kind == "book_series" && !book_providers(&lib).contains(&input.provider.as_str()))
-        || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "anidb"].contains(&input.provider.as_str())
-        || numeric(&json!(input.id)).is_none()
+        || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "anidb", "mangadex"].contains(&input.provider.as_str())
+        || !identification_id(&input.provider, &json!(input.id))
     {
         return Err(HttpError::bad_request("Choose a valid provider record."));
     }
@@ -998,7 +1020,7 @@ pub(crate) struct MetadataPreview { provider: String }
 pub(crate) async fn metadata_preview(State(state): State<AppState>, Path((library,item)): Path<(String,String)>, Json(input): Json<MetadataPreview>) -> Result<Json<Value>,HttpError> {
     let (lib,entry)=context(&state,&library,&item).await?;
     if entry.kind != "book_series" || !book_providers(&lib).contains(&input.provider.as_str()) {return Err(HttpError::bad_request("Select an enabled book metadata provider."));}
-    if numeric(&entry.metadata["identifiers"][&input.provider]).is_none() {return Err(HttpError::bad_request("Identify this series with the selected provider first."));}
+    if !identification_id(&input.provider, &entry.metadata["identifiers"][&input.provider]) {return Err(HttpError::bad_request("Identify this series with the selected provider first."));}
     let client=client()?;
     let fields=if input.provider == "anilist" {
         let raw=crate::native_provider::anilist(&client,&entry,true,lib.options.allow_adult_metadata).await.map_err(HttpError::bad_gateway)?;

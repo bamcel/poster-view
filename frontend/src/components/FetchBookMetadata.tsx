@@ -1,7 +1,7 @@
 import {useState} from "react";
 import {Database,Loader2} from "lucide-react";
 import {nativeLibraries,type NativeLibrary,type NativeCatalogEntry} from "../api/nativeLibraries";
-const names:Record<string,string>={comicvine:"ComicVine",anilist:"AniList",mal:"MyAnimeList"};
+const names:Record<string,string>={mangadex:"MangaDex",comicvine:"ComicVine",anilist:"AniList",mal:"MyAnimeList"};
 const labels:Record<string,string>={title:"Title",originaltitle:"Original title",plot:"Description",year:"Display year",volumes:"Display volume count",chapters:"Chapters",publisher:"Publisher",status:"Status",country:"Country",genres:"Genres",tags:"Tags",original_year:"Original release year",original_volumes:"Original volume count",edition_year:"Edition publication year",edition_volumes:"Edition volume count"};
 const display=(value:unknown)=>value==null||value===""?"Empty":Array.isArray(value)?value.join(", "):String(value);
 export default function FetchBookMetadata({library,entry,busy,onSaved}:{library:NativeLibrary;entry:NativeCatalogEntry;busy:boolean;onSaved:()=>void}){

@@ -2,11 +2,11 @@ import {useRef, useState} from "react";
 import {Search, Loader2, Check, Fingerprint, ImageOff} from "lucide-react";
 import {nativeLibraries, type NativeLibrary, type NativeCatalogEntry, type IdentificationCandidate, type IdentificationGroup} from "../api/nativeLibraries";
 
-const names:Record<string,string>={comicvine:"ComicVine",anilist:"AniList",tmdb:"TheMovieDB",tvdb:"TheTVDB",mal:"MyAnimeList",imdb:"IMDb",anidb:"AniDB"};
+const names:Record<string,string>={mangadex:"MangaDex",comicvine:"ComicVine",anilist:"AniList",tmdb:"TheMovieDB",tvdb:"TheTVDB",mal:"MyAnimeList",imdb:"IMDb",anidb:"AniDB"};
 const inputClass="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent";
 export default function IdentifyPanel({library,entry,busy,onSaved}:{library:NativeLibrary;entry:NativeCatalogEntry;busy:boolean;onSaved:()=>void}) {
   const books=entry.kind==="book_series";
-  const providers=books?(library.options?.metadata_providers?.book_series??["comicvine","anilist","mal"]):Object.keys(names).filter(p=>p!=="comicvine");
+  const providers=books?(library.options?.metadata_providers?.book_series??["comicvine","anilist","mal"]):Object.keys(names).filter(p=>p!=="comicvine"&&p!=="mangadex");
   const [title,setTitle]=useState(entry.title.replace(/\s*[([](?:19|20)\d{2}[)\]]\s*$/, ""));
   const [year,setYear]=useState("");
   const [ids,setIds]=useState<Record<string,string>>({});

@@ -80,3 +80,10 @@ it("omits video setup fields for book libraries and retains relevant settings",(
  expect(screen.queryByText("Playback")).toBeNull();
  expect(screen.queryByLabelText("Generate chapters for videos without embedded chapters")).toBeNull();
 });
+
+it("enables MangaDex metadata for a book library independently of images",()=>{
+ function Books(){const [options,setOptions]=useState({...defaultNativeOptions});return <><NativeLibrarySettings options={options} type="books" animeContent="both" section={3} onChange={setOptions}/><output data-testid="books">{JSON.stringify(options)}</output></>;}
+ render(<Books/>);fireEvent.click(screen.getByLabelText("Book metadata providers: MangaDex"));
+ expect(JSON.parse(screen.getByTestId("books").textContent!).metadata_providers.book_series).toContain("mangadex");
+ expect(JSON.parse(screen.getByTestId("books").textContent!).image_providers).toEqual({});
+});

@@ -205,6 +205,14 @@ pub(crate) async fn fetch(
     parent: &Value,
 ) -> Result<Data, String> {
     match provider {
+        "mangadex" if entry.kind == "book_series" => {
+            let selected = id(&entry.metadata,"mangadex").ok_or("Identify this series with MangaDex first.")?;
+            if !posterview_infra_artwork::valid_manga_id(&selected) { return Err("Invalid MangaDex series ID.".into()); }
+            let raw = super::native_provider::response(client.get(format!("https://api.mangadex.org/manga/{selected}")).send().await.map_err(|_|"MangaDex connection failed.")?).await?;
+            let data = &raw["data"];
+            if !library.options.allow_adult_metadata && ["erotica","pornographic"].contains(&data["attributes"]["contentRating"].as_str().unwrap_or("")) { return Err("Adult metadata is disabled for this library.".into()); }
+            Ok(Data {id:Some(selected),fields:mangadex_fields(data,&library.options.metadata_language),artwork:vec![],raw:data.clone()})
+        }
         "comicvine" if entry.kind == "book_series" => {
             let selected = numeric(id(&entry.metadata, "comicvine").ok_or("Select a ComicVine series with Identify first.")?)?;
             let data = state.runtime.comicvine_metadata(&selected).await.map_err(|e| e.to_string())?;
@@ -1040,9 +1048,24 @@ async fn anidb(
     })
 }
 
+pub(super) fn mangadex_fields(data: &Value, language: &str) -> Value {
+    let attributes=&data["attributes"];
+    let title=attributes["title"][language].as_str().or(attributes["title"]["en"].as_str()).or_else(||attributes["title"].as_object()?.values().find_map(Value::as_str));
+    let plot=attributes["description"][language].as_str().or(attributes["description"]["en"].as_str());
+    let genres=attributes["tags"].as_array().into_iter().flatten().filter_map(|tag|tag["attributes"]["name"][language].as_str().or(tag["attributes"]["name"]["en"].as_str())).collect::<Vec<_>>();
+    let mut ids=json!({"mangadex":data["id"]});
+    for (link,key) in [("al","anilist"),("mal","mal")] {if let Some(value)=attributes["links"][link].as_str().filter(|id|id.parse::<u64>().is_ok_and(|n|n>0)) {ids[key]=json!(value);}}
+    json!({"title":title,"plot":plot,"year":attributes["year"],"status":attributes["status"],"genres":genres,"identifiers":ids})
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mangadex_metadata_uses_localized_fields_and_declared_links_without_credits() {
+        let fields=mangadex_fields(&json!({"id":"11111111-1111-1111-1111-111111111111","attributes":{"title":{"en":"Example","ja":"Original"},"description":{"en":"Description"},"year":2020,"status":"completed","links":{"al":"123","mal":"456"},"tags":[{"attributes":{"name":{"en":"Drama"}}}]}}),"en");
+        assert_eq!(fields["title"],"Example");assert_eq!(fields["year"],2020);assert_eq!(fields["genres"],json!(["Drama"]));assert_eq!(fields["identifiers"]["anilist"],"123");assert!(fields["credits"].is_null());
+    }
     #[test]
     fn maps_omdb_metadata_and_ignores_missing_artwork() {
         let data = map_omdb(
@@ -1086,3 +1109,4 @@ mod tests {
         assert!(parse_anidb("<anime id='1'><titles /></anime>").is_ok());
     }
 }
+

@@ -213,6 +213,7 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
     for (field, provider) in [
         ("anilistid", "anilist"),
         ("comicvineid", "comicvine"),
+        ("mangadexid", "mangadex"),
         ("tmdbid", "tmdb"),
         ("imdbid", "imdb"),
         ("tvdbid", "tvdb"),
@@ -932,8 +933,8 @@ fn write_nfo_inner(
     }
     if replace_ids {
         xml.children.retain(|node| !matches!(node, XMLNode::Element(e) if
-            ["imdbid","tmdbid","tvdbid","anilistid","malid","anidbid","comicvineid"].contains(&e.name.as_str()) ||
-            (e.name=="uniqueid" && e.attributes.get("type").is_some_and(|v| ["imdb","tmdb","tvdb","anilist","mal","anidb","comicvine"].contains(&v.to_lowercase().as_str())))));
+            ["imdbid","tmdbid","tvdbid","anilistid","malid","anidbid","comicvineid","mangadexid"].contains(&e.name.as_str()) ||
+            (e.name=="uniqueid" && e.attributes.get("type").is_some_and(|v| ["imdb","tmdb","tvdb","anilist","mal","anidb","comicvine","mangadex"].contains(&v.to_lowercase().as_str())))));
     }
     if let Some(ids) = entry.metadata["identifiers"].as_object() {
         for (provider, id) in ids {
