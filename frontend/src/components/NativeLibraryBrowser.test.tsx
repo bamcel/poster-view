@@ -291,5 +291,5 @@ it("shows book series NFO pills and a wrapping grid of volume covers",async()=>{
  expect(screen.getAllByLabelText("Colored edition")).toHaveLength(3);
  expect(screen.getByRole("heading",{name:"Example Series"}).className).toContain("poster-colored-title");
  expect(document.querySelectorAll(".poster-colored-shimmer")).toHaveLength(3);
- expect(screen.queryByText("Old Actor")).toBeNull();expect(screen.queryByText("Old Character")).toBeNull();
+ expect(screen.queryByText("Old Actor")).toBeNull();expect(screen.getByText("Old Character")).toBeTruthy();
 });

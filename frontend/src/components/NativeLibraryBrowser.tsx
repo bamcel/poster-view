@@ -827,7 +827,7 @@ function NativeDetail({
               </section>
             )}
             {entry.kind !== "series" && !entry.kind.startsWith("book") && <ItemAbout item={detail} />}
-            {library.library_type !== "books" && (library.library_type !== "anime" || animePreferences.characters) && Array.isArray(entry.metadata.characters) &&
+            {(library.library_type !== "anime" || animePreferences.characters) && Array.isArray(entry.metadata.characters) &&
               entry.metadata.characters.length > 0 && (
                 <section className="mt-8">
                   <h2 className="mb-4 text-xl font-semibold">Characters</h2>

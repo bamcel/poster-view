@@ -1028,12 +1028,12 @@ pub(crate) async fn metadata_preview(State(state): State<AppState>, Path((librar
     let client=client()?;
     let fields=if input.provider == "anilist" {
         let raw=crate::native_provider::anilist(&client,&entry,true,lib.allows_adult_metadata()).await.map_err(HttpError::bad_gateway)?;
-        json!({"title":raw["title"][if lib.options.metadata_language=="ja" {"native"} else {"english"}].as_str().or(raw["title"]["romaji"].as_str()),"originaltitle":raw["title"]["native"],"plot":raw["description"],"year":raw["startDate"]["year"],"volumes":raw["volumes"],"chapters":raw["chapters"],"status":raw["status"],"country":raw["countryOfOrigin"],"genres":raw["genres"],"tags":raw["tags"].as_array().into_iter().flatten().filter_map(|v|v["name"].as_str()).collect::<Vec<_>>()})
+        json!({"title":raw["title"][if lib.options.metadata_language=="ja" {"native"} else {"english"}].as_str().or(raw["title"]["romaji"].as_str()),"originaltitle":raw["title"]["native"],"plot":raw["description"],"year":raw["startDate"]["year"],"volumes":raw["volumes"],"chapters":raw["chapters"],"status":raw["status"],"characters":raw["characters"]["edges"].as_array().into_iter().flatten().map(|edge|json!({"id":edge["node"]["id"].to_string(),"name":edge["node"]["name"]["full"],"biography":edge["node"]["description"],"image":edge["node"]["image"]["large"],"role":edge["role"]})).collect::<Vec<_>>(),"country":raw["countryOfOrigin"],"genres":raw["genres"],"tags":raw["tags"].as_array().into_iter().flatten().filter_map(|v|v["name"].as_str()).collect::<Vec<_>>()})
     } else {
         crate::native_provider_extra::fetch(&state,&client,&posterview_infra_artwork::ArtworkService::default(),&input.provider,&lib,&entry,&Value::Null).await.map_err(HttpError::bad_gateway)?.fields
     };
     let mut fields=fields.as_object().cloned().unwrap_or_default();
-    fields.retain(|key,value| ["title","originaltitle","plot","year","volumes","chapters","publisher","status","country","genres","tags"].contains(&key.as_str()) && !value.is_null() && value.as_str().is_none_or(|text|!text.trim().is_empty()));
+    fields.retain(|key,value| ["title","originaltitle","plot","year","volumes","chapters","publisher","status","country","genres","tags","characters"].contains(&key.as_str()) && !value.is_null() && value.as_str().is_none_or(|text|!text.trim().is_empty()));
     let prefix=if input.provider=="comicvine" {"edition"} else {"original"};
     for name in ["year","volumes"] {if let Some(value)=fields.get(name).cloned() {fields.insert(format!("{prefix}_{name}"),value);}}
     Ok(Json(json!({"provider":input.provider,"fields":fields})))
