@@ -64,6 +64,12 @@ pub struct NativeLibrary {
     pub updated_at: String,
 }
 
+impl NativeLibrary {
+    pub fn allows_adult_metadata(&self) -> bool {
+        self.library_type == NativeLibraryType::Books || self.options.allow_adult_metadata
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NativeLibraryOptions {

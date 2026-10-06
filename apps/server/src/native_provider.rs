@@ -857,7 +857,7 @@ async fn enrich_one(
                 client,
                 entry,
                 library.library_type == NativeLibraryType::Books,
-                library.options.allow_adult_metadata,
+                library.allows_adult_metadata(),
             )
             .await
         } else if !token.is_empty() {
@@ -911,7 +911,7 @@ async fn enrich_one(
             warnings.push(format!("{}: provider returned no metadata.", entry.title));
             continue;
         }
-        if !library.options.allow_adult_metadata
+        if !library.allows_adult_metadata()
             && (data["isAdult"] == true || data["adult"] == true)
         {
             warnings.push(format!(

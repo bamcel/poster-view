@@ -531,7 +531,7 @@ pub(crate) async fn search(
         let title = input.title.clone();
         let movie = entry.kind == "movie";
         let books = entry.kind == "book_series";
-        let adult = lib.options.allow_adult_metadata;
+        let adult = lib.allows_adult_metadata();
         let language = lib.options.metadata_language.clone();
         jobs.spawn(async move {
             (
@@ -603,7 +603,7 @@ pub(crate) async fn apply(
             Some(id),
             entry.kind == "movie",
             (
-                lib.options.allow_adult_metadata,
+                lib.allows_adult_metadata(),
                 &lib.options.metadata_language,
                 entry.kind == "book_series",
             ),
@@ -869,6 +869,10 @@ mod tests {
     fn book_provider_choices_preserve_exclusions_and_empty_selection() {
         let mut lib: posterview_contracts::native::NativeLibrary = serde_json::from_value(json!({"id":"books","name":"Books","library_type":"books","anime_content":"both","paths":[],"revision":1,"options":{},"created_at":"","updated_at":""})).unwrap();
         assert_eq!(book_providers(&lib), vec!["comicvine", "anilist", "mal"]);
+        assert!(lib.allows_adult_metadata());
+        lib.library_type = posterview_contracts::native::NativeLibraryType::Shows;
+        assert!(!lib.allows_adult_metadata());
+        lib.library_type = posterview_contracts::native::NativeLibraryType::Books;
         lib.options.metadata_providers.insert("book_series".into(), vec!["comicvine".into()]);
         assert_eq!(book_providers(&lib), vec!["comicvine"]);
         lib.options.metadata_providers.insert("book_series".into(), vec![]);
@@ -976,7 +980,7 @@ pub(crate) async fn resolve(
             Some(&id),
             entry.kind == "movie",
             (
-                lib.options.allow_adult_metadata,
+                lib.allows_adult_metadata(),
                 &lib.options.metadata_language,
                 entry.kind == "book_series",
             ),
@@ -1023,7 +1027,7 @@ pub(crate) async fn metadata_preview(State(state): State<AppState>, Path((librar
     if !identification_id(&input.provider, &entry.metadata["identifiers"][&input.provider]) {return Err(HttpError::bad_request("Identify this series with the selected provider first."));}
     let client=client()?;
     let fields=if input.provider == "anilist" {
-        let raw=crate::native_provider::anilist(&client,&entry,true,lib.options.allow_adult_metadata).await.map_err(HttpError::bad_gateway)?;
+        let raw=crate::native_provider::anilist(&client,&entry,true,lib.allows_adult_metadata()).await.map_err(HttpError::bad_gateway)?;
         json!({"title":raw["title"][if lib.options.metadata_language=="ja" {"native"} else {"english"}].as_str().or(raw["title"]["romaji"].as_str()),"originaltitle":raw["title"]["native"],"plot":raw["description"],"year":raw["startDate"]["year"],"volumes":raw["volumes"],"chapters":raw["chapters"],"status":raw["status"],"country":raw["countryOfOrigin"],"genres":raw["genres"],"tags":raw["tags"].as_array().into_iter().flatten().filter_map(|v|v["name"].as_str()).collect::<Vec<_>>()})
     } else {
         crate::native_provider_extra::fetch(&state,&client,&posterview_infra_artwork::ArtworkService::default(),&input.provider,&lib,&entry,&Value::Null).await.map_err(HttpError::bad_gateway)?.fields

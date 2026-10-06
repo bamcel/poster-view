@@ -108,7 +108,7 @@ export function LibraryDialog({ library, seed, onClose, onSaved }: { library?: N
   const dialog = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLElement>(null);
   useEffect(() => { if (content.current) content.current.scrollTop = 0; }, [step]);
-  const save = useMutation({ mutationFn: () => nativeLibraries.save(draft.library_type === "books" ? {...draft, options:{...draft.options!, server_sync:{...defaultNativeOptions.server_sync!, enabled:false}}} : draft, library?.id), onSuccess: onSaved });
+  const save = useMutation({ mutationFn: () => nativeLibraries.save(draft.library_type === "books" ? {...draft, options:{...draft.options!, allow_adult_metadata:true, server_sync:{...defaultNativeOptions.server_sync!, enabled:false}}} : draft, library?.id), onSuccess: onSaved });
   const folders = useQuery({ queryKey: ["native-folders", path], queryFn: () => nativeLibraries.folders(path), enabled: step === 1 });
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial.current);
   const closeRef = useRef<() => void>(() => {});

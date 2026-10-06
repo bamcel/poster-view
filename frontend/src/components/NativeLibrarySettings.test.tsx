@@ -72,6 +72,7 @@ it("omits video setup fields for book libraries and retains relevant settings",(
  expect(screen.getByLabelText("Enable real-time monitoring")).toBeTruthy();
  view.rerender(<NativeLibrarySettings options={options} type="books" animeContent="both" section={3} onChange={()=>{}}/>);
  expect(screen.getByLabelText("NFO saver")).toBeTruthy();
+ expect(screen.queryByLabelText("Allow adult metadata")).toBeNull();
  expect(screen.queryByLabelText("Refresh episode placeholder titles such as TBA")).toBeNull();
  view.rerender(<NativeLibrarySettings options={options} type="books" animeContent="both" section={4} onChange={()=>{}}/>);
  expect(screen.getByLabelText("Download cover")).toBeTruthy();

@@ -210,7 +210,7 @@ pub(crate) async fn fetch(
             if !posterview_infra_artwork::valid_manga_id(&selected) { return Err("Invalid MangaDex series ID.".into()); }
             let raw = super::native_provider::response(client.get(format!("https://api.mangadex.org/manga/{selected}")).send().await.map_err(|_|"MangaDex connection failed.")?).await?;
             let data = &raw["data"];
-            if !library.options.allow_adult_metadata && ["erotica","pornographic"].contains(&data["attributes"]["contentRating"].as_str().unwrap_or("")) { return Err("Adult metadata is disabled for this library.".into()); }
+            if !library.allows_adult_metadata() && ["erotica","pornographic"].contains(&data["attributes"]["contentRating"].as_str().unwrap_or("")) { return Err("Adult metadata is disabled for this library.".into()); }
             Ok(Data {id:Some(selected),fields:mangadex_fields(data,&library.options.metadata_language),artwork:vec![],raw:data.clone()})
         }
         "comicvine" if entry.kind == "book_series" => {
@@ -267,7 +267,7 @@ async fn mal(
                     ("q", super::native_provider::search_title(entry)),
                     ("limit", "20".into()),
                     ("fields", fields.into()),
-                    ("nsfw", library.options.allow_adult_metadata.to_string()),
+                    ("nsfw", library.allows_adult_metadata().to_string()),
                 ])
                 .send()
                 .await
@@ -299,7 +299,7 @@ async fn mal(
             .map_err(|_| "MyAnimeList connection failed.")?,
     )
     .await?;
-    if !library.options.allow_adult_metadata && raw["nsfw"].as_str().is_some_and(|v| v != "white") {
+    if !library.allows_adult_metadata() && raw["nsfw"].as_str().is_some_and(|v| v != "white") {
         return Err("Adult metadata matching is disabled.".into());
     }
     let preferred = raw["alternative_titles"][if library.options.metadata_language == "ja" {
@@ -948,7 +948,7 @@ async fn anidb(
         .attributes
         .get("restricted")
         .is_some_and(|v| v == "true" || v == "1");
-    if restricted && !library.options.allow_adult_metadata {
+    if restricted && !library.allows_adult_metadata() {
         return Err("Adult metadata matching is disabled.".into());
     }
     if entry.kind == "episode" {
