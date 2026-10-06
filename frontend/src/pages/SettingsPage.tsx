@@ -51,7 +51,7 @@ import {
 } from "../lib/theme";
 import ProviderConnection, { providerStatus } from "../components/ProviderConnection";
 import SecuritySection from "../components/SecuritySection";
-import NativeLibrariesSection from "../components/NativeLibrariesSection";
+import NativeLibrariesSection, {NativeLibraryCount} from "../components/NativeLibrariesSection";
 import AppearancePreview from "../components/AppearancePreview";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
 import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROP_OVERLAY, DEFAULT_BACKDROPS_ENABLED, DEFAULT_PANEL_OVERLAY, DEFAULT_PANEL_SOLIDITY, DEFAULT_PILL_BACKGROUND_OPACITY, pillBackgroundOpacity, setPillBackgroundOpacity, backdropBlur, backdropOverlay, dashboardAppearance, dashboardBackdropEnabled, panelOverlay, panelSolidity, setBackdropBlur, setBackdropOverlay, setDashboardBackdropEnabled, setPanelOverlay, setPanelSolidity } from "../lib/dashboardSettings";
@@ -116,10 +116,11 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
       <div className="flex min-h-full w-full flex-col gap-4 xl:h-full xl:min-h-0">
         <h1 className="text-2xl font-semibold">{TABS.find(section => section.id === tab)?.label}</h1>
 
-        <div className="flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className={tab === "libraries" ? "flex items-end justify-between gap-4 border-b border-border pb-1" : "flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"}>
           <span role="status" className={`shrink-0 self-end text-xs sm:self-auto ${saveStatus === "error" ? "text-danger" : "text-accent"}`}>
             {tab === "libraries" ? "Save changes in the library dialog." : saveStatus === "saving" ? "Saving settings…" : saveStatus === "error" ? "Settings could not be saved." : "Settings saved automatically."}
           </span>
+          {tab === "libraries" && <NativeLibraryCount/>}
         </div>
 
         <div className="min-h-0 flex-1">

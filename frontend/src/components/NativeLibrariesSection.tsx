@@ -21,6 +21,11 @@ function overlap(paths: string[]): boolean {
   return paths.some((p, i) => paths.slice(0, i).some(other => !p || !other || p === other || p.startsWith(`${other}/`) || other.startsWith(`${p}/`)));
 }
 
+export function NativeLibraryCount() {
+  const libraries = useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list});
+  return <span className="shrink-0 text-xs text-muted">{libraries.data?.length ?? 0} Libraries</span>;
+}
+
 export default function NativeLibrariesSection() {
   const [, refreshAppearance] = useState(0);
   useEffect(() => {
@@ -45,7 +50,6 @@ export default function NativeLibrariesSection() {
   const close = () => { setEditing(null); trigger.current?.focus(); };
   return <section className="h-full overflow-y-auto py-3">
     <div className="relative mb-8 flex flex-wrap items-center justify-center gap-3">
-      <span className="text-sm text-muted">{libraries.data?.length ?? 0} Libraries</span>
       <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />New Library</button>
       <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50" disabled={!libraries.data?.length || scanAll.isPending} onClick={() => scanAll.mutate()}><RefreshCw className={`size-4 ${scanAll.isPending ? "animate-spin" : ""}`} />Scan Libraries</button>
       <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>setImporting(true)}><FolderPlus className="size-4" />Import library</button>
