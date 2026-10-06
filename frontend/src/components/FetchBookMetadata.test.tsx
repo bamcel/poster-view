@@ -13,8 +13,14 @@ it("reviews values and applies selected fields from multiple providers without c
  fireEvent.click(screen.getByRole("button",{name:"Fetch"}));await screen.findByText("English description");
  expect((screen.getByLabelText("Apply Description") as HTMLInputElement).checked).toBe(false);
  fireEvent.click(screen.getByLabelText("Apply Description"));fireEvent.click(screen.getByLabelText("Apply Display year"));
- fireEvent.change(screen.getByLabelText("Metadata provider"),{target:{value:"anilist"}});
- fireEvent.click(screen.getByRole("button",{name:"Fetch"}));await screen.findByText("FINISHED");
+ fireEvent.click(screen.getByRole("tab",{name:"AniList"}));await screen.findAllByText("FINISHED");
+ expect(screen.getByText("Current · Pending ComicVine")).toBeTruthy();
+ expect(screen.getByText("2020")).toBeTruthy();
+ expect(screen.getByRole("tab",{name:"AniList"}).getAttribute("aria-selected")).toBe("true");
+ fireEvent.click(screen.getByRole("tab",{name:"ComicVine"}));
+ expect(screen.getAllByText("English description").length).toBe(2);
+ expect((screen.getByLabelText("Apply Description") as HTMLInputElement).checked).toBe(true);
+ expect(nativeLibraries.metadataPreview).toHaveBeenCalledTimes(2);
  fireEvent.click(screen.getByRole("button",{name:"Apply 4 selected fields"}));
  await waitFor(()=>expect(saved).toHaveBeenCalledOnce());
  expect(nativeLibraries.editItem).toHaveBeenCalledWith("lib",entry,{plot:"English description",year:2020,publisher:"Viz",status:"FINISHED",book_provider_sources:{plot:"comicvine",year:"comicvine",publisher:"comicvine",status:"anilist"}});
