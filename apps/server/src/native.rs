@@ -135,9 +135,23 @@ pub(crate) async fn catalog(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<posterview_contracts::native::NativeCatalogEntry>>, HttpError> {
-    library(&state, &id).await?;
+    let library = library(&state, &id).await?;
     let store = store(&state);
-    tokio::task::spawn_blocking(move || store.native_catalog(&id))
+    tokio::task::spawn_blocking(move || {
+        let entries = store.native_catalog(&id)?;
+        if library.library_type == NativeLibraryType::Books && store.native_scan_status(&id)?.status != "scanning" {
+            let mut expected = entries.iter().filter(|e|e.available).cloned().collect::<Vec<_>>();
+            crate::native_scan::book_placeholders(&mut expected);
+            let additions = expected.into_iter().filter(|e|e.metadata["missing"] == true && !entries.iter().any(|old|old.available && old.path==e.path)).collect::<Vec<_>>();
+            if !additions.is_empty() {
+                // Backfill only new catalog targets; leave scanned files and existing artwork untouched.
+                let scopes = additions.iter().map(|e|e.path.clone()).collect::<Vec<_>>();
+                store.ingest_native_catalog_scoped(&id, library.revision, &additions, Some(&scopes))?;
+                return store.native_catalog(&id);
+            }
+        }
+        Ok(entries)
+    })
         .await
         .map_err(|_| HttpError::bad_request("Catalog request interrupted."))?
         .map(Json)
@@ -840,6 +854,22 @@ pub(crate) mod scan_tests {
         assert_eq!(fs::read_to_string(folder.join("tvshow.nfo")).unwrap(), xml);
         assert_eq!(fs::read(folder.join("poster.jpg")).unwrap(), b"original poster");
         assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["posteredit"]["mode"], "overlay");
+    }
+
+    #[tokio::test]
+    async fn opening_existing_book_catalog_backfills_missing_cards_without_rescanning() {
+        let temp=tempfile::tempdir().unwrap();let state=state(temp.path());let db=store(&state);
+        let library=db.save_native_library(None,&NativeLibraryInput{name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:NativeLibraryOptions{fetch_missing:false,..Default::default()}}).unwrap();
+        let series=posterview_contracts::native::NativeCatalogEntry{id:String::new(),path:"Books/Test".into(),kind:"book_series".into(),parent_path:None,title:"Test".into(),metadata:serde_json::json!({"volumes":21}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+        let mut entries=vec![series.clone()];
+        for n in 1..=11 {let mut volume=series.clone();volume.path=format!("Books/Test/Test v{n:02}.cbz");volume.parent_path=Some(series.path.clone());volume.kind="book".into();volume.title=format!("Volume {n:02}");volume.metadata=serde_json::json!({"volume":""});entries.push(volume);}
+        db.ingest_native_catalog(&library.id,library.revision,&entries).unwrap();
+        let before=db.native_catalog(&library.id).unwrap();
+        let result=catalog(State(state.clone()),Path(library.id.clone())).await.unwrap().0;
+        let missing=result.iter().filter(|e|e.available && e.metadata["missing"]==true).collect::<Vec<_>>();
+        assert_eq!(missing.len(),10);assert!(missing.iter().any(|e|e.metadata["volume"]==12));assert!(missing.iter().any(|e|e.metadata["volume"]==21));
+        for old in before {assert_eq!(serde_json::to_value(result.iter().find(|e|e.id==old.id).unwrap()).unwrap(),serde_json::to_value(&old).unwrap());}
+        let again=catalog(State(state),Path(library.id)).await.unwrap().0;assert_eq!(serde_json::to_value(&again).unwrap(),serde_json::to_value(&result).unwrap());
     }
 
     #[tokio::test]

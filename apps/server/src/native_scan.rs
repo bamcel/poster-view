@@ -843,7 +843,7 @@ pub(crate) fn book_placeholders(entries: &mut Vec<NativeCatalogEntry>) {
     for entry in entries.iter_mut().filter(|e| e.kind == "book") {
         let filename = Path::new(&entry.path).file_stem().unwrap_or_default().to_string_lossy();
         let key = if !entry.metadata["chapter"].is_null() || chapter.is_match(&entry.title) || chapter.is_match(&filename) {"chapter"} else {"volume"};
-        if entry.metadata[key].is_null() {
+        if entry.metadata[key].as_u64().or_else(||entry.metadata[key].as_str().and_then(|v|v.trim().parse::<u64>().ok())).is_none() {
             if let Some(found) = number.captures(&filename).or_else(||number.captures(&entry.title)) {entry.metadata[key] = json!(found[1].parse::<u64>().unwrap_or(0));}
         }
         entry.metadata["missing"] = json!(false);
