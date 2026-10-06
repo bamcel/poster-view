@@ -1109,4 +1109,3 @@ mod tests {
         assert!(parse_anidb("<anime id='1'><titles /></anime>").is_ok());
     }
 }
-

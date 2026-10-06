@@ -141,6 +141,11 @@ INSERT INTO schema_migrations(version,name) VALUES(2,'native_scan_options_and_ar
 "#,
         )?;
     }
+    // Reverse foreign-key lookups must not scan whole tables during library deletion.
+    tx.execute_batch("CREATE INDEX IF NOT EXISTS native_library_item_reverse ON native_library_items(item_id);
+        CREATE INDEX IF NOT EXISTS native_source_item_reverse ON native_catalog_sources(item_id);
+        CREATE INDEX IF NOT EXISTS catalog_item_file_reverse ON catalog_item_files(file_id);
+        CREATE INDEX IF NOT EXISTS catalog_item_nfo_reverse ON catalog_item_nfo(document_id);")?;
     tx.commit()?;
     Ok(())
 }
@@ -453,6 +458,16 @@ impl ServerStore {
 mod tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryType};
+    #[test]
+    fn catalog_reads_remain_available_during_library_deletion() {
+        let dir=tempfile::tempdir().unwrap();let store=ServerStore::new(dir.path());store.initialize().unwrap();
+        let input=NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:Default::default()};
+        let saved=store.save_native_library(None,&input).unwrap();
+        let mut writer=store.connection().unwrap();let tx=writer.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
+        tx.execute("DELETE FROM native_libraries WHERE id=?1",[&saved.id]).unwrap();
+        assert_eq!(store.native_libraries().unwrap().len(),1);
+        tx.commit().unwrap();assert!(store.native_libraries().unwrap().is_empty());
+    }
     #[test]
     fn book_libraries_accept_comicvine_metadata_and_image_orders() {
         let dir = tempfile::tempdir().unwrap();

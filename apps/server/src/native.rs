@@ -31,7 +31,7 @@ pub(crate) async fn list(
     let libraries = tokio::task::spawn_blocking(move || ServerStore::new(dir).native_libraries())
         .await
         .map_err(|_| HttpError::bad_request("Library request interrupted."))?
-        .map_err(error)?;
+        .map_err(|e| {tracing::error!(%e,"Could not load native libraries");HttpError::bad_gateway("Unable to load libraries. Please retry.")})?;
     Ok(Json(libraries))
 }
 

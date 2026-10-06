@@ -91,6 +91,7 @@ impl ServerStore {
         }
         self.cipher()?;
         let connection = self.connection()?;
+        connection.pragma_update(None,"journal_mode","WAL")?;
         connection.execute_batch(SCHEMA)?;
         migrate(&connection)?;
         native::migrate(&connection)?;
