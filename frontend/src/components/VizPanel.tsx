@@ -1,3 +1,4 @@
+import {applyArtworkBatch} from "../lib/artworkBatch";
 import { invalidateArtworkItems } from "../lib/artworkTarget";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -129,38 +130,20 @@ export default function VizPanel({
         : [],
     [artwork, item],
   );
+  const [failedAssignments,setFailedAssignments]=useState<typeof assignments>([]);
+  useEffect(()=>setFailedAssignments([]),[catalogUrl,item.id]);
   const applyAll = async () => {
-    setBatchProgress({ current: 0, total: assignments.length });
-    let completed = 0;
+    const pending=failedAssignments.length?failedAssignments:assignments;
+    setBatchProgress({current:0,total:pending.length});
     try {
-      for (const { member, art } of assignments) {
-        const result = await api.applyPoster({
-          server_id: serverId,
-          item_id: member.id,
-          target: "poster",
-          provider: database,
-          download_url: art.download_url,
-          item_title: `${item.title} — ${member.title}`,
-        });
-        if (!result.ok) throw new Error(`${member.title}: ${result.message}`);
-        completed += 1;
-        setBatchProgress({ current: completed, total: assignments.length });
-      }
-      await Promise.all([
-        client.invalidateQueries({
-          queryKey: ["item-detail", serverId, item.id],
-        }),
-        invalidateArtworkItems(client, serverId, item.id),
-      ]);
-      toast.push("success", `Updated ${completed} volume covers.`);
-    } catch (error) {
-      toast.push(
-        "error",
-        `Updated ${completed} covers. ${(error as Error).message}`,
-      );
-    } finally {
-      setBatchProgress(null);
-    }
+      const result=await applyArtworkBatch(pending,async ({member,art})=>{
+        const response=await api.applyPoster({server_id:serverId,item_id:member.id,target:"poster",provider:database,download_url:art.download_url,item_title:`${item.title} — ${member.title}`});
+        if(!response.ok)throw new Error(`${member.title}: ${response.message}`);
+      },current=>setBatchProgress({current,total:pending.length}));
+      setFailedAssignments(result.failed);
+      await Promise.all([client.invalidateQueries({queryKey:["item-detail",serverId,item.id]}),invalidateArtworkItems(client,serverId,item.id)]);
+      toast.push(result.failed.length?"error":"success",result.failed.length?`Updated ${result.completed} covers; ${result.failed.length} failed. Retry failed covers to finish. ${result.errors[0]}`:`Updated ${result.completed} volume covers.`);
+    } finally {setBatchProgress(null);}
   };
   const submitSearch = () => {
     const value = input.trim();
@@ -306,7 +289,7 @@ export default function VizPanel({
         >
           {batchProgress
             ? `Applying ${batchProgress.current} of ${batchProgress.total}…`
-            : `Apply matching covers to ${assignments.length} volumes`}
+            : failedAssignments.length ? `Retry ${failedAssignments.length} failed covers` : `Apply matching covers to ${assignments.length} volumes`}
         </button>
       )}
       <div className="grid grid-cols-2 gap-3">
