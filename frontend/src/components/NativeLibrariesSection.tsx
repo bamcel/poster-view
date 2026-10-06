@@ -1,7 +1,9 @@
 import {BACKDROP_BLUR_EVENT, PANEL_SOLIDITY_EVENT, PANEL_OVERLAY_EVENT, backdropBlur, panelSolidity, panelOverlay, translucentPanelColor} from "../lib/dashboardSettings";
 import ImportServerLibrary from "./ImportServerLibrary";
 import LibraryPosterStrip from "./LibraryPosterStrip";
-import ConnectedServerSync, {SyncActions} from "./ConnectedServerSync";
+import {SyncActions} from "./ConnectedServerSync";
+import {useServerConnectPlugin} from "../lib/serverConnectPlugin";
+import {api} from "../api/client";
 import NativeScanProgress from "./NativeScanProgress";
 import { useEffect, useRef, useState } from "react";
 import LibrarySettings from "./NativeLibrarySettings";
@@ -36,6 +38,9 @@ export default function NativeLibrariesSection() {
   }, []);
   const actionStyle = {backgroundColor: translucentPanelColor("--color-surface-2", panelSolidity(), panelOverlay()), backdropFilter: `blur(${backdropBlur()}px)`};
   const libraries = useQuery({ queryKey: ["native-libraries"], queryFn: nativeLibraries.list });
+  const plugin = useServerConnectPlugin();
+  const servers = useQuery({queryKey:["servers"],queryFn:api.listServers,enabled:plugin.data?.enabled === true});
+  const canImport = plugin.data?.enabled === true && !!servers.data?.length;
   const [importing,setImporting]=useState(false);
   const [editing, setEditing] = useState<NativeLibrary | "new" | null>(null);
   const client = useQueryClient();
@@ -52,14 +57,14 @@ export default function NativeLibrariesSection() {
     <div className="relative mb-8 flex flex-wrap items-center justify-center gap-3">
       <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />New Library</button>
       <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50" disabled={!libraries.data?.length || scanAll.isPending} onClick={() => scanAll.mutate()}><RefreshCw className={`size-4 ${scanAll.isPending ? "animate-spin" : ""}`} />Scan Libraries</button>
-      <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>setImporting(true)}><FolderPlus className="size-4" />Import library</button>
+      {canImport && <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>setImporting(true)}><FolderPlus className="size-4" />Import library</button>}
     </div>
     {scanAll.error && <p role="alert" className="mb-4 text-sm text-danger">{scanAll.error.message}</p>}
     {libraries.isPending && <p role="status" className="text-muted">Loading libraries…</p>}
     {libraries.error && <div role="alert" className="text-danger">{libraries.error.message} <button className={BUTTON} onClick={() => void libraries.refetch()}>Retry</button></div>}
     {libraries.data?.length === 0 && <div className="rounded-2xl border border-dashed border-edge p-10 text-center text-muted"><FolderPlus className="mx-auto mb-3 size-8 text-accent" /><p>No libraries yet.</p><p className="mt-1 text-sm">Choose a type and select folders inside /media to get started.</p></div>}
     <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">{libraries.data?.map(library => <LibraryCard key={library.id} library={library} onEdit={button=>{trigger.current=button;setEditing(library);}} />)}</div>
-    {importing&&<ImportServerLibrary onClose={()=>setImporting(false)} onSaved={()=>{setImporting(false);void client.invalidateQueries({queryKey:["native-libraries"]});}}/>}
+    {importing&&canImport&&<ImportServerLibrary onClose={()=>setImporting(false)} onSaved={()=>{setImporting(false);void client.invalidateQueries({queryKey:["native-libraries"]});}}/>}
     {editing && <LibraryDialog library={editing === "new" ? undefined : editing} onClose={close} onSaved={() => { void client.invalidateQueries({ queryKey: ["native-libraries"] }); close(); }} />}
   </section>;
 }
@@ -163,7 +168,6 @@ export function LibraryDialog({ library, seed, onClose, onSaved }: { library?: N
             {draft.paths.length > 32 && <p role="alert" className="text-sm text-danger">Choose at most 32 folders.</p>}
           </div>}
           {[2, 3, 4, 5].includes(step) && <LibrarySettings options={{...defaultNativeOptions, ...draft.options}} type={draft.library_type} animeContent={draft.anime_content} section={step} onChange={options => setDraft(previous => ({...previous, options}))} />}
-          {step === 5 && draft.library_type !== "books" && <ConnectedServerSync value={draft.options?.server_sync} library={library?.id} onChange={server_sync=>setDraft(previous=>({...previous,options:{...defaultNativeOptions,...previous.options,server_sync}}))}/>}
           {step === 6 && <div className="space-y-5"><div><h3 className="font-medium text-white">Review your library</h3><p className="mt-1 text-sm text-muted">Folders are validated before the configuration is saved.</p></div><dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm"><dt className="text-faint">Name</dt><dd className="break-all text-white">{draft.name || "Not set"}</dd><dt className="text-faint">Type</dt><dd className="text-white">{TYPES[draft.library_type]}</dd>{draft.library_type === "anime" && <><dt className="text-faint">Content</dt><dd className="text-white">{draft.anime_content === "both" ? "Mixed" : draft.anime_content === "shows" ? "Shows only" : "Movies only"}</dd></>}</dl><div className="rounded-xl border border-border p-4"><h4 className="mb-2 text-sm text-white">Media roots</h4>{draft.paths.map(p => <p key={p} className="break-all text-sm text-muted">{displayPath(p)}</p>)}</div><p className="text-sm text-muted">New libraries scan after saving. Local files are written only when Save metadata to NFO is enabled. Existing libraries can be scanned from their library card.</p>{(basicsInvalid || pathsInvalid) && <p role="alert" className="text-sm text-danger">Enter a name and select 1–32 folders without overlaps before saving.</p>}</div>}
           {save.error && <p role="alert" className="mt-5 text-sm text-danger">{save.error.message}</p>}
         </main>

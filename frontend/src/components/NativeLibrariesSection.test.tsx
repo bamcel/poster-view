@@ -1,6 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import {api} from "../api/client";
+import {useServerConnectPlugin} from "../lib/serverConnectPlugin";
+vi.mock("../api/client",()=>({api:{listServers:vi.fn()}}));
+vi.mock("../lib/serverConnectPlugin",()=>({useServerConnectPlugin:vi.fn()}));
 import NativeLibrariesSection, { LibraryDialog } from "./NativeLibrariesSection";
 import { defaultNativeOptions, nativeLibraries, type NativeLibrary } from "../api/nativeLibraries";
 
@@ -10,6 +14,8 @@ function mount(component: React.ReactNode) {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{component}</QueryClientProvider>);
 }
 beforeEach(() => {
+  vi.mocked(useServerConnectPlugin).mockReturnValue({data:{enabled:false,pinned:false}} as ReturnType<typeof useServerConnectPlugin>);
+  vi.mocked(api.listServers).mockResolvedValue([]);
   vi.mocked(nativeLibraries.list).mockResolvedValue([]);
   vi.mocked(nativeLibraries.previews).mockResolvedValue([]);
   vi.mocked(nativeLibraries.save).mockResolvedValue(saved);
@@ -90,7 +96,7 @@ it("groups library actions in the menu and confirms removal", async () => {
 it("starts scans for every library from the top toolbar", async () => {
   vi.mocked(nativeLibraries.list).mockResolvedValue([saved, {...saved, id: "second", name: "TV"}]);
   mount(<NativeLibrariesSection />);
-  await screen.findByText("2 Libraries");
+  await screen.findByText("Anime");
   fireEvent.click(screen.getByRole("button", {name: "Scan Libraries"}));
   await waitFor(() => expect(nativeLibraries.scan).toHaveBeenCalledWith("library"));
   expect(nativeLibraries.scan).toHaveBeenCalledWith("second");
@@ -134,4 +140,17 @@ it("skips Advanced and Server Connect when setting up a book library",()=>{
  expect(screen.getByText("Review your library")).toBeTruthy();
  fireEvent.click(screen.getByRole("button",{name:"Back"}));
  expect(screen.getByText("Local Artwork")).toBeTruthy();
+});
+
+it("shows Import Library only when Server Connect is enabled and connected",async()=>{
+ vi.mocked(useServerConnectPlugin).mockReturnValue({data:{enabled:true,pinned:false}} as ReturnType<typeof useServerConnectPlugin>);
+ vi.mocked(api.listServers).mockResolvedValue([{id:1,name:"Emby",type:"emby",base_url:"http://server",is_default:true,nfo_metadata_enabled:false,has_token:true,created_at:"",updated_at:""}]);
+ mount(<NativeLibrariesSection/>);
+ expect(await screen.findByRole("button",{name:"Import library"})).toBeTruthy();
+ cleanup();vi.mocked(api.listServers).mockResolvedValue([]);
+ mount(<NativeLibrariesSection/>);
+ await waitFor(()=>expect(screen.queryByText("Loading libraries…")).toBeNull());
+ expect(screen.queryByRole("button",{name:"Import library"})).toBeNull();
+ cleanup();vi.mocked(useServerConnectPlugin).mockReturnValue({data:{enabled:false,pinned:false}} as ReturnType<typeof useServerConnectPlugin>);
+ mount(<NativeLibrariesSection/>);expect(screen.queryByRole("button",{name:"Import library"})).toBeNull();
 });

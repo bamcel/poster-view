@@ -773,7 +773,7 @@ function ServerCard({
         </IconBtn>
       </div>
 
-      <p className="mt-3 text-xs text-muted">Integration connection for importing metadata and pushing supported updates. Map libraries in Settings → Libraries.</p>
+      <p className="mt-3 text-xs text-muted">Integration connection for importing metadata and pushing supported updates. Manage library connections below in Server Connect.</p>
     </div>
   );
 }
