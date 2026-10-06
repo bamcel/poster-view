@@ -9,5 +9,5 @@ it("uses one persistent per-library choice for every animated artwork type",()=>
  expect(animatedArtworkEnabled("anime")).toBe(false);
  expect(animatedArtworkEnabled("movies")).toBe(true);
  view.unmount();render(<ArtworkPreferences library="anime"/>);
- expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("false");
+ expect(screen.getByRole("switch",{name:"Display animated artwork"}).getAttribute("aria-checked")).toBe("false");
 });

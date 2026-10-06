@@ -9,6 +9,7 @@ import "./posterEffects.css";
 import AnimatedArtwork from "./AnimatedArtwork";
 
 interface PosterCardProps {
+  animationOnHover?: boolean;
   backdropView?: boolean;
   coloredTitle?: boolean;
   selectionMode?: boolean;
@@ -28,6 +29,7 @@ interface PosterCardProps {
 }
 
 export default function PosterCard({
+  animationOnHover = false,
   backdropView = false,
   coloredTitle = false,
   selectionMode = false,
@@ -45,6 +47,8 @@ export default function PosterCard({
   onEditMetadata,
   refreshing,
 }: PosterCardProps) {
+  const [hovered,setHovered]=useState(false);
+  const [focused,setFocused]=useState(false);
   const Placeholder =
     kind === "book" || kind === "audiobook"
       ? BookOpen
@@ -94,6 +98,7 @@ export default function PosterCard({
       >
         {image && !failed ? (
           <AnimatedArtwork
+            active={!animationOnHover || hovered || focused}
             src={image}
             alt={title}
             className="h-full w-full object-cover"
@@ -133,7 +138,7 @@ export default function PosterCard({
   );
 
   return onOpen ? (
-    <div className="group/selection relative" onMouseLeave={() => setMenuOpen(false)}>
+    <div className="group/selection relative" onMouseEnter={()=>setHovered(true)} onMouseLeave={() => {setMenuOpen(false);setHovered(false);}} onFocus={()=>setFocused(true)} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))setFocused(false);}}>
       <button
         ref={triggerRef}
         type="button"

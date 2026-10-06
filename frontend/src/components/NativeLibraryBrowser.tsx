@@ -211,7 +211,7 @@ export default function NativeLibraryBrowser({
 }) {
   const { enabled: backdropView } = useBackdropView(library.id);
   const [, , bookDisplay] = useTrackingOverlays(library.library_type === "books");
-  useAnimatedArtworkPreference(library.id);
+  const {hoverOnly}=useAnimatedArtworkPreference(library.id);
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
   const status = useQuery({
@@ -454,6 +454,7 @@ export default function NativeLibraryBrowser({
             <div className={backdropView ? backdropGrid : posterGrid}>
               {visible.map((entry) => (
                 <PosterCard
+                  animationOnHover={hoverOnly}
                   key={entry.id}
                   coloredEffect={library.library_type === "books" && String(entry.metadata.edition ?? "").trim().toLowerCase() === "colored" ? bookDisplay.coloredEffect : "off"}
                   coloredTitle={library.library_type === "books" && String(entry.metadata.edition ?? "").trim().toLowerCase() === "colored" && bookDisplay.coloredTitle}
@@ -529,7 +530,7 @@ function NativeDetail({
   showBackdrop: boolean;
   overlay: number;
 }) {
-  useAnimatedArtworkPreference(library.id);
+  const {hoverOnly}=useAnimatedArtworkPreference(library.id);
   const {value:animePreferences} = useAnimePreferences(library.id);
   const parent = entries.find((e) => e.path === entry.parent_path);
   const series =
@@ -752,6 +753,7 @@ function NativeDetail({
                     .filter((e) => e.kind !== "episode")
                     .map((child) => (
                       <PosterCard
+                  animationOnHover={hoverOnly}
                         key={child.id}
                         coloredEffect={library.library_type === "books" && String(child.metadata.edition ?? entry.metadata.edition ?? "").trim().toLowerCase() === "colored" ? bookDisplay.coloredEffect : "off"}
                         coloredTitle={library.library_type === "books" && String(child.metadata.edition ?? entry.metadata.edition ?? "").trim().toLowerCase() === "colored" && bookDisplay.coloredTitle}
