@@ -122,6 +122,10 @@ fn image_url(value: &Value) -> Option<&str> {
         provider_https(url, &["wixmp.com", "deviantart.net", "deviantart.com"]).is_ok()
     })
 }
+fn animated_url(url: &str) -> bool {
+    let path = url.split(['?', '#']).next().unwrap_or(url).to_ascii_lowercase();
+    [".gif", ".webm"].iter().any(|extension| path.ends_with(extension))
+}
 fn map_art(row: &Value, item: &ItemDetail) -> Option<ArtworkItem> {
     if row["is_mature"].as_bool().unwrap_or(false) {
         return None;
@@ -142,7 +146,9 @@ fn map_art(row: &Value, item: &ItemDetail) -> Option<ArtworkItem> {
         manga: None,
         id: format!("deviantart-{}", row["deviationid"].as_str()?),
         provider: "deviantart".into(),
-        artwork_type: if width > height {
+        artwork_type: if animated_url(url) {
+            "animated"
+        } else if width > height {
             "background"
         } else {
             "poster"
@@ -217,6 +223,10 @@ mod tests {
         assert_eq!(art.thumb_url, "https://images.wixmp.com/thumb.jpg");
         raw["content"]["width"] = json!(500);
         assert_eq!(map_art(&raw, &item).unwrap().artwork_type, "poster");
+        raw["content"]["src"] = json!("https://images.wixmp.com/art.GIF?token=example");
+        assert_eq!(map_art(&raw, &item).unwrap().artwork_type, "animated");
+        raw["content"]["src"] = json!("https://images.wixmp.com/art.webm");
+        assert_eq!(map_art(&raw, &item).unwrap().artwork_type, "animated");
         raw["is_mature"] = json!(true);
         assert!(map_art(&raw, &item).is_none());
         raw["is_mature"] = json!(false);

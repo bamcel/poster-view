@@ -95,7 +95,7 @@ export interface NfoMetadata {
 
 // --- Artwork providers (Fanart.tv / AniList / TheTVDB) ---
 
-export type ArtworkType = "poster" | "background" | "banner" | "logo";
+export type ArtworkType = "poster" | "background" | "banner" | "logo" | "animated";
 
 export interface ArtworkItem {
   manga?: { mangadex_id: string; volume: string | null; locale: string | null; description: string | null };

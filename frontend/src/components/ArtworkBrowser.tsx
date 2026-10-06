@@ -24,13 +24,18 @@ import type { ArtworkItem, ArtworkSearchResult, ArtworkType, ImageTarget, ItemDe
 // this: its own fetch already accepts a free-text title directly.
 const TITLE_SEARCH_PROVIDERS = new Set(["fanart", "tvdb", "mediux", "anilist-manga", "myanimelist", "myanimelist-manga"]);
 
-const TYPE_ORDER: ArtworkType[] = ["poster", "background", "logo", "banner"];
+const TYPE_ORDER: ArtworkType[] = ["poster", "background", "animated", "logo", "banner"];
 const TYPE_LABEL: Record<ArtworkType, string> = {
+  animated: "Animated",
   poster: "Posters",
   background: "Backgrounds",
   banner: "Banners",
   logo: "Logos",
 };
+
+export function isAnimatedArtwork(art: ArtworkItem): boolean {
+  return art.type === "animated" || /\.(?:gif|webm)(?:[?#]|$)/i.test(art.download_url);
+}
 
 function defaultIdFor(provider: string, item: ItemDetail): string {
   if (provider === "deviantart") return item.title;
@@ -185,9 +190,10 @@ export default function ArtworkBrowser({
   const byType = useMemo(() => {
     const map = new Map<ArtworkType, ArtworkItem[]>();
     for (const a of q.data?.items ?? []) {
-      const arr = map.get(a.type) ?? [];
+      const type = isAnimatedArtwork(a) ? "animated" : a.type;
+      const arr = map.get(type) ?? [];
       arr.push(a);
-      map.set(a.type, arr);
+      map.set(type, arr);
     }
     return map;
   }, [q.data]);
@@ -367,7 +373,12 @@ export default function ArtworkBrowser({
                     {[art.lang, art.likes != null ? `♥ ${art.likes}` : null].filter(Boolean).join(" · ") || " "}
                   </div>
                   <div className="mt-1.5 grid min-w-0 grid-cols-2 gap-1">
-                    {art.applyable && art.type === "poster" && season ? (
+                    {art.applyable && isAnimatedArtwork(art) ? (
+                      <>
+                        <ApplyBtn label="Animated Poster" busy={busyKey === `p-${art.id}`} onClick={() => apply(art, "poster", item.id, `p-${art.id}`)} />
+                        <ApplyBtn label="Animated Background" busy={busyKey === `b-${art.id}`} onClick={() => apply(art, "background", item.id, `b-${art.id}`)} />
+                      </>
+                    ) : art.applyable && art.type === "poster" && season ? (
                       <ApplyBtn
                         label={`→ S${art.season_number}`}
                         busy={busyKey === `s-${art.id}`}
@@ -446,7 +457,9 @@ export default function ArtworkBrowser({
 export function ArtImg({ art }: { art: ArtworkItem }) {
   const [failed, setFailed] = useState(false);
   const shape =
-    art.type === "poster"
+    isAnimatedArtwork(art)
+      ? "aspect-video object-contain"
+      : art.type === "poster"
       ? "aspect-[2/3] object-cover"
       : art.type === "banner"
         ? "aspect-[16/5] object-cover"
