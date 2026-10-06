@@ -544,16 +544,17 @@ function NativeDetail({
     .filter((e) => e.available && e.parent_path === entry.path)
     .sort(
       (a, b) =>
-        (number(a.kind === "season" ? a.metadata.season : a.kind === "book" ? a.metadata.volume : a.metadata.episode) ??
+        (number(a.kind === "season" ? a.metadata.season : a.kind === "book" ? a.metadata.volume ?? a.metadata.chapter : a.metadata.episode) ??
           0) -
           (number(
-            b.kind === "season" ? b.metadata.season : b.kind === "book" ? b.metadata.volume : b.metadata.episode,
+            b.kind === "season" ? b.metadata.season : b.kind === "book" ? b.metadata.volume ?? b.metadata.chapter : b.metadata.episode,
           ) ?? 0) || a.title.localeCompare(b.title, undefined, {numeric:true}),
     );
   const [search, setSearch] = useState("");
   const [, , bookDisplay] = useTrackingOverlays(library.library_type === "books");
   const coloredBook = library.library_type === "books" && String(entry.metadata.edition ?? parent?.metadata.edition ?? "").trim().toLowerCase() === "colored";
   const isBookSeries = entry.kind === "book_series";
+  const bookUnit = children.length > 0 && children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapter" : "Volume";
   const isSeries = entry.kind === "series" || entry.kind === "season";
   const isEpisode = entry.kind === "episode";
   const detail: ItemDetail = {
@@ -682,6 +683,7 @@ function NativeDetail({
                 ) : (
                   <h1 className={`text-3xl font-bold leading-tight sm:text-4xl ${coloredBook && bookDisplay.coloredTitle ? "poster-colored-title" : ""}`}>
                     {entry.title}
+                    {entry.metadata.missing === true && <span className="ml-3 inline-flex align-middle rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 text-xs text-amber-200">Missing</span>}
                   </h1>
                 )}
                 {entry.kind === "season" && series && (
@@ -692,7 +694,7 @@ function NativeDetail({
                     {series.title}
                   </button>
                 )}
-                {isBookSeries ? <p className="mt-2 text-sm text-white/70">{children.length} {children.length === 1 ? "Volume" : "Volumes"}</p> : <TitleMetadata item={detail} />}
+                {isBookSeries ? <p className="mt-2 text-sm text-white/70">{children.filter(e=>e.metadata.missing!==true).length} {children.filter(e=>e.metadata.missing!==true).length === 1 ? bookUnit : `${bookUnit}s`}</p> : <TitleMetadata item={detail} />}
                 {isEpisode && (
                   <p className="mt-2 text-sm text-muted">
                     Season {String(entry.metadata.season ?? "")} · Episode{" "}
@@ -732,7 +734,7 @@ function NativeDetail({
                   {entry.kind === "book_series" && <button className={detailActionClass} aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")}><Database className="size-4"/></button>}
                   {["series","movie","book_series"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")}><Fingerprint className="size-4"/></button>}
                 </div>
-                {entry.kind.startsWith("book") && <BookSeriesMetadata metadata={entry.metadata} count={isBookSeries ? children.length : 1}/>}
+                {entry.kind.startsWith("book") && <BookSeriesMetadata unit={isBookSeries ? bookUnit : entry.metadata.chapter!=null && entry.metadata.volume==null ? "Chapter" : "Volume"} metadata={entry.metadata} count={isBookSeries ? children.filter(e=>e.metadata.missing!==true).length : 1}/>}
                 <div className={isSeries ? "hidden sm:block" : "text-left"}>
                   <DetailSynopsis text={overview} />
                 </div>
@@ -746,7 +748,7 @@ function NativeDetail({
             {children.some((e) => e.kind !== "episode") && (
               <section className="mt-10">
                 <h2 className="mb-3 text-xl font-semibold">
-                  {entry.kind === "series" ? "Seasons" : "Volumes"}
+                  {entry.kind === "series" ? "Seasons" : children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapters" : "Volumes"}
                 </h2>
                 <div className={isBookSeries ? posterGrid : "-mx-2 -mt-2 flex gap-5 overflow-x-auto px-2 pb-3 pt-2 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]"}>
                   {children
@@ -758,6 +760,7 @@ function NativeDetail({
                         coloredEffect={library.library_type === "books" && String(child.metadata.edition ?? entry.metadata.edition ?? "").trim().toLowerCase() === "colored" ? bookDisplay.coloredEffect : "off"}
                         coloredTitle={library.library_type === "books" && String(child.metadata.edition ?? entry.metadata.edition ?? "").trim().toLowerCase() === "colored" && bookDisplay.coloredTitle}
                         title={child.title}
+                        titleBadge={child.metadata.missing === true ? "Missing" : undefined}
                         image={picture(library, child, "poster")}
                         kind={child.kind.startsWith("book") ? "book" : "show"}
                         onOpen={() => open(child)}

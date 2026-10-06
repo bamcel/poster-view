@@ -96,6 +96,7 @@ pub(crate) fn write(
     art: &NativeArtwork,
     replace: bool,
 ) -> Result<(), String> {
+    if entry.metadata["missing"] == true {return Ok(());}
     if art.kind.ends_with("-animated") || art.path.ends_with(".gif") || art.path.ends_with(".webm") { return Ok(()); }
     let Some(managed) = art.path.strip_prefix("@managed/") else {
         return Ok(());

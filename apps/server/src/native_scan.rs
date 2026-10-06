@@ -835,6 +835,35 @@ pub(crate) fn collect_scoped(
     progress.report("reading", total, Some(total), entries.len(), "", true);
     Ok((entries.into_values().collect(), warnings))
 }
+// Missing books are catalog-only targets; no media or sidecar is created.
+pub(crate) fn book_placeholders(entries: &mut Vec<NativeCatalogEntry>) {
+    let number = regex::Regex::new(r"(?i)(?:^|[^a-z])(?:volume|vol\.?|v|chapter|ch\.?|c)\s*[-_ ]*([0-9]+)").unwrap();
+    let chapter = regex::Regex::new(r"(?i)(?:^|[^a-z])(?:chapter|ch\.?|c)\s*[-_ ]*[0-9]+").unwrap();
+    entries.retain(|e| e.metadata["missing"] != true);
+    for entry in entries.iter_mut().filter(|e| e.kind == "book") {
+        let filename = Path::new(&entry.path).file_stem().unwrap_or_default().to_string_lossy();
+        let key = if !entry.metadata["chapter"].is_null() || chapter.is_match(&entry.title) || chapter.is_match(&filename) {"chapter"} else {"volume"};
+        if entry.metadata[key].is_null() {
+            if let Some(found) = number.captures(&filename).or_else(||number.captures(&entry.title)) {entry.metadata[key] = json!(found[1].parse::<u64>().unwrap_or(0));}
+        }
+        entry.metadata["missing"] = json!(false);
+    }
+    let series = entries.iter().filter(|e| e.kind == "book_series" && e.available).cloned().collect::<Vec<_>>();
+    for series in series {
+        let children = entries.iter().filter(|e| e.kind == "book" && e.available && e.parent_path.as_deref() == Some(&series.path)).collect::<Vec<_>>();
+        let key = if !children.is_empty() && children.iter().all(|e| !e.metadata["chapter"].is_null() && e.metadata["volume"].is_null()) {"chapter"} else {"volume"};
+        // Do not guess which numbers are absent when existing files have no identity.
+        if children.iter().any(|e| e.metadata[key].is_null()) {continue;}
+        let total = series.metadata[if key == "chapter" {"chapters"} else {"volumes"}].as_u64().or_else(|| series.metadata[if key == "chapter" {"chapters"} else {"volumes"}].as_str().and_then(|v| v.parse().ok())).unwrap_or(0).min(5000);
+        let present = children.iter().filter_map(|e| e.metadata[key].as_u64().or_else(|| e.metadata[key].as_str().and_then(|v|v.parse().ok()))).collect::<std::collections::BTreeSet<_>>();
+        for n in 1..=total {
+            if present.contains(&n) {continue;}
+            let title = format!("{} {n:02}", if key == "chapter" {"Chapter"} else {"Volume"});
+            entries.push(NativeCatalogEntry {id:String::new(),path:format!("{}/@missing-{key}-{n}",series.path),kind:"book".into(),parent_path:Some(series.path.clone()),title:title.clone(),metadata:json!({"title":title,key:n,"missing":true}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1});
+        }
+    }
+}
+
 pub(crate) fn write_identification_nfo(state: &AppState, entry: &NativeCatalogEntry) -> Result<(String,String),String> { write_nfo_inner(state,entry,true) }
 pub(crate) fn write_nfo(state: &AppState, entry: &NativeCatalogEntry) -> Result<(String,String),String> { write_nfo_inner(state,entry,false) }
 fn write_nfo_inner(
@@ -1080,5 +1109,38 @@ mod animated_artwork_tests {
         let art=local_art(dir,dir,Some("Episode"));
         assert!(art.iter().any(|a|a.kind=="poster" && a.path=="poster.webm"));
         assert!(art.iter().any(|a|a.kind=="thumb" && a.path=="Episode.webm"));
+    }
+}
+
+#[cfg(test)]
+mod missing_book_tests {
+    use super::*;
+    #[test]
+    fn placeholders_keep_artwork_when_numbered_files_arrive() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = posterview_infra_sqlite::ServerStore::new(temp.path()); db.initialize().unwrap();
+        let library = db.save_native_library(None,&posterview_contracts::native::NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],options:Default::default(),revision:None}).unwrap();
+        let mut series = blank("Books/Test".into(),"book_series",None,"Test".into()); series.metadata["volumes"] = json!(3);
+        let mut first = blank("Books/Test/Volume 01.cbz".into(),"book",Some(series.path.clone()),"Volume 01".into());first.files.push(json!({"path":first.path}));
+        let mut entries = vec![series.clone(),first.clone()];book_placeholders(&mut entries);
+        assert_eq!(entries.len(),4);assert_eq!(entries[2].metadata["volume"],2);
+        db.ingest_native_catalog(&library.id,library.revision,&entries).unwrap();
+        let missing = db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.metadata["volume"]==2).unwrap();
+        db.save_native_artwork(&library.id,&missing.id,&NativeArtwork{kind:"poster".into(),path:"@managed/cover.jpg".into(),source:"manual".into()}).unwrap();
+        let second = blank("Books/Test/Volume 02.cbz".into(),"book",Some(series.path.clone()),"Volume 02".into());
+        let mut entries = vec![series,first,second];book_placeholders(&mut entries);
+        db.ingest_native_catalog(&library.id,library.revision,&entries).unwrap();
+        let actual = db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.path.ends_with("Volume 02.cbz")).unwrap();
+        assert_eq!(actual.id,missing.id);assert_eq!(actual.metadata["missing"],false);assert_eq!(actual.artwork[0].path,"@managed/cover.jpg");
+        assert!(!db.native_catalog(&library.id).unwrap().iter().any(|e|e.available && e.path.ends_with("@missing-volume-2")));
+    }
+    #[test]
+    fn chapter_collections_use_chapter_totals_and_unknown_files_are_not_guessed() {
+        let mut series = blank("Books/Test".into(),"book_series",None,"Test".into());series.metadata=json!({"volumes":2,"chapters":3});
+        let chapter = blank("Books/Test/Chapter 02.cbz".into(),"book",Some(series.path.clone()),"Chapter 02".into());
+        let mut entries=vec![series.clone(),chapter];book_placeholders(&mut entries);
+        assert_eq!(entries.len(),4);assert!(entries.iter().filter(|e|e.metadata["missing"]==true).all(|e| !e.metadata["chapter"].is_null()));
+        let unknown=blank("Books/Test/Unknown.cbz".into(),"book",Some(series.path.clone()),"Unknown".into());
+        let mut entries=vec![series,unknown];book_placeholders(&mut entries);assert_eq!(entries.len(),2);
     }
 }

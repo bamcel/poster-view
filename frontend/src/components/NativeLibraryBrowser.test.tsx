@@ -293,3 +293,19 @@ it("shows book series NFO pills and a wrapping grid of volume covers",async()=>{
  expect(document.querySelectorAll(".poster-colored-shimmer")).toHaveLength(3);
  expect(screen.queryByText("Old Actor")).toBeNull();expect(screen.getByText("Old Character")).toBeTruthy();
 });
+
+it("shows missing book cards without counting them as available and opens their artwork target",async()=>{
+ const bookSeries={...series,kind:"book_series",metadata:{volumes:2}};
+ const book={...series,id:"volume1",kind:"book",parent_path:series.path,path:`${series.path}/Volume 01.cbz`,title:"Volume 01",metadata:{volume:1,missing:false}};
+ const missing={...book,id:"missing2",path:`${series.path}/@missing-volume-2`,title:"Volume 02",metadata:{volume:2,missing:true},artwork:[],files:[]};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([bookSeries,book,missing]);
+ mount("/?native_library=native&native_item=show",{...library,library_type:"books"});
+ await screen.findByRole("heading",{name:"Example Series"});
+ expect(screen.getByText("1 Volume")).toBeTruthy();expect(screen.getByText("1 Volume Missing")).toBeTruthy();
+ expect(screen.getByText("Missing")).toBeTruthy();
+ fireEvent.click(screen.getByText("Volume 02").closest("button")!);
+ await screen.findByRole("heading",{name:/Volume 02/});
+ expect(screen.queryByRole("heading",{name:"Media information"})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Edit Artwork"}));
+ expect((await screen.findByTestId("shared-artwork")).getAttribute("data-item")).toBe("native:native:missing2");
+});

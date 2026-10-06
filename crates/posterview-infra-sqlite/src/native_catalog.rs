@@ -231,6 +231,20 @@ impl ServerStore {
         }
         for entry in entries {
             let existing:Option<String>=tx.query_row("SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,entry.path],|r|r.get(0)).optional()?;
+            // Promote a numbered placeholder into the real file while retaining its artwork and ID.
+            let existing = if existing.is_none() && entry.kind == "book" && entry.metadata["missing"] != true {
+                let key = if !entry.metadata["chapter"].is_null() && entry.metadata["volume"].is_null() {"chapter"} else {"volume"};
+                let n = entry.metadata[key].as_u64().or_else(||entry.metadata[key].as_str().and_then(|v|v.parse().ok()));
+                if let (Some(parent),Some(n)) = (&entry.parent_path,n) {
+                    let path = format!("{parent}/@missing-{key}-{n}");
+                    let id:Option<String> = tx.query_row("SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,path],|r|r.get(0)).optional()?;
+                    if let Some(id) = &id {
+                        tx.execute("DELETE FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,path])?;
+                        tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0",[id])?;
+                    }
+                    id
+                } else {None}
+            } else {existing};
             let id = existing.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             let mut snapshot = entry.clone();
             snapshot.id = id.clone();

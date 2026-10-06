@@ -18,6 +18,7 @@ interface PosterCardProps {
   image?: string;
   title: string;
   subtitle?: string;
+  titleBadge?: ReactNode;
   badge?: ReactNode;
   kind?: "movie" | "show" | "collection" | "book" | "audiobook" | "folder";
   selected?: boolean;
@@ -38,6 +39,7 @@ export default function PosterCard({
   image,
   title,
   subtitle,
+  titleBadge,
   badge,
   kind = "movie",
   selected,
@@ -131,7 +133,7 @@ export default function PosterCard({
           keeps these legible when a card sits over the vivid backdrop image
           on the item detail page's Seasons row. */}
       <div className="mt-2 px-0.5 [text-shadow:0_1px_6px_rgba(0,0,0,0.8)]">
-        <p className={`truncate text-sm font-medium ${coloredTitle ? "poster-colored-title" : "text-white/90"}`}>{title}</p>
+        <p className={`flex items-center gap-2 text-sm font-medium ${coloredTitle ? "poster-colored-title" : "text-white/90"}`}>{titleBadge ? <span className="truncate">{title}</span> : title}{titleBadge && <span className="inline-flex shrink-0 rounded-full border border-amber-400/40 bg-amber-400/15 px-2 py-0.5 text-[10px] text-amber-200">{titleBadge}</span>}</p>
         {subtitle && <p className="truncate text-xs text-faint">{subtitle}</p>}
       </div>
     </>

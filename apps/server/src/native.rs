@@ -4,7 +4,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
 };
-use posterview_contracts::native::{NativeLibrary, NativeLibraryInput};
+use posterview_contracts::native::{NativeLibrary, NativeLibraryInput, NativeLibraryType};
 use posterview_infra_sqlite::{ServerStore, StoreError};
 
 fn error(e: StoreError) -> HttpError {
@@ -284,6 +284,7 @@ async fn run_scan_scoped(
             }
         }
     }
+    if library.library_type == NativeLibraryType::Books {crate::native_scan::book_placeholders(&mut entries);}
     // Publish the local catalog before network enrichment so large libraries are usable immediately.
     let local_entries = entries.clone();
     let db = store(&state);
@@ -310,6 +311,7 @@ async fn run_scan_scoped(
     .map_err(|_| HttpError::bad_request("Local catalog save interrupted."))?
     .map_err(error)?;
     crate::native_provider::enrich(&state, &library, &mut entries, &mut warnings).await;
+    if library.library_type == NativeLibraryType::Books {crate::native_scan::book_placeholders(&mut entries);}
     let count = entries.len();
     let db = store(&state);
     let scan_library = library.clone();
@@ -339,7 +341,7 @@ async fn run_scan_scoped(
                 let issues = crate::workers::parallel(
                     entries
                         .into_iter()
-                        .filter(|e| e.available && in_scope(&e.path, write_scopes.as_deref()))
+                        .filter(|e| e.available && e.metadata["missing"] != true && in_scope(&e.path, write_scopes.as_deref()))
                         .collect(),
                     |entry| {
                         let mut issues = Vec::new();
@@ -375,6 +377,7 @@ async fn run_scan_scoped(
                     .into_iter()
                     .filter(|e| {
                         e.available
+                            && e.metadata["missing"] != true
                             && in_scope(&e.path, write_scopes.as_deref())
                             && (e.kind != "season" || e.nfo_path.is_some())
                     })
@@ -479,6 +482,15 @@ pub(crate) async fn edit_item(
         let db = store(&state);
         db.edit_native_entry(&library_id, &item, input.revision, &input.metadata)
             .map_err(error)?;
+        if library.library_type == NativeLibraryType::Books && input.metadata.as_object().is_some_and(|f| f.contains_key("volumes") || f.contains_key("chapters")) {
+            let catalog = db.native_catalog(&library_id).map_err(error)?;
+            if let Some(series) = catalog.iter().find(|e|e.id==item && e.kind=="book_series") {
+                let scope=series.path.clone();
+                let mut entries = catalog.into_iter().filter(|e|e.available && (e.path==scope || e.parent_path.as_deref()==Some(&scope))).collect::<Vec<_>>();
+                crate::native_scan::book_placeholders(&mut entries);
+                db.ingest_native_catalog_scoped(&library_id, library.revision, &entries, Some(&[scope])).map_err(error)?;
+            }
+        }
         let entry = db
             .native_catalog(&library_id)
             .map_err(error)?
@@ -486,7 +498,7 @@ pub(crate) async fn edit_item(
             .find(|e| e.id == item)
             .ok_or_else(HttpError::not_found)?;
         let mut warnings = Vec::<String>::new();
-        if library.options.save_nfo && !only_visual_fields && (entry.kind != "season" || entry.nfo_path.is_some()) {
+        if entry.metadata["missing"] != true && library.options.save_nfo && !only_visual_fields && (entry.kind != "season" || entry.nfo_path.is_some()) {
             match crate::native_scan::write_nfo(&state, &entry) {
                 Ok((path, xml)) => db
                     .record_native_nfo(&library_id, &entry.id, &path, &xml)
