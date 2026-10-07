@@ -7,7 +7,7 @@ import {connectedBackdropUrl,framingFromUrl} from "../lib/backdropFraming";
 vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{catalog:vi.fn(),editItem:vi.fn()}}));
 vi.mock("../lib/toast",()=>({useToast:()=>({push:vi.fn()})}));
 afterEach(()=>{cleanup();localStorage.clear();vi.clearAllMocks();});
-function show(native=false){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><BackdropEdit serverId={native?0:1} item={{id:native?"native:library:item":"item",title:"Title",type:"show",background:"/backdrop.jpg",seasons:[],members:[],external_ids:{}}}/></QueryClientProvider>);}
+function show(native=false,logo=false){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><BackdropEdit serverId={native?0:1} item={{id:native?"native:library:item":"item",title:"Title",type:"show",background:"/backdrop.jpg",logo:logo?"/api/native/libraries/library/items/item/artwork/logo":undefined,seasons:[],members:[],external_ids:{}}}/></QueryClientProvider>);}
 it("saves and resets connected-item framing locally without changing artwork",async()=>{
  show();fireEvent.change(screen.getByRole("slider",{name:"Backdrop zoom"}),{target:{value:"140"}});
  fireEvent.change(screen.getByRole("slider",{name:"Backdrop horizontal position"}),{target:{value:"25"}});
@@ -24,4 +24,16 @@ it("persists native framing as enhanced metadata",async()=>{
  fireEvent.change(screen.getByRole("combobox",{name:"Backdrop fit"}),{target:{value:"contain"}});
  fireEvent.click(screen.getByRole("button",{name:"Save Adjustments"}));
  await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("library",entry,{backdropedit:{x:50,y:50,zoom:100,fit:"contain"}}));
+});
+
+it("saves logo placement alongside framing without replacing backdrop artwork",async()=>{
+ const entry:NativeCatalogEntry={id:"item",path:"Title",kind:"series",parent_path:null,title:"Title",metadata:{},artwork:[],files:[],nfo_path:null,available:true,revision:1};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([entry]);vi.mocked(nativeLibraries.editItem).mockResolvedValue({entry,warnings:[]});
+ show(true,true);await waitFor(()=>expect((screen.getByRole("button",{name:"Save Adjustments"}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByRole("checkbox",{name:"Display backdrop logo"}));
+ expect(screen.getByRole("img",{name:"Drag backdrop logo"})).toBeTruthy();
+ fireEvent.change(screen.getByRole("slider",{name:"Logo width"}),{target:{value:"45"}});
+ fireEvent.change(screen.getByRole("slider",{name:"Logo opacity"}),{target:{value:"80"}});
+ fireEvent.click(screen.getByRole("button",{name:"Save Adjustments"}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("library",entry,{backdropedit:{x:50,y:50,zoom:100,fit:"cover",logo:{src:"/api/native/libraries/library/items/item/artwork/logo",enabled:true,x:15,y:72,width:45,opacity:80}}}));
 });

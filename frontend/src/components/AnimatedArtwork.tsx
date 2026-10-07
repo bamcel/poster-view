@@ -55,6 +55,7 @@ export default function AnimatedArtwork({src, alt, className, onError, format: o
     }
   } catch { /* Invalid placement leaves the original artwork visible. */ }
 
+  if (!overlay && framing?.logo?.enabled) overlay={...framing.logo,logo:framing.logo.src};
   if (!animated && !overlay && !framing) return <img src={mediaSrc} alt={alt} className={className} loading="lazy" draggable={false} onError={onError}/>;
   const mediaClass = fill ? "absolute inset-0 h-full w-full object-cover object-top" : "h-full w-full max-h-[inherit] max-w-[inherit] [object-fit:inherit] [object-position:inherit]";
   return <div ref={element} className={className} style={fill ? {position: "absolute", inset: 0, overflow: "hidden"} : overlay || framing ? {position:"relative",overflow:"hidden"} : undefined}>

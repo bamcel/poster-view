@@ -82,6 +82,7 @@ function artwork(
   if (overlayEnabled && kind === "poster" && edit?.poster_path === entry?.artwork.find(a=>a.kind==="poster")?.path && entry?.artwork.some(a=>a.kind==="poster-edit-original")) kind="poster-edit-original";
   const overlay = overlayEnabled && edit?.enabled && entry?.artwork.some(a=>a.kind==="logo") ? `&logoOverlay=${encodeURIComponent(JSON.stringify({...edit,logo:`${nativeLibraries.artworkUrl(library.id,entry.id,"logo")}?v=${entry.revision}`}))}` : "";
   const framing = animatedArtworkEnabled(library.id) && ["backdrop","backdrop-animated"].includes(kind) ? validFraming(entry?.metadata.backdropedit) : undefined;
+  if (framing?.logo && entry) framing.logo={...framing.logo,enabled:framing.logo.enabled && entry.artwork.some(a=>a.kind==="logo"),src:`${nativeLibraries.artworkUrl(library.id,entry.id,"logo")}?v=${entry.revision}`};
   return entry?.artwork.some((a) => a.kind === kind)
     ? `${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${entry.revision}&format=${entry.artwork.find(a => a.kind === kind)?.path.split(".").pop()?.toLowerCase() ?? ""}${!animatedArtworkEnabled(library.id) ? "&still=1" : ""}${overlay}${framing ? `&backdropEdit=${encodeURIComponent(JSON.stringify(framing))}` : ""}`
     : undefined;

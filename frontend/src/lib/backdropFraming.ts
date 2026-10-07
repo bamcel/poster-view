@@ -1,9 +1,13 @@
-export type BackdropFraming = {x:number;y:number;zoom:number;fit:"cover"|"contain"};
+export type BackdropLogo = {src:string;enabled:boolean;x:number;y:number;width:number;opacity:number};
+export type BackdropFraming = {x:number;y:number;zoom:number;fit:"cover"|"contain";logo?:BackdropLogo};
 export const defaultFraming:BackdropFraming={x:50,y:50,zoom:100,fit:"cover"};
 export const backdropFramingEvent="posterview-backdrop-framing";
+export function validBackdropLogo(value:unknown):value is BackdropLogo {
+ const v=value as BackdropLogo|undefined;return !!v && typeof v.src==="string" && v.src.startsWith("/api/") && typeof v.enabled==="boolean" && [v.x,v.y,v.width,v.opacity].every(n=>typeof n==="number"&&Number.isFinite(n)&&n>=0&&n<=100);
+}
 export function validFraming(value:unknown):BackdropFraming|undefined {
  const v=value as BackdropFraming|undefined;
- return v && [v.x,v.y,v.zoom].every(n=>typeof n==="number" && Number.isFinite(n)) && v.x>=0 && v.x<=100 && v.y>=0 && v.y<=100 && v.zoom>=100 && v.zoom<=200 && ["cover","contain"].includes(v.fit) ? v : undefined;
+ return v && [v.x,v.y,v.zoom].every(n=>typeof n==="number" && Number.isFinite(n)) && v.x>=0 && v.x<=100 && v.y>=0 && v.y<=100 && v.zoom>=100 && v.zoom<=200 && ["cover","contain"].includes(v.fit) ? {...v,...(v.logo&&!validBackdropLogo(v.logo)?{logo:undefined}:{})} : undefined;
 }
 export function backdropFramingUrl(src:string|undefined,framing:unknown):string|undefined {
  if(!src)return src;
