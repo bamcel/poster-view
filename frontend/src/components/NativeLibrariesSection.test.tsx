@@ -154,3 +154,10 @@ it("shows Import Library only when Server Connect is enabled and connected",asyn
  cleanup();vi.mocked(useServerConnectPlugin).mockReturnValue({data:{enabled:false,pinned:false}} as ReturnType<typeof useServerConnectPlugin>);
  mount(<NativeLibrariesSection/>);expect(screen.queryByRole("button",{name:"Import library"})).toBeNull();
 });
+
+it("allows a manual scan request while a hidden automatic scan is running",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([saved]);vi.mocked(nativeLibraries.status).mockResolvedValue({status:"scanning",show_progress:false,count:1,warnings:[]});
+ mount(<NativeLibrariesSection/>);fireEvent.click(await screen.findByRole("button",{name:"Actions for Anime"}));
+ await screen.findByText("A scan is running. You can queue a manual scan.");const button=screen.getByRole("button",{name:"Scan Library Files"});expect((button as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.click(button);await waitFor(()=>expect(nativeLibraries.scan).toHaveBeenCalledWith(saved.id));
+});

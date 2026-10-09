@@ -56,7 +56,8 @@ impl ServerStore {
                 ..Default::default()
             }))
     }
-    pub fn begin_native_scan(&self, library: &str) -> Result<(), StoreError> {
+    pub fn begin_native_scan(&self, library: &str) -> Result<(), StoreError> {self.request_native_scan(library,false).map(|_|())}
+    pub fn request_native_scan(&self, library: &str, manual:bool) -> Result<bool, StoreError> {
         let mut db = self.connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let exists: bool = tx.query_row(
@@ -69,18 +70,19 @@ impl ServerStore {
         }
         let running: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_scans WHERE library_id=?1 AND json_extract(status_json,'$.status')='scanning')",[library],|r|r.get(0))?;
         if running {
+            if manual {tx.execute("UPDATE native_library_scans SET status_json=json_set(status_json,'$.manual_queued',1) WHERE library_id=?1",[library])?;tx.commit()?;return Ok(false);}
             return Err(invalid("This library is already scanning."));
         }
         tx.execute("INSERT INTO native_library_scans VALUES(?1,?2) ON CONFLICT(library_id) DO UPDATE SET status_json=excluded.status_json",params![library,json!({"status":"scanning","count":0,"warnings":[]}).to_string()])?;
         tx.commit()?;
-        Ok(())
+        Ok(true)
     }
     pub fn update_native_scan_progress(
         &self,
         library: &str,
         status: &NativeScanStatus,
     ) -> Result<(), StoreError> {
-        self.connection()?.execute("UPDATE native_library_scans SET status_json=?1 WHERE library_id=?2 AND json_extract(status_json,'$.status')='scanning'", params![serde_json::to_string(status).map_err(|_| invalid("Invalid status."))?, library])?;
+        self.connection()?.execute("UPDATE native_library_scans SET status_json=json_set(?1,'$.manual_queued',COALESCE(json_extract(status_json,'$.manual_queued'),0)) WHERE library_id=?2 AND json_extract(status_json,'$.status')='scanning'", params![serde_json::to_string(status).map_err(|_| invalid("Invalid status."))?, library])?;
         Ok(())
     }
     pub fn finish_native_scan(
@@ -89,13 +91,20 @@ impl ServerStore {
         status: &NativeScanStatus,
     ) -> Result<(), StoreError> {
         self.connection()?.execute(
-            "UPDATE native_library_scans SET status_json=?1 WHERE library_id=?2",
+            "UPDATE native_library_scans SET status_json=json_set(?1,'$.manual_queued',COALESCE(json_extract(status_json,'$.manual_queued'),0)) WHERE library_id=?2",
             params![
                 serde_json::to_string(status).map_err(|_| invalid("Invalid status."))?,
                 library
             ],
         )?;
         Ok(())
+    }
+    pub fn manual_scan_queued(&self,library:&str)->Result<bool,StoreError>{self.connection()?.query_row("SELECT COALESCE(json_extract(status_json,'$.manual_queued'),0) FROM native_library_scans WHERE library_id=?1",[library],|r|r.get(0)).optional().map(|v|v.unwrap_or(false)).map_err(Into::into)}
+    pub fn finish_or_restart_native_scan(&self,library:&str,status:&NativeScanStatus)->Result<bool,StoreError>{
+        let mut db=self.connection()?;let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let queued=tx.query_row("SELECT COALESCE(json_extract(status_json,'$.manual_queued'),0) FROM native_library_scans WHERE library_id=?1",[library],|r|r.get::<_,bool>(0)).optional()?.unwrap_or(false);
+        let value=if queued {json!({"status":"scanning","count":0,"warnings":[],"manual_queued":0}).to_string()}else{serde_json::to_string(status).map_err(|_|invalid("Invalid status."))?};
+        tx.execute("UPDATE native_library_scans SET status_json=?1 WHERE library_id=?2",params![value,library])?;tx.commit()?;Ok(queued)
     }
     pub fn recover_native_scans(&self) -> Result<(), StoreError> {
         self.connection()?.execute("UPDATE native_library_scans SET status_json=?1 WHERE json_extract(status_json,'$.status')='scanning'",[json!({"status":"interrupted","count":0,"warnings":["Scan interrupted by a restart. Scan again to continue."]}).to_string()])?;
@@ -595,6 +604,16 @@ fn project_metadata(
 mod tests{
     use super::*;
     use posterview_contracts::native::{NativeLibraryInput,NativeLibraryType,AnimeContent};
+    #[test]
+    fn manual_scan_requests_queue_once_and_survive_progress_updates() {
+        let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
+        let library=db.save_native_library(None,&NativeLibraryInput{name:"Anime".into(),library_type:NativeLibraryType::Anime,anime_content:AnimeContent::Both,paths:vec!["Anime".into()],revision:None,options:Default::default()}).unwrap();
+        assert!(db.request_native_scan(&library.id,false).unwrap());
+        assert!(!db.request_native_scan(&library.id,true).unwrap());assert!(!db.request_native_scan(&library.id,true).unwrap());
+        let progress=NativeScanStatus{status:"scanning".into(),count:12,warnings:vec![],progress:None};db.update_native_scan_progress(&library.id,&progress).unwrap();db.finish_native_scan(&library.id,&progress).unwrap();assert!(db.manual_scan_queued(&library.id).unwrap());
+        let complete=NativeScanStatus{status:"complete".into(),..progress};assert!(db.finish_or_restart_native_scan(&library.id,&complete).unwrap());assert!(!db.manual_scan_queued(&library.id).unwrap());assert_eq!(db.native_scan_status(&library.id).unwrap().status,"scanning");
+        assert!(!db.finish_or_restart_native_scan(&library.id,&complete).unwrap());assert_eq!(db.native_scan_status(&library.id).unwrap().status,"complete");
+    }
     #[test]
     fn replacing_poster_artwork_clears_overlays_but_backups_and_server_imports_preserve_them() {
         let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();

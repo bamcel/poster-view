@@ -123,6 +123,7 @@ pub(crate) async fn status(
     tokio::task::spawn_blocking(move || {
         let status = store.native_scan_status(&id)?;
         let mut value = serde_json::json!(status);
+        value["manual_queued"] = serde_json::json!(store.manual_scan_queued(&id)?);
         value["artwork_revision"] = serde_json::json!(store.get_setting(&format!("native-artwork-revision:{id}"))?);
         value["show_progress"] = serde_json::json!(store.get_setting(&format!("native-scan-visible:{id}"))? != "false");
         Ok::<_, posterview_infra_sqlite::StoreError>(value)
@@ -198,16 +199,20 @@ async fn start_scan_triggered(state: AppState, id: String, scopes: Option<Vec<St
     let library = library(&state, &id).await?;
     let db = store(&state);
     let scan_id = id.clone();
-    tokio::task::spawn_blocking(move || {
+    let started=tokio::task::spawn_blocking(move || {
         let initial = db.native_scan_status(&scan_id)?.status == "not_scanned";
-        db.begin_native_scan(&scan_id)?;
-        db.set_setting(&format!("native-scan-visible:{scan_id}"), if manual || initial {"true"} else {"false"})
+        let started=db.request_native_scan(&scan_id,manual)?;
+        db.set_setting(&format!("native-scan-visible:{scan_id}"), if manual || initial {"true"} else {"false"})?;
+        Ok::<_,posterview_infra_sqlite::StoreError>(started)
     })
         .await
         .map_err(|_| HttpError::bad_request("Scan request interrupted."))?
         .map_err(error)?;
+    if !started {return Ok(());}
     tokio::spawn(async move {
-        let result = run_scan_scoped(state.clone(), library, scopes).await;
+      let mut scopes=scopes;
+      loop {
+        let result = run_scan_scoped(state.clone(), library.clone(), scopes.take()).await;
         let status = match result {
             Ok(status) => status,
             Err(e) => posterview_contracts::native::NativeScanStatus {
@@ -218,7 +223,9 @@ async fn start_scan_triggered(state: AppState, id: String, scopes: Option<Vec<St
             },
         };
         let db = store(&state);
-        let _ = tokio::task::spawn_blocking(move || db.finish_native_scan(&id, &status)).await;
+        let scan_id=id.clone();
+        if !tokio::task::spawn_blocking(move || db.finish_or_restart_native_scan(&scan_id, &status)).await.is_ok_and(|result|result.unwrap_or(false)){break;}
+      }
     });
     Ok(())
 }
