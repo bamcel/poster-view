@@ -120,8 +120,13 @@ pub(crate) async fn status(
 ) -> Result<Json<serde_json::Value>, HttpError> {
     library(&state, &id).await?;
     let store = store(&state);
+    let active_scans = state.active_native_scans.clone();
     tokio::task::spawn_blocking(move || {
-        let status = store.native_scan_status(&id)?;
+        let mut status = store.native_scan_status(&id)?;
+        if status.status == "scanning" && !active_scans.lock().unwrap().contains(&id) {
+            status.status = "interrupted".into();
+            status.progress = None;
+        }
         let mut value = serde_json::json!(status);
         value["manual_queued"] = serde_json::json!(store.manual_scan_queued(&id)?);
         value["artwork_revision"] = serde_json::json!(store.get_setting(&format!("native-artwork-revision:{id}"))?);
@@ -207,17 +212,19 @@ async fn start_scan_triggered(state: AppState, id: String, scopes: Option<Vec<St
     let library = library(&state, &id).await?;
     let db = store(&state);
     let scan_id = id.clone();
+    let active_scans = state.active_native_scans.clone();
     let started=tokio::task::spawn_blocking(move || {
         let initial = db.native_scan_status(&scan_id)?.status == "not_scanned";
         let started=db.request_native_scan(&scan_id,manual)?;
         db.set_setting(&format!("native-scan-visible:{scan_id}"), if manual || initial {"true"} else {"false"})?;
-        Ok::<_,posterview_infra_sqlite::StoreError>(started)
+        Ok::<_,posterview_infra_sqlite::StoreError>(started.then(|| ActiveNativeScan::new(active_scans, scan_id)))
     })
         .await
         .map_err(|_| HttpError::bad_request("Scan request interrupted."))?
         .map_err(error)?;
-    if !started {return Ok(());}
+    let Some(active_scan) = started else {return Ok(());};
     tokio::spawn(async move {
+      let _active_scan = active_scan;
       let mut scopes=scopes;
       loop {
         let result = run_scan_scoped(state.clone(), library.clone(), scopes.take()).await;
@@ -236,6 +243,20 @@ async fn start_scan_triggered(state: AppState, id: String, scopes: Option<Vec<St
       }
     });
     Ok(())
+}
+// A saved scan status can outlive its worker. Track worker lifetime separately,
+// including unwinding or cancellation, so maintenance only waits for live scans.
+pub(crate) struct ActiveNativeScan(std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>, String);
+impl ActiveNativeScan {
+    pub(crate) fn new(active: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>, id: String) -> Self {
+        active.lock().unwrap().insert(id.clone());
+        Self(active, id)
+    }
+}
+impl Drop for ActiveNativeScan {
+    fn drop(&mut self) {
+        self.0.lock().unwrap().remove(&self.1);
+    }
 }
 fn in_scope(path: &str, scopes: Option<&[String]>) -> bool {
     scopes.is_none_or(|scopes| {
@@ -793,6 +814,7 @@ mod tests {
         let runtime = Arc::new(posterview_runtime::Runtime::new(dir.path().join("data")));
         runtime.initialize().unwrap();
         let state = AppState {
+            active_native_scans: Default::default(),
             runtime: runtime.clone(),
             auth: crate::AuthState::for_tests(""),
             login_backdrop: crate::login_backdrop::LoginBackdrop::new(runtime.data_dir()),
@@ -841,6 +863,7 @@ pub(crate) mod scan_tests {
         let runtime = Arc::new(posterview_runtime::Runtime::new(dir.join("config")));
         runtime.initialize().unwrap();
         AppState {
+            active_native_scans: Default::default(),
             runtime: runtime.clone(),
             auth: crate::AuthState::for_tests(""),
             login_backdrop: crate::login_backdrop::LoginBackdrop::new(runtime.data_dir()),

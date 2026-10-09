@@ -51,6 +51,7 @@ const MAX_MANUAL_IMAGE_BYTES: usize = 50 * 1024 * 1024;
 
 #[derive(Clone)]
 struct AppState {
+    active_native_scans: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     runtime: Arc<Runtime>,
     auth: AuthState,
     login_backdrop: login_backdrop::LoginBackdrop,
@@ -70,6 +71,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/media"));
     let state = AppState {
+        active_native_scans: Default::default(),
         reader: Arc::new(reader::ReaderStore::new(media_dir.clone(), runtime.data_dir().join("reader.sqlite"))),
         metadata: Arc::new(metadata::MetadataStore::new(media_dir)),
         runtime,

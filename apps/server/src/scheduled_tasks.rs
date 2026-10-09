@@ -11,6 +11,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 static RUN_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static RUNNING_TASK: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+struct RunningTask;
+impl Drop for RunningTask {
+    fn drop(&mut self) { *RUNNING_TASK.lock().unwrap() = None; }
+}
 fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -34,6 +39,7 @@ pub(crate) struct Task {
     cleanup_temporary: bool,
     last_run: u64,
     last_result: String,
+    running: bool,
 }
 impl Default for Task {
     fn default() -> Self {
@@ -49,6 +55,7 @@ impl Default for Task {
             cleanup_temporary: true,
             last_run: 0,
             last_result: String::new(),
+            running: false,
         }
     }
 }
@@ -89,7 +96,12 @@ fn save(state: &AppState, tasks: &[Task]) -> Result<(), HttpError> {
         .map_err(bad)
 }
 pub(crate) async fn list(State(state): State<AppState>) -> Result<Json<Vec<Task>>, HttpError> {
-    tokio::task::spawn_blocking(move || load(&state).map(Json))
+    tokio::task::spawn_blocking(move || {
+        let mut tasks = load(&state)?;
+        let running = RUNNING_TASK.lock().unwrap();
+        for task in &mut tasks { task.running = running.as_deref() == Some(task.id.as_str()); }
+        Ok(Json(tasks))
+    })
         .await
         .map_err(bad)?
 }
@@ -175,12 +187,8 @@ fn old(meta: &std::fs::Metadata, days: u64) -> bool {
 }
 fn candidates(state: &AppState, task: &Task) -> Result<Vec<Candidate>, HttpError> {
     let db = ServerStore::new(state.runtime.data_dir());
-    for library in db.native_libraries().map_err(bad)? {
-        if db.native_scan_status(&library.id).map_err(bad)?.status == "scanning" {
-            return Err(bad(
-                "Wait for library scans to finish before cleaning data.",
-            ));
-        }
+    if !state.active_native_scans.lock().unwrap().is_empty() {
+        return Err(bad("Wait for library scans to finish before cleaning data."));
     }
     let refs = references(state.runtime.data_dir())?;
     let saved: BTreeMap<String, u64> =
@@ -273,6 +281,8 @@ async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
         .try_lock()
         .map_err(|_| bad("A scheduled task is already running. Try again shortly."))?;
     tokio::task::spawn_blocking(move||{
+        *RUNNING_TASK.lock().unwrap() = Some(id.clone());
+        let _running = RunningTask;
         let mut tasks=load(&state)?;let task=tasks.iter_mut().find(|t|t.id==id).ok_or_else(HttpError::not_found)?;
         let result=(||->Result<Report,HttpError>{match id.as_str() {
             "cleanup"=>{let candidates=candidates(&state,task)?;let mut report=Report::default();for file in candidates {let meta=std::fs::symlink_metadata(&file.path).map_err(bad)?;if meta.file_type().is_symlink()||!meta.is_file()||!old(&meta,task.retention_days){continue;}std::fs::remove_file(&file.path).map_err(bad)?;report.files+=1;report.bytes+=file.bytes;}report.result=format!("Removed {} unused files ({} bytes).",report.files,report.bytes);Ok(report)},
@@ -421,7 +431,19 @@ mod tests {
         assert!(!cache.join("old.art").exists());
         assert!(load(&state).unwrap()[0].last_run > 0);
         db.begin_native_scan(&library.id).unwrap();
+        // Persisted status without a worker must not prevent cleanup.
+        assert!(candidates(&state, &task).is_ok());
+        let status = crate::native::status(State(state.clone()), Path(library.id.clone())).await.unwrap().0;
+        assert_eq!(status["status"], "interrupted");
+        let scan = crate::native::ActiveNativeScan::new(state.active_native_scans.clone(), library.id.clone());
+        let status = crate::native::status(State(state.clone()), Path(library.id.clone())).await.unwrap().0;
+        assert_eq!(status["status"], "scanning");
+        let second_scan = crate::native::ActiveNativeScan::new(state.active_native_scans.clone(), "second".into());
         assert!(candidates(&state, &task).is_err());
+        drop(scan);
+        assert!(candidates(&state, &task).is_err());
+        drop(second_scan);
+        assert!(candidates(&state, &task).is_ok());
     }
     #[tokio::test]
     async fn schedules_are_disabled_by_default_validated_and_persisted() {
@@ -429,6 +451,13 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let state = crate::native::scan_tests::state(temp.path());
         assert!(load(&state).unwrap().iter().all(|t| !t.enabled));
+        *RUNNING_TASK.lock().unwrap() = Some("cleanup".into());
+        let running = RunningTask;
+        let tasks = list(State(state.clone())).await.unwrap().0;
+        assert!(tasks.iter().find(|t| t.id == "cleanup").unwrap().running);
+        assert!(!tasks.iter().find(|t| t.id == "database").unwrap().running);
+        drop(running);
+        assert!(list(State(state.clone())).await.unwrap().0.iter().all(|t| !t.running));
         let mut task = defaults().remove(0);
         task.enabled = true;
         task.interval_days = 0;

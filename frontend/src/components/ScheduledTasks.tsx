@@ -1,7 +1,7 @@
 import {useState} from "react";
 import {useQuery,useMutation,useQueryClient} from "@tanstack/react-query";
 import {apiRequest} from "../api/client";
-export interface MaintenanceTask {id:string;title:string;description:string;enabled:boolean;interval_days:number;retention_days:number;cleanup_artwork:boolean;cleanup_cache:boolean;cleanup_temporary:boolean;last_run:number;last_result:string;}
+export interface MaintenanceTask {running?:boolean;id:string;title:string;description:string;enabled:boolean;interval_days:number;retention_days:number;cleanup_artwork:boolean;cleanup_cache:boolean;cleanup_temporary:boolean;last_run:number;last_result:string;}
 interface Report {files:number;bytes:number;result:string;}
 const button="rounded-full border border-border bg-input px-4 py-2 text-sm text-white hover:border-accent disabled:opacity-50";
 export default function ScheduledTasks(){

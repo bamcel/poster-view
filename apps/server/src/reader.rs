@@ -1038,6 +1038,7 @@ mod tests {
             .unwrap()
             .to_owned();
         let state = AppState {
+            active_native_scans: Default::default(),
             runtime,
             auth: auth.clone(),
             metadata: Arc::new(crate::metadata::MetadataStore::new(temp.path().into())),
