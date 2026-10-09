@@ -182,7 +182,7 @@ pub(crate) fn write(
         shared_artwork_permissions(&fs::File::open(&target).map_err(|e| e.to_string())?, &target)?;
         return Ok(());
     }
-    let mut temp = tempfile::NamedTempFile::new_in(&directory).map_err(|e| e.to_string())?;
+    let mut temp = tempfile::NamedTempFile::new_in(&directory).map_err(|e|format!("Could not create artwork in {}: {e}. Check write access for the PosterView container.",directory.display()))?;
     use std::io::Write;
     temp.write_all(encoded.get_ref())
         .map_err(|e| e.to_string())?;
@@ -190,7 +190,7 @@ pub(crate) fn write(
     temp.as_file().sync_all().map_err(|e| e.to_string())?;
     crate::native_monitor::own_write(&target, || {
         if replace {
-            temp.persist(&target).map_err(|e| e.to_string())?;
+            temp.persist(&target).map_err(|e|format!("Could not replace {}: {e}. Check file ownership and media mount permissions.",target.display()))?;
         } else if let Err(e) = temp.persist_noclobber(&target) {
             if e.error.kind() != std::io::ErrorKind::AlreadyExists {
                 return Err(e.to_string());
@@ -235,7 +235,15 @@ fn shared_artwork_permissions(file: &fs::File, target: &Path) -> Result<(), Stri
     {
         use std::os::unix::fs::PermissionsExt;
         let mode = fs::metadata(target).map(|m| m.permissions().mode() & 0o777).unwrap_or(0o644);
-        file.set_permissions(fs::Permissions::from_mode(mode | 0o444)).map_err(|e| e.to_string())?;
+        let current=file.metadata().map_err(|e|format!("Could not inspect artwork permissions: {e}"))?.permissions().mode() & 0o777;
+        let desired=mode | 0o444;
+        // SMB/NFS may deny chmod even when the sidecar is already readable.
+        if current!=desired {
+            if let Err(e)=file.set_permissions(fs::Permissions::from_mode(desired)) {
+                if current & 0o444 != 0o444 {return Err(format!("Could not make artwork readable by other containers: {e}. Check the media mount permissions and container UID/GID."));}
+                tracing::debug!(error=%e,"Media mount denied permission change; artwork is already readable");
+            }
+        }
     }
     #[cfg(not(unix))]
     let _ = (file, target);

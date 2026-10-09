@@ -26,6 +26,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const push = useCallback((type: ToastType, message: string) => {
+    if(type==="success" && message.includes("media-folder write failed")) type="error";
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { id, type, message }]);
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4200);
