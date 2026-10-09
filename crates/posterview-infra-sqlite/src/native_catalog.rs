@@ -7,6 +7,13 @@ fn invalid(message: &str) -> StoreError {
     StoreError::Validation(message.into())
 }
 impl ServerStore {
+    pub fn refresh_local_artwork(&self,library:&str,path:&str)->Result<bool,StoreError> {
+        let mut db=self.connection()?;let tx=db.transaction()?;
+        let changed=tx.execute("UPDATE catalog_items SET revision=revision+1 WHERE id IN (SELECT a.item_id FROM catalog_artwork a JOIN native_catalog_sources s ON s.item_id=a.item_id WHERE s.library_id=?1 AND s.available=1 AND a.path=?2 AND a.source='local' AND a.locked=0)",params![library,path])?;
+        tx.commit()?;
+        if changed>0 {self.set_setting(&format!("native-artwork-revision:{library}"),&uuid::Uuid::new_v4().to_string())?;}
+        Ok(changed>0)
+    }
     pub fn native_nfo_content(&self, path: &str) -> Result<Option<String>, StoreError> {
         Ok(self
             .connection()?

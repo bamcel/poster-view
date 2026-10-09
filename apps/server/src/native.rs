@@ -123,6 +123,7 @@ pub(crate) async fn status(
     tokio::task::spawn_blocking(move || {
         let status = store.native_scan_status(&id)?;
         let mut value = serde_json::json!(status);
+        value["artwork_revision"] = serde_json::json!(store.get_setting(&format!("native-artwork-revision:{id}"))?);
         value["show_progress"] = serde_json::json!(store.get_setting(&format!("native-scan-visible:{id}"))? != "false");
         Ok::<_, posterview_infra_sqlite::StoreError>(value)
     })
@@ -696,7 +697,8 @@ pub(crate) async fn artwork(
                 return Ok((StatusCode::NOT_MODIFIED, headers, Vec::new()));
             }
         }
-        let mut bytes = std::fs::read(&path).map_err(|_| HttpError::not_found())?;
+        let read_path = if !art.path.starts_with("@managed/") {crate::native_artwork::managed_local_copy(&state,&path).map_err(HttpError::bad_request)?} else {path.clone()};
+        let mut bytes = std::fs::read(&read_path).map_err(|_| HttpError::not_found())?;
         if !art.path.starts_with("@managed/") && crate::native_animation::is_animated(&bytes) {
             bytes = crate::native_animation::local(&state, &path, &bytes, options.get("still").is_some_and(|s|s=="1")).map_err(HttpError::bad_request)?;
         }

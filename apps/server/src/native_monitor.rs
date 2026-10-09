@@ -97,6 +97,7 @@ struct Pending {
     last: Instant,
     // None means watcher overflow/error: reconcile the full library.
     paths: Option<std::collections::BTreeSet<PathBuf>>,
+    files: std::collections::BTreeSet<PathBuf>,
 }
 impl Pending {
     fn new() -> Self {
@@ -105,6 +106,7 @@ impl Pending {
             first: now,
             last: now,
             paths: Some(Default::default()),
+            files: Default::default(),
         }
     }
 }
@@ -144,6 +146,22 @@ fn changed_scope(path: &Path, root: &Path) -> PathBuf {
     candidate
 }
 
+// Known image changes bypass file probing and provider requests entirely.
+fn refresh_artwork_files(state:&AppState,id:&str,files:&std::collections::BTreeSet<PathBuf>)->bool {
+    let db=ServerStore::new(state.runtime.data_dir());
+    let Ok(entries)=db.native_catalog(id) else {return false;};
+    let Ok(root)=state.metadata.directory("",true) else {return false;};
+    if files.iter().any(|p|p.is_symlink()){return false;}
+    let Ok(files)=files.iter().map(|p|p.canonicalize()).collect::<Result<Vec<_>,_>>() else {return false;};
+    for path in &files {
+        let Ok(relative)=path.strip_prefix(&root) else {return false;};
+        let relative=relative.to_string_lossy().replace('\\',"/");
+        if !entries.iter().any(|entry|entry.available && entry.artwork.iter().any(|art|art.source=="local" && art.path==relative)) {return false;}
+        if path.is_symlink() || !path.canonicalize().is_ok_and(|p|p.starts_with(&root)) || crate::native_artwork::managed_local_copy(state,path).is_err() {return false;}
+    }
+    files.iter().all(|path|path.strip_prefix(&root).ok().is_some_and(|relative|db.refresh_local_artwork(id,&relative.to_string_lossy().replace('\\',"/")).unwrap_or(false)))
+}
+
 pub(crate) fn start(state: AppState) {
     tokio::spawn(async move {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<notify::Result<Event>>(1000);
@@ -166,6 +184,7 @@ pub(crate) fn start(state: AppState) {
                                     recovery.reset();
                                     let job = pending.entry(id.clone()).or_insert_with(Pending::new);
                                     job.last = Instant::now();
+                                    job.files.insert(path.clone());
                                     if let Some(paths) = &mut job.paths { paths.insert(changed_scope(path,root)); }
                                 }
                             }
@@ -206,6 +225,10 @@ pub(crate) fn start(state: AppState) {
                         if !enabled{pending.remove(&id);continue;}
                         if db.native_scan_status(&id).is_ok_and(|s|s.status=="scanning"){continue;}
                         let job = pending.remove(&id).unwrap();
+                        if job.paths.is_some() && !job.files.is_empty() {
+                            let refresh_state=state.clone();let refresh_id=id.clone();let files=job.files.clone();
+                            if tokio::task::spawn_blocking(move||refresh_artwork_files(&refresh_state,&refresh_id,&files)).await.is_ok_and(|result|result) {continue;}
+                        }
                         let scopes = if let Some(paths) = job.paths.as_ref() {
                             let media_root = match state.metadata.directory("",true) { Ok(root)=>root, Err(error)=>{tracing::warn!(message=%error.detail,"Automatic scan root unavailable");continue;} };
                             let paths = paths.iter().filter(|p| !paths.iter().any(|parent| parent != *p && p.starts_with(parent))).filter_map(|p|p.strip_prefix(&media_root).ok().map(|v|v.to_string_lossy().replace('\\',"/"))).collect::<Vec<_>>();
@@ -226,6 +249,26 @@ pub(crate) fn start(state: AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn local_logo_updates_refresh_the_managed_copy_without_a_scan_or_manual_override() {
+        let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());
+        let folder=temp.path().join("media/Anime/Test");std::fs::create_dir_all(&folder).unwrap();let path=folder.join("clearlogo.png");
+        let png=|width|{let mut bytes=std::io::Cursor::new(Vec::new());image::DynamicImage::new_rgba8(width,8).write_to(&mut bytes,image::ImageFormat::Png).unwrap();bytes.into_inner()};
+        std::fs::write(&path,png(16)).unwrap();
+        let db=ServerStore::new(state.runtime.data_dir());
+        let library=db.save_native_library(None,&posterview_contracts::native::NativeLibraryInput{name:"Anime".into(),library_type:posterview_contracts::native::NativeLibraryType::Anime,anime_content:posterview_contracts::native::AnimeContent::Both,paths:vec!["Anime".into()],revision:None,options:Default::default()}).unwrap();
+        let entry=posterview_contracts::native::NativeCatalogEntry{id:String::new(),path:"Anime/Test".into(),kind:"series".into(),parent_path:None,title:"Test".into(),metadata:serde_json::json!({}),artwork:vec![posterview_contracts::native::NativeArtwork{kind:"logo".into(),path:"Anime/Test/clearlogo.png".into(),source:"local".into()}],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+        db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();
+        let before=db.native_catalog(&library.id).unwrap().remove(0);
+        let original=crate::native_artwork::managed_local_copy(&state,&path).unwrap();assert_eq!(std::fs::read(original).unwrap(),png(16));
+        std::fs::write(&path,png(48)).unwrap();let files=std::collections::BTreeSet::from([path.clone()]);
+        assert!(refresh_artwork_files(&state,&library.id,&files));
+        let after=db.native_catalog(&library.id).unwrap().remove(0);assert!(after.revision>before.revision);assert_eq!(after.artwork[0].source,"local");assert_eq!(after.artwork[0].path,"Anime/Test/clearlogo.png");
+        let copy=crate::native_artwork::managed_local_copy(&state,&path).unwrap();assert_eq!(std::fs::read(copy).unwrap(),png(48));assert_eq!(std::fs::read_dir(state.runtime.data_dir().join("local-artwork-cache")).unwrap().count(),1);
+        assert_eq!(db.native_scan_status(&library.id).unwrap().status,"not_scanned");assert!(!db.get_setting(&format!("native-artwork-revision:{}",library.id)).unwrap().is_empty());
+        db.save_native_artwork(&library.id,&after.id,&posterview_contracts::native::NativeArtwork{kind:"logo".into(),path:"@managed/chosen.png".into(),source:"manual".into()}).unwrap();
+        assert!(!refresh_artwork_files(&state,&library.id,&files));assert_eq!(db.native_catalog(&library.id).unwrap()[0].artwork[0].path,"@managed/chosen.png");
+    }
     #[test]
     fn repeated_watcher_errors_request_only_one_recovery_until_a_real_change() {
         let mut recovery = RecoveryGate::default();

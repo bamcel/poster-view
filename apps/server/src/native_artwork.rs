@@ -275,3 +275,24 @@ mod permission_tests {
         }
     }
 }
+
+/// The media-folder file remains authoritative; this mirror is never a manual artwork override.
+pub(crate) fn managed_local_copy(state:&AppState,path:&Path)->Result<std::path::PathBuf,String> {
+    let canonical=path.canonicalize().map_err(|e|e.to_string())?;let path=canonical.as_path();
+    let metadata=fs::metadata(path).map_err(|e|e.to_string())?;
+    if metadata.len()>20*1024*1024 {return Err("Artwork exceeds 20 MB.".into());}
+    let modified=metadata.modified().map_err(|e|e.to_string())?.duration_since(std::time::UNIX_EPOCH).map_err(|e|e.to_string())?.as_nanos();
+    let mut hash=std::hash::DefaultHasher::new();std::hash::Hash::hash(&path,&mut hash);
+    let prefix=format!("{:x}-",std::hash::Hasher::finish(&hash));
+    let directory=state.runtime.data_dir().join("local-artwork-cache");fs::create_dir_all(&directory).map_err(|e|e.to_string())?;
+    let target=directory.join(format!("{prefix}{}-{modified}.art",metadata.len()));
+    if target.is_file() {return Ok(target);}
+    let bytes=fs::read(path).map_err(|e|e.to_string())?;
+    if !crate::native_animation::is_webm(&bytes) && !matches!(image::guess_format(&bytes),Ok(image::ImageFormat::Png|image::ImageFormat::Jpeg|image::ImageFormat::WebP|image::ImageFormat::Gif)) {return Err("Unsupported local artwork.".into());}
+    let temporary=directory.join(format!("{}.tmp",uuid::Uuid::new_v4()));
+    fs::write(&temporary,&bytes).map_err(|e|e.to_string())?;
+    if let Err(error)=fs::rename(&temporary,&target) {let _=fs::remove_file(&temporary);if !target.is_file(){return Err(error.to_string());}}
+    // Keep one version per source, without walking the media library.
+    if let Ok(files)=fs::read_dir(&directory) {for file in files.flatten() {if file.path()!=target && file.file_name().to_string_lossy().starts_with(&prefix) {let _=fs::remove_file(file.path());}}}
+    Ok(target)
+}
