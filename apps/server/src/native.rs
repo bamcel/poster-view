@@ -167,8 +167,16 @@ pub(crate) async fn refresh_artwork(
         let entries=store(&state).native_catalog(&id).map_err(error)?;
         let entry=entries.iter().find(|e|e.available && e.id==item).ok_or_else(HttpError::not_found)?;
         let root=state.metadata.directory("",true)?;
-        let files=entries.iter().filter(|e|e.available && (e.id==item || e.path.starts_with(&format!("{}/",entry.path))))
-            .flat_map(|e|e.artwork.iter().filter(|a|a.source=="local").map(|a|root.join(&a.path))).collect::<std::collections::BTreeSet<_>>();
+        let mut files=std::collections::BTreeSet::new();
+        for current in entries.iter().filter(|e|e.available && (e.id==item || e.path.starts_with(&format!("{}/",entry.path)))) {
+            let path=root.join(&current.path);
+            let (directory,stem)=if path.is_dir() {(path.clone(),None)} else {(path.parent().unwrap_or(&root).to_path_buf(),path.file_stem().map(|s|s.to_string_lossy().into_owned()))};
+            for art in crate::native_scan::local_art(&root,&directory,stem.as_deref()) {
+                crate::native_artwork::managed_local_copy(&state,&root.join(&art.path)).map_err(HttpError::bad_request)?;
+                store(&state).select_local_artwork(&id,&current.id,&art).map_err(error)?;
+                files.insert(root.join(&art.path));
+            }
+        }
         let mut updated=0;let mut warnings=Vec::new();
         for path in files {if crate::native_monitor::refresh_artwork_files(&state,&id,&std::collections::BTreeSet::from([path.clone()])) {updated+=1;}else {warnings.push(format!("Could not refresh local artwork: {}",path.file_name().unwrap_or_default().to_string_lossy()));}}
         Ok(Json(serde_json::json!({"updated":updated,"warnings":warnings})))

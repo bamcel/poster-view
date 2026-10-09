@@ -309,7 +309,7 @@ fn apply_nfo(entry: &mut NativeCatalogEntry, doc: Option<(String, Value, String,
         entry.nfo_xml = Some(xml);
     }
 }
-fn local_art(root: &Path, dir: &Path, stem: Option<&str>) -> Vec<NativeArtwork> {
+pub(crate) fn local_art(root: &Path, dir: &Path, stem: Option<&str>) -> Vec<NativeArtwork> {
     let Ok(files) = fs::read_dir(dir) else {
         return Vec::new();
     };

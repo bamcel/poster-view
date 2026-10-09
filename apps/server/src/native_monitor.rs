@@ -269,6 +269,11 @@ mod tests {
         let refreshed=crate::native::refresh_artwork(axum::extract::State(state.clone()),axum::extract::Path((library.id.clone(),after.id.clone()))).await.unwrap().0;assert_eq!(refreshed["updated"],1);assert_eq!(refreshed["warnings"],serde_json::json!([]));
         db.save_native_artwork(&library.id,&after.id,&posterview_contracts::native::NativeArtwork{kind:"logo".into(),path:"@managed/chosen.png".into(),source:"manual".into()}).unwrap();
         assert!(!refresh_artwork_files(&state,&library.id,&files));assert_eq!(db.native_catalog(&library.id).unwrap()[0].artwork[0].path,"@managed/chosen.png");
+        let refreshed=crate::native::refresh_artwork(axum::extract::State(state.clone()),axum::extract::Path((library.id.clone(),after.id.clone()))).await.unwrap().0;
+        assert_eq!(refreshed["updated"],1);
+        let restored=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(restored.artwork[0].source,"local");assert_eq!(restored.artwork[0].path,"Anime/Test/clearlogo.png");
+        assert_eq!(std::fs::read(&path).unwrap(),png(48));
+
     }
     #[test]
     fn repeated_watcher_errors_request_only_one_recovery_until_a_real_change() {

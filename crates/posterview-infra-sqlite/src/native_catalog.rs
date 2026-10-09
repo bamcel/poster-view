@@ -7,6 +7,13 @@ fn invalid(message: &str) -> StoreError {
     StoreError::Validation(message.into())
 }
 impl ServerStore {
+    pub fn select_local_artwork(&self,library:&str,item:&str,art:&NativeArtwork)->Result<(),StoreError> {
+        let mut db=self.connection()?;let tx=db.transaction()?;
+        let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2 AND available=1)",params![library,item],|r|r.get(0))?;
+        if !exists || art.source!="local" {return Err(invalid("Invalid local artwork selection."));}
+        tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,'local',0) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source='local',locked=0",params![item,art.kind,art.path])?;
+        tx.commit()?;Ok(())
+    }
     pub fn refresh_local_artwork(&self,library:&str,path:&str)->Result<bool,StoreError> {
         let mut db=self.connection()?;let tx=db.transaction()?;
         let changed=tx.execute("UPDATE catalog_items SET revision=revision+1 WHERE id IN (SELECT a.item_id FROM catalog_artwork a JOIN native_catalog_sources s ON s.item_id=a.item_id WHERE s.library_id=?1 AND s.available=1 AND a.path=?2 AND a.source='local' AND a.locked=0)",params![library,path])?;
@@ -300,7 +307,7 @@ impl ServerStore {
             project_metadata(&tx, &id, &effective)?;
             tx.execute("DELETE FROM catalog_artwork WHERE item_id=?1 AND locked=0 AND NOT EXISTS(SELECT 1 FROM json_each(?2) a WHERE json_extract(a.value,'$.kind')=catalog_artwork.kind AND json_extract(a.value,'$.path')=catalog_artwork.path)",params![id,serde_json::to_string(&entry.artwork).map_err(|_|invalid("Invalid artwork records."))?])?;
             for art in &entry.artwork {
-                tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,?4,0) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source=excluded.source WHERE locked=0 AND (excluded.source='local' OR source<>'local')",params![id,art.kind,art.path,art.source])?;
+                tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,?4,0) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source=excluded.source,locked=CASE WHEN excluded.source='local' THEN 0 ELSE locked END WHERE excluded.source='local' OR (locked=0 AND source<>'local')",params![id,art.kind,art.path,art.source])?;
             }
             tx.execute("DELETE FROM catalog_item_files WHERE item_id=?1", [&id])?;
             for file in &entry.files {
@@ -646,15 +653,15 @@ mod tests{
         let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
         let library=db.save_native_library(None,&NativeLibraryInput{name:"Movies".into(),library_type:NativeLibraryType::Movies,anime_content:AnimeContent::Both,paths:vec!["Movies".into()],revision:None,options:Default::default()}).unwrap();
         let mut entry=NativeCatalogEntry{id:String::new(),path:"Movies/Test.mp4".into(),kind:"movie".into(),parent_path:None,title:"Test".into(),metadata:json!({"title":"Test","plot":"","_sources":{"title":"nfo","plot":"nfo"}}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
-        db.ingest_native_catalog(&library.id,library.revision,&[entry.clone()]).unwrap();
+        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
         entry.metadata["plot"]=json!("Provider filled the gap");entry.metadata["_sources"]["plot"]=json!("tmdb");
-        db.ingest_native_catalog(&library.id,library.revision,&[entry.clone()]).unwrap();
+        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
         let first=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(first.metadata["plot"],"Provider filled the gap");
-        entry.metadata["plot"]=json!("Local plot");entry.metadata["_sources"]["plot"]=json!("nfo");db.ingest_native_catalog(&library.id,library.revision,&[entry.clone()]).unwrap();
-        entry.metadata["plot"]=json!("Provider replacement");entry.metadata["_sources"]["plot"]=json!("tmdb");db.ingest_native_catalog(&library.id,library.revision,&[entry.clone()]).unwrap();
+        entry.metadata["plot"]=json!("Local plot");entry.metadata["_sources"]["plot"]=json!("nfo");db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
+        entry.metadata["plot"]=json!("Provider replacement");entry.metadata["_sources"]["plot"]=json!("tmdb");db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
         let current=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(current.id,first.id);assert_eq!(current.metadata["plot"],"Local plot");
         db.edit_native_entry(&library.id,&current.id,current.revision,&json!({"plot":"Manual plot"})).unwrap();
-        db.ingest_native_catalog(&library.id,library.revision,&[entry.clone()]).unwrap();assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["plot"],"Manual plot");
+        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["plot"],"Manual plot");
         assert!(db.ingest_native_catalog(&library.id,library.revision+1,&[]).is_err());assert!(db.native_catalog(&library.id).unwrap()[0].available);
     }
     #[test]
@@ -693,9 +700,15 @@ mod tests{
             available: true,
             revision: 1,
         };
-        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+        db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
             .unwrap();
         let item = db.native_catalog(&library.id).unwrap().remove(0).id;
+        db.save_native_artwork(&library.id,&item,&NativeArtwork{kind:"poster".into(),path:"@managed/chosen.jpg".into(),source:"manual".into()}).unwrap();
+        db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();
+        let art=db.native_artwork(&library.id,&item,"poster").unwrap().unwrap();
+        assert_eq!(art.path,"Movies/poster.jpg");assert_eq!(art.source,"local");
+        let locked:bool=db.connection().unwrap().query_row("SELECT locked FROM catalog_artwork WHERE item_id=?1 AND kind='poster'",[&item],|r|r.get(0)).unwrap();assert!(!locked);
+
         db.connection()
             .unwrap()
             .execute(
