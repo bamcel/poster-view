@@ -727,6 +727,16 @@ fn anidb_titles(xml: &str, title: &str) -> Result<Vec<Value>, String> {
     matches.sort_by_key(|(score, v)| (*score, v["title"].as_str().unwrap_or("").to_owned()));
     Ok(matches.into_iter().take(15).map(|(_, v)| v).collect())
 }
+fn anidb_poster(xml:&str)->Result<Option<String>,String> {
+    let root=xmltree::Element::parse(xml.as_bytes()).map_err(|_|"Invalid AniDB record.")?;
+    Ok(root.get_child("picture").and_then(|e|e.get_text()).filter(|s|!s.is_empty() && s.chars().all(|c|c.is_ascii_alphanumeric()||"._-".contains(c))).map(|s|format!("https://cdn-eu.anidb.net/images/main/{s}")))
+}
+pub(crate) async fn anidb_preview(State(state):State<AppState>,Path(id):Path<String>)->Result<Json<Value>,HttpError> {
+    if id.is_empty() || !id.bytes().all(|c|c.is_ascii_digit()) {return Err(HttpError::bad_request("Invalid AniDB ID."));}
+    let client=reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).user_agent("PosterView/0.1 (+https://github.com/bamcel/poster-view)").build().map_err(|_|HttpError::bad_gateway("Could not initialize AniDB client."))?;
+    let xml=crate::native_provider_extra::anidb_document(&state,&client,&id).await.map_err(HttpError::bad_request)?;
+    Ok(Json(json!({"poster":anidb_poster(&xml).map_err(HttpError::bad_request)?})))
+}
 async fn anidb_lookup(
     state: &AppState,
     client: &reqwest::Client,
@@ -850,6 +860,12 @@ async fn anidb_lookup(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn anidb_preview_extracts_only_a_safe_poster_filename() {
+        assert_eq!(super::anidb_poster("<anime><picture>123.jpg</picture></anime>").unwrap().as_deref(),Some("https://cdn-eu.anidb.net/images/main/123.jpg"));
+        assert!(super::anidb_poster("<anime><picture>../bad.jpg</picture></anime>").unwrap().is_none());
+        assert!(super::anidb_poster("<anime/>").unwrap().is_none());
+    }
     use super::*;
     #[test]
     fn mangadex_identification_accepts_uuid_instead_of_numeric_ids() {

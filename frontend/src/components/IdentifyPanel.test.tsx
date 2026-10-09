@@ -1,8 +1,13 @@
-import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
+import type {ReactNode} from "react";
+import {apiRequest} from "../api/client";
+import {cleanup,fireEvent,render as renderUI,screen,waitFor} from "@testing-library/react";
 import {afterEach,expect,it,vi} from "vitest";
 import IdentifyPanel from "./IdentifyPanel";
 import {nativeLibraries,defaultNativeOptions,type NativeLibrary,type NativeCatalogEntry} from "../api/nativeLibraries";
 vi.mock("../api/nativeLibraries",async importOriginal=>({...await importOriginal<typeof import("../api/nativeLibraries")>(),nativeLibraries:{identifySearch:vi.fn(),identifyResolve:vi.fn(),identify:vi.fn()}}));
+vi.mock("../api/client",()=>({apiRequest:vi.fn().mockResolvedValue({poster:null})}));
+function render(ui:ReactNode){return renderUI(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>{ui}</QueryClientProvider>);}
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 const library={id:"lib",library_type:"anime"} as NativeLibrary;
 const entry={id:"item",title:"Haikyu! (2024)",path:"Anime/Haikyu",kind:"series",revision:3,parent_path:null,artwork:[],files:[],nfo_path:null,available:true,metadata:{identifiers:{tvdb:"wrong"}}} as NativeCatalogEntry;
@@ -82,4 +87,14 @@ it("previews a pasted ComicVine series URL and saves its canonical ID",async()=>
  fireEvent.click(screen.getByRole("button",{name:"Find ComicVine record"}));
  await screen.findByText("Selected match: Food Wars!");
  expect((screen.getByLabelText("ComicVine identification ID") as HTMLInputElement).value).toBe("72430");
+});
+
+
+it("loads AniDB posters when its results tab opens",async()=>{
+ vi.mocked(apiRequest).mockResolvedValue({poster:"https://cdn-eu.anidb.net/images/main/123.jpg"});
+ vi.mocked(nativeLibraries.identifySearch).mockResolvedValue({groups:[{provider:"anidb",results:[{provider:"anidb",id:"10901",title:"Food Wars",year:null,format:"Anime",overview:"",identifiers:{anidb:"10901"}}]}]});
+ render(<IdentifyPanel library={library} entry={entry} busy={false} onSaved={vi.fn()}/>);
+ fireEvent.click(screen.getByText("Search all providers"));
+ expect((await screen.findByAltText("Food Wars poster")).getAttribute("src")).toBe("https://cdn-eu.anidb.net/images/main/123.jpg");
+ expect(apiRequest).toHaveBeenCalledWith("/native/identify/anidb/10901/poster");
 });

@@ -212,6 +212,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             "/api/history/settings",
             get(get_history_settings).put(set_history_settings),
         )
+        .route("/api/native/identify/anidb/{id}/poster", get(native_identify::anidb_preview))
         .route("/api/tasks", get(scheduled_tasks::list))
         .route("/api/tasks/cleanup/preview", get(scheduled_tasks::preview))
         .route("/api/tasks/{id}", axum::routing::put(scheduled_tasks::configure))

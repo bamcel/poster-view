@@ -1,3 +1,5 @@
+import {useQuery} from "@tanstack/react-query";
+import {apiRequest} from "../api/client";
 import {useRef, useState} from "react";
 import {Search, Loader2, Check, Fingerprint, ImageOff} from "lucide-react";
 import {nativeLibraries, type NativeLibrary, type NativeCatalogEntry, type IdentificationCandidate, type IdentificationGroup} from "../api/nativeLibraries";
@@ -68,5 +70,8 @@ export default function IdentifyPanel({library,entry,busy,onSaved}:{library:Nati
 
 function MatchPoster({candidate,className=""}:{candidate:IdentificationCandidate;className?:string}){
  const [failed,setFailed]=useState(false);
- return <div className={`aspect-[2/3] overflow-hidden rounded-lg bg-surface-2 ${className}`}>{candidate.poster&&!failed?<img src={candidate.poster} alt={`${candidate.title} poster`} loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-full w-full object-cover" onError={()=>setFailed(true)}/>:<div className="flex h-full items-center justify-center text-faint"><ImageOff className="size-8"/><span className="sr-only">No poster available</span></div>}</div>;
+ const preview=useQuery({queryKey:["anidb-identify-poster",candidate.id],queryFn:()=>apiRequest<{poster:string|null}>(`/native/identify/anidb/${encodeURIComponent(candidate.id)}/poster`),enabled:candidate.provider==="anidb"&&!candidate.poster,staleTime:86400000,retry:false});
+ const poster=candidate.poster??(candidate.provider==="anidb"?preview.data?.poster:undefined);
+
+ return <div className={`aspect-[2/3] overflow-hidden rounded-lg bg-surface-2 ${className}`}>{poster&&!failed?<img src={poster} alt={`${candidate.title} poster`} loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-full w-full object-cover" onError={()=>setFailed(true)}/>:<div title={preview.error?.message} className="flex h-full items-center justify-center text-faint">{preview.isFetching?<Loader2 className="size-8 animate-spin"/>:<ImageOff className="size-8"/>}<span className="sr-only">{preview.isFetching?"Loading AniDB poster":preview.error?.message??"No poster available"}</span></div>}</div>;
 }
