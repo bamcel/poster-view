@@ -650,6 +650,7 @@ pub(crate) async fn apply(
     .map_err(|_| HttpError::bad_request("Identification save interrupted."))?
     .map_err(|e| HttpError::bad_request(e.to_string()))?;
     let (_, updated) = context(&state, &library, &item).await?;
+    if updated.kind=="series" {db(&state).set_setting(&format!("expected-episodes:{library}:{}",updated.path),"").map_err(|e|HttpError::bad_request(e.to_string()))?;}
     let mut warnings = Vec::<String>::new();
     if lib.options.save_nfo {
         let state = state.clone();

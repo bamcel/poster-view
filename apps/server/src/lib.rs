@@ -30,6 +30,7 @@ mod metadata;
 mod reader;
 mod native;
 mod native_scan;
+mod native_missing;
 mod native_provider;
 mod native_jikan;
 mod native_provider_extra;

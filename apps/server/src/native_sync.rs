@@ -391,6 +391,7 @@ pub(crate) async fn changed(
     fields: Value,
     art: Option<&str>,
 ) -> String {
+    if db(state).native_item_is_missing(library,item).unwrap_or(true) {return String::new();}
     let Some(lib) = active(state, library) else {
         return String::new();
     };
@@ -778,7 +779,7 @@ async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> 
     let mut entries = db(state)
         .native_catalog(library)
         .map_err(|e| e.to_string())?;
-    entries.retain(|e| e.available);
+    entries.retain(|e| e.available && e.metadata["missing"]!=true);
     entries.sort_by_key(|e| match e.kind.as_str() {
         "series" | "movie" => 0,
         "season" => 1,

@@ -7,6 +7,20 @@ fn invalid(message: &str) -> StoreError {
     StoreError::Validation(message.into())
 }
 impl ServerStore {
+    pub fn native_item_is_missing(&self,library:&str,item:&str)->Result<bool,StoreError> {
+        Ok(self.connection()?.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources s WHERE s.library_id=?1 AND s.item_id=?2 AND json_extract(s.snapshot_json,'$.metadata.missing')=1)",params![library,item],|r|r.get(0))?)
+    }
+    pub fn cleanup_hidden_placeholders(&self,library:&str)->Result<Vec<String>,StoreError> {
+        let mut db=self.connection()?;let tx=db.transaction()?;
+        let ids=tx.prepare("SELECT s.item_id FROM native_catalog_sources s WHERE s.library_id=?1 AND json_extract(s.snapshot_json,'$.metadata.missing')=1 AND instr(s.relative_path,'/@missing-')>0 AND NOT EXISTS(SELECT 1 FROM catalog_item_files f WHERE f.item_id=s.item_id)")?.query_map([library],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
+        let mut references=Vec::new();
+        for id in ids {
+            references.extend(tx.prepare("SELECT path FROM catalog_artwork WHERE item_id=?1 UNION ALL SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1")?.query_map([&id],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?);
+            tx.execute("DELETE FROM catalog_items WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM native_catalog_sources WHERE item_id=?1 AND library_id<>?2)",params![id,library])?;
+        }
+        tx.execute("INSERT INTO settings(key,value_enc) VALUES(?1,'true') ON CONFLICT(key) DO UPDATE SET value_enc='true'",[format!("missing-cleaned:{library}")])?;
+        tx.commit()?;Ok(references)
+    }
     pub fn select_local_artwork(&self,library:&str,item:&str,art:&NativeArtwork)->Result<(),StoreError> {
         let mut db=self.connection()?;let tx=db.transaction()?;
         let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2 AND available=1)",params![library,item],|r|r.get(0))?;
@@ -252,7 +266,9 @@ impl ServerStore {
         } else {
             tx.execute("UPDATE native_catalog_sources SET available=0 WHERE library_id=?1", [library])?;
         }
+        let cleared_hidden:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM settings WHERE key=?1 AND value_enc='true') AND COALESCE((SELECT json_extract(options_json,'$.show_missing_files')=0 FROM native_libraries WHERE id=?2),0)",params![format!("missing-cleaned:{library}"),library],|r|r.get(0))?;
         for entry in entries {
+            if cleared_hidden && entry.metadata["missing"]==true {continue;}
             let existing:Option<String>=tx.query_row("SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,entry.path],|r|r.get(0)).optional()?;
             // Promote a numbered placeholder into the real file while retaining its artwork and ID.
             let existing = if existing.is_none() && entry.kind == "book" && entry.metadata["missing"] != true {
@@ -267,6 +283,12 @@ impl ServerStore {
                     }
                     id
                 } else {None}
+            } else if existing.is_none() && ["season","episode"].contains(&entry.kind.as_str()) && entry.metadata["missing"]!=true {
+                let root=if entry.kind=="season" {entry.parent_path.as_deref()} else {entries.iter().filter(|e|e.kind=="series"&&entry.path.starts_with(&format!("{}/",e.path))).max_by_key(|e|e.path.len()).map(|e|e.path.as_str())};
+                let found:Option<(String,String)>=if let (Some(root),Some(season))=(root,entry.metadata["season"].as_u64()) {
+                    tx.query_row("SELECT s.item_id,s.relative_path FROM native_catalog_sources s JOIN catalog_items i ON i.id=s.item_id WHERE s.library_id=?1 AND i.kind=?2 AND substr(s.relative_path,1,length(?3)+1)=?3||'/' AND json_extract(s.snapshot_json,'$.metadata.missing')=1 AND json_extract(s.snapshot_json,'$.metadata.season')=?4 AND (?2='season' OR json_extract(s.snapshot_json,'$.metadata.episode')=?5) LIMIT 1",params![library,entry.kind,root,season,entry.metadata["episode"].as_u64()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?
+                }else{None};
+                if let Some((id,path))=found {tx.execute("DELETE FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,path])?;tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0",[&id])?;Some(id)}else{None}
             } else {existing};
             let id = existing.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             let mut snapshot = entry.clone();

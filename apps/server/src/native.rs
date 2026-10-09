@@ -75,9 +75,12 @@ async fn save(
                 "New libraries cannot have a revision.",
             ));
         }
-        store
-            .save_native_library(id.as_deref(), &input)
-            .map_err(error)
+        let saved=store.save_native_library(id.as_deref(),&input).map_err(error)?;
+        let key=format!("missing-hidden-since:{}",saved.id);
+        if saved.options.show_missing_files {store.set_setting(&key,"").map_err(error)?;store.set_setting(&format!("missing-cleaned:{}",saved.id),"").map_err(error)?;} else if store.get_setting(&key).map_err(error)?.is_empty() {
+            store.set_setting(&key,&chrono::Utc::now().timestamp().to_string()).map_err(error)?;
+        }
+        Ok(saved)
     })
     .await
     .map_err(|_| HttpError::bad_request("Library request interrupted."))??;
@@ -146,7 +149,7 @@ pub(crate) async fn catalog(
     let store = store(&state);
     tokio::task::spawn_blocking(move || {
         let entries = store.native_catalog(&id)?;
-        if library.library_type == NativeLibraryType::Books && store.native_scan_status(&id)?.status != "scanning" {
+        if library.options.show_missing_files && library.library_type == NativeLibraryType::Books && store.native_scan_status(&id)?.status != "scanning" {
             let mut expected = entries.iter().filter(|e|e.available).cloned().collect::<Vec<_>>();
             crate::native_scan::book_placeholders(&mut expected);
             let additions = expected.into_iter().filter(|e|e.metadata["missing"] == true && !entries.iter().any(|old|old.available && old.path==e.path)).collect::<Vec<_>>();
@@ -351,7 +354,10 @@ async fn run_scan_scoped(
             }
         }
     }
-    if library.library_type == NativeLibraryType::Books {crate::native_scan::book_placeholders(&mut entries);}
+    if library.options.show_missing_files && library.library_type == NativeLibraryType::Books {crate::native_scan::book_placeholders(&mut entries);}
+    let previous=store(&state).native_catalog_scoped(&library.id,scopes.as_deref()).map_err(error)?;
+    for missing in previous.into_iter().filter(|e|e.metadata["missing"]==true) {if !entries.iter().any(|e|e.path==missing.path) && !crate::native_missing::arrived(&entries,&missing){entries.push(missing);}}
+    crate::native_missing::reconcile_library(&state,&library,&mut entries,false,&mut warnings).await;
     // Publish the local catalog before network enrichment so large libraries are usable immediately.
     let local_entries = entries.clone();
     let db = store(&state);
@@ -378,7 +384,8 @@ async fn run_scan_scoped(
     .map_err(|_| HttpError::bad_request("Local catalog save interrupted."))?
     .map_err(error)?;
     crate::native_provider::enrich(&state, &library, &mut entries, &mut warnings).await;
-    if library.library_type == NativeLibraryType::Books {crate::native_scan::book_placeholders(&mut entries);}
+    crate::native_missing::reconcile_library(&state,&library,&mut entries,true,&mut warnings).await;
+    if library.options.show_missing_files && library.library_type == NativeLibraryType::Books {crate::native_scan::book_placeholders(&mut entries);}
     let count = entries.len();
     let db = store(&state);
     let scan_library = library.clone();
@@ -549,7 +556,7 @@ pub(crate) async fn edit_item(
         let db = store(&state);
         db.edit_native_entry(&library_id, &item, input.revision, &input.metadata)
             .map_err(error)?;
-        if library.library_type == NativeLibraryType::Books && input.metadata.as_object().is_some_and(|f| f.contains_key("volumes") || f.contains_key("chapters")) {
+        if library.options.show_missing_files && library.library_type == NativeLibraryType::Books && input.metadata.as_object().is_some_and(|f| f.contains_key("volumes") || f.contains_key("chapters")) {
             let catalog = db.native_catalog(&library_id).map_err(error)?;
             if let Some(series) = catalog.iter().find(|e|e.id==item && e.kind=="book_series") {
                 let scope=series.path.clone();

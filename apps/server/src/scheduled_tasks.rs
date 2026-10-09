@@ -35,6 +35,7 @@ pub(crate) struct Task {
     interval_days: u64,
     retention_days: u64,
     cleanup_artwork: bool,
+    cleanup_placeholders: bool,
     cleanup_cache: bool,
     cleanup_temporary: bool,
     last_run: u64,
@@ -51,6 +52,7 @@ impl Default for Task {
             interval_days: 7,
             retention_days: 30,
             cleanup_artwork: true,
+            cleanup_placeholders: true,
             cleanup_cache: true,
             cleanup_temporary: true,
             last_run: 0,
@@ -61,7 +63,7 @@ impl Default for Task {
 }
 fn defaults() -> Vec<Task> {
     [
-    ("cleanup","Data Cleanup","Remove unused managed artwork, old local artwork mirrors, and abandoned temporary files. Referenced artwork and media folders are preserved."),
+    ("cleanup","Data Cleanup","Remove hidden missing-file placeholders after retention, unused managed artwork, old local artwork mirrors, and abandoned temporary files. Shared artwork and media folders are preserved."),
     ("history","Trim History","Remove application history older than the retention period, including its saved history backups."),
     ("database","Optimize Database","Check database health, optimize query statistics, and checkpoint available WAL pages without an exclusive database rebuild."),
 ].into_iter().map(|(id,title,description)|Task{id:id.into(),title:title.into(),description:description.into(),..Default::default()}).collect()
@@ -78,6 +80,7 @@ fn load(state: &AppState) -> Result<Vec<Task>, HttpError> {
                 task.interval_days = s.interval_days;
                 task.retention_days = s.retention_days;
                 task.cleanup_artwork = s.cleanup_artwork;
+                task.cleanup_placeholders=s.cleanup_placeholders;
                 task.cleanup_cache = s.cleanup_cache;
                 task.cleanup_temporary = s.cleanup_temporary;
                 task.last_run = s.last_run;
@@ -127,6 +130,7 @@ pub(crate) async fn configure(
         task.interval_days = input.interval_days;
         task.retention_days = input.retention_days;
         task.cleanup_artwork = input.cleanup_artwork;
+        task.cleanup_placeholders=input.cleanup_placeholders;
         task.cleanup_cache = input.cleanup_cache;
         task.cleanup_temporary = input.cleanup_temporary;
         save(&state, &tasks)?;
@@ -138,6 +142,7 @@ pub(crate) async fn configure(
 #[derive(Serialize, Default)]
 pub(crate) struct Report {
     files: usize,
+    placeholders: usize,
     bytes: u64,
     result: String,
 }
@@ -184,6 +189,17 @@ fn old(meta: &std::fs::Metadata, days: u64) -> bool {
         .ok()
         .and_then(|m| SystemTime::now().duration_since(m).ok())
         .is_some_and(|age| age.as_secs() >= days * 86400)
+}
+fn hidden_libraries(state:&AppState,task:&Task)->Result<Vec<(String,u64,usize)>,HttpError> {
+    if !task.cleanup_placeholders{return Ok(Vec::new());}
+    if !state.active_native_scans.lock().unwrap().is_empty(){return Err(bad("Wait for library scans to finish before cleaning data."));}
+    let db=ServerStore::new(state.runtime.data_dir());let mut result=Vec::new();
+    for library in db.native_libraries().map_err(bad)?.into_iter().filter(|l|!l.options.show_missing_files) {
+        let key=format!("missing-hidden-since:{}",library.id);
+        let since=db.get_setting(&key).map_err(bad)?.parse::<u64>().ok().unwrap_or_else(now);
+        if db.get_setting(&key).map_err(bad)?.is_empty(){db.set_setting(&key,&since.to_string()).map_err(bad)?;}
+        if now().saturating_sub(since)>=task.retention_days*86400 {let count=db.native_catalog(&library.id).map_err(bad)?.iter().filter(|e|e.metadata["missing"]==true && e.path.contains("/@missing-") && e.files.is_empty()).count();if count>0{result.push((library.id,since,count));}}
+    }Ok(result)
 }
 fn candidates(state: &AppState, task: &Task) -> Result<Vec<Candidate>, HttpError> {
     let db = ServerStore::new(state.runtime.data_dir());
@@ -269,6 +285,7 @@ pub(crate) async fn preview(State(state): State<AppState>) -> Result<Json<Report
         let files = candidates(&state, &task)?;
         Ok(Json(Report {
             files: files.len(),
+            placeholders:hidden_libraries(&state,&task)?.iter().map(|(_,_,count)|count).sum(),
             bytes: files.iter().map(|f| f.bytes).sum(),
             result: "Eligible files after retention and reference checks.".into(),
         }))
@@ -285,7 +302,15 @@ async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
         let _running = RunningTask;
         let mut tasks=load(&state)?;let task=tasks.iter_mut().find(|t|t.id==id).ok_or_else(HttpError::not_found)?;
         let result=(||->Result<Report,HttpError>{match id.as_str() {
-            "cleanup"=>{let candidates=candidates(&state,task)?;let mut report=Report::default();for file in candidates {let meta=std::fs::symlink_metadata(&file.path).map_err(bad)?;if meta.file_type().is_symlink()||!meta.is_file()||!old(&meta,task.retention_days){continue;}std::fs::remove_file(&file.path).map_err(bad)?;report.files+=1;report.bytes+=file.bytes;}report.result=format!("Removed {} unused files ({} bytes).",report.files,report.bytes);Ok(report)},
+            "cleanup"=>{let db=ServerStore::new(state.runtime.data_dir());let mut report=Report::default();
+                for (library,since,count) in hidden_libraries(&state,task)? {
+                    let removed=db.cleanup_hidden_placeholders(&library).map_err(bad)?;report.placeholders+=count;
+                    let mut grace:BTreeMap<String,u64>=serde_json::from_str(&db.get_setting("cleanup-unreferenced").map_err(bad)?).unwrap_or_default();
+                    for reference in removed {for name in reference.split(|c:char|!c.is_ascii_alphanumeric()&&!"._-".contains(c)) {if !name.contains('.') {continue;}use std::hash::{Hash,Hasher};let mut hash=std::collections::hash_map::DefaultHasher::new();name.hash(&mut hash);grace.insert(format!("{:016x}",hash.finish()),since);
+                        if name.ends_with(".gif")||name.ends_with(".webm") {let still=format!("{}.still.png",name.rsplit_once('.').unwrap().0);let mut hash=std::collections::hash_map::DefaultHasher::new();still.hash(&mut hash);grace.insert(format!("{:016x}",hash.finish()),since);}
+                    }}db.set_setting("cleanup-unreferenced",&serde_json::to_string(&grace).map_err(bad)?).map_err(bad)?;
+                }
+                let candidates=candidates(&state,task)?;for file in candidates {let meta=std::fs::symlink_metadata(&file.path).map_err(bad)?;if meta.file_type().is_symlink()||!meta.is_file()||!old(&meta,task.retention_days){continue;}std::fs::remove_file(&file.path).map_err(bad)?;report.files+=1;report.bytes+=file.bytes;}report.result=format!("Removed {} hidden placeholders and {} unused files ({} bytes).",report.placeholders,report.files,report.bytes);Ok(report)},
             "history"=>{let count=state.runtime.purge_history(Some(task.retention_days as i64)).map_err(bad)?;Ok(Report{result:format!("Removed {count} old history records."),..Default::default()})},
             "database"=>{let db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;let health:String=db.query_row("PRAGMA quick_check",[],|r|r.get(0)).map_err(bad)?;if health!="ok"{return Err(bad(format!("Database check: {health}")));}db.execute_batch("PRAGMA optimize; PRAGMA wal_checkpoint(PASSIVE);").map_err(bad)?;Ok(Report{result:"Database health check passed; optimization and passive checkpoint completed.".into(),..Default::default()})},
             _=>Err(HttpError::not_found()),
@@ -480,4 +505,16 @@ mod tests {
         assert!(report.result.contains("passed"));
         assert!(load(&state).unwrap()[2].last_run > 0);
     }
+    #[tokio::test]
+    async fn hidden_placeholders_and_unused_covers_are_cleaned_after_retention() {
+        let _guard=TEST_LOCK.lock().await;let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());let db=ServerStore::new(state.runtime.data_dir());
+        let library=db.save_native_library(None,&NativeLibraryInput{name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:NativeLibraryOptions{show_missing_files:false,..Default::default()}}).unwrap();
+        let entry=NativeCatalogEntry{id:String::new(),path:"Books/Test/@missing-volume-1".into(),kind:"book".into(),parent_path:Some("Books/Test".into()),title:"Missing".into(),metadata:serde_json::json!({"missing":true,"volume":1}),artwork:vec![NativeArtwork{kind:"poster".into(),path:"@managed/hidden.jpg".into(),source:"manual".into()}],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();let dir=state.runtime.data_dir().join("native-artwork");std::fs::create_dir_all(&dir).unwrap();let cover=dir.join("hidden.jpg");std::fs::write(&cover,b"cover").unwrap();aged(&cover);
+        assert!(hidden_libraries(&state,&defaults().remove(0)).unwrap().is_empty());assert!(cover.exists());
+        db.set_setting(&format!("missing-hidden-since:{}",library.id),&(now()-31*86400).to_string()).unwrap();
+        let report=execute(state.clone(),"cleanup".into()).await.unwrap();assert_eq!(report.placeholders,1);assert_eq!(report.files,1);assert!(!cover.exists());assert!(db.native_catalog(&library.id).unwrap().is_empty());
+        db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();assert!(db.native_catalog(&library.id).unwrap().is_empty());
+    }
+
 }

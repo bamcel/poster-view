@@ -83,6 +83,7 @@ function artwork(
   const overlay = overlayEnabled && edit?.enabled && entry?.artwork.some(a=>a.kind==="logo") ? `&logoOverlay=${encodeURIComponent(JSON.stringify({...edit,logo:`${nativeLibraries.artworkUrl(library.id,entry.id,"logo")}?v=${entry.revision}`}))}` : "";
   const framing = animatedArtworkEnabled(library.id) && ["backdrop","backdrop-animated"].includes(kind) ? validFraming(entry?.metadata.backdropedit) : undefined;
   if (framing?.logo && entry) framing.logo={...framing.logo,enabled:framing.logo.enabled && entry.artwork.some(a=>a.kind==="logo"),src:`${nativeLibraries.artworkUrl(library.id,entry.id,"logo")}?v=${entry.revision}`};
+  if(kind==="thumb" && entry?.metadata.missing===true && !entry.artwork.some(a=>a.kind==="thumb") && typeof entry.metadata.expected_thumb_url==="string" && /^https:\/\/(?:image\.tmdb\.org|artworks\.thetvdb\.com)\//.test(entry.metadata.expected_thumb_url)) return entry.metadata.expected_thumb_url;
   return entry?.artwork.some((a) => a.kind === kind)
     ? `${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${entry.revision}&format=${entry.artwork.find(a => a.kind === kind)?.path.split(".").pop()?.toLowerCase() ?? ""}${!animatedArtworkEnabled(library.id) ? "&still=1" : ""}${overlay}${framing ? `&backdropEdit=${encodeURIComponent(JSON.stringify(framing))}` : ""}`
     : undefined;
@@ -320,6 +321,7 @@ export default function NativeLibraryBrowser({
     finally {setRefreshingArtwork(false);}
   };
   const visible = entries
+    .filter(e=>library.options?.show_missing_files!==false || e.metadata.missing!==true)
     .filter((e) =>
       search
         ? e.title.toLowerCase().includes(search.toLowerCase())
@@ -778,7 +780,7 @@ function NativeDetail({
                 </h2>
                 <div className={isBookSeries ? posterGrid : "-mx-2 -mt-2 flex gap-5 overflow-x-auto px-2 pb-3 pt-2 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]"}>
                   {children
-                    .filter((e) => e.kind !== "episode" && (library.library_type!=="books" || library.options?.show_missing_files!==false || e.metadata.missing!==true))
+                    .filter((e) => e.kind !== "episode" && (library.options?.show_missing_files!==false || e.metadata.missing!==true))
                     .map((child) => (
                       <PosterCard
                   animationOnHover={hoverOnly}
@@ -815,7 +817,7 @@ function NativeDetail({
                   {children
                     .filter(
                       (e) =>
-                        e.kind === "episode" &&
+                        e.kind === "episode" && (library.options?.show_missing_files!==false || e.metadata.missing!==true) &&
                         e.title.toLowerCase().includes(search.toLowerCase()),
                     )
                     .map((episode) => (
@@ -840,6 +842,7 @@ function NativeDetail({
                           >
                             {String(episode.metadata.episode ?? "")}.{" "}
                             {episode.title}
+                            {episode.metadata.missing===true&&<span className="ml-2 rounded-full border border-amber-400/40 bg-amber-400/15 px-2 py-0.5 text-xs text-amber-200">Missing</span>}
                           </button>
                           <p className="mt-2 text-xs text-muted">
                             {String(episode.metadata.aired ?? "")}
@@ -856,7 +859,7 @@ function NativeDetail({
                 </div>
               </section>
             )}
-            {entry.kind !== "series" && !entry.kind.startsWith("book") && <ItemAbout item={detail} />}
+            {entry.metadata.missing!==true && entry.kind !== "series" && !entry.kind.startsWith("book") && <ItemAbout item={detail} />}
             {(library.library_type !== "anime" || animePreferences.characters) && Array.isArray(entry.metadata.characters) &&
               entry.metadata.characters.length > 0 && (
                 <section className="mt-8">

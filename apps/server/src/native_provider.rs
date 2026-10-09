@@ -618,7 +618,7 @@ pub(crate) async fn enrich(
             .iter()
             .enumerate()
             .filter(|(_, e)| {
-                e.kind != "book"
+                e.kind != "book" && e.metadata["missing"] != true
                     && match e.kind.as_str() {
                         "series" | "book_series" | "movie" => tier == 0,
                         "season" => tier == 1,

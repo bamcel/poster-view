@@ -366,3 +366,12 @@ it("opens the shared filter popup and filters missing metadata IDs",async()=>{
  expect(screen.getByText("Identified Series")).toBeTruthy();fireEvent.click(screen.getByRole("button",{name:"Close Filters and sorting"}));
  expect(dialog.hasAttribute("open")).toBe(false);
 });
+
+
+it("marks missing episodes and hides them when disabled",async()=>{
+ const missing={...episode,id:"missing",title:"Missing Episode",metadata:{season:1,episode:2,missing:true,aired:"2020-01-01"}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([series,season,episode,missing]);mount("/?native_library=native&native_item=season");
+ expect(await screen.findByRole("button",{name:"Open Missing Episode"})).toBeTruthy();expect(screen.getByText("Missing")).toBeTruthy();cleanup();
+ mount("/?native_library=native&native_item=season",{...library,options:{...importedDefaults,show_missing_files:false}});
+ await screen.findByRole("button",{name:"Open First Episode"});expect(screen.queryByRole("button",{name:"Open Missing Episode"})).toBeNull();
+});
