@@ -772,7 +772,7 @@ function NativeDetail({
                 </h2>
                 <div className={isBookSeries ? posterGrid : "-mx-2 -mt-2 flex gap-5 overflow-x-auto px-2 pb-3 pt-2 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]"}>
                   {children
-                    .filter((e) => e.kind !== "episode")
+                    .filter((e) => e.kind !== "episode" && (library.library_type!=="books" || library.options?.show_missing_files!==false || e.metadata.missing!==true))
                     .map((child) => (
                       <PosterCard
                   animationOnHover={hoverOnly}

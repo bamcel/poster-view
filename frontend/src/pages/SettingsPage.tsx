@@ -1,3 +1,4 @@
+import ScheduledTasks from "../components/ScheduledTasks";
 import HexColorPicker from "../components/HexColorPicker";
 import {useNavigate as useLibraryNavigate} from "../lib/libraryNavigation";
 import PluginsPage from "../components/PluginsPage";
@@ -77,7 +78,7 @@ const TOKEN_LABEL: Record<ServerType, string> = {
   emby: "API Key",
 };
 
-type SettingsTab = "servers" | "plugins" | "artwork" | "libraries" | "sources" | "database" | "appearance" | "security";
+type SettingsTab = "servers" | "plugins" | "artwork" | "libraries" | "sources" | "tasks" | "appearance" | "security";
 
 const LIVE_PREVIEW_KEY = "posterview.appearanceLivePreview";
 
@@ -87,7 +88,7 @@ const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   { id: "servers", label: "Server Connect", icon: <ServerIcon className="size-4" /> },
   { id: "libraries", label: "Libraries", icon: <HardDrive className="size-4" /> },
   { id: "sources", label: "Search Providers", icon: <ImageIcon className="size-4" /> },
-  { id: "database", label: "Database", icon: <Database className="size-4" /> },
+  { id: "tasks", label: "Scheduled Tasks", icon: <Database className="size-4" /> },
   { id: "appearance", label: "Appearance", icon: <Palette className="size-4" /> },
   { id: "security", label: "Privacy / Security", icon: <KeyRound className="size-4" /> },
 ];
@@ -96,8 +97,9 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
   const navigate=useLibraryNavigate();
   const [searchParams] = useSearchParams();
   const location = useLocation();
-  const requestedTab = searchParams.get("tab");
-  const candidate = previewSection ?? location.pathname.split("/")[2];
+  const requestedTab = searchParams.get("tab") === "database" ? "tasks" : searchParams.get("tab");
+  const section = previewSection ?? location.pathname.split("/")[2];
+  const candidate = section === "database" ? "tasks" : section;
   const tab = TABS.find(section => section.id === candidate)?.id;
   const [pluginOpen,setPluginOpen]=useState(false);
   const [artworkOpen,setArtworkOpen]=useState(false);
@@ -118,7 +120,7 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
 
         <div className={tab === "libraries" ? "flex items-end justify-between gap-4 border-b border-border pb-1" : "flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"}>
           <span role="status" className={`shrink-0 self-end text-xs sm:self-auto ${saveStatus === "error" ? "text-danger" : "text-accent"}`}>
-            {tab === "libraries" ? "Save changes in the library dialog." : saveStatus === "saving" ? "Saving settings…" : saveStatus === "error" ? "Settings could not be saved." : "Settings saved automatically."}
+            {tab === "libraries" ? "Save changes in the library dialog." : tab === "tasks" ? "Save task schedules individually." : saveStatus === "saving" ? "Saving settings…" : saveStatus === "error" ? "Settings could not be saved." : "Settings saved automatically."}
           </span>
           {tab === "libraries" && <NativeLibraryCount/>}
         </div>
@@ -127,7 +129,7 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
           {(tab === "plugins" || tab === "servers" || tab === "artwork") && <PluginsPage artworkOpen={tab === "artwork" || artworkOpen} onArtworkOpen={()=>setArtworkOpen(true)} open={tab === "servers" || pluginOpen} onOpen={()=>setPluginOpen(true)} onClose={()=>{setPluginOpen(false);setArtworkOpen(false);if(tab === "servers" || tab === "artwork") navigate("/settings/plugins");}}/>}
           {tab === "libraries" && <NativeLibrariesSection />}
           {tab === "sources" && <ArtworkSourcesSection />}
-          {tab === "database" && <DatabaseSection />}
+          {tab === "tasks" && <div className="h-full overflow-y-auto"><div><ScheduledTasks/></div><details className="mt-4"><summary className="cursor-pointer text-sm text-muted">Connected server cache settings</summary><DatabaseSection/></details></div>}
           {tab === "appearance" && <AppearanceSection preview={!!previewSection} />}
           {tab === "security" && <SecuritySection />}
         </div>
@@ -858,7 +860,7 @@ function DatabaseSection() {
   return (
     <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
       <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <Database className="size-5 text-accent" /> Database
+        <Database className="size-5 text-accent" /> Connected server caches
       </h2>
       <p className="mb-3 text-sm text-faint">
         Manage cached artwork and control background preloading.

@@ -5,13 +5,14 @@ export interface ServerSyncOptions { enabled:boolean; mode?:"two_way"|"import_on
 export const defaultServerSync:ServerSyncOptions={enabled:false,mode:"two_way",server_id:null,library_id:"",override_locked:false,write_nfo:false,push_to_all:true,push_server_ids:[]};
 export interface NativeLibraryOptions {
   server_sync?:ServerSyncOptions;
+  show_missing_files?:boolean;
   read_nfo: boolean; save_nfo: boolean; local_artwork: boolean; save_artwork: boolean; fetch_missing: boolean;
   metadata_language: string; certification_country: string; image_language: string;
   prefer_embedded_titles: boolean; real_time_monitor: boolean; sample_ignore_mb: number; allow_adult_metadata: boolean;
   metadata_providers: Record<string, string[]>; image_providers: Record<string, string[]>; image_types: string[];
 }
 export const defaultNativeOptions: NativeLibraryOptions = {
-  server_sync:defaultServerSync,
+  server_sync:defaultServerSync,show_missing_files:true,
   read_nfo: true, save_nfo: false, local_artwork: true, save_artwork: false, fetch_missing: true,
   metadata_language: "en", certification_country: "US", image_language: "en", prefer_embedded_titles: false, real_time_monitor: false,
   sample_ignore_mb: 300, allow_adult_metadata: false, metadata_providers: {}, image_providers: {},

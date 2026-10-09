@@ -7,6 +7,7 @@ vi.mock("../lib/libraryDisplay",()=>({useTrackingOverlays:()=>[true,vi.fn(),{col
 vi.mock("./ArtworkPanel", () => ({default: ({serverId, item}: {serverId:number;item:import("../types").ItemDetail}) => <div data-testid="shared-artwork" data-server={serverId} data-item={item.id} data-seasons={item.seasons.map(s=>s.id).join(",")}>Shared artwork lookup</div>}));
 import {
   nativeLibraries,
+  defaultNativeOptions as importedDefaults,
   type NativeCatalogEntry,
   type NativeLibrary,
 } from "../api/nativeLibraries";
@@ -339,4 +340,14 @@ it("keeps old individual book links on the parent series page",async()=>{
  mount("/?native_library=native&native_item=volume1",{...library,library_type:"books"});
  expect(await screen.findByRole("heading",{name:"Example Series"})).toBeTruthy();
  expect(screen.queryByRole("heading",{name:"Volume 01"})).toBeNull();
+});
+
+
+it("hides missing cards without changing the catalog or missing count",async()=>{
+ const bookSeries={...series,kind:"book_series",metadata:{volumes:2}};
+ const book={...series,id:"volume1",kind:"book",parent_path:series.path,path:`${series.path}/Volume 01.cbz`,title:"Volume 01",metadata:{volume:1,missing:false}};
+ const missing={...book,id:"missing2",title:"Volume 02",metadata:{volume:2,missing:true}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([bookSeries,book,missing]);
+ mount("/?native_library=native&native_item=show",{...library,library_type:"books",options:{...importedDefaults,show_missing_files:false}});
+ await screen.findByText("Volume 01");expect(screen.queryByText("Volume 02")).toBeNull();expect(screen.getByText("1 Volume Missing")).toBeTruthy();expect(nativeLibraries.editItem).not.toHaveBeenCalled();
 });

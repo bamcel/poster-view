@@ -1,0 +1,25 @@
+import {useState} from "react";
+import {useQuery,useMutation,useQueryClient} from "@tanstack/react-query";
+import {apiRequest} from "../api/client";
+export interface MaintenanceTask {id:string;title:string;description:string;enabled:boolean;interval_days:number;retention_days:number;cleanup_artwork:boolean;cleanup_cache:boolean;cleanup_temporary:boolean;last_run:number;last_result:string;}
+interface Report {files:number;bytes:number;result:string;}
+const button="rounded-full border border-border bg-input px-4 py-2 text-sm text-white hover:border-accent disabled:opacity-50";
+export default function ScheduledTasks(){
+ const tasks=useQuery({queryKey:["scheduled-tasks"],queryFn:()=>apiRequest<MaintenanceTask[]>("/tasks"),refetchInterval:30000});
+ return <section className="h-full space-y-4 overflow-y-auto pb-8"><p className="text-sm text-muted">Run maintenance now or enable a recurring schedule. Schedules run while PosterView is running; overdue tasks run when it starts.</p>{tasks.isPending&&<p role="status">Loading tasks…</p>}{tasks.error&&<p role="alert">{tasks.error.message}</p>}{tasks.data?.map(task=><TaskCard key={`${task.id}:${JSON.stringify(task)}`} task={task}/>)}</section>;
+}
+function TaskCard({task}:{task:MaintenanceTask}){
+ const client=useQueryClient();const [draft,setDraft]=useState(task);const [report,setReport]=useState<Report|null>(null);const [message,setMessage]=useState("");
+ const save=useMutation({mutationFn:()=>apiRequest<MaintenanceTask[]>(`/tasks/${task.id}`,{method:"PUT",body:JSON.stringify(draft)}),onSuccess:data=>{client.setQueryData(["scheduled-tasks"],data);}});
+ const run=useMutation({mutationFn:()=>apiRequest<Report>(`/tasks/${task.id}/run`,{method:"POST"}),onSuccess:data=>{setMessage(data.result);setReport(null);void client.invalidateQueries({queryKey:["scheduled-tasks"]});}});
+ const preview=useMutation({mutationFn:()=>apiRequest<Report>("/tasks/cleanup/preview"),onSuccess:setReport});
+ const dirty=JSON.stringify(draft)!==JSON.stringify(task);const busy=save.isPending||run.isPending||preview.isPending;
+ return <article className="space-y-4 rounded-xl border border-border bg-window p-5"><div><h2 className="font-semibold">{task.title}</h2><p className="mt-1 text-sm text-muted">{task.description}</p></div>
+ <div className="flex flex-wrap items-center gap-5"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={draft.enabled} onChange={e=>setDraft({...draft,enabled:e.target.checked})}/>Enable schedule for {task.title}</label><label className="text-sm">Every <input aria-label={`${task.title} interval days`} className="mx-2 w-16 rounded border border-border bg-input p-2" type="number" min={1} max={365} value={draft.interval_days} onChange={e=>setDraft({...draft,interval_days:Number(e.target.value)})}/> days</label>{task.id!=="database"&&<label className="text-sm">Keep for <input aria-label={`${task.title} retention days`} className="mx-2 w-20 rounded border border-border bg-input p-2" type="number" min={1} max={3650} value={draft.retention_days} onChange={e=>setDraft({...draft,retention_days:Number(e.target.value)})}/> days</label>}</div>
+ {task.id==="cleanup"&&<><div className="flex flex-wrap gap-5 text-sm">{[["cleanup_artwork","Unused managed artwork"],["cleanup_cache","Old local artwork cache"],["cleanup_temporary","Abandoned temporary files"]].map(([key,label])=><label key={key} className="flex items-center gap-2"><input type="checkbox" checked={draft[key as "cleanup_artwork"]} onChange={e=>{setReport(null);setDraft({...draft,[key]:e.target.checked});}}/>{label}</label>)}</div><p className="text-xs text-muted">Unused artwork starts its retention period when first detected by cleanup. Hidden missing-file covers, saved edits, backups, and referenced images are protected. Cleanup never touches media folders or reader bookmarks.</p></>}
+ <p className="text-xs text-muted">Last run: {task.last_run?new Date(task.last_run*1000).toLocaleString():"Never"}{task.enabled&&` · Next due: ${task.last_run?new Date((task.last_run+task.interval_days*86400)*1000).toLocaleString():"At the next scheduler check"}`}</p>{(message||task.last_result)&&<p role="status" className="text-sm">{message||task.last_result}</p>}
+ <div className="flex flex-wrap gap-3"><button className={button} disabled={!dirty||busy||draft.interval_days<1||draft.retention_days<1} onClick={()=>save.mutate()}>Save task</button>{task.id==="cleanup"?<button className={button} disabled={dirty||busy} onClick={()=>preview.mutate()}>Review cleanup</button>:<button className={button} disabled={dirty||busy} onClick={()=>run.mutate()}>{run.isPending?"Running…":"Run now"}</button>}</div>
+ {report&&<div className="space-y-3 border-t border-border pt-3"><p>{report.files} eligible files · {(report.bytes/1024/1024).toFixed(1)} MB</p><button className={button} disabled={dirty||busy||!report.files} onClick={()=>run.mutate()}>{run.isPending?"Cleaning…":"Clean selected"}</button></div>}
+ {(save.error||run.error||preview.error)&&<p role="alert" className="text-sm text-danger">{(save.error||run.error||preview.error)?.message}</p>}
+ </article>;
+}

@@ -42,6 +42,7 @@ mod native_animation;
 mod native_identify;
 mod native_progress;
 mod workers;
+mod scheduled_tasks;
 pub use auth::AuthState;
 pub use config::ServerConfig;
 use error::HttpError;
@@ -77,6 +78,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     };
     native_monitor::start(state.clone());
     native_sync::start(state.clone());
+    scheduled_tasks::start(state.clone());
     let index = ui_dir.join("index.html");
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 
@@ -210,6 +212,10 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
             "/api/history/settings",
             get(get_history_settings).put(set_history_settings),
         )
+        .route("/api/tasks", get(scheduled_tasks::list))
+        .route("/api/tasks/cleanup/preview", get(scheduled_tasks::preview))
+        .route("/api/tasks/{id}", axum::routing::put(scheduled_tasks::configure))
+        .route("/api/tasks/{id}/run", axum::routing::post(scheduled_tasks::run))
         .route("/api/history/purge", axum::routing::post(purge_history))
         .route("/api/history/{id}/image", get(history_image))
         .route(
