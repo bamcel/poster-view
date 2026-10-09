@@ -10,4 +10,12 @@ it("shows native NFO book pills and missing volume count",()=>{
 it("omits empty fields and a missing count for complete series",()=>{
  render(<BookSeriesMetadata count={2} metadata={{volumes:2,publisher:""}}/>);
  expect(screen.queryByText("Publisher")).toBeNull();expect(screen.queryByText(/Missing/)).toBeNull();
+ expect(screen.getByText("Complete")).toBeTruthy();
+});
+it("does not mark a series complete without a known positive total",()=>{
+ for(const volumes of [undefined,"",0,"unknown"]){
+  const {unmount}=render(<BookSeriesMetadata count={2} metadata={{volumes}}/>);
+  expect(screen.queryByText("Complete")).toBeNull();
+  unmount();
+ }
 });
