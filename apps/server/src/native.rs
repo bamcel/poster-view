@@ -387,7 +387,7 @@ async fn run_scan_scoped(
                 let issues = crate::workers::parallel(
                     entries
                         .into_iter()
-                        .filter(|e| e.available && e.metadata["missing"] != true && in_scope(&e.path, write_scopes.as_deref()))
+                        .filter(|e| e.available && in_scope(&e.path, write_scopes.as_deref()))
                         .collect(),
                     |entry| {
                         let mut issues = Vec::new();
@@ -1284,7 +1284,10 @@ pub(crate) mod scan_tests {
             .into_iter()
             .find(|e| e.kind == "series")
             .unwrap();
-        let art = show.artwork.iter().find(|a| a.kind == "poster").unwrap();
+        assert_eq!(show.artwork.iter().find(|a|a.kind=="poster").unwrap().source,"local");
+        // Explicitly replacing the local file requires a chosen managed image.
+        let replacement=posterview_contracts::native::NativeArtwork{kind:"poster".into(),path:managed.clone(),source:"manual".into()};
+        let art=&replacement;
         crate::native_artwork::write(&state, &show, art, true).unwrap();
         assert_eq!(
             image::guess_format(&fs::read(series.join("poster.jpg")).unwrap()).unwrap(),
