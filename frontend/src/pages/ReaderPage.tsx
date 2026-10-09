@@ -46,7 +46,7 @@ const input =
 type Result = { page: number; label: string };
 
 export default function ReaderPage() {
-  const { serverId, itemId, bookId } = useParams();
+  const { serverId, itemId, bookId, libraryId } = useParams();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const returnPath = params.get("return") || "/";
@@ -126,7 +126,7 @@ export default function ReaderPage() {
       const manifest = await readerRequest<ReaderManifest>(
         bookId
           ? `/api/reader/books/${bookId}`
-          : `/api/reader/open/${serverId}/${encodeURIComponent(itemId || "")}`,
+          : libraryId ? `/api/reader/native/${encodeURIComponent(libraryId)}/${encodeURIComponent(itemId || "")}` : `/api/reader/open/${serverId}/${encodeURIComponent(itemId || "")}`,
       );
       const saved = await readerRequest<{
         revision: string;
@@ -201,7 +201,7 @@ export default function ReaderPage() {
       searchRun.current++;
       void task?.destroy();
     };
-  }, [bookId, serverId, itemId]);
+  }, [bookId, serverId, itemId, libraryId]);
   useEffect(() => {
     if (!ready) return;
     const timer = setTimeout(persist, 700);

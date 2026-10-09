@@ -9,7 +9,7 @@ import LibraryViewPreferences, { useBackdropView, posterGrid, backdropGrid } fro
 import PeopleRow from "./PeopleRow";
 import { useEffect, useRef, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParams } from "../lib/libraryNavigation";
+import { useNavigate, useSearchParams } from "../lib/libraryNavigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -215,6 +215,7 @@ export default function NativeLibraryBrowser({
   const {hoverOnly}=useAnimatedArtworkPreference(library.id);
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
+  const navigate=useNavigate();
   const status = useQuery({
     queryKey: ["native-scan", library.id],
     queryFn: () => nativeLibraries.status(library.id),
@@ -263,7 +264,7 @@ export default function NativeLibraryBrowser({
     [catalog.data],
   );
   const entries = view.entries;
-  const selected =
+  const requested =
     params.get("native_library") === library.id
       ? entries.find(
           (e) =>
@@ -272,12 +273,21 @@ export default function NativeLibraryBrowser({
               params.get("native_item")),
         )
       : undefined;
+  const selected=library.library_type==="books" && requested?.kind==="book" ? entries.find(e=>e.path===requested.parent_path && e.kind==="book_series") : requested;
   const pageItem = params.get("native_item");
   const pageLibrary = params.get("native_library");
   useEffect(() => {
     setEditor(current => current?.kind === "artwork" ? null : current);
   }, [pageItem, pageLibrary]);
   const open = (entry: NativeCatalogEntry) => {
+    if(library.library_type==="books" && entry.kind==="book") {
+      if(entry.metadata.missing===true) {setEditor({id:entry.id,kind:"artwork"});return;}
+      const parent=entries.find(e=>e.path===entry.parent_path && e.kind==="book_series");
+      const back=new URLSearchParams(params);back.set("native_library",library.id);
+      if(parent)back.set("native_item",parent.id);else back.delete("native_item");
+      const returnPath=`/media/${encodeURIComponent(library.id)}?${back}`;
+      navigate(`/read/native/${encodeURIComponent(library.id)}/${encodeURIComponent(entry.id)}?return=${encodeURIComponent(returnPath)}`);return;
+    }
     setParams((previous) => {
       const next = new URLSearchParams(previous);
       next.set("native_library", library.id);
@@ -773,6 +783,7 @@ function NativeDetail({
                         titleBadge={child.metadata.missing === true ? "Missing" : undefined}
                         image={picture(library, child, "poster")}
                         kind={child.kind.startsWith("book") ? "book" : "show"}
+                        openLabel={child.kind==="book" ? child.metadata.missing===true ? "Edit Artwork" : "Read" : "Open"}
                         onOpen={() => open(child)}
                       />
                     ))}

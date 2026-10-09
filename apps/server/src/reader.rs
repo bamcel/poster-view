@@ -699,6 +699,20 @@ pub(crate) async fn open(
     .await
     .map_err(failure)?
 }
+pub(crate) async fn open_native(
+    State(state):State<AppState>,Path((library,item)):Path<(String,String)>,
+)->Result<Json<Manifest>,HttpError> {
+    tokio::task::spawn_blocking(move||{
+        let db=posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
+        let library=db.native_libraries().map_err(failure)?.into_iter().find(|l|l.id==library).ok_or_else(||bad("Book library not found."))?;
+        if library.library_type!=posterview_contracts::native::NativeLibraryType::Books {return Err(bad("Choose a book library."));}
+        let entries=db.native_catalog(&library.id).map_err(failure)?;
+        let entry=entries.iter().find(|e|e.id==item && e.available && e.kind=="book" && e.metadata["missing"]!=true).ok_or_else(||bad("Book file is not available."))?;
+        let path=state.metadata.directory("",true)?.join(&entry.path);
+        let id=state.reader.register(&path)?;
+        make_manifest(&state.reader,&id).map(Json)
+    }).await.map_err(failure)?
+}
 pub(crate) async fn manifest(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -1124,6 +1138,20 @@ mod tests {
         assert!(store.register(&root.join("one.pdf")).is_ok());
         assert!(store.register(&temp.path().join("outside.pdf")).is_err());
         assert!(store.register(&root.join("../outside.pdf")).is_err());
+    }
+    #[tokio::test]
+    async fn native_books_open_without_a_connected_server_and_reject_missing_files() {
+        let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());
+        let folder=temp.path().join("media/Books/Series");fs::create_dir_all(&folder).unwrap();
+        let file=folder.join("Volume 1.cbz");let mut zip=zip::ZipWriter::new(File::create(&file).unwrap());
+        zip.start_file("1.png",zip::write::SimpleFileOptions::default()).unwrap();zip.write_all(b"image").unwrap();zip.finish().unwrap();
+        let db=posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
+        let library=db.save_native_library(None,&posterview_contracts::native::NativeLibraryInput{name:"Books".into(),library_type:posterview_contracts::native::NativeLibraryType::Books,anime_content:posterview_contracts::native::AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:Default::default()}).unwrap();
+        let entry=posterview_contracts::native::NativeCatalogEntry{id:String::new(),path:"Books/Series/Volume 1.cbz".into(),kind:"book".into(),parent_path:Some("Books/Series".into()),title:"Volume 1".into(),metadata:serde_json::json!({}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();let saved=db.native_catalog(&library.id).unwrap().remove(0);
+        let manifest=open_native(State(state.clone()),Path((library.id.clone(),saved.id.clone()))).await.unwrap().0;assert_eq!(manifest.format,"cbz");assert_eq!(manifest.chapters.len(),1);
+        let mut missing=entry;missing.metadata=serde_json::json!({"missing":true});db.ingest_native_catalog(&library.id,library.revision,&[missing]).unwrap();
+        assert!(open_native(State(state),Path((library.id,saved.id))).await.is_err());assert!(file.exists());
     }
     #[test]
     fn cbz_manifest_and_stable_identity() {

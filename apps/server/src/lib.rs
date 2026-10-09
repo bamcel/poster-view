@@ -97,6 +97,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/native/libraries/{library}/items/{item}/artwork/{kind}", get(native::artwork).post(native::upload_artwork).delete(native::remove_variant))
         .route("/api/native/libraries/{id}", axum::routing::put(native::update).delete(native::delete))
         .route("/api/reader/open/{server}/{item}", get(reader::open))
+        .route("/api/reader/native/{library}/{item}", get(reader::open_native))
         .route("/api/reader/books/{id}", get(reader::manifest))
         .route("/api/reader/info/{server}/{item}", get(reader::info))
         .route("/api/library-display", get(reader::load_display_preferences).put(reader::save_display_preferences))

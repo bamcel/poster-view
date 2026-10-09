@@ -253,3 +253,10 @@ it("saves the last visible spread as complete", async () => {
   expect((screen.getByRole("button", {name:"Next page"}) as HTMLButtonElement).disabled).toBe(true);
   await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => String(url).endsWith("/state") && init?.method === "PUT" && JSON.parse(String(init.body)).data.progress === 100)).toBe(true));
 });
+
+
+it("opens a manual library book through the native reader endpoint",async()=>{
+ render(<MemoryRouter initialEntries={["/read/native/library/volume?return=%2Fmedia%2Flibrary"]}><Routes><Route path="/read/native/:libraryId/:itemId" element={<ReaderPage/>}/></Routes></MemoryRouter>);
+ await screen.findByText("Comic page 1");
+ expect(fetchMock.mock.calls.some(([url])=>String(url)==="/api/reader/native/library/volume")).toBe(true);
+});

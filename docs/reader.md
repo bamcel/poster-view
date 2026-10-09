@@ -2,7 +2,7 @@
 
 Open a book-style series on Dashboard and choose **Read** on a volume poster. An individual
 book detail page also has **Read Book**. The reader opens separately from the artwork panel;
-Back returns to the series. Files are resolved from the connected server's item ID, but the
+Back returns to the series. Manual-library files resolve from the local catalog without a connected server. Connected-library files resolve from the server's item ID. The
 actual PDF, EPUB or CBZ must be readable under PosterView's `/media` mount (or
 `POSTERVIEW_MEDIA_DIR`). Server filesystem paths must match the mount. Audiobooks, CBR,
 CB7, MOBI and DRM-protected files are not supported in this release.

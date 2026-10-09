@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import NativeLibraryBrowser from "./NativeLibraryBrowser";
 vi.mock("../lib/libraryDisplay",()=>({useTrackingOverlays:()=>[true,vi.fn(),{coloredEffect:"both",coloredTitle:true}]}));
@@ -75,6 +75,7 @@ const episode = {
   },
   artwork: [{ kind: "thumb", path: "S01E01.jpg", source: "local" }],
 };
+function LocationProbe(){const location=useLocation();return <output data-testid="location">{location.pathname}{location.search}</output>;}
 function mount(url = "/", selectedLibrary = library) {
   render(
     <MemoryRouter initialEntries={[url]}>
@@ -83,7 +84,7 @@ function mount(url = "/", selectedLibrary = library) {
           new QueryClient({ defaultOptions: { queries: { retry: false } } })
         }
       >
-        <NativeLibraryBrowser library={selectedLibrary} />
+        <NativeLibraryBrowser library={selectedLibrary} /><LocationProbe/>
       </QueryClientProvider>
     </MemoryRouter>,
   );
@@ -305,9 +306,8 @@ it("shows missing book cards without counting them as available and opens their 
  expect(screen.getByText("1 Volume")).toBeTruthy();expect(screen.getByText("1 Volume Missing")).toBeTruthy();
  expect(screen.getByText("Missing")).toBeTruthy();
  fireEvent.click(screen.getByText("Volume 02").closest("button")!);
- await screen.findByRole("heading",{name:/Volume 02/});
+ expect(screen.getByRole("heading",{name:"Example Series"})).toBeTruthy();
  expect(screen.queryByRole("heading",{name:"Media information"})).toBeNull();
- fireEvent.click(screen.getByRole("button",{name:"Edit Artwork"}));
  expect((await screen.findByTestId("shared-artwork")).getAttribute("data-item")).toBe("native:native:missing2");
 });
 
@@ -318,4 +318,25 @@ it("refreshes selected series artwork before reloading the catalog",async()=>{
  fireEvent.click(screen.getByRole("button",{name:"Refresh"}));
  await waitFor(()=>expect(nativeLibraries.refreshArtwork).toHaveBeenCalledWith("native","show"));
  await waitFor(()=>expect(vi.mocked(nativeLibraries.catalog).mock.calls.length).toBeGreaterThan(before));
+});
+
+
+it("launches book files in the reader and returns to their series",async()=>{
+ const bookSeries={...series,kind:"book_series",metadata:{volumes:1}};
+ const book={...series,id:"volume1",kind:"book",parent_path:series.path,path:`${series.path}/Volume 01.cbz`,title:"Volume 01",metadata:{volume:1}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([bookSeries,book]);
+ mount("/?native_library=native&native_item=show",{...library,library_type:"books"});
+ fireEvent.click((await screen.findByText("Volume 01")).closest("button")!);
+ const destination=screen.getByTestId("location").textContent!;
+ expect(destination.startsWith("/read/native/native/volume1?")).toBe(true);
+ expect(new URLSearchParams(destination.split("?")[1]).get("return")).toBe("/media/native?native_library=native&native_item=show");
+});
+
+it("keeps old individual book links on the parent series page",async()=>{
+ const bookSeries={...series,kind:"book_series",metadata:{volumes:1}};
+ const book={...series,id:"volume1",kind:"book",parent_path:series.path,path:`${series.path}/Volume 01.cbz`,title:"Volume 01",metadata:{volume:1}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([bookSeries,book]);
+ mount("/?native_library=native&native_item=volume1",{...library,library_type:"books"});
+ expect(await screen.findByRole("heading",{name:"Example Series"})).toBeTruthy();
+ expect(screen.queryByRole("heading",{name:"Volume 01"})).toBeNull();
 });
