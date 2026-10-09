@@ -233,6 +233,11 @@ export default function NativeLibraryBrowser({
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("title");
   const [artFilter, setArtFilter] = useState("all");
+  const [metadataFilter,setMetadataFilter]=useState("all");
+  const providerNames:Record<string,string>={comicvine:"ComicVine",anilist:"AniList",mal:"MyAnimeList",mangadex:"MangaDex",tmdb:"TheMovieDB",tvdb:"TheTVDB",anidb:"AniDB",imdb:"IMDb"};
+  const providerKind=library.library_type==="books"?"book_series":library.library_type==="movies"?"movie":"series";
+  const metadataProviders=(library.options?.metadata_providers?.[providerKind]??(library.library_type==="books"?["comicvine","anilist","mal"]:library.library_type==="anime"?["anilist","tmdb","tvdb","mal","anidb"]:library.library_type==="movies"?["tmdb","imdb"]:["tmdb","tvdb","imdb"])).filter(p=>providerNames[p]);
+  const hasId=(entry:NativeCatalogEntry,provider:string)=>{const ids=entry.metadata.identifiers as Record<string,unknown>|undefined;const value=ids?.[provider];return (typeof value==="string"&&!!value.trim()&&value.trim()!=="0")||(typeof value==="number"&&value>0);};
   const [editor, setEditor] = useState<{
     id: string;
     kind: "metadata" | "artwork" | "identify" | "fetch-metadata";
@@ -328,6 +333,7 @@ export default function NativeLibraryBrowser({
             a.kind === (artFilter === "missing-poster" ? "poster" : "backdrop"),
         ),
     )
+    .filter(e=>metadataFilter==="all" || (metadataFilter==="missing-ids" ? !Object.keys(providerNames).some(p=>hasId(e,p)) : metadataFilter==="missing-configured-ids" ? metadataProviders.some(p=>!hasId(e,p)) : metadataFilter==="missing-description" ? !String(e.metadata.plot??"").trim() : metadataFilter==="missing-year" ? !number(e.metadata.year) : !hasId(e,metadataFilter.replace("missing-id-",""))))
     .sort((a, b) =>
       sort === "title"
         ? a.title.localeCompare(b.title)
@@ -422,17 +428,10 @@ export default function NativeLibraryBrowser({
                   style={style}
                 />
               </div>
-              <details className="relative">
-                <summary
-                  aria-label="Filter and sort titles"
-                  className="grid size-10 max-md:size-[44px] cursor-pointer list-none place-items-center rounded-full border border-border text-muted marker:hidden"
-                  style={style}
-                >
-                  <ListFilter className="size-4" />
-                </summary>
-                <div className="absolute right-0 z-30 mt-2 w-64 rounded-xl border border-border bg-sidebar p-4 shadow-2xl">
-                  <label className="block text-xs font-semibold text-muted">
-                    Artwork
+              <LibraryPopup title="Filters and sorting" label="Filter and sort titles" icon={<ListFilter className="size-4"/>} style={style} editorStyle={library.library_type === "anime"}>
+                  <h3 className="mb-3 text-sm font-semibold">Artwork</h3>
+                  <label className="block text-xs text-muted">
+                    Artwork availability
                     <select
                       aria-label="Filter by artwork"
                       className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-white"
@@ -442,6 +441,14 @@ export default function NativeLibraryBrowser({
                       <option value="all">All titles</option>
                       <option value="missing-poster">Missing poster</option>
                       <option value="missing-backdrop">Missing backdrop</option>
+                    </select>
+                  </label>
+                  <h3 className="mb-3 mt-6 border-t border-border pt-5 text-sm font-semibold">Metadata</h3>
+                  <label className="block text-xs text-muted">Metadata availability
+                    <select aria-label="Filter by metadata" className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-white" value={metadataFilter} onChange={e=>setMetadataFilter(e.target.value)}>
+                      <option value="all">All titles</option><option value="missing-ids">No provider IDs</option><option value="missing-configured-ids">Missing configured provider IDs</option>
+                      {metadataProviders.map(p=><option key={p} value={`missing-id-${p}`}>Missing {providerNames[p]} ID</option>)}
+                      <option value="missing-description">Missing description</option><option value="missing-year">Missing year</option>
                     </select>
                   </label>
                   <label className="mt-4 block text-xs font-semibold text-muted">
@@ -457,8 +464,7 @@ export default function NativeLibraryBrowser({
                       <option value="oldest">Oldest year</option>
                     </select>
                   </label>
-                </div>
-              </details>
+              </LibraryPopup>
               <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style} editorStyle={library.library_type === "anime"}>
                 <div className="space-y-7"><LibraryViewPreferences library={library.id}/>
                 <ArtworkPreferences library={library.id}/>{library.library_type === "books" && <BookPreferences/>}{library.library_type === "anime" && <AnimePreferences library={library.id}/>}</div>

@@ -351,3 +351,18 @@ it("hides missing cards without changing the catalog or missing count",async()=>
  mount("/?native_library=native&native_item=show",{...library,library_type:"books",options:{...importedDefaults,show_missing_files:false}});
  await screen.findByText("Volume 01");expect(screen.queryByText("Volume 02")).toBeNull();expect(screen.getByText("1 Volume Missing")).toBeTruthy();expect(nativeLibraries.editItem).not.toHaveBeenCalled();
 });
+
+
+it("opens the shared filter popup and filters missing metadata IDs",async()=>{
+ const identified={...series,id:"identified",path:"Anime/Identified",title:"Identified Series",metadata:{identifiers:{anilist:"123"}}};
+ const unlinked={...series,id:"unlinked",path:"Anime/Unlinked",title:"Unlinked Series",metadata:{identifiers:{anilist:" "}}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([identified,unlinked]);mount();
+ await screen.findByText("Identified Series");fireEvent.click(screen.getByRole("button",{name:"Filter and sort titles"}));
+ const dialog=screen.getByRole("dialog",{name:"Filters and sorting"});expect(dialog).toBeTruthy();
+ expect(screen.getByRole("heading",{name:"Metadata"})).toBeTruthy();
+ fireEvent.change(screen.getByLabelText("Filter by metadata"),{target:{value:"missing-id-anilist"}});
+ expect(screen.queryByText("Identified Series")).toBeNull();expect(screen.getByText("Unlinked Series")).toBeTruthy();
+ fireEvent.change(screen.getByLabelText("Filter by metadata"),{target:{value:"all"}});
+ expect(screen.getByText("Identified Series")).toBeTruthy();fireEvent.click(screen.getByRole("button",{name:"Close Filters and sorting"}));
+ expect(dialog.hasAttribute("open")).toBe(false);
+});
