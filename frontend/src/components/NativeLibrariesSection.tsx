@@ -71,7 +71,7 @@ export default function NativeLibrariesSection() {
 
 function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTMLButtonElement)=>void}) {
   const client = useQueryClient();
-  const [confirmDelete,setConfirmDelete]=useState(false),[open,setOpen]=useState(false),[notices,setNotices]=useState(false);
+  const [confirmDelete,setConfirmDelete]=useState(false),[open,setOpen]=useState(false),[notices,setNotices]=useState(false),[scanDetails,setScanDetails]=useState(false);
   const previews=useQuery({queryKey:["native-previews",library.id],queryFn:()=>nativeLibraries.previews(library.id),enabled:open,staleTime:60_000});
   const menu=useRef<HTMLDivElement>(null), action=useRef<HTMLButtonElement>(null);
   const [position,setPosition]=useState({top:0,left:0});
@@ -97,6 +97,8 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
         <div className="mb-3 flex items-center gap-3"><div aria-hidden="true" className="flex w-20 shrink-0 overflow-hidden rounded">{previews.data?.slice(0,4).map(item=><img key={item.id} src={nativeLibraries.artworkUrl(library.id,item.id,"poster")+`?v=${item.revision}`} alt="" className="aspect-[2/3] w-1/4 object-cover"/>)}</div><p className="flex-1 font-semibold">{library.name}</p><button type="button" aria-label="Close library actions" className="rounded-lg p-2 text-muted hover:bg-elevated" onClick={()=>{setOpen(false);setConfirmDelete(false);}}><X className="size-4"/></button></div>
         <div className="flex flex-col"><button className={`${MENU_ACTION} flex items-center justify-between`} onClick={()=>{setOpen(false);if(action.current)onEdit(action.current);}}>Library<Folder className="size-4"/></button><button className={`${MENU_ACTION} flex items-center justify-between`} disabled={scan.isPending||remove.isPending||status.data?.manual_queued} onClick={()=>scan.mutate()}>{status.data?.manual_queued?"Scan queued":"Scan Library Files"}<RefreshCw className="size-4"/></button>
         {status.data?.status==="scanning"&&<p role="status" className="px-3 py-2 text-xs text-muted">{status.data.manual_queued?"Manual scan queued. It will run when the current scan finishes.":"A scan is running. You can queue a manual scan."}</p>}
+        {status.data?.status==="scanning"&&<button className={MENU_ACTION} aria-expanded={scanDetails} onClick={()=>setScanDetails(!scanDetails)}>{scanDetails?"Hide scan progress":"View scan progress"}</button>}
+        {scanDetails&&status.data&&<section aria-label="Current library scan" className="px-3 py-2"><NativeScanProgress status={{...status.data,show_progress:true}}/>{status.data.manual_queued&&<p className="mt-2 text-xs text-muted">The manual scan will start after this scan finishes.</p>}</section>}
         {library.options?.server_sync?.enabled&&<SyncActions library={library.id} menu/>}
         <button className={MENU_ACTION} onClick={()=>setNotices(!notices)}>View notices / activity</button>
         {notices&&<div className="space-y-2 text-xs text-muted">{[...(status.data?.warnings??[]),...(syncStatus.data?.notices??[]),...(syncStatus.data?.activity??[])].map((message,i)=><p key={i}>{message}</p>)}{!status.data?.warnings.length&&!syncStatus.data?.notices.length&&!syncStatus.data?.activity.length&&<p>No notices or activity.</p>}</div>}

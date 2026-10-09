@@ -161,3 +161,18 @@ it("allows a manual scan request while a hidden automatic scan is running",async
  await screen.findByText("A scan is running. You can queue a manual scan.");const button=screen.getByRole("button",{name:"Scan Library Files"});expect((button as HTMLButtonElement).disabled).toBe(false);
  fireEvent.click(button);await waitFor(()=>expect(nativeLibraries.scan).toHaveBeenCalledWith(saved.id));
 });
+
+
+it("reveals automatic scan progress only when requested",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([saved]);
+ vi.mocked(nativeLibraries.status).mockResolvedValue({status:"scanning",show_progress:false,count:100,warnings:[],progress:{phase:"reading",processed:25,total:100,current:"Anime/episode.mkv"}});
+ mount(<NativeLibrariesSection/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Actions for Anime"}));
+ const view=await screen.findByRole("button",{name:"View scan progress"});
+ expect(screen.queryByRole("progressbar")).toBeNull();
+ fireEvent.click(view);
+ expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("25");
+ expect(screen.getByText("/media/Anime/episode.mkv")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Hide scan progress"}));
+ expect(screen.queryByRole("progressbar")).toBeNull();
+});
