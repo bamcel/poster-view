@@ -10,6 +10,9 @@ services:
       - posterview-data:/config
       # Optional manga mount: use docker-compose.media.yml (see docs/local-metadata.md).
     environment:
+      - PUID=${PUID:-10001}
+      - PGID=${PGID:-10001}
+      - UMASK=${UMASK:-002}
       - POSTERVIEW_USERNAME=${POSTERVIEW_USERNAME:-admin}
       # Set this in a .env file. When omitted, PosterView creates /config/admin-password.txt.
       - POSTERVIEW_PASSWORD=${POSTERVIEW_PASSWORD:-}

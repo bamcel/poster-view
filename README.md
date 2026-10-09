@@ -207,6 +207,15 @@ Open **http://localhost:7979**. The SQLite database and encryption key live in t
 `posterview-data` volume (`/config` in the container), so your servers and settings survive
 restarts and image upgrades.
 
+**Media write permissions:** set `PUID` and `PGID` to a user and group with write access
+to your media folders. The image defaults to `10001:10001`; the Unraid template
+provides `PUID=99`, `PGID=100`, and `UMASK=002`. Compose accepts these variables
+from your `.env` file. `UMASK` defaults to `002` and controls new file/directory
+permissions; `022` limits new-file writes to the owner. Artwork exports also enforce
+read access for other containers. Startup updates application data ownership only,
+preserving media ownership and existing media permissions. The media mount must be
+writable. Recreate the container after changing these variables.
+
 **Existing Docker/Unraid installations:** the image still detects and uses a legacy
 `/data` application-state mount when `/config` has no database or encryption key.
 You can update the image without changing your existing template. To adopt the

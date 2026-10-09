@@ -234,7 +234,8 @@ fn shared_artwork_permissions(file: &fs::File, target: &Path) -> Result<(), Stri
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = fs::metadata(target).map(|m| m.permissions().mode() & 0o777).unwrap_or(0o644);
+        let mask = std::env::var("UMASK").ok().and_then(|mask| u32::from_str_radix(&mask, 8).ok()).filter(|mask| *mask <= 0o777).unwrap_or(0o022);
+        let mode = fs::metadata(target).map(|m| m.permissions().mode() & 0o777).unwrap_or(0o666 & !mask);
         let current=file.metadata().map_err(|e|format!("Could not inspect artwork permissions: {e}"))?.permissions().mode() & 0o777;
         let desired=mode | 0o444;
         // SMB/NFS may deny chmod even when the sidecar is already readable.

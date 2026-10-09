@@ -2,6 +2,27 @@
 # Prepare application state, then drop privileges. Never change media ownership.
 set -e
 
+PUID=${PUID:-10001}
+PGID=${PGID:-10001}
+UMASK=${UMASK:-002}
+export PUID PGID UMASK
+for identity in "$PUID" "$PGID"; do
+    case "$identity" in
+        ''|*[!0-9]*) echo "PosterView: PUID and PGID must be numeric IDs." >&2; exit 1 ;;
+    esac
+    if [ "${#identity}" -gt 10 ] || [ "$identity" -gt 2147483647 ]; then
+        echo "PosterView: PUID and PGID must be between 0 and 2147483647." >&2
+        exit 1
+    fi
+done
+case "$UMASK" in
+    *[!0-7]*) echo "PosterView: UMASK must contain only octal digits (for example 002)." >&2; exit 1 ;;
+esac
+case "$UMASK" in
+    ???|0???) umask "$UMASK" ;;
+    *) echo "PosterView: UMASK must be three octal digits, optionally prefixed with 0." >&2; exit 1 ;;
+esac
+
 # Explicit directory overrides always win. Otherwise prefer initialized /config,
 # then a legacy /data mount/state, then the new /config default. Do not move data.
 if [ -z "${POSTERVIEW_DATA_DIR:-}" ]; then
@@ -49,6 +70,7 @@ export POSTERVIEW_MEDIA_DIR
 
 mkdir -p "$POSTERVIEW_DATA_DIR"
 # Exclude standard and custom media roots, including on legacy installs.
-find "$POSTERVIEW_DATA_DIR" -xdev \( -path /data/media -o -path "$POSTERVIEW_MEDIA_DIR" \) -prune -o -exec chown -h posterview:posterview {} +
+find "$POSTERVIEW_DATA_DIR" -xdev \( -path /data/media -o -path "$POSTERVIEW_MEDIA_DIR" \) -prune -o -exec chown -h "$PUID:$PGID" {} +
 
-exec setpriv --reuid=10001 --regid=10001 --init-groups "$@"
+echo "PosterView: starting with UID=$PUID GID=$PGID UMASK=$UMASK"
+exec setpriv --reuid="$PUID" --regid="$PGID" --clear-groups "$@"
