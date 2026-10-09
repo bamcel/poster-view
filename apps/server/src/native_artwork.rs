@@ -12,11 +12,6 @@ fn destination(entry: &NativeCatalogEntry, kind: &str) -> Result<(String, String
         "disc" => "disc.png",
         _ => return Err("Unknown artwork type.".into()),
     };
-    if entry.kind=="book" && entry.metadata["missing"]==true {
-        let parent=entry.parent_path.as_ref().ok_or("Missing book has no series folder.")?;
-        let (label,number)=if let Some(n)=entry.metadata["volume"].as_u64() {("volume",n)} else if let Some(n)=entry.metadata["chapter"].as_u64() {("chapter",n)} else {return Err("Missing book has no volume or chapter number.".into());};
-        return Ok((format!("{parent}/.posterview-missing-artwork"),format!("{label}-{number:02}-{name}")));
-    }
     if entry.kind == "season" {
         let parent = entry
             .parent_path
@@ -101,6 +96,7 @@ pub(crate) fn write(
     art: &NativeArtwork,
     replace: bool,
 ) -> Result<(), String> {
+    if entry.metadata["missing"] == true {return Ok(());}
     if art.kind.ends_with("-animated") || art.path.ends_with(".gif") || art.path.ends_with(".webm") { return Ok(()); }
     let Some(managed) = art.path.strip_prefix("@managed/") else {
         return Ok(());
@@ -116,16 +112,6 @@ pub(crate) fn write(
         return Err("Invalid managed artwork path.".into());
     }
     let (folder, name) = destination(entry, &art.kind)?;
-    if entry.kind=="book" && entry.metadata["missing"]==true {
-        let parent=state.metadata.directory(entry.parent_path.as_deref().ok_or("Missing book has no series folder.")?,true).map_err(|e|e.detail)?;
-        let pending=parent.join(".posterview-missing-artwork");
-        match fs::symlink_metadata(&pending) {
-            Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir()=>return Err("Missing artwork folder must be a regular directory.".into()),
-            Ok(_)=>{},
-            Err(e) if e.kind()==std::io::ErrorKind::NotFound=>fs::create_dir(&pending).map_err(|e|e.to_string())?,
-            Err(e)=>return Err(e.to_string()),
-        }
-    }
     let directory = state
         .metadata
         .directory(&folder, true)
@@ -309,25 +295,4 @@ pub(crate) fn managed_local_copy(state:&AppState,path:&Path)->Result<std::path::
     // Keep one version per source, without walking the media library.
     if let Ok(files)=fs::read_dir(&directory) {for file in files.flatten() {if file.path()!=target && file.file_name().to_string_lossy().starts_with(&prefix) {let _=fs::remove_file(file.path());}}}
     Ok(target)
-}
-
-
-#[cfg(test)]
-mod missing_book_tests {
-    use super::*;
-    #[test]
-    fn missing_cover_is_saved_in_series_and_copied_to_arriving_filename() {
-        let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());
-        let folder=temp.path().join("media/Books/Series");fs::create_dir_all(&folder).unwrap();
-        let managed=state.runtime.data_dir().join("native-artwork");fs::create_dir_all(&managed).unwrap();
-        image::DynamicImage::new_rgb8(8,12).save(managed.join("cover.png")).unwrap();
-        let art=NativeArtwork{kind:"poster".into(),path:"@managed/cover.png".into(),source:"manual".into()};
-        let mut entry=NativeCatalogEntry{id:"test".into(),path:"Books/Series/@missing-volume-12".into(),kind:"book".into(),parent_path:Some("Books/Series".into()),title:"Volume 12".into(),metadata:serde_json::json!({"volume":12,"missing":true}),artwork:vec![art.clone()],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
-        write(&state,&entry,&art,true).unwrap();
-        let pending=folder.join(".posterview-missing-artwork/volume-12-poster.jpg");assert!(pending.is_file());assert_eq!(image::open(&pending).unwrap().width(),8);
-        entry.path="Books/Series/Series Vol 12.cbz".into();entry.metadata["missing"]=serde_json::json!(false);
-        fs::write(folder.join("Series Vol 12.cbz"),b"media").unwrap();
-        write(&state,&entry,&art,false).unwrap();let sidecar=folder.join("Series Vol 12.jpg");assert_eq!(fs::read(&pending).unwrap(),fs::read(&sidecar).unwrap());
-        fs::write(&sidecar,b"existing local cover").unwrap();write(&state,&entry,&art,false).unwrap();assert_eq!(fs::read(&sidecar).unwrap(),b"existing local cover");
-    }
 }
