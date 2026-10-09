@@ -2,7 +2,6 @@ import {useArtworkPlugin} from "../lib/artworkPlugin";
 import {useServerConnectPlugin} from "./PluginsPage";
 import {useQuery} from "@tanstack/react-query";
 import {nativeLibraries} from "../api/nativeLibraries";
-import ActivityStatus from "./ActivityStatus";
 // App chrome: a left sidebar (logo, nav, active-server picker) + routed content.
 
 import { NavLink, Outlet, useLocation } from "react-router-dom";
@@ -90,7 +89,6 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
       </header>
       {!preview && <details className="shrink-0 bg-sidebar px-4 py-2 md:hidden"><summary className="text-sm text-muted">Media</summary><nav className="flex flex-col gap-2 py-3">{libraries.data?.map(library=><NavLink key={library.id} to={`/media/${encodeURIComponent(library.id)}`} className="rounded-md bg-elevated px-3 py-2 text-sm">{library.name}</NavLink>)}</nav></details>}
-      {!preview && <details className="shrink-0 bg-sidebar px-4 py-2 md:hidden"><summary className="text-sm text-muted">Activity status</summary><div className="py-2"><ActivityStatus libraries={libraries.data ?? []}/></div></details>}
       {!preview && location.pathname.startsWith("/settings") && <details className="shrink-0 bg-sidebar px-4 py-2 md:hidden"><summary className="text-sm text-muted">Settings pages</summary><nav className="grid grid-cols-2 gap-2 py-3">{[["","Dashboard"],["plugins","Plugins"],...(serverConnect.data?.pinned?[["servers","Server Connect"]]:[]),...(artworkPlugin.data?.pinned?[["artwork","Artwork"]]:[]),["libraries","Libraries"],["sources","Search Providers"],["tasks","Scheduled Tasks"],["appearance","Appearance"],["security","Privacy / Security"]].map(([section,label])=><NavLink key={section} to={`/settings${section ? `/${section}` : ""}`} className="rounded-md bg-elevated px-3 py-2 text-xs">{label}</NavLink>)}</nav></details>}
 
       <aside
@@ -128,7 +126,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
         </nav>
 
-        <div className="mt-auto pt-4">{!preview && <ActivityStatus libraries={libraries.data ?? []}/>}</div>
+        <div className="mt-auto pt-4" />
         {showSignOut && <button type="button" onClick={signOut} className="mb-3 flex h-9 shrink-0 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted transition-colors hover:bg-input-hover hover:text-white">
           <LogOut className="size-[18px]" /> Sign out
         </button>}

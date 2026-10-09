@@ -30,8 +30,8 @@ export default function ActivityStatus({libraries}: {libraries: NativeLibrary[]}
   const busy = active.length + running.length > 0;
   const unavailable = tasks.isError || scans.some(scan => scan.isError);
   const loading = tasks.isPending || scans.some(scan => scan.isPending);
-  return <section aria-label="Activity status" className="rounded-lg border border-border bg-elevated/60 p-3 text-xs">
-    <div className="mb-2 flex items-center justify-between text-faint"><h2 className="text-[10px] font-semibold uppercase tracking-wider">Status</h2><Activity aria-hidden="true" className="size-3.5"/></div>
+  return <section aria-label="Activity status" className="rounded-xl bg-window p-5 text-sm">
+    <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold"><Activity aria-hidden="true" className="size-5"/>Activity status</h2>
     <div className="max-h-64 space-y-3 overflow-y-auto" aria-live="polite">
       {active.map(({library, status}) => <Link key={library.id} to={`/media/${encodeURIComponent(library.id)}`} className="block space-y-1.5">
         <p className="truncate font-medium text-accent">{library.name} · Scanning</p>
