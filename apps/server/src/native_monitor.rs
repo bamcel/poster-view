@@ -147,7 +147,7 @@ fn changed_scope(path: &Path, root: &Path) -> PathBuf {
 }
 
 // Known image changes bypass file probing and provider requests entirely.
-fn refresh_artwork_files(state:&AppState,id:&str,files:&std::collections::BTreeSet<PathBuf>)->bool {
+pub(crate) fn refresh_artwork_files(state:&AppState,id:&str,files:&std::collections::BTreeSet<PathBuf>)->bool {
     let db=ServerStore::new(state.runtime.data_dir());
     let Ok(entries)=db.native_catalog(id) else {return false;};
     let Ok(root)=state.metadata.directory("",true) else {return false;};
@@ -249,8 +249,8 @@ pub(crate) fn start(state: AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn local_logo_updates_refresh_the_managed_copy_without_a_scan_or_manual_override() {
+    #[tokio::test]
+    async fn local_logo_updates_refresh_the_managed_copy_without_a_scan_or_manual_override() {
         let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());
         let folder=temp.path().join("media/Anime/Test");std::fs::create_dir_all(&folder).unwrap();let path=folder.join("clearlogo.png");
         let png=|width|{let mut bytes=std::io::Cursor::new(Vec::new());image::DynamicImage::new_rgba8(width,8).write_to(&mut bytes,image::ImageFormat::Png).unwrap();bytes.into_inner()};
@@ -266,6 +266,7 @@ mod tests {
         let after=db.native_catalog(&library.id).unwrap().remove(0);assert!(after.revision>before.revision);assert_eq!(after.artwork[0].source,"local");assert_eq!(after.artwork[0].path,"Anime/Test/clearlogo.png");
         let copy=crate::native_artwork::managed_local_copy(&state,&path).unwrap();assert_eq!(std::fs::read(copy).unwrap(),png(48));assert_eq!(std::fs::read_dir(state.runtime.data_dir().join("local-artwork-cache")).unwrap().count(),1);
         assert_eq!(db.native_scan_status(&library.id).unwrap().status,"not_scanned");assert!(!db.get_setting(&format!("native-artwork-revision:{}",library.id)).unwrap().is_empty());
+        let refreshed=crate::native::refresh_artwork(axum::extract::State(state.clone()),axum::extract::Path((library.id.clone(),after.id.clone()))).await.unwrap().0;assert_eq!(refreshed["updated"],1);assert_eq!(refreshed["warnings"],serde_json::json!([]));
         db.save_native_artwork(&library.id,&after.id,&posterview_contracts::native::NativeArtwork{kind:"logo".into(),path:"@managed/chosen.png".into(),source:"manual".into()}).unwrap();
         assert!(!refresh_artwork_files(&state,&library.id,&files));assert_eq!(db.native_catalog(&library.id).unwrap()[0].artwork[0].path,"@managed/chosen.png");
     }

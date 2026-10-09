@@ -16,6 +16,7 @@ vi.mock("../api/nativeLibraries", async (original) => ({
     status: vi.fn(),
     catalog: vi.fn(),
     editItem: vi.fn(),
+    refreshArtwork: vi.fn(),
     upload: vi.fn(),
     artworkUrl: vi.fn((l, i, k) => `/art/${l}/${i}/${k}`),
   },
@@ -308,4 +309,13 @@ it("shows missing book cards without counting them as available and opens their 
  expect(screen.queryByRole("heading",{name:"Media information"})).toBeNull();
  fireEvent.click(screen.getByRole("button",{name:"Edit Artwork"}));
  expect((await screen.findByTestId("shared-artwork")).getAttribute("data-item")).toBe("native:native:missing2");
+});
+
+it("refreshes selected series artwork before reloading the catalog",async()=>{
+ vi.mocked(nativeLibraries.refreshArtwork).mockResolvedValue({updated:1,warnings:[]});
+ mount("/?native_library=native&native_item=show");await screen.findByRole("heading",{name:"Example Series"});
+ const before=vi.mocked(nativeLibraries.catalog).mock.calls.length;
+ fireEvent.click(screen.getByRole("button",{name:"Refresh"}));
+ await waitFor(()=>expect(nativeLibraries.refreshArtwork).toHaveBeenCalledWith("native","show"));
+ await waitFor(()=>expect(vi.mocked(nativeLibraries.catalog).mock.calls.length).toBeGreaterThan(before));
 });

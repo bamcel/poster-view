@@ -295,8 +295,14 @@ export default function NativeLibraryBrowser({
         return next;
       });
   };
-  const refresh = () => {
-    void catalog.refetch();
+  const [refreshingArtwork,setRefreshingArtwork]=useState(false);
+  const [refreshError,setRefreshError]=useState("");
+  const refresh = async () => {
+    if(refreshingArtwork)return;
+    setRefreshingArtwork(true);setRefreshError("");
+    try {if(selected){const result=await nativeLibraries.refreshArtwork(library.id,selected.id);setRefreshError(result.warnings.join(" · "));}await catalog.refetch();}
+    catch(error){setRefreshError((error as Error).message);}
+    finally {setRefreshingArtwork(false);}
   };
   const visible = entries
     .filter((e) =>
@@ -375,6 +381,7 @@ export default function NativeLibraryBrowser({
           {catalog.error.message} <button onClick={refresh}>Retry</button>
         </p>
       )}
+      {refreshError && <p role="alert" className="relative z-10 px-6 py-2 text-sm text-danger">{refreshError}</p>}
       {selected ? (
         <NativeDetail
           key={selected.id}
@@ -384,7 +391,7 @@ export default function NativeLibraryBrowser({
           open={open}
           back={back}
           refresh={refresh}
-          fetching={catalog.isFetching}
+          fetching={catalog.isFetching || refreshingArtwork}
           edit={(kind) => setEditor({ id: selected.id, kind })}
           showBackdrop={showBackdrop}
           overlay={overlay}
@@ -719,6 +726,7 @@ function NativeDetail({
                     className={detailActionClass}
                     aria-label="Refresh"
                     title="Refresh"
+                    disabled={fetching}
                     onClick={refresh}
                   >
                     <RefreshCw

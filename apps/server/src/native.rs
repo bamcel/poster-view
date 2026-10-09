@@ -158,6 +158,22 @@ pub(crate) async fn catalog(
         .map(Json)
         .map_err(error)
 }
+pub(crate) async fn refresh_artwork(
+    State(state):State<AppState>,Path((id,item)):Path<(String,String)>,
+)->Result<Json<serde_json::Value>,HttpError> {
+    library(&state,&id).await?;
+    tokio::task::spawn_blocking(move||{
+        let entries=store(&state).native_catalog(&id).map_err(error)?;
+        let entry=entries.iter().find(|e|e.available && e.id==item).ok_or_else(HttpError::not_found)?;
+        let root=state.metadata.directory("",true)?;
+        let files=entries.iter().filter(|e|e.available && (e.id==item || e.path.starts_with(&format!("{}/",entry.path))))
+            .flat_map(|e|e.artwork.iter().filter(|a|a.source=="local").map(|a|root.join(&a.path))).collect::<std::collections::BTreeSet<_>>();
+        let mut updated=0;let mut warnings=Vec::new();
+        for path in files {if crate::native_monitor::refresh_artwork_files(&state,&id,&std::collections::BTreeSet::from([path.clone()])) {updated+=1;}else {warnings.push(format!("Could not refresh local artwork: {}",path.file_name().unwrap_or_default().to_string_lossy()));}}
+        Ok(Json(serde_json::json!({"updated":updated,"warnings":warnings})))
+    }).await.map_err(|_|HttpError::bad_request("Artwork refresh interrupted."))?
+}
+
 pub(crate) async fn previews(
     State(state): State<AppState>,
     Path(id): Path<String>,
