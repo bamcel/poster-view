@@ -310,6 +310,9 @@ fn apply_nfo(entry: &mut NativeCatalogEntry, doc: Option<(String, Value, String,
     }
 }
 pub(crate) fn local_art(root: &Path, dir: &Path, stem: Option<&str>) -> Vec<NativeArtwork> {
+    local_art_variants(root,dir,stem,false)
+}
+pub(crate) fn local_art_variants(root: &Path, dir: &Path, stem: Option<&str>, static_only: bool) -> Vec<NativeArtwork> {
     let Ok(files) = fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -344,6 +347,7 @@ pub(crate) fn local_art(root: &Path, dir: &Path, stem: Option<&str>) -> Vec<Nati
             continue;
         }
         let animated = u8::from(["gif","webm"].contains(&ext.as_str()));
+        if static_only && animated==1 {continue;}
         let base = path
             .file_stem()
             .unwrap_or_default()
@@ -1103,6 +1107,9 @@ mod animated_artwork_tests {
         let temp=tempfile::tempdir().unwrap(); let root=temp.path().canonicalize().unwrap(); let dir=root.as_path();
         fs::write(dir.join("poster.jpg"),b"static").unwrap();
         fs::write(dir.join("poster.webm"),b"animated").unwrap();
+        let still=local_art_variants(dir,dir,None,true);
+        assert!(still.iter().all(|a|!a.path.ends_with(".webm")&&!a.path.ends_with(".gif")));
+        assert!(still.iter().any(|a|a.kind=="poster" && a.path=="poster.jpg"));
         fs::write(dir.join("Episode.mkv"),b"media").unwrap();
         fs::write(dir.join("Episode.webm"),b"thumb").unwrap();
         let stems=[dir.join("Episode")].into_iter().collect();

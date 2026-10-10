@@ -6,6 +6,10 @@ use serde_json::{Value, json};
 fn invalid(message: &str) -> StoreError {
     StoreError::Validation(message.into())
 }
+fn animation_blocked(db: &rusqlite::Connection, item: &str, art: &NativeArtwork) -> Result<bool, StoreError> {
+    if !art.kind.ends_with("-animated") && !["gif", "webm"].contains(&art.path.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str()) {return Ok(false);}
+    Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM settings WHERE key=?1 AND value_enc='true')",[format!("removed-animation:{item}:{}",art.kind.trim_end_matches("-animated"))],|r|r.get(0))?)
+}
 impl ServerStore {
     pub fn native_item_is_missing(&self,library:&str,item:&str)->Result<bool,StoreError> {
         Ok(self.connection()?.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources s WHERE s.library_id=?1 AND s.item_id=?2 AND json_extract(s.snapshot_json,'$.metadata.missing')=1)",params![library,item],|r|r.get(0))?)
@@ -23,6 +27,7 @@ impl ServerStore {
     }
     pub fn select_local_artwork(&self,library:&str,item:&str,art:&NativeArtwork)->Result<(),StoreError> {
         let mut db=self.connection()?;let tx=db.transaction()?;
+        if animation_blocked(&tx,item,art)? {return Ok(());}
         let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2 AND available=1)",params![library,item],|r|r.get(0))?;
         if !exists || art.source!="local" {return Err(invalid("Invalid local artwork selection."));}
         tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,'local',0) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source='local',locked=0",params![item,art.kind,art.path])?;
@@ -330,6 +335,7 @@ impl ServerStore {
             project_metadata(&tx, &id, &effective)?;
             tx.execute("DELETE FROM catalog_artwork WHERE item_id=?1 AND locked=0 AND NOT EXISTS(SELECT 1 FROM json_each(?2) a WHERE json_extract(a.value,'$.kind')=catalog_artwork.kind AND json_extract(a.value,'$.path')=catalog_artwork.path)",params![id,serde_json::to_string(&entry.artwork).map_err(|_|invalid("Invalid artwork records."))?])?;
             for art in &entry.artwork {
+                if animation_blocked(&tx,&id,art)? {continue;}
                 tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,?4,0) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source=excluded.source,locked=CASE WHEN excluded.source='local' THEN 0 ELSE locked END WHERE excluded.source='local' OR (locked=0 AND source<>'local')",params![id,art.kind,art.path,art.source])?;
             }
             tx.execute("DELETE FROM catalog_item_files WHERE item_id=?1", [&id])?;
@@ -490,6 +496,10 @@ impl ServerStore {
         let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2)",params![library,item],|r|r.get(0))?;
         if !exists { return Err(invalid("Catalog item not found.")); }
         tx.execute("DELETE FROM catalog_artwork WHERE item_id=?1 AND kind=?2",params![item,kind])?;
+        if let Some(base)=kind.strip_suffix("-animated") {
+            tx.execute("DELETE FROM catalog_artwork WHERE item_id=?1 AND kind=?2 AND (lower(path) LIKE '%.gif' OR lower(path) LIKE '%.webm')",params![item,base])?;
+            tx.execute("INSERT INTO settings(key,value_enc) VALUES(?1,'true') ON CONFLICT(key) DO UPDATE SET value_enc='true'",[format!("removed-animation:{item}:{base}")])?;
+        }
         tx.execute("UPDATE catalog_items SET revision=revision+1 WHERE id=?1",[item])?;
         tx.commit()?;
         Ok(())
@@ -505,6 +515,9 @@ impl ServerStore {
         let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2)",params![library,item],|r|r.get(0))?;
         if !exists {
             return Err(invalid("Catalog item not found."));
+        }
+        if art.source=="manual" && (art.kind.ends_with("-animated") || ["gif","webm"].contains(&art.path.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str())) {
+            tx.execute("DELETE FROM settings WHERE key=?1",[format!("removed-animation:{item}:{}",art.kind.trim_end_matches("-animated"))])?;
         }
         tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,'manual',1) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source='manual',locked=1",params![item,art.kind,art.path])?;
         // A deliberate poster/logo replacement must not inherit an old logo layer.
@@ -787,6 +800,23 @@ mod tests{
         db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();
         let art=db.native_artwork(&library.id,&item,"poster").unwrap().unwrap();
         assert_eq!(art.path,"Movies/poster.jpg");assert_eq!(art.source,"local");
+        let animation=NativeArtwork{kind:"poster-animated".into(),path:"@managed/animation.gif".into(),source:"manual".into()};
+        db.save_native_artwork(&library.id,&item,&animation).unwrap();
+        db.remove_native_artwork(&library.id,&item,"poster-animated").unwrap();
+        assert_eq!(db.native_artwork(&library.id,&item,"poster").unwrap().unwrap().path,"Movies/poster.jpg");
+        let legacy=NativeArtwork{kind:"poster".into(),path:"Movies/poster.gif".into(),source:"local".into()};
+        db.select_local_artwork(&library.id,&item,&legacy).unwrap();
+        assert_eq!(db.native_artwork(&library.id,&item,"poster").unwrap().unwrap().path,"Movies/poster.jpg");
+        let mut rediscovered=db.native_catalog(&library.id).unwrap().remove(0);
+        rediscovered.artwork.push(NativeArtwork{source:"local".into(),..animation.clone()});
+        db.ingest_native_catalog(&library.id,library.revision,&[rediscovered]).unwrap();
+        assert!(db.native_artwork(&library.id,&item,"poster-animated").unwrap().is_none());
+        db.save_native_artwork(&library.id,&item,&animation).unwrap();
+        assert!(db.native_artwork(&library.id,&item,"poster-animated").unwrap().is_some());
+        db.save_native_artwork(&library.id,&item,&NativeArtwork{kind:"poster".into(),..animation}).unwrap();
+        db.remove_native_artwork(&library.id,&item,"poster-animated").unwrap();
+        assert!(db.native_artwork(&library.id,&item,"poster").unwrap().is_none());
+        db.select_local_artwork(&library.id,&item,&NativeArtwork{kind:"poster".into(),path:"Movies/poster.jpg".into(),source:"local".into()}).unwrap();
         let locked:bool=db.connection().unwrap().query_row("SELECT locked FROM catalog_artwork WHERE item_id=?1 AND kind='poster'",[&item],|r|r.get(0)).unwrap();assert!(!locked);
 
         db.connection()

@@ -179,7 +179,7 @@ pub(crate) async fn refresh_artwork(
         for current in entries.iter().filter(|e|e.available && (e.id==item || e.path.starts_with(&format!("{}/",entry.path)))) {
             let path=root.join(&current.path);
             let (directory,stem)=if path.is_dir() {(path.clone(),None)} else {(path.parent().unwrap_or(&root).to_path_buf(),path.file_stem().map(|s|s.to_string_lossy().into_owned()))};
-            for art in crate::native_scan::local_art(&root,&directory,stem.as_deref()) {
+            for art in filtered_local_art(&state,current,crate::native_scan::local_art(&root,&directory,stem.as_deref())) {
                 crate::native_artwork::managed_local_copy(&state,&root.join(&art.path)).map_err(HttpError::bad_request)?;
                 store(&state).select_local_artwork(&id,&current.id,&art).map_err(error)?;
                 files.insert(root.join(&art.path));
@@ -356,6 +356,7 @@ async fn run_scan_scoped(
                     }
                 }
             }
+            entry.artwork=filtered_local_art(&state,previous,std::mem::take(&mut entry.artwork));
             for art in &previous.artwork {
                 if entry.kind == "book" && art.source == "local" {
                     let media = std::path::Path::new(&entry.path);
@@ -1867,11 +1868,25 @@ pub(crate) mod scan_tests {
 
 }
 
+fn filtered_local_art(state:&AppState,entry:&posterview_contracts::native::NativeCatalogEntry,mut artwork:Vec<posterview_contracts::native::NativeArtwork>)->Vec<posterview_contracts::native::NativeArtwork>{
+ let blocked=artwork.iter().filter(|a|a.kind.ends_with("-animated")||["gif","webm"].contains(&a.path.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str())).filter(|a|store(state).get_setting(&format!("removed-animation:{}:{}",entry.id,a.kind.trim_end_matches("-animated"))).is_ok_and(|v|v=="true")).map(|a|a.kind.trim_end_matches("-animated").to_string()).collect::<std::collections::BTreeSet<_>>();
+ if blocked.is_empty(){return artwork;}
+ artwork.retain(|a|!blocked.contains(a.kind.trim_end_matches("-animated")));
+ if let Ok(root)=state.metadata.directory("",true){let path=root.join(&entry.path);let (directory,stem)=if path.is_dir(){(path.clone(),None)}else{(path.parent().unwrap_or(&root).to_path_buf(),path.file_stem().map(|s|s.to_string_lossy().into_owned()))};artwork.extend(crate::native_scan::local_art_variants(&root,&directory,stem.as_deref(),true).into_iter().filter(|a|blocked.contains(&a.kind)));}
+ artwork
+}
+
 pub(crate) async fn remove_variant(State(state):State<AppState>,Path((library,item,kind)):Path<(String,String,String)>)->Result<StatusCode,HttpError>{
  if !kind.ends_with("-animated"){return Err(HttpError::bad_request("Use the artwork panel to remove static artwork."));}
  let base=kind.trim_end_matches("-animated");
  if !["poster","backdrop","logo","banner","thumb","landscape","disc"].contains(&base){return Err(HttpError::bad_request("Unknown artwork type."));}
+ if store(&state).native_scan_status(&library).map_err(error)?.status=="scanning" {return Err(HttpError::bad_request("Wait for the library scan to finish before removing artwork."));}
  store(&state).remove_native_artwork(&library,&item,&kind).map_err(error)?;
+ if let Some(entry)=store(&state).native_catalog(&library).map_err(error)?.into_iter().find(|e|e.id==item) {
+  if let Ok(root)=state.metadata.directory("",true) {let path=root.join(&entry.path);let (dir,stem)=if path.is_dir(){(path.clone(),None)}else{(path.parent().unwrap_or(&root).to_path_buf(),path.file_stem().map(|s|s.to_string_lossy().into_owned()))};
+   for art in crate::native_scan::local_art_variants(&root,&dir,stem.as_deref(),true).into_iter().filter(|a|a.kind==base) {store(&state).select_local_artwork(&library,&item,&art).map_err(error)?;}
+  }
+ }
  Ok(StatusCode::NO_CONTENT)
 }
 
