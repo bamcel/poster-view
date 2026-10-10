@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {api} from "../api/client";
 import {useServerConnectPlugin} from "../lib/serverConnectPlugin";
 vi.mock("../api/client",()=>({api:{listServers:vi.fn()}}));
-vi.mock("../lib/serverConnectPlugin",()=>({useServerConnectPlugin:vi.fn()}));
+vi.mock("../lib/serverConnectPlugin",()=>({useServerConnectPlugin:vi.fn(),SERVER_CONNECT_AVAILABLE:false}));
 import NativeLibrariesSection, { LibraryDialog } from "./NativeLibrariesSection";
 import { defaultNativeOptions, nativeLibraries, type NativeLibrary } from "../api/nativeLibraries";
 
@@ -142,17 +142,11 @@ it("skips Advanced and Server Connect when setting up a book library",()=>{
  expect(screen.getByText("Local Artwork")).toBeTruthy();
 });
 
-it("shows Import Library only when Server Connect is enabled and connected",async()=>{
- vi.mocked(useServerConnectPlugin).mockReturnValue({data:{enabled:true,pinned:false}} as ReturnType<typeof useServerConnectPlugin>);
- vi.mocked(api.listServers).mockResolvedValue([{id:1,name:"Emby",type:"emby",base_url:"http://server",is_default:true,nfo_metadata_enabled:false,has_token:true,created_at:"",updated_at:""}]);
- mount(<NativeLibrariesSection/>);
- expect(await screen.findByRole("button",{name:"Import library"})).toBeTruthy();
- cleanup();vi.mocked(api.listServers).mockResolvedValue([]);
- mount(<NativeLibrariesSection/>);
- await waitFor(()=>expect(screen.queryByText("Loading libraries…")).toBeNull());
- expect(screen.queryByRole("button",{name:"Import library"})).toBeNull();
- cleanup();vi.mocked(useServerConnectPlugin).mockReturnValue({data:{enabled:false,pinned:false}} as ReturnType<typeof useServerConnectPlugin>);
- mount(<NativeLibrariesSection/>);expect(screen.queryByRole("button",{name:"Import library"})).toBeNull();
+it("hides Import Library even with saved server connections",async()=>{
+ vi.mocked(useServerConnectPlugin).mockReturnValue({data:{enabled:true,pinned:true}} as ReturnType<typeof useServerConnectPlugin>);
+ mount(<NativeLibrariesSection />);
+ await screen.findByRole("button",{name:"New Library"});
+ expect(screen.queryByRole("button",{name:/Import library/i})).toBeNull();
 });
 
 it("allows a manual scan request while a hidden automatic scan is running",async()=>{

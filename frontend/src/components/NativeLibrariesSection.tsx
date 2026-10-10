@@ -2,7 +2,7 @@ import {BACKDROP_BLUR_EVENT, PANEL_SOLIDITY_EVENT, PANEL_OVERLAY_EVENT, backdrop
 import ImportServerLibrary from "./ImportServerLibrary";
 import LibraryPosterStrip from "./LibraryPosterStrip";
 import {SyncActions} from "./ConnectedServerSync";
-import {useServerConnectPlugin} from "../lib/serverConnectPlugin";
+import {useServerConnectPlugin,SERVER_CONNECT_AVAILABLE} from "../lib/serverConnectPlugin";
 import {api} from "../api/client";
 import NativeScanProgress from "./NativeScanProgress";
 import { useEffect, useRef, useState } from "react";
@@ -40,7 +40,7 @@ export default function NativeLibrariesSection() {
   const libraries = useQuery({ queryKey: ["native-libraries"], queryFn: nativeLibraries.list });
   const plugin = useServerConnectPlugin();
   const servers = useQuery({queryKey:["servers"],queryFn:api.listServers,enabled:plugin.data?.enabled === true});
-  const canImport = plugin.data?.enabled === true && !!servers.data?.length;
+  const canImport = SERVER_CONNECT_AVAILABLE && plugin.data?.enabled === true && !!servers.data?.length;
   const [importing,setImporting]=useState(false);
   const [editing, setEditing] = useState<NativeLibrary | "new" | null>(null);
   const client = useQueryClient();
@@ -83,7 +83,7 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
     return()=>{document.removeEventListener("pointerdown",close);document.removeEventListener("keydown",key);window.removeEventListener("resize",place);window.removeEventListener("scroll",place,true);};
   },[open]);
   const status = useQuery({queryKey:["native-scan",library.id],queryFn:()=>nativeLibraries.status(library.id),refetchInterval:query=>query.state.data?.status==="scanning"?2000:false});
-  const syncStatus=useQuery({queryKey:["native-sync",library.id],queryFn:()=>nativeLibraries.syncStatus(library.id),enabled:!!library.options?.server_sync?.enabled,refetchInterval:5000});
+  const syncStatus=useQuery({queryKey:["native-sync",library.id],queryFn:()=>nativeLibraries.syncStatus(library.id),enabled:SERVER_CONNECT_AVAILABLE && !!library.options?.server_sync?.enabled,refetchInterval:5000});
   const scan=useMutation({mutationFn:()=>nativeLibraries.scan(library.id),onSuccess:()=>{void client.invalidateQueries({queryKey:["native-scan",library.id]});void client.invalidateQueries({queryKey:["native-previews",library.id]});}});
   const remove=useMutation({mutationFn:()=>nativeLibraries.remove(library.id,library.revision),onSuccess:()=>{setOpen(false);setConfirmDelete(false);client.setQueryData<NativeLibrary[]>(["native-libraries"],items=>items?.filter(item=>item.id!==library.id));void client.invalidateQueries({queryKey:["native-libraries"]});},onError:()=>setConfirmDelete(false)});
   const busy=status.data?.status==="scanning"||scan.isPending||remove.isPending;
@@ -91,7 +91,7 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
     <div className="relative overflow-hidden rounded-xl"><LibraryPosterStrip library={library.id}/><button ref={action} aria-label={`Actions for ${library.name}`} aria-expanded={open} onClick={()=>setOpen(!open)} className={`absolute bottom-2 right-2 grid size-8 place-items-center rounded-full border border-white/15 bg-black/40 text-white backdrop-blur transition-opacity hover:bg-black/60 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 ${open ? "!opacity-100" : ""}`}><MoreHorizontal className="size-4"/></button></div>
     <div className="flex min-h-24 flex-col bg-window px-4 pb-4 pt-2">
       <div className="text-center"><h3 className="truncate font-semibold text-white" title={library.name}>{library.name}</h3><p className="truncate text-xs text-muted" title={library.paths.map(displayPath).join("\n")}>{library.paths.length===1?displayPath(library.paths[0]):`${library.paths.length} folders`}</p></div>
-      <div className="mt-3 min-h-0 overflow-y-auto text-xs text-muted">{status.data?.status === "scanning" && <NativeScanProgress status={status.data} compact/>}{scan.isPending && status.data?.status !== "scanning" && <p role="status">Starting scan…</p>}{syncStatus.data?.status === "syncing" && <p role="status" className="mt-2">Syncing · {syncStatus.data.pending} pending</p>}</div>
+      <div className="mt-3 min-h-0 overflow-y-auto text-xs text-muted">{status.data?.status === "scanning" && <NativeScanProgress status={status.data} compact/>}{scan.isPending && status.data?.status !== "scanning" && <p role="status">Starting scan…</p>}{SERVER_CONNECT_AVAILABLE && syncStatus.data?.status === "syncing" && <p role="status" className="mt-2">Syncing · {syncStatus.data.pending} pending</p>}</div>
     </div>
     {open&&createPortal(<div ref={menu} role="region" aria-label={`Library actions for ${library.name}`} style={{...position,backgroundColor:"var(--color-surface, #20232b)",maxHeight:`calc(100dvh - ${position.top+12}px)`}} className="fixed z-[90] w-[min(22rem,calc(100vw-24px))] overflow-y-auto rounded-2xl p-4 text-white shadow-2xl">
         <div className="mb-3 flex items-center gap-3"><div aria-hidden="true" className="flex w-20 shrink-0 overflow-hidden rounded">{previews.data?.slice(0,4).map(item=><img key={item.id} src={nativeLibraries.artworkUrl(library.id,item.id,"poster")+`?v=${item.revision}`} alt="" className="aspect-[2/3] w-1/4 object-cover"/>)}</div><p className="flex-1 font-semibold">{library.name}</p><button type="button" aria-label="Close library actions" className="rounded-lg p-2 text-muted hover:bg-elevated" onClick={()=>{setOpen(false);setConfirmDelete(false);}}><X className="size-4"/></button></div>
@@ -99,9 +99,9 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
         {status.data?.status==="scanning"&&<p role="status" className="px-3 py-2 text-xs text-muted">{status.data.manual_queued?"Manual scan queued. It will run when the current scan finishes.":"A scan is running. You can queue a manual scan."}</p>}
         {status.data?.status==="scanning"&&<button className={MENU_ACTION} aria-expanded={scanDetails} onClick={()=>setScanDetails(!scanDetails)}>{scanDetails?"Hide scan progress":"View scan progress"}</button>}
         {scanDetails&&status.data&&<section aria-label="Current library scan" className="px-3 py-2"><NativeScanProgress status={{...status.data,show_progress:true}}/>{status.data.manual_queued&&<p className="mt-2 text-xs text-muted">The manual scan will start after this scan finishes.</p>}</section>}
-        {library.options?.server_sync?.enabled&&<SyncActions library={library.id} menu/>}
+        {SERVER_CONNECT_AVAILABLE && library.options?.server_sync?.enabled&&<SyncActions library={library.id} menu/>}
         <button className={MENU_ACTION} onClick={()=>setNotices(!notices)}>View notices / activity</button>
-        {notices&&<div className="space-y-2 text-xs text-muted"><p className="font-medium text-white">Latest results</p>{[...(status.data?.warnings??[]),...(syncStatus.data?.notices??[]),...(syncStatus.data?.activity.slice(0,1)??[])].map((message,i)=><p key={i}>{message}</p>)}{!status.data?.warnings.length&&!syncStatus.data?.notices.length&&!syncStatus.data?.activity.length&&<p>No notices or activity.</p>}</div>}
+        {notices&&<div className="space-y-2 text-xs text-muted"><p className="font-medium text-white">Latest results</p>{[...(status.data?.warnings??[]),...(SERVER_CONNECT_AVAILABLE ? syncStatus.data?.notices??[] : []),...(SERVER_CONNECT_AVAILABLE ? syncStatus.data?.activity.slice(0,1)??[] : [])].map((message,i)=><p key={i}>{message}</p>)}{!status.data?.warnings.length&&!syncStatus.data?.notices.length&&!syncStatus.data?.activity.length&&<p>No notices or activity.</p>}</div>}
         <div className="border-t border-edge pt-2"><button className={`${MENU_ACTION} flex w-full items-center justify-between text-danger`} disabled={busy} onClick={()=>setConfirmDelete(true)}>Remove<Trash2 className="size-4"/></button></div></div>
         {confirmDelete&&<div role="alertdialog" aria-label="Remove library confirmation" className="mt-3 rounded-xl border border-edge bg-base p-3"><p className="text-sm text-muted">Remove {library.name}? Media, NFO files, and local artwork will be kept.</p><div className="mt-3 flex gap-2"><button className={BUTTON} onClick={()=>{setConfirmDelete(false);setOpen(false);}}>Cancel</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={()=>remove.mutate()}>{remove.isPending?"Removing…":"Confirm removal"}</button></div></div>}
         {remove.error&&<p role="alert" className="mt-3 text-sm text-danger">{remove.error.message}</p>}

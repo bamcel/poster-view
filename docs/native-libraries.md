@@ -372,3 +372,5 @@ Missing episode discovery uses the library metadata language for both TVDB and T
 Removing animated artwork records a per-item/type suppression so scans and local artwork refreshes do not restore it. Legacy animated base slots are cleared too; static variants are preserved or rediscovered. Original media-folder files remain untouched. Explicitly selecting/uploading a new animation clears suppression for that type.
 
 Starting filesystem monitoring establishes its watcher/polling baseline without requesting scans. Watcher errors are logged rather than triggering full scans of every monitored library; concrete create/remove/modify events still reconcile their affected scopes. Access events, administrative notifications, directory timestamp noise, and known application writes are discarded before queueing.
+
+Server Connect is temporarily unavailable. Its plugin card, shortcuts, import actions, connection controls, sync statuses and notices are hidden; background sync is stopped. Saved configuration and implementation are preserved for future work. PosterView library scanning, local metadata/artwork, and provider fetching remain active.

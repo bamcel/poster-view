@@ -40,7 +40,7 @@ async fn save(
     id: Option<String>,
     input: NativeLibraryInput,
 ) -> Result<Json<NativeLibrary>, HttpError> {
-    if input.options.server_sync.enabled {
+    if crate::plugins::enabled(&state) && input.options.server_sync.enabled {
         let sync = &input.options.server_sync;
         if !["two_way","import_only","push_only"].contains(&sync.mode.as_str()) { return Err(HttpError::bad_request("Unknown integration mode.")); }
         let server = state.runtime.list_servers().map_err(|e|HttpError::bad_request(e.to_string()))?.into_iter().find(|server|Some(server.id)==sync.server_id).ok_or_else(||HttpError::bad_request("Select a connected server."))?;
@@ -632,7 +632,7 @@ pub(crate) async fn apply_panel_artwork(state: AppState, target: String, kind: p
         let Some(bytes) = bytes else {
             crate::native_artwork::remove_static(&state,library,&entry,kind).map_err(HttpError::bad_request)?;
             db.remove_native_artwork(library, item, kind).map_err(error)?;
-            return Ok((posterview_contracts::ApplyResult {ok:true,message:"Artwork removed from the database. Connected-server deletion will be queued when library sync is enabled.".into()}, None));
+            return Ok((posterview_contracts::ApplyResult {ok:true,message:"Artwork removed.".into()}, None));
         };
         let path = crate::workers::blocking(|| crate::native_provider::store_image(&state, &bytes)).map_err(HttpError::bad_request)?;
         let animated=path.ends_with(".gif")||path.ends_with(".webm");

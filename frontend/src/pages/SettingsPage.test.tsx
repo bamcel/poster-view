@@ -189,24 +189,6 @@ it("restores the active settings tab from the URL", () => {
   client.clear();
 });
 
-it("keeps the add server form collapsed until requested", async () => {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
-    <MemoryRouter initialEntries={["/settings/servers"]}>
-      <QueryClientProvider client={client}>
-        <SettingsPage />
-      </QueryClientProvider>
-    </MemoryRouter>,
-  );
-
-  expect(screen.queryByPlaceholderText("Living Room Jellyfin")).toBeNull();
-  fireEvent.click(await screen.findByRole("button", { name: "Add server" }));
-  expect(screen.getByPlaceholderText("Living Room Jellyfin")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-  expect(screen.queryByPlaceholderText("Living Room Jellyfin")).toBeNull();
-  client.clear();
-});
-
 it("persists and resets Dashboard appearance controls", () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings/appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
@@ -231,65 +213,6 @@ it("persists and resets Dashboard appearance controls", () => {
   expect(localStorage.getItem("posterview.backdropBlur")).toBe("12");
   expect(localStorage.getItem("posterview.panelOverlay")).toBe("0");
   expect(localStorage.getItem("posterview.darkOverlay")).toBe("72");
-  client.clear();
-});
-
-it("saves the per-server NFO metadata setting", async () => {
-  vi.mocked(api.createServer).mockResolvedValue({
-    id: 1, name: "Manga", type: "emby", base_url: "http://emby:8096",
-    is_default: true, nfo_metadata_enabled: true, has_token: true, created_at: "", updated_at: "",
-  });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<MemoryRouter initialEntries={["/settings/servers"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
-
-  fireEvent.click(await screen.findByRole("button", { name: "Add server" }));
-  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Manga" } });
-  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "http://emby:8096" } });
-  fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "secret" } });
-  fireEvent.click(screen.getByRole("checkbox", { name: /Enable NFO Metadata/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Add server" }));
-
-  await waitFor(() => expect(api.createServer).toHaveBeenCalledWith(expect.objectContaining({
-    nfo_metadata_enabled: true,
-  })));
-  client.clear();
-});
-
-it("shows server connections as integrations without library visibility controls", async () => {
-  vi.mocked(api.listServers).mockResolvedValue([
-    {
-      id: 1,
-      name: "Jellyfin",
-      type: "jellyfin",
-      base_url: "http://jellyfin:8096",
-      is_default: true,
-      nfo_metadata_enabled: false,
-      has_token: true,
-      created_at: "2026-01-01T00:00:00Z",
-      updated_at: "2026-01-01T00:00:00Z",
-    },
-  ]);
-  vi.mocked(api.getLibraryVisibility).mockResolvedValue({
-    libraries: [
-      { id: "movies", title: "Movies", type: "movie", visible: true },
-      { id: "shows", title: "TV Shows", type: "show", visible: false },
-    ],
-  });
-  vi.mocked(api.setLibraryVisibility).mockResolvedValue();
-
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
-    <MemoryRouter initialEntries={["/settings/servers"]}>
-      <QueryClientProvider client={client}>
-        <SettingsPage />
-      </QueryClientProvider>
-    </MemoryRouter>,
-  );
-
-  expect(await screen.findByText("Jellyfin")).toBeTruthy();
-  expect(screen.queryByText("Show Libraries")).toBeNull();
-  expect(screen.getByText(/Integration connection for importing metadata/)).toBeTruthy();
-  expect(api.setLibraryVisibility).not.toHaveBeenCalled();
   client.clear();
 });
 
@@ -338,36 +261,6 @@ it("keeps each provider test result inside its own card", async () => {
   client.clear();
 });
 
-it("identifies the server and affected data before deleting its connection", async () => {
-  const server = { id: 19, name: "Family Movies", type: "jellyfin" as const, base_url: "http://family:8096", is_default: false, nfo_metadata_enabled: false, has_token: true, created_at: "", updated_at: "" };
-  vi.mocked(api.listServers).mockResolvedValue([server]);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<MemoryRouter initialEntries={["/settings/servers"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
-  fireEvent.click(await screen.findByRole("button", { name: "Delete Family Movies" }));
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('"Family Movies" (http://family:8096, ID 19)'));
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("artwork cache, and cached media-server images"));
-  expect(api.deleteServer).not.toHaveBeenCalled();
-  confirm.mockRestore();
-  client.clear();
-});
-
-
-it("tests edited server settings with the saved key without saving the edits", async () => {
-  vi.mocked(api.listServers).mockResolvedValue([{ id: 7, name: "Emby", type: "emby", base_url: "http://old:8096", has_token: true, is_default: true, nfo_metadata_enabled: false, created_at: "", updated_at: "" }]);
-  vi.mocked(api.getLibraryVisibility).mockResolvedValue({ libraries: [] });
-  vi.mocked(api.testServerSaved).mockResolvedValue({ ok: true, message: "Connected", server_name: "Emby", version: "4" });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<MemoryRouter initialEntries={["/settings?tab=servers"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
-  fireEvent.click(await screen.findByTitle("Edit Emby"));
-  fireEvent.change(screen.getByDisplayValue("http://old:8096"), { target: { value: "http://new:8096" } });
-  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
-  await waitFor(() => expect(api.testServerSaved).toHaveBeenCalledWith(7, expect.objectContaining({ base_url: "http://new:8096", token: "", type: "emby" })));
-  expect(api.updateServer).not.toHaveBeenCalled();
-  expect(api.testServerAdhoc).not.toHaveBeenCalled();
-  client.clear();
-});
-
 it("saves TMDB credentials on blur and tests the saved connection", async () => {
   const settings = await api.getArtworkSettings();
   vi.mocked(api.setArtworkSettings).mockResolvedValue({ ...settings, tmdb_configured: true });
@@ -390,16 +283,6 @@ it("saves TMDB credentials on blur and tests the saved connection", async () => 
 });
 
 
-it("keeps Server Connect pinning off by default inside its plugin popup",async()=>{
- const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
- render(<MemoryRouter initialEntries={["/settings/plugins"]}><QueryClientProvider client={client}><SettingsPage/></QueryClientProvider></MemoryRouter>);
- fireEvent.click(await screen.findByRole("button",{name:/Server Connect/}));
- const pin=await screen.findByRole("switch",{name:"Pin to Settings"});
- expect((pin as HTMLInputElement).checked).toBe(false);
- expect((screen.getByRole("switch",{name:"Enable Server Connect"}) as HTMLInputElement).checked).toBe(true);
- client.clear();
-});
-
 it("opens Artwork plugin settings with unpinned defaults and shared provider access",async()=>{
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
  render(<MemoryRouter initialEntries={["/settings/plugins"]}><QueryClientProvider client={client}><SettingsPage/></QueryClientProvider></MemoryRouter>);
@@ -409,4 +292,12 @@ it("opens Artwork plugin settings with unpinned defaults and shared provider acc
  expect((screen.getByRole("switch",{name:"Enable PosterEdit"}) as HTMLInputElement).checked).toBe(true);
  expect(screen.getByRole("link",{name:"Manage Search Providers"}).getAttribute("href")).toBe("/settings/sources");
  client.clear();
+});
+
+it("hides Server Connect even when saved settings enable it",async()=>{
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<MemoryRouter initialEntries={["/settings/plugins"]}><QueryClientProvider client={client}><SettingsPage/></QueryClientProvider></MemoryRouter>);
+ await screen.findByRole("button",{name:/Artwork Browse/});
+ expect(screen.queryByRole("button",{name:/Server Connect/})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Add server"})).toBeNull();
 });

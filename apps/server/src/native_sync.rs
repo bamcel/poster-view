@@ -308,6 +308,7 @@ pub(crate) async fn status(
     State(state): State<AppState>,
     Path(library): Path<String>,
 ) -> Result<Json<Value>, HttpError> {
+    if !crate::plugins::enabled(&state) {return Ok(Json(json!({"enabled":false,"status":"disabled","pending":0,"matched":0,"unmatched":0,"failed":0,"notices":[],"activity":[],"linked_items":[]})));}
     let libraries = db(&state)
         .native_libraries()
         .map_err(|e| HttpError::bad_request(e.to_string()))?;
@@ -476,6 +477,7 @@ pub(crate) async fn changed(
 }
 
 pub(crate) fn start(state: AppState) {
+    if !crate::plugins::enabled(&state) {return;}
     // Discard activity from previous runs, including libraries with sync disabled.
     for library in db(&state).native_libraries().unwrap_or_default() {
         let result = (|| -> Result<(), String> {
