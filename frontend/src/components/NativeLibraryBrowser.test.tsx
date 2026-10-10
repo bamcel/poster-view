@@ -430,3 +430,13 @@ it("offers refresh modes and sends explicit replacement choices",async()=>{
  fireEvent.click(screen.getByRole("button",{name:"Refresh"}));
  await waitFor(()=>expect(nativeLibraries.scanFolder).toHaveBeenCalledWith("native","show",true,{replaceMetadata:false,replaceImages:true}));
 });
+
+it("opens the selected series and artwork panel from Edit Images",async()=>{
+ mount();fireEvent.contextMenu(await screen.findByTitle("Example Series · right-click for options"));
+ fireEvent.click(screen.getByRole("menuitem",{name:"Edit Images"}));
+ expect(await screen.findByTestId("shared-artwork")).toHaveProperty("textContent","Shared artwork lookup");
+ expect(screen.getByRole("button",{name:"Back"})).toBeTruthy();
+ expect(screen.getAllByText("Series synopsis").length).toBeGreaterThan(0);
+ fireEvent.click(screen.getByRole("button",{name:"Back"}));
+ await waitFor(()=>expect(screen.queryByTestId("shared-artwork")).toBeNull());
+});

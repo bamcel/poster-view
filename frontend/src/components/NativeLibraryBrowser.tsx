@@ -282,10 +282,14 @@ export default function NativeLibraryBrowser({
         )
       : undefined;
   const selected=library.library_type==="books" && requested?.kind==="book" ? entries.find(e=>e.path===requested.parent_path && e.kind==="book_series") : requested;
+  const pendingArtworkPage=useRef<string|null>(null);
   const pageItem = params.get("native_item");
   const pageLibrary = params.get("native_library");
   useEffect(() => {
-    setEditor(current => current?.kind === "artwork" ? null : current);
+    const target=pendingArtworkPage.current;
+    pendingArtworkPage.current=null;
+    if(target && target===pageItem && pageLibrary===library.id) setEditor({id:target,kind:"artwork"});
+    else setEditor(current => current?.kind === "artwork" ? null : current);
   }, [pageItem, pageLibrary]);
   const open = (entry: NativeCatalogEntry) => {
     if(library.library_type==="books" && entry.kind==="book") {
@@ -507,7 +511,7 @@ export default function NativeLibraryBrowser({
                   }
                   onRefresh={refresh}
                   actions={["series","book_series","movie"].includes(entry.kind)?[
-                    {label:"Edit Images",icon:<Images className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"artwork"})},
+                    {label:"Edit Images",icon:<Images className="size-4 shrink-0"/>,onClick:()=>{pendingArtworkPage.current=entry.id;open(entry);}},
                     {label:"Identify",icon:<Fingerprint className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"identify"})},
                     {label:"Remove Identification",icon:<ListFilter className="size-4 shrink-0"/>,disabled:status.data?.status==="scanning",onClick:()=>setEditor({id:entry.id,kind:"remove-identification"})},
                     {label:"Refresh Metadata",icon:<RefreshCw className="size-4 shrink-0"/>,disabled:status.data?.status==="scanning",onClick:()=>setEditor({id:entry.id,kind:"refresh-metadata"})},
