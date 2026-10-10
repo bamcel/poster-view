@@ -15,12 +15,15 @@ function language(value: unknown): string | undefined {
 function combine(cast: Person[]) {
   const actors = new Map<string, Person>();
   for (const person of cast) {
-    const key = person.provider_id != null ? `${person.provider ?? "anilist"}:${person.provider_id}` : voiceName(person.name);
-    if (!key) continue;
+    const actorKey = person.provider_id != null ? `${person.provider ?? "anilist"}:${person.provider_id}` : voiceName(person.name);
+    const key = `${actorKey}:${String(person.dub_group??"")}`;
+    if (!actorKey) continue;
     const existing = actors.get(key);
     if (existing) {
       const roles = new Set(String(existing.role ?? "").split(" · ").filter(Boolean));
       if (person.role) roles.add(String(person.role));
+      const notes=new Set([existing.role_notes,person.role_notes].filter(Boolean).map(String));
+      existing.role_notes=[...notes].join(" · ");
       existing.role = [...roles].join(" · ");
       if (!existing.image && person.image) existing.image = person.image;
     } else actors.set(key, {...person});
@@ -41,7 +44,13 @@ export function animeVoiceGroups(metadata: Person, preferredCode: string, images
   const original = language(originCode);
   const preferred = language(preferredCode) ?? "English";
   const groups = [{title:original ? `${original} Cast` : "Original voice cast", cast:original ? combine(cast.filter(person => voiceName(person.language) === voiceName(original))) : [], empty:original ? `No ${original} voice cast available.` : "Original language has not been identified."}];
-  if (voiceName(preferred) !== voiceName(original)) groups.push({title:`${preferred} Cast`, cast:combine(cast.filter(person => voiceName(person.language)===voiceName(preferred))), empty:`No ${preferred} voice cast available.`});
+  if (voiceName(preferred) !== voiceName(original)) {
+    const dubbed=cast.filter(person=>voiceName(person.language)===voiceName(preferred));
+    const editions=[...new Set(dubbed.map(person=>String(person.dub_group??"").trim()))];
+    if(editions.some(Boolean)) {
+      for(const edition of editions) groups.push({title:`${preferred} Cast — ${edition||"Unspecified dub"}`,cast:combine(dubbed.filter(person=>String(person.dub_group??"").trim()===edition)),empty:`No ${preferred} voice cast available.`});
+    } else groups.push({title:`${preferred} Cast`,cast:combine(dubbed),empty:`No ${preferred} voice cast available.`});
+  }
   const characters = orderedCharacters(metadata.characters, images);
   const order = new Map<string, number>();
   characters.forEach((character, index) => {

@@ -905,6 +905,7 @@ function NativeDetail({
                 <PersonPortrait person={person} images={portraitImages} />
                 <p className="text-sm font-medium">{String(person.name ?? "")}</p>
                 <p className="mt-1 text-xs text-muted">{String(person.role ?? "")}</p>
+                {Boolean(person.role_notes) && <p className="mt-1 text-xs text-faint">{String(person.role_notes)}</p>}
               </div>)}</PeopleRow> : <p className="text-sm text-muted">{group.empty}</p>}
             </section>)}
             {library.library_type !== "anime" && library.library_type !== "books" && credits.length > 0 && (

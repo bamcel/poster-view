@@ -35,3 +35,12 @@ it("orders each language by characters, with narrator last and unmatched actors 
 it("places characters without portraits last and recognizes fallback portraits", () => {
  expect(orderedCharacters([{name:"Missing"},{name:"Narrator",image:"https://example.com/n.jpg"},{name:"Lead",image:"https://example.com/l.jpg"},{name:"Fallback"}], new Map([["fallback","https://example.com/f.jpg"]])).map(p=>p.name)).toEqual(["Lead","Fallback","Narrator","Missing"]);
 });
+
+it("separates named dub editions and keeps unlabeled actors unspecified",()=>{
+ const result=animeVoiceGroups({country_of_origin:"JP",voice_cast:[{name:"Hilary",language:"English",role:"Satsuki"},{name:"Andrea",language:"English",role:"Satsuki",dub_group:"Animax"},{name:"Andrea",language:"English",role:"Datto",dub_group:"Animax",role_notes:"Young"}]},"en");
+ expect(result.groups.map(g=>g.title)).toEqual(["Japanese Cast","English Cast — Unspecified dub","English Cast — Animax"]);
+ expect(result.groups[1].cast.map(p=>p.name)).toEqual(["Hilary"]);
+ expect(result.groups[2].cast).toHaveLength(1);
+ expect(result.groups[2].cast[0].role).toBe("Satsuki · Datto");
+ expect(result.groups[2].cast[0].role_notes).toBe("Young");
+});

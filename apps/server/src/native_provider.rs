@@ -33,13 +33,20 @@ fn needs_voice_cast(entry: &NativeCatalogEntry, library: &NativeLibrary) -> bool
             .metadata_providers
             .get(&entry.kind)
             .is_none_or(|providers| providers.iter().any(|p| p == "anilist"))
-        && entry.metadata["voice_cast_schema"] != 1
+        && entry.metadata["voice_cast_schema"] != 2
 }
 fn anilist_voice_cast(data: &Value) -> Value {
     let mut cast = Vec::new();
     for edge in data["characters"]["edges"].as_array().into_iter().flatten() {
-        for actor in edge["voiceActors"].as_array().into_iter().flatten() {
-            cast.push(json!({"name":actor["name"]["full"],"provider":"anilist","provider_id":actor["id"],"role":edge["node"]["name"]["full"],"category":"voice","image":actor["image"]["large"],"language":actor["languageV2"]}));
+        if let Some(roles) = edge["voiceActorRoles"].as_array() {
+            for role in roles {
+                let actor = &role["voiceActor"];
+                cast.push(json!({"name":actor["name"]["full"],"provider":"anilist","provider_id":actor["id"],"role":edge["node"]["name"]["full"],"category":"voice","image":actor["image"]["large"],"language":actor["languageV2"],"dub_group":role["dubGroup"],"role_notes":role["roleNotes"]}));
+            }
+        } else {
+            for actor in edge["voiceActors"].as_array().into_iter().flatten() {
+                cast.push(json!({"name":actor["name"]["full"],"provider":"anilist","provider_id":actor["id"],"role":edge["node"]["name"]["full"],"category":"voice","image":actor["image"]["large"],"language":actor["languageV2"]}));
+            }
         }
     }
     json!(cast)
@@ -266,7 +273,7 @@ pub(super) async fn anilist(
             .as_i64()
             .ok_or("Invalid AniList ID.")?
     };
-    let query = if manga { "query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal countryOfOrigin isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}}}}}}" } else { "query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal countryOfOrigin isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors{id languageV2 name{full} image{large}}}} staff(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}" };
+    let query = if manga { "query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal countryOfOrigin isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}}}}}}" } else { "query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal countryOfOrigin isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors{id languageV2 name{full} image{large}} voiceActorRoles{dubGroup roleNotes voiceActor{id languageV2 name{full} image{large}}}}} staff(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}" };
     let mut body = response(client.post("https://graphql.anilist.co").json(&json!({"query":query,"variables":{"id":selected,"type":media_type}})).send().await.map_err(|_|"AniList connection failed.")?).await?;
     // Fetch remaining connection pages without discarding the usable first page
     // if a later request fails. Each request shares the provider rate gate.
@@ -280,7 +287,7 @@ pub(super) async fn anilist(
         }
         let gate = crate::workers::provider("anilist").await;
         drop(gate);
-        let query = "query($id:Int,$type:MediaType,$page:Int){Media(id:$id,type:$type){characters(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors{id languageV2 name{full} image{large}}}} staff(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}";
+        let query = "query($id:Int,$type:MediaType,$page:Int){Media(id:$id,type:$type){characters(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors{id languageV2 name{full} image{large}} voiceActorRoles{dubGroup roleNotes voiceActor{id languageV2 name{full} image{large}}}}} staff(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}";
         let query = if manga { "query($id:Int,$type:MediaType,$page:Int){Media(id:$id,type:$type){characters(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}}}}}}" } else { query };
         let result = match client
             .post("https://graphql.anilist.co")
@@ -1006,7 +1013,7 @@ async fn enrich_one(
             }
             fields["country_of_origin"] = data["countryOfOrigin"].clone();
             // A successful empty cast is a known result, not a reason to fetch every scan.
-            entry.metadata["voice_cast_schema"] = json!(1);
+            entry.metadata["voice_cast_schema"] = json!(2);
             entry.metadata["_sources"]["voice_cast_schema"] = json!("anilist");
             fields["credits"] = json!(credits);
             }
@@ -1232,6 +1239,15 @@ async fn download_candidates(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn voice_cast_retains_dub_editions_and_role_notes() {
+        let data=json!({"characters":{"edges":[{"node":{"name":{"full":"Satsuki"}},"voiceActorRoles":[{"dubGroup":"Animax","roleNotes":"Young","voiceActor":{"id":1,"name":{"full":"Andrea"},"languageV2":"English"}},{"dubGroup":null,"voiceActor":{"id":2,"name":{"full":"Hilary"},"languageV2":"English"}}]}]}});
+        let cast=anilist_voice_cast(&data);
+        assert_eq!(cast[0]["dub_group"],"Animax");
+        assert_eq!(cast[0]["role_notes"],"Young");
+        assert_eq!(cast[1]["dub_group"],Value::Null);
+        assert_eq!(cast[1]["name"],"Hilary");
+    }
+    #[test]
     fn voice_cast_keeps_languages_and_only_backfills_anime_titles_once() {
         let data = json!({"characters":{"edges":[{"node":{"name":{"full":"Lead"}},"voiceActors":[{"id":1,"name":{"full":"Original Actor"},"languageV2":"Korean","image":{"large":"original.jpg"}},{"id":2,"name":{"full":"Dub Actor"},"languageV2":"English","image":{"large":"dub.jpg"}}]}]}});
         let cast = anilist_voice_cast(&data);
@@ -1242,7 +1258,7 @@ mod tests {
         let mut library = library();
         library.library_type = NativeLibraryType::Anime;
         assert!(needs_voice_cast(&entry, &library));
-        entry.metadata["voice_cast_schema"] = json!(1);
+        entry.metadata["voice_cast_schema"] = json!(2);
         assert!(!needs_voice_cast(&entry, &library));
         entry.metadata["voice_cast_schema"] = Value::Null;
         entry.kind = "episode".into();
