@@ -374,3 +374,5 @@ Removing animated artwork records a per-item/type suppression so scans and local
 Starting filesystem monitoring establishes its watcher/polling baseline without requesting scans. Watcher errors are logged rather than triggering full scans of every monitored library; concrete create/remove/modify events still reconcile their affected scopes. Access events, administrative notifications, directory timestamp noise, and known application writes are discarded before queueing.
 
 Server Connect is temporarily unavailable. Its plugin card, shortcuts, import actions, connection controls, sync statuses and notices are hidden; background sync is stopped. Saved configuration and implementation are preserved for future work. PosterView library scanning, local metadata/artwork, and provider fetching remain active.
+
+Right-click an existing series folder card and choose Scan library files to run a visible manual scan limited to that folder hierarchy. Missing placeholders and individual media files do not offer the folder scan action.

@@ -109,3 +109,11 @@ it("uses the same uppercase badge treatment for all tracking states", () => {
   rerender(<PosterCard title="Season" badge={12} />);
   expect(screen.getByText("12")).toBeTruthy();
 });
+
+it("supports a folder scan menu without requiring artwork actions",()=>{
+ const scan=vi.fn();render(<PosterCard title="Series" onScan={scan} onOpen={vi.fn()}/>);
+ fireEvent.contextMenu(screen.getByTitle("Series · right-click for options"));
+ fireEvent.click(screen.getByRole("menuitem",{name:"Scan library files"}));
+ expect(scan).toHaveBeenCalledTimes(1);
+ expect(screen.queryByRole("menuitem",{name:"Scan library files"})).toBeNull();
+});

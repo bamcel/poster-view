@@ -18,6 +18,7 @@ vi.mock("../api/nativeLibraries", async (original) => ({
     catalog: vi.fn(),
     editItem: vi.fn(),
     refreshArtwork: vi.fn(),
+    scanFolder: vi.fn(async()=>undefined),
     upload: vi.fn(),
     artworkUrl: vi.fn((l, i, k) => `/art/${l}/${i}/${k}`),
   },
@@ -395,4 +396,11 @@ it("hides a missing specials folder until enabled",async()=>{
  expect(screen.queryByText("Specials")).toBeNull();cleanup();
  mount("/?native_library=native&native_item=show",{...library,options:{...importedDefaults,show_missing_specials:true}});
  expect(await screen.findByText("Specials")).toBeTruthy();
+});
+
+it("scans only the right-clicked series folder",async()=>{
+ mount();
+ fireEvent.contextMenu(await screen.findByTitle("Example Series · right-click for options"));
+ fireEvent.click(screen.getByRole("menuitem",{name:"Scan library files"}));
+ await waitFor(()=>expect(nativeLibraries.scanFolder).toHaveBeenCalledWith("native","show"));
 });

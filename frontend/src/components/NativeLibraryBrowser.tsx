@@ -320,6 +320,8 @@ export default function NativeLibraryBrowser({
     catch(error){setRefreshError((error as Error).message);}
     finally {setRefreshingArtwork(false);}
   };
+  const [scanningFolder,setScanningFolder]=useState(false);
+  const scanFolder=async(entry:NativeCatalogEntry)=>{setScanningFolder(true);setRefreshError("");try{await nativeLibraries.scanFolder(library.id,entry.id);await client.invalidateQueries({queryKey:["native-scan",library.id]});}catch(e){setRefreshError((e as Error).message);}finally{setScanningFolder(false);}};
   const visible = entries
     .filter(e=>showMissingEntry(library,e))
     .filter((e) =>
@@ -501,6 +503,8 @@ export default function NativeLibraryBrowser({
                     setEditor({ id: entry.id, kind: "metadata" })
                   }
                   onRefresh={refresh}
+                  onScan={["series","book_series","season"].includes(entry.kind)&&entry.metadata.missing!==true?()=>void scanFolder(entry):undefined}
+                  scanning={scanningFolder||status.data?.status==="scanning"}
                 />
               ))}
             </div>

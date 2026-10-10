@@ -99,6 +99,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/native/libraries/{library}/items/{item}/identify/search", axum::routing::post(native_identify::search))
         .route("/api/native/libraries/{library}/items/{item}/identify", axum::routing::post(native_identify::apply))
         .route("/api/native/libraries/{library}/items/{item}/artwork/refresh", axum::routing::post(native::refresh_artwork))
+        .route("/api/native/libraries/{library}/items/{item}/scan", axum::routing::post(native::scan_folder))
         .route("/api/native/libraries/{library}/items/{item}", axum::routing::put(native::edit_item))
         .route("/api/native/libraries/{library}/items/{item}/artwork/{kind}", get(native::artwork).post(native::upload_artwork).delete(native::remove_variant))
         .route("/api/native/libraries/{id}", axum::routing::put(native::update).delete(native::delete))

@@ -542,6 +542,13 @@ pub(crate) async fn scan(
         Json(serde_json::json!({"status":"scanning"})),
     ))
 }
+pub(crate) async fn scan_folder(State(state):State<AppState>,Path((id,item)):Path<(String,String)>)->Result<StatusCode,HttpError>{
+ library(&state,&id).await?;
+ let entry=store(&state).native_catalog(&id).map_err(error)?.into_iter().find(|e|e.id==item && e.available).ok_or_else(HttpError::not_found)?;
+ if !["series","book_series","season"].contains(&entry.kind.as_str()) || entry.metadata["missing"]==true {return Err(HttpError::bad_request("Select an existing series or season folder."));}
+ start_scan_triggered(state,id,Some(vec![entry.path]),true).await?;
+ Ok(StatusCode::ACCEPTED)
+}
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DeleteRequest {

@@ -25,6 +25,8 @@ interface PosterCardProps {
   onOpen?: () => void;
   openLabel?: string;
   onRefresh?: () => void;
+  onScan?: () => void;
+  scanning?: boolean;
   onEditMetadata?: () => void;
   refreshing?: boolean;
 }
@@ -46,6 +48,8 @@ export default function PosterCard({
   onOpen,
   openLabel = "Open",
   onRefresh,
+  onScan,
+  scanning,
   onEditMetadata,
   refreshing,
 }: PosterCardProps) {
@@ -144,22 +148,22 @@ export default function PosterCard({
       <button
         ref={triggerRef}
         type="button"
-        aria-haspopup={onRefresh || onEditMetadata ? "menu" : undefined}
-        aria-expanded={onRefresh || onEditMetadata ? menuOpen : undefined}
+        aria-haspopup={onRefresh || onEditMetadata || onScan ? "menu" : undefined}
+        aria-expanded={onRefresh || onEditMetadata || onScan ? menuOpen : undefined}
         aria-controls={menuOpen ? menuId : undefined}
         onClick={event => selectionMode && onSelect ? onSelect(event.shiftKey) : onOpen()}
         onKeyDown={(event) => {
-          if ((onRefresh || onEditMetadata) && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+          if ((onRefresh || onEditMetadata || onScan) && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
             event.preventDefault();
             setMenuOpen(true);
           }
         }}
         onContextMenu={(event) => {
-          if (!onRefresh && !onEditMetadata) return;
+          if (!onRefresh && !onEditMetadata && !onScan) return;
           event.preventDefault();
           setMenuOpen(true);
         }}
-        title={onRefresh || onEditMetadata ? `${title} · right-click for options` : title}
+        title={onRefresh || onEditMetadata || onScan ? `${title} · right-click for options` : title}
         className="group block w-full select-none text-left"
       >
         {content}
@@ -169,7 +173,7 @@ export default function PosterCard({
         className={`absolute left-2 top-2 z-10 grid size-11 min-h-11 min-w-11 shrink-0 place-items-center rounded-full border shadow backdrop-blur-sm transition-opacity focus-visible:opacity-100 md:size-7 md:min-h-7 md:min-w-7 ${selected ? "border-accent bg-accent text-black" : "border-white/50 bg-white/20 text-white"} ${selectionMode || selected ? "opacity-100" : "opacity-0 group-hover/selection:opacity-100 group-focus-within/selection:opacity-100 [@media(hover:none)]:opacity-100"}`}>
         {selected && <Check className="size-4" />}
       </button>}
-      {menuOpen && (onRefresh || onEditMetadata) && (
+      {menuOpen && (onRefresh || onEditMetadata || onScan) && (
         <div
           ref={menuRef} id={menuId} role="menu" aria-label={`Artwork options for ${title}`} tabIndex={-1} onKeyDown={menuKeys}
           className="absolute left-2 top-14 z-30 w-max min-w-44 rounded-lg border border-border bg-elevated p-1 shadow-2xl"
@@ -191,6 +195,7 @@ export default function PosterCard({
             />
             Refresh artwork data
           </button>}
+          {onScan && <button type="button" role="menuitem" tabIndex={-1} disabled={scanning} onClick={()=>{setMenuOpen(false);triggerRef.current?.focus();onScan();}} className="flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-1.5 text-left text-sm text-muted hover:bg-surface-2 hover:text-white disabled:opacity-50"><RefreshCw className="size-4 shrink-0"/>Scan library files</button>}
           {onEditMetadata && <button
             type="button"
             role="menuitem"
