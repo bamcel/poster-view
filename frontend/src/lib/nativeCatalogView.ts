@@ -20,10 +20,10 @@ function sameSeries(a: NativeCatalogEntry, b: NativeCatalogEntry) {
   const left = ids(a),
     right = ids(b);
   const strong = ["tvdb", "tmdb", "imdb"];
-  if (strong.some((key) => left[key] && right[key] && left[key] !== right[key]))
+  const anime = ["anilist", "mal", "anidb"];
+  if ([...strong, ...anime].some((key) => left[key] && right[key] && left[key] !== right[key]))
     return false;
   if (strong.some((key) => left[key] && left[key] === right[key])) return true;
-  const anime = ["anilist", "mal", "anidb"];
   return (
     !anime.some((key) => left[key] && right[key] && left[key] !== right[key]) &&
     anime.some((key) => left[key] && left[key] === right[key])

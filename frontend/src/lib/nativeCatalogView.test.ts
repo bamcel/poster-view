@@ -48,3 +48,14 @@ it("keeps title-only matches and contradictory confirmed identities separate", (
     ]).entries,
   ).toHaveLength(2);
 });
+
+it("keeps distinct anime folders visible when a shared TVDB ID conflicts with anime IDs", () => {
+  for (const provider of ["anilist", "mal", "anidb"]) {
+    const dragon = entry("dragon-ball", "series", null, { identifiers: { tvdb: "81472", [provider]: "153" } });
+    const z = entry("dragon-ball-z", "series", null, { identifiers: { tvdb: "81472", [provider]: "813" } });
+    const result = nativeCatalogView([dragon, z]);
+    expect(result.entries.map(e => e.id)).toEqual([dragon.id, z.id]);
+    expect(result.aliases.get(dragon.id)).toBe(dragon.id);
+    expect(result.aliases.get(z.id)).toBe(z.id);
+  }
+});
