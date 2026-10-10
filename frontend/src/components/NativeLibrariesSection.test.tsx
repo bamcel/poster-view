@@ -180,6 +180,6 @@ it("refreshes an entire library from its action menu with the selected options",
  fireEvent.click(screen.getByRole("button",{name:"Refresh Metadata"}));
  expect(screen.getByRole("dialog",{name:"Refresh Metadata — Anime"})).toBeTruthy();
  fireEvent.change(screen.getByLabelText("Refresh mode"),{target:{value:"missing"}});
- fireEvent.click(screen.getByRole("button",{name:"Refresh",exact:true}));
+ fireEvent.click(screen.getByRole("button",{name:/^Refresh$/}));
  await waitFor(()=>expect(nativeLibraries.refresh).toHaveBeenCalledWith(saved.id,{replaceMetadata:false,replaceImages:false}));
 });
