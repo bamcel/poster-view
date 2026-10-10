@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 pub(crate) struct Search {
     title: String,
     year: Option<i64>,
+    #[serde(default)] providers: Option<Vec<String>>,
     #[serde(default)] provider: Option<String>,
     #[serde(default)] tvdb_id: Option<String>,
     #[serde(default)] imdb_id: Option<String>,
@@ -567,6 +568,7 @@ pub(crate) async fn search(
     } else {
         vec!["tmdb", "tvdb"]
     };
+    let providers=providers.into_iter().filter(|provider|input.providers.as_ref().is_none_or(|requested|requested.iter().any(|p|p==provider))).collect::<Vec<_>>();
     let mut jobs = tokio::task::JoinSet::new();
     for selected_provider in providers.iter().copied() {
         let provider = match selected_provider {"comicvine"=>"comicvine", "anilist"=>"anilist", "mal"=>"mal", "mangadex"=>"mangadex", "tmdb"=>"tmdb", "tvdb"=>"tvdb", _=>"anidb"};

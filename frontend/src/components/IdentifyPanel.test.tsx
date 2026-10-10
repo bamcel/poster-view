@@ -5,7 +5,7 @@ import {cleanup,fireEvent,render as renderUI,screen,waitFor} from "@testing-libr
 import {afterEach,expect,it,vi} from "vitest";
 import IdentifyPanel from "./IdentifyPanel";
 import {nativeLibraries,defaultNativeOptions,type NativeLibrary,type NativeCatalogEntry} from "../api/nativeLibraries";
-vi.mock("../api/nativeLibraries",async importOriginal=>({...await importOriginal<typeof import("../api/nativeLibraries")>(),nativeLibraries:{identifySearch:vi.fn(),identifyResolve:vi.fn(),identify:vi.fn()}}));
+vi.mock("../api/nativeLibraries",async importOriginal=>({...await importOriginal<typeof import("../api/nativeLibraries")>(),nativeLibraries:{identifySearch:vi.fn(),identifyResolve:vi.fn(),editItem:vi.fn(),identify:vi.fn()}}));
 vi.mock("../api/client",()=>({apiRequest:vi.fn().mockResolvedValue({poster:null})}));
 function render(ui:ReactNode){return renderUI(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>{ui}</QueryClientProvider>);}
 afterEach(()=>{cleanup();vi.clearAllMocks();});
@@ -123,4 +123,31 @@ it("resolves IMDb previews by exact ID without title search",async()=>{
  expect(await screen.findByAltText("IMDb: Attack on Titan poster")).toBeTruthy();
  expect(nativeLibraries.identifyResolve).toHaveBeenCalledWith("lib","item","imdb","tt2560140");
  expect(nativeLibraries.identifySearch).not.toHaveBeenCalled();
+});
+
+it("searches only missing IDs and saves additions without changing identity metadata",async()=>{
+ const current={...entry,metadata:{identifiers:{anilist:"1281",tvdb:"82234"},plot:"Keep description"}};
+ const match={provider:"mal",id:"1281",title:"Ghost Stories",year:2000,format:"TV",overview:null,identifiers:{mal:"1281",anilist:"wrong"}};
+ vi.mocked(nativeLibraries.identifySearch).mockResolvedValue({groups:[{provider:"mal",results:[match]}]});
+ vi.mocked(nativeLibraries.identifyResolve).mockImplementation(async(_l,_i,provider)=>provider==="anilist"?{identifiers:{anilist:"1281"},candidates:[],warnings:[]}:{identifiers:match.identifiers,candidates:[match],warnings:[]});
+ vi.mocked(nativeLibraries.editItem).mockResolvedValue({entry:current,warnings:[]});
+ render(<IdentifyPanel library={library} entry={current} busy={false} onSaved={()=>{}}/>);
+ fireEvent.click(screen.getByRole("button",{name:"Search missing IDs"}));
+ await waitFor(()=>expect(nativeLibraries.identifySearch).toHaveBeenCalledWith("lib","item","Haikyu!",null,{providers:["tmdb","mal","imdb","anidb"]}));
+ fireEvent.click((await screen.findAllByText("Ghost Stories"))[0]);
+ await waitFor(()=>expect(screen.queryByText("Finding linked provider IDs…")).toBeNull());
+ expect(screen.getByLabelText("AniList identification ID")).toHaveProperty("value","1281");
+ fireEvent.click(screen.getByRole("button",{name:"Save identification"}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("lib",current,{identifiers:{anilist:"1281",tvdb:"82234",mal:"1281"}}));
+ expect(nativeLibraries.identify).not.toHaveBeenCalled();
+});
+
+it("fills a missing MAL ID from the saved AniList link without a MAL title search",async()=>{
+ const current={...entry,metadata:{identifiers:{anilist:"1281",tvdb:"82234",tmdb:"35466",imdb:"tt0285368",anidb:"481"}}};
+ vi.mocked(nativeLibraries.identifyResolve).mockResolvedValue({identifiers:{anilist:"1281",mal:"1281"},candidates:[],warnings:[]});
+ render(<IdentifyPanel library={library} entry={current} busy={false} onSaved={()=>{}}/>);
+ fireEvent.click(screen.getByRole("button",{name:"Search missing IDs"}));
+ await waitFor(()=>expect(screen.getByLabelText("MyAnimeList identification ID")).toHaveProperty("value","1281"));
+ expect(nativeLibraries.identifySearch).not.toHaveBeenCalled();
+ expect(screen.getByLabelText("TheTVDB identification ID")).toHaveProperty("value","82234");
 });
