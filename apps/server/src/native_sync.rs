@@ -41,9 +41,9 @@ const ART: &[(&str, &str)] = &[
     ("landscape", "Thumb"),
     ("disc", "Disc"),
 ];
-static RUN_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+pub(crate) static RUN_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
     std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
-static QUEUE_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+pub(crate) static QUEUE_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
     std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(default)]

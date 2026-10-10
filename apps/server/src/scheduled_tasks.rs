@@ -37,6 +37,7 @@ pub(crate) struct Task {
     cleanup_artwork: bool,
     cleanup_placeholders: bool,
     cleanup_cache: bool,
+    cleanup_records: bool,
     cleanup_temporary: bool,
     last_run: u64,
     last_result: String,
@@ -54,6 +55,7 @@ impl Default for Task {
             cleanup_artwork: true,
             cleanup_placeholders: true,
             cleanup_cache: true,
+            cleanup_records: true,
             cleanup_temporary: true,
             last_run: 0,
             last_result: String::new(),
@@ -63,7 +65,7 @@ impl Default for Task {
 }
 fn defaults() -> Vec<Task> {
     [
-    ("cleanup","Data Cleanup","Remove hidden missing-file placeholders after retention, unused managed artwork, old local artwork mirrors, and abandoned temporary files. Shared artwork and media folders are preserved."),
+    ("cleanup","Data Cleanup","Remove hidden missing-file placeholders after retention, unused managed artwork, expired provider caches, obsolete library and sync records, old local artwork mirrors, and abandoned temporary files. Shared artwork and media folders are preserved."),
     ("history","Trim History","Remove application history older than the retention period, including its saved history backups."),
     ("database","Optimize Database","Check database health, optimize query statistics, and checkpoint available WAL pages without an exclusive database rebuild."),
 ].into_iter().map(|(id,title,description)|Task{id:id.into(),title:title.into(),description:description.into(),..Default::default()}).collect()
@@ -82,6 +84,7 @@ fn load(state: &AppState) -> Result<Vec<Task>, HttpError> {
                 task.cleanup_artwork = s.cleanup_artwork;
                 task.cleanup_placeholders=s.cleanup_placeholders;
                 task.cleanup_cache = s.cleanup_cache;
+                task.cleanup_records = s.cleanup_records;
                 task.cleanup_temporary = s.cleanup_temporary;
                 task.last_run = s.last_run;
                 task.last_result = s.last_result.clone();
@@ -132,6 +135,7 @@ pub(crate) async fn configure(
         task.cleanup_artwork = input.cleanup_artwork;
         task.cleanup_placeholders=input.cleanup_placeholders;
         task.cleanup_cache = input.cleanup_cache;
+        task.cleanup_records = input.cleanup_records;
         task.cleanup_temporary = input.cleanup_temporary;
         save(&state, &tasks)?;
         Ok(Json(tasks))
@@ -143,6 +147,7 @@ pub(crate) async fn configure(
 pub(crate) struct Report {
     files: usize,
     placeholders: usize,
+    records: usize,
     bytes: u64,
     result: String,
 }
@@ -201,6 +206,59 @@ fn hidden_libraries(state:&AppState,task:&Task)->Result<Vec<(String,u64,usize)>,
         if now().saturating_sub(since)>=task.retention_days*86400 {let count=db.native_catalog(&library.id).map_err(bad)?.iter().filter(|e|e.metadata["missing"]==true && e.path.contains("/@missing-") && e.files.is_empty()).count();if count>0{result.push((library.id,since,count));}}
     }Ok(result)
 }
+
+// Work on one consistent catalog snapshot; only known disposable setting keys are touched.
+fn cleanup_records(state: &AppState, task: &Task, apply: bool) -> Result<usize, HttpError> {
+    if !state.active_native_scans.lock().unwrap().is_empty() { return Err(bad("Wait for library scans to finish before cleaning data.")); }
+    let mut db = rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;
+    db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(bad)?;
+    let rows = tx.prepare("SELECT key,value_enc FROM settings").map_err(bad)?.query_map([], |r| Ok((r.get::<_,String>(0)?, r.get::<_,String>(1)?))).map_err(bad)?.collect::<Result<Vec<_>,_>>().map_err(bad)?;
+    let mut count = 0;
+    for (key, raw) in rows {
+        let value = serde_json::from_str::<serde_json::Value>(&raw).ok();
+        let expected = key.strip_prefix("expected-episodes:");
+        let anidb = key.strip_prefix("native_anidb_").is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()));
+        let library = ["native-server-sync:", "native-server-retry:", "native-server-import:", "native-server-import-progress:", "native-sync-queue:", "missing-hidden-since:", "missing-cleaned:"].iter().find_map(|prefix| key.strip_prefix(prefix)).or_else(|| expected.and_then(|v| v.split_once(':').map(|(id,_)| id)));
+        let removed = if let Some(id) = library { !tx.query_row("SELECT EXISTS(SELECT 1 FROM native_libraries WHERE id=?1)", [id], |r| r.get::<_,bool>(0)).map_err(bad)? } else { false };
+        let expired = task.cleanup_cache && (expected.is_some() || anidb) && value.as_ref().and_then(|v|v["at"].as_u64()).is_some_and(|at| now().saturating_sub(at) >= task.retention_days * 86400);
+        if (task.cleanup_records && removed) || expired {
+            count += 1;
+            if apply { tx.execute("DELETE FROM settings WHERE key=?1", [&key]).map_err(bad)?; }
+            continue;
+        }
+        if !task.cleanup_records || library.is_none() || !(key.starts_with("native-server-sync:") || key.starts_with("native-sync-queue:")) { continue; }
+        let Some(mut value) = value else { continue; };
+        let mut removed_items = 0;
+        for field in ["items", "pending", "mirror_links"] {
+            if let Some(map) = value[field].as_object_mut() {
+                let mut obsolete = Vec::new();
+                for item in map.keys() {
+                    let exists = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_items WHERE library_id=?1 AND item_id=?2)", rusqlite::params![library.unwrap(), if field == "mirror_links" { item.split_once(':').map(|(_,id)|id).unwrap_or(item) } else { item }], |r| r.get::<_,bool>(0)).map_err(bad)?;
+                    if !exists { obsolete.push(item.clone()); }
+                }
+                removed_items += obsolete.len();
+                for item in obsolete { map.remove(&item); }
+            }
+        }
+        if let Some(destinations) = value["mirrors"].as_object_mut() {
+            for changes in destinations.values_mut().filter_map(|v|v.as_object_mut()) {
+                let mut obsolete = Vec::new();
+                for item in changes.keys() {
+                    let exists = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_items WHERE library_id=?1 AND item_id=?2)", rusqlite::params![library.unwrap(),item], |r|r.get::<_,bool>(0)).map_err(bad)?;
+                    if !exists { obsolete.push(item.clone()); }
+                }
+                removed_items += obsolete.len();
+                for item in obsolete { changes.remove(&item); }
+            }
+        }
+        count += removed_items;
+        if apply && removed_items > 0 { tx.execute("UPDATE settings SET value_enc=?1 WHERE key=?2", rusqlite::params![value.to_string(),key]).map_err(bad)?; }
+    }
+    if apply { tx.commit().map_err(bad)?; }
+    Ok(count)
+}
+
 fn candidates(state: &AppState, task: &Task) -> Result<Vec<Candidate>, HttpError> {
     let db = ServerStore::new(state.runtime.data_dir());
     if !state.active_native_scans.lock().unwrap().is_empty() {
@@ -284,6 +342,7 @@ pub(crate) async fn preview(State(state): State<AppState>) -> Result<Json<Report
             .unwrap();
         let files = candidates(&state, &task)?;
         Ok(Json(Report {
+            records: cleanup_records(&state,&task,false)?,
             files: files.len(),
             placeholders:hidden_libraries(&state,&task)?.iter().map(|(_,_,count)|count).sum(),
             bytes: files.iter().map(|f| f.bytes).sum(),
@@ -297,12 +356,14 @@ async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
     let _guard = RUN_LOCK
         .try_lock()
         .map_err(|_| bad("A scheduled task is already running. Try again shortly."))?;
+    let _sync_guard = if id == "cleanup" { Some(crate::native_sync::RUN_LOCK.try_lock().map_err(|_| bad("Wait for server sync to finish before cleaning data."))?) } else { None };
+    let _queue_guard = if id == "cleanup" { Some(crate::native_sync::QUEUE_LOCK.lock().await) } else { None };
     tokio::task::spawn_blocking(move||{
         *RUNNING_TASK.lock().unwrap() = Some(id.clone());
         let _running = RunningTask;
         let mut tasks=load(&state)?;let task=tasks.iter_mut().find(|t|t.id==id).ok_or_else(HttpError::not_found)?;
         let result=(||->Result<Report,HttpError>{match id.as_str() {
-            "cleanup"=>{let db=ServerStore::new(state.runtime.data_dir());let mut report=Report::default();
+            "cleanup"=>{let db=ServerStore::new(state.runtime.data_dir());let mut report=Report{records:cleanup_records(&state,task,true)?,..Default::default()};
                 for (library,since,count) in hidden_libraries(&state,task)? {
                     let removed=db.cleanup_hidden_placeholders(&library).map_err(bad)?;report.placeholders+=count;
                     let mut grace:BTreeMap<String,u64>=serde_json::from_str(&db.get_setting("cleanup-unreferenced").map_err(bad)?).unwrap_or_default();
@@ -310,7 +371,7 @@ async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
                         if name.ends_with(".gif")||name.ends_with(".webm") {let still=format!("{}.still.png",name.rsplit_once('.').unwrap().0);let mut hash=std::collections::hash_map::DefaultHasher::new();still.hash(&mut hash);grace.insert(format!("{:016x}",hash.finish()),since);}
                     }}db.set_setting("cleanup-unreferenced",&serde_json::to_string(&grace).map_err(bad)?).map_err(bad)?;
                 }
-                let candidates=candidates(&state,task)?;for file in candidates {let meta=std::fs::symlink_metadata(&file.path).map_err(bad)?;if meta.file_type().is_symlink()||!meta.is_file()||!old(&meta,task.retention_days){continue;}std::fs::remove_file(&file.path).map_err(bad)?;report.files+=1;report.bytes+=file.bytes;}report.result=format!("Removed {} hidden placeholders and {} unused files ({} bytes).",report.placeholders,report.files,report.bytes);Ok(report)},
+                let candidates=candidates(&state,task)?;for file in candidates {let meta=std::fs::symlink_metadata(&file.path).map_err(bad)?;if meta.file_type().is_symlink()||!meta.is_file()||!old(&meta,task.retention_days){continue;}std::fs::remove_file(&file.path).map_err(bad)?;report.files+=1;report.bytes+=file.bytes;}report.result=format!("Removed {} obsolete records, {} hidden placeholders and {} unused files ({} bytes).",report.records,report.placeholders,report.files,report.bytes);Ok(report)},
             "history"=>{let count=state.runtime.purge_history(Some(task.retention_days as i64)).map_err(bad)?;Ok(Report{result:format!("Removed {count} old history records."),..Default::default()})},
             "database"=>{let db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;let health:String=db.query_row("PRAGMA quick_check",[],|r|r.get(0)).map_err(bad)?;if health!="ok"{return Err(bad(format!("Database check: {health}")));}db.execute_batch("PRAGMA optimize; PRAGMA wal_checkpoint(PASSIVE);").map_err(bad)?;Ok(Report{result:"Database health check passed; optimization and passive checkpoint completed.".into(),..Default::default()})},
             _=>Err(HttpError::not_found()),
@@ -351,6 +412,31 @@ mod tests {
     use super::*;
     use posterview_contracts::native::*;
     static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    #[test]
+    fn disposable_records_preview_and_cleanup_preserve_active_data() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::native::scan_tests::state(temp.path());
+        let store = ServerStore::new(state.runtime.data_dir());
+        let library = store.save_native_library(None,&NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],options:Default::default(),revision:None}).unwrap();
+        store.set_setting("native-server-sync:removed", "{}").unwrap();
+        store.set_setting("native_anidb_123", &serde_json::json!({"at":now()-31*86400,"xml":"old"}).to_string()).unwrap();
+        store.set_setting("native_anidb_456", &serde_json::json!({"at":now(),"xml":"fresh"}).to_string()).unwrap();
+        store.set_setting("native_anidb_gate", "123").unwrap();
+        store.set_setting("unrelated-setting", "keep").unwrap();
+        let key=format!("native-server-sync:{}",library.id);
+        store.set_setting(&key,&serde_json::json!({"items":{"gone":{"history":["old"]}},"pending":{"gone":{}},"mirrors":{"1":{"gone":{}}},"mirror_links":{"1:gone":"remote"},"activity":["keep"]}).to_string()).unwrap();
+        let task=Task::default();
+        assert_eq!(cleanup_records(&state,&task,false).unwrap(),6);
+        assert!(!store.get_setting("native-server-sync:removed").unwrap().is_empty());
+        assert_eq!(cleanup_records(&state,&task,true).unwrap(),6);
+        assert!(store.get_setting("native_anidb_123").unwrap().is_empty());
+        assert!(!store.get_setting("native_anidb_456").unwrap().is_empty());
+        assert_eq!(store.get_setting("native_anidb_gate").unwrap(),"123");
+        assert_eq!(store.get_setting("unrelated-setting").unwrap(),"keep");
+        let value:serde_json::Value=serde_json::from_str(&store.get_setting(&key).unwrap()).unwrap();
+        assert_eq!(value["activity"][0],"keep");
+        assert_eq!(cleanup_records(&state,&task,true).unwrap(),0);
+    }
     fn aged(path: &FsPath) {
         let file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
         file.set_times(

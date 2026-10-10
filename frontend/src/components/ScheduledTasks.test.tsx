@@ -20,3 +20,12 @@ it("requires saving changed categories before reviewing cleanup",async()=>{
  expect((screen.getByRole("button",{name:"Review cleanup"}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.click(screen.getByRole("button",{name:"Save task"}));await waitFor(()=>expect(apiRequest).toHaveBeenCalledWith("/tasks/cleanup",expect.objectContaining({method:"PUT"})));
 });
+
+it("allows cleanup when only obsolete records are eligible",async()=>{
+ vi.mocked(apiRequest).mockImplementation(async url=>url.endsWith("preview")?{records:3,files:0,bytes:0,result:"Eligible"}:[task]);
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><ScheduledTasks/></QueryClientProvider>);
+ fireEvent.click(await screen.findByRole("button",{name:"Review cleanup"}));
+ const clean=await screen.findByRole("button",{name:"Clean selected"});
+ expect((clean as HTMLButtonElement).disabled).toBe(false);
+ expect(screen.getByText(/3 obsolete records/)).toBeTruthy();
+});
