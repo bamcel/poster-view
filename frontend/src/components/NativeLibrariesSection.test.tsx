@@ -8,7 +8,7 @@ vi.mock("../lib/serverConnectPlugin",()=>({useServerConnectPlugin:vi.fn(),SERVER
 import NativeLibrariesSection, { LibraryDialog } from "./NativeLibrariesSection";
 import { defaultNativeOptions, nativeLibraries, type NativeLibrary } from "../api/nativeLibraries";
 
-vi.mock("../api/nativeLibraries", async importOriginal => ({...(await importOriginal<typeof import("../api/nativeLibraries")>()), nativeLibraries: { list: vi.fn(), save: vi.fn(), folders: vi.fn(), status: vi.fn(), catalog: vi.fn(), previews: vi.fn(), scan: vi.fn(), remove: vi.fn() } }));
+vi.mock("../api/nativeLibraries", async importOriginal => ({...(await importOriginal<typeof import("../api/nativeLibraries")>()), nativeLibraries: { list: vi.fn(), save: vi.fn(), folders: vi.fn(), status: vi.fn(), catalog: vi.fn(), previews: vi.fn(), scan: vi.fn(), refresh:vi.fn(), remove: vi.fn() } }));
 const saved: NativeLibrary = { id: "library", name: "Anime", library_type: "anime", anime_content: "both", paths: ["Shows", "Movies"], revision: 1, created_at: "", updated_at: "" };
 function mount(component: React.ReactNode) {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{component}</QueryClientProvider>);
@@ -169,4 +169,17 @@ it("reveals automatic scan progress only when requested",async()=>{
  expect(screen.getByText("/media/Anime/episode.mkv")).toBeTruthy();
  fireEvent.click(screen.getByRole("button",{name:"Hide scan progress"}));
  expect(screen.queryByRole("progressbar")).toBeNull();
+});
+
+it("refreshes an entire library from its action menu with the selected options",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([saved]);
+ vi.mocked(nativeLibraries.status).mockResolvedValue({status:"idle",count:1,warnings:[]});
+ vi.mocked(nativeLibraries.refresh).mockResolvedValue(undefined);
+ mount(<NativeLibrariesSection/>);
+ fireEvent.click(await screen.findByRole("button",{name:"Actions for Anime"}));
+ fireEvent.click(screen.getByRole("button",{name:"Refresh Metadata"}));
+ expect(screen.getByRole("dialog",{name:"Refresh Metadata — Anime"})).toBeTruthy();
+ fireEvent.change(screen.getByLabelText("Refresh mode"),{target:{value:"missing"}});
+ fireEvent.click(screen.getByRole("button",{name:"Refresh",exact:true}));
+ await waitFor(()=>expect(nativeLibraries.refresh).toHaveBeenCalledWith(saved.id,{replaceMetadata:false,replaceImages:false}));
 });

@@ -571,6 +571,21 @@ pub(crate) async fn scan(
         Json(serde_json::json!({"status":"scanning"})),
     ))
 }
+pub(crate) async fn refresh_library(State(state):State<AppState>,Path(id):Path<String>,axum::extract::Query(options):axum::extract::Query<std::collections::BTreeMap<String,String>>)->Result<(StatusCode,Json<serde_json::Value>),HttpError>{
+ let lib=library(&state,&id).await?;
+ let operation=crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),id),None).await;
+ let db=store(&state);
+ let roots=db.native_catalog(&id).map_err(error)?.into_iter().filter(|e|e.available && e.metadata["missing"]!=true && e.parent_path.is_none()).collect::<Vec<_>>();
+ let replace=options.get("replace_metadata").is_some_and(|v|v=="true");let images=options.get("replace_images").is_some_and(|v|v=="true");
+ for entry in roots {
+   if replace {db.identify_native_entry_with_metadata(&id,&entry.id,entry.revision,&entry.title,None,&entry.metadata["identifiers"].as_object().cloned().map(serde_json::Value::Object).unwrap_or(serde_json::json!({})),Some(&serde_json::json!({"_refresh_from_providers":true,"_identify_replace_artwork":images}))).map_err(error)?;}
+   else if images {db.request_artwork_refresh(&id,&entry.path).map_err(error)?;}
+   db.reset_provider_checks(&id,&entry.path).map_err(error)?;
+ }
+ drop(operation);
+ start_scan_with_refresh(state,lib.id,None,true,true).await?;
+ Ok((StatusCode::ACCEPTED,Json(serde_json::json!({"status":"scanning"}))))
+}
 pub(crate) async fn scan_folder(State(state):State<AppState>,Path((id,item)):Path<(String,String)>,axum::extract::Query(options):axum::extract::Query<std::collections::BTreeMap<String,String>>)->Result<(StatusCode,Json<serde_json::Value>),HttpError>{
  library(&state,&id).await?;
  let entry=store(&state).native_catalog(&id).map_err(error)?.into_iter().find(|e|e.id==item && e.available).ok_or_else(HttpError::not_found)?;

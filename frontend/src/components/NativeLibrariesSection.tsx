@@ -1,3 +1,4 @@
+import SeriesActionsDialog from "./SeriesActionsDialog";
 import {BACKDROP_BLUR_EVENT, PANEL_SOLIDITY_EVENT, PANEL_OVERLAY_EVENT, backdropBlur, panelSolidity, panelOverlay, translucentPanelColor} from "../lib/dashboardSettings";
 import ImportServerLibrary from "./ImportServerLibrary";
 import LibraryPosterStrip from "./LibraryPosterStrip";
@@ -74,6 +75,7 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
   const [confirmDelete,setConfirmDelete]=useState(false),[open,setOpen]=useState(false),[notices,setNotices]=useState(false),[scanDetails,setScanDetails]=useState(false);
   const previews=useQuery({queryKey:["native-previews",library.id],queryFn:()=>nativeLibraries.previews(library.id),enabled:open,staleTime:60_000});
   const menu=useRef<HTMLDivElement>(null), action=useRef<HTMLButtonElement>(null);
+  const [refreshing,setRefreshing]=useState(false);
   const [position,setPosition]=useState({top:0,left:0});
   useEffect(()=>{if(!open)return;
     const place=()=>{const rect=action.current?.getBoundingClientRect();if(!rect)return;const width=Math.min(352,window.innerWidth-24);setPosition({left:Math.max(12,Math.min(rect.right-width,window.innerWidth-width-12)),top:Math.max(12,Math.min(rect.bottom+8,window.innerHeight-200))});};place();
@@ -96,6 +98,7 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
     {open&&createPortal(<div ref={menu} role="region" aria-label={`Library actions for ${library.name}`} style={{...position,backgroundColor:"var(--color-surface, #20232b)",maxHeight:`calc(100dvh - ${position.top+12}px)`}} className="fixed z-[90] w-[min(22rem,calc(100vw-24px))] overflow-y-auto rounded-2xl p-4 text-white shadow-2xl">
         <div className="mb-3 flex items-center gap-3"><div aria-hidden="true" className="flex w-20 shrink-0 overflow-hidden rounded">{previews.data?.slice(0,4).map(item=><img key={item.id} src={nativeLibraries.artworkUrl(library.id,item.id,"poster")+`?v=${item.revision}`} alt="" className="aspect-[2/3] w-1/4 object-cover"/>)}</div><p className="flex-1 font-semibold">{library.name}</p><button type="button" aria-label="Close library actions" className="rounded-lg p-2 text-muted hover:bg-elevated" onClick={()=>{setOpen(false);setConfirmDelete(false);}}><X className="size-4"/></button></div>
         <div className="flex flex-col"><button className={`${MENU_ACTION} flex items-center justify-between`} onClick={()=>{setOpen(false);if(action.current)onEdit(action.current);}}>Library<Folder className="size-4"/></button><button className={`${MENU_ACTION} flex items-center justify-between`} disabled={scan.isPending||remove.isPending||status.data?.manual_queued} onClick={()=>scan.mutate()}>{status.data?.manual_queued?"Scan queued":"Scan Library Files"}<RefreshCw className="size-4"/></button>
+        <button className={MENU_ACTION} disabled={remove.isPending} onClick={()=>{setOpen(false);setRefreshing(true);}}>Refresh Metadata</button>
         {status.data?.status==="scanning"&&<p role="status" className="px-3 py-2 text-xs text-muted">{status.data.manual_queued?"Manual scan queued. It will run when the current scan finishes.":"A scan is running. You can queue a manual scan."}</p>}
         {status.data?.status==="scanning"&&<button className={MENU_ACTION} aria-expanded={scanDetails} onClick={()=>setScanDetails(!scanDetails)}>{scanDetails?"Hide scan progress":"View scan progress"}</button>}
         {scanDetails&&status.data&&<section aria-label="Current library scan" className="px-3 py-2"><NativeScanProgress status={{...status.data,show_progress:true}}/>{status.data.manual_queued&&<p className="mt-2 text-xs text-muted">The manual scan will start after this scan finishes.</p>}</section>}
@@ -106,6 +109,7 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
         {confirmDelete&&<div role="alertdialog" aria-label="Remove library confirmation" className="mt-3 rounded-xl border border-edge bg-base p-3"><p className="text-sm text-muted">Remove {library.name}? Media, NFO files, and local artwork will be kept.</p><div className="mt-3 flex gap-2"><button className={BUTTON} onClick={()=>{setConfirmDelete(false);setOpen(false);}}>Cancel</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={()=>remove.mutate()}>{remove.isPending?"Removing…":"Confirm removal"}</button></div></div>}
         {remove.error&&<p role="alert" className="mt-3 text-sm text-danger">{remove.error.message}</p>}
     </div>,document.body)}
+    {refreshing&&createPortal(<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"><section role="dialog" aria-modal="true" aria-label={`Refresh Metadata — ${library.name}`} className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-border bg-window"><header className="flex items-center justify-between p-6"><h2 className="font-semibold">Refresh Metadata — {library.name}</h2><button aria-label="Close metadata refresh" onClick={()=>setRefreshing(false)}><X className="size-4"/></button></header><SeriesActionsDialog action="refresh-metadata" library={library} wholeLibrary entry={{id:"",path:"",kind:"series",parent_path:null,title:library.name,metadata:{},artwork:[],files:[],nfo_path:null,available:true,revision:0}} entries={[]} onSaved={()=>{setRefreshing(false);setOpen(true);setScanDetails(true);void client.invalidateQueries({queryKey:["native-scan",library.id]});void client.invalidateQueries({queryKey:["native-catalog",library.id]});}}/></section></div>,document.body)}
     {(scan.error||remove.error||status.error)&&<p role="alert" className="px-4 text-sm text-danger">{(scan.error||remove.error||status.error)?.message}</p>}
   </article>;
 }

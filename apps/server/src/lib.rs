@@ -92,6 +92,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/native/providers/test/{provider}", axum::routing::post(native_provider_extra::test_provider))
         .route("/api/native/libraries", get(native::list).post(native::create))
         .route("/api/native/libraries/{id}/scan", get(native::status).post(native::scan))
+        .route("/api/native/libraries/{id}/refresh", axum::routing::post(native::refresh_library))
         .route("/api/native/libraries/{id}/items", get(native::catalog))
         .route("/api/native/libraries/{id}/previews", get(native::previews))
         .route("/api/native/libraries/{id}/sync", get(native_sync::status).post(native_sync::run))

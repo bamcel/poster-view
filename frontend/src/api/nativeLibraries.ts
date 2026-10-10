@@ -47,6 +47,7 @@ export const nativeLibraries = {
     { method: id ? "PUT" : "POST", body: JSON.stringify(input) },
   ),
   scanFolder: (library:string,item:string,refreshMetadata=false,options?:{replaceMetadata:boolean;replaceImages:boolean}) => apiRequest<void>(`/native/libraries/${encodeURIComponent(library)}/items/${encodeURIComponent(item)}/scan${refreshMetadata?`?refresh_metadata=true&replace_metadata=${options?.replaceMetadata??false}&replace_images=${options?.replaceImages??false}`:""}`,{method:"POST"}),
+  refresh: (id:string,options:{replaceMetadata:boolean;replaceImages:boolean}) => apiRequest<void>(`/native/libraries/${encodeURIComponent(id)}/refresh?replace_metadata=${options.replaceMetadata}&replace_images=${options.replaceImages}`,{method:"POST"}),
   scan: (id: string) => apiRequest<void>(`/native/libraries/${encodeURIComponent(id)}/scan`, {method: "POST"}),
   status: (id: string) => apiRequest<NativeScanStatus>(`/native/libraries/${encodeURIComponent(id)}/scan`),
   catalog: (id: string) => apiRequest<NativeCatalogEntry[]>(`/native/libraries/${encodeURIComponent(id)}/items`),
