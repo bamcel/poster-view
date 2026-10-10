@@ -229,11 +229,18 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
         fields["identifiers"] = ids;
     }
     let mut credits = Vec::new();
+    let mut voices = Vec::new();
+    let mut manual_voices=false;
     for child in &root.children {
         if let XMLNode::Element(child) = child {
-            match child.name.as_str(){"actor"=>{let actor=value(child); credits.push(json!({"name":actor["name"],"role":actor["role"],"category":"cast","image":actor["thumb"]}));},"director"|"writer"|"author"|"illustrator"=>credits.push(json!({"name":child.get_text().unwrap_or_default(),"role":child.name,"category":if child.name=="author"||child.name=="illustrator"{child.name.as_str()}else{"crew"}})),_=>{}}
+            match child.name.as_str(){"actor"=>{let actor=value(child); if actor["posterviewcategory"]=="voice" {
+                manual_voices |= actor["posterviewmanual"]=="true";
+                let credit=json!({"name":actor["name"],"role":actor["role"],"category":"voice","image":actor["thumb"],"language":actor["language"],"dub_group":actor["dubgroup"],"role_notes":actor["rolenotes"],"provider":actor["provider"],"provider_id":actor["providerid"]});
+                voices.push(credit.clone());credits.push(credit);
+            } else {credits.push(json!({"name":actor["name"],"role":actor["role"],"category":"cast","image":actor["thumb"]}));}},"director"|"writer"|"author"|"illustrator"=>credits.push(json!({"name":child.get_text().unwrap_or_default(),"role":child.name,"category":if child.name=="author"||child.name=="illustrator"{child.name.as_str()}else{"crew"}})),_=>{}}
         }
     }
+    if !voices.is_empty() {fields["voice_cast"]=json!(voices);}
     if !credits.is_empty() {
         fields["credits"] = json!(credits);
     }
@@ -241,6 +248,7 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
     for field in fields.as_object().unwrap().keys() {
         sources[field] = json!("nfo");
     }
+    if manual_voices {sources["voice_cast"]=json!("manual");}
     fields["_sources"] = sources;
     Ok((root.name, fields))
 }
@@ -997,7 +1005,13 @@ fn write_nfo_inner(
             xml.children.push(XMLNode::Element(e));
         }
     }
-    if let Some(credits) = entry.metadata["credits"].as_array() {
+    let mut nfo_credits = entry.metadata["credits"].as_array().cloned().unwrap_or_default();
+    if let Some(voices)=entry.metadata["voice_cast"].as_array() {
+        nfo_credits.retain(|credit|credit["category"]!="voice");
+        nfo_credits.extend(voices.iter().cloned());
+    }
+    if entry.metadata["credits"].is_array() || entry.metadata["voice_cast"].is_array() {
+        let credits=&nfo_credits;
         let previous_actors = xml
             .children
             .iter()
@@ -1041,6 +1055,14 @@ fn write_nfo_inner(
                     let mut thumb = Element::new("thumb");
                     thumb.children.push(XMLNode::Text(image.into()));
                     actor.children.push(XMLNode::Element(thumb));
+                }
+                if category=="voice" {
+                    actor.children.retain(|n|!matches!(n,XMLNode::Element(e) if e.name=="posterviewmanual"));
+                    if entry.metadata["_sources"]["voice_cast"]=="manual" {let mut e=Element::new("posterviewmanual");e.children.push(XMLNode::Text("true".into()));actor.children.push(XMLNode::Element(e));}
+                    for (tag,field) in [("posterviewcategory","category"),("language","language"),("dubgroup","dub_group"),("rolenotes","role_notes"),("provider","provider"),("providerid","provider_id")] {
+                        actor.children.retain(|n|!matches!(n,XMLNode::Element(e) if e.name==tag));
+                        if !credit[field].is_null() {let text=credit[field].as_str().map(str::to_owned).unwrap_or_else(||credit[field].to_string());if !text.is_empty(){let mut e=Element::new(tag);e.children.push(XMLNode::Text(text));actor.children.push(XMLNode::Element(e));}}
+                    }
                 }
                 xml.children.push(XMLNode::Element(actor));
             } else if ["author", "illustrator"].contains(&category)

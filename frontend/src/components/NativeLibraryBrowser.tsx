@@ -1,3 +1,4 @@
+import AnimeDubEditor from "./AnimeDubEditor";
 import SeriesActionsDialog from "./SeriesActionsDialog";
 import FetchBookMetadata from "./FetchBookMetadata";
 import {useTrackingOverlays} from "../lib/libraryDisplay";
@@ -572,6 +573,8 @@ function NativeDetail({
   showBackdrop: boolean;
   overlay: number;
 }) {
+  const [editingDubs,setEditingDubs]=useState(false);
+  const dubClient=useQueryClient();
   const {hoverOnly}=useAnimatedArtworkPreference(library.id);
   const {value:animePreferences} = useAnimePreferences(library.id);
   const parent = entries.find((e) => e.path === entry.parent_path);
@@ -899,8 +902,9 @@ function NativeDetail({
                 </section>
               )}
 
+            {editingDubs && library.library_type==="anime" && <Modal title="Edit Dub Credits" onClose={()=>setEditingDubs(false)}><AnimeDubEditor library={library} entry={entry} onSaved={()=>{setEditingDubs(false);void dubClient.invalidateQueries({queryKey:["native-catalog",library.id]});}}/></Modal>}
             {animePreferences.casts && voiceCast?.groups.filter((_,index)=> index===0 ? animePreferences.original || (voiceCast.groups.length===1 && animePreferences.dub) : animePreferences.dub).map(group => <section key={group.title} className="mt-8">
-              <h2 className="mb-4 text-xl font-semibold">{group.title}</h2>
+              <div className="mb-4 flex items-center gap-3"><h2 className="text-xl font-semibold">{group.title}</h2><button className="rounded-lg border border-border px-3 py-1 text-xs" onClick={()=>setEditingDubs(true)}>Edit dub credits</button></div>
               {group.cast.length ? <PeopleRow label={group.title}>{group.cast.map((person, i) => <div key={i} className="w-48 shrink-0 rounded-xl p-4">
                 <PersonPortrait person={person} images={portraitImages} />
                 <p className="text-sm font-medium">{String(person.name ?? "")}</p>

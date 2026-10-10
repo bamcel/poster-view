@@ -1875,6 +1875,17 @@ pub(crate) mod scan_tests {
         );
     }
     #[test]
+    fn anime_dub_credits_roundtrip_in_nfo() {
+        let temp=tempfile::tempdir().unwrap();let state=state(temp.path());let dir=temp.path().join("media/Anime/Test");fs::create_dir_all(&dir).unwrap();
+        let entry=posterview_contracts::native::NativeCatalogEntry{id:String::new(),path:"Anime/Test".into(),kind:"series".into(),parent_path:None,title:"Test".into(),metadata:serde_json::json!({"title":"Test","_sources":{"voice_cast":"manual"},"credits":[{"name":"Actor","role":"Lead","category":"voice"}],"voice_cast":[{"name":"Actor","role":"Lead","category":"voice","language":"English","dub_group":"ADV Films","role_notes":"Young","provider":"anilist","provider_id":123,"image":"https://example.com/actor.jpg"}]}),artwork:vec![],files:vec![],nfo_path:Some("Anime/Test/tvshow.nfo".into()),nfo_xml:None,available:true,revision:1};
+        let (_,xml)=crate::native_scan::write_nfo(&state,&entry).unwrap();
+        let (_,metadata)=crate::native_scan::parse_nfo(xml.as_bytes()).unwrap();
+        assert_eq!(metadata["voice_cast"].as_array().unwrap().len(),1);
+        for field in ["language","dub_group","role_notes","provider","image"] {assert_eq!(metadata["voice_cast"][0][field],entry.metadata["voice_cast"][0][field]);}
+        assert_eq!(metadata["voice_cast"][0]["provider_id"],"123");
+        assert_eq!(metadata["_sources"]["voice_cast"],"manual");
+    }
+    #[test]
     fn identification_nfo_replaces_old_ids_and_preserves_unknown_fields(){
         let temp=tempfile::tempdir().unwrap();let state=state(temp.path());let dir=temp.path().join("media/Movies/Test");fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("Test.nfo"),"<movie><uniqueid type='tvdb'>99</uniqueid><tvdbid>99</tvdbid><uniqueid type='custom'>keep</uniqueid><custom>value</custom></movie>").unwrap();
