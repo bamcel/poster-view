@@ -460,3 +460,28 @@ it("allows identity and refresh actions while another scan is running",async()=>
  fireEvent.click(screen.getByRole("menuitem",{name:"Identify"}));
  expect((await screen.findByRole("button",{name:"Save identification"}) as HTMLButtonElement).disabled).toBe(false);
 });
+
+
+it("saves a TV title without resubmitting invalid imported credits", async()=>{
+ const imported={...series,metadata:{...series.metadata,credits:[{name:"Imported person",category:"Director"},{name:"",category:"cast"}],_sources:{credits:"tmdb"}}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([imported]);
+ vi.mocked(nativeLibraries.editItem).mockResolvedValue({entry:imported,warnings:[]});
+ mount("/?native_library=native&native_item=show");
+ await screen.findByRole("heading",{name:"Example Series"});
+ fireEvent.click(screen.getByRole("button",{name:"Edit Metadata"}));
+ fireEvent.change(screen.getByLabelText("Title"),{target:{value:"New title"}});
+ fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",imported,{title:"New title"}));
+});
+
+it("includes explicitly edited credits in the metadata patch", async()=>{
+ const imported={...series,metadata:{...series.metadata,credits:[{name:"Actor",category:"cast"}]}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([imported]);
+ vi.mocked(nativeLibraries.editItem).mockResolvedValue({entry:imported,warnings:[]});
+ mount("/?native_library=native&native_item=show");
+ await screen.findByRole("heading",{name:"Example Series"});
+ fireEvent.click(screen.getByRole("button",{name:"Edit Metadata"}));
+ fireEvent.change(screen.getByLabelText("Credit 1 name"),{target:{value:"Correct actor"}});
+ fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",imported,{credits:[{name:"Correct actor",category:"cast"}]}));
+});

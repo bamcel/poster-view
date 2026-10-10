@@ -36,7 +36,7 @@ export default function NativeCatalogPanel({library,onClose,onDeleted,embedded=f
 }
 export function EntryEditor({library,entry,busy,onSaved,dialog=false}:{library:NativeLibrary;entry:NativeCatalogEntry;busy:boolean;onSaved:()=>void;dialog?:boolean}){
  const [draft,setDraft]=useState<Record<string,unknown>>({...entry.metadata}),[notices,setNotices]=useState<string[]>([]),[artKind,setArtKind]=useState("poster");
- const save=useMutation({mutationFn:()=>nativeLibraries.editItem(library.id,entry,draft),onSuccess:result=>{if(result.warnings.length)setNotices(result.warnings);else onSaved();}});
+ const save=useMutation({mutationFn:()=>nativeLibraries.editItem(library.id,entry,Object.fromEntries(Object.entries(draft).filter(([key,value])=>key!=="_sources"&&JSON.stringify(value)!==JSON.stringify(entry.metadata[key])))),onSuccess:result=>{if(result.warnings.length)setNotices(result.warnings);else onSaved();}});
  const upload=useMutation({mutationFn:(file:File)=>nativeLibraries.upload(library.id,entry.id,artKind,file),onSuccess:onSaved});
  const fields=[...new Set(["title","originaltitle","sorttitle","status","rating","plot","year","runtime","genres","tags","studios",...(entry.kind.startsWith("book")?["edition","volumes"]:[]),...Object.keys(entry.metadata).filter(k=>typeof entry.metadata[k]==="string"||typeof entry.metadata[k]==="number")])].filter(k=>!k.endsWith("_data")&&!k.startsWith('_')&&!['actor','director','writer','genre','tag','studio','anilistid','malid','anidbid','anilist_id','mal_id','anidb_id','tmdbid','imdbid','tvdbid'].includes(k));
  const [newTerms,setNewTerms]=useState<Record<string,string>>({});
