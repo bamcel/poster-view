@@ -21,7 +21,7 @@ it("searches together and saves reviewed AniDB and linked IDs",async()=>{
  fireEvent.click(screen.getByText("Search all providers"));
  fireEvent.click(await screen.findByText("Haikyu!"));
  await waitFor(()=>expect(screen.queryByText("Finding linked provider IDs…")).toBeNull());
- fireEvent.click(screen.getByRole("tab",{name:/AniDB/}));fireEvent.click(screen.getByText("Japanese provider title"));
+ fireEvent.click(screen.getByText("Japanese provider title"));
  await waitFor(()=>expect(screen.queryByText("Finding linked provider IDs…")).toBeNull());
  expect((screen.getByLabelText("Identification title") as HTMLInputElement).value).toBe("Haikyu!");
  expect((screen.getByLabelText("MyAnimeList identification ID") as HTMLInputElement).value).toBe("2");
@@ -45,8 +45,8 @@ it("shows posters and prefers automatically linked matches before other results"
  fireEvent.click(screen.getByText("Search all providers"));fireEvent.click((await screen.findAllByText("Correct show"))[0]);
  await waitFor(()=>expect((screen.getByLabelText("TheTVDB identification ID") as HTMLInputElement).value).toBe("2"));
  expect(screen.getAllByAltText("Correct show poster").length).toBeGreaterThan(0);
- fireEvent.click(screen.getByRole("tab",{name:/TheTVDB/}));
- expect(screen.getByRole("tabpanel").querySelector("button")?.textContent).toContain("Linked match");
+ 
+ expect(screen.getByRole("region",{name:"TheTVDB matches"}).querySelector("button")?.textContent).toContain("Linked match");
  expect((screen.getByLabelText("Identification title") as HTMLInputElement).value).toBe("Haikyu!");
 });
 
@@ -59,7 +59,7 @@ it("identifies book series with ComicVine first and manga providers only",async(
  render(<IdentifyPanel library={{...library,library_type:"books"}} entry={book} busy={false} onSaved={()=>{}}/>);
  expect(screen.queryByLabelText("TheTVDB identification ID")).toBeNull();
  fireEvent.click(screen.getByText("Search all providers"));
- expect((await screen.findAllByRole("tab"))[0].textContent).toContain("ComicVine");
+ expect(await screen.findByRole("region",{name:"ComicVine matches"})).toBeTruthy();
  expect(screen.getByText("Publisher: DC Comics")).toBeTruthy();expect(screen.getByText("12 volumes")).toBeTruthy();
  fireEvent.click(screen.getByRole("button",{name:/Batman.*2016/}));
  await waitFor(()=>expect(screen.queryByText("Finding linked provider IDs…")).toBeNull());
@@ -150,4 +150,18 @@ it("fills a missing MAL ID from the saved AniList link without a MAL title searc
  await waitFor(()=>expect(screen.getByLabelText("MyAnimeList identification ID")).toHaveProperty("value","1281"));
  expect(nativeLibraries.identifySearch).not.toHaveBeenCalled();
  expect(screen.getByLabelText("TheTVDB identification ID")).toHaveProperty("value","82234");
+});
+
+it("places four results under the provider ID and reveals additional matches on demand",async()=>{
+ const results=Array.from({length:6},(_,i)=>({provider:"mal",id:String(i+1),title:`Match ${i+1}`,year:2000,format:"TV",overview:null,identifiers:{mal:String(i+1)}}));
+ vi.mocked(nativeLibraries.identifySearch).mockResolvedValue({groups:[{provider:"mal",results}]});
+ render(<IdentifyPanel library={library} entry={{...entry,metadata:{}}} busy={false} onSaved={()=>{}}/>);
+ fireEvent.click(screen.getByRole("button",{name:"Search all providers"}));
+ const region=await screen.findByRole("region",{name:"MyAnimeList matches"});
+ expect(region.parentElement?.querySelector('input[aria-label="MyAnimeList identification ID"]')).toBeTruthy();
+ expect(region.querySelectorAll('button[aria-pressed]').length).toBe(4);
+ expect(screen.queryByText("Match 5")).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Show more MyAnimeList matches"}));
+ expect(region.querySelectorAll('button[aria-pressed]').length).toBe(6);
+ expect(screen.queryByRole("tablist")).toBeNull();
 });
