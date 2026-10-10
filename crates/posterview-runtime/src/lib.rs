@@ -29,9 +29,8 @@ use thiserror::Error;
 use artwork_cache::ArtworkCache;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-const ARTWORK_PROVIDERS: [&str; 12] = [
+const ARTWORK_PROVIDERS: [&str; 11] = [
     "posterdb",
-    "deviantart",
     "fanart",
     "tvdb",
     "anilist",

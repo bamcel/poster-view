@@ -995,10 +995,9 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
             "fanart_configured": true,
             "tvdb_configured": true,
             "comicvine_configured": false,
-            "deviantart_configured": false,
             "default_provider": "posterdb",
             "ereader_default_provider": "anilist-manga",
-            "enabled_providers": ["posterdb", "deviantart", "fanart", "tvdb", "anilist", "anilist-manga", "myanimelist", "myanimelist-manga", "mediux", "mangadex", "viz", "comicvine"]
+            "enabled_providers": ["posterdb", "fanart", "tvdb", "anilist", "anilist-manga", "myanimelist", "myanimelist-manga", "mediux", "mangadex", "viz", "comicvine"]
         })
     );
 
@@ -1021,7 +1020,7 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
     assert_eq!(preferences["ereader_default_provider"], "comicvine");
     assert_eq!(
         preferences["enabled_providers"],
-        serde_json::json!(["posterdb", "deviantart", "fanart", "tvdb", "anilist", "anilist-manga", "myanimelist", "myanimelist-manga", "mediux", "mangadex", "viz", "comicvine"])
+        serde_json::json!(["posterdb", "fanart", "tvdb", "anilist", "anilist-manga", "myanimelist", "myanimelist-manga", "mediux", "mangadex", "viz", "comicvine"])
     );
 
     let credentials = app

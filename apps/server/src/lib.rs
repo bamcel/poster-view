@@ -762,7 +762,7 @@ async fn get_artwork(
     }
     if !matches!(
         query.provider.as_str(),
-        "deviantart" | "fanart" | "tvdb" | "anilist" | "anilist-manga" | "myanimelist" | "myanimelist-manga" | "mediux" | "mangadex" | "viz" | "comicvine"
+        "fanart" | "tvdb" | "anilist" | "anilist-manga" | "myanimelist" | "myanimelist-manga" | "mediux" | "mangadex" | "viz" | "comicvine"
     ) {
         return Err(HttpError {
             status: StatusCode::NOT_FOUND,

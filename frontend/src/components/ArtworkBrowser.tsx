@@ -38,7 +38,6 @@ export function isAnimatedArtwork(art: ArtworkItem): boolean {
 }
 
 function defaultIdFor(provider: string, item: ItemDetail): string {
-  if (provider === "deviantart") return item.title;
   if (provider === "fanart") {
     return (item.type === "movie" ? item.external_ids.tmdb ?? item.external_ids.imdb : item.external_ids.tvdb) ?? "";
   }
@@ -52,7 +51,6 @@ function defaultIdFor(provider: string, item: ItemDetail): string {
 }
 
 function idPlaceholder(provider: string, item: ItemDetail): string {
-  if (provider === "deviantart") return "DeviantArt tag (e.g. akamegakill)…";
   if (provider === "fanart") return item.type === "movie" ? "TMDB/IMDb id or a title…" : "TVDB id or a title…";
   if (provider === "tvdb") return "TVDB id or a title…";
   if (provider === "anilist") return "AniList id or title…";
@@ -66,7 +64,6 @@ function idPlaceholder(provider: string, item: ItemDetail): string {
 // id, otherwise the site itself (or its search page) for a manual look-up.
 function externalSiteUrl(provider: string, item: ItemDetail, idInput: string): string {
   const id = idInput.trim();
-  if (provider === "deviantart") return `https://www.deviantart.com/tag/${encodeURIComponent(id.replace(/[^\p{L}\p{N}_]/gu, "").toLowerCase())}`;
   if (provider.startsWith("myanimelist")) {
     const kind = provider === "myanimelist-manga" ? "manga" : "anime";
     return /^\d+$/.test(id) ? `https://myanimelist.net/${kind}/${id}` : `https://myanimelist.net/${kind}.php?q=${encodeURIComponent(id || item.title)}`;
@@ -121,36 +118,33 @@ export default function ArtworkBrowser({
   const [activeType, setActiveType] = useState<ArtworkType | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(24);
-  const [page, setPage] = useState(0);
 
   // The id/search box: pre-filled with whatever id is already known (from the
   // server's own API); typing + submitting sets an explicit override that
   // replaces auto-detection for this lookup.
   const savedId = provider === "anilist-manga" ? metadataId?.trim() ?? "" : "";
   const [idInput, setIdInput] = useState(() => savedId || defaultIdFor(provider, item));
-  const [override, setOverride] = useState<string | undefined>(() => savedId || (provider === "deviantart" ? item.title : undefined));
+  const [override, setOverride] = useState<string | undefined>(() => savedId || undefined);
   // A non-numeric submission on a title-search-capable provider (Fanart.tv,
   // TheTVDB) triggers a title search instead of an id lookup; the results
   // are shown as a picker, and choosing one sets `override` as usual.
   const [searchTerm, setSearchTerm] = useState<string | undefined>(undefined);
   useEffect(() => {
     const nextId = provider === "anilist-manga" ? metadataId?.trim() || defaultIdFor(provider, item) : defaultIdFor(provider, item);
-    setPage(0);
     setIdInput(nextId);
     setOverride(nextId || undefined);
     setSearchTerm(undefined);
   }, [provider, item.id, metadataId]);
   useEffect(() => {
     if (!prefill?.nonce) return;
-    setPage(0);
     setIdInput(prefill.value);
     setSearchTerm(undefined);
     setOverride(prefill.value || undefined);
   }, [prefill?.nonce, prefill?.value]);
 
   const q = useQuery({
-    queryKey: ["artwork", provider, serverId, item.id, override, ...(provider === "deviantart" ? [page] : [])],
-    queryFn: () => api.getArtwork(provider, serverId, item.id, provider === "deviantart" ? `${override ?? item.title}|${page * 50}` : override),
+    queryKey: ["artwork", provider, serverId, item.id, override],
+    queryFn: () => api.getArtwork(provider, serverId, item.id, override),
     staleTime: 5 * 60_000,
   });
 
@@ -171,7 +165,6 @@ export default function ArtworkBrowser({
 
   const submitId = (e: FormEvent) => {
     e.preventDefault();
-    setPage(0);
     const val = idInput.trim();
     if (val && TITLE_SEARCH_PROVIDERS.has(provider) && !/^\d+$/.test(val)) {
       setSearchTerm(val);
@@ -200,7 +193,7 @@ export default function ArtworkBrowser({
 
   const types = TYPE_ORDER.filter((t) => (byType.get(t)?.length ?? 0) > 0);
   const active = activeType && types.includes(activeType) ? activeType : types[0] ?? null;
-  useEffect(() => setVisibleCount(24), [active, provider, item.id, override, page]);
+  useEffect(() => setVisibleCount(24), [active, provider, item.id, override]);
   const seasonByNumber = (n?: number | null) =>
     n == null ? undefined : item.seasons.find((s) => s.index === n);
 
@@ -241,7 +234,7 @@ export default function ArtworkBrowser({
     <form onSubmit={submitId} className="relative mb-3">
       <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
       <input
-        aria-label={provider === "deviantart" ? "Search DeviantArt by tag" : `Search ${providerLabel(provider)} by title or ID`}
+        aria-label={`Search ${providerLabel(provider)} by title or ID`}
         value={idInput}
         onChange={(e) => setIdInput(e.target.value)}
         placeholder={idPlaceholder(provider, item)}
@@ -367,7 +360,6 @@ export default function ArtworkBrowser({
               <div key={art.id} className="rounded-lg border border-border bg-surface-2 p-2">
                 <ArtImg art={art} />
                 <div className="mt-1.5">
-                  {provider === "deviantart" && <a href={art.source_url ?? art.download_url} target="_blank" rel="noreferrer" className="mb-1 block text-xs text-muted hover:text-white">{art.title ?? "View on DeviantArt"} <ExternalLink className="inline size-3" /></a>}
 
                   <div className="truncate text-[11px] text-faint">
                     {[art.lang, art.likes != null ? `♥ ${art.likes}` : null].filter(Boolean).join(" · ") || " "}
@@ -445,11 +437,9 @@ export default function ArtworkBrowser({
   return (
     <div>
       {searchBar}
-      {provider === "deviantart" && <p className="mb-3 text-xs text-faint">Searches tags, with spaces and punctuation removed. Try alternate tags for more results. Mature content is excluded.</p>}
       {searchPicker}
       {metadataActions}
       {body}
-      {provider === "deviantart" && !q.isError && <div className="mt-4 flex items-center justify-between gap-3"><button className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-40" disabled={page === 0 || q.isFetching} onClick={() => setPage(p => p - 1)}>Previous</button><span className="text-xs text-muted">Page {page + 1}</span><button className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-40" disabled={q.isFetching || !(q.data?.items.length) || page >= 1000} onClick={() => setPage(p => p + 1)}>Next</button></div>}
     </div>
   );
 }
@@ -494,5 +484,5 @@ export function ApplyBtn({ label, onClick, busy, disabled }: { label: string; on
 }
 
 function providerLabel(name: string): string {
-  return { deviantart: "DeviantArt", fanart: "Fanart.tv", tvdb: "TheTVDB", anilist: "AniList", "anilist-manga": "AniList Manga", myanimelist: "MyAnimeList", "myanimelist-manga": "MyAnimeList Manga", mediux: "MediUX" }[name] ?? name;
+  return { fanart: "Fanart.tv", tvdb: "TheTVDB", anilist: "AniList", "anilist-manga": "AniList Manga", myanimelist: "MyAnimeList", "myanimelist-manga": "MyAnimeList Manga", mediux: "MediUX" }[name] ?? name;
 }

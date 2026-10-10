@@ -337,7 +337,6 @@ impl Runtime {
         for (name,label) in [("myanimelist","MyAnimeList"),("myanimelist-manga","MyAnimeList Manga")] {
             providers.push(ArtworkProviderInfo {name:name.into(),label:label.into(),configured,needs_key:true,enabled:true});
         }
-        providers.push(ArtworkProviderInfo {name: "deviantart".into(), label: "DeviantArt".into(), configured: !store.get_setting("deviantart_client_id")?.is_empty() && !store.get_setting("deviantart_client_secret")?.is_empty(), needs_key: true, enabled: true});
         Ok(providers)
     }
 
@@ -345,8 +344,8 @@ impl Runtime {
         let store = self.server_store()?;
         let enabled = self.enabled_artwork_providers()?;
         let mut default_provider = store.get_setting("artwork_default_provider")?;
-        let poster_providers = ["posterdb", "fanart", "tvdb", "anilist", "mediux", "deviantart"];
-        let ereader_providers = ["anilist-manga", "mangadex", "viz", "comicvine", "deviantart"];
+        let poster_providers = ["posterdb", "fanart", "tvdb", "anilist", "mediux"];
+        let ereader_providers = ["anilist-manga", "mangadex", "viz", "comicvine"];
         if !enabled.contains(&default_provider)
             || !poster_providers.contains(&default_provider.as_str())
         {
@@ -371,7 +370,6 @@ impl Runtime {
             fanart_configured: !store.get_setting("fanart_api_key")?.is_empty(),
             tvdb_configured: !store.get_setting("tvdb_api_key")?.is_empty(),
             comicvine_configured: !store.get_setting("comicvine_api_key")?.is_empty(),
-            deviantart_configured: !store.get_setting("deviantart_client_id")?.is_empty() && !store.get_setting("deviantart_client_secret")?.is_empty(),
             default_provider,
             ereader_default_provider,
             enabled_providers: ARTWORK_PROVIDERS
@@ -1195,10 +1193,6 @@ impl Runtime {
         {
             store.set_setting("tvdb_api_key", value.trim())?;
         }
-        for (key, value) in [("deviantart_client_id", &input.deviantart_client_id), ("deviantart_client_secret", &input.deviantart_client_secret)] {
-            if let Some(value) = value { store.set_setting(key, value.trim())?; }
-        }
-        if input.deviantart_client_id.is_some() || input.deviantart_client_secret.is_some() { self.clear_all_artwork_caches()?; }
         if let Some(value) = &input.tvdb_pin {
             store.set_setting("tvdb_pin", value.trim())?;
         }
@@ -1226,13 +1220,13 @@ impl Runtime {
         }
         // Keep accepting legacy requests, but source availability is no longer configurable.
         if let Some(provider) = input.default_provider.as_deref()
-            && (["posterdb", "fanart", "tvdb", "anilist", "mediux", "deviantart"].contains(&provider)
+            && (["posterdb", "fanart", "tvdb", "anilist", "mediux"].contains(&provider)
                 || provider == "manual")
         {
             store.set_setting("artwork_default_provider", provider)?;
         }
         if let Some(provider) = input.ereader_default_provider.as_deref()
-            && (["anilist-manga", "mangadex", "viz", "comicvine", "deviantart"].contains(&provider)
+            && (["anilist-manga", "mangadex", "viz", "comicvine"].contains(&provider)
                 || provider == "manual")
         {
             store.set_setting("artwork_ereader_default_provider", provider)?;
@@ -1279,11 +1273,6 @@ impl Runtime {
                         .unwrap_or(store.get_setting("tvdb_pin")?)
                 };
                 self.artwork.test_tvdb(&key, &pin).await
-            }
-            "deviantart" => {
-                let id = input.deviantart_client_id.as_deref().filter(|v| !v.trim().is_empty()).map(str::to_owned).unwrap_or(store.get_setting("deviantart_client_id")?);
-                let secret = input.deviantart_client_secret.as_deref().filter(|v| !v.trim().is_empty()).map(str::to_owned).unwrap_or(store.get_setting("deviantart_client_secret")?);
-                self.artwork.test_deviantart(&id, &secret).await
             }
             "comicvine" => {
                 let key = input
@@ -1339,8 +1328,7 @@ impl Runtime {
         );
         let cache_settings = self.artwork_cache_settings(server_id)?;
         let cache = self.server_artwork_cache(server_id)?;
-        // DeviantArt image URLs may be signed; only use the short-lived client query cache.
-        if provider != "deviantart" && let Some(cached) = cache.get_json(&cache_key, cache_settings.ttl_days) {
+        if let Some(cached) = cache.get_json(&cache_key, cache_settings.ttl_days) {
             return Ok(Some(Ok(scoped_artwork(cached, server_id))));
         }
         let Some(detail) = self.get_item_detail(server_id, item_id).await? else {
@@ -1353,9 +1341,7 @@ impl Runtime {
             }
         };
         let store = self.server_store()?;
-        let result = if provider == "deviantart" {
-            self.artwork.fetch_deviantart(&store.get_setting("deviantart_client_id")?, &store.get_setting("deviantart_client_secret")?, &detail, id_override).await
-        } else if matches!(provider, "myanimelist" | "myanimelist-manga") {
+        let result = if matches!(provider, "myanimelist" | "myanimelist-manga") {
             self.artwork.fetch_myanimelist(provider, &store.get_setting("mal_client_id")?, &detail, id_override).await
         } else {
             self
@@ -1385,7 +1371,7 @@ impl Runtime {
                 message: Some(message),
             },
         };
-        if provider != "deviantart" && response.message.is_none() {
+        if response.message.is_none() {
             let _ = cache.put_json(
                 &cache_key,
                 &response,

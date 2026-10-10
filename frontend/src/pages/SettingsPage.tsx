@@ -116,7 +116,7 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
   if (!previewSection && requestedTab && TABS.some(section => section.id === requestedTab)) return <Navigate replace to={`/settings/${requestedTab}`} />;
   if (!tab) return <ServerSettingsDashboard />;
   const descriptions:Record<SettingsTab,string>={servers:"Configure server connections and library synchronization.",plugins:"Choose a plugin to manage its features and settings.",artwork:"Configure artwork browsing and editing tools.",libraries:"Manage media folders, metadata providers, and artwork.",sources:"Configure provider accounts and test their connections.",tasks:"Review cleanup and schedule application maintenance.",appearance:"Customize your theme, layout, and backgrounds.",security:"Manage sign-in, session, and privacy preferences."};
-  return <SettingsPageFrame title={TABS.find(section=>section.id===tab)!.label} description={descriptions[tab]} wide={tab==="appearance"} split={tab==="appearance"} status={tab==="libraries"?<NativeLibraryCount/>:saveStatus!=="saved"?<span className={saveStatus==="error"?"text-danger":"text-accent"}>{saveStatus==="saving"?"Saving…":"Settings could not be saved."}</span>:undefined}>
+  return <SettingsPageFrame title={TABS.find(section=>section.id===tab)!.label} description={descriptions[tab]} wide={tab==="appearance"} split={tab==="appearance"} status={tab==="libraries"?<NativeLibraryCount/>:saveStatus!=="saved"?<span className={saveStatus==="error"?"text-danger":"text-accent"}>{saveStatus==="saving"?"Savingâ€¦":"Settings could not be saved."}</span>:undefined}>
           {(tab === "plugins" || tab === "servers" || tab === "artwork") && <PluginsPage artworkOpen={tab === "artwork" || artworkOpen} onArtworkOpen={()=>setArtworkOpen(true)} open={tab === "servers" || pluginOpen} onOpen={()=>setPluginOpen(true)} onClose={()=>{setPluginOpen(false);setArtworkOpen(false);if(tab === "servers" || tab === "artwork") navigate("/settings/plugins");}}/>}
           {tab === "libraries" && <NativeLibrariesSection />}
           {tab === "sources" && <ArtworkSourcesSection />}
@@ -354,8 +354,8 @@ function AppearanceSection({preview=false}: {preview?:boolean}) {
           <p className="mt-1 text-sm text-faint">Save your color changes as a named theme. Expand Advanced to edit theme JSON.</p>
           <details className="group mt-4 rounded-xl border border-border bg-panel">
             <summary aria-label="Toggle JSON Editor" className="flex h-10 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-semibold text-muted outline-none marker:hidden hover:text-white focus-visible:text-white">
-              <span>Advanced · JSON Editor</span>
-              <span className="text-faint transition-transform group-open:rotate-180">⌄</span>
+              <span>Advanced Â· JSON Editor</span>
+              <span className="text-faint transition-transform group-open:rotate-180">âŒ„</span>
             </summary>
             <div className="border-t border-border p-4">
               <p className="text-sm text-faint">Edit or paste a complete PosterView theme definition.</p>
@@ -422,7 +422,7 @@ function ThemePicker({ themes, selected, onSelect }: { themes: AppTheme[]; selec
         <summary aria-label="Select theme" className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-input px-3 text-sm font-normal text-white outline-none marker:hidden focus-visible:border-accent">
           <ThemePaletteIcon theme={selectedTheme} />
           <span className="min-w-0 flex-1 truncate">{selectedTheme.name}</span>
-          <span className="text-faint transition-transform group-open:rotate-180">⌄</span>
+          <span className="text-faint transition-transform group-open:rotate-180">âŒ„</span>
         </summary>
         <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-sidebar p-1 shadow-2xl">
           {themes.map((theme) => (
@@ -603,7 +603,7 @@ export function ServersSection() {
           <div className="mb-3 divide-y divide-border">
             {serversQ.data?.length === 0 && (
               <p className="py-4 text-sm text-faint">
-                No servers yet — use Add server to connect one.
+                No servers yet â€” use Add server to connect one.
               </p>
             )}
             {serversQ.data?.map((s) => (
@@ -612,7 +612,7 @@ export function ServersSection() {
                 server={s}
                 onEdit={() => startEdit(s)}
                 onDelete={() => {
-                  if (confirm(`Delete server "${s.name}" (${s.base_url}, ID ${s.id}) from PosterView?\n\nThis removes its saved connection, artwork cache, and cached media-server images. Your media files and artwork on the server remain unchanged. Other servers’ caches are kept.`)) deleteMut.mutate(s.id);
+                  if (confirm(`Delete server "${s.name}" (${s.base_url}, ID ${s.id}) from PosterView?\n\nThis removes its saved connection, artwork cache, and cached media-server images. Your media files and artwork on the server remain unchanged. Other serversâ€™ caches are kept.`)) deleteMut.mutate(s.id);
                 }}
               />
             ))}
@@ -659,7 +659,7 @@ export function ServersSection() {
               type="password"
               value={form.token}
               onChange={(e) => setForm({ ...form, token: e.target.value })}
-              placeholder={editingId != null ? "•••••• (leave blank to keep)" : ""}
+              placeholder={editingId != null ? "â€¢â€¢â€¢â€¢â€¢â€¢ (leave blank to keep)" : ""}
             />
           </Field>
             </div>
@@ -698,7 +698,7 @@ export function ServersSection() {
             {testResult.ok ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
             {testResult.ok
               ? `${testResult.server_name ?? "Connected"}${
-                  testResult.version ? ` · v${testResult.version}` : ""
+                  testResult.version ? ` Â· v${testResult.version}` : ""
                 }`
               : testResult.message}
           </div>
@@ -770,7 +770,7 @@ function ServerCard({
 }
 
 // ---------------------------------------------------------------------------
-// Search providers — ThePosterDB login + Fanart.tv/TheTVDB API Keys, grouped
+// Search providers â€” ThePosterDB login + Fanart.tv/TheTVDB API Keys, grouped
 // into one card since they're all just "credentials for an artwork source".
 // ---------------------------------------------------------------------------
 
@@ -817,15 +817,15 @@ function TmdbCredentialsFields() {
       toast.push("error", error.message);
     },
   });
-  return <ProviderConnection id="tmdb" name="TMDB" description="Movie and TV metadata" status={settings.isError ? "Configuration unavailable" : save.isPending ? "Saving…" : providerStatus(settings.data?.tmdb_configured, test.isPending, test.data, test.error)} setupUrl="https://www.themoviedb.org/settings/api">
+  return <ProviderConnection id="tmdb" name="TMDB" description="Movie and TV metadata" status={settings.isError ? "Configuration unavailable" : save.isPending ? "Savingâ€¦" : providerStatus(settings.data?.tmdb_configured, test.isPending, test.data, test.error)} setupUrl="https://www.themoviedb.org/settings/api">
     <form onSubmit={event => { event.preventDefault(); if (token.trim() && !save.isPending) save.mutate(token.trim()); }}>
     <p className="mt-1 text-xs text-faint">Used for movie and TV metadata and artwork. Save new credentials before testing the connection.</p>
-    <p className="mt-2 text-xs text-muted" role="status">{save.isPending ? "Saving…" : settings.isLoading ? "Checking configuration…" : settings.isError ? "Unable to load configuration." : settings.data?.tmdb_configured ? "Token saved" : "Not configured"}</p>
+    <p className="mt-2 text-xs text-muted" role="status">{save.isPending ? "Savingâ€¦" : settings.isLoading ? "Checking configurationâ€¦" : settings.isError ? "Unable to load configuration." : settings.data?.tmdb_configured ? "Token saved" : "Not configured"}</p>
     <div className="mt-3 flex flex-wrap items-end gap-3">
       <label className="min-w-0 flex-1 text-xs font-medium text-muted">TMDB API Read Access Token or API key
         <input type="password" autoComplete="off" className={`${compactInputCls} mt-1 w-full`} value={token} disabled={save.isPending} onBlur={() => { if (token.trim() && !save.isPending) save.mutate(token.trim()); }} onChange={event => { setToken(event.target.value); save.reset(); test.reset(); }} placeholder={settings.data?.tmdb_configured ? "Leave blank to keep saved token" : "Paste API Read Access Token"} />
       </label>
-      <button type="button" className={SETTINGS_BUTTON} disabled={!settings.data?.tmdb_configured || test.isPending || save.isPending || !!token.trim()} onClick={() => test.mutate()}>{test.isPending ? "Testing…" : "Test Connection"}</button>
+      <button type="button" className={SETTINGS_BUTTON} disabled={!settings.data?.tmdb_configured || test.isPending || save.isPending || !!token.trim()} onClick={() => test.mutate()}>{test.isPending ? "Testingâ€¦" : "Test Connection"}</button>
     </div>
     <p className="mt-2 text-xs text-faint">Accepts a TMDB API Read Access Token or a v3 API key. Changes save automatically when you leave the field.</p>
     {test.data && <p role="status" className={`mt-2 text-sm ${test.data.ok ? "text-green-400" : "text-red-400"}`}>{test.data.message}</p>}
@@ -835,7 +835,6 @@ function TmdbCredentialsFields() {
 }
 
 const ARTWORK_DATABASES = [
-  { name: "deviantart", label: "DeviantArt" },
   { name: "posterdb", label: "ThePosterDB" },
   { name: "mangadex", label: "MangaDex" },
   { name: "viz", label: "VIZ" },
@@ -891,8 +890,8 @@ function DefaultArtworkSourceFields({ kind, names }: { kind: "poster" | "ereader
 export function DefaultArtworkSourcesFields({flat=false}:{flat?:boolean}={}) {
   return <div className="grid gap-4 lg:grid-cols-2">
     {[
-      { label: "Poster", kind: "poster" as const, names: ["anilist", "fanart", "mediux", "posterdb", "tvdb", "deviantart"] },
-      { label: "eReader", kind: "ereader" as const, names: ["anilist-manga", "comicvine", "mangadex", "viz", "deviantart"] },
+      { label: "Poster", kind: "poster" as const, names: ["anilist", "fanart", "mediux", "posterdb", "tvdb"] },
+      { label: "eReader", kind: "ereader" as const, names: ["anilist-manga", "comicvine", "mangadex", "viz"] },
     ].map(group => <div key={group.kind} role="group" aria-labelledby={`provider-group-${group.kind}`} className={flat ? "min-w-0 border-b border-border pb-5" : "min-w-0 rounded-xl border border-border bg-surface-2 p-4"}>
       <h3 id={`provider-group-${group.kind}`} className="mb-3 text-sm font-semibold">{group.label} providers</h3>
       <DefaultArtworkSourceFields kind={group.kind} names={group.names} />
@@ -973,7 +972,7 @@ function ArtworkCredentialsFields() {
             type="password"
             value={password}
             onChange={(e) => { setPassword(e.target.value); loginMut.reset(); }}
-            placeholder={configured ? "••••••" : ""}
+            placeholder={configured ? "â€¢â€¢â€¢â€¢â€¢â€¢" : ""}
             onBlur={() => { if (password && email.trim()) saveMut.mutate("posterdb"); }}
           />
         </Field>
@@ -997,7 +996,6 @@ function ArtworkCredentialsFields() {
       <ProviderFeedback name="ThePosterDB" pending={loginMut.isPending} error={loginMut.error?.message}
         result={loginMut.data ? { ok: loginMut.data.logged_in, message: loginMut.data.message } : statusQ.data?.message ? { ok: statusQ.data.logged_in, message: statusQ.data.message } : undefined} />
       </ProviderConnection>
-        <DeviantArtConnection />
         <FanartTvdbFields
           fanart={fanart}
           setFanart={setFanart}
@@ -1066,7 +1064,7 @@ function FanartTvdbFields({
             type="password"
             value={fanart}
             onChange={(e) => { setFanart(e.target.value); fanartTestMut.reset(); }}
-            placeholder={cfg?.fanart_configured ? "••••••" : "your Fanart.tv personal API Key"}
+            placeholder={cfg?.fanart_configured ? "â€¢â€¢â€¢â€¢â€¢â€¢" : "your Fanart.tv personal API Key"}
             onBlur={() => { if (fanart) onAutoSave("fanart"); }}
           />
         </Field>
@@ -1089,7 +1087,7 @@ function FanartTvdbFields({
               type="password"
               value={tvdbKey}
               onChange={(e) => { setTvdbKey(e.target.value); tvdbTestMut.reset(); }}
-              placeholder={cfg?.tvdb_configured ? "••••••" : "TheTVDB v4 API Key"}
+              placeholder={cfg?.tvdb_configured ? "â€¢â€¢â€¢â€¢â€¢â€¢" : "TheTVDB v4 API Key"}
               onBlur={() => { if (tvdbKey) onAutoSave("tvdb"); }}
             />
           </Field>
@@ -1115,7 +1113,7 @@ function FanartTvdbFields({
       </ProviderConnection>
       <ProviderConnection id="comicvine" name="ComicVine" description="Comics metadata" status={configurationError ? "Configuration unavailable" : providerStatus(cfg?.comicvine_configured, comicvineTestMut.isPending, comicvineTestMut.data, comicvineTestMut.error)} setupUrl="https://comicvine.gamespot.com/api/">
         <Field label="ComicVine API Key">
-          <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => { setComicvine(e.target.value); comicvineTestMut.reset(); }} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API Key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
+          <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => { setComicvine(e.target.value); comicvineTestMut.reset(); }} placeholder={cfg?.comicvine_configured ? "â€¢â€¢â€¢â€¢â€¢â€¢" : "your ComicVine API Key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
         </Field>
         <button onClick={() => comicvineTestMut.mutate()} disabled={comicvineTestMut.isPending || (!comicvine && !cfg?.comicvine_configured)} className={`${SETTINGS_BUTTON} mt-2`}>
           {comicvineTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test Connection
@@ -1133,7 +1131,7 @@ function ProviderFeedback({ name, pending, result, error }: {
   if (!pending && !result && !error) return null;
   const failed = !pending && (Boolean(error) || result?.ok === false);
   return <p role="status" aria-live="polite" aria-atomic="true" className={`mt-3 break-words text-sm ${failed ? "text-danger" : "text-accent"}`}>
-    <span className="font-medium">{name}: {pending ? "Testing connection…" : failed ? "Connection failed. " : "Connection successful. "}</span>
+    <span className="font-medium">{name}: {pending ? "Testing connectionâ€¦" : failed ? "Connection failed. " : "Connection successful. "}</span>
     {!pending && (error || result?.message)}
   </p>;
 }
@@ -1182,25 +1180,4 @@ function IconBtn({
       {children}
     </button>
   );
-}
-
-function DeviantArtConnection() {
-  const client = useQueryClient();
-  const settings = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
-  const [id, setId] = useState("");
-  const [secret, setSecret] = useState("");
-  const save = useMutation({
-    mutationFn: () => api.setArtworkSettings({ deviantart_client_id: id.trim() || undefined, deviantart_client_secret: secret || undefined }),
-    onSuccess: () => { setId(""); setSecret(""); client.invalidateQueries({queryKey:["artwork-settings"]}); client.invalidateQueries({queryKey:["artwork-providers"]}); client.invalidateQueries({queryKey:["artwork", "deviantart"]}); reportSettingsSave("saved"); },
-    onError: () => reportSettingsSave("error"),
-  });
-  const test = useMutation({ mutationFn: () => api.testArtworkProvider({provider:"deviantart", deviantart_client_id:id.trim() || undefined, deviantart_client_secret:secret || undefined}) });
-  return <ProviderConnection id="deviantart" name="DeviantArt" description="Public artwork search by tag" setupUrl="https://www.deviantart.com/developers/apps" status={providerStatus(settings.data?.deviantart_configured, test.isPending, test.data, test.error)}>
-    <p className="mb-3 text-xs text-faint">Register a confidential application to obtain a client ID and secret. Credentials stay on the PosterView server.</p>
-    <label className="block text-sm text-muted">Client ID<input className={compactInputCls} value={id} onChange={e=>{setId(e.target.value);test.reset();}} placeholder={settings.data?.deviantart_configured ? "Saved (enter to replace)" : "DeviantArt client ID"}/></label>
-    <label className="mt-2 block text-sm text-muted">Client secret<input type="password" autoComplete="new-password" className={compactInputCls} value={secret} onChange={e=>{setSecret(e.target.value);test.reset();}} placeholder={settings.data?.deviantart_configured ? "••••••" : "DeviantArt client secret"}/></label>
-    <div className="mt-3 flex gap-2"><button className={SETTINGS_BUTTON} disabled={save.isPending || (!id && !secret)} onClick={()=>save.mutate()}>Save credentials</button><button className={SETTINGS_BUTTON} disabled={test.isPending || (!settings.data?.deviantart_configured && (!id || !secret))} onClick={()=>test.mutate()}>Test Connection</button></div>
-    {save.error && <p role="alert" className="mt-2 text-xs text-danger">{save.error.message}</p>}
-    <ProviderFeedback name="DeviantArt" pending={test.isPending} result={test.data} error={test.error?.message}/>
-  </ProviderConnection>;
 }

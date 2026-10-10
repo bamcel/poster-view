@@ -43,7 +43,7 @@ beforeEach(() => {
     tmdb_configured: false,
     fanart_configured: true,
     tvdb_configured: false,
-    comicvine_configured: false, deviantart_configured: false,
+    comicvine_configured: false,
     default_provider: "posterdb",
     ereader_default_provider: "anilist-manga",
     enabled_providers: ["posterdb", "fanart", "anilist-manga", "mangadex"],

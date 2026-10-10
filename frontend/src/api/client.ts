@@ -202,8 +202,6 @@ export const api = {
     tvdb_api_key?: string;
     tvdb_pin?: string;
     comicvine_api_key?: string;
-    deviantart_client_id?: string;
-    deviantart_client_secret?: string;
     default_provider?: string;
     ereader_default_provider?: string;
     enabled_providers?: string[];

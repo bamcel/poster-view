@@ -141,7 +141,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
       key={tab.name}
       onClick={() => setProvider(tab.name)}
       onMouseEnter={() => {
-        if (!["posterdb", "manual", "mangadex", "viz", "comicvine", "deviantart"].includes(tab.name) && tab.configured) {
+        if (!["posterdb", "manual", "mangadex", "viz", "comicvine"].includes(tab.name) && tab.configured) {
           queryClient.prefetchQuery({
             queryKey: ["artwork", tab.name, serverId, item.id, undefined],
             queryFn: () => api.getArtwork(tab.name, serverId, item.id),

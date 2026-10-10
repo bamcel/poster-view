@@ -43,7 +43,7 @@ beforeEach(() => {
     tmdb_configured: false,
     fanart_configured: false,
     tvdb_configured: false,
-    comicvine_configured: false, deviantart_configured: false,
+    comicvine_configured: false,
     default_provider: "posterdb",
     ereader_default_provider: "anilist-manga",
     enabled_providers: ["posterdb"],
@@ -318,7 +318,7 @@ it("groups existing providers without disable controls or new metadata providers
 
 it("keeps each provider test result inside its own card", async () => {
   vi.mocked(api.getArtworkSettings).mockResolvedValue({
-    tmdb_configured: false, fanart_configured: true, tvdb_configured: true, comicvine_configured: true, deviantart_configured: false, default_provider: "fanart", ereader_default_provider: "comicvine", enabled_providers: ["fanart", "tvdb", "comicvine"] });
+    tmdb_configured: false, fanart_configured: true, tvdb_configured: true, comicvine_configured: true, default_provider: "fanart", ereader_default_provider: "comicvine", enabled_providers: ["fanart", "tvdb", "comicvine"] });
   vi.mocked(api.testArtworkProvider).mockImplementation(async ({ provider }) => ({ ok: provider !== "tvdb", message: provider === "tvdb" ? "TheTVDB rejected the credentials." : `${provider} connected.` }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings?tab=sources"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);

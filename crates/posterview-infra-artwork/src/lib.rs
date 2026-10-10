@@ -1,4 +1,3 @@
-mod deviantart;
 mod tmdb_auth;
 mod myanimelist;
 use tmdb_auth::TmdbAuth;
@@ -47,7 +46,6 @@ const MEDIUX_BASE: &str = "https://mediux.pro";
 #[derive(Debug)]
 pub struct ArtworkService {
     client: Client,
-    deviantart: deviantart::DeviantArt,
     tvdb_token: Mutex<Option<String>>,
     tvdb_login_lock: Mutex<()>,
     tvdb_types: Mutex<Option<HashMap<i64, String>>>,
@@ -58,7 +56,6 @@ impl Default for ArtworkService {
     fn default() -> Self {
         Self {
             client: http_client().expect("the shared artwork HTTP client should build"),
-            deviantart: deviantart::DeviantArt::default(),
             tvdb_token: Mutex::new(None),
             tvdb_login_lock: Mutex::new(()),
             tvdb_types: Mutex::new(None),
@@ -68,13 +65,6 @@ impl Default for ArtworkService {
 }
 
 impl ArtworkService {
-    pub async fn fetch_deviantart(&self, id: &str, secret: &str, item: &ItemDetail, lookup: Option<&str>) -> Result<Vec<ArtworkItem>, String> {
-        self.deviantart.fetch(&self.client, id, secret, item, lookup).await
-    }
-    pub async fn test_deviantart(&self, id: &str, secret: &str) -> Result<(), String> {
-        self.deviantart.token(&self.client, id, secret).await.map(|_| ())
-    }
-
     pub async fn fetch_myanimelist(&self, provider: &str, key: &str, item: &ItemDetail, id_override: Option<&str>) -> Result<Vec<ArtworkItem>, String> {
         myanimelist::fetch(&self.client, key, provider, item, id_override).await
     }
@@ -428,7 +418,6 @@ pub async fn download_public_image(provider: &str, url: &str) -> Result<(Vec<u8>
         "anilist" => &["anilist.co"],
         "anilist-manga" => &["anilist.co"],
         "myanimelist" | "myanimelist-manga" => &["cdn.myanimelist.net"],
-        "deviantart" => &["wixmp.com", "deviantart.net", "deviantart.com"],
         "mediux" => &["mediux.pro"],
         "mangadex" => &["uploads.mangadex.org"],
         "viz" => &["dw9to29mmj727.cloudfront.net"],
@@ -878,7 +867,6 @@ fn provider(
 fn http_client() -> Result<Client, String> {
     provider_client(&[
         "fanart.tv",
-        "deviantart.com",
         "anilist.co",
         "thetvdb.com",
         "mediux.pro",
