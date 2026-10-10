@@ -152,16 +152,28 @@ it("fills a missing MAL ID from the saved AniList link without a MAL title searc
  expect(screen.getByLabelText("TheTVDB identification ID")).toHaveProperty("value","82234");
 });
 
-it("places four results under the provider ID and reveals additional matches on demand",async()=>{
+it("shows all results beneath their provider ID in a four-column grid",async()=>{
  const results=Array.from({length:6},(_,i)=>({provider:"mal",id:String(i+1),title:`Match ${i+1}`,year:2000,format:"TV",overview:null,identifiers:{mal:String(i+1)}}));
  vi.mocked(nativeLibraries.identifySearch).mockResolvedValue({groups:[{provider:"mal",results}]});
  render(<IdentifyPanel library={library} entry={{...entry,metadata:{}}} busy={false} onSaved={()=>{}}/>);
  fireEvent.click(screen.getByRole("button",{name:"Search all providers"}));
  const region=await screen.findByRole("region",{name:"MyAnimeList matches"});
  expect(region.parentElement?.querySelector('input[aria-label="MyAnimeList identification ID"]')).toBeTruthy();
- expect(region.querySelectorAll('button[aria-pressed]').length).toBe(4);
- expect(screen.queryByText("Match 5")).toBeNull();
- fireEvent.click(screen.getByRole("button",{name:"Show more MyAnimeList matches"}));
+ expect(region.querySelector(".sm\\:grid-cols-4")).toBeTruthy();
+ expect(screen.queryByRole("button",{name:"Show more MyAnimeList matches"})).toBeNull();
  expect(region.querySelectorAll('button[aria-pressed]').length).toBe(6);
  expect(screen.queryByRole("tablist")).toBeNull();
+});
+
+it("deselects one provider without clearing other saved IDs",async()=>{
+ const candidate={provider:"anilist",id:"123",title:"Example",year:2000,format:"TV",overview:null,identifiers:{anilist:"123"}};
+ vi.mocked(nativeLibraries.identifySearch).mockResolvedValue({groups:[{provider:"anilist",results:[candidate]}]});
+ render(<IdentifyPanel library={library} entry={{...entry,metadata:{identifiers:{anilist:"123",tvdb:"456"}}}} busy={false} onSaved={()=>{}}/>);
+ fireEvent.click(screen.getByRole("button",{name:"Search all providers"}));
+ const region=await screen.findByRole("region",{name:"AniList matches"});
+ const card=region.querySelector('button[aria-pressed="true"]')!;
+ fireEvent.click(card);
+ expect((screen.getByLabelText("AniList identification ID") as HTMLInputElement).value).toBe("");
+ expect((screen.getByLabelText("TheTVDB identification ID") as HTMLInputElement).value).toBe("456");
+ expect(card.getAttribute("aria-pressed")).toBe("false");
 });
