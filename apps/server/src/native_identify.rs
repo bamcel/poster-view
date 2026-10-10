@@ -242,7 +242,7 @@ async fn lookup(
 ) -> Result<Vec<Value>, String> {
     let (adult, language, books) = preferences;
     if provider == "anidb" {
-        return anidb_lookup(state, client, title, id, movie).await;
+        return anidb_lookup(state, client, title, id, movie, language).await;
     }
     let _gate = crate::workers::provider(provider).await;
     let _network = crate::workers::network().await;
@@ -735,7 +735,17 @@ pub(crate) async fn apply(
     ))
 }
 
-fn anidb_titles(xml: &str, title: &str) -> Result<Vec<Value>, String> {
+fn anidb_display_title(titles:&[&xmltree::Element],language:&str)->String {
+    let code=language.split(['-','_']).next().unwrap_or(language).to_lowercase();
+    let code=match code.as_str(){"eng"=>"en","jpn"=>"ja","deu"=>"de","fra"=>"fr",other=>other};
+    fn lang(e:&xmltree::Element)->Option<&str>{e.attributes.get("lang").or_else(||e.attributes.get("xml:lang")).map(String::as_str)}
+    let rank=|e:&&xmltree::Element|match e.attributes.get("type").map(String::as_str){Some("official"|"main")=>0,Some("syn")=>1,_=>2};
+    titles.iter().filter(|e|lang(e).is_some_and(|v|v.eq_ignore_ascii_case(code))&&!e.get_text().unwrap_or_default().trim().is_empty()).min_by_key(|e|rank(e))
+        .or_else(||titles.iter().filter(|e|lang(e)==Some("ja")).min_by_key(|e|rank(e)))
+        .or_else(||titles.iter().find(|e|e.attributes.get("type").is_some_and(|v|v=="main")))
+        .and_then(|e|e.get_text()).map(|s|s.into_owned()).unwrap_or_default()
+}
+fn anidb_titles(xml: &str, title: &str, language:&str) -> Result<Vec<Value>, String> {
     if xml.to_ascii_uppercase().contains("<!DOCTYPE")
         || xml.to_ascii_uppercase().contains("<!ENTITY")
     {
@@ -776,13 +786,7 @@ fn anidb_titles(xml: &str, title: &str) -> Result<Vec<Value>, String> {
         let Some(score) = score else {
             continue;
         };
-        let name = titles
-            .iter()
-            .find(|e| e.attributes.get("type").is_some_and(|v| v == "main"))
-            .or(titles.first())
-            .and_then(|e| e.get_text())
-            .map(|t| t.into_owned())
-            .unwrap_or_default();
+        let name = anidb_display_title(&titles,language);
         matches.push((score,json!({"provider":"anidb","id":id,"title":name,"year":null,"format":"Anime - verify type","overview":"AniDB uses separate records for many sequel seasons. Verify the record before saving.","identifiers":{"anidb":id}})));
     }
     matches.sort_by_key(|(score, v)| (*score, v["title"].as_str().unwrap_or("").to_owned()));
@@ -804,6 +808,7 @@ async fn anidb_lookup(
     title: &str,
     id: Option<&str>,
     movie: bool,
+    language:&str,
 ) -> Result<Vec<Value>, String> {
     if let Some(id) = id {
         let _network = crate::workers::network().await;
@@ -817,17 +822,8 @@ async fn anidb_lookup(
         if (kind.eq_ignore_ascii_case("movie")) != movie {
             return Err("AniDB record does not match the item's media type.".into());
         }
-        let name = root
-            .get_child("titles")
-            .and_then(|e| {
-                e.children
-                    .iter()
-                    .filter_map(|n| n.as_element())
-                    .find(|e| e.attributes.get("type").is_some_and(|v| v == "main"))
-            })
-            .and_then(|e| e.get_text())
-            .map(|s| s.into_owned())
-            .unwrap_or_else(|| title.into());
+        let titles=root.get_child("titles").map(|e|e.children.iter().filter_map(|n|n.as_element()).filter(|e|e.name=="title").collect::<Vec<_>>()).unwrap_or_default();
+        let name=anidb_display_title(&titles,language);
         let poster = root
             .get_child("picture")
             .and_then(|e| e.get_text())
@@ -904,7 +900,7 @@ async fn anidb_lookup(
         })
         .await
         .map_err(|_| "AniDB index interrupted.")??;
-        anidb_titles(&xml, title)?;
+        anidb_titles(&xml, title, language)?;
         store
             .set_setting(
                 "native_identify_anidb_titles",
@@ -914,7 +910,8 @@ async fn anidb_lookup(
         xml
     };
     let title = title.to_owned();
-    tokio::task::spawn_blocking(move || anidb_titles(&xml, &title))
+    let language=language.to_owned();
+    tokio::task::spawn_blocking(move || anidb_titles(&xml, &title, &language))
         .await
         .map_err(|_| "AniDB title search interrupted.")?
 }
@@ -933,6 +930,13 @@ mod tests {
         assert!(identification_id("mangadex",&json!("11111111-1111-1111-1111-111111111111")));
         assert!(!identification_id("mangadex",&json!("123")));
         assert!(!identification_id("anilist",&json!("11111111-1111-1111-1111-111111111111")));
+    }
+    #[test]
+    fn anidb_titles_use_requested_translation_then_original_only(){
+        let xml=r#"<animetitles><anime aid="1"><title type="main" xml:lang="x-jat">Romaji title</title><title type="official" xml:lang="ja">原題</title><title type="official" xml:lang="en">English title</title><title type="syn" xml:lang="en">Alternate title</title></anime></animetitles>"#;
+        assert_eq!(anidb_titles(xml,"Romaji","en-US").unwrap()[0]["title"],"English title");
+        assert_eq!(anidb_titles(xml,"English","fr").unwrap()[0]["title"],"原題");
+        assert_eq!(anidb_titles(xml,"Romaji","ja").unwrap()[0]["title"],"原題");
     }
     #[test]
     fn comicvine_urls_resolve_to_volume_ids_only() {
@@ -968,10 +972,10 @@ mod tests {
     #[test]
     fn anidb_alias_search_is_unique_and_rejects_entities() {
         let xml = "<animetitles><anime aid='123'><title type='main'>Haikyuu!!</title><title type='syn'>Haikyu!</title></anime><anime aid='124'><title type='main'>Haikyuu!! Second Season</title></anime></animetitles>";
-        let results = anidb_titles(xml, "Haikyu!").unwrap();
+        let results = anidb_titles(xml, "Haikyu!", "en").unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0]["id"], "123");
-        assert!(anidb_titles("<!DOCTYPE x><animetitles/>", "x").is_err());
+        assert!(anidb_titles("<!DOCTYPE x><animetitles/>", "x", "en").is_err());
     }
     #[test]
     fn tvdb_results_use_preferred_language_and_keep_ids() {
