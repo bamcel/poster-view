@@ -116,3 +116,11 @@ it("populates saved provider IDs and previews their own records without changing
  fireEvent.change(screen.getByLabelText("AniList identification ID"),{target:{value:""}});
  expect(screen.queryByLabelText("AniList ID preview")).toBeNull();
 });
+
+it("resolves IMDb previews by exact ID without title search",async()=>{
+ vi.mocked(nativeLibraries.identifyResolve).mockResolvedValue({identifiers:{imdb:"tt2560140"},warnings:[],candidates:[{provider:"tvdb",id:"267440",title:"Attack on Titan",year:2013,poster:"https://example.com/aot.jpg",format:"Series",overview:null,identifiers:{tvdb:"267440",imdb:"tt2560140"}}]});
+ render(<IdentifyPanel library={library} entry={{...entry,metadata:{identifiers:{imdb:"tt2560140"}}}} busy={false} onSaved={()=>{}}/>);
+ expect(await screen.findByAltText("IMDb: Attack on Titan poster")).toBeTruthy();
+ expect(nativeLibraries.identifyResolve).toHaveBeenCalledWith("lib","item","imdb","tt2560140");
+ expect(nativeLibraries.identifySearch).not.toHaveBeenCalled();
+});

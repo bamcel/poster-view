@@ -507,6 +507,22 @@ fn client() -> Result<reqwest::Client, HttpError> {
         .build()
         .map_err(|_| HttpError::bad_gateway("Unable to start identification."))
 }
+fn remote_tvdb_ids(raw:&Value,movie:bool)->Vec<String> {
+    raw["data"].as_array().into_iter().flatten().filter_map(|record|numeric(&record[if movie {"movie"} else {"series"}]["id"])).collect()
+}
+async fn imdb_matches(state:&AppState,client:&reqwest::Client,id:&str,movie:bool,language:&str)->Result<Vec<Value>,String> {
+    if !id.starts_with("tt") || numeric(&json!(&id[2..])).is_none(){return Err("Enter a valid IMDb ID.".into());}
+    let token=key(state,"tvdb_api_key");if token.is_empty(){return Err("Configure TheTVDB credentials in Search Providers.".into());}
+    let raw=crate::native_provider::response(posterview_infra_artwork::ArtworkService::default().native_tvdb_get(&format!("/search/remoteid/{id}"),&[],&token,&key(state,"tvdb_pin")).await?).await?;
+    let mut results=Vec::new();
+    for tvdb in remote_tvdb_ids(&raw,movie) {
+        for mut candidate in lookup(state,client,"tvdb","",Some(&tvdb),movie,(false,language,false)).await? {
+            candidate["identifiers"]["imdb"]=json!(id);
+            results.push(candidate);
+        }
+    }
+    Ok(results)
+}
 pub(crate) async fn search(
     State(state): State<AppState>,
     Path((library, item)): Path<(String, String)>,
@@ -531,10 +547,7 @@ pub(crate) async fn search(
             if explicit.is_none()&&input.title.trim().len()<2 {return Err(HttpError::bad_request("Enter a title or provider ID."));}
             lookup(&state,&client,"tvdb",&input.title,explicit,false,(false,&lib.options.metadata_language,false)).await.map_err(HttpError::bad_gateway)?
         }else{
-            let token=key(&state,"tvdb_api_key");if token.is_empty(){return Err(HttpError::bad_request("Configure TheTVDB credentials in Search Providers."));}
-            let remote=remote.unwrap();let mut query=vec![("type","series"),("remote_id",remote.as_str())];if !input.title.trim().is_empty(){query.push(("query",input.title.as_str()));}
-            let raw=crate::native_provider::response(posterview_infra_artwork::ArtworkService::default().native_tvdb_get("/search",&query,&token,&key(&state,"tvdb_pin")).await.map_err(HttpError::bad_gateway)?).await.map_err(HttpError::bad_gateway)?;
-            raw["data"].as_array().into_iter().flatten().filter_map(|v|candidate("tvdb",&localized_tvdb(v,&lib.options.metadata_language),false)).collect()
+            imdb_matches(&state,&client,&remote.unwrap(),false,&lib.options.metadata_language).await.map_err(HttpError::bad_gateway)?
         };
         return Ok(Json(json!({"groups":[{"provider":"tvdb","results":results.into_iter().filter(|v|input.year.is_none_or(|y|v["year"].is_null()||v["year"]==y)).collect::<Vec<_>>()}]})));
     }
@@ -1010,6 +1023,11 @@ pub(crate) async fn resolve(
     Json(mut input): Json<Resolve>,
 ) -> Result<Json<Value>, HttpError> {
     let (lib, entry) = context(&state, &library, &item).await?;
+    if input.provider=="imdb" {
+        if !["series","movie"].contains(&entry.kind.as_str()) {return Err(HttpError::bad_request("IMDb identification requires a series or movie."));}
+        let records=imdb_matches(&state,&client()?,&input.id,entry.kind=="movie",&lib.options.metadata_language).await.map_err(HttpError::bad_gateway)?;
+        return Ok(Json(json!({"identifiers":{"imdb":input.id},"candidates":records,"warnings":[]})));
+    }
     if input.provider == "comicvine" {
         input.id = comicvine_id(&input.id).ok_or_else(|| HttpError::bad_request("Enter a ComicVine volume ID or series URL (4050), not an issue URL."))?;
     }
@@ -1095,4 +1113,15 @@ pub(crate) async fn metadata_preview(State(state): State<AppState>, Path((librar
     let prefix=if input.provider=="comicvine" {"edition"} else {"original"};
     for name in ["year","volumes"] {if let Some(value)=fields.get(name).cloned() {fields.insert(format!("{prefix}_{name}"),value);}}
     Ok(Json(json!({"provider":input.provider,"fields":fields})))
+}
+
+#[cfg(test)]
+mod remote_lookup_tests {
+    use super::*;
+    #[test]
+    fn exact_remote_lookup_selects_only_matching_media_type() {
+        let raw=json!({"data":[{"series":{"id":267440}},{"movie":{"id":123}},{"people":{"id":456}}]});
+        assert_eq!(remote_tvdb_ids(&raw,false),vec!["267440"]);
+        assert_eq!(remote_tvdb_ids(&raw,true),vec!["123"]);
+    }
 }

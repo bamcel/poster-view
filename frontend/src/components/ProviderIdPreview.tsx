@@ -8,7 +8,7 @@ export default function ProviderIdPreview({library,item,provider,id,label}:{libr
  const value=id.trim();
  const [settled,setSettled]=useState(value);
  useEffect(()=>{const timer=setTimeout(()=>setSettled(value),400);return ()=>clearTimeout(timer);},[value]);
- const match=useQuery({queryKey:["identify-id-preview",library,item,provider,settled],queryFn:async()=>{if(provider!=="imdb")return nativeLibraries.identifyResolve(library,item,provider,settled);const result=await nativeLibraries.identifySearch(library,item,"",null,{provider:"tvdb",imdb_id:settled});return {candidates:result.groups.flatMap(g=>g.results).filter(c=>c.identifiers.imdb===settled)};},enabled:!!settled&&settled===value,staleTime:300000,retry:false});
+ const match=useQuery({queryKey:["identify-id-preview",library,item,provider,settled],queryFn:()=>nativeLibraries.identifyResolve(library,item,provider,settled),enabled:!!settled&&settled===value,staleTime:300000,retry:false});
  const candidate=match.data?.candidates.find(c=>provider==="imdb"?c.identifiers.imdb===settled:c.provider===provider);
  const anidb=useQuery({queryKey:["anidb-identify-poster",settled],queryFn:()=>apiRequest<{poster:string|null}>(`/native/identify/anidb/${encodeURIComponent(settled)}/poster`),enabled:!!candidate&&provider==="anidb"&&!candidate.poster&&settled===value,staleTime:86400000,retry:false});
  const poster=candidate?.poster??anidb.data?.poster;
