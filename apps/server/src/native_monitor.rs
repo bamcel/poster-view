@@ -4,10 +4,6 @@ use posterview_infra_sqlite::ServerStore;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
     time::{Duration, Instant},
 };
 
@@ -162,10 +158,24 @@ pub(crate) fn refresh_artwork_files(state:&AppState,id:&str,files:&std::collecti
     files.iter().all(|path|path.strip_prefix(&root).ok().is_some_and(|relative|db.refresh_local_artwork(id,&relative.to_string_lossy().replace('\\',"/")).unwrap_or(false)))
 }
 
+// Filter access/administrative noise before enqueueing; never turn watcher setup or
+// queue pressure into a full scan of unrelated libraries.
+fn send_change(tx:&tokio::sync::mpsc::UnboundedSender<notify::Result<Event>>,event:notify::Result<Event>){
+ let event=match event {
+  Ok(mut event)=>{
+   if !matches!(event.kind,EventKind::Create(_)|EventKind::Remove(_)|EventKind::Modify(_)){return;}
+   event.paths.retain(|path|external_change(path,&event.kind));
+   if event.paths.is_empty(){return;}
+   Ok(event)
+  },
+  Err(error)=>Err(error),
+ };
+ let _=tx.send(event);
+}
+
 pub(crate) fn start(state: AppState) {
     tokio::spawn(async move {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<notify::Result<Event>>(1000);
-        let overflow = Arc::new(AtomicBool::new(false));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<notify::Result<Event>>();
         let mut signature = String::new();
         let mut recovery = RecoveryGate::default();
         let mut roots = Vec::<(String, PathBuf)>::new();
@@ -189,7 +199,7 @@ pub(crate) fn start(state: AppState) {
                                 }
                             }
                         }
-                        Err(error) if recovery.request()=>{tracing::warn!(%error,"Native library monitor event failed; requesting one recovery scan");overflow.store(true,Ordering::Relaxed); }
+                        Err(error) if recovery.request()=>{tracing::warn!(%error,"Native library watcher error; continuing change monitoring without a full recovery scan");}
                         _=>{}
                     }
                 }else{return;}}
@@ -204,10 +214,10 @@ pub(crate) fn start(state: AppState) {
                             if signature!=next_signature{
                                 recovery.reset();
                                 drop(native.take());drop(poll.take());signature=next_signature;
-                                let native_tx=tx.clone();let native_overflow=overflow.clone();
-                                native=notify::RecommendedWatcher::new(move|event|{if native_tx.try_send(event).is_err(){native_overflow.store(true,Ordering::Relaxed);}},Config::default().with_follow_symlinks(false)).ok();
-                                let poll_tx=tx.clone();let poll_overflow=overflow.clone();
-                                poll=PollWatcher::new(move|event|{if poll_tx.try_send(event).is_err(){poll_overflow.store(true,Ordering::Relaxed);}},Config::default().with_follow_symlinks(false).with_poll_interval(Duration::from_secs(15))).ok();
+                                let native_tx=tx.clone();
+                                native=notify::RecommendedWatcher::new(move|event|{send_change(&native_tx,event);},Config::default().with_follow_symlinks(false)).ok();
+                                let poll_tx=tx.clone();
+                                poll=PollWatcher::new(move|event|{send_change(&poll_tx,event);},Config::default().with_follow_symlinks(false).with_poll_interval(Duration::from_secs(15))).ok();
                                 for (_,root) in &next{
                                     if let Some(watcher)=native.as_mut(){if let Err(error)=watcher.watch(root,RecursiveMode::Recursive){tracing::warn!(%error,"Native watch unavailable; using polling");}}
                                     if let Some(watcher)=poll.as_mut(){if let Err(error)=watcher.watch(root,RecursiveMode::Recursive){tracing::warn!(%error,"Native polling watch unavailable");}}
@@ -217,7 +227,6 @@ pub(crate) fn start(state: AppState) {
                             }
                         }
                     }
-                    if overflow.swap(false,Ordering::Relaxed){for (id,_) in &roots{pending.entry(id.clone()).or_insert_with(Pending::new).paths=None;}}
                     let ready=pending.iter().filter(|(_,times)|times.last.elapsed()>=Duration::from_secs(5)||times.first.elapsed()>=Duration::from_secs(30)).map(|(id,_)|id.clone()).collect::<Vec<_>>();
                     for id in ready{
                         let db=ServerStore::new(state.runtime.data_dir());
@@ -248,6 +257,19 @@ pub(crate) fn start(state: AppState) {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn watcher_setup_noise_is_ignored_and_large_change_bursts_are_not_dropped(){
+        let (tx,mut rx)=tokio::sync::mpsc::unbounded_channel();
+        for kind in [notify::EventKind::Any,notify::EventKind::Other,notify::EventKind::Access(notify::event::AccessKind::Read)] {
+            super::send_change(&tx,Ok(notify::Event::new(kind).add_path("Movies/Test.mp4".into())));
+        }
+        assert!(rx.try_recv().is_err());
+        for n in 0..1500 {
+            super::send_change(&tx,Ok(notify::Event::new(notify::EventKind::Create(notify::event::CreateKind::File)).add_path(format!("Movies/{n}.mp4").into())));
+        }
+        for _ in 0..1500 {assert!(rx.try_recv().unwrap().is_ok());}
+        assert!(rx.try_recv().is_err());
+    }
     use super::*;
     #[tokio::test]
     async fn local_logo_updates_refresh_the_managed_copy_without_a_scan_or_manual_override() {
@@ -276,7 +298,7 @@ mod tests {
 
     }
     #[test]
-    fn repeated_watcher_errors_request_only_one_recovery_until_a_real_change() {
+    fn repeated_watcher_errors_log_once_until_a_real_change() {
         let mut recovery = RecoveryGate::default();
         assert!(recovery.request());
         for _ in 0..100 {

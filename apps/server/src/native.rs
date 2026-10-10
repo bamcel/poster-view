@@ -1103,8 +1103,12 @@ pub(crate) mod scan_tests {
                 },
             )
             .unwrap();
+        fs::write(media.join("Existing.mp4"), b"fixture").unwrap();
+        // Starting/restarting monitoring must establish a baseline without scanning.
         crate::native_monitor::start(state.clone());
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(18)).await;
+        assert_ne!(db.native_scan_status(&library.id).unwrap().status, "scanning");
+        assert!(db.native_catalog(&library.id).unwrap().is_empty());
         fs::write(media.join("New.mp4"), b"fixture").unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(25), async {
             loop {
