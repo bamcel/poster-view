@@ -412,8 +412,22 @@ impl ServerStore {
                 }
             }
         }
+        if fields.len() > 100 || fields.contains_key("_sources") {
+            return Err(invalid("Invalid metadata fields."));
+        }
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let current:Option<i64>=tx.query_row("SELECT i.revision FROM catalog_items i JOIN native_catalog_sources s ON s.item_id=i.id WHERE s.library_id=?1 AND i.id=?2",params![library,item],|r|r.get(0)).optional()?;
+        if current != Some(revision) {
+            return Err(StoreError::RevisionConflict);
+        }
         if let Some(credits) = fields.get("credits") {
-            if !credits.as_array().is_some_and(|v| {
+            let previous: Option<String> = tx.query_row(
+                "SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field='credits'",
+                [item], |r| r.get(0),
+            ).optional()?;
+            let unchanged = previous.as_deref().and_then(|v| serde_json::from_str::<Value>(v).ok()).as_ref() == Some(credits);
+            if !unchanged && !credits.is_null() && !credits.as_array().is_some_and(|v| {
                 v.iter().all(|c| {
                     c["name"].as_str().is_some_and(|v| !v.trim().is_empty())
                         && ["cast", "crew", "voice", "author", "illustrator", "narrator"]
@@ -424,15 +438,6 @@ impl ServerStore {
                     "Each credit needs a name and a supported category.",
                 ));
             }
-        }
-        if fields.len() > 100 || fields.contains_key("_sources") {
-            return Err(invalid("Invalid metadata fields."));
-        }
-        let mut db = self.connection()?;
-        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let current:Option<i64>=tx.query_row("SELECT i.revision FROM catalog_items i JOIN native_catalog_sources s ON s.item_id=i.id WHERE s.library_id=?1 AND i.id=?2",params![library,item],|r|r.get(0)).optional()?;
-        if current != Some(revision) {
-            return Err(StoreError::RevisionConflict);
         }
         let title_lock=fields.get("_title_locked").map(|v|v.as_bool().ok_or_else(||invalid("Title lock must be true or false."))).transpose()?;
         if let Some(locked)=title_lock {tx.execute("UPDATE catalog_metadata_fields SET locked=?2,source=CASE WHEN ?2=1 THEN 'manual' WHEN source='manual' THEN 'filename' ELSE source END WHERE item_id=?1 AND field='title'",params![item,i64::from(locked)])?;}
@@ -705,6 +710,21 @@ fn project_metadata(
 mod tests{
     use super::*;
     use posterview_contracts::native::{NativeLibraryInput,NativeLibraryType,AnimeContent};
+    #[test]
+    fn title_edits_preserve_unchanged_legacy_credit_shapes() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path()); db.initialize().unwrap();
+        let library = db.save_native_library(None, &NativeLibraryInput{name:"TV".into(),library_type:NativeLibraryType::Anime,anime_content:AnimeContent::Both,paths:vec!["TV".into()],revision:None,options:Default::default()}).unwrap();
+        for (index, credits) in [Value::Null, json!("Legacy writing credit"), json!({"cast":[]}), json!([{"name":"","category":"cast"}])].into_iter().enumerate() {
+            let entry = NativeCatalogEntry{id:String::new(),path:format!("TV/Show{index}"),kind:"series".into(),parent_path:None,title:"Old title".into(),metadata:json!({"title":"Old title","credits":credits}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+            db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();
+            let before=db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.path==format!("TV/Show{index}")).unwrap();
+            db.edit_native_entry(&library.id,&before.id,before.revision,&json!({"title":"New title","credits":credits})).unwrap();
+            let after=db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.id==before.id).unwrap();
+            assert_eq!(after.title,"New title"); assert_eq!(after.metadata["credits"],credits);
+            assert!(db.edit_native_entry(&library.id,&after.id,after.revision,&json!({"credits":[{"name":"Changed","category":"unsupported"}]})).is_err());
+        }
+    }
     #[test]
     fn manual_scan_requests_queue_once_and_survive_progress_updates() {
         let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
