@@ -36,17 +36,17 @@ it("places characters without portraits last and recognizes fallback portraits",
  expect(orderedCharacters([{name:"Missing"},{name:"Narrator",image:"https://example.com/n.jpg"},{name:"Lead",image:"https://example.com/l.jpg"},{name:"Fallback"}], new Map([["fallback","https://example.com/f.jpg"]])).map(p=>p.name)).toEqual(["Lead","Fallback","Narrator","Missing"]);
 });
 
-it("separates named dub editions and keeps unlabeled actors unspecified",()=>{
+it("keeps dub editions in one language row while preserving credit details",()=>{
  const result=animeVoiceGroups({country_of_origin:"JP",voice_cast:[{name:"Hilary",language:"English",role:"Satsuki"},{name:"Andrea",language:"English",role:"Satsuki",dub_group:"Animax"},{name:"Andrea",language:"English",role:"Datto",dub_group:"Animax",role_notes:"Young"}]},"en");
- expect(result.groups.map(g=>g.title)).toEqual(["Japanese Cast","English Cast — Unspecified dub","English Cast — Animax"]);
- expect(result.groups[1].cast.map(p=>p.name)).toEqual(["Hilary"]);
- expect(result.groups[2].cast).toHaveLength(1);
- expect(result.groups[2].cast[0].role).toBe("Satsuki · Datto");
- expect(result.groups[2].cast[0].role_notes).toBe("Young");
+ expect(result.groups.map(g=>g.title)).toEqual(["Japanese Cast","English Cast"]);
+ expect(result.groups[1].cast.map(p=>p.name)).toEqual(["Hilary","Andrea"]);
+ expect(result.groups[1].cast).toHaveLength(2);
+ expect(result.groups[1].cast[1].role).toBe("Satsuki · Datto");
+ expect(result.groups[1].cast[1].role_notes).toBe("Young");
 });
 
 it("backfills edition labels from cached provider roles without guessing or overriding manual edits",()=>{
  const metadata={country_of_origin:"JP",voice_cast:[{name:"Andrea",provider_id:1,language:"English",role:"Satsuki"},{name:"Hilary",provider_id:2,language:"English",role:"Satsuki"}],anilist_data:{characters:{edges:[{node:{name:{full:"Satsuki"}},voiceActorRoles:[{dubGroup:"Animax",voiceActor:{id:1,name:{full:"Andrea"}}}]}]}}};
- expect(animeVoiceGroups(metadata,"en").groups.map(g=>g.title)).toContain("English Cast — Animax");
+ expect(animeVoiceGroups(metadata,"en").groups[1].cast[0].dub_group).toBe("Animax");
  expect(animeVoiceGroups({...metadata,_sources:{voice_cast:"manual"}},"en").groups.map(g=>g.title)).toEqual(["Japanese Cast","English Cast"]);
 });

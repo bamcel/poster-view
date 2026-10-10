@@ -54,10 +54,7 @@ export function animeVoiceGroups(metadata: Person, preferredCode: string, images
   const groups = [{title:original ? `${original} Cast` : "Original voice cast", cast:original ? combine(cast.filter(person => voiceName(person.language) === voiceName(original))) : [], empty:original ? `No ${original} voice cast available.` : "Original language has not been identified."}];
   if (voiceName(preferred) !== voiceName(original)) {
     const dubbed=cast.filter(person=>voiceName(person.language)===voiceName(preferred));
-    const editions=[...new Set(dubbed.map(person=>String(person.dub_group??"").trim()))];
-    if(editions.some(Boolean)) {
-      for(const edition of editions) groups.push({title:`${preferred} Cast — ${edition||"Unspecified dub"}`,cast:combine(dubbed.filter(person=>String(person.dub_group??"").trim()===edition)),empty:`No ${preferred} voice cast available.`});
-    } else groups.push({title:`${preferred} Cast`,cast:combine(dubbed),empty:`No ${preferred} voice cast available.`});
+    groups.push({title:`${preferred} Cast`,cast:combine(dubbed),empty:`No ${preferred} voice cast available.`});
   }
   const characters = orderedCharacters(metadata.characters, images);
   const order = new Map<string, number>();
