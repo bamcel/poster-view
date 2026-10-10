@@ -787,10 +787,19 @@ fn anidb_titles(xml: &str, title: &str, language:&str) -> Result<Vec<Value>, Str
             continue;
         };
         let name = anidb_display_title(&titles,language);
-        matches.push((score,json!({"provider":"anidb","id":id,"title":name,"year":null,"format":"Anime - verify type","overview":"AniDB uses separate records for many sequel seasons. Verify the record before saving.","identifiers":{"anidb":id}})));
+        matches.push((score,json!({"provider":"anidb","id":id,"title":name,"exact_title_match":score==0,"year":null,"format":"Anime - verify type","overview":"AniDB uses separate records for many sequel seasons. Verify the record before saving.","identifiers":{"anidb":id}})));
     }
     matches.sort_by_key(|(score, v)| (*score, v["title"].as_str().unwrap_or("").to_owned()));
     Ok(matches.into_iter().take(15).map(|(_, v)| v).collect())
+}
+pub(crate) async fn anidb_scan_id(state:&AppState,client:&reqwest::Client,title:&str,language:&str)->Result<String,String> {
+    let matches=anidb_lookup(state,client,title,None,false,language).await?;
+    anidb_unique_title_id(&matches)
+}
+fn anidb_unique_title_id(matches:&[Value])->Result<String,String> {
+    let exact=matches.iter().filter(|v|v["exact_title_match"]==true).collect::<Vec<_>>();
+    if exact.len()!=1 {return Err("AniDB title match is unavailable or ambiguous; select the correct result in Identify.".into());}
+    exact[0]["id"].as_str().map(str::to_string).ok_or_else(||"Invalid AniDB match ID.".into())
 }
 fn anidb_poster(xml:&str)->Result<Option<String>,String> {
     let root=xmltree::Element::parse(xml.as_bytes()).map_err(|_|"Invalid AniDB record.")?;
@@ -918,6 +927,14 @@ async fn anidb_lookup(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn anidb_scan_selects_only_unique_exact_alias_matches() {
+        let xml=r#"<animetitles><anime aid="1"><title type="main" xml:lang="x-jat">Dragon Ball</title><title type="official" xml:lang="en">Dragon Ball</title></anime><anime aid="2"><title type="main" xml:lang="en">Dragon Ball Z</title></anime></animetitles>"#;
+        let matches=anidb_titles(xml,"Dragon Ball","en").unwrap();
+        assert_eq!(anidb_unique_title_id(&matches).unwrap(),"1");
+        assert!(anidb_unique_title_id(&anidb_titles(xml,"Dragon","en").unwrap()).is_err());
+        assert!(anidb_unique_title_id(&[json!({"id":"1","exact_title_match":true}),json!({"id":"2","exact_title_match":true})]).is_err());
+    }
     #[test]
     fn anidb_preview_extracts_only_a_safe_poster_filename() {
         assert_eq!(super::anidb_poster("<anime><picture>123.jpg</picture></anime>").unwrap().as_deref(),Some("https://cdn-eu.anidb.net/images/main/123.jpg"));

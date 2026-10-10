@@ -925,16 +925,21 @@ async fn anidb(
     entry: &NativeCatalogEntry,
     parent: &Value,
 ) -> Result<Data, String> {
-    let aid = if entry.kind == "episode" {
-        id(parent, "anidb")
-    } else {
-        id(&entry.metadata, "anidb")
-    }
-    .ok_or(
-        "AniDB requires an anime ID in local NFO metadata; automatic title guessing is not used.",
-    )?;
+    let known=if entry.kind=="episode" {id(parent,"anidb")} else {id(&entry.metadata,"anidb")};
+    let automatic=known.is_none();
+    let aid=if let Some(aid)=known {aid} else if ["series","movie"].contains(&entry.kind.as_str()) {
+        if setting(state,"anidb_client").is_empty() || setting(state,"anidb_client_version").is_empty() {return Err("Configure your registered AniDB HTTP client name and version in Search Providers.".into());}
+        crate::native_identify::anidb_scan_id(state,client,&super::native_provider::search_title(entry),&library.options.metadata_language).await?
+    } else {return Err("AniDB requires the parent anime ID; identify the series first.".into());};
     let xml = anidb_document(state, client, &aid).await?;
     let root = parse_anidb(&xml)?;
+    if automatic {
+        let movie=text(&root,"type").as_str().is_some_and(|v|v.eq_ignore_ascii_case("movie"));
+        let matched_year=year(&text(&root,"startdate"));
+        if movie!=(entry.kind=="movie") || entry.metadata["year"].as_i64().is_some_and(|y|matched_year!=Some(y)) {
+            return Err("AniDB title match has a different year or media type; select the correct result in Identify.".into());
+        }
+    }
     let restricted = root
         .attributes
         .get("restricted")

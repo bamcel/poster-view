@@ -779,7 +779,7 @@ async fn enrich_one(
         {
             continue;
         }
-        let _slot = crate::workers::network().await;
+        let _slot = if provider_name == "anidb" {None} else {Some(crate::workers::network().await)};
         let gate = crate::workers::provider(&provider_name).await;
         drop(gate);
         if context
