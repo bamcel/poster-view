@@ -29,3 +29,13 @@ it("allows cleanup when only obsolete records are eligible",async()=>{
  expect((clean as HTMLButtonElement).disabled).toBe(false);
  expect(screen.getByText(/3 obsolete records/)).toBeTruthy();
 });
+
+it("clears automatic provider caches only after confirmation",async()=>{
+ vi.mocked(apiRequest).mockImplementation(async url=>url.endsWith("provider-cache")?{files:0,bytes:0,result:"Provider cache cleared."}:[task]);
+ const confirm=vi.spyOn(window,"confirm").mockReturnValue(false);
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><ScheduledTasks/></QueryClientProvider>);
+ const clear=await screen.findByRole("button",{name:"Clear provider cache"});fireEvent.click(clear);
+ expect(apiRequest).not.toHaveBeenCalledWith("/tasks/provider-cache",{method:"DELETE"});
+ confirm.mockReturnValue(true);fireEvent.click(clear);
+ await waitFor(()=>expect(apiRequest).toHaveBeenCalledWith("/tasks/provider-cache",{method:"DELETE"}));confirm.mockRestore();
+});

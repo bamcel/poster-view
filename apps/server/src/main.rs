@@ -28,7 +28,6 @@ async fn main() -> anyhow::Result<()> {
     )
     .context("could not initialize administrator authentication")?
     .with_authentication(config.auth_enabled);
-    tokio::spawn(watchdog_loop(Arc::clone(&runtime)));
 
     let listener = TcpListener::bind(config.bind)
         .await
@@ -43,21 +42,6 @@ async fn main() -> anyhow::Result<()> {
     .with_graceful_shutdown(shutdown_signal())
     .await
     .context("PosterView server stopped unexpectedly")
-}
-
-async fn watchdog_loop(runtime: Arc<Runtime>) {
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
-    loop {
-        interval.tick().await;
-        for server in runtime.list_servers().unwrap_or_default() {
-            if runtime.watchdog_due(server.id).unwrap_or(false) {
-                let runtime = Arc::clone(&runtime);
-                tokio::spawn(async move {
-                    let _ = runtime.run_watchdog(server.id).await;
-                });
-            }
-        }
-    }
 }
 
 async fn shutdown_signal() {

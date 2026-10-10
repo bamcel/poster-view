@@ -236,9 +236,15 @@ impl Runtime {
         Ok(cache)
     }
 
-    fn clear_all_artwork_caches(&self) -> Result<(), RuntimeError> {
-        for server in self.list_servers()? {
-            self.server_artwork_cache(server.id)?.clear()?;
+    pub fn clear_all_artwork_caches(&self) -> Result<(), RuntimeError> {
+        let directory=self.data_dir.join("artwork-cache/servers");
+        if directory.is_dir() && !directory.is_symlink() {
+            let mut caches=self.server_artwork_caches.lock().map_err(|_|std::io::Error::other("cache lock poisoned"))?;
+            for entry in std::fs::read_dir(directory)? {
+                let entry=entry?;if !entry.file_type()?.is_dir(){continue;}
+                let Ok(id)=entry.file_name().to_string_lossy().parse::<i64>() else {continue;};
+                caches.entry(id).or_insert_with(||Arc::new(crate::ArtworkCache::at(entry.path()))).clear()?;
+            }
         }
         self.artwork_cache.remove_matching("")?;
         Ok(())
@@ -389,29 +395,23 @@ impl Runtime {
         if server_id != 0 && store.get_server(server_id)?.is_none() {
             return Err(RuntimeError::Watchdog("Media server not found.".to_owned()));
         }
-        let get = |name: &str, fallback: &str| -> Result<String, RuntimeError> {
-            let value = store.get_setting(&Self::server_setting(server_id, name))?;
-            if value.is_empty() {
-                let legacy = store.get_setting(name)?;
-                Ok(if legacy.is_empty() {
-                    fallback.to_owned()
-                } else {
-                    legacy
-                })
-            } else {
-                Ok(value)
+        Ok(ArtworkCacheSettings {max_mb:250,ttl_days:30,watchdog_enabled:false,watchdog_interval_hours:24})
+    }
+
+    pub fn cleanup_provider_cache(&self, apply: bool) -> Result<(usize,u64), RuntimeError> {
+        let mut usage=self.artwork_cache.expired_usage(30,apply)?;
+        let directory=self.data_dir.join("artwork-cache/servers");
+        if directory.is_dir() && !directory.is_symlink() {
+            let mut caches=self.server_artwork_caches.lock().map_err(|_| std::io::Error::other("cache lock poisoned"))?;
+            for entry in std::fs::read_dir(directory)? {
+                let entry=entry?;
+                if !entry.file_type()?.is_dir() {continue;}
+                let Ok(id)=entry.file_name().to_string_lossy().parse::<i64>() else {continue;};
+                let cache=caches.entry(id).or_insert_with(||Arc::new(crate::ArtworkCache::at(entry.path())));
+                let removed=cache.expired_usage(30,apply)?;usage.files+=removed.files;usage.bytes+=removed.bytes;
             }
-        };
-        Ok(ArtworkCacheSettings {
-            max_mb: parse_nonnegative(&get("artwork_cache_max_mb", "250")?, 250).max(25),
-            ttl_days: parse_nonnegative(&get("artwork_cache_ttl_days", "30")?, 30).max(1),
-            watchdog_enabled: get("artwork_watchdog_enabled", "false")? == "true",
-            watchdog_interval_hours: parse_nonnegative(
-                &get("artwork_watchdog_interval_hours", "24")?,
-                24,
-            )
-            .clamp(6, 168),
-        })
+        }
+        Ok((usage.files,usage.bytes))
     }
 
     pub fn artwork_cache_status(&self, server_id: i64) -> Result<ArtworkCacheStatus, RuntimeError> {

@@ -188,6 +188,19 @@ impl ArtworkCache {
         Ok(usage)
     }
 
+    pub fn expired_usage(&self, ttl_days: i64, apply: bool) -> io::Result<CacheUsage> {
+        let _guard=self.lock.lock().map_err(|_|io::Error::other("cache lock poisoned"))?;
+        if self.root.is_symlink() || self.root.join(METADATA_DIR).is_symlink() || self.root.join(IMAGE_DIR).is_symlink() {return Ok(CacheUsage::default());}
+        let mut usage=CacheUsage::default();
+        for entry in cache_entries(&self.root)? {
+            if !expired(entry.cached_at,ttl_days) {continue;}
+            if entry.paths.iter().any(|p|p.is_symlink()) {continue;}
+            usage.files+=entry.paths.iter().filter(|p|p.is_file()).count();usage.bytes+=entry.bytes;
+            if apply {remove_entry(&entry)?;}
+        }
+        Ok(usage)
+    }
+
     pub fn prune(&self, max_mb: i64, ttl_days: i64) -> io::Result<()> {
         let _guard = self
             .lock
@@ -407,6 +420,15 @@ fn expired(cached_at: u64, ttl_days: i64) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn expired_cache_preview_and_cleanup_keep_fresh_entries() {
+        let temp=tempfile::tempdir().unwrap();let cache=super::ArtworkCache::new(temp.path());cache.initialize().unwrap();
+        let stale=cache.metadata_path("stale");std::fs::write(&stale,serde_json::json!({"key":"stale","cached_at":super::now()-31*86400,"accessed_at":super::now(),"value":{}}).to_string()).unwrap();
+        cache.put_json("fresh",&serde_json::json!({}),250,30).unwrap();
+        assert_eq!(cache.expired_usage(30,false).unwrap().files,1);assert!(stale.exists());
+        assert_eq!(cache.expired_usage(30,true).unwrap().files,1);assert!(!stale.exists());assert!(cache.metadata_path("fresh").exists());
+    }
+
     use super::ArtworkCache;
 
     #[test]

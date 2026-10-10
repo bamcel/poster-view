@@ -30,7 +30,6 @@ import {
 import NativeProviderCredentials from "../components/NativeProviderCredentials";
 import { api, type ServerInput } from "../api/client";
 import { useToast } from "../lib/toast";
-import WatchdogStatus from "../components/WatchdogStatus";
 import { ServerTypeBadge, Switch } from "../components/ui";
 import type { AppearanceSettings, ConnectionTest, Server, ServerType } from "../types";
 import {
@@ -129,7 +128,7 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
           {(tab === "plugins" || tab === "servers" || tab === "artwork") && <PluginsPage artworkOpen={tab === "artwork" || artworkOpen} onArtworkOpen={()=>setArtworkOpen(true)} open={tab === "servers" || pluginOpen} onOpen={()=>setPluginOpen(true)} onClose={()=>{setPluginOpen(false);setArtworkOpen(false);if(tab === "servers" || tab === "artwork") navigate("/settings/plugins");}}/>}
           {tab === "libraries" && <NativeLibrariesSection />}
           {tab === "sources" && <ArtworkSourcesSection />}
-          {tab === "tasks" && <div className="h-full overflow-y-auto"><div><ScheduledTasks/></div><details className="mt-4"><summary className="cursor-pointer text-sm text-muted">Connected server cache settings</summary><DatabaseSection/></details></div>}
+          {tab === "tasks" && <div className="h-full overflow-y-auto"><div><ScheduledTasks/></div></div>}
           {tab === "appearance" && <AppearanceSection preview={!!previewSection} />}
           {tab === "security" && <SecuritySection />}
         </div>
@@ -855,28 +854,6 @@ function TmdbCredentialsFields() {
   </form></ProviderConnection>;
 }
 
-function DatabaseSection() {
-  const serversQ = useQuery({ queryKey: ["servers"], queryFn: api.listServers });
-  return (
-    <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
-      <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <Database className="size-5 text-accent" /> Connected server caches
-      </h2>
-      <p className="mb-3 text-sm text-faint">
-        Manage cached artwork and control background preloading.
-      </p>
-      <div className="space-y-4">
-        {serversQ.data?.map((server) => <ArtworkCacheFields key={server.id} server={server} />)}
-        {!serversQ.isLoading && serversQ.data?.length === 0 && (
-          <p className="rounded-xl border border-border bg-surface-2 p-4 text-sm text-faint">
-            Add a media server before configuring cache services.
-          </p>
-        )}
-      </div>
-    </section>
-  );
-}
-
 const ARTWORK_DATABASES = [
   { name: "deviantart", label: "DeviantArt" },
   { name: "posterdb", label: "ThePosterDB" },
@@ -941,196 +918,6 @@ export function DefaultArtworkSourcesFields({flat=false}:{flat?:boolean}={}) {
       <DefaultArtworkSourceFields kind={group.kind} names={group.names} />
     </div>)}
   </div>;
-}
-
-function ArtworkCacheFields({ server }: { server: Server }) {
-  const toast = useToast();
-  const queryClient = useQueryClient();
-  const cacheQ = useQuery({
-    queryKey: ["artwork-cache", server.id],
-    queryFn: () => api.getArtworkCache(server.id),
-    refetchInterval: (query) => query.state.data?.watchdog_running ? 1500 : 30000,
-  });
-  const [maxMb, setMaxMb] = useState(250);
-  const [ttlDays, setTtlDays] = useState(30);
-  const [watchdogEnabled, setWatchdogEnabled] = useState(false);
-  const [watchdogInterval, setWatchdogInterval] = useState(24);
-
-  useEffect(() => {
-    if (!cacheQ.data) return;
-    setMaxMb(cacheQ.data.max_mb);
-    setTtlDays(cacheQ.data.ttl_days);
-    setWatchdogEnabled(cacheQ.data.watchdog_enabled);
-    setWatchdogInterval(cacheQ.data.watchdog_interval_hours);
-  }, [cacheQ.data]);
-
-  const saveMut = useMutation({
-    mutationFn: (next: Partial<{ max_mb: number; ttl_days: number; watchdog_enabled: boolean; watchdog_interval_hours: number }>) => api.setArtworkCache(server.id, {
-      max_mb: next.max_mb ?? maxMb,
-      ttl_days: next.ttl_days ?? ttlDays,
-      watchdog_enabled: next.watchdog_enabled ?? watchdogEnabled,
-      watchdog_interval_hours: next.watchdog_interval_hours ?? watchdogInterval,
-    }),
-    onMutate: () => reportSettingsSave("saving"),
-    onSuccess: (status) => {
-      queryClient.setQueryData(["artwork-cache", server.id], status);
-      reportSettingsSave("saved");
-    },
-    onError: (e: Error) => {
-      reportSettingsSave("error");
-      queryClient.invalidateQueries({ queryKey: ["artwork-cache", server.id] });
-      toast.push("error", e.message);
-    },
-  });
-
-  const clearMut = useMutation({
-    mutationFn: () => api.clearArtworkCache(server.id),
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["artwork-cache", server.id] });
-      queryClient.removeQueries({ queryKey: ["artwork"], predicate: (query) => query.queryKey[2] === server.id });
-      queryClient.removeQueries({ queryKey: ["artwork-search"], predicate: (query) => query.queryKey[2] === server.id });
-      queryClient.removeQueries({ queryKey: ["posterdb-verify"], predicate: (query) => query.queryKey[1] === server.id });
-      toast.push("info", `Cleared ${formatBytes(result.cleared_bytes)} of artwork cache for "${server.name}".`);
-    },
-    onError: (e: Error) => toast.push("error", e.message),
-  });
-
-  const watchdogMut = useMutation({
-    mutationFn: () => api.runArtworkWatchdog(server.id),
-    onSuccess: (result) => {
-      queryClient.setQueryData(["artwork-cache", server.id], (current: typeof cacheQ.data) => current ? { ...current, watchdog_running: true, watchdog_state: "scanning", watchdog_current_title: null, watchdog_progress_current: 0, watchdog_progress_total: 0, watchdog_cancel_requested: false } : current);
-      toast.push("info", result.message.replace(/Watchdog/gi, "Sync"));
-    },
-    onError: (e: Error) => toast.push("error", e.message),
-  });
-
-  const cancelMut = useMutation({
-    mutationFn: () => api.cancelArtworkWatchdog(server.id),
-    onSuccess: (result) => {
-      queryClient.setQueryData(["artwork-cache", server.id], (current: typeof cacheQ.data) => current ? { ...current, watchdog_cancel_requested: true, watchdog_state: "stopping" } : current);
-      toast.push("info", result.message.replace(/Watchdog/gi, "Sync"));
-    },
-    onError: (e: Error) => toast.push("error", e.message),
-  });
-
-  const used = cacheQ.data?.used_bytes ?? 0;
-  const limitBytes = Math.max(1, cacheQ.data?.max_mb ?? maxMb) * 1024 * 1024;
-  const percent = Math.min(100, (used / limitBytes) * 100);
-
-  return (
-    <div className="rounded-xl border border-border bg-surface-2 p-4">
-      <h3 className="mb-1 flex items-start gap-2 break-words text-base font-semibold text-white">
-        <HardDrive className="size-4 shrink-0 text-accent" /> {cacheQ.data?.server_name ?? server.name}
-      </h3>
-      <p className="mb-4 text-xs text-faint">
-        Stores artwork for this server and uses Sync to preload new titles automatically.
-      </p>
-
-      <div className="mb-4 rounded-lg border border-border bg-base/30 p-3">
-        <div className="mb-2 flex items-center justify-between text-xs">
-          <span className="text-muted">{formatBytes(used)} used</span>
-          <span className="text-faint">{cacheQ.data?.file_count ?? 0} cached items</span>
-        </div>
-        <div className="h-2 overflow-hidden rounded-full bg-base">
-          <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <Field label="Maximum Storage">
-          <select className={inputCls} value={maxMb} disabled={saveMut.isPending} onChange={(e) => {
-            const value = Number(e.target.value);
-            setMaxMb(value);
-            saveMut.mutate({ max_mb: value });
-          }}>
-            <option value={100}>100 MB</option>
-            <option value={250}>250 MB</option>
-            <option value={500}>500 MB</option>
-            <option value={1024}>1 GB</option>
-            <option value={2048}>2 GB</option>
-          </select>
-        </Field>
-        <Field label="Remove Unused Items After">
-          <select className={inputCls} value={ttlDays} disabled={saveMut.isPending} onChange={(e) => {
-            const value = Number(e.target.value);
-            setTtlDays(value);
-            saveMut.mutate({ ttl_days: value });
-          }}>
-            <option value={7}>7 days</option>
-            <option value={14}>14 days</option>
-            <option value={30}>30 days</option>
-            <option value={60}>60 days</option>
-            <option value={90}>90 days</option>
-          </select>
-        </Field>
-        <div>
-          <div className="mb-1 flex items-center justify-between gap-2 text-xs font-medium text-muted">
-            <span>Automatic Sync</span>
-            <Switch label={`Enable Sync for ${server.name}`} checked={watchdogEnabled} disabled={saveMut.isPending || cacheQ.isLoading}
-              onChange={() => {
-                const enabled = !watchdogEnabled;
-                setWatchdogEnabled(enabled);
-                saveMut.mutate({ watchdog_enabled: enabled });
-              }} />
-          </div>
-            <select aria-label="Run automatically every" className={inputCls} value={watchdogInterval} onChange={(e) => {
-              const value = Number(e.target.value);
-              setWatchdogInterval(value);
-              saveMut.mutate({ watchdog_interval_hours: value });
-            }} disabled={!watchdogEnabled || saveMut.isPending}>
-              <option value={6}>6 hours</option>
-              <option value={12}>12 hours</option>
-              <option value={24}>24 hours</option>
-              <option value={72}>3 days</option>
-              <option value={168}>7 days</option>
-            </select>
-        </div>
-      </div>
-      <p className="mt-2 text-xs text-faint">Sync scans this server’s libraries, preloads newly added titles, and cleans up removed titles after a complete scan.</p>
-      <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => watchdogMut.mutate()}
-              disabled={watchdogMut.isPending || cacheQ.data?.watchdog_running}
-              className="flex items-center justify-center gap-2 rounded-lg border border-border bg-button px-4 py-2 text-sm font-medium text-white hover:bg-button-hover disabled:opacity-50"
-            >
-              {(watchdogMut.isPending || cacheQ.data?.watchdog_running) && <Loader2 className="size-4 animate-spin" />}
-              {watchdogMut.isPending || cacheQ.data?.watchdog_running ? "Syncing Artwork" : "Sync"}
-            </button>
-            {cacheQ.data?.watchdog_running && (
-              <button
-                type="button"
-                onClick={() => cancelMut.mutate()}
-                disabled={cancelMut.isPending || cacheQ.data.watchdog_cancel_requested}
-                className="flex shrink-0 items-center justify-center gap-2 rounded-lg border border-danger px-4 py-2 text-sm font-medium text-danger hover:bg-danger/10 disabled:opacity-50"
-              >
-                {cancelMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
-                {cacheQ.data.watchdog_cancel_requested ? "Stopping…" : "Cancel"}
-              </button>
-            )}
-        <button
-          onClick={() => {
-            if (confirm(`Clear the artwork cache for "${server.name}" (${server.base_url}, ID ${server.id})?\n\nThis removes ${formatBytes(used)} of cached provider results, PosterDB data, and provider thumbnails for this server. Artwork will be downloaded again when needed. Applied artwork, media files, and other servers’ caches are kept.`)) clearMut.mutate();
-          }}
-          disabled={clearMut.isPending || used === 0 || cacheQ.data?.watchdog_running}
-          className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
-        >
-          {clearMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-          Clear cache
-        </button>
-      </div>
-      {cacheQ.data && <WatchdogStatus status={cacheQ.data} starting={watchdogMut.isPending} stopping={cancelMut.isPending}
-        error={watchdogMut.error?.message || cancelMut.error?.message} />}
-      {cacheQ.isError && <p role="alert" className="mt-3 text-sm text-danger">Could not load Sync status. <button type="button" onClick={() => cacheQ.refetch()} className="underline">Retry</button></p>}
-
-    </div>
-  );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function ArtworkCredentialsFields() {

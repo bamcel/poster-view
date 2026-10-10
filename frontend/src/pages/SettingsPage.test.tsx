@@ -20,11 +20,6 @@ vi.mock("../api/client", () => ({
     setLibraryVisibility: vi.fn(),
     getArtworkSettings: vi.fn(),
     setArtworkSettings: vi.fn(),
-    getArtworkCache: vi.fn(),
-    setArtworkCache: vi.fn(),
-    clearArtworkCache: vi.fn(),
-    runArtworkWatchdog: vi.fn(),
-    cancelArtworkWatchdog: vi.fn(),
     posterdbStatus: vi.fn(),
     posterdbLogin: vi.fn(),
     testArtworkProvider: vi.fn(),
@@ -324,56 +319,6 @@ it("groups existing providers without disable controls or new metadata providers
   client.clear();
 });
 
-it("shows an independent cache panel and cancellation control for each server", async () => {
-  vi.mocked(api.listServers).mockResolvedValue([{
-    id: 7,
-    name: "Jellyfin",
-    type: "jellyfin",
-    base_url: "http://jellyfin:8096",
-    is_default: true,
-    nfo_metadata_enabled: false,
-    has_token: true,
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:00:00Z",
-  }]);
-  vi.mocked(api.getArtworkCache).mockResolvedValue({
-    server_id: 7,
-    server_name: "Jellyfin",
-    max_mb: 500,
-    ttl_days: 30,
-    used_bytes: 1024,
-    file_count: 2,
-    watchdog_enabled: true,
-    watchdog_interval_hours: 24,
-    watchdog_running: true,
-    watchdog_last_run: null,
-    watchdog_last_message: null,
-    watchdog_progress_current: 1,
-    watchdog_progress_total: 10,
-    watchdog_current_title: "Movie",
-    watchdog_cancel_requested: false,
-  });
-  vi.mocked(api.cancelArtworkWatchdog).mockResolvedValue({
-    ok: true,
-    message: "Watchdog cancellation requested.",
-    providers_warmed: 0,
-  });
-
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
-    <MemoryRouter initialEntries={["/settings?tab=database"]}>
-      <QueryClientProvider client={client}>
-        <SettingsPage />
-      </QueryClientProvider>
-    </MemoryRouter>,
-  );
-
-  expect((await screen.findByRole("heading", { name: "Jellyfin" })).classList.contains("text-white")).toBe(true);
-  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
-  await waitFor(() => expect(api.cancelArtworkWatchdog).toHaveBeenCalledWith(7));
-  expect(await screen.findByText("Syncing Artwork: Stopping")).toBeTruthy();
-  client.clear();
-});
 
 it("keeps each provider test result inside its own card", async () => {
   vi.mocked(api.getArtworkSettings).mockResolvedValue({
@@ -411,33 +356,6 @@ it("identifies the server and affected data before deleting its connection", asy
   client.clear();
 });
 
-it("confirms a specific server cache and keeps another server's browser cache intact", async () => {
-  const servers = [19, 31].map(id => ({ id, name: `Family ${id}`, type: "jellyfin" as const, base_url: `http://family-${id}:8096`, is_default: false, nfo_metadata_enabled: false, has_token: true, created_at: "", updated_at: "" }));
-  vi.mocked(api.listServers).mockResolvedValue(servers);
-  vi.mocked(api.getArtworkCache).mockImplementation(async id => ({ server_id: id, server_name: `Family ${id}`, max_mb: 250, ttl_days: 30, used_bytes: 2048, file_count: 2, watchdog_enabled: false, watchdog_interval_hours: 24, watchdog_running: false, watchdog_state: "idle", watchdog_progress_current: 0, watchdog_progress_total: 0, watchdog_cancel_requested: false }));
-  vi.mocked(api.clearArtworkCache).mockResolvedValue({ cleared_bytes: 2048, cleared_files: 2 });
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const artworkA = ["artwork", "mediux", 19, "one"];
-  const artworkB = ["artwork", "mediux", 31, "one"];
-  client.setQueryData(artworkA, "A");
-  client.setQueryData(artworkB, "B");
-  render(<MemoryRouter initialEntries={["/settings?tab=database"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
-  const card = (await screen.findByRole("heading", { name: "Family 19" })).parentElement!;
-  const clear = within(card).getByRole("button", { name: "Clear cache" });
-  await waitFor(() => expect(clear.hasAttribute("disabled")).toBe(false));
-  fireEvent.click(clear);
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('"Family 19" (http://family-19:8096, ID 19)'));
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("2.0 KB"));
-  expect(api.clearArtworkCache).not.toHaveBeenCalled();
-  confirm.mockReturnValue(true);
-  fireEvent.click(clear);
-  await waitFor(() => expect(api.clearArtworkCache).toHaveBeenCalledWith(19));
-  await waitFor(() => expect(client.getQueryData(artworkA)).toBeUndefined());
-  expect(client.getQueryData(artworkB)).toBe("B");
-  confirm.mockRestore();
-  client.clear();
-});
 
 it("tests edited server settings with the saved key without saving the edits", async () => {
   vi.mocked(api.listServers).mockResolvedValue([{ id: 7, name: "Emby", type: "emby", base_url: "http://old:8096", has_token: true, is_default: true, nfo_metadata_enabled: false, created_at: "", updated_at: "" }]);

@@ -344,11 +344,12 @@ pub(crate) async fn preview(State(state): State<AppState>) -> Result<Json<Report
             .find(|t| t.id == "cleanup")
             .unwrap();
         let files = candidates(&state, &task)?;
+        let cached=if task.cleanup_cache {state.runtime.cleanup_provider_cache(false).map_err(bad)?} else {(0,0)};
         Ok(Json(Report {
             records: cleanup_records(&state,&task,false)? + if task.cleanup_reader {state.reader.cleanup_orphans(false)?} else {0},
-            files: files.len(),
+            files: files.len()+cached.0,
             placeholders:hidden_libraries(&state,&task)?.iter().map(|(_,_,count)|count).sum(),
-            bytes: files.iter().map(|f| f.bytes).sum(),
+            bytes: files.iter().map(|f| f.bytes).sum::<u64>()+cached.1,
             result: "Eligible files after retention and reference checks.".into(),
         }))
     })
@@ -374,6 +375,7 @@ async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
                         if name.ends_with(".gif")||name.ends_with(".webm") {let still=format!("{}.still.png",name.rsplit_once('.').unwrap().0);let mut hash=std::collections::hash_map::DefaultHasher::new();still.hash(&mut hash);grace.insert(format!("{:016x}",hash.finish()),since);}
                     }}db.set_setting("cleanup-unreferenced",&serde_json::to_string(&grace).map_err(bad)?).map_err(bad)?;
                 }
+                if task.cleanup_cache {let cached=state.runtime.cleanup_provider_cache(true).map_err(bad)?;report.files+=cached.0;report.bytes+=cached.1;}
                 let candidates=candidates(&state,task)?;for file in candidates {let meta=std::fs::symlink_metadata(&file.path).map_err(bad)?;if meta.file_type().is_symlink()||!meta.is_file()||!old(&meta,task.retention_days){continue;}std::fs::remove_file(&file.path).map_err(bad)?;report.files+=1;report.bytes+=file.bytes;}report.result=format!("Removed {} obsolete records, {} hidden placeholders and {} unused files ({} bytes).",report.records,report.placeholders,report.files,report.bytes);Ok(report)},
             "database"=>{let db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;let health:String=db.query_row("PRAGMA quick_check",[],|r|r.get(0)).map_err(bad)?;if health!="ok"{return Err(bad(format!("Database check: {health}")));}db.execute_batch("PRAGMA optimize; PRAGMA wal_checkpoint(PASSIVE);").map_err(bad)?;Ok(Report{result:"Database health check passed; optimization and passive checkpoint completed.".into(),..Default::default()})},
             _=>Err(HttpError::not_found()),
@@ -381,6 +383,18 @@ async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
         task.last_run=now();task.last_result=match &result {Ok(r)=>r.result.clone(),Err(e)=>format!("Failed: {}",e.detail)};save(&state,&tasks)?;result
     }).await.map_err(bad)?
 }
+pub(crate) async fn clear_provider_cache(State(state): State<AppState>) -> Result<Json<Report>, HttpError> {
+    let _guard=RUN_LOCK.try_lock().map_err(|_|bad("Wait for the current maintenance task to finish."))?;
+    tokio::task::spawn_blocking(move || {
+        state.runtime.clear_all_artwork_caches().map_err(bad)?;
+        let db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;
+        db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;
+        let keys=db.prepare("SELECT key FROM settings WHERE key LIKE 'expected-episodes:%' OR key LIKE 'native_anidb_%'").map_err(bad)?.query_map([],|r|r.get::<_,String>(0)).map_err(bad)?.collect::<Result<Vec<_>,_>>().map_err(bad)?;
+        for key in keys {if key.starts_with("expected-episodes:") || key.strip_prefix("native_anidb_").is_some_and(|id|!id.is_empty()&&id.bytes().all(|b|b.is_ascii_digit())){db.execute("DELETE FROM settings WHERE key=?1",[key]).map_err(bad)?;}}
+        Ok(Json(Report{result:"Provider cache cleared. Results and images will be downloaded again when needed.".into(),..Default::default()}))
+    }).await.map_err(bad)?
+}
+
 pub(crate) async fn run(
     State(state): State<AppState>,
     Path(id): Path<String>,
