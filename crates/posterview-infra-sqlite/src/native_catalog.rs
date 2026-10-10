@@ -11,6 +11,10 @@ fn animation_blocked(db: &rusqlite::Connection, item: &str, art: &NativeArtwork)
     Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM settings WHERE key=?1 AND value_enc='true')",[format!("removed-animation:{item}:{}",art.kind.trim_end_matches("-animated"))],|r|r.get(0))?)
 }
 impl ServerStore {
+    pub fn request_artwork_refresh(&self,library:&str,path:&str)->Result<(),StoreError>{
+        self.connection()?.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) SELECT item_id,'_identify_replace_artwork','true','manual',1 FROM native_catalog_sources WHERE library_id=?1 AND (relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/') ON CONFLICT(item_id,field) DO UPDATE SET value_json='true'",params![library,path])?;
+        Ok(())
+    }
     pub fn reset_provider_checks(&self,library:&str,path:&str)->Result<(),StoreError>{
         let mut db=self.connection()?;let tx=db.transaction()?;
         tx.execute("DELETE FROM catalog_metadata_fields WHERE field='_provider_check' AND item_id IN (SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND (relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/'))",params![library,path])?;
@@ -562,11 +566,13 @@ impl ServerStore {
         let mut stmt=tx.prepare("WITH RECURSIVE children(id) AS (SELECT ?1 UNION SELECT i.id FROM catalog_items i JOIN children c ON i.parent_id=c.id) SELECT id FROM children")?;
         let affected=stmt.query_map([item],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;drop(stmt);
         let old_ids:Option<String>=tx.query_row("SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field='identifiers'",[item],|r|r.get(0)).optional()?;
+        let refresh=replacement.is_some_and(|v|v["_refresh_from_providers"]==true);
         let changed=old_ids.as_deref().and_then(|v|serde_json::from_str::<Value>(v).ok()).as_ref()!=Some(identifiers);
         for id in &affected {
             let mut discarded:Value=tx.query_row("SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field='_identify_discarded'",[id],|r|r.get::<_,String>(0)).optional()?.and_then(|v|serde_json::from_str(&v).ok()).unwrap_or(json!({}));
             let fields=tx.prepare("SELECT field,value_json,source,locked FROM catalog_metadata_fields WHERE item_id=?1")?.query_map([id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,bool>(3)?)))?.collect::<Result<Vec<_>,_>>()?;
             for (field,raw,source,locked) in fields {
+                if refresh && field=="identifiers" {continue;}
                 let provider=["anilist","tmdb","tvdb","mal","anidb","jikan","omdb","fanart","comicvine","mangadex"].contains(&source.as_str());
                 let descriptive=!field.starts_with('_') && !["season","episode","volume","chapter","missing","media_info","posteredit","poseredit","backdropedit","colored_edition_effect","colored_title","colored_edition"].contains(&field.as_str());
                 let derived=["anilist_data","tmdb_data","tvdb_data","mal_data","anidb_data","jikan_data","jikan_checked","jikan_retry_after","voice_cast_schema","_provider_check"].contains(&field.as_str());
@@ -581,8 +587,9 @@ impl ServerStore {
             if changed || replacement.is_some(){tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_nfo_reset','true','manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json='true'",[id])?;}
             tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_discarded',?2,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json",params![id,discarded.to_string()])?;
             if changed && replacement.is_none(){tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('_identify_source','_identify_replace_artwork')",[id])?;}
-            if let Some(replacement)=replacement {tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_source','\"tvdb\"','manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json",[id])?;
-                let replace=id!=item && replacement["_identify_replace_artwork"]==true;
+            if let Some(replacement)=replacement {
+                if refresh {tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field='_identify_source'",[id])?;} else {tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_source','\"tvdb\"','manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json",[id])?;}
+                let replace=(refresh || id!=item) && replacement["_identify_replace_artwork"]==true;
                 tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_replace_artwork',?2,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json",params![id,replace.to_string()])?;
             }
         }
@@ -734,6 +741,14 @@ mod tests{
         assert_eq!(db.native_catalog(&library.id).unwrap()[0].title,"Wrong");
         db.identify_native_entry(&library.id,&before.id,before.revision,"Correct",Some(2014),&json!({"anilist":"20464"})).unwrap();
         let after=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(after.title,"Correct");assert_eq!(after.metadata["_title_locked"],false);db.edit_native_entry(&library.id,&after.id,after.revision,&json!({"_title_locked":true})).unwrap();let locked=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(locked.metadata["_title_locked"],true);db.edit_native_entry(&library.id,&locked.id,locked.revision,&json!({"_title_locked":false})).unwrap();assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["_title_locked"],false);assert!(after.metadata["plot"].is_null());assert_eq!(after.metadata["identifiers"],json!({"anilist":"20464"}));assert!(after.metadata["credits"].is_null());assert_eq!(after.artwork.len(),2);assert!(after.artwork.iter().any(|a|a.source=="local"));assert!(after.revision>before.revision);
+        let fresh=db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.id==before.id).unwrap();
+        db.identify_native_entry_with_metadata(&library.id,&fresh.id,fresh.revision,&fresh.title,None,&fresh.metadata["identifiers"],Some(&json!({"_refresh_from_providers":true,"_identify_replace_artwork":true}))).unwrap();
+        let refreshed=db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.id==fresh.id).unwrap();
+        assert_eq!(refreshed.metadata["identifiers"],fresh.metadata["identifiers"]);
+        assert!(refreshed.metadata["_identify_source"].is_null());
+        assert_eq!(refreshed.metadata["_identify_replace_artwork"],true);
+        assert_eq!(refreshed.artwork.len(),fresh.artwork.len());
+
     }
     #[test]
     fn tvdb_rewrite_clears_all_old_descriptions_and_refreshes_projected_data(){

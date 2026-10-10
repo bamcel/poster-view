@@ -725,7 +725,8 @@ async fn enrich_one(
         .image_providers
         .get(&entry.kind)
         .unwrap_or(&default);
-    let image_order=if entry.metadata["_identify_replace_artwork"]==true {selected_order.as_ref().unwrap_or(image_order)} else {image_order};
+    let replacement_images=vec!["tvdb".to_string()];
+    let image_order=if entry.metadata["_identify_replace_artwork"]==true && library.library_type!=NativeLibraryType::Books {&replacement_images} else {image_order};
     // Complete essential metadata first, then try image sources in their independent priority.
     // Cache responses so a provider selected for both purposes is fetched only once.
     let mut image_candidates = BTreeMap::<String, Vec<(String, String)>>::new();

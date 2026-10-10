@@ -419,3 +419,14 @@ it("confirms identification removal and preserves other fields",async()=>{
  fireEvent.click(screen.getByRole("button",{name:"Remove identification"}));
  await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",expect.objectContaining({id:"show"}),{identifiers:{}}));
 });
+
+it("offers refresh modes and sends explicit replacement choices",async()=>{
+ mount();fireEvent.contextMenu(await screen.findByTitle("Example Series · right-click for options"));
+ fireEvent.click(screen.getByRole("menuitem",{name:"Refresh Metadata"}));
+ expect((screen.getByLabelText("Refresh mode") as HTMLSelectElement).value).toBe("replace");
+ expect((screen.getByRole("switch",{name:"Replace existing video preview thumbnails"}) as HTMLInputElement).disabled).toBe(true);
+ fireEvent.change(screen.getByLabelText("Refresh mode"),{target:{value:"missing"}});
+ fireEvent.click(screen.getByRole("switch",{name:"Replace existing images"}));
+ fireEvent.click(screen.getByRole("button",{name:"Refresh"}));
+ await waitFor(()=>expect(nativeLibraries.scanFolder).toHaveBeenCalledWith("native","show",true,{replaceMetadata:false,replaceImages:true}));
+});

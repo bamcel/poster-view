@@ -505,11 +505,11 @@ export default function NativeLibraryBrowser({
                     setEditor({ id: entry.id, kind: "metadata" })
                   }
                   onRefresh={refresh}
-                  actions={["series","book_series"].includes(entry.kind)?[
+                  actions={["series","book_series","movie"].includes(entry.kind)?[
                     {label:"Edit Images",icon:<Images className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"artwork"})},
                     {label:"Identify",icon:<Fingerprint className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"identify"})},
                     {label:"Remove Identification",icon:<ListFilter className="size-4 shrink-0"/>,disabled:status.data?.status==="scanning",onClick:()=>setEditor({id:entry.id,kind:"remove-identification"})},
-                    {label:"Refresh Metadata",icon:<RefreshCw className="size-4 shrink-0"/>,disabled:status.data?.status==="scanning",onClick:()=>setEditor({id:entry.id,kind:entry.kind==="book_series"?"fetch-metadata":"refresh-metadata"})},
+                    {label:"Refresh Metadata",icon:<RefreshCw className="size-4 shrink-0"/>,disabled:status.data?.status==="scanning",onClick:()=>setEditor({id:entry.id,kind:"refresh-metadata"})},
                     ...(entry.kind==="series"||entry.kind==="book_series"?[{label:entry.kind==="series"?"View Missing Episodes":"View Missing Files",icon:<ListFilter className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"missing-files"})}]:[])
                   ]:[]}
                   onScan={["series","book_series","season"].includes(entry.kind)&&entry.metadata.missing!==true?()=>void scanFolder(entry):undefined}

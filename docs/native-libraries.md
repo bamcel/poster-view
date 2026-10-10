@@ -378,3 +378,7 @@ Server Connect is temporarily unavailable. Its plugin card, shortcuts, import ac
 Right-click an existing series folder card and choose Scan library files to run a visible manual scan limited to that folder hierarchy. Missing placeholders and individual media files do not offer the folder scan action.
 
 Series right-click actions include Edit Metadata, Edit Images, Identify, Remove Identification (confirmation; existing descriptions/art remain), Refresh Metadata (fill missing fields with current IDs), Scan library files and View Missing Episodes. Book series offer provider metadata previews and View Missing Files. No Delete action is provided.
+
+Refresh Metadata opens a dialog with Replace all metadata (default) or Search for missing metadata and an optional Replace existing images switch. Replacement clears descriptive values, including manual edits, while preserving current IDs, numbering, technical data and artwork. Image replacements use configured providers and only overwrite successfully downloaded types; animation is preserved. Video preview thumbnail regeneration is unavailable.
+
+For series, movies and anime, Refresh Metadata image replacement uses TVDB exclusively, independently of metadata provider priority. Book libraries retain configured image providers. Failed/missing TVDB replacements keep existing images without falling back to other providers.

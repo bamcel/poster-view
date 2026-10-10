@@ -545,9 +545,12 @@ pub(crate) async fn scan(
 pub(crate) async fn scan_folder(State(state):State<AppState>,Path((id,item)):Path<(String,String)>,axum::extract::Query(options):axum::extract::Query<std::collections::BTreeMap<String,String>>)->Result<(StatusCode,Json<serde_json::Value>),HttpError>{
  library(&state,&id).await?;
  let entry=store(&state).native_catalog(&id).map_err(error)?.into_iter().find(|e|e.id==item && e.available).ok_or_else(HttpError::not_found)?;
- if !["series","book_series","season"].contains(&entry.kind.as_str()) || entry.metadata["missing"]==true {return Err(HttpError::bad_request("Select an existing series or season folder."));}
+ if (!["series","book_series","season"].contains(&entry.kind.as_str()) && !(entry.kind=="movie" && options.get("refresh_metadata").is_some_and(|v|v=="true"))) || entry.metadata["missing"]==true {return Err(HttpError::bad_request("Select an existing series or season folder."));}
  let refresh=options.get("refresh_metadata").is_some_and(|v|v=="true");
- if refresh {if store(&state).native_scan_status(&id).map_err(error)?.status=="scanning" {return Err(HttpError::bad_request("Wait for the library scan to finish before refreshing metadata."));}store(&state).reset_provider_checks(&id,&entry.path).map_err(error)?;}
+ if refresh {if store(&state).native_scan_status(&id).map_err(error)?.status=="scanning" {return Err(HttpError::bad_request("Wait for the library scan to finish before refreshing metadata."));}let replace=options.get("replace_metadata").is_some_and(|v|v=="true");
+ let images=options.get("replace_images").is_some_and(|v|v=="true");
+ if replace {let replacement=serde_json::json!({"_refresh_from_providers":true,"_identify_replace_artwork":images});store(&state).identify_native_entry_with_metadata(&id,&item,entry.revision,&entry.title,None,&entry.metadata["identifiers"].as_object().cloned().map(serde_json::Value::Object).unwrap_or(serde_json::json!({})),Some(&replacement)).map_err(error)?;}else if images {store(&state).request_artwork_refresh(&id,&entry.path).map_err(error)?;}
+ store(&state).reset_provider_checks(&id,&entry.path).map_err(error)?;}
  start_scan_with_refresh(state,id,Some(vec![entry.path]),true,refresh).await?;
  Ok((StatusCode::ACCEPTED,Json(serde_json::json!({"status":"scanning"}))))
 }
