@@ -45,6 +45,7 @@ fn anilist_voice_cast(data: &Value) -> Value {
     json!(cast)
 }
 fn missing_images(entry: &NativeCatalogEntry, library: &NativeLibrary) -> Vec<String> {
+    if entry.metadata["_identify_replace_artwork"]==true {return library.options.image_types.clone();}
     library
         .options
         .image_types
@@ -459,7 +460,7 @@ fn image_path<'a>(data: &'a Value, list: &str, fallback: &str, language: &str) -
         .and_then(|a| a["file_path"].as_str())
         .or(data[fallback].as_str())
 }
-async fn download(state: &AppState, client: &reqwest::Client, url: &str) -> Result<String, String> {
+pub(crate) async fn download(state: &AppState, client: &reqwest::Client, url: &str) -> Result<String, String> {
     let url = reqwest::Url::parse(url).map_err(|_| "Invalid artwork URL.")?;
     if url.scheme() != "https"
         || !matches!(
@@ -712,16 +713,19 @@ async fn enrich_one(
     };
     let book_default = vec!["comicvine".to_owned(), "anilist".to_owned(), "mal".to_owned()];
     let metadata_default = if entry.kind == "book_series" { &book_default } else { &default };
+    let selected_order=entry.metadata["_identify_source"].as_str().filter(|p|*p=="tvdb").map(|p|vec![p.to_string()]);
     let metadata_order = library
         .options
         .metadata_providers
         .get(&entry.kind)
         .unwrap_or(metadata_default);
+    let metadata_order=selected_order.as_ref().unwrap_or(metadata_order);
     let image_order = library
         .options
         .image_providers
         .get(&entry.kind)
         .unwrap_or(&default);
+    let image_order=if entry.metadata["_identify_replace_artwork"]==true {selected_order.as_ref().unwrap_or(image_order)} else {image_order};
     // Complete essential metadata first, then try image sources in their independent priority.
     // Cache responses so a provider selected for both purposes is fetched only once.
     let mut image_candidates = BTreeMap::<String, Vec<(String, String)>>::new();
@@ -1162,6 +1166,7 @@ async fn download_candidates(
     artwork: &[(String, String)],
     warnings: &mut Vec<String>,
 ) {
+    let replacing=entry.metadata["_identify_replace_artwork"]==true;
     let needed = missing_images(entry, library);
     let mut candidates = BTreeMap::<String, Vec<(String, String)>>::new();
     for (kind, url) in artwork {
@@ -1200,7 +1205,13 @@ async fn download_candidates(
     while let Some(result) = jobs.join_next().await {
         match result {
             Ok((art, notices)) => {
-                if let Some(art) = art {
+                if let Some(mut art) = art {
+                    if replacing {
+                        art.source="manual".into();
+                        if let Err(e)=ServerStore::new(state.runtime.data_dir()).save_native_artwork(&library.id,&entry.id,&art){warnings.push(format!("{}: artwork replacement failed: {e}",entry.title));continue;}
+                        if library.options.save_artwork || crate::native_artwork::replacement_writes_local(state,entry,&art.kind) {if let Err(e)=crate::native_artwork::write(state,entry,&art,true){warnings.push(format!("{}: artwork saved; media-folder write failed: {e}",entry.title));}}
+                        entry.artwork.retain(|existing|existing.kind!=art.kind);
+                    }
                     entry.artwork.push(art);
                 }
                 warnings.extend(notices);
@@ -1210,6 +1221,10 @@ async fn download_candidates(
                 entry.title
             )),
         }
+    }
+    if replacing {
+        if let Err(e)=ServerStore::new(state.runtime.data_dir()).finish_identification_artwork(&entry.id){warnings.push(format!("Artwork refresh completion failed: {e}"));}
+        entry.metadata["_identify_replace_artwork"]=json!(false);
     }
     entry.artwork.sort_by(|a, b| a.kind.cmp(&b.kind));
 }

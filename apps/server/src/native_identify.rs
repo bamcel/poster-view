@@ -12,6 +12,10 @@ use serde_json::{Value, json};
 pub(crate) struct Search {
     title: String,
     year: Option<i64>,
+    #[serde(default)] provider: Option<String>,
+    #[serde(default)] tvdb_id: Option<String>,
+    #[serde(default)] imdb_id: Option<String>,
+    #[serde(default)] tmdb_id: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,6 +24,8 @@ pub(crate) struct Apply {
     title: String,
     year: Option<i64>,
     identifiers: std::collections::BTreeMap<String, String>,
+    #[serde(default)] rewrite_metadata: bool,
+    #[serde(default)] replace_artwork: bool,
 }
 fn db(state: &AppState) -> ServerStore {
     ServerStore::new(state.runtime.data_dir())
@@ -507,6 +513,31 @@ pub(crate) async fn search(
     Json(input): Json<Search>,
 ) -> Result<Json<Value>, HttpError> {
     let (lib, entry) = context(&state, &library, &item).await?;
+    if input.provider.as_deref()==Some("tvdb") {
+        if entry.kind!="series" {return Err(HttpError::bad_request("TVDB identification requires a series."));}
+        if input.title.len()>200 || input.year.is_some_and(|y|!(1800..=2200).contains(&y)){return Err(HttpError::bad_request("Enter valid search criteria."));}
+        let client=client()?;
+        let explicit=input.tvdb_id.as_deref().filter(|v|!v.trim().is_empty());
+        if explicit.is_some_and(|v|numeric(&json!(v)).is_none()){return Err(HttpError::bad_request("Enter a numeric TVDB ID."));}
+        let mut remote=input.imdb_id.clone().filter(|v|!v.trim().is_empty());
+        if remote.as_ref().is_some_and(|v|!v.starts_with("tt")||numeric(&json!(&v[2..])).is_none()){return Err(HttpError::bad_request("Enter a valid IMDb ID."));}
+        if let Some(id)=input.tmdb_id.as_deref().filter(|v|!v.trim().is_empty()) {
+            if numeric(&json!(id)).is_none(){return Err(HttpError::bad_request("Enter a numeric TMDB ID."));}
+            let records=lookup(&state,&client,"tmdb",&input.title,Some(id),false,(false,&lib.options.metadata_language,false)).await.map_err(HttpError::bad_gateway)?;
+            remote=records.first().and_then(|v|v["identifiers"]["imdb"].as_str()).map(str::to_string).or(remote);
+            if explicit.is_none() && remote.is_none(){return Err(HttpError::bad_request("That TMDB record has no linked IMDb ID. Search by title or TVDB ID instead."));}
+        }
+        let results=if explicit.is_some() || remote.is_none() {
+            if explicit.is_none()&&input.title.trim().len()<2 {return Err(HttpError::bad_request("Enter a title or provider ID."));}
+            lookup(&state,&client,"tvdb",&input.title,explicit,false,(false,&lib.options.metadata_language,false)).await.map_err(HttpError::bad_gateway)?
+        }else{
+            let token=key(&state,"tvdb_api_key");if token.is_empty(){return Err(HttpError::bad_request("Configure TheTVDB credentials in Search Providers."));}
+            let remote=remote.unwrap();let mut query=vec![("type","series"),("remote_id",remote.as_str())];if !input.title.trim().is_empty(){query.push(("query",input.title.as_str()));}
+            let raw=crate::native_provider::response(posterview_infra_artwork::ArtworkService::default().native_tvdb_get("/search",&query,&token,&key(&state,"tvdb_pin")).await.map_err(HttpError::bad_gateway)?).await.map_err(HttpError::bad_gateway)?;
+            raw["data"].as_array().into_iter().flatten().filter_map(|v|candidate("tvdb",&localized_tvdb(v,&lib.options.metadata_language),false)).collect()
+        };
+        return Ok(Json(json!({"groups":[{"provider":"tvdb","results":results.into_iter().filter(|v|input.year.is_none_or(|y|v["year"].is_null()||v["year"]==y)).collect::<Vec<_>>()}]})));
+    }
     if input.title.trim().len() < 2
         || input.title.len() > 200
         || input.year.is_some_and(|y| !(1800..=2200).contains(&y))
@@ -564,6 +595,8 @@ pub(crate) async fn apply(
     Json(mut input): Json<Apply>,
 ) -> Result<Json<Value>, HttpError> {
     let (lib, entry) = context(&state, &library, &item).await?;
+    let _sync_guard=crate::native_sync::RUN_LOCK.try_lock().map_err(|_|HttpError::bad_request("Wait for server sync to finish before changing identity."))?;
+    if input.replace_artwork&&!input.rewrite_metadata{return Err(HttpError::bad_request("Artwork replacement requires metadata rewrite confirmation."));}
     if input.title.trim().is_empty()
         || input.title.len() > 512
         || input.year.is_some_and(|y| !(1800..=2200).contains(&y))
@@ -577,7 +610,8 @@ pub(crate) async fn apply(
         *id = comicvine_id(id).ok_or_else(|| HttpError::bad_request("Enter a ComicVine volume ID or series URL (4050), not an issue URL."))?;
     }
     for (provider, id) in &input.identifiers {
-        if (entry.kind == "book_series" && !book_providers(&lib).contains(&provider.as_str()))
+        if (lib.library_type!=posterview_contracts::native::NativeLibraryType::Anime && entry.kind!="book_series" && !["tmdb","tvdb","imdb"].contains(&provider.as_str()))
+            || (entry.kind == "book_series" && !book_providers(&lib).contains(&provider.as_str()))
             || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "imdb", "anidb", "mangadex"].contains(&provider.as_str())
             || if provider == "imdb" {
                 !id.starts_with("tt") || numeric(&json!(&id[2..])).is_none()
@@ -638,20 +672,26 @@ pub(crate) async fn apply(
             return Err(HttpError::bad_request("Invalid linked provider ID."));
         }
     }
-    let store = db(&state);
-    let id = library.clone();
-    let item_id = item.clone();
-    let title = input.title.trim().to_string();
-    let year = input.year;
-    tokio::task::spawn_blocking(move || {
-        store.identify_native_entry(&id, &item_id, input.revision, &title, year, &json!(ids))
-    })
-    .await
-    .map_err(|_| HttpError::bad_request("Identification save interrupted."))?
-    .map_err(|e| HttpError::bad_request(e.to_string()))?;
+    if lib.library_type!=posterview_contracts::native::NativeLibraryType::Anime && entry.kind!="book_series" {ids.retain(|name,_|["tvdb","tmdb","imdb"].contains(&name.as_str()));}
+    let mut replacement=None;let mut images=Vec::new();let mut warnings=Vec::<String>::new();
+    if input.rewrite_metadata {
+        if entry.kind!="series" || !ids.contains_key("tvdb") {return Err(HttpError::bad_request("Select a TVDB series before rewriting metadata."));}
+        let mut selected=entry.clone();selected.metadata=json!({"identifiers":{"tvdb":ids["tvdb"]}});
+        let mut data=crate::native_provider_extra::fetch(&state,&client,&posterview_infra_artwork::ArtworkService::default(),"tvdb",&lib,&selected,&Value::Null).await.map_err(HttpError::bad_gateway)?;
+        if let Some(credits)=data.fields["credits"].as_array_mut(){for credit in credits {credit["provider"]=json!("tvdb");}}
+        for (provider,id) in data.fields["identifiers"].as_object().into_iter().flatten(){if ["tvdb","tmdb","imdb"].contains(&provider.as_str()){if let Some(id)=id.as_str().map(str::to_string).or_else(||numeric(id)){ids.insert(provider.clone(),id);}}}
+        if input.replace_artwork {let mut seen=std::collections::HashSet::new();for (kind,url) in data.artwork {if !lib.options.image_types.contains(&kind)||seen.contains(&kind){continue;}match crate::native_provider::download(&state,&client,&url).await {Ok(path)=>{seen.insert(kind.clone());images.push(posterview_contracts::native::NativeArtwork{kind,path,source:"manual".into()});},Err(e)=>warnings.push(format!("Artwork not replaced: {e}"))}}}
+        data.fields["_identify_replace_artwork"]=json!(input.replace_artwork);
+        replacement=Some(data.fields);
+    }
+    let store = db(&state);let id = library.clone();let item_id = item.clone();
+    let title = replacement.as_ref().and_then(|v|v["title"].as_str()).unwrap_or(input.title.trim()).to_string();
+    let year = replacement.as_ref().and_then(|v|v["year"].as_i64()).or(input.year);
+    tokio::task::spawn_blocking(move || {store.identify_native_entry_with_metadata(&id,&item_id,input.revision,&title,year,&json!(ids),replacement.as_ref())})
+        .await.map_err(|_| HttpError::bad_request("Identification save interrupted."))?.map_err(|e| HttpError::bad_request(e.to_string()))?;
+    for art in images {db(&state).save_native_artwork(&library,&item,&art).map_err(|e|HttpError::bad_request(e.to_string()))?;if lib.options.save_artwork || crate::native_artwork::replacement_writes_local(&state,&entry,&art.kind) {if let Err(e)=crate::native_artwork::write(&state,&entry,&art,true){warnings.push(format!("Artwork saved; media-folder write failed: {e}"));}}}
     let (_, updated) = context(&state, &library, &item).await?;
     if updated.kind=="series" {db(&state).set_setting(&format!("expected-episodes:{library}:{}",updated.path),"").map_err(|e|HttpError::bad_request(e.to_string()))?;}
-    let mut warnings = Vec::<String>::new();
     if lib.options.save_nfo {
         let state = state.clone();
         let entry = updated.clone();
@@ -670,8 +710,9 @@ pub(crate) async fn apply(
         }
     }
     crate::native_sync::changed(&state,&library,&item,json!({"title":updated.title,"year":updated.metadata["year"],"identifiers":updated.metadata["identifiers"]}),None).await;
+    if input.rewrite_metadata {if let Err(e)=crate::native::start_identification_scan(state.clone(),library.clone(),updated.path.clone()).await {warnings.push(format!("Metadata saved; season/episode refresh could not start: {}",e.detail));}}
     Ok(Json(
-        json!({"entry":updated,"warnings":warnings,"message":"Identification saved. Scan files to fetch missing metadata using the corrected IDs."}),
+        json!({"entry":updated,"warnings":warnings,"message":if input.rewrite_metadata {"TVDB identification and metadata saved. Season and episode refresh started."} else {"Identification saved. Scan files to fetch missing metadata using the corrected IDs."}}),
     ))
 }
 

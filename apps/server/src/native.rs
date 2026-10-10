@@ -201,6 +201,20 @@ pub(crate) async fn previews(
         .map(|entry| serde_json::json!({"id":entry.id,"title":entry.title,"revision":entry.revision}))
         .collect())))
 }
+fn suppress_previous_identity(metadata:&mut serde_json::Value,previous:&serde_json::Value) {
+    if let Some(discarded)=previous["_identify_discarded"].as_object(){
+        for (field,hashes) in discarded {
+            if let Some(value)=metadata.get(field) {
+                let fingerprint=serde_json::json!(posterview_infra_sqlite::ServerStore::identification_value_hash(value));
+                if hashes.as_array().is_some_and(|hashes|hashes.contains(&fingerprint)) {
+                    metadata.as_object_mut().unwrap().remove(field);
+                    if let Some(sources)=metadata["_sources"].as_object_mut(){sources.remove(field);}
+                }
+            }
+        }
+    }
+}
+
 pub(crate) async fn start_scan(state: AppState, id: String) -> Result<(), HttpError> {
     start_scan_triggered(state, id, None, true).await
 }
@@ -211,7 +225,13 @@ pub(crate) async fn start_scan_scoped(
 ) -> Result<(), HttpError> {
     start_scan_triggered(state, id, scopes, false).await
 }
+pub(crate) async fn start_identification_scan(state:AppState,id:String,path:String)->Result<(),HttpError>{
+    start_scan_with_refresh(state,id,Some(vec![path]),true,true).await
+}
 async fn start_scan_triggered(state: AppState, id: String, scopes: Option<Vec<String>>, manual: bool) -> Result<(), HttpError> {
+    start_scan_with_refresh(state,id,scopes,manual,false).await
+}
+async fn start_scan_with_refresh(state: AppState, id: String, scopes: Option<Vec<String>>, manual: bool, force_metadata:bool) -> Result<(), HttpError> {
     let library = library(&state, &id).await?;
     let db = store(&state);
     let scan_id = id.clone();
@@ -228,9 +248,10 @@ async fn start_scan_triggered(state: AppState, id: String, scopes: Option<Vec<St
     let Some(active_scan) = started else {return Ok(());};
     tokio::spawn(async move {
       let _active_scan = active_scan;
-      let mut scopes=scopes;
+      let mut scopes=scopes;let mut force_metadata=force_metadata;
       loop {
-        let result = run_scan_scoped(state.clone(), library.clone(), scopes.take()).await;
+        let mut scan_library=library.clone();if force_metadata {scan_library.options.fetch_missing=true;force_metadata=false;}
+        let result = run_scan_scoped(state.clone(), scan_library, scopes.take()).await;
         let status = match result {
             Ok(status) => status,
             Err(e) => posterview_contracts::native::NativeScanStatus {
@@ -303,6 +324,9 @@ async fn run_scan_scoped(
         .collect();
     for entry in &mut entries {
         if let Some(previous) = existing.get(&entry.path) {
+            entry.id=previous.id.clone();
+            entry.revision=previous.revision;
+            suppress_previous_identity(&mut entry.metadata,&previous.metadata);
             crate::native_provider::merge_credit_portraits(
                 &mut entry.metadata,
                 &previous.metadata["credits"],
@@ -1025,7 +1049,10 @@ pub(crate) mod scan_tests {
 
         assert!(temp.path().join("media/Shows/Example/poster.jpg").exists());
         run_scan(state.clone(),library.clone()).await.unwrap();
-        assert_eq!(db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap().path,art.path);
+        let rescanned_art = db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap();
+        assert_eq!(rescanned_art.source, "local");
+        assert_eq!(rescanned_art.path, "Shows/Example/poster.jpg");
+        assert_ne!(rescanned_art.path, art.path);
         assert!(apply_panel_artwork(state.clone(),detail.seasons[0].id.clone(),ImageTarget::Poster,Some(bytes.get_ref().clone())).await.unwrap().ok);
         assert!(temp.path().join("media/Shows/Example/season01-poster.jpg").exists());
         let episode = entries.iter().find(|e|e.kind=="episode").unwrap();
@@ -1439,8 +1466,8 @@ pub(crate) mod scan_tests {
         let items = db.native_catalog(&library.id).unwrap();
         let rescanned = items.iter().find(|e| e.kind == "series").unwrap();
         assert_eq!(rescanned.id, show.id);
-        assert_eq!(rescanned.artwork[0].source, "manual");
-        assert_eq!(rescanned.artwork[0].path, uploaded);
+        assert_eq!(rescanned.artwork[0].source, "local");
+        assert!(rescanned.artwork[0].path.ends_with("poster.png"));
         assert_eq!(rescanned.title, "Manual Title");
         assert_eq!(
             rescanned.metadata["genres"],
@@ -1846,4 +1873,16 @@ pub(crate) async fn remove_variant(State(state):State<AppState>,Path((library,it
  if !["poster","backdrop","logo","banner","thumb","landscape","disc"].contains(&base){return Err(HttpError::bad_request("Unknown artwork type."));}
  store(&state).remove_native_artwork(&library,&item,&kind).map_err(error)?;
  Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod identification_refresh_tests {
+    use super::*;
+    #[test]
+    fn rescan_does_not_restore_discarded_nfo_values_but_accepts_changed_values(){
+        let previous=serde_json::json!({"_identify_discarded":{"plot":[posterview_infra_sqlite::ServerStore::identification_value_hash(&serde_json::json!("Old plot"))],"identifiers":[posterview_infra_sqlite::ServerStore::identification_value_hash(&serde_json::json!({"tvdb":"99"}))]}});
+        let mut incoming=serde_json::json!({"plot":"Old plot","identifiers":{"tvdb":"99"},"season":1,"_sources":{"plot":"nfo","identifiers":"nfo"}});
+        suppress_previous_identity(&mut incoming,&previous);assert!(incoming["plot"].is_null());assert!(incoming["identifiers"].is_null());assert_eq!(incoming["season"],1);
+        incoming["plot"]=serde_json::json!("New external plot");suppress_previous_identity(&mut incoming,&previous);assert_eq!(incoming["plot"],"New external plot");
+    }
 }

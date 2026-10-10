@@ -1,3 +1,4 @@
+import TVIdentifyPanel from "./TVIdentifyPanel";
 import {useQuery} from "@tanstack/react-query";
 import {apiRequest} from "../api/client";
 import {useRef, useState} from "react";
@@ -6,9 +7,13 @@ import {nativeLibraries, type NativeLibrary, type NativeCatalogEntry, type Ident
 
 const names:Record<string,string>={mangadex:"MangaDex",comicvine:"ComicVine",anilist:"AniList",tmdb:"TheMovieDB",tvdb:"TheTVDB",mal:"MyAnimeList",imdb:"IMDb",anidb:"AniDB"};
 const inputClass="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent";
-export default function IdentifyPanel({library,entry,busy,onSaved}:{library:NativeLibrary;entry:NativeCatalogEntry;busy:boolean;onSaved:()=>void}) {
+export default function IdentifyPanel(props:{library:NativeLibrary;entry:NativeCatalogEntry;busy:boolean;onSaved:()=>void}){
+ if(props.library.library_type==="shows"&&props.entry.kind==="series")return <TVIdentifyPanel {...props}/>;
+ return <ProviderIdentifyPanel {...props}/>;
+}
+function ProviderIdentifyPanel({library,entry,busy,onSaved}:{library:NativeLibrary;entry:NativeCatalogEntry;busy:boolean;onSaved:()=>void}) {
   const books=entry.kind==="book_series";
-  const providers=books?(library.options?.metadata_providers?.book_series??["comicvine","anilist","mal"]):Object.keys(names).filter(p=>p!=="comicvine"&&p!=="mangadex");
+  const providers=books?(library.options?.metadata_providers?.book_series??["comicvine","anilist","mal"]):library.library_type==="anime"?Object.keys(names).filter(p=>p!=="comicvine"&&p!=="mangadex"):["tvdb","tmdb","imdb"];
   const [title,setTitle]=useState(entry.title.replace(/\s*[([](?:19|20)\d{2}[)\]]\s*$/, ""));
   const [year,setYear]=useState("");
   const [ids,setIds]=useState<Record<string,string>>({});
@@ -47,7 +52,7 @@ export default function IdentifyPanel({library,entry,busy,onSaved}:{library:Nati
     } catch(e){setError((e as Error).message);}finally{setSaving(false);}
   }
   return <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-5 sm:px-8">
-    <p className="text-sm text-muted">Search providers together, select the correct series, movie, or book series, then review its IDs before saving. Selecting a result keeps your entered title. Existing local and manually chosen artwork is preserved.</p>
+    <p className="text-sm text-muted">Search providers together, select the correct series, movie, or book series, then review its IDs before saving. Selecting a result keeps your entered title. Saving a new identity clears previous descriptive metadata. Existing artwork is preserved.</p>
     <div className="rounded-xl border border-border bg-surface-2 p-3 text-xs text-muted"><p className="mb-1 font-medium text-white">Media path</p><p className="break-all">{entry.path}</p><p className="mt-2">Current IDs: {Object.entries((entry.metadata.identifiers as Record<string,string>)??{}).map(([key,value])=>`${names[key]??key}: ${value}`).join(" · ")||"None"}</p></div>
     <form className="flex flex-wrap items-end gap-3" onSubmit={event=>{event.preventDefault();void search();}}>
       <label className="min-w-48 flex-1 text-sm">Title<input aria-label="Identification title" className={`${inputClass} mt-1`} value={title} onChange={e=>setTitle(e.target.value)} maxLength={200}/></label>

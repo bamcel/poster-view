@@ -866,6 +866,9 @@ pub(crate) fn book_placeholders(entries: &mut Vec<NativeCatalogEntry>) {
 
 pub(crate) fn write_identification_nfo(state: &AppState, entry: &NativeCatalogEntry) -> Result<(String,String),String> { write_nfo_inner(state,entry,true) }
 pub(crate) fn write_nfo(state: &AppState, entry: &NativeCatalogEntry) -> Result<(String,String),String> { write_nfo_inner(state,entry,false) }
+fn clear_identity_nfo(xml:&mut Element){
+    xml.children.retain(|node|!matches!(node,XMLNode::Element(e) if !["fileinfo","streamdetails","season","episode","thumb","fanart","art","logo","banner","posterview"].contains(&e.name.as_str())));
+}
 fn write_nfo_inner(
     state: &AppState,
     entry: &NativeCatalogEntry,
@@ -925,6 +928,7 @@ fn write_nfo_inner(
             _ => "series",
         })
     };
+    if entry.metadata["_identify_nfo_reset"]==true {clear_identity_nfo(&mut xml);}
     for field in [
         "title",
         "originaltitle",
@@ -1142,5 +1146,15 @@ mod missing_book_tests {
         assert_eq!(entries.len(),4);assert!(entries.iter().filter(|e|e.metadata["missing"]==true).all(|e| !e.metadata["chapter"].is_null()));
         let unknown=blank("Books/Test/Unknown.cbz".into(),"book",Some(series.path.clone()),"Unknown".into());
         let mut entries=vec![series,unknown];book_placeholders(&mut entries);assert_eq!(entries.len(),2);
+    }
+}
+
+#[cfg(test)]
+mod identity_nfo_tests {
+    use super::*;
+    #[test]
+    fn identity_reset_removes_old_metadata_but_keeps_numbering_art_and_file_details(){
+        let mut xml=Element::parse("<episodedetails><title>Wrong</title><plot>Old</plot><genre>Old genre</genre><custompublisher>Old publisher</custompublisher><uniqueid type='tvdb'>99</uniqueid><season>1</season><episode>2</episode><fileinfo/><thumb>local.jpg</thumb></episodedetails>".as_bytes()).unwrap();
+        clear_identity_nfo(&mut xml);assert!(xml.get_child("plot").is_none());assert!(xml.get_child("genre").is_none());assert!(xml.get_child("custompublisher").is_none());assert!(xml.get_child("uniqueid").is_none());assert!(xml.get_child("season").is_some());assert!(xml.get_child("fileinfo").is_some());assert!(xml.get_child("thumb").is_some());
     }
 }

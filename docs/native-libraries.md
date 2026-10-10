@@ -360,3 +360,9 @@ Missing episodes use identified TVDB official ordering or TMDB aired ordering, a
 Show missing files is available in book, TV-series, and anime-series library settings. Hidden placeholders are retained until the existing Data Cleanup task's retention period expires and its Hidden missing-file placeholders category is selected. Cleanup preserves actual media files and covers referenced by other items.
 
 Provider API references: [TMDB season details](https://developer.themoviedb.org/reference/tv-season-details), [TVDB v4 API](https://thetvdb.github.io/v4-api/).
+
+
+### Reidentifying TV series
+TV Shows Identify uses search criteria (title/year or IMDb, TMDB, TVDB IDs), TVDB poster results, and a replacement confirmation. The selected TVDB record is fetched successfully before any catalog metadata is cleared. Confirmation replaces previous descriptive fields, including manual edits and unrelated old provider IDs, with the selected source's supported fields. Related season/episode descriptions and IDs are cleared and a scoped refresh starts; numbering and media files remain. Non-anime video libraries expose only TVDB, TMDB, and IMDb IDs.
+
+Replace existing artwork defaults off. Existing artwork is retained when off; when on, available TVDB images replace matching types on the series and during season/episode refresh. Missing provider images do not discard existing artwork. When artwork replacement is selected, matching local images are overwritten so an unchanged old sidecar cannot immediately undo the choice. New sidecars otherwise respect Save artwork; failures are reported. NFO saving respects Save NFO and clears old descriptive tags during the first identity rewrite, preserving artwork references and file details. Discarded metadata fingerprints prevent unchanged old NFO/server values from returning; newly edited external values remain eligible. No artwork restore snapshots are created.

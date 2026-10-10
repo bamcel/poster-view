@@ -301,6 +301,16 @@ pub(crate) fn managed_local_copy(state:&AppState,path:&Path)->Result<std::path::
     Ok(target)
 }
 
+pub(crate) fn replacement_writes_local(state:&AppState,entry:&NativeCatalogEntry,kind:&str)->bool {
+    if entry.artwork.iter().any(|a|a.kind==kind&&a.source=="local"){return true;}
+    let Ok(root)=state.metadata.directory("",true) else{return false;};
+    let path=root.join(&entry.path);
+    let folder=["series","season","book_series"].contains(&entry.kind.as_str());
+    let dir=if folder{path.as_path()}else{path.parent().unwrap_or(&root)};
+    let stem=if folder{None}else{path.file_stem().and_then(|v|v.to_str())};
+    crate::native_scan::local_art(&root,dir,stem).iter().any(|a|a.kind==kind&&!a.path.ends_with(".gif")&&!a.path.ends_with(".webm"))
+}
+
 #[cfg(test)]
 mod internal_artwork_tests {
     use super::*;

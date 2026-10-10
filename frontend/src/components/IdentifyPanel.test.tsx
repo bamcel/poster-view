@@ -98,3 +98,8 @@ it("loads AniDB posters when its results tab opens",async()=>{
  expect((await screen.findByAltText("Food Wars poster")).getAttribute("src")).toBe("https://cdn-eu.anidb.net/images/main/123.jpg");
  expect(apiRequest).toHaveBeenCalledWith("/native/identify/anidb/10901/poster");
 });
+
+it("hides anime provider ID fields in a movie library",()=>{
+ render(<IdentifyPanel library={{...library,library_type:"movies"}} entry={{...entry,kind:"movie"}} busy={false} onSaved={vi.fn()}/>);
+ expect(screen.queryByLabelText("AniDB identification ID")).toBeNull();expect(screen.queryByLabelText("AniList identification ID")).toBeNull();expect(screen.queryByLabelText("MyAnimeList identification ID")).toBeNull();expect(screen.getByLabelText("TheTVDB identification ID")).toBeTruthy();
+});
