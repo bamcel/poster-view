@@ -284,7 +284,7 @@ pub(crate) async fn reconcile_library(
     let store = ServerStore::new(state.runtime.data_dir());
     let series = entries
         .iter()
-        .filter(|e| e.kind == "series")
+        .filter(|e| e.kind == "series" && e.metadata["_scan_unchanged"] != true)
         .cloned()
         .collect::<Vec<_>>();
     for series in series {

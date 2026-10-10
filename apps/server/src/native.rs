@@ -253,8 +253,8 @@ async fn start_scan_with_refresh(state: AppState, id: String, scopes: Option<Vec
       loop {
         let pending_key=format!("native-force-metadata:{id}");
         if store(&state).get_setting(&pending_key).unwrap_or_default()=="true" {force_metadata=true;let _=store(&state).set_setting(&pending_key,"");}
-        let mut scan_library=library.clone();if force_metadata {scan_library.options.fetch_missing=true;force_metadata=false;}
-        let result = run_scan_scoped(state.clone(), scan_library, scopes.take()).await;
+        let mut scan_library=library.clone();let refresh=force_metadata;if force_metadata {scan_library.options.fetch_missing=true;force_metadata=false;}
+        let result = if refresh {run_scan_scoped_mode(state.clone(),scan_library,scopes.take(),true).await} else {run_scan_scoped(state.clone(),scan_library,scopes.take()).await};
         let status = match result {
             Ok(status) => status,
             Err(e) => posterview_contracts::native::NativeScanStatus {
@@ -304,6 +304,9 @@ async fn run_scan_scoped(
     library: NativeLibrary,
     scopes: Option<Vec<String>>,
 ) -> Result<posterview_contracts::native::NativeScanStatus, HttpError> {
+    run_scan_scoped_mode(state,library,scopes,false).await
+}
+async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option<Vec<String>>,force_metadata:bool)->Result<posterview_contracts::native::NativeScanStatus,HttpError> {
     static SCAN_WORKERS:tokio::sync::Semaphore=tokio::sync::Semaphore::const_new(2);
     let _worker=SCAN_WORKERS.acquire().await.map_err(|_|HttpError::bad_request("Scan workers unavailable."))?;
     let _operation=crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),library.id),scopes.as_deref()).await;
@@ -328,6 +331,20 @@ async fn run_scan_scoped(
         .into_iter()
         .map(|entry| (entry.path.clone(), entry))
         .collect();
+    let media_root=state.metadata.directory("",true)?;
+    for entry in &mut entries {
+        let art=entry.artwork.iter().map(|a| {
+            let info=std::fs::metadata(media_root.join(&a.path)).ok();
+            serde_json::json!([a.kind,a.path,info.as_ref().map(|m|m.len()),info.and_then(|m|m.modified().ok()).and_then(|t|t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_nanos().to_string())])
+        }).collect::<Vec<_>>();
+        let input=serde_json::json!([entry.files,entry.nfo_xml,art,library.options,existing.get(&entry.path).map(|old|&old.metadata["identifiers"])]).to_string();
+        let mut digest=std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hasher::write(&mut digest,input.as_bytes());
+        let signature=std::hash::Hasher::finish(&digest).to_string();
+        let unchanged=!force_metadata && existing.get(&entry.path).is_some_and(|old|old.available && old.metadata["_scan_signature"].as_str()==Some(&signature));
+        entry.metadata["_scan_signature"]=serde_json::json!(signature);
+        entry.metadata["_scan_unchanged"]=serde_json::json!(unchanged);
+    }
     for entry in &mut entries {
         if let Some(previous) = existing.get(&entry.path) {
             entry.id=previous.id.clone();
@@ -390,7 +407,8 @@ async fn run_scan_scoped(
     for missing in previous.into_iter().filter(|e|e.metadata["missing"]==true) {if !entries.iter().any(|e|e.path==missing.path) && !crate::native_missing::arrived(&entries,&missing){entries.push(missing);}}
     crate::native_missing::reconcile_library(&state,&library,&mut entries,false,&mut warnings).await;
     // Publish the local catalog before network enrichment so large libraries are usable immediately.
-    let local_entries = entries.clone();
+    let mut local_entries = entries.clone();
+    for entry in &mut local_entries {if let Some(fields)=entry.metadata.as_object_mut(){fields.remove("_scan_unchanged");}}
     let db = store(&state);
     let local_library = library.clone();
     let local_scopes = scopes.clone();
@@ -417,6 +435,8 @@ async fn run_scan_scoped(
     crate::native_provider::enrich(&state, &library, &mut entries, &mut warnings).await;
     crate::native_missing::reconcile_library(&state,&library,&mut entries,true,&mut warnings).await;
     if library.options.show_missing_files && library.library_type == NativeLibraryType::Books {crate::native_scan::book_placeholders(&mut entries);}
+    let unchanged_paths=entries.iter().filter(|e|e.metadata["_scan_unchanged"]==true).map(|e|e.path.clone()).collect::<std::collections::BTreeSet<_>>();
+    for entry in &mut entries {if let Some(fields)=entry.metadata.as_object_mut(){fields.remove("_scan_unchanged");}}
     let count = entries.len();
     let db = store(&state);
     let scan_library = library.clone();
@@ -438,6 +458,7 @@ async fn run_scan_scoped(
         let write_state = state.clone();
         let id = library.id.clone();
         let write_scopes = scopes.clone();
+        let unchanged_paths=unchanged_paths.clone();
         warnings.extend(
             tokio::task::spawn_blocking(move || {
                 let entries = store(&write_state)
@@ -446,7 +467,7 @@ async fn run_scan_scoped(
                 let issues = crate::workers::parallel(
                     entries
                         .into_iter()
-                        .filter(|e| e.available && e.metadata["missing"] != true && in_scope(&e.path, write_scopes.as_deref()))
+                        .filter(|e| e.available && !unchanged_paths.contains(&e.path) && e.metadata["missing"] != true && in_scope(&e.path, write_scopes.as_deref()))
                         .collect(),
                     |entry| {
                         let mut issues = Vec::new();
@@ -473,6 +494,7 @@ async fn run_scan_scoped(
         let write_state = state.clone();
         let id = library.id.clone();
         let write_scopes = scopes.clone();
+        let unchanged_paths=unchanged_paths.clone();
         let issues = tokio::task::spawn_blocking(move || {
             let entries = store(&write_state)
                 .native_catalog_scoped(&id, write_scopes.as_deref())
@@ -482,6 +504,7 @@ async fn run_scan_scoped(
                     .into_iter()
                     .filter(|e| {
                         e.available
+                            && !unchanged_paths.contains(&e.path)
                             && e.metadata["missing"] != true
                             && in_scope(&e.path, write_scopes.as_deref())
                             && (e.kind != "season" || e.nfo_path.is_some())
@@ -1690,6 +1713,27 @@ pub(crate) mod scan_tests {
                 .contains("<custom>keep</custom>")
         );
         assert!(crate::native_scan::parse_nfo(b"<!DOCTYPE movie><movie/>").is_err());
+    }
+    #[tokio::test]
+    async fn unchanged_scan_reuses_inspection_and_changed_file_is_reinspected() {
+        let temp=tempfile::tempdir().unwrap();let state=state(temp.path());
+        let dir=temp.path().join("media/Movies");fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("Example.mkv"),b"fixture").unwrap();
+        let library=store(&state).save_native_library(None,&NativeLibraryInput{name:"Movies".into(),library_type:NativeLibraryType::Movies,anime_content:AnimeContent::Both,paths:vec!["Movies".into()],revision:None,options:NativeLibraryOptions{fetch_missing:false,save_nfo:false,save_artwork:false,..Default::default()}}).unwrap();
+        let (mut entries,_)=crate::native_scan::collect_scoped(&state,&library,None).unwrap();
+        entries[0].files[0]["media_info"]=serde_json::json!({"cached_fixture":true});
+        store(&state).ingest_native_catalog(&library.id,library.revision,&entries).unwrap();
+        run_scan_scoped(state.clone(),library.clone(),None).await.unwrap();
+        let first=store(&state).native_catalog(&library.id).unwrap();
+        assert_eq!(first[0].files[0]["media_info"]["cached_fixture"],true);
+        assert!(first[0].metadata.get("_scan_unchanged").is_none());
+        run_scan_scoped(state.clone(),library.clone(),Some(vec!["Movies".into()])).await.unwrap();
+        let second=store(&state).native_catalog(&library.id).unwrap();
+        assert_eq!(first[0].metadata["_scan_signature"],second[0].metadata["_scan_signature"]);
+        assert_eq!(second[0].files[0]["media_info"]["cached_fixture"],true);
+        fs::write(dir.join("Example.mkv"),b"changed media fixture").unwrap();
+        let (changed,_)=crate::native_scan::collect_scoped(&state,&library,None).unwrap();
+        assert_ne!(changed[0].files[0]["media_info"]["cached_fixture"],true);
     }
     #[tokio::test]
     async fn incremental_mixed_scan_preserves_unrelated_items_and_reconciles_renames() {

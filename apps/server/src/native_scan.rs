@@ -534,13 +534,16 @@ pub(crate) fn collect_scoped(
         files.retain(|p| !credit_video(p));
     }
     let total = files.len();
+    let previous=posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir()).native_catalog_scoped(&library.id,scopes).map_err(|e|bad(e.to_string()))?;
+    let previous_files=previous.iter().flat_map(|e|e.files.iter()).filter_map(|v|Some((root.join(v["path"].as_str()?),v.clone()))).collect::<BTreeMap<_,_>>();
     let completed = std::sync::atomic::AtomicUsize::new(0);
     let reporter = std::sync::Mutex::new(crate::native_progress::Reporter::new(state, &library.id));
     let unavailable = std::sync::atomic::AtomicBool::new(false);
     let mut probes = if library.library_type != NativeLibraryType::Books {
         progress.report("inspecting", 0, Some(total), 0, "", true);
         crate::workers::parallel(files.clone(), |file| {
-            let result = if unavailable.load(std::sync::atomic::Ordering::Relaxed) {
+            let cached=previous_files.get(&file).filter(|v|fs::metadata(&file).is_ok_and(|m|v["size"].as_u64()==Some(m.len()) && v["mtime_ns"].as_str()==m.modified().ok().and_then(|t|t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_nanos().to_string()).as_deref()) && !v["media_info"].is_null());
+            let result = if let Some(cached)=cached {Ok(cached["media_info"].clone())} else if unavailable.load(std::sync::atomic::Ordering::Relaxed) {
                 Err("ffprobe is unavailable; media codecs and duration were not inspected.".into())
             } else {
                 probe(&file)
@@ -841,7 +844,7 @@ pub(crate) fn collect_scoped(
                 entry.metadata["_sources"]["title"] = json!("embedded");
             }
         }
-        entry.files.push(json!({"media_info":media_info,"path":file_path,"size":info.len(),"modified":info.modified().ok().and_then(|m|m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_secs().to_string()),"extension":ext}));
+        entry.files.push(json!({"media_info":media_info,"path":file_path,"size":info.len(),"mtime_ns":info.modified().ok().and_then(|m|m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_nanos().to_string()),"modified":info.modified().ok().and_then(|m|m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_secs().to_string()),"extension":ext}));
         entries.insert(file_path, entry);
     }
     progress.report("reading", total, Some(total), entries.len(), "", true);
