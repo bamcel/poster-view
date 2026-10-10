@@ -375,3 +375,24 @@ it("marks missing episodes and hides them when disabled",async()=>{
  mount("/?native_library=native&native_item=season",{...library,options:{...importedDefaults,show_missing_files:false}});
  await screen.findByRole("button",{name:"Open First Episode"});expect(screen.queryByRole("button",{name:"Open Missing Episode"})).toBeNull();
 });
+
+it("hides only missing specials unless enabled",async()=>{
+ const missing={...episode,id:"missing-special",title:"Missing Special",metadata:{season:0,episode:2,missing:true,aired:"2020-01-01"}};
+ const actual={...episode,metadata:{season:0,episode:1}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([series,{...season,metadata:{season:0}},actual,missing]);
+ mount("/?native_library=native&native_item=season");
+ await screen.findByRole("button",{name:"Open First Episode"});
+ expect(screen.queryByRole("button",{name:"Open Missing Special"})).toBeNull();cleanup();
+ mount("/?native_library=native&native_item=season",{...library,options:{...importedDefaults,show_missing_specials:true}});
+ expect(await screen.findByRole("button",{name:"Open Missing Special"})).toBeTruthy();
+});
+
+it("hides a missing specials folder until enabled",async()=>{
+ const specials={...season,id:"missing-specials",title:"Specials",metadata:{season:0,missing:true}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([series,season,specials]);
+ mount("/?native_library=native&native_item=show");
+ await screen.findByText("Season 1");
+ expect(screen.queryByText("Specials")).toBeNull();cleanup();
+ mount("/?native_library=native&native_item=show",{...library,options:{...importedDefaults,show_missing_specials:true}});
+ expect(await screen.findByText("Specials")).toBeTruthy();
+});

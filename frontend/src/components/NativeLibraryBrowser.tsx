@@ -321,7 +321,7 @@ export default function NativeLibraryBrowser({
     finally {setRefreshingArtwork(false);}
   };
   const visible = entries
-    .filter(e=>library.options?.show_missing_files!==false || e.metadata.missing!==true)
+    .filter(e=>showMissingEntry(library,e))
     .filter((e) =>
       search
         ? e.title.toLowerCase().includes(search.toLowerCase())
@@ -773,14 +773,14 @@ function NativeDetail({
                 <DetailSynopsis text={overview} />
               </div>
             )}
-            {children.some((e) => e.kind !== "episode") && (
+            {children.some((e) => e.kind !== "episode" && showMissingEntry(library,e)) && (
               <section className="mt-10">
                 <h2 className="mb-3 text-xl font-semibold">
                   {entry.kind === "series" ? "Seasons" : children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapters" : "Volumes"}
                 </h2>
                 <div className={isBookSeries ? posterGrid : "-mx-2 -mt-2 flex gap-5 overflow-x-auto px-2 pb-3 pt-2 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]"}>
                   {children
-                    .filter((e) => e.kind !== "episode" && (library.options?.show_missing_files!==false || e.metadata.missing!==true))
+                    .filter((e) => e.kind !== "episode" && (showMissingEntry(library,e)))
                     .map((child) => (
                       <PosterCard
                   animationOnHover={hoverOnly}
@@ -798,7 +798,7 @@ function NativeDetail({
                 </div>
               </section>
             )}
-            {children.some((e) => e.kind === "episode") && (
+            {children.some((e) => e.kind === "episode" && showMissingEntry(library,e)) && (
               <section className="mt-10">
                 <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
                   <h2 className="text-xl font-semibold">Episodes</h2>
@@ -817,7 +817,7 @@ function NativeDetail({
                   {children
                     .filter(
                       (e) =>
-                        e.kind === "episode" && (library.options?.show_missing_files!==false || e.metadata.missing!==true) &&
+                        e.kind === "episode" && (showMissingEntry(library,e)) &&
                         e.title.toLowerCase().includes(search.toLowerCase()),
                     )
                     .map((episode) => (
@@ -959,6 +959,8 @@ function nativeArtworkItem(library: NativeLibrary, entry: NativeCatalogEntry, en
     background: picture(library, entry, "backdrop"), logo: picture(library, entry, "logo"),
     external_ids: Object.fromEntries(Object.entries(ids as Record<string, unknown>).map(([key, value]) => [key.toLowerCase(), String(value)])),
     volume: entry.metadata.volume == null ? null : String(entry.metadata.volume), file_name: entry.path.split("/").pop(),
-    seasons: entries.filter(e => e.kind === "season" && e.parent_path === entry.path).map(e => ({id:target(e.id),title:e.title,index:number(e.metadata.season)})), members: entries.filter(e=>e.kind==="book" && e.available && e.parent_path===entry.path).map(e=>({id:target(e.id),title:e.title,type:"book",volume:e.metadata.volume == null ? null : String(e.metadata.volume),file_name:e.path.split("/").pop(),poster:picture(library,e,"poster")})),
+    seasons: entries.filter(e => e.kind === "season" && e.parent_path === entry.path && showMissingEntry(library,e)).map(e => ({id:target(e.id),title:e.title,index:number(e.metadata.season)})), members: entries.filter(e=>e.kind==="book" && e.available && e.parent_path===entry.path).map(e=>({id:target(e.id),title:e.title,type:"book",volume:e.metadata.volume == null ? null : String(e.metadata.volume),file_name:e.path.split("/").pop(),poster:picture(library,e,"poster")})),
   };
 }
+
+function showMissingEntry(library:NativeLibrary,e:NativeCatalogEntry){return e.metadata.missing!==true || (library.options?.show_missing_files!==false && (library.options?.show_missing_specials===true || Number(e.metadata.season)!==0));}

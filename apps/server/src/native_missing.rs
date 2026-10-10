@@ -163,6 +163,12 @@ pub(crate) fn reconcile(
         entries.push(placeholder);
     }
 }
+fn tvdb_episode_path(id: &str, language: &str) -> String {
+    format!("/series/{id}/episodes/official/{}", crate::native_provider_extra::lang(language))
+}
+fn cache_identity(provider: &str, id: &str, language: &str) -> String {
+    format!("{provider}:{id}:{language}:translated-v1")
+}
 async fn fetch(
     state: &AppState,
     lib: &NativeLibrary,
@@ -188,7 +194,7 @@ async fn fetch(
             let raw = crate::native_provider::response(
                 service
                     .native_tvdb_get(
-                        &format!("/series/{id}/episodes/official"),
+                        &tvdb_episode_path(id, &lib.options.metadata_language),
                         &[("page", &page.to_string())],
                         &key,
                         &pin,
@@ -300,7 +306,7 @@ pub(crate) async fn reconcile_library(
         else {
             continue;
         };
-        let identity = format!("{provider}:{id}");
+        let identity = cache_identity(&provider, &id, &lib.options.metadata_language);
         let key = format!("expected-episodes:{}:{}", lib.id, series.path);
         let cached = store
             .get_setting(&key)
@@ -340,6 +346,13 @@ pub(crate) async fn reconcile_library(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn episode_discovery_uses_preferred_language_and_invalidates_untranslated_cache() {
+        assert_eq!(tvdb_episode_path("123", "en"), "/series/123/episodes/official/eng");
+        assert_eq!(tvdb_episode_path("123", "ja"), "/series/123/episodes/official/jpn");
+        assert_ne!(cache_identity("tvdb", "123", "en"), "tvdb:123");
+        assert_ne!(cache_identity("tvdb", "123", "en"), cache_identity("tvdb", "123", "ja"));
+    }
     fn series() -> NativeCatalogEntry {
         blank(
             "Shows/Test".into(),

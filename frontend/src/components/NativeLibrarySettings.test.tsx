@@ -88,3 +88,13 @@ it("enables MangaDex metadata for a book library independently of images",()=>{
  expect(JSON.parse(screen.getByTestId("books").textContent!).metadata_providers.book_series).toContain("mangadex");
  expect(JSON.parse(screen.getByTestId("books").textContent!).image_providers).toEqual({});
 });
+
+it("places missing specials under episode discovery and defaults it off",()=>{
+ render(<Harness section={2}/>);
+ const specials=screen.getByRole("switch",{name:"Show Missing Specials"}) as HTMLInputElement;
+ expect(specials.checked).toBe(false);
+ fireEvent.click(specials);
+ expect(JSON.parse(screen.getByTestId("options").textContent!).show_missing_specials).toBe(true);
+ fireEvent.click(screen.getByRole("switch",{name:"Find Missing Episodes"}));
+ expect(screen.queryByRole("switch",{name:"Show Missing Specials"})).toBeNull();
+});
