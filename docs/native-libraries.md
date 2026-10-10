@@ -376,3 +376,5 @@ Starting filesystem monitoring establishes its watcher/polling baseline without 
 Server Connect is temporarily unavailable. Its plugin card, shortcuts, import actions, connection controls, sync statuses and notices are hidden; background sync is stopped. Saved configuration and implementation are preserved for future work. PosterView library scanning, local metadata/artwork, and provider fetching remain active.
 
 Right-click an existing series folder card and choose Scan library files to run a visible manual scan limited to that folder hierarchy. Missing placeholders and individual media files do not offer the folder scan action.
+
+Series right-click actions include Edit Metadata, Edit Images, Identify, Remove Identification (confirmation; existing descriptions/art remain), Refresh Metadata (fill missing fields with current IDs), Scan library files and View Missing Episodes. Book series offer provider metadata previews and View Missing Files. No Delete action is provided.

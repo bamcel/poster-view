@@ -404,3 +404,18 @@ it("scans only the right-clicked series folder",async()=>{
  fireEvent.click(screen.getByRole("menuitem",{name:"Scan library files"}));
  await waitFor(()=>expect(nativeLibraries.scanFolder).toHaveBeenCalledWith("native","show"));
 });
+
+it("offers series actions without delete and opens missing episodes",async()=>{
+ mount();fireEvent.contextMenu(await screen.findByTitle("Example Series · right-click for options"));
+ for(const name of ["Edit Metadata","Edit Images","Identify","Remove Identification","Refresh Metadata","Scan library files","View Missing Episodes"])expect(screen.getByRole("menuitem",{name})).toBeTruthy();
+ expect(screen.queryByRole("menuitem",{name:"Delete"})).toBeNull();
+ fireEvent.click(screen.getByRole("menuitem",{name:"View Missing Episodes"}));
+ expect(screen.getByRole("dialog",{name:"Missing Episodes"})).toBeTruthy();
+});
+it("confirms identification removal and preserves other fields",async()=>{
+ mount();fireEvent.contextMenu(await screen.findByTitle("Example Series · right-click for options"));
+ fireEvent.click(screen.getByRole("menuitem",{name:"Remove Identification"}));
+ expect(nativeLibraries.editItem).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole("button",{name:"Remove identification"}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",expect.objectContaining({id:"show"}),{identifiers:{}}));
+});

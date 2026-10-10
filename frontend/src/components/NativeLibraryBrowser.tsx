@@ -1,3 +1,4 @@
+import SeriesActionsDialog from "./SeriesActionsDialog";
 import FetchBookMetadata from "./FetchBookMetadata";
 import {useTrackingOverlays} from "../lib/libraryDisplay";
 import BookSeriesMetadata from "./BookSeriesMetadata";
@@ -241,7 +242,7 @@ export default function NativeLibraryBrowser({
   const hasId=(entry:NativeCatalogEntry,provider:string)=>{const ids=entry.metadata.identifiers as Record<string,unknown>|undefined;const value=ids?.[provider];return (typeof value==="string"&&!!value.trim()&&value.trim()!=="0")||(typeof value==="number"&&value>0);};
   const [editor, setEditor] = useState<{
     id: string;
-    kind: "metadata" | "artwork" | "identify" | "fetch-metadata";
+    kind: "metadata" | "artwork" | "identify" | "fetch-metadata" | "remove-identification" | "refresh-metadata" | "missing-files";
   } | null>(null);
   const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
   const [overlay, setOverlay] = useState(backdropOverlay);
@@ -503,6 +504,13 @@ export default function NativeLibraryBrowser({
                     setEditor({ id: entry.id, kind: "metadata" })
                   }
                   onRefresh={refresh}
+                  actions={["series","book_series"].includes(entry.kind)?[
+                    {label:"Edit Images",icon:<Images className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"artwork"})},
+                    {label:"Identify",icon:<Fingerprint className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"identify"})},
+                    {label:"Remove Identification",icon:<ListFilter className="size-4 shrink-0"/>,disabled:status.data?.status==="scanning",onClick:()=>setEditor({id:entry.id,kind:"remove-identification"})},
+                    {label:"Refresh Metadata",icon:<RefreshCw className="size-4 shrink-0"/>,disabled:status.data?.status==="scanning",onClick:()=>setEditor({id:entry.id,kind:entry.kind==="book_series"?"fetch-metadata":"refresh-metadata"})},
+                    ...(entry.kind==="series"||entry.kind==="book_series"?[{label:entry.kind==="series"?"View Missing Episodes":"View Missing Files",icon:<ListFilter className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"missing-files"})}]:[])
+                  ]:[]}
                   onScan={["series","book_series","season"].includes(entry.kind)&&entry.metadata.missing!==true?()=>void scanFolder(entry):undefined}
                   scanning={scanningFolder||status.data?.status==="scanning"}
                 />
@@ -522,6 +530,8 @@ export default function NativeLibraryBrowser({
             <ArtworkPanel serverId={0} item={nativeArtworkItem(library, editEntry, entries)} libraryTitle={library.name} libraryType={library.library_type === "books" ? "book" : library.library_type === "movies" ? "movie" : "show"} onClose={() => setEditor(null)} />
           </section>
         </div>
+      ) : editor && ["remove-identification","refresh-metadata","missing-files"].includes(editor.kind) ? (
+        <Modal title={editor.kind==="remove-identification"?"Remove Identification":editor.kind==="refresh-metadata"?"Refresh Metadata":editEntry.kind==="series"?"Missing Episodes":"Missing Files"} onClose={()=>setEditor(null)}><SeriesActionsDialog action={editor.kind} library={library} entry={editEntry} entries={entries} onSaved={()=>{updated();void client.invalidateQueries({queryKey:["native-scan",library.id]});}}/></Modal>
       ) : editor?.kind === "fetch-metadata" ? (
         <Modal title="Fetch Metadata" onClose={()=>setEditor(null)}><FetchBookMetadata library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated}/></Modal>
       ) : editor?.kind === "identify" ? (

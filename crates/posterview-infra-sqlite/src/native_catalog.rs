@@ -11,6 +11,13 @@ fn animation_blocked(db: &rusqlite::Connection, item: &str, art: &NativeArtwork)
     Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM settings WHERE key=?1 AND value_enc='true')",[format!("removed-animation:{item}:{}",art.kind.trim_end_matches("-animated"))],|r|r.get(0))?)
 }
 impl ServerStore {
+    pub fn reset_provider_checks(&self,library:&str,path:&str)->Result<(),StoreError>{
+        let mut db=self.connection()?;let tx=db.transaction()?;
+        tx.execute("DELETE FROM catalog_metadata_fields WHERE field='_provider_check' AND item_id IN (SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND (relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/'))",params![library,path])?;
+        tx.execute("UPDATE native_catalog_sources SET snapshot_json=json_remove(snapshot_json,'$.metadata._provider_check') WHERE library_id=?1 AND (relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/')",params![library,path])?;
+        tx.commit()?;
+        Ok(())
+    }
     pub fn native_item_is_missing(&self,library:&str,item:&str)->Result<bool,StoreError> {
         Ok(self.connection()?.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources s WHERE s.library_id=?1 AND s.item_id=?2 AND json_extract(s.snapshot_json,'$.metadata.missing')=1)",params![library,item],|r|r.get(0))?)
     }
