@@ -832,14 +832,6 @@ pub(crate) async fn anidb_document(
         .lock()
         .await;
     let db = store(state);
-    let blocked = db
-        .get_setting("native_anidb_blocked_until")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(0);
-    if blocked > now() {
-        return Err("AniDB requests are temporarily paused after a rejected request; check registered client settings and retry later.".into());
-    }
     let cache_key = format!("native_anidb_{aid}");
     let cached = db.get_setting(&cache_key).unwrap_or_default();
     if let Ok(v) = serde_json::from_str::<Value>(&cached) {
@@ -848,6 +840,16 @@ pub(crate) async fn anidb_document(
                 return Ok(xml.into());
             }
         }
+    }
+    let blocked = db
+        .get_setting("native_anidb_blocked_until")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    if blocked > now() {
+        let reason = db.get_setting("native_anidb_blocked_reason").unwrap_or_default();
+        let reason = if reason.is_empty() { "Previous request was rejected." } else { &reason };
+        return Err(format!("AniDB requests are paused for another {} minute(s). {reason}", blocked.saturating_sub(now()).div_ceil(60)));
     }
     let gate = db
         .get_setting("native_anidb_gate")
@@ -900,6 +902,7 @@ pub(crate) async fn anidb_document(
     let xml = String::from_utf8(bytes).map_err(|_| "Invalid AniDB XML encoding.")?;
     if let Err(error) = parse_anidb(&xml) {
         let _ = db.set_setting("native_anidb_blocked_until", &(now() + 900).to_string());
+        let _ = db.set_setting("native_anidb_blocked_reason", &error);
         return Err(error);
     }
     db.set_setting(&cache_key, &json!({"at":now(),"xml":xml}).to_string())
@@ -914,7 +917,9 @@ fn parse_anidb(xml: &str) -> Result<xmltree::Element, String> {
     }
     let root = xmltree::Element::parse(xml.as_bytes()).map_err(|_| "Invalid AniDB XML.")?;
     if root.name == "error" {
-        return Err("AniDB rejected the registered client, ID, or request rate; review configuration before retrying.".into());
+        let code = root.attributes.get("code").map(String::as_str).unwrap_or("unknown");
+        let message = root.get_text().map(|text| text.chars().take(200).collect::<String>()).unwrap_or_else(|| "Request rejected".into());
+        return Err(format!("AniDB error {code}: {message}. Check the registered HTTP client name/version in Search Providers; if rate-limited or banned, wait before retrying."));
     }
     if root.name != "anime" {
         return Err("AniDB returned no anime record.".into());
@@ -1105,7 +1110,8 @@ mod tests {
     #[test]
     fn rejects_unsafe_and_error_anidb_xml() {
         assert!(parse_anidb("<!DOCTYPE anime><anime />").is_err());
-        assert!(parse_anidb("<error code='500'>banned</error>").is_err());
+        let error = parse_anidb("<error code='500'>banned</error>").unwrap_err();
+        assert!(error.contains("AniDB error 500: banned"));
         assert!(parse_anidb("<anime id='1'><titles /></anime>").is_ok());
     }
 }
