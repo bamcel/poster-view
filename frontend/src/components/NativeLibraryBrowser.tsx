@@ -489,7 +489,7 @@ export default function NativeLibraryBrowser({
                   coloredEffect={library.library_type === "books" && String(entry.metadata.edition ?? "").trim().toLowerCase() === "colored" ? bookDisplay.coloredEffect : "off"}
                   coloredTitle={library.library_type === "books" && String(entry.metadata.edition ?? "").trim().toLowerCase() === "colored" && bookDisplay.coloredTitle}
                   title={entry.title}
-                  menuImage={picture(library,entry,"poster")}
+                  menuImage={entry.artwork.some(a=>a.kind==="poster-animated")?`${nativeLibraries.artworkUrl(library.id,entry.id,"poster-animated")}?v=${entry.revision}&format=${entry.artwork.find(a=>a.kind==="poster-animated")?.path.split(".").pop()?.toLowerCase()}&still=1`:picture(library,entry,"poster")}
                   backdropView={backdropView}
                     image={(backdropView ? picture(library, entry, "backdrop") ?? picture(library, entry, "landscape") : undefined) ?? picture(library, entry, "poster")}
                   subtitle={String(entry.metadata.year ?? "")}

@@ -117,3 +117,12 @@ it("supports a folder scan menu without requiring artwork actions",()=>{
  expect(scan).toHaveBeenCalledTimes(1);
  expect(screen.queryByRole("menuitem",{name:"Scan library files"})).toBeNull();
 });
+
+it("uses a still frame for animated context menu previews",()=>{
+ const src="/api/native/libraries/library/items/show/artwork/poster-animated?format=webm";
+ render(<PosterCard title="Series" image="/static.jpg" menuImage={src} onOpen={vi.fn()} onScan={vi.fn()}/>);
+ fireEvent.contextMenu(screen.getByTitle("Series · right-click for options"));
+ const menu=screen.getByRole("menu");
+ expect(menu.querySelector("img")?.getAttribute("src")).toBe(src+"&still=1");
+ expect(menu.querySelector("video")).toBeNull();
+});

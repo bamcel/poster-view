@@ -6,7 +6,7 @@ import { Film, Tv, Library, Pencil, RefreshCw, BookOpen, Check } from "lucide-re
 import { useActionMenu } from "../lib/actionMenu";
 import type { ColoredEffect } from "../lib/libraryDisplay";
 import "./posterEffects.css";
-import AnimatedArtwork from "./AnimatedArtwork";
+import AnimatedArtwork, {artworkFormat,stillArtwork} from "./AnimatedArtwork";
 
 interface PosterCardProps {
   animationOnHover?: boolean;
@@ -185,7 +185,7 @@ export default function PosterCard({
         >
           <div className="mb-1 flex max-w-72 items-center gap-3 border-b border-border px-3 py-3" aria-label={`Selected folder: ${title}`}>
             <div className="h-14 w-9 shrink-0 overflow-hidden rounded bg-input">
-              {(menuImage??image) ? <img src={menuImage??image} alt="" className="size-full object-cover" /> : <div className="grid size-full place-items-center text-faint"><Placeholder className="size-5" /></div>}
+              {(menuImage??image) ? <img src={["gif","webm"].includes(artworkFormat(menuImage??image))?stillArtwork((menuImage??image)!):menuImage??image} alt="" className="size-full object-cover" /> : <div className="grid size-full place-items-center text-faint"><Placeholder className="size-5" /></div>}
             </div>
             <div className="min-w-0"><p className="line-clamp-2 text-sm font-semibold text-white">{title}</p>{subtitle && <p className="mt-1 text-xs text-muted">{subtitle}</p>}</div>
           </div>
