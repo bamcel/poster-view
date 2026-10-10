@@ -44,3 +44,9 @@ it("separates named dub editions and keeps unlabeled actors unspecified",()=>{
  expect(result.groups[2].cast[0].role).toBe("Satsuki · Datto");
  expect(result.groups[2].cast[0].role_notes).toBe("Young");
 });
+
+it("backfills edition labels from cached provider roles without guessing or overriding manual edits",()=>{
+ const metadata={country_of_origin:"JP",voice_cast:[{name:"Andrea",provider_id:1,language:"English",role:"Satsuki"},{name:"Hilary",provider_id:2,language:"English",role:"Satsuki"}],anilist_data:{characters:{edges:[{node:{name:{full:"Satsuki"}},voiceActorRoles:[{dubGroup:"Animax",voiceActor:{id:1,name:{full:"Andrea"}}}]}]}}};
+ expect(animeVoiceGroups(metadata,"en").groups.map(g=>g.title)).toContain("English Cast — Animax");
+ expect(animeVoiceGroups({...metadata,_sources:{voice_cast:"manual"}},"en").groups.map(g=>g.title)).toEqual(["Japanese Cast","English Cast"]);
+});

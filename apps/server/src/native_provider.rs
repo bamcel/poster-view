@@ -33,7 +33,7 @@ fn needs_voice_cast(entry: &NativeCatalogEntry, library: &NativeLibrary) -> bool
             .metadata_providers
             .get(&entry.kind)
             .is_none_or(|providers| providers.iter().any(|p| p == "anilist"))
-        && entry.metadata["voice_cast_schema"] != 2
+        && entry.metadata["voice_cast_schema"] != 3
 }
 fn anilist_voice_cast(data: &Value) -> Value {
     let mut cast = Vec::new();
@@ -1013,7 +1013,7 @@ async fn enrich_one(
             }
             fields["country_of_origin"] = data["countryOfOrigin"].clone();
             // A successful empty cast is a known result, not a reason to fetch every scan.
-            entry.metadata["voice_cast_schema"] = json!(2);
+            entry.metadata["voice_cast_schema"] = json!(3);
             entry.metadata["_sources"]["voice_cast_schema"] = json!("anilist");
             fields["credits"] = json!(credits);
             }
@@ -1258,7 +1258,7 @@ mod tests {
         let mut library = library();
         library.library_type = NativeLibraryType::Anime;
         assert!(needs_voice_cast(&entry, &library));
-        entry.metadata["voice_cast_schema"] = json!(2);
+        entry.metadata["voice_cast_schema"] = json!(3);
         assert!(!needs_voice_cast(&entry, &library));
         entry.metadata["voice_cast_schema"] = Value::Null;
         entry.kind = "episode".into();

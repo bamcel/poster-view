@@ -325,7 +325,7 @@ impl ServerStore {
                     let source = entry.metadata["_sources"][field]
                         .as_str()
                         .unwrap_or("filename");
-                    tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=revision+1 WHERE locked=0 AND source<>'server' AND (source<>'manual' OR field='title') AND (excluded.source='nfo' OR source<>'nfo' OR json_type(value_json)='null' OR value_json IN ('[]','{}') OR (json_type(value_json)='text' AND trim(json_extract(value_json,'$'))=''))",params![id,field,value.to_string(),source])?;
+                    tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=revision+1 WHERE locked=0 AND source<>'server' AND (source<>'manual' OR field='title') AND (excluded.source='nfo' OR source<>'nfo' OR (field='voice_cast' AND excluded.source='anilist') OR json_type(value_json)='null' OR value_json IN ('[]','{}') OR (json_type(value_json)='text' AND trim(json_extract(value_json,'$'))=''))",params![id,field,value.to_string(),source])?;
                 }
             }
             let effective: Value = {
@@ -777,6 +777,15 @@ mod tests{
         let current=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(current.id,first.id);assert_eq!(current.metadata["plot"],"Local plot");
         db.edit_native_entry(&library.id,&current.id,current.revision,&json!({"plot":"Manual plot"})).unwrap();
         db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["plot"],"Manual plot");
+        entry.metadata["voice_cast"]=json!([{"name":"Actor","language":"English"}]);entry.metadata["_sources"]["voice_cast"]=json!("nfo");
+        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
+        entry.metadata["voice_cast"][0]["dub_group"]=json!("Animax");entry.metadata["_sources"]["voice_cast"]=json!("anilist");
+        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
+        let current=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(current.metadata["voice_cast"][0]["dub_group"],"Animax");
+        let manual=json!([{"name":"Actor","language":"English","dub_group":"User edition"}]);
+        db.edit_native_entry(&library.id,&current.id,current.revision,&json!({"voice_cast":manual})).unwrap();
+        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
+        assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["voice_cast"],manual);
         assert!(db.ingest_native_catalog(&library.id,library.revision+1,&[]).is_err());assert!(db.native_catalog(&library.id).unwrap()[0].available);
     }
     #[test]

@@ -39,6 +39,14 @@ export function animeVoiceGroups(metadata: Person, preferredCode: string, images
       image:object(actor.image).large, language:actor.languageV2 ?? (metadata.voice_cast_schema == null ? "Japanese" : undefined),
     })));
   }
+  // Backfill only provider-declared labels; manual credits remain authoritative.
+  if(object(metadata._sources).voice_cast!=="manual") {
+    const declared=people(object(ani.characters).edges).flatMap(edge=>people(edge.voiceActorRoles).map(record=>({record,actor:object(record.voiceActor),character:voiceName(object(object(edge.node).name).full)})));
+    cast=cast.map(person=>{
+      const found=declared.find(({actor,character})=>character===voiceName(person.role) && (person.provider_id!=null && actor.id!=null ? String(person.provider_id)===String(actor.id) : voiceName(person.name)===voiceName(object(actor.name).full)));
+      return found?{...person,dub_group:person.dub_group??found.record.dubGroup,role_notes:person.role_notes??found.record.roleNotes}:person;
+    });
+  }
   const country = String(metadata.country_of_origin ?? ani.countryOfOrigin ?? "").toUpperCase();
   const originCode = metadata.original_language ?? object(metadata.tmdb_data).original_language ?? ({JP:"ja",KR:"ko",CN:"zh",TW:"zh",US:"en",GB:"en"} as Record<string,string>)[country];
   const original = language(originCode);
