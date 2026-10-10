@@ -637,7 +637,7 @@ fn match_entry(
             let found: Vec<_> = rows
                 .iter()
                 .filter(|r| {
-                    r["ParentId"] == *parent
+                    (r["ParentId"] == *parent || r[if entry.kind=="season" {"SeriesId"}else{"SeasonId"}] == *parent)
                         && r["Type"]
                             == if entry.kind == "season" {
                                 "Season"
@@ -1844,5 +1844,21 @@ mod tests {
         assert_eq!(value["episode"], 2);
         assert!(value.get("voice_cast").is_none());
         assert!(value.get("characters").is_none());
+    }
+}
+
+#[cfg(test)]
+mod parent_identity_tests {
+    use super::*;
+    #[test]
+    fn season_and_episode_matching_accept_explicit_server_parent_identifiers() {
+        let base=NativeCatalogEntry{id:"series".into(),path:"Shows/Test".into(),kind:"series".into(),parent_path:None,title:"Test".into(),metadata:json!({}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+        let season=NativeCatalogEntry{id:"season".into(),path:"Shows/Test/Season 1".into(),kind:"season".into(),parent_path:Some(base.path.clone()),metadata:json!({"season":1}),..base.clone()};
+        let episode=NativeCatalogEntry{id:"episode".into(),path:"Shows/Test/Season 1/S01E01.mkv".into(),kind:"episode".into(),parent_path:Some(season.path.clone()),metadata:json!({"season":1,"episode":1}),..base.clone()};
+        let entries=vec![base,season.clone(),episode.clone()];let links=BTreeMap::from([("series".into(),"remote-series".into()),("season".into(),"remote-season".into())]);
+        let rows=vec![json!({"Id":"remote-season","Type":"Season","SeriesId":"remote-series","IndexNumber":1}),json!({"Id":"remote-episode","Type":"Episode","SeasonId":"remote-season","IndexNumber":1})];
+        assert_eq!(match_entry(&season,&rows,&links,&entries,std::path::Path::new("/media")).unwrap(),"remote-season");
+        assert_eq!(match_entry(&episode,&rows,&links,&entries,std::path::Path::new("/media")).unwrap(),"remote-episode");
+        let duplicates=vec![rows[0].clone(),json!({"Id":"other","Type":"Season","SeriesId":"remote-series","IndexNumber":1})];assert!(match_entry(&season,&duplicates,&links,&entries,std::path::Path::new("/media")).is_err());
     }
 }
