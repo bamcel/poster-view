@@ -38,6 +38,7 @@ pub(crate) struct Task {
     cleanup_placeholders: bool,
     cleanup_cache: bool,
     cleanup_records: bool,
+    cleanup_reader: bool,
     cleanup_temporary: bool,
     last_run: u64,
     last_result: String,
@@ -56,6 +57,7 @@ impl Default for Task {
             cleanup_placeholders: true,
             cleanup_cache: true,
             cleanup_records: true,
+            cleanup_reader: true,
             cleanup_temporary: true,
             last_run: 0,
             last_result: String::new(),
@@ -65,7 +67,7 @@ impl Default for Task {
 }
 fn defaults() -> Vec<Task> {
     [
-    ("cleanup","Data Cleanup","Remove hidden missing-file placeholders after retention, unused managed artwork, expired provider caches, obsolete library and sync records, old local artwork mirrors, and abandoned temporary files. Shared artwork and media folders are preserved."),
+    ("cleanup","Data Cleanup","Remove hidden missing-file placeholders after retention, unused managed artwork, expired provider caches, obsolete library and sync records, deleted-file reader registrations and reading state, old local artwork mirrors, and abandoned temporary files. Shared artwork and media folders are preserved."),
     ("history","Trim History","Remove application history older than the retention period, including its saved history backups."),
     ("database","Optimize Database","Check database health, optimize query statistics, and checkpoint available WAL pages without an exclusive database rebuild."),
 ].into_iter().map(|(id,title,description)|Task{id:id.into(),title:title.into(),description:description.into(),..Default::default()}).collect()
@@ -85,6 +87,7 @@ fn load(state: &AppState) -> Result<Vec<Task>, HttpError> {
                 task.cleanup_placeholders=s.cleanup_placeholders;
                 task.cleanup_cache = s.cleanup_cache;
                 task.cleanup_records = s.cleanup_records;
+                task.cleanup_reader = s.cleanup_reader;
                 task.cleanup_temporary = s.cleanup_temporary;
                 task.last_run = s.last_run;
                 task.last_result = s.last_result.clone();
@@ -136,6 +139,7 @@ pub(crate) async fn configure(
         task.cleanup_placeholders=input.cleanup_placeholders;
         task.cleanup_cache = input.cleanup_cache;
         task.cleanup_records = input.cleanup_records;
+        task.cleanup_reader = input.cleanup_reader;
         task.cleanup_temporary = input.cleanup_temporary;
         save(&state, &tasks)?;
         Ok(Json(tasks))
@@ -342,7 +346,7 @@ pub(crate) async fn preview(State(state): State<AppState>) -> Result<Json<Report
             .unwrap();
         let files = candidates(&state, &task)?;
         Ok(Json(Report {
-            records: cleanup_records(&state,&task,false)?,
+            records: cleanup_records(&state,&task,false)? + if task.cleanup_reader {state.reader.cleanup_orphans(false)?} else {0},
             files: files.len(),
             placeholders:hidden_libraries(&state,&task)?.iter().map(|(_,_,count)|count).sum(),
             bytes: files.iter().map(|f| f.bytes).sum(),
@@ -363,7 +367,7 @@ async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
         let _running = RunningTask;
         let mut tasks=load(&state)?;let task=tasks.iter_mut().find(|t|t.id==id).ok_or_else(HttpError::not_found)?;
         let result=(||->Result<Report,HttpError>{match id.as_str() {
-            "cleanup"=>{let db=ServerStore::new(state.runtime.data_dir());let mut report=Report{records:cleanup_records(&state,task,true)?,..Default::default()};
+            "cleanup"=>{let db=ServerStore::new(state.runtime.data_dir());let mut report=Report{records:cleanup_records(&state,task,true)? + if task.cleanup_reader {state.reader.cleanup_orphans(true)?} else {0},..Default::default()};
                 for (library,since,count) in hidden_libraries(&state,task)? {
                     let removed=db.cleanup_hidden_placeholders(&library).map_err(bad)?;report.placeholders+=count;
                     let mut grace:BTreeMap<String,u64>=serde_json::from_str(&db.get_setting("cleanup-unreferenced").map_err(bad)?).unwrap_or_default();

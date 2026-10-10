@@ -58,6 +58,34 @@ impl ReaderStore {
             INSERT OR IGNORE INTO colored_title_preferences SELECT user, effect IN ('badge','both') FROM colored_edition_preferences;").map_err(failure)?;
         Ok(db)
     }
+    pub(crate) fn cleanup_orphans(&self, apply: bool) -> Result<usize, HttpError> {
+        if !self.db.exists() { return Ok(0); }
+        let _guard = self.writes.lock().map_err(failure)?;
+        // An unavailable mount or parent folder is not proof that a book was deleted.
+        if !self.root.is_dir() { return Ok(0); }
+        let mut db = self.db()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(failure)?;
+        let books = tx.prepare("SELECT id,path FROM reader_books").map_err(failure)?.query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).map_err(failure)?.collect::<Result<Vec<_>,_>>().map_err(failure)?;
+        let mut count = 0;
+        for (id, path) in books {
+            let path = PathBuf::from(path);
+            let missing = matches!(fs::symlink_metadata(&path), Err(e) if e.kind() == std::io::ErrorKind::NotFound);
+            let parent_available = path.parent().is_some_and(|parent| self.checked_location(parent).is_ok_and(|p|p.is_dir()));
+            if !missing || !parent_available { continue; }
+            count += 1;
+            if apply {
+                tx.execute("DELETE FROM reader_states WHERE book=?1", [&id]).map_err(failure)?;
+                tx.execute("DELETE FROM reader_books WHERE id=?1", [&id]).map_err(failure)?;
+            }
+        }
+        let orphan_states: usize = tx.query_row("SELECT count(*) FROM reader_states WHERE NOT EXISTS(SELECT 1 FROM reader_books WHERE id=book)",[], |r|r.get(0)).map_err(failure)?;
+        count += orphan_states;
+        if apply {
+            tx.execute("DELETE FROM reader_states WHERE NOT EXISTS(SELECT 1 FROM reader_books WHERE id=book)",[]).map_err(failure)?;
+            tx.commit().map_err(failure)?;
+        }
+        Ok(count)
+    }
     fn checked(&self, path: &FsPath) -> Result<PathBuf, HttpError> {
         let current = self.checked_location(path)?;
         if !current.is_file() || format(&current).is_none() {
@@ -960,8 +988,8 @@ pub(crate) async fn save_state(
         return Err(bad("Reader settings and bookmarks exceed 64 KB."));
     }
     tokio::task::spawn_blocking(move || {
-        current(&state.reader,&id,&saved.revision)?;
         let _guard = state.reader.writes.lock().map_err(failure)?;
+        current(&state.reader,&id,&saved.revision)?;
         state.reader.db()?.execute("INSERT INTO reader_states(user,book,revision,state) VALUES (?1,?2,?3,?4) ON CONFLICT(user,book) DO UPDATE SET revision=excluded.revision,state=excluded.state",params![state.auth.username(),id,saved.revision,data]).map_err(failure)?;
         Ok(Json(true))
     }).await.map_err(failure)?
@@ -1171,5 +1199,31 @@ mod tests {
         let manifest = make_manifest(&store, &id).unwrap();
         assert_eq!(manifest.chapters[1].name, "2.png");
         assert!(current(&store, &id, "old-revision").is_err());
+    }
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::*;
+    #[test]
+    fn deleted_books_remove_all_user_states_but_unavailable_folders_are_kept() {
+        let temp=tempfile::tempdir().unwrap();
+        let root=temp.path().join("media");fs::create_dir_all(&root).unwrap();
+        let store=ReaderStore::new(root.clone(),temp.path().join("reader.sqlite"));
+        let alive=root.join("alive.pdf");fs::write(&alive,b"pdf").unwrap();
+        let db=store.db().unwrap();
+        for (id,path) in [("deleted",root.join("deleted.pdf")),("alive",alive),("unavailable",root.join("offline/book.pdf"))] {
+            db.execute("INSERT INTO reader_books VALUES(?1,?2)",params![id,path.to_string_lossy()]).unwrap();
+            for user in ["admin","other"] {db.execute("INSERT INTO reader_states VALUES(?1,?2,'rev',?3)",params![user,id,r#"{"progress":50,"bookmarks":[1],"page":5}"#]).unwrap();}
+        }
+        assert_eq!(store.cleanup_orphans(false).unwrap(),1);
+        assert_eq!(db.query_row("SELECT count(*) FROM reader_books",[],|r|r.get::<_,usize>(0)).unwrap(),3);
+        assert_eq!(store.cleanup_orphans(true).unwrap(),1);
+        assert_eq!(db.query_row("SELECT count(*) FROM reader_states WHERE book='deleted'",[],|r|r.get::<_,usize>(0)).unwrap(),0);
+        assert_eq!(db.query_row("SELECT count(*) FROM reader_states",[],|r|r.get::<_,usize>(0)).unwrap(),4);
+        assert_eq!(store.cleanup_orphans(true).unwrap(),0);
+        fs::remove_file(root.join("alive.pdf")).unwrap();
+        fs::remove_dir(&root).unwrap();
+        assert_eq!(store.cleanup_orphans(true).unwrap(),0);
     }
 }
