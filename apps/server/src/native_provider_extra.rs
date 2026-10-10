@@ -841,16 +841,6 @@ pub(crate) async fn anidb_document(
             }
         }
     }
-    let blocked = db
-        .get_setting("native_anidb_blocked_until")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(0);
-    if blocked > now() {
-        let reason = db.get_setting("native_anidb_blocked_reason").unwrap_or_default();
-        let reason = if reason.is_empty() { "Previous request was rejected." } else { &reason };
-        return Err(format!("AniDB requests are paused for another {} minute(s). {reason}", blocked.saturating_sub(now()).div_ceil(60)));
-    }
     let gate = db
         .get_setting("native_anidb_gate")
         .ok()
@@ -900,11 +890,7 @@ pub(crate) async fn anidb_document(
         bytes.extend_from_slice(&chunk);
     }
     let xml = String::from_utf8(bytes).map_err(|_| "Invalid AniDB XML encoding.")?;
-    if let Err(error) = parse_anidb(&xml) {
-        let _ = db.set_setting("native_anidb_blocked_until", &(now() + 900).to_string());
-        let _ = db.set_setting("native_anidb_blocked_reason", &error);
-        return Err(error);
-    }
+    parse_anidb(&xml)?;
     db.set_setting(&cache_key, &json!({"at":now(),"xml":xml}).to_string())
         .map_err(|_| "Unable to cache AniDB metadata.")?;
     Ok(xml)
