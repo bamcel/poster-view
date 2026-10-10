@@ -302,7 +302,7 @@ fn partner(lib: &NativeLibrary) -> String {
 }
 fn note(value: &mut SyncState, message: String) {
     value.activity.insert(0, format!("{} {message}", now()));
-    value.activity.truncate(50);
+    value.activity.truncate(1);
 }
 
 pub(crate) async fn status(
@@ -477,6 +477,20 @@ pub(crate) async fn changed(
 }
 
 pub(crate) fn start(state: AppState) {
+    // Discard activity from previous runs, including libraries with sync disabled.
+    for library in db(&state).native_libraries().unwrap_or_default() {
+        let result = (|| -> Result<(), String> {
+            let mut value = load(&state, &library.id)?;
+            if value.activity.len() > 1 {
+                value.activity.truncate(1);
+                save(&state, &library.id, &value)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            tracing::warn!(%error, library = %library.id, "Unable to prune past library activity");
+        }
+    }
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -1860,5 +1874,18 @@ mod parent_identity_tests {
         assert_eq!(match_entry(&season,&rows,&links,&entries,std::path::Path::new("/media")).unwrap(),"remote-season");
         assert_eq!(match_entry(&episode,&rows,&links,&entries,std::path::Path::new("/media")).unwrap(),"remote-episode");
         let duplicates=vec![rows[0].clone(),json!({"Id":"other","Type":"Season","SeriesId":"remote-series","IndexNumber":1})];assert!(match_entry(&season,&duplicates,&links,&entries,std::path::Path::new("/media")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod activity_retention_tests {
+    use super::*;
+
+    #[test]
+    fn new_result_replaces_past_activity() {
+        let mut value = SyncState { activity: vec!["old result".into(), "older result".into()], ..Default::default() };
+        note(&mut value, "Latest result".into());
+        assert_eq!(value.activity.len(), 1);
+        assert!(value.activity[0].ends_with(" Latest result"));
     }
 }
