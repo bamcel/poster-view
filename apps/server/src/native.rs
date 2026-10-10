@@ -233,6 +233,7 @@ async fn start_scan_triggered(state: AppState, id: String, scopes: Option<Vec<St
 }
 async fn start_scan_with_refresh(state: AppState, id: String, scopes: Option<Vec<String>>, manual: bool, force_metadata:bool) -> Result<(), HttpError> {
     let library = library(&state, &id).await?;
+    if force_metadata {store(&state).set_setting(&format!("native-force-metadata:{id}"),"true").map_err(error)?;}
     let db = store(&state);
     let scan_id = id.clone();
     let active_scans = state.active_native_scans.clone();
@@ -250,6 +251,8 @@ async fn start_scan_with_refresh(state: AppState, id: String, scopes: Option<Vec
       let _active_scan = active_scan;
       let mut scopes=scopes;let mut force_metadata=force_metadata;
       loop {
+        let pending_key=format!("native-force-metadata:{id}");
+        if store(&state).get_setting(&pending_key).unwrap_or_default()=="true" {force_metadata=true;let _=store(&state).set_setting(&pending_key,"");}
         let mut scan_library=library.clone();if force_metadata {scan_library.options.fetch_missing=true;force_metadata=false;}
         let result = run_scan_scoped(state.clone(), scan_library, scopes.take()).await;
         let status = match result {
@@ -301,6 +304,9 @@ async fn run_scan_scoped(
     library: NativeLibrary,
     scopes: Option<Vec<String>>,
 ) -> Result<posterview_contracts::native::NativeScanStatus, HttpError> {
+    static SCAN_WORKERS:tokio::sync::Semaphore=tokio::sync::Semaphore::const_new(2);
+    let _worker=SCAN_WORKERS.acquire().await.map_err(|_|HttpError::bad_request("Scan workers unavailable."))?;
+    let _operation=crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),library.id),scopes.as_deref()).await;
     let scan_state = state.clone();
     let scan_library = library.clone();
     let scan_scopes = scopes.clone();
@@ -547,7 +553,9 @@ pub(crate) async fn scan_folder(State(state):State<AppState>,Path((id,item)):Pat
  let entry=store(&state).native_catalog(&id).map_err(error)?.into_iter().find(|e|e.id==item && e.available).ok_or_else(HttpError::not_found)?;
  if !(["series","book_series","season"].contains(&entry.kind.as_str()) || (entry.kind=="movie" && options.get("refresh_metadata").is_some_and(|v|v=="true"))) || entry.metadata["missing"]==true {return Err(HttpError::bad_request("Select an existing series or season folder."));}
  let refresh=options.get("refresh_metadata").is_some_and(|v|v=="true");
- if refresh {if store(&state).native_scan_status(&id).map_err(error)?.status=="scanning" {return Err(HttpError::bad_request("Wait for the library scan to finish before refreshing metadata."));}let replace=options.get("replace_metadata").is_some_and(|v|v=="true");
+ let _operation=if refresh {Some(crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),id),Some(&[entry.path.clone()])).await)}else{None};
+ let entry=if refresh {store(&state).native_catalog(&id).map_err(error)?.into_iter().find(|e|e.id==item&&e.available).ok_or_else(HttpError::not_found)?}else{entry};
+ if refresh {let replace=options.get("replace_metadata").is_some_and(|v|v=="true");
  let images=options.get("replace_images").is_some_and(|v|v=="true");
  if replace {let replacement=serde_json::json!({"_refresh_from_providers":true,"_identify_replace_artwork":images});store(&state).identify_native_entry_with_metadata(&id,&item,entry.revision,&entry.title,None,&entry.metadata["identifiers"].as_object().cloned().map(serde_json::Value::Object).unwrap_or(serde_json::json!({})),Some(&replacement)).map_err(error)?;}else if images {store(&state).request_artwork_refresh(&id,&entry.path).map_err(error)?;}
  store(&state).reset_provider_checks(&id,&entry.path).map_err(error)?;}
@@ -581,9 +589,15 @@ pub(crate) struct EditRequest {
 pub(crate) async fn edit_item(
     State(state): State<AppState>,
     Path((library_id, item)): Path<(String, String)>,
-    Json(input): Json<EditRequest>,
+    Json(mut input): Json<EditRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     let library = library(&state, &library_id).await?;
+    let initial=store(&state).native_catalog(&library_id).map_err(error)?.into_iter().find(|e|e.id==item).ok_or_else(HttpError::not_found)?;
+    let path=initial.path.clone();
+    let _operation=crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),library_id),Some(&[path])).await;
+    let fresh=store(&state).native_catalog(&library_id).map_err(error)?.into_iter().find(|e|e.id==item).ok_or_else(HttpError::not_found)?;
+    if initial.revision!=input.revision || !crate::native_operations::same_manual_fields(&initial.metadata,&fresh.metadata) {return Err(error(StoreError::RevisionConflict));}
+    input.revision=fresh.revision;
     let only_visual_fields=input.metadata.as_object().is_some_and(|fields| !fields.is_empty() && fields.keys().all(|key| ["posteredit", "poseredit", "backdropedit"].contains(&key.as_str())));
     let changed_fields=input.metadata.clone();
     let sync_state=state.clone();

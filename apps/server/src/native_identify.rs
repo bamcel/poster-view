@@ -608,7 +608,11 @@ pub(crate) async fn apply(
     Json(mut input): Json<Apply>,
 ) -> Result<Json<Value>, HttpError> {
     let (lib, entry) = context(&state, &library, &item).await?;
-    let _sync_guard=crate::native_sync::RUN_LOCK.try_lock().map_err(|_|HttpError::bad_request("Wait for server sync to finish before changing identity."))?;
+    let _operation=crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),library),Some(&[entry.path.clone()])).await;
+    let (_,fresh)=context(&state,&library,&item).await?;
+    if entry.revision!=input.revision || !crate::native_operations::same_manual_fields(&entry.metadata,&fresh.metadata) {return Err(HttpError::bad_request("This item's manual metadata changed. Reopen Identify before saving."));}
+    input.revision=fresh.revision;
+    let entry=fresh;
     if input.replace_artwork&&!input.rewrite_metadata{return Err(HttpError::bad_request("Artwork replacement requires metadata rewrite confirmation."));}
     if input.title.trim().is_empty()
         || input.title.len() > 512

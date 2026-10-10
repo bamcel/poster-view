@@ -517,7 +517,7 @@ export default function NativeLibraryBrowser({
                     ...(artworkEnabled?[{label:"Edit Images",icon:<Images className="size-4 shrink-0"/>,onClick:()=>{pendingArtworkPage.current=entry.id;open(entry);}}]:[]),
                     {label:"Identify",icon:<Fingerprint className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"identify"})},
                     {label:"Remove Identification",icon:<ListFilter className="size-4 shrink-0"/>,disabled:status.data?.status==="scanning",onClick:()=>setEditor({id:entry.id,kind:"remove-identification"})},
-                    {label:"Refresh Metadata",icon:<RefreshCw className="size-4 shrink-0"/>,disabled:status.data?.status==="scanning",onClick:()=>setEditor({id:entry.id,kind:"refresh-metadata"})},
+                    {label:"Refresh Metadata",icon:<RefreshCw className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"refresh-metadata"})},
                     ...(entry.kind==="series"||entry.kind==="book_series"?[{label:entry.kind==="series"?"View Missing Episodes":"View Missing Files",icon:<ListFilter className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"missing-files"})}]:[])
                   ]:[]}
                   onScan={["series","book_series","season"].includes(entry.kind)&&entry.metadata.missing!==true?()=>void scanFolder(entry):undefined}
@@ -545,11 +545,11 @@ export default function NativeLibraryBrowser({
         <Modal title="Fetch Metadata" onClose={()=>setEditor(null)}><FetchBookMetadata library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated}/></Modal>
       ) : editor?.kind === "identify" ? (
         <Modal title="Identify" onClose={() => setEditor(null)}>
-          <IdentifyPanel library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated}/>
+          <IdentifyPanel library={library} entry={editEntry} busy={false} onSaved={updated}/>
         </Modal>
       ) : (
         <Modal title="Edit Metadata" onClose={() => setEditor(null)}>
-          <EntryEditor library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated} dialog />
+          <EntryEditor library={library} entry={editEntry} busy={false} onSaved={updated} dialog />
         </Modal>
       ))}
 

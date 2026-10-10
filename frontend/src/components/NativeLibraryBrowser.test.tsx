@@ -451,3 +451,12 @@ it("hides Edit Images when the artwork plugin is disabled",async()=>{
  expect(screen.queryByTestId("shared-artwork")).toBeNull();
  vi.mocked(useArtworkPlugin).mockReturnValue({data:{enabled:true}} as ReturnType<typeof useArtworkPlugin>);
 });
+
+it("allows identity and refresh actions while another scan is running",async()=>{
+ vi.mocked(nativeLibraries.status).mockResolvedValue({status:"scanning",count:3,warnings:[]});
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series,metadata:{...series.metadata,identifiers:{anilist:"1281"}}},season,episode]);
+ mount();fireEvent.contextMenu(await screen.findByTitle("Example Series · right-click for options"));
+ expect(screen.getByRole("menuitem",{name:"Refresh Metadata"}).getAttribute("aria-disabled")).not.toBe("true");
+ fireEvent.click(screen.getByRole("menuitem",{name:"Identify"}));
+ expect((await screen.findByRole("button",{name:"Save identification"}) as HTMLButtonElement).disabled).toBe(false);
+});
