@@ -1,0 +1,5 @@
+import type {ReactNode} from "react";
+export const SETTINGS_BUTTON="inline-flex items-center justify-center gap-2 rounded-full border border-border bg-input px-4 py-2.5 text-sm font-medium text-white transition-colors hover:border-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50";
+export default function SettingsPageFrame({title,description,status,children,wide=false,split=false}:{title:string;description:string;status?:ReactNode;children:ReactNode;wide?:boolean;split?:boolean}){
+ return <div className="flex h-full min-h-0 flex-col px-4 py-5 sm:px-6 lg:px-8"><div className={`mx-auto flex h-full min-h-0 w-full flex-col ${wide?"max-w-[100rem]":"max-w-6xl"}`}><header className="shrink-0 border-b border-border pb-4"><div className="flex flex-wrap items-end justify-between gap-3"><div><h1 className="text-2xl font-semibold text-white">{title}</h1><p className="mt-2 text-sm text-muted">{description}</p></div>{status&&<div className="text-xs text-muted" role="status">{status}</div>}</div></header><div className={`min-h-0 flex-1 pt-5 ${split?"overflow-hidden":"overflow-y-auto"}`}>{children}</div></div></div>;
+}

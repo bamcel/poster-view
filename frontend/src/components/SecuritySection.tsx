@@ -57,31 +57,31 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
     return () => clearTimeout(timer);
   }, [autoSignOut, backdrop, bypass, client, minutes]);
 
-  return <div className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
-    <div><h2 className="text-lg font-semibold">Privacy / Security</h2>
+  return <div className="max-w-3xl space-y-5">
+    <div>
       <p className="mt-0.5 text-xs leading-5 text-faint">Session and network settings apply to all users and persist after container restarts. The container’s Require Login option overrides these controls: when false, all connections have password-free access and auto sign-out cannot lock the application.</p></div>
-    <div className="mt-2 divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface-2">
-    <fieldset className="space-y-1 px-3 py-2.5">
-      <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={remember} onChange={(event) => {
+    <div className="space-y-5">
+    <fieldset className="space-y-3 rounded-xl border border-border bg-window p-5"><legend className="px-2 text-sm font-semibold">Sign-in · This browser</legend>
+      <label className="flex items-center gap-2 text-sm font-medium"><input className="accent-accent" type="checkbox" checked={remember} onChange={(event) => {
         setRemember(event.target.checked);
         setRememberUsername(event.target.checked);
       }} />Remember Username On This Browser</label>
-      <p className="text-xs leading-5 text-faint">Saves immediately on this browser only. Keeps your last successful username filled in on the sign-in screen. Turning this off deletes the saved username. PosterView never stores your login password in browser storage.</p>
+      <p className="text-xs leading-5 text-faint">Remembers your username on this browser only. Turning this off clears it. Your password is never saved in browser storage.</p>
     </fieldset>
-    <fieldset disabled={saving} className="space-y-1 px-3 py-2.5">
-      <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={backdrop} onChange={(event) => setBackdrop(event.target.checked)} />Show Library Posters On The Login Page</label>
-      <p className="text-xs leading-5 text-faint">Uses cached, resized posters from your connected server. Library names, item names, server addresses, and credentials are never included in the public backdrop feed. Turn this off if artwork would reveal private library content.</p>
-    </fieldset>
-    <fieldset disabled={saving} className="space-y-1 px-3 py-2.5">
-      <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={autoSignOut} onChange={(event) => setAutoSignOut(event.target.checked)} />Automatically Sign Out When Inactive</label>
+<fieldset disabled={saving} className="space-y-3 rounded-xl border border-border bg-window p-5"><legend className="px-2 text-sm font-semibold">Session · All users</legend>
+      <label className="flex items-center gap-2 text-sm font-medium"><input className="accent-accent" type="checkbox" checked={autoSignOut} onChange={(event) => setAutoSignOut(event.target.checked)} />Automatically Sign Out When Inactive</label>
       <label className="flex flex-wrap items-center gap-2 text-xs text-muted">Minutes Of Inactivity
         <input aria-label="Minutes Of Inactivity" type="number" min="1" max="1440" step="1" required disabled={!autoSignOut} value={minutes} onChange={(event) => setMinutes(event.target.value)} className="w-20 rounded-md border border-border bg-input px-2 py-1 text-sm text-white disabled:opacity-50" />
       </label>
       <p className="text-xs leading-5 text-faint">Choose 1–1440 minutes. Mouse, keyboard, touch, and scrolling count as activity; background requests do not. Activity in another open tab keeps the shared session active.</p>
     </fieldset>
-    <fieldset disabled={saving} className="space-y-1 px-3 py-2.5">
+<fieldset disabled={saving} className="space-y-3 rounded-xl border border-border bg-window p-5"><legend className="px-2 text-sm font-semibold">Login page privacy · All users</legend>
+      <label className="flex items-center gap-2 text-sm font-medium"><input className="accent-accent" type="checkbox" checked={backdrop} onChange={(event) => setBackdrop(event.target.checked)} />Show Library Posters On The Login Page</label>
+      <p className="text-xs leading-5 text-faint">Uses cached, resized posters from your libraries. Library names, item names, server addresses, and credentials are never included in the public backdrop feed. Turn this off if artwork would reveal private library content.</p>
+    </fieldset>
+<fieldset disabled={saving} className="space-y-3 rounded-xl border border-border bg-window p-5"><legend className="px-2 text-sm font-semibold">Network access · All users</legend>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={bypass} onChange={(event) => setBypass(event.target.checked)} aria-describedby={warningHidden ? undefined : "local-bypass-warning"} />Skip Password Authentication On Local Networks</label>
+        <label className="flex items-center gap-2 text-sm font-medium"><input className="accent-accent" type="checkbox" checked={bypass} onChange={(event) => setBypass(event.target.checked)} aria-describedby={warningHidden ? undefined : "local-bypass-warning"} />Skip Password Authentication On Local Networks</label>
         {warningHidden && <button type="button" onClick={showWarning} className="text-xs text-muted hover:text-white">Show warning</button>}
       </div>
       {!warningHidden && (

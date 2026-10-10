@@ -13,6 +13,7 @@ it("saves new provider credentials without showing saved secrets and tests saved
     return {mal_configured:configured,omdb_configured:false,anidb_client:"",anidb_client_version:""};
   });
   render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><NativeProviderCredentials /></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole("button",{name:"Configure MyAnimeList"}));
   const input=await screen.findByLabelText("MyAnimeList Client ID");
   fireEvent.change(input,{target:{value:"fixture-client"}});
   fireEvent.click(screen.getByRole("button",{name:"Save MyAnimeList"}));

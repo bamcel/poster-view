@@ -4,22 +4,23 @@ import { CheckCircle2, ChevronDown, ExternalLink } from "lucide-react";
 export default function ProviderConnection({ id, name, description, status, setupUrl, setupLabel = "Get credentials", children }: {
   id: string; name: string; description: string; status: string; setupUrl: string; setupLabel?: string; children: ReactNode;
 }) {
+  const metadata=["tmdb","tvdb","comicvine","anilist","anilist-manga","mal","omdb","anidb","mangadex"].includes(id);
   const key = `posterview.providerExpanded.${id}`;
   const [open, setOpen] = useState(() => sessionStorage.getItem(key) === "true");
   const contentId = useId();
-  return <section aria-label={`${name} connection`} className="border-b border-border last:border-b-0">
+  return <section aria-label={`${name} connection`} className="border-b border-border">
     <h3>
       <button type="button" aria-label={`Configure ${name}`} aria-expanded={open} aria-controls={contentId}
         onClick={() => { const next = !open; setOpen(next); sessionStorage.setItem(key, String(next)); }}
-        className="flex w-full items-center gap-4 px-4 py-4 text-left transition-colors hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+        className="flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-surface-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
         <span className="min-w-0 flex-1 sm:grid sm:grid-cols-[minmax(9rem,1fr)_2fr] sm:items-center sm:gap-4">
           <span className="flex items-center gap-2 text-sm font-semibold">
             <span className="size-4 shrink-0">{status === "Connection verified" && <CheckCircle2 className="size-4 text-green-500" role="img" aria-label={`${name} connection verified`} />}</span>
             {name}
           </span>
-          <span className="mt-1 block text-xs font-normal text-faint sm:mt-0">{description}</span>
+          <span className="mt-1 block text-xs font-normal text-faint sm:mt-0"><span>{description}</span><span className="mt-1.5 flex flex-wrap gap-1.5">{metadata&&<span className="rounded-full border border-border px-2 py-0.5 text-muted">Metadata</span>}<span className="rounded-full border border-border px-2 py-0.5 text-muted">Artwork</span></span></span>
         </span>
-        <span className="w-36 shrink-0 text-right text-xs font-normal text-muted">{status}</span>
+        <span className="max-w-24 shrink-0 text-right sm:max-w-none sm:w-36 text-xs font-normal text-muted">{status}</span>
         <ChevronDown className={`size-4 shrink-0 text-muted transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
       </button>
     </h3>

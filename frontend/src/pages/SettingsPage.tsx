@@ -1,3 +1,4 @@
+import SettingsPageFrame,{SETTINGS_BUTTON} from "../components/SettingsPageFrame";
 import ScheduledTasks from "../components/ScheduledTasks";
 import HexColorPicker from "../components/HexColorPicker";
 import {useNavigate as useLibraryNavigate} from "../lib/libraryNavigation";
@@ -110,31 +111,19 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
     return () => window.removeEventListener("posterview:settings-save", update);
   }, []);
 
+  useEffect(()=>{setSaveStatus("saved");},[tab]);
+
   if (!previewSection && requestedTab && TABS.some(section => section.id === requestedTab)) return <Navigate replace to={`/settings/${requestedTab}`} />;
   if (!tab) return <ServerSettingsDashboard />;
-  return (
-    <div className="h-full overflow-y-auto px-4 py-4 sm:px-6 lg:px-8 xl:overflow-hidden">
-      <div className="flex min-h-full w-full flex-col gap-4 xl:h-full xl:min-h-0">
-        <h1 className="text-2xl font-semibold">{TABS.find(section => section.id === tab)?.label}</h1>
-
-        <div className={tab === "libraries" ? "flex items-end justify-between gap-4 border-b border-border pb-1" : "flex flex-col gap-2 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"}>
-          <span role="status" className={`shrink-0 self-end text-xs sm:self-auto ${saveStatus === "error" ? "text-danger" : "text-accent"}`}>
-            {tab === "libraries" ? "Save changes in the library dialog." : tab === "tasks" ? "Save task schedules individually." : saveStatus === "saving" ? "Saving settings…" : saveStatus === "error" ? "Settings could not be saved." : "Settings saved automatically."}
-          </span>
-          {tab === "libraries" && <NativeLibraryCount/>}
-        </div>
-
-        <div className="min-h-0 flex-1">
+  const descriptions:Record<SettingsTab,string>={servers:"Configure server connections and library synchronization.",plugins:"Choose a plugin to manage its features and settings.",artwork:"Configure artwork browsing and editing tools.",libraries:"Manage media folders, metadata providers, and artwork.",sources:"Configure provider accounts and test their connections.",tasks:"Review cleanup and schedule application maintenance.",appearance:"Customize your theme, layout, and backgrounds.",security:"Manage sign-in, session, and privacy preferences."};
+  return <SettingsPageFrame title={TABS.find(section=>section.id===tab)!.label} description={descriptions[tab]} wide={tab==="appearance"} split={tab==="appearance"} status={tab==="libraries"?<NativeLibraryCount/>:saveStatus!=="saved"?<span className={saveStatus==="error"?"text-danger":"text-accent"}>{saveStatus==="saving"?"Saving…":"Settings could not be saved."}</span>:undefined}>
           {(tab === "plugins" || tab === "servers" || tab === "artwork") && <PluginsPage artworkOpen={tab === "artwork" || artworkOpen} onArtworkOpen={()=>setArtworkOpen(true)} open={tab === "servers" || pluginOpen} onOpen={()=>setPluginOpen(true)} onClose={()=>{setPluginOpen(false);setArtworkOpen(false);if(tab === "servers" || tab === "artwork") navigate("/settings/plugins");}}/>}
           {tab === "libraries" && <NativeLibrariesSection />}
           {tab === "sources" && <ArtworkSourcesSection />}
-          {tab === "tasks" && <div className="h-full overflow-y-auto"><div><ScheduledTasks/></div></div>}
+          {tab === "tasks" && <ScheduledTasks/>}
           {tab === "appearance" && <AppearanceSection preview={!!previewSection} />}
           {tab === "security" && <SecuritySection />}
-        </div>
-      </div>
-    </div>
-  );
+  </SettingsPageFrame>;
 }
 
 function AppearanceSection({preview=false}: {preview?:boolean}) {
@@ -311,20 +300,34 @@ function AppearanceSection({preview=false}: {preview?:boolean}) {
 
   return (
     <div ref={splitRef} className="h-full min-h-0 min-w-0" style={split ? { display: "grid", gridTemplateColumns: `minmax(0, ${settingsWidth}fr) 12px minmax(0, ${100 - settingsWidth}fr)` } : undefined}>
-    <section className="h-full min-h-0 min-w-0 overflow-y-auto rounded-2xl border border-border bg-surface p-4">
-      <div className="min-h-full w-full">
-        <div className="mb-1 flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <LayoutDashboard className="size-5 text-accent" /> Dashboard
-        </h2>
-        <button type="button" aria-pressed={split} onClick={() => setSplitView(value => !value)} className="hidden shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-medium hover:bg-button-hover xl:flex"><Columns2 className="size-4" />Split View</button>
+    <section className="h-full min-h-0 min-w-0 overflow-y-auto pr-2">
+      <div className="min-h-full w-full"><div className="mb-4 flex justify-end">        <button type="button" aria-pressed={split} onClick={() => setSplitView(value => !value)} className="hidden shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-medium hover:bg-button-hover xl:flex"><Columns2 className="size-4" />Split View</button></div>
+        <div>
+          <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
+            <Palette className="size-5 text-accent" /> Theme
+          </h2>
+          <p className="mb-3 text-sm text-faint">Select a palette or preview an individual color.</p>
+          <div className="rounded-xl border border-border bg-window p-5">
+          <div className="flex flex-wrap items-end gap-2">
+            <ThemePicker themes={themes} selected={selected} onSelect={choose} />
+            <button type="button" onClick={reload} className={`${SETTINGS_BUTTON} shrink-0`}>
+              Reload theme
+            </button>
+          </div>
+          </div>
         </div>
-        <p className="mb-3 text-sm text-faint">Customize dashboard artwork and panel visibility.</p>
-        <div className="rounded-xl border border-border bg-surface-2 p-4">
+<div className="mt-8 border-t border-border pt-6">        <div className="mb-1 flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <LayoutDashboard className="size-5 text-accent" /> Layout &amp; Backgrounds
+        </h2>
+
+        </div>
+        <p className="mb-3 text-sm text-faint">Adjust backgrounds, panels, and metadata pills across the application.</p>
+        <div className="rounded-xl border border-border bg-window p-5">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-white">Show Backdrops</p>
-              <p className="mt-1 text-xs text-faint">Show rotating Dashboard artwork and selected-series backgrounds.</p>
+              <p className="mt-1 text-xs text-faint">Show library artwork and selected-series backgrounds.</p>
             </div>
             <Switch label="Show Backdrops" checked={showBackdrops} onChange={() => changeBackdrops(!showBackdrops)} />
           </div>
@@ -334,22 +337,10 @@ function AppearanceSection({preview=false}: {preview?:boolean}) {
           <DashboardSlider label="Backdrop Overlay" value={backdropOverlayStrength} suffix="%" min={0} max={95} onChange={changeBackdropOverlay} start="Light" end="Dark" />
           <DashboardSlider label="Pill Background" value={pillOpacity} suffix="%" min={0} max={100} onChange={changePillOpacity} start="Transparent" end="Solid" />
           <p className="mt-1 text-xs text-faint">Background opacity for series metadata pills and season episode-count pills. Text and borders stay visible.</p>
-          <button type="button" onClick={resetDashboard} className="mt-4 h-10 rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted transition-colors hover:bg-button-hover hover:text-white">Reset to default</button>
+          <button type="button" onClick={resetDashboard} className={`${SETTINGS_BUTTON} mt-4`}>Reset to default</button>
         </div>
 
-        <div className="mt-6">
-          <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-            <Palette className="size-5 text-accent" /> Theme
-          </h2>
-          <p className="mb-3 text-sm text-faint">Select a palette or preview an individual color.</p>
-          <div className="rounded-xl border border-border bg-surface-2 p-4">
-          <div className="flex items-end gap-2">
-            <ThemePicker themes={themes} selected={selected} onSelect={choose} />
-            <button type="button" onClick={reload} className="h-10 shrink-0 rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted hover:bg-button-hover hover:text-white">
-              Reload theme
-            </button>
-          </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+</div><div className="mt-8 border-t border-border pt-6"><h2 className="text-lg font-semibold">Colors</h2><p className="mb-3 mt-1 text-sm text-muted">Preview colors and save them as a custom theme.</p><div className="rounded-xl border border-border bg-window p-5">          <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <ColorLabelPicker theme={previewColors} selected={selectedColor} onSelect={setSelectedColor} />
             <div className="text-xs font-semibold text-muted">
               {THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)?.label}
@@ -360,10 +351,10 @@ function AppearanceSection({preview=false}: {preview?:boolean}) {
 
         <div className="mt-4 border-t border-border pt-4">
           <h2 className="text-lg font-semibold">Custom Theme</h2>
-          <p className="mt-1 text-sm text-faint">Save the edited JSON under a unique name or remove a selected custom theme.</p>
+          <p className="mt-1 text-sm text-faint">Save your color changes as a named theme. Expand Advanced to edit theme JSON.</p>
           <details className="group mt-4 rounded-xl border border-border bg-panel">
             <summary aria-label="Toggle JSON Editor" className="flex h-10 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-semibold text-muted outline-none marker:hidden hover:text-white focus-visible:text-white">
-              <span>JSON Editor</span>
+              <span>Advanced · JSON Editor</span>
               <span className="text-faint transition-transform group-open:rotate-180">⌄</span>
             </summary>
             <div className="border-t border-border p-4">
@@ -384,12 +375,11 @@ function AppearanceSection({preview=false}: {preview?:boolean}) {
             Custom Theme Name
             <input value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="My theme" className={`${compactInputCls} mt-2 h-10`} />
           </label>
-          <button type="button" onClick={save} className="mt-4 h-10 w-full rounded-lg bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-hover">Save custom theme</button>
-          <button type="button" onClick={remove} disabled={!selectedIsCustom} className="mt-2 h-10 w-full rounded-lg border border-border bg-button px-4 text-sm font-medium text-muted hover:bg-button-hover hover:text-white disabled:cursor-not-allowed disabled:text-disabled">Remove custom theme</button>
+          <button type="button" onClick={save} className={`${SETTINGS_BUTTON} mr-2 mt-4`}>Save custom theme</button>
+          <button type="button" onClick={remove} disabled={!selectedIsCustom} className={`${SETTINGS_BUTTON} mt-2`}>Remove custom theme</button>
           {message && <p role="status" className="mt-3 text-xs text-faint">{message}</p>}
         </div>
-          </div>
-        </div>
+</div></div>
       </div>
     </section>
     {split && <>
@@ -786,18 +776,8 @@ function ServerCard({
 
 function ArtworkSourcesSection() {
   return (
-    <section className="h-full overflow-y-auto rounded-2xl border border-border bg-surface p-4">
-      <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
-        <ImageIcon className="size-5 text-accent" /> Search Providers
-      </h2>
-      <p className="mb-4 text-sm text-faint">
-        Accounts and API keys used to search and download artwork and supported book metadata.
-        {" "}Leave saved key fields blank to keep existing values.
-      </p>
-
-      <DefaultArtworkSourcesFields />
-      <h3 className="mb-2 mt-6 text-sm font-semibold">Accounts &amp; connections</h3>
-      <p className="mb-3 text-xs text-faint">Expand a provider to configure credentials or test its connection.</p>
+    <section className="space-y-4">
+      <p className="text-sm text-muted">Expand a provider to configure credentials or test its connection. Leave saved key fields blank to keep existing values. Default artwork providers are managed in the Artwork plugin.</p>
       <div className="overflow-hidden rounded-xl border border-border">
         <TmdbCredentialsFields />
         <ArtworkCredentialsFields />
@@ -839,13 +819,13 @@ function TmdbCredentialsFields() {
   });
   return <ProviderConnection id="tmdb" name="TMDB" description="Movie and TV metadata" status={settings.isError ? "Configuration unavailable" : save.isPending ? "Saving…" : providerStatus(settings.data?.tmdb_configured, test.isPending, test.data, test.error)} setupUrl="https://www.themoviedb.org/settings/api">
     <form onSubmit={event => { event.preventDefault(); if (token.trim() && !save.isPending) save.mutate(token.trim()); }}>
-    <p className="mt-1 text-xs text-faint">Save and test your TMDB credentials. Automatic TMDB metadata fetching is not included in this development build.</p>
+    <p className="mt-1 text-xs text-faint">Used for movie and TV metadata and artwork. Save new credentials before testing the connection.</p>
     <p className="mt-2 text-xs text-muted" role="status">{save.isPending ? "Saving…" : settings.isLoading ? "Checking configuration…" : settings.isError ? "Unable to load configuration." : settings.data?.tmdb_configured ? "Token saved" : "Not configured"}</p>
     <div className="mt-3 flex flex-wrap items-end gap-3">
       <label className="min-w-0 flex-1 text-xs font-medium text-muted">TMDB API Read Access Token or API key
         <input type="password" autoComplete="off" className={`${compactInputCls} mt-1 w-full`} value={token} disabled={save.isPending} onBlur={() => { if (token.trim() && !save.isPending) save.mutate(token.trim()); }} onChange={event => { setToken(event.target.value); save.reset(); test.reset(); }} placeholder={settings.data?.tmdb_configured ? "Leave blank to keep saved token" : "Paste API Read Access Token"} />
       </label>
-      <button type="button" className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-surface disabled:opacity-50" disabled={!settings.data?.tmdb_configured || test.isPending || save.isPending || !!token.trim()} onClick={() => test.mutate()}>{test.isPending ? "Testing…" : "Test Connection"}</button>
+      <button type="button" className={SETTINGS_BUTTON} disabled={!settings.data?.tmdb_configured || test.isPending || save.isPending || !!token.trim()} onClick={() => test.mutate()}>{test.isPending ? "Testing…" : "Test Connection"}</button>
     </div>
     <p className="mt-2 text-xs text-faint">Accepts a TMDB API Read Access Token or a v3 API key. Changes save automatically when you leave the field.</p>
     {test.data && <p role="status" className={`mt-2 text-sm ${test.data.ok ? "text-green-400" : "text-red-400"}`}>{test.data.message}</p>}
@@ -1093,7 +1073,7 @@ function FanartTvdbFields({
         <button
           onClick={() => fanartTestMut.mutate()}
           disabled={fanartTestMut.isPending || (!fanart && !cfg?.fanart_configured)}
-          className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
+          className={`${SETTINGS_BUTTON} mt-2`}
         >
           {fanartTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
           Test Connection
@@ -1126,7 +1106,7 @@ function FanartTvdbFields({
         <button
           onClick={() => tvdbTestMut.mutate()}
           disabled={tvdbTestMut.isPending || (!tvdbKey && !cfg?.tvdb_configured)}
-          className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
+          className={`${SETTINGS_BUTTON} mt-2`}
         >
           {tvdbTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
           Test Connection
@@ -1137,7 +1117,7 @@ function FanartTvdbFields({
         <Field label="ComicVine API Key">
           <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => { setComicvine(e.target.value); comicvineTestMut.reset(); }} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API Key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
         </Field>
-        <button onClick={() => comicvineTestMut.mutate()} disabled={comicvineTestMut.isPending || (!comicvine && !cfg?.comicvine_configured)} className="mt-2 flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50">
+        <button onClick={() => comicvineTestMut.mutate()} disabled={comicvineTestMut.isPending || (!comicvine && !cfg?.comicvine_configured)} className={`${SETTINGS_BUTTON} mt-2`}>
           {comicvineTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test Connection
         </button>
         <ProviderFeedback name="ComicVine" pending={comicvineTestMut.isPending} result={comicvineTestMut.data} error={comicvineTestMut.error?.message} />
@@ -1219,7 +1199,7 @@ function DeviantArtConnection() {
     <p className="mb-3 text-xs text-faint">Register a confidential application to obtain a client ID and secret. Credentials stay on the PosterView server.</p>
     <label className="block text-sm text-muted">Client ID<input className={compactInputCls} value={id} onChange={e=>{setId(e.target.value);test.reset();}} placeholder={settings.data?.deviantart_configured ? "Saved (enter to replace)" : "DeviantArt client ID"}/></label>
     <label className="mt-2 block text-sm text-muted">Client secret<input type="password" autoComplete="new-password" className={compactInputCls} value={secret} onChange={e=>{setSecret(e.target.value);test.reset();}} placeholder={settings.data?.deviantart_configured ? "••••••" : "DeviantArt client secret"}/></label>
-    <div className="mt-3 flex gap-2"><button className="rounded-lg bg-accent px-3 py-2 text-sm text-black disabled:opacity-50" disabled={save.isPending || (!id && !secret)} onClick={()=>save.mutate()}>Save credentials</button><button className="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50" disabled={test.isPending || (!settings.data?.deviantart_configured && (!id || !secret))} onClick={()=>test.mutate()}>Test Connection</button></div>
+    <div className="mt-3 flex gap-2"><button className={SETTINGS_BUTTON} disabled={save.isPending || (!id && !secret)} onClick={()=>save.mutate()}>Save credentials</button><button className={SETTINGS_BUTTON} disabled={test.isPending || (!settings.data?.deviantart_configured && (!id || !secret))} onClick={()=>test.mutate()}>Test Connection</button></div>
     {save.error && <p role="alert" className="mt-2 text-xs text-danger">{save.error.message}</p>}
     <ProviderFeedback name="DeviantArt" pending={test.isPending} result={test.data} error={test.error?.message}/>
   </ProviderConnection>;

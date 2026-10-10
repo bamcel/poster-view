@@ -53,8 +53,8 @@ export default function NativeLibrariesSection() {
   }});
   const trigger = useRef<HTMLButtonElement | null>(null);
   const close = () => { setEditing(null); trigger.current?.focus(); };
-  return <section className="h-full overflow-y-auto py-3">
-    <div className="relative mb-8 flex flex-wrap items-center justify-center gap-3">
+  return <section className="pb-6">
+    <div className="relative mb-6 flex flex-wrap items-center justify-start gap-3">
       <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />New Library</button>
       <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50" disabled={!libraries.data?.length || scanAll.isPending} onClick={() => scanAll.mutate()}><RefreshCw className={`size-4 ${scanAll.isPending ? "animate-spin" : ""}`} />Scan Libraries</button>
       {canImport && <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>setImporting(true)}><FolderPlus className="size-4" />Import library</button>}
@@ -89,7 +89,7 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
   const busy=status.data?.status==="scanning"||scan.isPending||remove.isPending;
   return <article className="group relative overflow-hidden rounded-xl bg-window">
     <div className="relative overflow-hidden rounded-xl"><LibraryPosterStrip library={library.id}/><button ref={action} aria-label={`Actions for ${library.name}`} aria-expanded={open} onClick={()=>setOpen(!open)} className={`absolute bottom-2 right-2 grid size-8 place-items-center rounded-full border border-white/15 bg-black/40 text-white backdrop-blur transition-opacity hover:bg-black/60 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 ${open ? "!opacity-100" : ""}`}><MoreHorizontal className="size-4"/></button></div>
-    <div className="flex h-40 flex-col bg-window px-4 pb-4 pt-2">
+    <div className="flex min-h-24 flex-col bg-window px-4 pb-4 pt-2">
       <div className="text-center"><h3 className="truncate font-semibold text-white" title={library.name}>{library.name}</h3><p className="truncate text-xs text-muted" title={library.paths.map(displayPath).join("\n")}>{library.paths.length===1?displayPath(library.paths[0]):`${library.paths.length} folders`}</p></div>
       <div className="mt-3 min-h-0 overflow-y-auto text-xs text-muted">{status.data?.status === "scanning" && <NativeScanProgress status={status.data} compact/>}{scan.isPending && status.data?.status !== "scanning" && <p role="status">Starting scan…</p>}{syncStatus.data?.status === "syncing" && <p role="status" className="mt-2">Syncing · {syncStatus.data.pending} pending</p>}</div>
     </div>

@@ -211,7 +211,7 @@ it("persists and resets Dashboard appearance controls", () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings/appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
 
-  expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Layout & Backgrounds" })).toBeTruthy();
   const backdropSwitch = screen.getByRole("switch", { name: "Show Backdrops" });
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(backdropSwitch);
@@ -304,17 +304,13 @@ it("groups existing providers without disable controls or new metadata providers
   );
 
   expect(screen.queryByText("Show Providers")).toBeNull();
-  const providers = await screen.findByRole("heading", { name: "Poster providers" });
-  const section = providers.closest("section")!;
-  expect(section.querySelector("h3")).toBe(providers);
-  expect(screen.getByRole("group", { name: "eReader providers" })).toBeTruthy();
-  expect(within(section).queryAllByRole("checkbox")).toHaveLength(0);
-  expect(within(section).getAllByRole("combobox")).toHaveLength(2);
+  expect(screen.queryByRole("group", {name:"eReader providers"})).toBeNull();
+  expect(screen.queryByRole("combobox", {name:"Default provider"})).toBeNull();
   for (const name of ["AniList", "AniList Manga", "MediUX", "MangaDex", "VIZ"]) {
     expect(screen.getByRole("button", { name: `Configure ${name}` })).toBeTruthy();
   }
   expect(screen.getByRole("button", { name: "Configure TMDB" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Configure AniDB" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Configure AniDB" })).toBeTruthy();
   expect(screen.queryByText("Show Providers")).toBeNull();
   client.clear();
 });
