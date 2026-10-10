@@ -542,14 +542,14 @@ pub(crate) async fn scan(
         Json(serde_json::json!({"status":"scanning"})),
     ))
 }
-pub(crate) async fn scan_folder(State(state):State<AppState>,Path((id,item)):Path<(String,String)>,axum::extract::Query(options):axum::extract::Query<std::collections::BTreeMap<String,String>>)->Result<StatusCode,HttpError>{
+pub(crate) async fn scan_folder(State(state):State<AppState>,Path((id,item)):Path<(String,String)>,axum::extract::Query(options):axum::extract::Query<std::collections::BTreeMap<String,String>>)->Result<(StatusCode,Json<serde_json::Value>),HttpError>{
  library(&state,&id).await?;
  let entry=store(&state).native_catalog(&id).map_err(error)?.into_iter().find(|e|e.id==item && e.available).ok_or_else(HttpError::not_found)?;
  if !["series","book_series","season"].contains(&entry.kind.as_str()) || entry.metadata["missing"]==true {return Err(HttpError::bad_request("Select an existing series or season folder."));}
  let refresh=options.get("refresh_metadata").is_some_and(|v|v=="true");
  if refresh {if store(&state).native_scan_status(&id).map_err(error)?.status=="scanning" {return Err(HttpError::bad_request("Wait for the library scan to finish before refreshing metadata."));}store(&state).reset_provider_checks(&id,&entry.path).map_err(error)?;}
  start_scan_with_refresh(state,id,Some(vec![entry.path]),true,refresh).await?;
- Ok(StatusCode::ACCEPTED)
+ Ok((StatusCode::ACCEPTED,Json(serde_json::json!({"status":"scanning"}))))
 }
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
