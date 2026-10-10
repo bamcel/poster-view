@@ -1,8 +1,10 @@
+import {useArtworkPlugin} from "../lib/artworkPlugin";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import NativeLibraryBrowser from "./NativeLibraryBrowser";
+vi.mock("../lib/artworkPlugin",()=>({useArtworkPlugin:vi.fn(()=>({data:{enabled:true}}))}));
 vi.mock("../lib/libraryDisplay",()=>({useTrackingOverlays:()=>[true,vi.fn(),{coloredEffect:"both",coloredTitle:true}]}));
 vi.mock("./ArtworkPanel", () => ({default: ({serverId, item}: {serverId:number;item:import("../types").ItemDetail}) => <div data-testid="shared-artwork" data-server={serverId} data-item={item.id} data-seasons={item.seasons.map(s=>s.id).join(",")}>Shared artwork lookup</div>}));
 import {
@@ -140,7 +142,7 @@ it("opens deep links and keeps editing separate from the detail page", async () 
   expect(screen.getByRole("button", { name: "Save metadata" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Close editor" }));
   expect(screen.queryByRole("dialog")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Edit Artwork" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit Images" }));
   expect(screen.getByRole("region", { name: "Artwork for Example Series" })).toBeTruthy();
   const panel = screen.getByTestId("shared-artwork");
   expect(panel.getAttribute("data-server")).toBe("0");
@@ -439,4 +441,13 @@ it("opens the selected series and artwork panel from Edit Images",async()=>{
  expect(screen.getAllByText("Series synopsis").length).toBeGreaterThan(0);
  fireEvent.click(screen.getByRole("button",{name:"Back"}));
  await waitFor(()=>expect(screen.queryByTestId("shared-artwork")).toBeNull());
+});
+
+it("hides Edit Images when the artwork plugin is disabled",async()=>{
+ vi.mocked(useArtworkPlugin).mockReturnValue({data:{enabled:false}} as ReturnType<typeof useArtworkPlugin>);
+ mount();fireEvent.contextMenu(await screen.findByTitle("Example Series · right-click for options"));
+ expect(screen.queryByRole("menuitem",{name:"Edit Images"})).toBeNull();
+ fireEvent.click(screen.getByRole("menuitem",{name:"View Missing Episodes"}));
+ expect(screen.queryByTestId("shared-artwork")).toBeNull();
+ vi.mocked(useArtworkPlugin).mockReturnValue({data:{enabled:true}} as ReturnType<typeof useArtworkPlugin>);
 });

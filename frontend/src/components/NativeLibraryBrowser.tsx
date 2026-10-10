@@ -216,6 +216,8 @@ export default function NativeLibraryBrowser({
   const { enabled: backdropView } = useBackdropView(library.id);
   const [, , bookDisplay] = useTrackingOverlays(library.library_type === "books");
   const {hoverOnly}=useAnimatedArtworkPreference(library.id);
+  const artworkPlugin=useArtworkPlugin();
+  const artworkEnabled=artworkPlugin.data?.enabled!==false;
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
   const navigate=useNavigate();
@@ -283,17 +285,18 @@ export default function NativeLibraryBrowser({
       : undefined;
   const selected=library.library_type==="books" && requested?.kind==="book" ? entries.find(e=>e.path===requested.parent_path && e.kind==="book_series") : requested;
   const pendingArtworkPage=useRef<string|null>(null);
+  useEffect(()=>{if(!artworkEnabled){pendingArtworkPage.current=null;setEditor(current=>current?.kind==="artwork"?null:current);}},[artworkEnabled]);
   const pageItem = params.get("native_item");
   const pageLibrary = params.get("native_library");
   useEffect(() => {
     const target=pendingArtworkPage.current;
     pendingArtworkPage.current=null;
-    if(target && target===pageItem && pageLibrary===library.id) setEditor({id:target,kind:"artwork"});
+    if(artworkEnabled && target && target===pageItem && pageLibrary===library.id) setEditor({id:target,kind:"artwork"});
     else setEditor(current => current?.kind === "artwork" ? null : current);
   }, [pageItem, pageLibrary]);
   const open = (entry: NativeCatalogEntry) => {
     if(library.library_type==="books" && entry.kind==="book") {
-      if(entry.metadata.missing===true) {setEditor({id:entry.id,kind:"artwork"});return;}
+      if(entry.metadata.missing===true) {if(!artworkEnabled)return;setEditor({id:entry.id,kind:"artwork"});return;}
       const parent=entries.find(e=>e.path===entry.parent_path && e.kind==="book_series");
       const back=new URLSearchParams(params);back.set("native_library",library.id);
       if(parent)back.set("native_item",parent.id);else back.delete("native_item");
@@ -511,7 +514,7 @@ export default function NativeLibraryBrowser({
                   }
                   onRefresh={refresh}
                   actions={["series","book_series","movie"].includes(entry.kind)?[
-                    {label:"Edit Images",icon:<Images className="size-4 shrink-0"/>,onClick:()=>{pendingArtworkPage.current=entry.id;open(entry);}},
+                    ...(artworkEnabled?[{label:"Edit Images",icon:<Images className="size-4 shrink-0"/>,onClick:()=>{pendingArtworkPage.current=entry.id;open(entry);}}]:[]),
                     {label:"Identify",icon:<Fingerprint className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"identify"})},
                     {label:"Remove Identification",icon:<ListFilter className="size-4 shrink-0"/>,disabled:status.data?.status==="scanning",onClick:()=>setEditor({id:entry.id,kind:"remove-identification"})},
                     {label:"Refresh Metadata",icon:<RefreshCw className="size-4 shrink-0"/>,disabled:status.data?.status==="scanning",onClick:()=>setEditor({id:entry.id,kind:"refresh-metadata"})},
@@ -531,7 +534,7 @@ export default function NativeLibraryBrowser({
         </>
       )}
       {editEntry && (editor?.kind === "artwork" ? (
-        <div className="pointer-events-none fixed inset-0 z-50 bg-transparent">
+        artworkEnabled && <div className="pointer-events-none fixed inset-0 z-50 bg-transparent">
           <section aria-label={`Artwork for ${editEntry.title}`} className="pointer-events-auto ml-auto h-full w-full max-w-md shadow-2xl" onClick={event => event.stopPropagation()}>
             <ArtworkPanel serverId={0} item={nativeArtworkItem(library, editEntry, entries)} libraryTitle={library.name} libraryType={library.library_type === "books" ? "book" : library.library_type === "movies" ? "movie" : "show"} onClose={() => setEditor(null)} />
           </section>
@@ -775,8 +778,8 @@ function NativeDetail({
                   </button>
                   {artworkPlugin.data?.enabled !== false && <button
                     className={detailActionClass}
-                    aria-label="Edit Artwork"
-                    title="Edit Artwork"
+                    aria-label="Edit Images"
+                    title="Edit Images"
                     onClick={() => edit("artwork")}
                   >
                     <Images className="size-4" />
@@ -813,7 +816,7 @@ function NativeDetail({
                         titleBadge={child.metadata.missing === true ? "Missing" : undefined}
                         image={picture(library, child, "poster")}
                         kind={child.kind.startsWith("book") ? "book" : "show"}
-                        openLabel={child.kind==="book" ? child.metadata.missing===true ? "Edit Artwork" : "Read" : "Open"}
+                        openLabel={child.kind==="book" ? child.metadata.missing===true ? "Edit Images" : "Read" : "Open"}
                         onOpen={() => open(child)}
                       />
                     ))}
