@@ -440,7 +440,7 @@ impl Runtime {
         data: &[u8],
         content_type: &str,
         provider: &str,
-        item_title: &str,
+        _item_title: &str,
     ) -> Result<Option<ApplyResult>, RuntimeError> {
         let Some(server) = self.server_store()?.get_server(server_id)? else {
             return Ok(None);
@@ -471,15 +471,6 @@ impl Runtime {
         {
             self.cache_media_image(server_id, &reference, data, content_type);
         }
-        self.record_history(
-            server_id,
-            item_id,
-            target,
-            data,
-            content_type,
-            provider,
-            item_title,
-        )?;
         let companion = if matches!(provider, "mangadex" | "viz" | "comicvine")
             && matches!(target, ImageTarget::Poster)
         {

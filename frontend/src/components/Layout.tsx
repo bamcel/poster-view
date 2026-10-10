@@ -5,7 +5,7 @@ import {nativeLibraries} from "../api/nativeLibraries";
 // App chrome: a left sidebar (logo, nav, active-server picker) + routed content.
 
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, History, LogOut, Settings, } from "lucide-react";
+import { LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, } from "lucide-react";
 import { Logo } from "./ui";
 import { api } from "../api/client";
 import { useContext, useEffect, useState, type ReactNode } from "react";
@@ -14,7 +14,6 @@ import { AuthSessionContext } from "../lib/authContext";
 import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
 const navItems = [
-  { to: "/history", label: "History", icon: History, end: false },
   { to: "/settings", label: "Settings", icon: Settings, end: false },
 ];
 export default function Layout({ children, preview = false, showPreviewChrome = true, previewPath = "/" }: { children?: ReactNode; preview?: boolean; showPreviewChrome?: boolean; previewPath?: string }) {

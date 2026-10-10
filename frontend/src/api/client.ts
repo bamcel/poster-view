@@ -2,7 +2,6 @@
 // Vite proxies to the backend; in production the Axum server serves this bundle.
 
 import type {
-  ApplyHistoryEntry,
   AppearanceSettings,
   ApplyResult,
   ArtworkProviderInfo,
@@ -16,8 +15,6 @@ import type {
   ArtworkSearchResults,
   ArtworkSettings,
   ConnectionTest,
-  HistoryPurgeResult,
-  HistorySettings,
   ImageTarget,
   ItemDetail,
   Library,
@@ -277,23 +274,4 @@ export const api = {
     return res.json();
   },
 
-  // -- apply history (global feed + revert to a previously-applied image) --
-  getHistory: (opts: { serverId?: number; itemId?: string; target?: ImageTarget; limit?: number } = {}) => {
-    const p = new URLSearchParams();
-    if (opts.serverId != null) p.set("server_id", String(opts.serverId));
-    if (opts.itemId) p.set("item_id", opts.itemId);
-    if (opts.target) p.set("target", opts.target);
-    if (opts.limit != null) p.set("limit", String(opts.limit));
-    return request<ApplyHistoryEntry[]>(`/history?${p.toString()}`);
-  },
-  revertHistory: (historyId: number) =>
-    request<ApplyResult>(`/history/${historyId}/revert`, { method: "POST" }),
-  getHistorySettings: () => request<HistorySettings>("/history/settings"),
-  setHistorySettings: (settings: HistorySettings) =>
-    request<HistorySettings>("/history/settings", {
-      method: "PUT",
-      body: JSON.stringify(settings),
-    }),
-  purgeHistory: (days?: number) =>
-    request<HistoryPurgeResult>(`/history/purge${days != null ? `?days=${days}` : ""}`, { method: "POST" }),
 };

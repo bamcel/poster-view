@@ -10,8 +10,8 @@ use axum::{
 };
 use posterview_contracts::{
     ApiErrorResponse, AppearanceSettings, ApplyRequest, ArtworkCacheSettings, ArtworkProviderTestRequest,
-    ArtworkRefreshRequest, ArtworkRefreshResult, ArtworkSettingsUpdate, HistoryPurgeResult,
-    HistorySettings, ImageTarget, LibraryVisibilityUpdate, PosterDbCredentials,
+    ArtworkRefreshRequest, ArtworkRefreshResult, ArtworkSettingsUpdate,
+    ImageTarget, LibraryVisibilityUpdate, PosterDbCredentials,
     RemoveImageRequest, ServerCreate, ServerUpdate, VerifyTitlesRequest,
 };
 use posterview_runtime::Runtime;
@@ -79,6 +79,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         auth: auth.clone(),
         login_backdrop,
     };
+    if let Err(error)=scheduled_tasks::retire_artwork_history(&state){tracing::warn!(error=%error.detail,"Unable to remove legacy artwork history");}
     native_monitor::start(state.clone());
     native_sync::start(state.clone());
     scheduled_tasks::start(state.clone());
@@ -210,22 +211,11 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/posterdb/verify", axum::routing::post(posterdb_verify))
         .route("/api/posterdb/image", get(posterdb_image))
         .route("/api/posterdb/apply", axum::routing::post(apply_download))
-        .route("/api/history", get(list_history))
-        .route(
-            "/api/history/settings",
-            get(get_history_settings).put(set_history_settings),
-        )
         .route("/api/native/identify/anidb/{id}/poster", get(native_identify::anidb_preview))
         .route("/api/tasks", get(scheduled_tasks::list))
         .route("/api/tasks/cleanup/preview", get(scheduled_tasks::preview))
         .route("/api/tasks/{id}", axum::routing::put(scheduled_tasks::configure))
         .route("/api/tasks/{id}/run", axum::routing::post(scheduled_tasks::run))
-        .route("/api/history/purge", axum::routing::post(purge_history))
-        .route("/api/history/{id}/image", get(history_image))
-        .route(
-            "/api/history/{id}/revert",
-            axum::routing::post(revert_history),
-        )
         .route("/api", any(api_not_found))
         .route("/api/{*path}", any(api_not_found))
         .route_layer(middleware::from_fn_with_state(auth, require_auth));
@@ -1103,86 +1093,6 @@ fn cached_image_response(bytes: Vec<u8>, content_type: &str) -> axum::response::
         HeaderValue::from_static("public, max-age=86400"),
     );
     response
-}
-
-#[derive(Debug, Deserialize)]
-struct HistoryQuery {
-    server_id: Option<i64>,
-    item_id: Option<String>,
-    target: Option<ImageTarget>,
-    limit: Option<i64>,
-}
-
-async fn list_history(
-    State(state): State<AppState>,
-    Query(query): Query<HistoryQuery>,
-) -> Result<impl IntoResponse, HttpError> {
-    Ok(Json(state.runtime.list_history(
-        query.server_id,
-        query.item_id.as_deref(),
-        query.target.as_ref(),
-        query.limit,
-    )?))
-}
-
-async fn get_history_settings(
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, HttpError> {
-    Ok(Json(state.runtime.history_settings()?))
-}
-
-async fn set_history_settings(
-    State(state): State<AppState>,
-    Json(settings): Json<HistorySettings>,
-) -> Result<impl IntoResponse, HttpError> {
-    Ok(Json(state.runtime.set_history_settings(&settings)?))
-}
-
-#[derive(Debug, Deserialize)]
-struct PurgeQuery {
-    days: Option<i64>,
-}
-
-async fn purge_history(
-    State(state): State<AppState>,
-    Query(query): Query<PurgeQuery>,
-) -> Result<impl IntoResponse, HttpError> {
-    Ok(Json(HistoryPurgeResult {
-        purged: state.runtime.purge_history(query.days)?,
-    }))
-}
-
-async fn history_image(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-) -> Result<axum::response::Response, HttpError> {
-    let (bytes, content_type) = state
-        .runtime
-        .history_image(id)?
-        .ok_or_else(HttpError::history_not_found)?;
-    let mut response = bytes.into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(&content_type)
-            .unwrap_or_else(|_| HeaderValue::from_static("image/jpeg")),
-    );
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=86400"),
-    );
-    Ok(response)
-}
-
-async fn revert_history(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-) -> Result<impl IntoResponse, HttpError> {
-    state
-        .runtime
-        .revert_history(id)
-        .await?
-        .map(Json)
-        .ok_or_else(HttpError::history_not_found)
 }
 
 async fn api_not_found(uri: Uri) -> impl IntoResponse {

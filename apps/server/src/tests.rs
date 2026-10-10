@@ -79,7 +79,7 @@ async fn manga_selection_persists_across_restart_and_is_scoped_to_the_library_it
 #[tokio::test]
 #[ignore = "requires live MangaDex access"]
 async fn live_mangadex_food_wars_search_cover_apply_and_history() {
-    use serde_json::{Value, json};
+    use serde_json::json;
     let uploads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let count = uploads.clone();
     let media_app = axum::Router::new()
@@ -206,12 +206,9 @@ async fn live_mangadex_food_wars_search_cover_apply_and_history() {
         .oneshot(Request::get("/api/history").body(Body::empty()).unwrap())
         .await
         .unwrap();
-    let entries: Value =
-        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(entries[0]["provider"], "mangadex");
-    assert_eq!(entries[0]["item_id"], "book");
+    assert_eq!(response.status(),StatusCode::NOT_FOUND);
     println!(
-        "Food Wars: {} search results, {} covers, volume 14 image decoded and applied, history recorded",
+        "Food Wars: {} search results, {} covers, volume 14 image decoded and applied without history",
         results.results.len(),
         covers.items.len()
     );
@@ -869,7 +866,7 @@ async fn jellyfin_item_detail_is_normalized() {
 }
 
 #[tokio::test]
-async fn large_png_manual_upload_is_applied_and_recorded_in_history() {
+async fn large_png_manual_upload_is_applied_without_artwork_history() {
     let media_app = axum::Router::new().route(
         "/Items/movie-1/Images/Primary",
         axum::routing::post(|_: axum::body::Bytes| async { StatusCode::NO_CONTENT })
@@ -910,23 +907,9 @@ async fn large_png_manual_upload_is_applied_and_recorded_in_history() {
         .await
         .unwrap();
     assert_eq!(applied.status(), StatusCode::OK);
-    let history = app
-        .oneshot(Request::get("/api/history").body(Body::empty()).unwrap())
-        .await
-        .unwrap();
-    let entries: serde_json::Value =
-        serde_json::from_slice(&history.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(entries[0]["item_title"], "Example Movie");
-    assert_eq!(entries[0]["provider"], "manual");
-    assert!(
-        directory
-            .path()
-            .join("history")
-            .read_dir()
-            .unwrap()
-            .next()
-            .is_some()
-    );
+    let history = app.oneshot(Request::get("/api/history").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(history.status(),StatusCode::NOT_FOUND);
+    assert!(!directory.path().join("history").exists());
     media_server.abort();
 }
 

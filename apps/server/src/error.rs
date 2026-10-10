@@ -20,13 +20,6 @@ impl HttpError {
         }
     }
 
-    pub(crate) fn history_not_found() -> Self {
-        Self {
-            status: StatusCode::NOT_FOUND,
-            detail: "History entry not found".to_owned(),
-        }
-    }
-
     pub(crate) fn bad_request(detail: impl Into<String>) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,

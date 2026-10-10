@@ -68,7 +68,6 @@ impl Default for Task {
 fn defaults() -> Vec<Task> {
     [
     ("cleanup","Data Cleanup","Remove hidden missing-file placeholders after retention, unused managed artwork, expired provider caches, obsolete library and sync records, deleted-file reader registrations and reading state, old local artwork mirrors, and abandoned temporary files. Shared artwork and media folders are preserved."),
-    ("history","Trim History","Remove application history older than the retention period, including its saved history backups."),
     ("database","Optimize Database","Check database health, optimize query statistics, and checkpoint available WAL pages without an exclusive database rebuild."),
 ].into_iter().map(|(id,title,description)|Task{id:id.into(),title:title.into(),description:description.into(),..Default::default()}).collect()
 }
@@ -376,7 +375,6 @@ async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
                     }}db.set_setting("cleanup-unreferenced",&serde_json::to_string(&grace).map_err(bad)?).map_err(bad)?;
                 }
                 let candidates=candidates(&state,task)?;for file in candidates {let meta=std::fs::symlink_metadata(&file.path).map_err(bad)?;if meta.file_type().is_symlink()||!meta.is_file()||!old(&meta,task.retention_days){continue;}std::fs::remove_file(&file.path).map_err(bad)?;report.files+=1;report.bytes+=file.bytes;}report.result=format!("Removed {} obsolete records, {} hidden placeholders and {} unused files ({} bytes).",report.records,report.placeholders,report.files,report.bytes);Ok(report)},
-            "history"=>{let count=state.runtime.purge_history(Some(task.retention_days as i64)).map_err(bad)?;Ok(Report{result:format!("Removed {count} old history records."),..Default::default()})},
             "database"=>{let db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;let health:String=db.query_row("PRAGMA quick_check",[],|r|r.get(0)).map_err(bad)?;if health!="ok"{return Err(bad(format!("Database check: {health}")));}db.execute_batch("PRAGMA optimize; PRAGMA wal_checkpoint(PASSIVE);").map_err(bad)?;Ok(Report{result:"Database health check passed; optimization and passive checkpoint completed.".into(),..Default::default()})},
             _=>Err(HttpError::not_found()),
         }})();
@@ -389,6 +387,35 @@ pub(crate) async fn run(
 ) -> Result<Json<Report>, HttpError> {
     execute(state, id).await.map(Json)
 }
+pub(crate) fn retire_artwork_history(state: &AppState) -> Result<(), HttpError> {
+    let store=ServerStore::new(state.runtime.data_dir());
+    if store.get_setting("artwork-history-retired").map_err(bad)? == "true" {return Ok(());}
+    let mut db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;
+    db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;
+    let tx=db.transaction().map_err(bad)?;
+    tx.execute("DELETE FROM catalog_artwork WHERE kind LIKE '%-previous'",[]).map_err(bad)?;
+    let snapshots=tx.prepare("SELECT library_id,item_id,snapshot_json FROM native_catalog_sources").map_err(bad)?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?))).map_err(bad)?.collect::<Result<Vec<_>,_>>().map_err(bad)?;
+    for (library,item,raw) in snapshots {
+        let Ok(mut value)=serde_json::from_str::<serde_json::Value>(&raw) else {continue;};
+        if let Some(art)=value["artwork"].as_array_mut() {
+            let before=art.len();art.retain(|a|!a["kind"].as_str().is_some_and(|k|k.ends_with("-previous")));
+            if art.len()!=before {tx.execute("UPDATE native_catalog_sources SET snapshot_json=?1 WHERE library_id=?2 AND item_id=?3",rusqlite::params![value.to_string(),library,item]).map_err(bad)?;}
+        }
+    }
+    let sync=tx.prepare("SELECT key,value_enc FROM settings WHERE key LIKE 'native-server-sync:%'").map_err(bad)?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).map_err(bad)?.collect::<Result<Vec<_>,_>>().map_err(bad)?;
+    for (key,raw) in sync {
+        let Ok(mut value)=serde_json::from_str::<serde_json::Value>(&raw) else {continue;};
+        let mut changed=false;
+        if let Some(items)=value["items"].as_object_mut(){for item in items.values_mut(){if let Some(item)=item.as_object_mut(){changed|=item.remove("history").is_some();}}}
+        if changed {tx.execute("UPDATE settings SET value_enc=?1 WHERE key=?2",rusqlite::params![value.to_string(),key]).map_err(bad)?;}
+    }
+    tx.execute("DELETE FROM settings WHERE key IN ('history_purge_days','history_max_entries')",[]).map_err(bad)?;
+    tx.commit().map_err(bad)?;
+    state.runtime.discard_artwork_history().map_err(bad)?;
+    store.set_setting("artwork-history-retired","true").map_err(bad)?;
+    Ok(())
+}
+
 pub(crate) fn start(state: AppState) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
@@ -440,6 +467,24 @@ mod tests {
         let value:serde_json::Value=serde_json::from_str(&store.get_setting(&key).unwrap()).unwrap();
         assert_eq!(value["activity"][0],"keep");
         assert_eq!(cleanup_records(&state,&task,true).unwrap(),0);
+    }
+    #[test]
+    fn retiring_history_removes_backups_but_preserves_current_art_and_editor_originals() {
+        let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());
+        let store=ServerStore::new(state.runtime.data_dir());
+        let dir=state.runtime.data_dir().join("history");std::fs::create_dir_all(&dir).unwrap();let backup=dir.join("old.jpg");std::fs::write(&backup,b"old").unwrap();
+        store.insert_history(1,"item","Title","poster",backup.to_str().unwrap(),"image/jpeg","manual").unwrap();
+        store.set_setting("native-server-sync:removed",&serde_json::json!({"items":{"item":{"history":[{"artwork":"old"}],"remote":"remote-id"}}}).to_string()).unwrap();
+        let db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).unwrap();
+        db.execute("INSERT INTO catalog_items(id,kind,title) VALUES('item','series','Title')",[]).unwrap();
+        for kind in ["poster","poster-previous","poster-edit-original"] {db.execute("INSERT INTO catalog_artwork VALUES('item',?1,'@managed/image.jpg','manual',1)",[kind]).unwrap();}
+        retire_artwork_history(&state).unwrap();
+        assert!(!backup.exists());
+        assert_eq!(db.query_row("SELECT count(*) FROM apply_history",[],|r|r.get::<_,usize>(0)).unwrap(),0);
+        assert_eq!(db.query_row("SELECT count(*) FROM catalog_artwork",[],|r|r.get::<_,usize>(0)).unwrap(),2);
+        let value:serde_json::Value=serde_json::from_str(&store.get_setting("native-server-sync:removed").unwrap()).unwrap();
+        assert!(value["items"]["item"].get("history").is_none());assert_eq!(value["items"]["item"]["remote"],"remote-id");
+        retire_artwork_history(&state).unwrap();
     }
     fn aged(path: &FsPath) {
         let file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
@@ -593,7 +638,7 @@ mod tests {
         assert!(load(&state).unwrap()[0].enabled);
         let report = execute(state.clone(), "database".into()).await.unwrap();
         assert!(report.result.contains("passed"));
-        assert!(load(&state).unwrap()[2].last_run > 0);
+        assert!(load(&state).unwrap().into_iter().find(|t|t.id=="database").unwrap().last_run > 0);
     }
     #[tokio::test]
     async fn hidden_placeholders_and_unused_covers_are_cleaned_after_retention() {

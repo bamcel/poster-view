@@ -1,10 +1,9 @@
 import HomePage from "./pages/HomePage";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import Layout from "./components/Layout";
 import DashboardPage from "./pages/DashboardPage";
 import ItemDetailPage from "./pages/ItemDetailPage";
 import SettingsPage from "./pages/SettingsPage";
-import HistoryPage from "./pages/HistoryPage";
 import { ToastProvider } from "./lib/toast";
 import AuthGate from "./components/AuthGate";
 import { ServerProvider } from "./lib/serverContext";
@@ -27,7 +26,7 @@ export default function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/media/:libraryId" element={<DashboardPage />} />
               <Route path="/server/:serverId/series/:seriesId/season/:seasonId" element={<SeasonDetailPage />} />
-              <Route path="/history" element={<HistoryPage />} />
+              <Route path="/history" element={<Navigate to="/" replace />} />
               <Route path="/settings/*" element={<SettingsPage />} />
               <Route path="/server/:serverId/item/:itemId" element={<ItemDetailPage />} />
             </Route>

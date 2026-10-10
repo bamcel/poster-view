@@ -612,7 +612,7 @@ pub(crate) async fn apply_panel_artwork(state: AppState, target: String, kind: p
         let path = crate::workers::blocking(|| crate::native_provider::store_image(&state, &bytes)).map_err(HttpError::bad_request)?;
         let animated=path.ends_with(".gif")||path.ends_with(".webm");
         let art = posterview_contracts::native::NativeArtwork {kind:if animated{format!("{kind}-animated")}else{kind.into()},path,source:"manual".into()};
-        if let Some(previous)=entry.artwork.iter().find(|a|a.kind==kind){let mut previous=previous.clone();previous.kind=if previous.path.ends_with(".gif")||previous.path.ends_with(".webm"){format!("{kind}-animated")}else{format!("{kind}-previous")};db.save_native_artwork(library,item,&previous).map_err(error)?;}
+        if let Some(animated)=entry.artwork.iter().find(|a|a.kind==kind && (a.path.ends_with(".gif")||a.path.ends_with(".webm"))){let mut animated=animated.clone();animated.kind=format!("{kind}-animated");db.save_native_artwork(library,item,&animated).map_err(error)?;}
         db.save_native_artwork(library,item,&art).map_err(error)?;
         let config = db.native_libraries().map_err(error)?.into_iter().find(|l|l.id == library).ok_or_else(HttpError::not_found)?;
         let message = if config.options.save_artwork && !animated {

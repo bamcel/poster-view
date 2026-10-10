@@ -51,7 +51,6 @@ struct ItemState {
     remote: String,
     metadata: Value,
     tags: Value,
-    history: Vec<Value>,
 }
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -481,7 +480,7 @@ pub(crate) fn start(state: AppState) {
     for library in db(&state).native_libraries().unwrap_or_default() {
         let result = (|| -> Result<(), String> {
             let mut value = load(&state, &library.id)?;
-            if value.activity.len() > 1 {
+            if value.activity.len() > 1 || db(&state).get_setting(&key(&library.id)).unwrap_or_default().contains("\"history\"") {
                 value.activity.truncate(1);
                 save(&state, &library.id, &value)?;
             }
@@ -919,7 +918,6 @@ async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> 
    let current=db(state).native_catalog_scoped(library,Some(&[entry.path.clone()])).map_err(|e|e.to_string())?.into_iter().find(|e|e.id==entry.id).ok_or("Manual item was removed.")?;
    if current.revision!=entry.revision {fields=json!({});}
    if !fields.as_object().unwrap().is_empty(){
-    snapshot.history.insert(0,json!({"time":now(),"metadata":FIELDS.iter().filter_map(|(key,_)|current.metadata.get(*key).map(|v|((*key).to_string(),v.clone()))).collect::<serde_json::Map<String,Value>>(),"artwork":current.artwork}));snapshot.history.truncate(10);
     db(state).sync_native_metadata(library,&entry.id,current.revision,&fields,override_locked).map_err(|e|e.to_string())?;
     if write_nfo {let mut updated=db(state).native_catalog_scoped(library,Some(&[entry.path.clone()])).map_err(|e|e.to_string())?.into_iter().find(|e|e.id==entry.id).ok_or("Item unavailable.")?;
      updated.metadata.as_object_mut().unwrap().retain(|field,_|fields.get(field).is_some());
@@ -942,7 +940,6 @@ async fn reconcile_inner(state: &AppState, library: &str) -> Result<(), String> 
      let typ=if kind=="thumb"{"Primary"}else{ART.iter().find(|(name,_)|*name==kind).map(|(_,typ)|*typ).unwrap_or("Thumb")};
      let bytes=sync_image(config.clone(),&id,typ).await?;
      let managed=crate::native_provider::store_image(state,&bytes)?;
-     if let Some(existing)=existing{let mut backup=existing.clone();backup.kind=if existing.path.ends_with(".gif")||existing.path.ends_with(".webm"){format!("{kind}-animated")}else{format!("{kind}-previous")};db(state).save_native_artwork(library,&entry.id,&backup).map_err(|e|e.to_string())?;}
      let art=NativeArtwork{kind:kind.clone(),path:managed,source:"server".into()};
      db(state).save_native_artwork(library,&entry.id,&art).map_err(|e|e.to_string())?;
      if lib.options.save_artwork{crate::native_artwork::write(state,&current,&art,true)?;}

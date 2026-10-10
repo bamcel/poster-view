@@ -18,7 +18,6 @@ vi.mock("./components/Layout", async () => {
 vi.mock("./pages/DashboardPage", () => ({ default: () => null }));
 vi.mock("./pages/ItemDetailPage", () => ({ default: () => null }));
 vi.mock("./pages/SettingsPage", () => ({ default: () => null }));
-vi.mock("./pages/HistoryPage", () => ({ default: () => null }));
 
 afterEach(cleanup);
 beforeEach(() => {
