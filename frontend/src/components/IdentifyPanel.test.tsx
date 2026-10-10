@@ -42,7 +42,7 @@ it("shows posters and prefers automatically linked matches before other results"
  vi.mocked(nativeLibraries.identifySearch).mockResolvedValue({groups:[{provider:"tmdb",results:[candidate]},{provider:"tvdb",results:[{...linked,id:"99",title:"Wrong show",identifiers:{tvdb:"99"}}]}]});
  vi.mocked(nativeLibraries.identifyResolve).mockResolvedValue({identifiers:{tmdb:"1",tvdb:"2"},candidates:[candidate,linked],warnings:[]});
  render(<IdentifyPanel library={library} entry={entry} busy={false} onSaved={()=>{}}/>);
- fireEvent.click(screen.getByText("Search all providers"));fireEvent.click(await screen.findByText("Correct show"));
+ fireEvent.click(screen.getByText("Search all providers"));fireEvent.click((await screen.findAllByText("Correct show"))[0]);
  await waitFor(()=>expect((screen.getByLabelText("TheTVDB identification ID") as HTMLInputElement).value).toBe("2"));
  expect(screen.getAllByAltText("Correct show poster").length).toBeGreaterThan(0);
  fireEvent.click(screen.getByRole("tab",{name:/TheTVDB/}));
@@ -102,4 +102,17 @@ it("loads AniDB posters when its results tab opens",async()=>{
 it("hides anime provider ID fields in a movie library",()=>{
  render(<IdentifyPanel library={{...library,library_type:"movies"}} entry={{...entry,kind:"movie"}} busy={false} onSaved={vi.fn()}/>);
  expect(screen.queryByLabelText("AniDB identification ID")).toBeNull();expect(screen.queryByLabelText("AniList identification ID")).toBeNull();expect(screen.queryByLabelText("MyAnimeList identification ID")).toBeNull();expect(screen.getByLabelText("TheTVDB identification ID")).toBeTruthy();
+});
+
+it("populates saved provider IDs and previews their own records without changing linked IDs",async()=>{
+ vi.mocked(nativeLibraries.identifyResolve).mockImplementation(async(_lib,_item,provider,id)=>({identifiers:{tvdb:"unwanted"},warnings:[],candidates:[{provider,id,title:`${provider} record`,year:2000,format:"TV",overview:null,poster:`https://example.com/${provider}.jpg`,identifiers:{[provider]:id}}]}));
+ render(<IdentifyPanel library={library} entry={{...entry,metadata:{identifiers:{anilist:"1281",tvdb:"82234"}}}} busy={false} onSaved={()=>{}}/>);
+ expect(screen.getByLabelText("AniList identification ID")).toHaveProperty("value","1281");
+ expect(screen.getByLabelText("TheTVDB identification ID")).toHaveProperty("value","82234");
+ expect(await screen.findByAltText("AniList: anilist record poster")).toHaveProperty("src","https://example.com/anilist.jpg");
+ expect(screen.getByLabelText("TheTVDB identification ID")).toHaveProperty("value","82234");
+ fireEvent.change(screen.getByLabelText("AniList identification ID"),{target:{value:"999"}});
+ await waitFor(()=>expect(nativeLibraries.identifyResolve).toHaveBeenCalledWith("lib","item","anilist","999"));
+ fireEvent.change(screen.getByLabelText("AniList identification ID"),{target:{value:""}});
+ expect(screen.queryByLabelText("AniList ID preview")).toBeNull();
 });

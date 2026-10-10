@@ -1,8 +1,11 @@
-import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
+import type {ReactNode} from "react";
+import {cleanup,fireEvent,render as renderUI,screen,waitFor} from "@testing-library/react";
 import {afterEach,expect,it,vi} from "vitest";
 import TVIdentifyPanel from "./TVIdentifyPanel";
 import {nativeLibraries,type NativeLibrary,type NativeCatalogEntry} from "../api/nativeLibraries";
-vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{identifySearch:vi.fn(),identify:vi.fn()}}));
+vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{identifySearch:vi.fn(),identifyResolve:vi.fn().mockResolvedValue({candidates:[]}),identify:vi.fn()}}));
+function render(ui:ReactNode){return renderUI(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>{ui}</QueryClientProvider>);}
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 const library={id:"shows",library_type:"shows"} as NativeLibrary;const entry={id:"kingdom",kind:"series",path:"TV/Kingdom (2019)",title:"Wrong title",revision:5} as NativeCatalogEntry;
 const candidate={id:"123",provider:"tvdb",title:"Kingdom",year:2019,identifiers:{tvdb:"123"},poster:null,format:"Series",overview:null};
