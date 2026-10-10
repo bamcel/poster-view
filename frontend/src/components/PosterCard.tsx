@@ -16,6 +16,7 @@ interface PosterCardProps {
   onSelect?: (range: boolean) => void;
   coloredEffect?: ColoredEffect;
   image?: string;
+  menuImage?: string;
   title: string;
   subtitle?: string;
   titleBadge?: ReactNode;
@@ -40,6 +41,7 @@ export default function PosterCard({
   onSelect,
   coloredEffect = "off",
   image,
+  menuImage,
   title,
   subtitle,
   titleBadge,
@@ -181,6 +183,12 @@ export default function PosterCard({
           className="absolute left-2 top-14 z-30 w-max min-w-44 rounded-lg border border-border bg-elevated p-1 shadow-2xl"
           onClick={(event) => event.stopPropagation()}
         >
+          <div className="mb-1 flex max-w-72 items-center gap-3 border-b border-border px-3 py-3" aria-label={`Selected folder: ${title}`}>
+            <div className="h-14 w-9 shrink-0 overflow-hidden rounded bg-input">
+              {(menuImage??image) ? <img src={menuImage??image} alt="" className="size-full object-cover" /> : <div className="grid size-full place-items-center text-faint"><Placeholder className="size-5" /></div>}
+            </div>
+            <div className="min-w-0"><p className="line-clamp-2 text-sm font-semibold text-white">{title}</p>{subtitle && <p className="mt-1 text-xs text-muted">{subtitle}</p>}</div>
+          </div>
           {onRefresh && <button
             type="button"
             role="menuitem" tabIndex={-1}
