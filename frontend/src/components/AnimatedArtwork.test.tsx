@@ -75,3 +75,13 @@ it("applies backdrop framing to static images and animated video inside a clippe
  view.rerender(<AnimatedArtwork src={`${src}&backdropEdit=${framing}`} alt="Framed backdrop" fill/>);visible(true);
  media=screen.getByLabelText("Framed backdrop");expect(media.tagName).toBe("VIDEO");expect(media.style.objectPosition).toBe("25% 70%");expect(media.style.transform).toBe("scale(1.5)");
 });
+
+it("uses still frames for visible mobile artwork",()=>{
+ vi.stubGlobal("matchMedia",(query:string)=>({matches:query.includes("max-width"),addEventListener:vi.fn(),removeEventListener:vi.fn()}));
+ const view=render(<AnimatedArtwork src={src} alt="Poster"/>);visible(true);
+ expect(screen.queryByLabelText("Poster")).toBeNull();
+ expect(screen.getByAltText("Poster").getAttribute("src")).toContain("still=1");
+ view.rerender(<AnimatedArtwork src={src.replace("format=webm","format=gif")} alt="Poster"/>);visible(true);
+ expect(screen.getByAltText("Poster").getAttribute("src")).toContain("still=1");
+ expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
+});

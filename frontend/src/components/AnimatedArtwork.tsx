@@ -31,13 +31,14 @@ export default function AnimatedArtwork({src, alt, className, onError, format: o
   useEffect(()=>{
     if (!animated) return;
     const preference=window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update=()=>setMotion(!preference.matches);
-    update(); preference.addEventListener("change",update);
+    const mobile=window.matchMedia("(max-width: 767px)");
+    const update=()=>setMotion(!preference.matches && !mobile.matches);
+    update(); preference.addEventListener("change",update); mobile.addEventListener("change",update);
     const visibility=()=>setForeground(!document.hidden);
     document.addEventListener("visibilitychange",visibility);
     const observer=new IntersectionObserver(entries=>setVisible(entries.some(entry=>entry.isIntersecting)));
     if (element.current) observer.observe(element.current);
-    return ()=>{preference.removeEventListener("change",update);document.removeEventListener("visibilitychange",visibility);observer.disconnect();};
+    return ()=>{preference.removeEventListener("change",update);mobile.removeEventListener("change",update);document.removeEventListener("visibilitychange",visibility);observer.disconnect();};
   },[animated]);
   const play=active && visible && foreground && motion && !failed;
   useEffect(()=>{
