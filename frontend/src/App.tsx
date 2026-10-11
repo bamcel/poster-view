@@ -25,6 +25,7 @@ export default function App() {
             <Route element={<Layout />}>
               <Route path="/" element={<HomePage />} />
               <Route path="/media/:libraryId" element={<DashboardPage />} />
+              <Route path="/media/:libraryId/:itemSlug" element={<DashboardPage />} />
               <Route path="/server/:serverId/series/:seriesId/season/:seasonId" element={<SeasonDetailPage />} />
               <Route path="/history" element={<Navigate to="/" replace />} />
               <Route path="/settings/*" element={<SettingsPage />} />

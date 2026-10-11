@@ -1,3 +1,4 @@
+import {libraryPath} from "../lib/mediaPaths";
 import {Link, Navigate, useSearchParams} from "react-router-dom";
 import {useState} from "react";
 import {Search, X, Film} from "lucide-react";
@@ -6,8 +7,8 @@ import LibraryPosterStrip from "../components/LibraryPosterStrip";
 import {nativeLibraries, type NativeLibrary} from "../api/nativeLibraries";
 import DashboardPage from "./DashboardPage";
 
-function LibraryTile({library}:{library:NativeLibrary}) {
- return <Link to={`/media/${encodeURIComponent(library.id)}`} aria-label={`Open ${library.name}`} className="group block rounded-xl p-2 text-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
+function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:NativeLibrary[]}) {
+ return <Link to={libraryPath(library,libraries)} aria-label={`Open ${library.name}`} className="group block rounded-xl p-2 text-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
   <div className="overflow-hidden rounded-md transition-transform duration-200 group-hover:scale-[1.03]"><LibraryPosterStrip library={library.id}/></div>
   <h2 className="mt-2 text-sm font-semibold text-white group-hover:text-accent">{library.name}</h2>
  </Link>;
@@ -40,7 +41,7 @@ function LibraryHome(){
     <p className="mt-2 truncate text-sm font-medium text-white group-hover:text-accent">{entry.title}</p><p className="text-xs text-muted">{library.name} · {entry.kind.replaceAll("_"," ")}</p>
    </Link>)}</div>
    {results.length>100&&<p className="mt-4 text-sm text-muted">Showing 100 of {results.length} matches. Refine your search to see fewer results.</p>}
-  </>:<div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">{libraries.data?.map(library=><LibraryTile key={library.id} library={library}/>)}</div>}
+  </>:<div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">{libraries.data?.map(library=><LibraryTile key={library.id} library={library} libraries={libraries.data??[]}/>)}</div>}
  </main>;
 }
 export default function HomePage(){
