@@ -813,6 +813,12 @@ pub(crate) fn collect_scoped(
                 });
             }
         }
+        if books && library.options.local_artwork && library.options.save_artwork && !entry.artwork.iter().any(|art|art.kind=="poster") {
+            match capture_book_cover(&file) {
+                Ok(())=>{entry.artwork.push(NativeArtwork{kind:"poster".into(),path:relative(&root,&file.with_extension("jpg"))?,source:"local".into()});},
+                Err(error)=>warnings.push(format!("Cover capture for {file_path}: {error}")),
+            }
+        }
         let media_info = if !books && !probe_unavailable {
             match probes
                 .remove(&file)
@@ -850,6 +856,19 @@ pub(crate) fn collect_scoped(
     progress.report("reading", total, Some(total), entries.len(), "", true);
     Ok((entries.into_values().collect(), warnings))
 }
+fn capture_book_cover(file:&Path)->Result<(),String>{
+    let target=file.with_extension("jpg");if target.exists(){return Ok(());}
+    let bytes=crate::reader::initial_cover(file)?;
+    let mut reader=image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e|e.to_string())?;
+    let mut limits=image::Limits::default();limits.max_image_width=Some(20000);limits.max_image_height=Some(20000);limits.max_alloc=Some(256*1024*1024);reader.limits(limits);
+    let decoded=reader.decode().map_err(|e|e.to_string())?;
+    let image=if decoded.width()>1200||decoded.height()>1800 {decoded.thumbnail(1200,1800).to_rgb8()}else{decoded.to_rgb8()};
+    let mut encoded=Vec::new();image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded,90).encode_image(&image).map_err(|e|e.to_string())?;
+    use std::io::Write;
+    let mut output=match fs::OpenOptions::new().write(true).create_new(true).open(&target){Ok(file)=>file,Err(error) if error.kind()==std::io::ErrorKind::AlreadyExists=>return Ok(()),Err(error)=>return Err(error.to_string())};
+    if let Err(error)=output.write_all(&encoded){drop(output);let _=fs::remove_file(&target);return Err(error.to_string());}Ok(())
+}
+
 // Missing books are catalog-only targets; no media or sidecar is created.
 pub(crate) fn book_placeholders(entries: &mut Vec<NativeCatalogEntry>) {
     let number = regex::Regex::new(r"(?i)(?:^|[^a-z])(?:volume|vol\.?|v|chapter|ch\.?|c)\s*[-_ ]*([0-9]+)").unwrap();
@@ -1189,4 +1208,30 @@ mod identity_nfo_tests {
         let mut xml=Element::parse("<episodedetails><title>Wrong</title><plot>Old</plot><genre>Old genre</genre><custompublisher>Old publisher</custompublisher><uniqueid type='tvdb'>99</uniqueid><season>1</season><episode>2</episode><fileinfo/><thumb>local.jpg</thumb></episodedetails>".as_bytes()).unwrap();
         clear_identity_nfo(&mut xml);assert!(xml.get_child("plot").is_none());assert!(xml.get_child("genre").is_none());assert!(xml.get_child("custompublisher").is_none());assert!(xml.get_child("uniqueid").is_none());assert!(xml.get_child("season").is_some());assert!(xml.get_child("fileinfo").is_some());assert!(xml.get_child("thumb").is_some());
     }
+}
+
+#[cfg(test)] mod cover_capture_tests {
+ use super::*;use std::io::Write;
+ #[test] fn first_cbz_page_becomes_a_sidecar_without_overwriting_existing_images(){
+  let temp=tempfile::tempdir().unwrap();let book=temp.path().join("Volume 01.cbz");
+  let mut png=std::io::Cursor::new(Vec::new());image::DynamicImage::new_rgb8(24,36).write_to(&mut png,image::ImageFormat::Png).unwrap();
+  let mut zip=zip::ZipWriter::new(fs::File::create(&book).unwrap());
+  zip.start_file("10.png",zip::write::SimpleFileOptions::default()).unwrap();zip.write_all(b"not an image").unwrap();
+  zip.start_file("2.png",zip::write::SimpleFileOptions::default()).unwrap();zip.write_all(png.get_ref()).unwrap();zip.finish().unwrap();
+  capture_book_cover(&book).unwrap();let sidecar=book.with_extension("jpg");let original=fs::read(&sidecar).unwrap();
+  assert_eq!(image::guess_format(&original).unwrap(),image::ImageFormat::Jpeg);
+  assert_eq!(image::load_from_memory(&original).unwrap().width(),24);
+  fs::write(&book,b"changed book").unwrap();capture_book_cover(&book).unwrap();assert_eq!(fs::read(sidecar).unwrap(),original);
+ }
+
+ #[test] fn pdf_first_page_becomes_a_jpeg_sidecar(){
+  if std::process::Command::new("pdftoppm").arg("-v").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_err(){return;}
+  let temp=tempfile::tempdir().unwrap();let book=temp.path().join("Volume 02.pdf");
+  let stream="1 0 0 rg 0 0 200 300 re f";
+  let objects=vec!["<< /Type /Catalog /Pages 2 0 R >>".to_string(),"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Resources << >> /Contents 4 0 R >>".to_string(),format!("<< /Length {} >>\nstream\n{}\nendstream",stream.len(),stream)];
+  let mut pdf="%PDF-1.4\n".to_string();let mut offsets=Vec::new();for (index,object) in objects.iter().enumerate(){offsets.push(pdf.len());pdf+=&format!("{} 0 obj\n{}\nendobj\n",index+1,object);}
+  let xref=pdf.len();pdf+="xref\n0 5\n0000000000 65535 f \n";for offset in offsets {pdf+=&format!("{offset:010} 00000 n \n");}pdf+=&format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF");fs::write(&book,pdf).unwrap();
+  capture_book_cover(&book).unwrap();let image=image::open(book.with_extension("jpg")).unwrap();assert!(image.height()>image.width());assert!(image.width()<=1200);
+ }
+ #[test] fn invalid_book_does_not_create_a_sidecar(){let temp=tempfile::tempdir().unwrap();let book=temp.path().join("bad.cbz");fs::write(&book,b"broken").unwrap();assert!(capture_book_cover(&book).is_err());assert!(!book.with_extension("jpg").exists());}
 }

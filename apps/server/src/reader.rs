@@ -566,6 +566,36 @@ pub(crate) struct Manifest {
     previous: Option<Neighbor>,
     next: Option<Neighbor>,
 }
+pub(crate) fn initial_cover(path:&FsPath)->Result<Vec<u8>,String>{
+ let error=|_|"Could not read the book's cover or first page.".to_string();
+ if format(path)==Some("pdf") {
+  let temp=tempfile::tempdir().map_err(|e|e.to_string())?;let output=temp.path().join("cover");
+  let mut command=std::process::Command::new("pdftoppm");
+  command.args(["-f","1","-singlefile","-scale-to","1200","-jpeg"]).arg(path).arg(&output).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+  #[cfg(windows)] {use std::os::windows::process::CommandExt;command.creation_flags(0x08000000);}
+  let mut child=command.spawn().map_err(|_|"PDF cover capture requires pdftoppm (Poppler).".to_string())?;let started=std::time::Instant::now();
+  loop {if let Some(status)=child.try_wait().map_err(|e|e.to_string())? {if !status.success(){return Err("PDF first-page capture failed.".into());}break;}if started.elapsed()>std::time::Duration::from_secs(30){let _=child.kill();let _=child.wait();return Err("PDF cover capture timed out.".into());}std::thread::sleep(std::time::Duration::from_millis(50));}
+  return std::fs::read(output.with_extension("jpg")).map_err(|e|e.to_string());
+ }
+ let mut zip=archive(path).map_err(error)?;
+ let image_name=if format(path)==Some("cbz") {
+  let mut names=zip.file_names().filter(|name|!name.starts_with("__MACOSX/")&&["jpg","jpeg","png","webp","gif"].contains(&name.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str())).map(str::to_string).collect::<Vec<_>>();names.sort_by(|a,b|natural(a,b).then_with(||a.cmp(b)));names.into_iter().next()
+ } else {
+  let container=xml(&read_entry(&mut zip,"META-INF/container.xml").map_err(error)?).map_err(error)?;
+  let opf=elements(&container,"rootfile").first().and_then(|e|e.attributes.get("full-path")).ok_or("EPUB package is missing.")?.clone();
+  let package=xml(&read_entry(&mut zip,&opf).map_err(error)?).map_err(error)?;
+  let cover_id=elements(&package,"meta").into_iter().find(|e|e.attributes.get("name").is_some_and(|v|v=="cover")).and_then(|e|e.attributes.get("content"));
+  let items=elements(&package,"item");
+  let cover=items.iter().find(|e|e.attributes.get("properties").is_some_and(|v|v.split_whitespace().any(|p|p=="cover-image"))||cover_id.is_some_and(|id|e.attributes.get("id")==Some(id))).and_then(|e|e.attributes.get("href"));
+  if let Some(href)=cover {Some(resolve_entry(&opf,href).map_err(error)?)} else {
+   let first=elements(&package,"itemref").into_iter().find(|e|e.attributes.get("linear").is_none_or(|v|v!="no")).and_then(|e|e.attributes.get("idref"));
+   let page=items.iter().find(|e|first.is_some_and(|id|e.attributes.get("id")==Some(id))).and_then(|e|e.attributes.get("href"));
+   if let Some(page)=page {let page=resolve_entry(&opf,page).map_err(error)?;let html=xml(&read_entry(&mut zip,&page).map_err(error)?).map_err(error)?;let image=elements(&html,"img").first().and_then(|e|e.attributes.get("src")).cloned().or_else(||elements(&html,"image").first().and_then(|e|e.attributes.get("href")).cloned());image.map(|href|resolve_entry(&page,&href).map_err(error)).transpose()?}else{None}
+  }
+ };
+ read_entry(&mut zip,&image_name.ok_or("No embedded cover or first-page image found.")?).map_err(error)
+}
+
 fn make_manifest(store: &ReaderStore, id: &str) -> Result<Manifest, HttpError> {
     let path = store.path(id)?;
     let kind = format(&path).unwrap();
@@ -997,6 +1027,12 @@ pub(crate) async fn save_state(
 
 #[cfg(test)]
 mod tests {
+    #[test] fn epub_cover_uses_package_relative_declared_cover(){
+        let temp=tempfile::tempdir().unwrap();let book=temp.path().join("book.epub");let mut zip=zip::ZipWriter::new(File::create(&book).unwrap());
+        for (name,bytes) in [("META-INF/container.xml",b"<container><rootfiles><rootfile full-path='OPS/book.opf'/></rootfiles></container>".as_slice()),("OPS/book.opf",b"<package><manifest><item id='cover' href='images/front.png' properties='cover-image'/></manifest></package>".as_slice()),("OPS/images/front.png",b"cover bytes".as_slice())] {zip.start_file(name,zip::write::SimpleFileOptions::default()).unwrap();zip.write_all(bytes).unwrap();}zip.finish().unwrap();
+        assert_eq!(initial_cover(&book).unwrap(),b"cover bytes");
+    }
+
     use super::*;
     use std::io::Write;
     #[test]
