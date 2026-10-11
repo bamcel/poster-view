@@ -868,9 +868,9 @@ function NativeDetail({
             )}
             {children.some((e) => e.kind === "episode" && showMissingEntry(library,e)) && (
               <section className="mt-10">
-                <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                <div className="mb-6 grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_auto_1fr]">
                   <h2 className="text-xl font-semibold">Episodes</h2>
-                  <div className="relative w-[min(21rem,calc(100vw-10rem))]">
+                  <div className="relative mx-auto w-[min(21rem,100%)] sm:w-80">
                     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
                     <input
                       aria-label="Search episodes"
