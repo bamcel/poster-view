@@ -20,6 +20,7 @@ function LibraryHome(){
  const term=search.trim().toLocaleLowerCase();
  const catalogs=useQueries({queries:(libraries.data??[]).map(library=>({queryKey:["native-catalog",library.id],queryFn:()=>nativeLibraries.catalog(library.id),enabled:!!term,staleTime:60_000}))});
  const results=catalogs.flatMap((catalog,index)=>(catalog.data??[]).filter(entry=>entry.available&&entry.kind!=="season"&&[entry.title,entry.metadata.originaltitle].some(value=>typeof value==="string"&&value.toLocaleLowerCase().includes(term))).map(entry=>({entry,library:libraries.data![index]})));
+ const sections=[{name:"Movies",kinds:["movie"]},{name:"Series",kinds:["series"]},{name:"Episodes",kinds:["episode"]},{name:"Books",kinds:["book","book_series"]}].map(section=>({...section,results:results.filter(({entry})=>section.kinds.includes(entry.kind))})).filter(section=>section.results.length>0);
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
  return <main className="h-full overflow-y-auto px-5 py-5 sm:px-8">
   <div role="search" className="mb-8 flex justify-center">
@@ -37,11 +38,14 @@ function LibraryHome(){
    {loading&&<p role="status" className="mb-4 text-muted">Searching libraries…</p>}
    {catalogs.map((catalog,index)=>catalog.error&&<p role="alert" key={libraries.data![index].id} className="mb-3 text-danger">Could not search {libraries.data![index].name}: {catalog.error.message}</p>)}
    {!loading&&results.length===0&&<p className="text-muted">No matching titles found.</p>}
-   <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-5 2xl:grid-cols-7">{results.slice(0,100).map(({entry,library})=><Link key={`${library.id}:${entry.id}`} to={`/media/${encodeURIComponent(library.id)}?native_library=${encodeURIComponent(library.id)}&native_item=${encodeURIComponent(entry.id)}`} aria-label={`Open ${entry.title} in ${library.name}`} className="group rounded-lg focus-visible:outline-2 focus-visible:outline-accent">
+   <div className="space-y-8">{sections.map(section=><section key={section.name} aria-label={section.name}>
+    <h2 className="mb-4 text-xl font-semibold text-white">{section.name}</h2>
+    <div className="flex gap-5 overflow-x-auto pb-3">{section.results.slice(0,100).map(({entry,library})=><Link key={`${library.id}:${entry.id}`} to={`/media/${encodeURIComponent(library.id)}?native_library=${encodeURIComponent(library.id)}&native_item=${encodeURIComponent(entry.id)}`} aria-label={`Open ${entry.title} in ${library.name}`} className="group w-36 shrink-0 rounded-lg focus-visible:outline-2 focus-visible:outline-accent sm:w-44 lg:w-52">
     <div className="grid aspect-[2/3] place-items-center overflow-hidden rounded-lg bg-elevated">{entry.artwork.some(art=>art.kind==="poster")?<img src={`${nativeLibraries.artworkUrl(library.id,entry.id,"poster")}?v=${entry.revision}`} alt="" loading="lazy" className="h-full w-full object-cover"/>:<Film className="size-10 text-faint"/>}</div>
     <p className="mt-2 truncate text-sm font-medium text-white group-hover:text-accent">{entry.title}</p><p className="text-xs text-muted">{library.name} · {entry.kind.replaceAll("_"," ")}</p>
    </Link>)}</div>
-   {results.length>100&&<p className="mt-4 text-sm text-muted">Showing 100 of {results.length} matches. Refine your search to see fewer results.</p>}
+   {section.results.length>100&&<p className="mt-3 text-sm text-muted">Showing 100 of {section.results.length} matches. Refine your search to see fewer results.</p>}
+   </section>)}</div>
   </>:<div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">{libraries.data?.map(library=><LibraryTile key={library.id} library={library} libraries={libraries.data??[]}/>)}</div>}
  </main>;
 }

@@ -1,4 +1,4 @@
-import {render, screen, cleanup, fireEvent} from "@testing-library/react";
+import {render, screen, cleanup, fireEvent, within} from "@testing-library/react";
 import {QueryClient, QueryClientProvider} from "@tanstack/react-query";
 import {MemoryRouter, Routes, Route} from "react-router-dom";
 import {afterEach, it, expect, vi} from "vitest";
@@ -52,4 +52,17 @@ it("reports a failed library search while keeping successful matches",async()=>{
  fireEvent.change(screen.getByRole("textbox",{name:"Search all libraries"}),{target:{value:"Harry"}});
  expect(await screen.findByRole("link",{name:"Open Harry in Books"})).toBeTruthy();
  expect(await screen.findByRole("alert")).toBeTruthy();
+});
+
+it("groups matching media into ordered rows and hides empty sections",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"all",name:"Media"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue(["book_series","episode","series","movie","book"].map((kind,index)=>({...entryDefaults,id:String(index),title:`Match ${kind}`,kind,available:true,metadata:{},artwork:[]})));
+ mount();await screen.findByRole("link",{name:"Open Media"});
+ fireEvent.change(screen.getByRole("textbox",{name:"Search all libraries"}),{target:{value:"Match"}});
+ await screen.findByRole("region",{name:"Movies"});
+ expect(screen.getAllByRole("region").map(region=>region.getAttribute("aria-label"))).toEqual(["Movies","Series","Episodes","Books"]);
+ expect(within(screen.getByRole("region",{name:"Books"})).getAllByRole("link")).toHaveLength(2);
+ expect(within(screen.getByRole("region",{name:"Episodes"})).getByRole("link",{name:"Open Match episode in Media"})).toBeTruthy();
+ fireEvent.change(screen.getByRole("textbox",{name:"Search all libraries"}),{target:{value:"Match episode"}});
+ expect(screen.getAllByRole("region").map(region=>region.getAttribute("aria-label"))).toEqual(["Episodes"]);
 });
