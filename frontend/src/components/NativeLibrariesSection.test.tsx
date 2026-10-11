@@ -2,9 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {api} from "../api/client";
-import {useServerConnectPlugin} from "../lib/serverConnectPlugin";
 vi.mock("../api/client",()=>({api:{listServers:vi.fn()},apiRequest:vi.fn().mockResolvedValue({omdb_enabled:false})}));
-vi.mock("../lib/serverConnectPlugin",()=>({useServerConnectPlugin:vi.fn(),SERVER_CONNECT_AVAILABLE:false}));
 import NativeLibrariesSection, { LibraryDialog } from "./NativeLibrariesSection";
 import { defaultNativeOptions, nativeLibraries, type NativeLibrary } from "../api/nativeLibraries";
 
@@ -14,7 +12,6 @@ function mount(component: React.ReactNode) {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{component}</QueryClientProvider>);
 }
 beforeEach(() => {
-  vi.mocked(useServerConnectPlugin).mockReturnValue({data:{enabled:false,pinned:false}} as ReturnType<typeof useServerConnectPlugin>);
   vi.mocked(api.listServers).mockResolvedValue([]);
   vi.mocked(nativeLibraries.list).mockResolvedValue([]);
   vi.mocked(nativeLibraries.previews).mockResolvedValue([]);
@@ -143,7 +140,6 @@ it("skips Advanced and Server Connect when setting up a book library",()=>{
 });
 
 it("hides Import Library even with saved server connections",async()=>{
- vi.mocked(useServerConnectPlugin).mockReturnValue({data:{enabled:true,pinned:true}} as ReturnType<typeof useServerConnectPlugin>);
  mount(<NativeLibrariesSection />);
  await screen.findByRole("button",{name:"New Library"});
  expect(screen.queryByRole("button",{name:/Import library/i})).toBeNull();

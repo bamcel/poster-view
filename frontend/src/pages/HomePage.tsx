@@ -1,3 +1,4 @@
+import {useCatalogPrefetch} from "../lib/catalogPrefetch";
 import {HOME_RESET_EVENT} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
 import {Navigate} from "react-router-dom";
@@ -10,7 +11,8 @@ import {nativeLibraries, type NativeLibrary} from "../api/nativeLibraries";
 import DashboardPage from "./DashboardPage";
 
 function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:NativeLibrary[]}) {
- return <Link to={libraryPath(library,libraries)} aria-label={`Open ${library.name}`} className="group block rounded-xl text-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
+ const prefetchCatalog=useCatalogPrefetch();
+ return <Link onMouseEnter={()=>prefetchCatalog(library.id)} onFocus={()=>prefetchCatalog(library.id)} to={libraryPath(library,libraries)} aria-label={`Open ${library.name}`} className="group block rounded-xl text-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
   <div className="overflow-hidden rounded-md transition-transform duration-200 group-hover:scale-[1.03]"><LibraryPosterStrip library={library.id}/></div>
   <h2 className="mt-2 text-sm font-semibold text-white group-hover:text-accent">{library.name}</h2>
  </Link>;
@@ -20,7 +22,7 @@ function LibraryHome(){
  const [search,setSearch]=useState("");
  useEffect(()=>{const reset=()=>setSearch("");window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
  const term=search.trim().toLocaleLowerCase();
- const catalogs=useQueries({queries:(libraries.data??[]).map(library=>({queryKey:["native-catalog",library.id],queryFn:()=>nativeLibraries.catalog(library.id),enabled:!!term,staleTime:60_000}))});
+ const catalogs=useQueries({queries:(term ? libraries.data??[] : []).map(library=>({queryKey:["native-catalog",library.id],queryFn:()=>nativeLibraries.catalog(library.id),staleTime:60_000,gcTime:5*60_000}))});
  const results=catalogs.flatMap((catalog,index)=>(catalog.data??[]).filter(entry=>entry.available&&entry.kind!=="season"&&[entry.title,entry.metadata.originaltitle].some(value=>typeof value==="string"&&value.toLocaleLowerCase().includes(term))).map(entry=>({entry,library:libraries.data![index]})));
  const sections=[{name:"Movies",kinds:["movie"]},{name:"Series",kinds:["series"]},{name:"Episodes",kinds:["episode"]},{name:"Books",kinds:["book","book_series"]}].map(section=>({...section,results:results.filter(({entry})=>section.kinds.includes(entry.kind))})).filter(section=>section.results.length>0);
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));

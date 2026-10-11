@@ -1,17 +1,24 @@
-import {render,waitFor,cleanup} from "@testing-library/react";
+import {render,waitFor,cleanup,fireEvent,screen} from "@testing-library/react";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import {afterEach,it,expect,vi} from "vitest";
-import {nativeLibraries,type NativeLibrary} from "../api/nativeLibraries";
+import {nativeLibraries} from "../api/nativeLibraries";
 import {useCatalogPrefetch} from "./catalogPrefetch";
 vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{catalog:vi.fn()}}));
 afterEach(()=>{cleanup();vi.clearAllMocks();});
-it("prefetches two catalogs at a time into the shared query cache",async()=>{
- let finish!:()=>void;
- vi.mocked(nativeLibraries.catalog).mockImplementation(async id=>{if(id==="a")await new Promise<void>(resolve=>finish=resolve);return [];});
+it("loads only the library the user approaches and reuses its cached catalog",async()=>{
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([]);
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
- function Warm(){useCatalogPrefetch([{id:"a"},{id:"b"},{id:"c"}] as NativeLibrary[]);return null;}
- render(<QueryClientProvider client={client}><Warm/></QueryClientProvider>);
- await waitFor(()=>expect(client.getQueryData(["native-catalog","c"])).toEqual([]));
- finish();await waitFor(()=>expect(client.getQueryData(["native-catalog","a"])).toEqual([]));
- expect(nativeLibraries.catalog).toHaveBeenCalledTimes(3);
+ function Tiles(){const prefetch=useCatalogPrefetch();return <>{["a","b","c"].map(id=><button key={id} onMouseEnter={()=>prefetch(id)} onFocus={()=>prefetch(id)}>{id}</button>)}</>;}
+ render(<QueryClientProvider client={client}><Tiles/></QueryClientProvider>);
+ expect(nativeLibraries.catalog).not.toHaveBeenCalled();
+ fireEvent.mouseEnter(screen.getByRole("button",{name:"b"}));
+ await waitFor(()=>expect(client.getQueryData(["native-catalog","b"])).toEqual([]));
+ fireEvent.focus(screen.getByRole("button",{name:"b"}));
+ expect(nativeLibraries.catalog).toHaveBeenCalledTimes(1);
+ expect(nativeLibraries.catalog).toHaveBeenCalledWith("b");
+ expect(client.getQueryData(["native-catalog","a"])).toBeUndefined();
+ expect(client.getQueryData(["native-catalog","c"])).toBeUndefined();
+ fireEvent.focus(screen.getByRole("button",{name:"a"}));
+ await waitFor(()=>expect(client.getQueryData(["native-catalog","a"])).toEqual([]));
+ client.clear();
 });

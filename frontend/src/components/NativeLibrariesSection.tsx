@@ -1,10 +1,6 @@
 import SeriesActionsDialog from "./SeriesActionsDialog";
 import {BACKDROP_BLUR_EVENT, PANEL_SOLIDITY_EVENT, PANEL_OVERLAY_EVENT, backdropBlur, panelSolidity, panelOverlay, translucentPanelColor} from "../lib/dashboardSettings";
-import ImportServerLibrary from "./ImportServerLibrary";
 import LibraryPosterStrip from "./LibraryPosterStrip";
-import {SyncActions} from "./ConnectedServerSync";
-import {useServerConnectPlugin,SERVER_CONNECT_AVAILABLE} from "../lib/serverConnectPlugin";
-import {api} from "../api/client";
 import NativeScanProgress from "./NativeScanProgress";
 import { useEffect, useRef, useState } from "react";
 import LibrarySettings from "./NativeLibrarySettings";
@@ -39,10 +35,6 @@ export default function NativeLibrariesSection() {
   }, []);
   const actionStyle = {backgroundColor: translucentPanelColor("--color-surface-2", panelSolidity(), panelOverlay()), backdropFilter: `blur(${backdropBlur()}px)`};
   const libraries = useQuery({ queryKey: ["native-libraries"], queryFn: nativeLibraries.list });
-  const plugin = useServerConnectPlugin();
-  const servers = useQuery({queryKey:["servers"],queryFn:api.listServers,enabled:plugin.data?.enabled === true});
-  const canImport = SERVER_CONNECT_AVAILABLE && plugin.data?.enabled === true && !!servers.data?.length;
-  const [importing,setImporting]=useState(false);
   const [editing, setEditing] = useState<NativeLibrary | "new" | null>(null);
   const client = useQueryClient();
   const scanAll = useMutation({mutationFn: async () => {
@@ -58,14 +50,12 @@ export default function NativeLibrariesSection() {
     <div className="relative mb-6 flex flex-wrap items-center justify-start gap-3">
       <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={event => { trigger.current = event.currentTarget; setEditing("new"); }}><Plus className="size-4" />New Library</button>
       <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50" disabled={!libraries.data?.length || scanAll.isPending} onClick={() => scanAll.mutate()}><RefreshCw className={`size-4 ${scanAll.isPending ? "animate-spin" : ""}`} />Scan Libraries</button>
-      {canImport && <button style={actionStyle} className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>setImporting(true)}><FolderPlus className="size-4" />Import library</button>}
     </div>
     {scanAll.error && <p role="alert" className="mb-4 text-sm text-danger">{scanAll.error.message}</p>}
     {libraries.isPending && <p role="status" className="text-muted">Loading libraries…</p>}
     {libraries.error && <div role="alert" className="text-danger">{libraries.error.message} <button className={BUTTON} onClick={() => void libraries.refetch()}>Retry</button></div>}
     {libraries.data?.length === 0 && <div className="rounded-2xl border border-dashed border-edge p-10 text-center text-muted"><FolderPlus className="mx-auto mb-3 size-8 text-accent" /><p>No libraries yet.</p><p className="mt-1 text-sm">Choose a type and select folders inside /media to get started.</p></div>}
     <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">{libraries.data?.map(library => <LibraryCard key={library.id} library={library} onEdit={button=>{trigger.current=button;setEditing(library);}} />)}</div>
-    {importing&&canImport&&<ImportServerLibrary onClose={()=>setImporting(false)} onSaved={()=>{setImporting(false);void client.invalidateQueries({queryKey:["native-libraries"]});}}/>}
     {editing && <LibraryDialog library={editing === "new" ? undefined : editing} onClose={close} onSaved={() => { void client.invalidateQueries({ queryKey: ["native-libraries"] }); close(); }} />}
   </section>;
 }
@@ -85,7 +75,6 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
     return()=>{document.removeEventListener("pointerdown",close);document.removeEventListener("keydown",key);window.removeEventListener("resize",place);window.removeEventListener("scroll",place,true);};
   },[open]);
   const status = useQuery({queryKey:["native-scan",library.id],queryFn:()=>nativeLibraries.status(library.id),refetchInterval:query=>query.state.data?.status==="scanning"?2000:false});
-  const syncStatus=useQuery({queryKey:["native-sync",library.id],queryFn:()=>nativeLibraries.syncStatus(library.id),enabled:SERVER_CONNECT_AVAILABLE && !!library.options?.server_sync?.enabled,refetchInterval:5000});
   const scan=useMutation({mutationFn:()=>nativeLibraries.scan(library.id),onSuccess:()=>{void client.invalidateQueries({queryKey:["native-scan",library.id]});void client.invalidateQueries({queryKey:["native-previews",library.id]});}});
   const remove=useMutation({mutationFn:()=>nativeLibraries.remove(library.id,library.revision),onSuccess:()=>{setOpen(false);setConfirmDelete(false);client.setQueryData<NativeLibrary[]>(["native-libraries"],items=>items?.filter(item=>item.id!==library.id));void client.invalidateQueries({queryKey:["native-libraries"]});},onError:()=>setConfirmDelete(false)});
   const busy=status.data?.status==="scanning"||scan.isPending||remove.isPending;
@@ -93,7 +82,7 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
     <div className="relative overflow-hidden rounded-xl"><LibraryPosterStrip library={library.id}/><button ref={action} aria-label={`Actions for ${library.name}`} aria-expanded={open} onClick={()=>setOpen(!open)} className={`absolute bottom-2 right-2 grid size-8 place-items-center rounded-full border border-white/15 bg-black/40 text-white backdrop-blur transition-opacity hover:bg-black/60 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 ${open ? "!opacity-100" : ""}`} data-icon-button="true"><MoreHorizontal className="size-4"/></button></div>
     <div className="flex min-h-24 flex-col bg-window px-4 pb-4 pt-2">
       <div className="text-center"><h3 className="truncate font-semibold text-white" title={library.name}>{library.name}</h3><p className="truncate text-xs text-muted" title={library.paths.map(displayPath).join("\n")}>{library.paths.length===1?displayPath(library.paths[0]):`${library.paths.length} folders`}</p></div>
-      <div className="mt-3 min-h-0 overflow-y-auto text-xs text-muted">{status.data?.status === "scanning" && <NativeScanProgress status={status.data} compact/>}{scan.isPending && status.data?.status !== "scanning" && <p role="status">Starting scan…</p>}{SERVER_CONNECT_AVAILABLE && syncStatus.data?.status === "syncing" && <p role="status" className="mt-2">Syncing · {syncStatus.data.pending} pending</p>}</div>
+      <div className="mt-3 min-h-0 overflow-y-auto text-xs text-muted">{status.data?.status === "scanning" && <NativeScanProgress status={status.data} compact/>}{scan.isPending && status.data?.status !== "scanning" && <p role="status">Starting scan…</p>}</div>
     </div>
     {open&&createPortal(<div ref={menu} role="region" aria-label={`Library actions for ${library.name}`} style={{...position,backgroundColor:"var(--color-surface, #20232b)",maxHeight:`calc(100dvh - ${position.top+12}px)`}} className="fixed z-[90] w-[min(22rem,calc(100vw-24px))] overflow-y-auto rounded-2xl p-4 text-white shadow-2xl">
         <div className="mb-3 flex items-center gap-3"><div aria-hidden="true" className="flex w-20 shrink-0 overflow-hidden rounded">{previews.data?.slice(0,4).map(item=><img key={item.id} src={nativeLibraries.artworkUrl(library.id,item.id,"poster")+`?v=${item.revision}`} alt="" className="aspect-[2/3] w-1/4 object-cover"/>)}</div><p className="flex-1 font-semibold">{library.name}</p><button type="button" aria-label="Close library actions" className="rounded-lg p-2 text-muted hover:bg-elevated" onClick={()=>{setOpen(false);setConfirmDelete(false);}} data-icon-button="true"><X className="size-4"/></button></div>
@@ -102,9 +91,8 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
         {status.data?.status==="scanning"&&<p role="status" className="px-3 py-2 text-xs text-muted">{status.data.manual_queued?"Manual scan queued. It will run when the current scan finishes.":"A scan is running. You can queue a manual scan."}</p>}
         {status.data?.status==="scanning"&&<button className={MENU_ACTION} aria-expanded={scanDetails} onClick={()=>setScanDetails(!scanDetails)}>{scanDetails?"Hide scan progress":"View scan progress"}</button>}
         {scanDetails&&status.data&&<section aria-label="Current library scan" className="px-3 py-2"><NativeScanProgress status={{...status.data,show_progress:true}}/>{status.data.manual_queued&&<p className="mt-2 text-xs text-muted">The manual scan will start after this scan finishes.</p>}</section>}
-        {SERVER_CONNECT_AVAILABLE && library.options?.server_sync?.enabled&&<SyncActions library={library.id} menu/>}
         <button className={MENU_ACTION} onClick={()=>setNotices(!notices)}>View notices / activity</button>
-        {notices&&<div className="space-y-2 text-xs text-muted"><p className="font-medium text-white">Latest results</p>{[...(status.data?.warnings??[]),...(SERVER_CONNECT_AVAILABLE ? syncStatus.data?.notices??[] : []),...(SERVER_CONNECT_AVAILABLE ? syncStatus.data?.activity.slice(0,1)??[] : [])].map((message,i)=><p key={i}>{message}</p>)}{!status.data?.warnings.length&&!syncStatus.data?.notices.length&&!syncStatus.data?.activity.length&&<p>No notices or activity.</p>}</div>}
+        {notices&&<div className="space-y-2 text-xs text-muted"><p className="font-medium text-white">Latest results</p>{[...(status.data?.warnings??[])].map((message,i)=><p key={i}>{message}</p>)}{!status.data?.warnings.length&&<p>No notices or activity.</p>}</div>}
         <div className="border-t border-edge pt-2"><button className={`${MENU_ACTION} flex w-full items-center justify-between text-danger`} disabled={busy} onClick={()=>setConfirmDelete(true)}>Remove<Trash2 className="size-4"/></button></div></div>
         {confirmDelete&&<div role="alertdialog" aria-label="Remove library confirmation" className="mt-3 rounded-xl border border-edge bg-base p-3"><p className="text-sm text-muted">Remove {library.name}? Media, NFO files, and local artwork will be kept.</p><div className="mt-3 flex gap-2"><button className={BUTTON} onClick={()=>{setConfirmDelete(false);setOpen(false);}}>Cancel</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={()=>remove.mutate()}>{remove.isPending?"Removing…":"Confirm removal"}</button></div></div>}
         {remove.error&&<p role="alert" className="mt-3 text-sm text-danger">{remove.error.message}</p>}
@@ -124,7 +112,7 @@ export function LibraryDialog({ library, seed, onClose, onSaved }: { library?: N
   const dialog = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLElement>(null);
   useEffect(() => { if (content.current) content.current.scrollTop = 0; }, [step]);
-  const save = useMutation({ mutationFn: () => nativeLibraries.save(draft.library_type === "books" ? {...draft, options:{...draft.options!, allow_adult_metadata:true, server_sync:{...defaultNativeOptions.server_sync!, enabled:false}}} : draft, library?.id), onSuccess: onSaved });
+  const save = useMutation({ mutationFn: () => nativeLibraries.save(draft.library_type === "books" ? {...draft, options:{...draft.options!, allow_adult_metadata:true}} : draft, library?.id), onSuccess: onSaved });
   const folders = useQuery({ queryKey: ["native-folders", path], queryFn: () => nativeLibraries.folders(path), enabled: step === 1 });
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial.current);
   const closeRef = useRef<() => void>(() => {});

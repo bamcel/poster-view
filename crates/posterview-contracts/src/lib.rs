@@ -427,10 +427,6 @@ pub struct ArtworkCacheSettings {
     pub max_mb: i64,
     #[serde(default = "default_artwork_cache_ttl_days")]
     pub ttl_days: i64,
-    #[serde(default)]
-    pub watchdog_enabled: bool,
-    #[serde(default = "default_watchdog_interval_hours")]
-    pub watchdog_interval_hours: i64,
 }
 
 const fn default_artwork_cache_max_mb() -> i64 {
@@ -441,29 +437,13 @@ const fn default_artwork_cache_ttl_days() -> i64 {
     30
 }
 
-const fn default_watchdog_interval_hours() -> i64 {
-    24
-}
-
 impl Default for ArtworkCacheSettings {
     fn default() -> Self {
         Self {
             max_mb: default_artwork_cache_max_mb(),
             ttl_days: default_artwork_cache_ttl_days(),
-            watchdog_enabled: false,
-            watchdog_interval_hours: default_watchdog_interval_hours(),
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WatchdogState {
-    Idle,
-    Scanning,
-    Preloading,
-    Stopping,
-    Failed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -474,18 +454,6 @@ pub struct ArtworkCacheStatus {
     pub ttl_days: i64,
     pub used_bytes: u64,
     pub file_count: usize,
-    pub watchdog_enabled: bool,
-    pub watchdog_interval_hours: i64,
-    pub watchdog_running: bool,
-    pub watchdog_state: WatchdogState,
-    pub watchdog_last_successful_run: Option<String>,
-    pub watchdog_next_run: Option<String>,
-    pub watchdog_last_run: Option<String>,
-    pub watchdog_last_message: Option<String>,
-    pub watchdog_progress_current: usize,
-    pub watchdog_progress_total: usize,
-    pub watchdog_current_title: Option<String>,
-    pub watchdog_cancel_requested: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

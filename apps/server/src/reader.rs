@@ -765,8 +765,7 @@ pub(crate) async fn open_native(
         let db=posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
         let library=db.native_libraries().map_err(failure)?.into_iter().find(|l|l.id==library).ok_or_else(||bad("Book library not found."))?;
         if library.library_type!=posterview_contracts::native::NativeLibraryType::Books {return Err(bad("Choose a book library."));}
-        let entries=db.native_catalog(&library.id).map_err(failure)?;
-        let entry=entries.iter().find(|e|e.id==item && e.available && e.kind=="book" && e.metadata["missing"]!=true).ok_or_else(||bad("Book file is not available."))?;
+        let entry=db.native_catalog_item(&library.id,&item).map_err(failure)?.filter(|e|e.available && e.kind=="book" && e.metadata["missing"]!=true).ok_or_else(||bad("Book file is not available."))?;
         let path=state.metadata.directory("",true)?.join(&entry.path);
         let id=state.reader.register(&path)?;
         make_manifest(&state.reader,&id).map(Json)

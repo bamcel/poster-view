@@ -6,24 +6,14 @@ import {Link} from "../lib/libraryNavigation";
 import {Images} from "lucide-react";
 import {useArtworkPlugin,type ArtworkPluginSettings} from "../lib/artworkPlugin";
 import {useEffect,useRef} from "react";
-import {useMutation,useQuery,useQueryClient} from "@tanstack/react-query";
+import {useMutation,useQueryClient} from "@tanstack/react-query";
 import {createPortal} from "react-dom";
-import {Server, X} from "lucide-react";
-import {apiRequest,api} from "../api/client";
-import {ServersSection,DefaultArtworkSourcesFields} from "../pages/SettingsPage";
-import {useServerConnectPlugin,type PluginSettings,SERVER_CONNECT_AVAILABLE} from "../lib/serverConnectPlugin";
-import ServerConnectLibraries from "./ServerConnectLibraries";
-export function ServerConnectPopup({onClose}:{onClose:()=>void}){
- const dialog=useRef<HTMLDialogElement>(null);
- const settings=useServerConnectPlugin();const client=useQueryClient();
- const save=useMutation({mutationFn:(value:PluginSettings)=>apiRequest<PluginSettings>("/plugins/server-connect",{method:"PUT",body:JSON.stringify(value)}),onSuccess:value=>client.setQueryData(["plugin-server-connect"],value)});
- useEffect(()=>{dialog.current?.showModal();},[]);
- return createPortal(<dialog ref={dialog} onCancel={onClose} onClick={event=>{if(event.target===event.currentTarget)onClose();}} aria-label="Server Connect configuration" className="fixed inset-0 m-auto max-h-[85dvh] w-[min(64rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-border bg-sidebar p-6 text-white shadow-2xl backdrop:bg-black/60"><header className="mb-6 flex items-center justify-between"><h2 className="flex items-center gap-2 text-lg font-semibold"><Server className="size-5"/>Server Connect</h2><button aria-label="Close Server Connect" onClick={onClose} className="rounded-lg p-2 text-muted hover:bg-elevated" data-icon-button="true"><X className="size-5"/></button></header>{settings.data&&<div className="mb-6 space-y-4 border-b border-border pb-6">{([['enabled','Enable Server Connect'],['pinned','Pin to Settings']] as const).map(([key,label])=><label key={key} className="flex items-center justify-between text-sm"><span>{label}</span><input role="switch" aria-label={label} type="checkbox" disabled={save.isPending} checked={settings.data![key]} onChange={event=>save.mutate({...settings.data!,[key]:event.target.checked})} className="size-5 accent-accent"/></label>)}<p className="text-xs text-muted">Disabling pauses library metadata and artwork synchronization. Saved connections and mappings are preserved. Pinning only adds a Settings shortcut.</p></div>}{(settings.error||save.error)&&<p role="alert" className="mb-4 text-danger">{(settings.error||save.error)?.message}</p>}<ServersSection/><ServerConnectLibraries enabled={settings.data?.enabled === true}/></dialog>,document.body);
-}
-export default function PluginsPage({open=false,onOpen,onClose,artworkOpen=false,onArtworkOpen}:{open?:boolean;onOpen:()=>void;onClose:()=>void;artworkOpen?:boolean;onArtworkOpen:()=>void}){
+import {X} from "lucide-react";
+import {apiRequest} from "../api/client";
+import {DefaultArtworkSourcesFields} from "../pages/SettingsPage";
+export default function PluginsPage({onClose,artworkOpen=false,onArtworkOpen}:{onClose:()=>void;artworkOpen?:boolean;onArtworkOpen:()=>void}){
  const artwork=useArtworkPlugin();
- const plugin=useServerConnectPlugin();const servers=useQuery({queryKey:["servers"],queryFn:api.listServers,enabled:SERVER_CONNECT_AVAILABLE});
- return <div className="grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3">{SERVER_CONNECT_AVAILABLE && <PluginCard title="Server Connect" description="Import and synchronize shared metadata and static artwork with connected media servers." branding={<Server className="size-10 text-accent"/>} status={<><span>Built-in</span><span className="rounded-full border border-border px-2 py-1">{plugin.data?plugin.data.enabled?"Enabled":"Disabled":"Loading…"}</span><span>{servers.data?.length??0} connections</span></>} onClick={onOpen}/>}<PluginCard title="Artwork" description="Browse, upload, remove, and edit artwork with PosterEdit and BackdropEdit." branding={<Images className="size-10 text-accent"/>} status={<><span>Built-in</span><span className="rounded-full border border-border px-2 py-1">{artwork.data?artwork.data.enabled?"Enabled":"Disabled":"Loading…"}</span></>} onClick={onArtworkOpen}/><GoogleBooksPlugin/><AniDBPlugin/><OmdbPlugin/>{artworkOpen&&<ArtworkPopup onClose={onClose}/>} {SERVER_CONNECT_AVAILABLE && open&&<ServerConnectPopup onClose={onClose}/>}</div>;
+ return <div className="grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3"><PluginCard title="Artwork" description="Browse, upload, remove, and edit artwork with PosterEdit and BackdropEdit." branding={<Images className="size-10 text-accent"/>} status={<><span>Built-in</span><span className="rounded-full border border-border px-2 py-1">{artwork.data?artwork.data.enabled?"Enabled":"Disabled":"Loading…"}</span></>} onClick={onArtworkOpen}/><GoogleBooksPlugin/><AniDBPlugin/><OmdbPlugin/>{artworkOpen&&<ArtworkPopup onClose={onClose}/>}</div>;
 }
 
 export function ArtworkPopup({onClose}:{onClose:()=>void}){

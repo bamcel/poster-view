@@ -15,27 +15,23 @@ impl Runtime {
         let Some((library, item)) = native_artwork_target(target) else {
             return Ok(None);
         };
-        let entries = self.server_store()?.native_catalog(library)?;
-        let Some(entry) = entries
-            .iter()
-            .find(|entry| entry.id == item && entry.available)
-        else {
+        let db = self.server_store()?;
+        let Some(entry) = db.native_catalog_item(library, item)?.filter(|entry| entry.available) else {
             return Ok(None);
         };
-        let parent = entries
-            .iter()
-            .find(|e| Some(e.path.as_str()) == entry.parent_path.as_deref());
+        let parent = entry.parent_path.as_deref().map(|path| db.native_catalog_path(library,path)).transpose()?.flatten();
         let series = if entry.kind == "episode" {
-            parent.and_then(|p| {
-                entries
-                    .iter()
-                    .find(|e| Some(e.path.as_str()) == p.parent_path.as_deref())
-            })
+            parent.as_ref().and_then(|parent|parent.parent_path.as_deref()).map(|path| db.native_catalog_path(library,path)).transpose()?.flatten()
         } else {
             parent
         };
+        let entries = if ["series", "book_series"].contains(&entry.kind.as_str()) {
+            db.native_catalog_children(library,&entry.path)?
+        } else {
+            Vec::new()
+        };
         let mut identifiers = series
-            .and_then(|e| e.metadata["identifiers"].as_object())
+            .as_ref().and_then(|e| e.metadata["identifiers"].as_object())
             .cloned()
             .unwrap_or_default();
         if let Some(own) = entry.metadata["identifiers"].as_object() {

@@ -10,14 +10,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate, useLocation, useSearchParams } from "react-router-dom";
 import {
-  Plus,
-  Trash2,
-  Pencil,
   PlugZap,
-  Star,
   Loader2,
   CheckCircle2,
-  XCircle,
   KeyRound,
   Image as ImageIcon,
   Server as ServerIcon,
@@ -29,10 +24,10 @@ import {
   Columns2,
 } from "lucide-react";
 import NativeProviderCredentials from "../components/NativeProviderCredentials";
-import { api, type ServerInput } from "../api/client";
+import { api } from "../api/client";
 import { useToast } from "../lib/toast";
-import { ServerTypeBadge, Switch } from "../components/ui";
-import type { AppearanceSettings, ConnectionTest, Server, ServerType } from "../types";
+import { Switch } from "../components/ui";
+import type { AppearanceSettings } from "../types";
 import {
   applyTheme,
   applyThemePreferences,
@@ -57,35 +52,13 @@ import AppearancePreview from "../components/AppearancePreview";
 import { reportSettingsSave, type SettingsSaveStatus } from "../lib/settingsSaveStatus";
 import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROP_OVERLAY, DEFAULT_BACKDROPS_ENABLED, DEFAULT_PANEL_OVERLAY, DEFAULT_PANEL_SOLIDITY, DEFAULT_PILL_BACKGROUND_OPACITY, pillBackgroundOpacity, setPillBackgroundOpacity, backdropBlur, backdropOverlay, dashboardAppearance, dashboardBackdropEnabled, panelOverlay, panelSolidity, setBackdropBlur, setBackdropOverlay, setDashboardBackdropEnabled, setPanelOverlay, setPanelSolidity } from "../lib/dashboardSettings";
 
-const BLANK: ServerInput = {
-  name: "",
-  type: "emby",
-  base_url: "",
-  token: "",
-  is_default: false,
-  nfo_metadata_enabled: false,
-};
-
-const URL_PLACEHOLDER: Record<ServerType, string> = {
-  plex: "http://localhost:32400",
-  jellyfin: "http://localhost:8096",
-  emby: "http://localhost:8096",
-};
-
-const TOKEN_LABEL: Record<ServerType, string> = {
-  plex: "Plex Token (X-Plex-Token)",
-  jellyfin: "API Key",
-  emby: "API Key",
-};
-
-type SettingsTab = "servers" | "plugins" | "artwork" | "libraries" | "sources" | "tasks" | "appearance" | "security";
+type SettingsTab = "plugins" | "artwork" | "libraries" | "sources" | "tasks" | "appearance" | "security";
 
 const LIVE_PREVIEW_KEY = "posterview.appearanceLivePreview";
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   { id: "artwork", label: "Artwork", icon: <ImageIcon className="size-4" /> },
   { id: "plugins", label: "Plugins", icon: <ServerIcon className="size-4" /> },
-  { id: "servers", label: "Server Connect", icon: <ServerIcon className="size-4" /> },
   { id: "libraries", label: "Libraries", icon: <HardDrive className="size-4" /> },
   { id: "sources", label: "Search Providers", icon: <ImageIcon className="size-4" /> },
   { id: "tasks", label: "Scheduled Tasks", icon: <Database className="size-4" /> },
@@ -101,7 +74,6 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
   const section = previewSection ?? location.pathname.split("/")[2];
   const candidate = section === "database" ? "tasks" : section;
   const tab = TABS.find(section => section.id === candidate)?.id;
-  const [pluginOpen,setPluginOpen]=useState(false);
   const [artworkOpen,setArtworkOpen]=useState(false);
   const [saveStatus, setSaveStatus] = useState<SettingsSaveStatus>("saved");
 
@@ -115,9 +87,9 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
 
   if (!previewSection && requestedTab && TABS.some(section => section.id === requestedTab)) return <Navigate replace to={`/settings/${requestedTab}`} />;
   if (!tab) return <ServerSettingsDashboard />;
-  const descriptions:Record<SettingsTab,string>={servers:"Configure server connections and library synchronization.",plugins:"Choose a plugin to manage its features and settings.",artwork:"Configure artwork browsing and editing tools.",libraries:"Manage media folders, metadata providers, and artwork.",sources:"Configure provider accounts and test their connections.",tasks:"Review cleanup and schedule application maintenance.",appearance:"Customize your theme, layout, and backgrounds.",security:"Manage sign-in, session, and privacy preferences."};
+  const descriptions:Record<SettingsTab,string>={plugins:"Choose a plugin to manage its features and settings.",artwork:"Configure artwork browsing and editing tools.",libraries:"Manage media folders, metadata providers, and artwork.",sources:"Configure provider accounts and test their connections.",tasks:"Review cleanup and schedule application maintenance.",appearance:"Customize your theme, layout, and backgrounds.",security:"Manage sign-in, session, and privacy preferences."};
   return <SettingsPageFrame title={TABS.find(section=>section.id===tab)!.label} description={descriptions[tab]} wide={tab==="appearance"} split={tab==="appearance"} status={tab==="libraries"?<NativeLibraryCount/>:saveStatus!=="saved"?<span className={saveStatus==="error"?"text-danger":"text-accent"}>{saveStatus==="saving"?"Savingâ€¦":"Settings could not be saved."}</span>:undefined}>
-          {(tab === "plugins" || tab === "servers" || tab === "artwork") && <PluginsPage artworkOpen={tab === "artwork" || artworkOpen} onArtworkOpen={()=>setArtworkOpen(true)} open={tab === "servers" || pluginOpen} onOpen={()=>setPluginOpen(true)} onClose={()=>{setPluginOpen(false);setArtworkOpen(false);if(tab === "servers" || tab === "artwork") navigate("/settings/plugins");}}/>}
+          {(tab === "plugins" || tab === "artwork") && <PluginsPage artworkOpen={tab === "artwork" || artworkOpen} onArtworkOpen={()=>setArtworkOpen(true)} onClose={()=>{setArtworkOpen(false);if(tab === "artwork") navigate("/settings/plugins");}}/>}
           {tab === "libraries" && <NativeLibrariesSection />}
           {tab === "sources" && <ArtworkSourcesSection />}
           {tab === "tasks" && <ScheduledTasks/>}
@@ -491,289 +463,6 @@ function ThemePaletteIcon({ theme }: { theme: AppTheme }) {
 // Media servers
 // ---------------------------------------------------------------------------
 
-export function ServersSection() {
-  const toast = useToast();
-  const queryClient = useQueryClient();
-  const serversQ = useQuery({ queryKey: ["servers"], queryFn: api.listServers });
-
-  const [form, setForm] = useState<ServerInput>(BLANK);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [formOpen, setFormOpen] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<ConnectionTest | null>(null);
-
-  const reset = () => {
-    setForm(BLANK);
-    setEditingId(null);
-    setTestResult(null);
-    setFormOpen(false);
-  };
-
-  const startAdd = () => {
-    setForm(BLANK);
-    setEditingId(null);
-    setTestResult(null);
-    setFormOpen(true);
-  };
-
-  const startEdit = (s: Server) => {
-    setEditingId(s.id);
-    setForm({ name: s.name, type: s.type, base_url: s.base_url, token: "", is_default: s.is_default, nfo_metadata_enabled: s.nfo_metadata_enabled });
-    setTestResult(null);
-    setFormOpen(true);
-  };
-
-  const saveMut = useMutation({
-    mutationFn: async () => {
-      const input = { ...form, base_url: form.base_url.trim(), token: form.token.trim() };
-      if (editingId == null) return api.createServer(input);
-      return api.updateServer(editingId, input);
-    },
-    onMutate: () => reportSettingsSave("saving"),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["servers"] });
-      toast.push("success", editingId == null ? "Server added." : "Server updated.");
-      reset();
-    },
-    onError: (e: Error) => toast.push("error", e.message),
-  });
-
-  const deleteMut = useMutation({
-    mutationFn: (id: number) => api.deleteServer(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["servers"] });
-      toast.push("info", "Server removed.");
-    },
-    onError: (e: Error) => toast.push("error", e.message),
-  });
-
-  const test = async () => {
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const input = { ...form, base_url: form.base_url.trim(), token: form.token.trim() };
-      const r =
-        editingId != null
-          ? await api.testServerSaved(editingId, input)
-          : await api.testServerAdhoc(input);
-      setTestResult(r);
-      toast.push(r.ok ? "success" : "error", r.message);
-    } catch (e) {
-      setTestResult({ ok: false, message: (e as Error).message, server_name: null, version: null });
-      toast.push("error", (e as Error).message);
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const canSubmit = form.name.trim() && form.base_url.trim() && (editingId != null || form.token);
-
-  return (
-    <section className="space-y-5">
-
-      <div>
-        <div className="space-y-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="mb-1 text-sm font-semibold">Connected servers</h3>
-              <p className="text-xs text-faint">
-                Connect Plex, Jellyfin, or Emby. Tokens are encrypted before they're stored.
-              </p>
-            </div>
-            {!formOpen ? (
-              <button
-                type="button"
-                onClick={startAdd}
-                className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-button-hover"
-              >
-                <Plus className="size-4 text-accent" /> Add server
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={reset}
-                className="flex shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-button-hover"
-              >
-                <XCircle className="size-4" /> Cancel
-              </button>
-            )}
-          </div>
-
-          {/* Existing servers */}
-          <div className="mb-3 divide-y divide-border">
-            {serversQ.data?.length === 0 && (
-              <p className="py-4 text-sm text-faint">
-                No servers yet â€” use Add server to connect one.
-              </p>
-            )}
-            {serversQ.data?.map((s) => (
-              <ServerCard
-                key={s.id}
-                server={s}
-                onEdit={() => startEdit(s)}
-                onDelete={() => {
-                  if (confirm(`Delete server "${s.name}" (${s.base_url}, ID ${s.id}) from PosterView?\n\nThis removes its saved connection, artwork cache, and cached media-server images. Your media files and artwork on the server remain unchanged. Other serversâ€™ caches are kept.`)) deleteMut.mutate(s.id);
-                }}
-              />
-            ))}
-          </div>
-
-          {/* Add / edit form */}
-          <div className="px-1 pt-1">
-            {formOpen && (
-              <>
-            <h3 className="mb-3 text-sm font-semibold">
-              {editingId == null ? "Add A Server" : "Edit Server"}
-            </h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Name">
-            <input
-              className={inputCls}
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Living Room Jellyfin"
-            />
-          </Field>
-          <Field label="Type">
-            <select
-              className={inputCls}
-              value={form.type}
-              onChange={(e) => setForm({ ...form, type: e.target.value as ServerType })}
-            >
-              <option value="emby">Emby</option>
-              <option value="jellyfin">Jellyfin</option>
-              <option value="plex">Plex</option>
-            </select>
-          </Field>
-          <Field label="Server URL">
-            <input
-              className={inputCls}
-              value={form.base_url}
-              onChange={(e) => setForm({ ...form, base_url: e.target.value })}
-              placeholder={URL_PLACEHOLDER[form.type]}
-            />
-          </Field>
-          <Field label={TOKEN_LABEL[form.type]}>
-            <input
-              className={inputCls}
-              type="password"
-              value={form.token}
-              onChange={(e) => setForm({ ...form, token: e.target.value })}
-              placeholder={editingId != null ? "â€¢â€¢â€¢â€¢â€¢â€¢ (leave blank to keep)" : ""}
-            />
-          </Field>
-            </div>
-
-            <label className="mt-3 flex items-center gap-2 text-sm text-muted">
-          <input
-            type="checkbox"
-            checked={form.is_default}
-            onChange={(e) => setForm({ ...form, is_default: e.target.checked })}
-            className="size-4 accent-[var(--color-accent)]"
-          />
-          Use As Default Integration
-            </label>
-
-            <label className="mt-3 flex items-start gap-2 text-sm text-muted">
-          <input
-            type="checkbox"
-            checked={form.nfo_metadata_enabled}
-            onChange={(e) => setForm({ ...form, nfo_metadata_enabled: e.target.checked })}
-            className="mt-0.5 size-4 accent-[var(--color-accent)]"
-          />
-          <span>
-            <span className="block text-white">Enable NFO Metadata</span>
-            <span className="block text-xs text-faint">
-              Allow PosterView to create and maintain NFO files for this server. The configured media path must be writable.
-            </span>
-          </span>
-            </label>
-
-            {testResult && (
-          <div
-            className={`mt-3 flex items-center gap-2 text-sm ${
-              testResult.ok ? "text-accent" : "text-danger"
-            }`}
-          >
-            {testResult.ok ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
-            {testResult.ok
-              ? `${testResult.server_name ?? "Connected"}${
-                  testResult.version ? ` Â· v${testResult.version}` : ""
-                }`
-              : testResult.message}
-          </div>
-            )}
-
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => saveMut.mutate()}
-            disabled={!canSubmit || saveMut.isPending}
-            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-accent-hover disabled:opacity-50"
-          >
-            {saveMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-            {editingId == null ? "Add server" : "Update server"}
-          </button>
-          <button
-            onClick={test}
-            disabled={testing || !form.base_url.trim()}
-            className="flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
-          >
-            {testing ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
-            Test connection
-          </button>
-            </div>
-              </>
-            )}
-          </div>
-        </div>
-
-      </div>
-    </section>
-  );
-}
-
-function ServerCard({
-  server,
-  onEdit,
-  onDelete,
-}: {
-  server: Server;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  return (
-    <div className="py-4">
-      <div className="flex items-start gap-2 sm:gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="min-w-0 break-words font-medium">{server.name}</span>
-            <ServerTypeBadge type={server.type} />
-            {server.is_default && (
-              <span className="flex items-center gap-1 text-xs text-accent">
-                <Star className="size-3 fill-accent" /> default
-              </span>
-            )}
-          </div>
-          <p className="truncate text-xs text-faint">{server.base_url}</p>
-        </div>
-        <IconBtn title={`Edit ${server.name}`} onClick={onEdit}>
-          <Pencil className="size-4" />
-        </IconBtn>
-        <IconBtn title={`Delete ${server.name}`} danger onClick={onDelete}>
-          <Trash2 className="size-4" />
-        </IconBtn>
-      </div>
-
-      <p className="mt-3 text-xs text-muted">Integration connection for importing metadata and pushing supported updates. Manage library connections below in Server Connect.</p>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Search providers â€” ThePosterDB login + Fanart.tv/TheTVDB API Keys, grouped
-// into one card since they're all just "credentials for an artwork source".
-// ---------------------------------------------------------------------------
-
 function ArtworkSourcesSection() {
   return (
     <section className="space-y-4">
@@ -1142,8 +831,6 @@ function ProviderFeedback({ name, pending, result, error }: {
 // Small form helpers
 // ---------------------------------------------------------------------------
 
-const inputCls =
-  "w-full rounded-lg border border-border bg-input px-3 py-2 text-sm outline-none transition-colors hover:bg-input-hover focus:border-accent";
 
 const compactInputCls =
   "w-full rounded-lg border border-border bg-input px-3 py-1.5 text-sm outline-none transition-colors hover:bg-input-hover focus:border-accent";
@@ -1154,30 +841,5 @@ function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
       <span className="mb-1 block text-xs font-medium text-muted">{label}</span>
       {children}
     </label>
-  );
-}
-
-function IconBtn({
-  children,
-  onClick,
-  title,
-  danger,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  title: string;
-  danger?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      aria-label={title}
-      className={`grid size-11 shrink-0 place-items-center rounded-lg border border-border transition-colors ${
-        danger ? "text-muted hover:border-danger hover:text-danger" : "text-muted hover:text-white"
-      }`}
-    >
-      {children}
-    </button>
   );
 }

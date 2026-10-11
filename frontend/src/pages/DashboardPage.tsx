@@ -17,10 +17,9 @@ export default function DashboardPage() {
  const [params]=useSearchParams();
  const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list});
  const library=resolveNamed(libraryId??params.get("native_library")??undefined,libraries.data??[])
-   ?? libraries.data?.find(l=>params.has("lib")&&l.options?.server_sync?.library_id===params.get("lib"))
    ?? (!libraryId ? libraries.data?.find(l=>l.id===localStorage.getItem("posterview.manualLibraryTab")) ?? libraries.data?.[0] : undefined);
 
- const catalog=useQuery({queryKey:["native-catalog",library?.id],queryFn:()=>nativeLibraries.catalog(library!.id),enabled:!!library&&!preview,staleTime:60_000,gcTime:30*60_000});
+ const catalog=useQuery({queryKey:["native-catalog",library?.id],queryFn:()=>nativeLibraries.catalog(library!.id),enabled:!!library&&!preview,staleTime:60_000,gcTime:5*60_000});
  const view=useMemo(()=>nativeCatalogView(catalog.data??[]),[catalog.data]);
  const entries=view.entries;
  const routeItem=resolveNamed(itemSlug,entries);
@@ -49,6 +48,6 @@ export default function DashboardPage() {
    <h1 className="py-3 text-xl font-semibold">{library?.name ?? "Media"}</h1>
 
   </header>}
-  <div className="min-h-0 flex-1">{library?<NativeLibraryBrowser key={library.id} library={library}/>:<div className="space-y-3 p-5 text-muted">{libraries.isPending?"Loading libraries…":libraries.error?libraries.error.message:<><p>Add a library or import a connected server library in Settings → Libraries.</p><p>ServerConnect integrations exchange metadata and artwork with your PosterView libraries.</p></>}</div>}</div>
+  <div className="min-h-0 flex-1">{library?<NativeLibraryBrowser key={library.id} library={library}/>:<div className="space-y-3 p-5 text-muted">{libraries.isPending?"Loading libraries…":libraries.error?libraries.error.message:<><p>Add a library in Settings → Libraries.</p></>}</div>}</div>
  </div></LibraryNavigationContext.Provider>;
 }

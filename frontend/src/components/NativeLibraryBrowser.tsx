@@ -248,8 +248,8 @@ export default function NativeLibraryBrowser({
     queryKey: ["native-catalog", library.id],
     queryFn: () => nativeLibraries.catalog(library.id),
     staleTime: 60_000,
-    gcTime: 30 * 60_000,
-    refetchInterval: status.data?.status === "scanning" ? 5000 : library.options?.server_sync?.enabled ? 30_000 : false,
+    gcTime: 5 * 60_000,
+    refetchInterval: status.data?.status === "scanning" ? 5000 : false,
   });
   useEffect(()=>{if(status.data?.artwork_revision) void client.invalidateQueries({queryKey:["native-catalog",library.id]});},[status.data?.artwork_revision,library.id,client]);
   const [search, setSearch] = useState("");

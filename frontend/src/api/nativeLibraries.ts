@@ -1,10 +1,7 @@
 import { apiRequest } from "./client";
 
 export type NativeLibraryType = "movies" | "shows" | "anime" | "books";
-export interface ServerSyncOptions { enabled:boolean; mode?:"two_way"|"import_only"|"push_only"; server_id:number|null; library_id:string; override_locked:boolean; write_nfo:boolean; push_to_all:boolean; push_server_ids:number[]; }
-export const defaultServerSync:ServerSyncOptions={enabled:false,mode:"two_way",server_id:null,library_id:"",override_locked:false,write_nfo:false,push_to_all:true,push_server_ids:[]};
 export interface NativeLibraryOptions {
-  server_sync?:ServerSyncOptions;
   show_missing_files?:boolean; show_missing_specials?:boolean;
   read_nfo: boolean; save_nfo: boolean; local_artwork: boolean; save_artwork: boolean; fetch_missing: boolean;
   metadata_language: string; certification_country: string; image_language: string;
@@ -12,7 +9,7 @@ export interface NativeLibraryOptions {
   metadata_providers: Record<string, string[]>; image_providers: Record<string, string[]>; image_types: string[];
 }
 export const defaultNativeOptions: NativeLibraryOptions = {
-  server_sync:defaultServerSync,show_missing_files:true,show_missing_specials:false,
+  show_missing_files:true,show_missing_specials:false,
   read_nfo: true, save_nfo: false, local_artwork: true, save_artwork: false, fetch_missing: true,
   metadata_language: "en", certification_country: "US", image_language: "en", prefer_embedded_titles: false, real_time_monitor: false,
   sample_ignore_mb: 300, allow_adult_metadata: false, metadata_providers: {}, image_providers: {},
@@ -38,8 +35,6 @@ export interface FolderList {
   folders: { name: string; path: string; has_nfo: boolean }[];
 }
 export const nativeLibraries = {
-  syncStatus:(id:string)=>apiRequest<SyncStatus>(`/native/libraries/${encodeURIComponent(id)}/sync`),
-  sync:(id:string,input:Record<string,unknown>={})=>apiRequest<{status:string}>(`/native/libraries/${encodeURIComponent(id)}/sync`,{method:"POST",body:JSON.stringify(input)}),
   previews: (id: string) => apiRequest<{id:string;title:string;revision:number}[]>(`/native/libraries/${encodeURIComponent(id)}/previews`),
   list: () => apiRequest<NativeLibrary[]>("/native/libraries"),
   save: (input: NativeLibraryInput, id?: string) => apiRequest<NativeLibrary>(
@@ -70,5 +65,3 @@ export interface NativeScanStatus { manual_queued?:boolean; artwork_revision?: s
 
 export interface IdentificationCandidate {publisher?:string|null;volume_count?:number|null;poster?:string|null;provider:string;id:string;title:string;year:number|null;format:string|null;overview:string|null;identifiers:Record<string,string>}
 export interface IdentificationGroup {provider:string;results:IdentificationCandidate[];error?:string}
-
-export interface SyncStatus {enabled:boolean;status:string;retry_at?:string|null;retry_attempts?:number;last_success:string|null;pending:number;matched:number;unmatched:number;failed:number;notices:string[];activity:string[];}

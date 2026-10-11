@@ -1,5 +1,7 @@
 # PosterView Settings — Visual Layout Handoff
 
+> Historical layout reference: the Database/Watchdog controls described below are retired. Current maintenance settings live under Scheduled Tasks.
+
 > Developer reference: this describes the current visual structure for implementation work. For
 > user instructions, see [Getting started](user-guide.md).
 

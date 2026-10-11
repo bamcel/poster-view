@@ -360,8 +360,6 @@ async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
     let _guard = RUN_LOCK
         .try_lock()
         .map_err(|_| bad("A scheduled task is already running. Try again shortly."))?;
-    let _sync_guard = if id == "cleanup" { Some(crate::native_sync::RUN_LOCK.try_lock().map_err(|_| bad("Wait for server sync to finish before cleaning data."))?) } else { None };
-    let _queue_guard = if id == "cleanup" { Some(crate::native_sync::QUEUE_LOCK.lock().await) } else { None };
     tokio::task::spawn_blocking(move||{
         *RUNNING_TASK.lock().unwrap() = Some(id.clone());
         let _running = RunningTask;

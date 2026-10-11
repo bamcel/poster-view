@@ -491,10 +491,9 @@ async fn context(
             .find(|l| l.id == library)
             .ok_or_else(HttpError::not_found)?;
         let entry = db
-            .native_catalog(&library)
+            .native_catalog_item(&library, &item)
             .map_err(|e| HttpError::bad_request(e.to_string()))?
-            .into_iter()
-            .find(|e| e.id == item && e.available)
+            .filter(|e| e.available)
             .ok_or_else(HttpError::not_found)?;
         if !["series", "movie", "book_series", "book"].contains(&entry.kind.as_str()) {
             return Err(HttpError::bad_request("Identify a series, movie, or book."));
@@ -737,7 +736,6 @@ pub(crate) async fn apply(
             ));
         }
     }
-    crate::native_sync::changed(&state,&library,&item,json!({"title":updated.title,"year":updated.metadata["year"],"identifiers":updated.metadata["identifiers"]}),None).await;
     if input.rewrite_metadata {if let Err(e)=crate::native::start_identification_scan(state.clone(),library.clone(),updated.path.clone()).await {warnings.push(format!("Metadata saved; season/episode refresh could not start: {}",e.detail));}}
     Ok(Json(
         json!({"entry":updated,"warnings":warnings,"message":if input.rewrite_metadata {"TVDB identification and metadata saved. Season and episode refresh started."} else {"Identification saved. Scan files to fetch missing metadata using the corrected IDs."}}),

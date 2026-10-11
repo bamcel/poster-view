@@ -41,14 +41,6 @@ async fn save(
     id: Option<String>,
     input: NativeLibraryInput,
 ) -> Result<Json<NativeLibrary>, HttpError> {
-    if crate::plugins::enabled(&state) && input.options.server_sync.enabled {
-        let sync = &input.options.server_sync;
-        if !["two_way","import_only","push_only"].contains(&sync.mode.as_str()) { return Err(HttpError::bad_request("Unknown integration mode.")); }
-        let server = state.runtime.list_servers().map_err(|e|HttpError::bad_request(e.to_string()))?.into_iter().find(|server|Some(server.id)==sync.server_id).ok_or_else(||HttpError::bad_request("Select a connected server."))?;
-        if server.server_type == posterview_contracts::ServerType::Plex { return Err(HttpError::bad_request("Shared metadata sync currently supports Emby and Jellyfin.")); }
-        let libraries=state.runtime.get_libraries(server.id).await.map_err(|e|HttpError::bad_request(e.to_string()))?.ok_or_else(HttpError::not_found)?.map_err(HttpError::bad_request)?;
-        if sync.library_id!="*" && !libraries.iter().any(|library|library.id==sync.library_id){return Err(HttpError::bad_request("Select a library on the connected server."));}
-    }
     let result = tokio::task::spawn_blocking(move || {
         for path in &input.paths {
             state.metadata.directory(path, true)?;
@@ -591,11 +583,11 @@ pub(crate) async fn refresh_library(State(state):State<AppState>,Path(id):Path<S
 }
 pub(crate) async fn scan_folder(State(state):State<AppState>,Path((id,item)):Path<(String,String)>,axum::extract::Query(options):axum::extract::Query<std::collections::BTreeMap<String,String>>)->Result<(StatusCode,Json<serde_json::Value>),HttpError>{
  library(&state,&id).await?;
- let entry=store(&state).native_catalog(&id).map_err(error)?.into_iter().find(|e|e.id==item && e.available).ok_or_else(HttpError::not_found)?;
+ let entry=store(&state).native_catalog_item(&id, &item).map_err(error)?.filter(|entry| entry.available).ok_or_else(HttpError::not_found)?;
  if !(["series","book_series","season"].contains(&entry.kind.as_str()) || (entry.kind=="movie" && options.get("refresh_metadata").is_some_and(|v|v=="true"))) || entry.metadata["missing"]==true {return Err(HttpError::bad_request("Select an existing series or season folder."));}
  let refresh=options.get("refresh_metadata").is_some_and(|v|v=="true");
  let _operation=if refresh {Some(crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),id),Some(&[entry.path.clone()])).await)}else{None};
- let entry=if refresh {store(&state).native_catalog(&id).map_err(error)?.into_iter().find(|e|e.id==item&&e.available).ok_or_else(HttpError::not_found)?}else{entry};
+ let entry=if refresh {store(&state).native_catalog_item(&id, &item).map_err(error)?.filter(|entry| entry.available).ok_or_else(HttpError::not_found)?}else{entry};
  if refresh {let replace=options.get("replace_metadata").is_some_and(|v|v=="true");
  let images=options.get("replace_images").is_some_and(|v|v=="true");
  if replace {let replacement=serde_json::json!({"_refresh_from_providers":true,"_identify_replace_artwork":images});store(&state).identify_native_entry_with_metadata(&id,&item,entry.revision,&entry.title,None,&entry.metadata["identifiers"].as_object().cloned().map(serde_json::Value::Object).unwrap_or(serde_json::json!({})),Some(&replacement)).map_err(error)?;}else if images {store(&state).request_artwork_refresh(&id,&entry.path).map_err(error)?;}
@@ -633,35 +625,28 @@ pub(crate) async fn edit_item(
     Json(mut input): Json<EditRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     let library = library(&state, &library_id).await?;
-    let initial=store(&state).native_catalog(&library_id).map_err(error)?.into_iter().find(|e|e.id==item).ok_or_else(HttpError::not_found)?;
+    let initial=store(&state).native_catalog_item(&library_id, &item).map_err(error)?.ok_or_else(HttpError::not_found)?;
     let path=initial.path.clone();
     let _operation=crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),library_id),Some(&[path])).await;
-    let fresh=store(&state).native_catalog(&library_id).map_err(error)?.into_iter().find(|e|e.id==item).ok_or_else(HttpError::not_found)?;
+    let fresh=store(&state).native_catalog_item(&library_id, &item).map_err(error)?.ok_or_else(HttpError::not_found)?;
     if initial.revision!=input.revision || !crate::native_operations::same_manual_fields(&initial.metadata,&fresh.metadata) {return Err(error(StoreError::RevisionConflict));}
     input.revision=fresh.revision;
     let only_visual_fields=input.metadata.as_object().is_some_and(|fields| !fields.is_empty() && fields.keys().all(|key| ["posteredit", "poseredit", "backdropedit"].contains(&key.as_str())));
-    let changed_fields=input.metadata.clone();
-    let sync_state=state.clone();
-    let sync_library=library_id.clone();
-    let sync_item=item.clone();
     let result = tokio::task::spawn_blocking(move || {
         let db = store(&state);
         db.edit_native_entry(&library_id, &item, input.revision, &input.metadata)
             .map_err(error)?;
         if library.options.show_missing_files && library.library_type == NativeLibraryType::Books && input.metadata.as_object().is_some_and(|f| f.contains_key("volumes") || f.contains_key("chapters")) {
-            let catalog = db.native_catalog(&library_id).map_err(error)?;
-            if let Some(series) = catalog.iter().find(|e|e.id==item && e.kind=="book_series") {
+            if let Some(series) = db.native_catalog_item(&library_id,&item).map_err(error)?.filter(|entry|entry.kind=="book_series") {
                 let scope=series.path.clone();
-                let mut entries = catalog.into_iter().filter(|e|e.available && (e.path==scope || e.parent_path.as_deref()==Some(&scope))).collect::<Vec<_>>();
+                let mut entries = db.native_catalog_children(&library_id,&scope).map_err(error)?.into_iter().filter(|entry|entry.available).collect::<Vec<_>>();
+                if series.available {entries.push(series);}
                 crate::native_scan::book_placeholders(&mut entries);
                 db.ingest_native_catalog_scoped(&library_id, library.revision, &entries, Some(&[scope])).map_err(error)?;
             }
         }
         let entry = db
-            .native_catalog(&library_id)
-            .map_err(error)?
-            .into_iter()
-            .find(|e| e.id == item)
+            .native_catalog_item(&library_id, &item).map_err(error)?
             .ok_or_else(HttpError::not_found)?;
         let mut warnings = Vec::<String>::new();
         if entry.metadata["missing"] != true && library.options.save_nfo && !only_visual_fields && (entry.kind != "season" || entry.nfo_path.is_some()) {
@@ -678,28 +663,23 @@ pub(crate) async fn edit_item(
     })
     .await
     .map_err(|_| HttpError::bad_request("Metadata save interrupted."))??;
-    crate::native_sync::changed(&sync_state,&sync_library,&sync_item,changed_fields,None).await;
     Ok(result)
 }
 pub(crate) async fn apply_panel_artwork(state: AppState, target: String, kind: posterview_contracts::ImageTarget, bytes: Option<Vec<u8>>) -> Result<posterview_contracts::ApplyResult, HttpError> {
-    let sync_library = posterview_runtime::native_artwork_target(&target).ok_or_else(HttpError::not_found)?.0.to_string();
-    let remove_target = posterview_runtime::native_artwork_target(&target).ok_or_else(HttpError::not_found)?.1.to_string();
-    let removed = bytes.is_none();
-    let mut removed_kind = match kind { posterview_contracts::ImageTarget::Background=>"backdrop",posterview_contracts::ImageTarget::Logo=>"logo",_=>"poster" };
     let save_state = state.clone();
-    let (mut result, saved) = tokio::task::spawn_blocking(move || {
+    let result = tokio::task::spawn_blocking(move || {
         let state = save_state;
         let (library, item) = posterview_runtime::native_artwork_target(&target).ok_or_else(HttpError::not_found)?;
         let db = store(&state);
         // Replacements are stored as locked manual selections and survive scanner ingestion.
         // Keep deletions blocked until reconciliation completes.
         if bytes.is_none() && db.native_scan_status(library).map_err(error)?.status == "scanning" { return Err(HttpError::bad_request("Wait for the library scan to finish before removing artwork.")); }
-        let entry = db.native_catalog(library).map_err(error)?.into_iter().find(|entry| entry.id == item && entry.available).ok_or_else(HttpError::not_found)?;
+        let entry = db.native_catalog_item(library, item).map_err(error)?.filter(|entry| entry.available).ok_or_else(HttpError::not_found)?;
         let kind = match kind { posterview_contracts::ImageTarget::Background => "backdrop", posterview_contracts::ImageTarget::Logo => "logo", posterview_contracts::ImageTarget::Poster if entry.kind == "episode" => "thumb", _ => "poster" };
         let Some(bytes) = bytes else {
             crate::native_artwork::remove_static(&state,library,&entry,kind).map_err(HttpError::bad_request)?;
             db.remove_native_artwork(library, item, kind).map_err(error)?;
-            return Ok((posterview_contracts::ApplyResult {ok:true,message:"Artwork removed.".into()}, None));
+            return Ok(posterview_contracts::ApplyResult {ok:true,message:"Artwork removed.".into()});
         };
         let path = crate::workers::blocking(|| crate::native_provider::store_image(&state, &bytes)).map_err(HttpError::bad_request)?;
         let animated=path.ends_with(".gif")||path.ends_with(".webm");
@@ -710,11 +690,9 @@ pub(crate) async fn apply_panel_artwork(state: AppState, target: String, kind: p
         let message = if config.options.save_artwork && !animated {
             match crate::native_artwork::write(&state,&entry,&art,true) { Ok(()) => "Artwork saved in the database and media folder.".into(), Err(e) => format!("Artwork saved in the database, but media-folder write failed: {e}") }
         } else { "Artwork saved in the database.".into() };
-        Ok((posterview_contracts::ApplyResult {ok:true,message}, Some((entry, art))))
+        Ok(posterview_contracts::ApplyResult {ok:true,message})
     }).await.map_err(|_|HttpError::bad_request("Artwork save interrupted."))??;
-    if let Some((entry, art)) = saved { result.message.push_str(&crate::native_artwork_sync::push(&state, &sync_library, &entry, &art).await); }
     crate::spawn_backdrop_refresh(&state);
-    if removed {if removed_kind=="poster" && store(&state).native_catalog(&sync_library).map_err(error)?.iter().any(|entry|entry.id==remove_target&&entry.kind=="episode"){removed_kind="thumb";}result.message.push_str(&crate::native_sync::changed(&state,&sync_library,&remove_target,serde_json::json!({}),Some(removed_kind)).await);}
     Ok(result)
 }
 
@@ -746,16 +724,12 @@ pub(crate) async fn upload_artwork(
         .bytes()
         .await
         .map_err(|_| HttpError::bad_request("Unable to read artwork upload."))?;
-    let sync_library=library.clone();
     let save_state = state.clone();
-    let (entry, art) = tokio::task::spawn_blocking(move || {
+    let art = tokio::task::spawn_blocking(move || {
         let state = save_state;
         let db = store(&state);
         let entry = db
-            .native_catalog(&library)
-            .map_err(error)?
-            .into_iter()
-            .find(|e| e.id == item)
+            .native_catalog_item(&library, &item).map_err(error)?
             .ok_or_else(HttpError::not_found)?;
         let config = db
             .native_libraries()
@@ -781,14 +755,12 @@ pub(crate) async fn upload_artwork(
                 ))
             })?;
         }
-        Ok::<_, HttpError>((entry, art))
+        Ok::<_, HttpError>(art)
     })
     .await
     .map_err(|_| HttpError::bad_request("Artwork save interrupted."))??;
     if art.kind == "poster-edit-original" { return Ok(StatusCode::NO_CONTENT); }
     crate::spawn_backdrop_refresh(&state);
-    let result = crate::native_artwork_sync::push(&state, &sync_library, &entry, &art).await;
-    if !result.is_empty() { tracing::info!(message=%result, "Manual artwork server synchronization"); }
     Ok(StatusCode::NO_CONTENT)
 }
 pub(crate) async fn artwork(
@@ -1986,12 +1958,12 @@ pub(crate) async fn remove_variant(State(state):State<AppState>,Path((library,it
  if !["poster","backdrop","logo","banner","thumb","landscape","disc"].contains(&base){return Err(HttpError::bad_request("Unknown artwork type."));}
  if store(&state).native_scan_status(&library).map_err(error)?.status=="scanning" {return Err(HttpError::bad_request("Wait for the library scan to finish before removing artwork."));}
  if !animated && !original {
-  let entry=store(&state).native_catalog(&library).map_err(error)?.into_iter().find(|e|e.id==item).ok_or_else(HttpError::not_found)?;
+  let entry=store(&state).native_catalog_item(&library, &item).map_err(error)?.ok_or_else(HttpError::not_found)?;
   crate::native_artwork::remove_static(&state,&library,&entry,&kind).map_err(HttpError::bad_request)?;
  }
  store(&state).remove_native_artwork(&library,&item,&kind).map_err(error)?;
  if animated {
- if let Some(entry)=store(&state).native_catalog(&library).map_err(error)?.into_iter().find(|e|e.id==item) {
+ if let Some(entry)=store(&state).native_catalog_item(&library, &item).map_err(error)? {
   if let Ok(root)=state.metadata.directory("",true) {let path=root.join(&entry.path);let (dir,stem)=if path.is_dir(){(path.clone(),None)}else{(path.parent().unwrap_or(&root).to_path_buf(),path.file_stem().map(|s|s.to_string_lossy().into_owned()))};
    for art in crate::native_scan::local_art_variants(&root,&dir,stem.as_deref(),true).into_iter().filter(|a|a.kind==base) {store(&state).select_local_artwork(&library,&item,&art).map_err(error)?;}
   }

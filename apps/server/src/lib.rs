@@ -38,8 +38,6 @@ mod native_jikan;
 mod native_provider_extra;
 mod native_monitor;
 mod native_artwork;
-mod native_artwork_sync;
-mod native_sync;
 mod plugins;
 mod native_animation;
 mod native_identify;
@@ -83,7 +81,6 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     };
     if let Err(error)=scheduled_tasks::retire_artwork_history(&state){tracing::warn!(error=%error.detail,"Unable to remove legacy artwork history");}
     native_monitor::start(state.clone());
-    native_sync::start(state.clone());
     scheduled_tasks::start(state.clone());
     let index = ui_dir.join("index.html");
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
@@ -96,7 +93,6 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/native/libraries/{id}/refresh", axum::routing::post(native::refresh_library))
         .route("/api/native/libraries/{id}/items", get(native::catalog))
         .route("/api/native/libraries/{id}/previews", get(native::previews))
-        .route("/api/native/libraries/{id}/sync", get(native_sync::status).post(native_sync::run))
         .route("/api/native/libraries/{library}/items/{item}/metadata/preview", axum::routing::post(native_identify::metadata_preview))
         .route("/api/native/libraries/{library}/items/{item}/identify/resolve", axum::routing::post(native_identify::resolve))
         .route("/api/native/libraries/{library}/items/{item}/identify/search", axum::routing::post(native_identify::search))
@@ -215,7 +211,6 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route("/api/plugins/google-books/test", axum::routing::post(google_books::test))
         .route("/api/plugins/google-books", get(google_books::get).put(google_books::save))
         .route("/api/plugins/artwork", get(plugins::artwork_get).put(plugins::artwork_save))
-        .route("/api/plugins/server-connect", get(plugins::get).put(plugins::save))
         .route("/api/health", get(health))
         .route("/api/auth/status", get(auth_status))
         .route("/api/auth/login", axum::routing::post(auth_login))

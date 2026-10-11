@@ -47,7 +47,7 @@ provider, and enter required credentials. ThePosterDB uses your own account sess
 and TheTVDB require their respective credentials. AniList Manga and MangaDex do not require an
 API key.
 
-The cache and Artwork Watchdog controls preload reusable results. A provider that needs an
+Artwork searches automatically cache reusable results. A provider that needs an
 external ID may be skipped for an item that has no compatible ID; fix the item's metadata or
 search interactively by title/ID rather than treating one missing provider match as a reason to
 discard the rest of the library.

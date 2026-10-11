@@ -199,13 +199,34 @@ impl ServerStore {
     pub fn native_available_count(&self, library: &str) -> Result<usize, StoreError> {
         self.connection()?.query_row("SELECT COUNT(*) FROM native_catalog_sources WHERE library_id=?1 AND available=1", [library], |r|r.get(0)).map_err(Into::into)
     }
+    pub fn native_catalog_item(&self, library: &str, item: &str) -> Result<Option<NativeCatalogEntry>, StoreError> {
+        Ok(self.native_catalog_selected(library, None, Some(item), None, false)?.into_iter().next())
+    }
+    pub fn native_catalog_path(&self, library: &str, path: &str) -> Result<Option<NativeCatalogEntry>, StoreError> {
+        Ok(self.native_catalog_selected(library, None, None, Some(path), false)?.into_iter().next())
+    }
     pub fn native_catalog_scoped(&self, library: &str, scopes: Option<&[String]>) -> Result<Vec<NativeCatalogEntry>, StoreError> {
+        self.native_catalog_selected(library, scopes, None, None, false)
+    }
+    pub fn native_catalog_children(&self, library: &str, parent: &str) -> Result<Vec<NativeCatalogEntry>, StoreError> {
+        self.native_catalog_selected(library, None, None, Some(parent), true)
+    }
+    fn native_catalog_selected(&self, library: &str, scopes: Option<&[String]>, item: Option<&str>, path: Option<&str>, children: bool) -> Result<Vec<NativeCatalogEntry>, StoreError> {
         let scopes = scopes.map(serde_json::to_string).transpose().map_err(|_|invalid("Invalid scan scope."))?;
+        let selection = if item.is_some() {
+            "s.library_id=?1 AND s.item_id=?3 AND ?4 IS NULL"
+        } else if children {
+            "s.library_id=?1 AND ?3 IS NULL AND s.item_id IN (SELECT id FROM catalog_items WHERE parent_id=(SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?4))"
+        } else if path.is_some() {
+            "s.library_id=?1 AND s.relative_path=?4 AND ?3 IS NULL"
+        } else {
+            "s.library_id=?1 AND ?3 IS NULL AND ?4 IS NULL AND (?2 IS NULL OR EXISTS(SELECT 1 FROM json_each(?2) scope WHERE scope.value='' OR s.relative_path=scope.value OR substr(s.relative_path,1,length(scope.value)+1)=scope.value||'/'))"
+        };
         let mut db = self.connection()?;
         let tx = db.transaction()?;
-        let mut stmt = tx.prepare("SELECT s.snapshot_json,s.item_id,s.available,i.revision FROM native_catalog_sources s JOIN catalog_items i ON i.id=s.item_id WHERE s.library_id=?1 AND (?2 IS NULL OR EXISTS(SELECT 1 FROM json_each(?2) scope WHERE scope.value='' OR s.relative_path=scope.value OR substr(s.relative_path,1,length(scope.value)+1)=scope.value||'/')) ORDER BY i.sort_title,i.title")?;
+        let mut stmt = tx.prepare(&format!("SELECT s.snapshot_json,s.item_id,s.available,i.revision FROM native_catalog_sources s JOIN catalog_items i ON i.id=s.item_id WHERE {selection} ORDER BY i.sort_title,i.title"))?;
         let rows = stmt
-            .query_map(params![library,scopes], |r| {
+            .query_map(params![library,scopes,item,path], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
@@ -218,13 +239,13 @@ impl ServerStore {
         let mut metadata = std::collections::HashMap::<String, Vec<(String, String, bool)>>::new();
         let mut images = std::collections::HashMap::<String, Vec<NativeArtwork>>::new();
         // Read related records in batches instead of executing three queries per item.
-        let mut fields = tx.prepare("SELECT f.item_id,f.field,f.value_json,f.locked FROM catalog_metadata_fields f JOIN native_catalog_sources s ON s.item_id=f.item_id WHERE s.library_id=?1 AND (?2 IS NULL OR EXISTS(SELECT 1 FROM json_each(?2) scope WHERE scope.value='' OR s.relative_path=scope.value OR substr(s.relative_path,1,length(scope.value)+1)=scope.value||'/'))")?;
-        for row in fields.query_map(params![library,scopes], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,bool>(3)?)))? {
+        let mut fields = tx.prepare(&format!("SELECT f.item_id,f.field,f.value_json,f.locked FROM catalog_metadata_fields f JOIN native_catalog_sources s ON s.item_id=f.item_id WHERE {selection}"))?;
+        for row in fields.query_map(params![library,scopes,item,path], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,bool>(3)?)))? {
             let (id, field, value, locked) = row?;
             metadata.entry(id).or_default().push((field, value, locked));
         }
-        let mut artwork = tx.prepare("SELECT a.item_id,a.kind,a.path,a.source FROM catalog_artwork a JOIN native_catalog_sources s ON s.item_id=a.item_id WHERE s.library_id=?1 AND (?2 IS NULL OR EXISTS(SELECT 1 FROM json_each(?2) scope WHERE scope.value='' OR s.relative_path=scope.value OR substr(s.relative_path,1,length(scope.value)+1)=scope.value||'/')) ORDER BY a.kind")?;
-        for row in artwork.query_map(params![library,scopes], |r| Ok((r.get::<_,String>(0)?, NativeArtwork {kind:r.get(1)?,path:r.get(2)?,source:r.get(3)?})))? {
+        let mut artwork = tx.prepare(&format!("SELECT a.item_id,a.kind,a.path,a.source FROM catalog_artwork a JOIN native_catalog_sources s ON s.item_id=a.item_id WHERE {selection} ORDER BY a.kind"))?;
+        for row in artwork.query_map(params![library,scopes,item,path], |r| Ok((r.get::<_,String>(0)?, NativeArtwork {kind:r.get(1)?,path:r.get(2)?,source:r.get(3)?})))? {
             let (id, image) = row?;
             images.entry(id).or_default().push(image);
         }
@@ -475,36 +496,6 @@ impl ServerStore {
         tx.execute("UPDATE catalog_items SET title=COALESCE(?1,title),sort_title=?2,synopsis=?3,year=?4,revision=revision+1 WHERE id=?5",params![effective["title"].as_str(),effective["sorttitle"].as_str(),effective["plot"].as_str(),effective["year"].as_i64(),item])?;
         tx.commit()?;
         Ok(())
-    }
-    /// Apply only selected shared fields, respecting field locks and optimistic revisions.
-    pub fn sync_native_metadata(&self, library:&str, item:&str, revision:i64, fields:&Value, override_locked:bool) -> Result<(),StoreError> {
-        let mut db=self.connection()?;
-        let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let current:Option<i64>=tx.query_row("SELECT i.revision FROM catalog_items i JOIN native_catalog_sources s ON s.item_id=i.id WHERE s.library_id=?1 AND i.id=?2 AND s.available=1",params![library,item],|r|r.get(0)).optional()?;
-        if current!=Some(revision) {return Err(StoreError::RevisionConflict);}
-        let discarded:Value=tx.query_row("SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field='_identify_discarded'",[item],|r|r.get::<_,String>(0)).optional()?.and_then(|v|serde_json::from_str(&v).ok()).unwrap_or(json!({}));
-        let mut changed=false;
-        for (field,value) in fields.as_object().ok_or_else(||invalid("Invalid shared metadata."))? {
-            if field.starts_with('_') || field.len()>80 || value.to_string().len()>200_000 {return Err(invalid("Invalid shared metadata field."));}
-            if field=="title" && value.as_str().is_none_or(|v|v.trim().is_empty()) {continue;}
-            if discarded[field].as_array().is_some_and(|hashes|hashes.contains(&json!(Self::identification_value_hash(value)))){continue;}
-            let previous:Option<(String,bool)>=tx.query_row("SELECT value_json,locked FROM catalog_metadata_fields WHERE item_id=?1 AND field=?2",params![item,field],|r|Ok((r.get(0)?,r.get(1)?))).optional()?;
-            if previous.as_ref().is_some_and(|(_,locked)|*locked && !override_locked) {continue;}
-            if previous.as_ref().is_some_and(|(v,_)|v==&value.to_string()) {
-                tx.execute("UPDATE catalog_metadata_fields SET source='server' WHERE item_id=?1 AND field=?2",params![item,field])?;
-                continue;
-            }
-            tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'server',0) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='server',revision=revision+1",params![item,field,value.to_string()])?;
-            changed=true;
-        }
-        if changed {
-            let mut effective=json!({});
-            {let mut stmt=tx.prepare("SELECT field,value_json FROM catalog_metadata_fields WHERE item_id=?1")?;
-            for row in stmt.query_map([item],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))? {let (field,value)=row?;effective[&field]=serde_json::from_str(&value).map_err(|_|invalid("Invalid metadata."))?;}}
-            project_metadata(&tx,item,&effective)?;
-            tx.execute("UPDATE catalog_items SET title=COALESCE(?1,title),sort_title=?2,synopsis=?3,year=?4,revision=revision+1 WHERE id=?5",params![effective["title"].as_str(),effective["sorttitle"].as_str(),effective["plot"].as_str(),effective["year"].as_i64(),item])?;
-        }
-        tx.commit()?;Ok(())
     }
     pub fn remove_native_artwork(&self, library: &str, item: &str, kind: &str) -> Result<(), StoreError> {
         let mut db = self.connection()?;
@@ -780,7 +771,6 @@ mod tests{
         db.identify_native_entry_with_metadata(&library.id,&before.id,before.revision,"Kingdom",Some(2019),&json!({"tvdb":"123"}),Some(&json!({"title":"Kingdom","plot":"Correct description","year":2019}))).unwrap();
         let catalog=db.native_catalog(&library.id).unwrap();let after=catalog.iter().find(|e|e.kind=="series").unwrap();assert_eq!(after.metadata["plot"],"Correct description");assert!(after.metadata["publisher"].is_null());assert!(after.metadata["genres"].is_null());assert_eq!(after.artwork.len(),1);
         let episode=catalog.iter().find(|e|e.kind=="episode").unwrap();assert!(episode.metadata["plot"].is_null());assert!(episode.metadata["identifiers"].is_null());assert_eq!(episode.metadata["episode"],1);assert_eq!(episode.title,"Episode 1");
-        db.sync_native_metadata(&library.id,&after.id,after.revision,&json!({"plot":"Old description"}),true).unwrap();assert_eq!(db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.kind=="series").unwrap().metadata["plot"],"Correct description");
         let connection=db.connection().unwrap();let plot:Option<String>=connection.query_row("SELECT synopsis FROM catalog_items WHERE id=?1",[&after.id],|r|r.get(0)).unwrap();assert_eq!(plot.as_deref(),Some("Correct description"));
     }
     #[test]
@@ -807,6 +797,47 @@ mod tests{
         db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
         assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["voice_cast"],manual);
         assert!(db.ingest_native_catalog(&library.id,library.revision+1,&[]).is_err());assert!(db.native_catalog(&library.id).unwrap()[0].available);
+    }
+    #[test]
+    fn targeted_catalog_reads_preserve_metadata_and_ignore_unrelated_snapshots() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let make_library = |name: &str| db.save_native_library(None, &NativeLibraryInput {
+            name: name.into(), library_type: NativeLibraryType::Shows, anime_content: AnimeContent::Both,
+            paths: vec![name.into()], revision: None, options: Default::default(),
+        }).unwrap();
+        let library = make_library("TV");
+        let other_library = make_library("Other");
+        let make_entry = |path: &str, kind: &str, parent: Option<&str>| NativeCatalogEntry {
+            id: String::new(), path: path.into(), kind: kind.into(), parent_path: parent.map(str::to_owned),
+            title: path.into(), metadata: json!({"title":path,"plot":"Original"}), artwork: vec![], files: vec![],
+            nfo_path: None, nfo_xml: None, available: true, revision: 1,
+        };
+        let mut root = make_entry("TV/Series", "series", None);
+        root.nfo_path = Some("TV/Series/tvshow.nfo".into());
+        root.nfo_xml = Some("<tvshow><title>Series</title></tvshow>".into());
+        let entries = [root, make_entry("TV/Series/Season 1", "season", Some("TV/Series")),
+            make_entry("TV/Series/Season 1/Episode.mkv", "episode", Some("TV/Series/Season 1")),
+            make_entry("TV/Unrelated", "series", None)];
+        db.ingest_native_catalog(&library.id, library.revision, &entries).unwrap();
+        let root = db.native_catalog_path(&library.id, "TV/Series").unwrap().unwrap();
+        db.edit_native_entry(&library.id, &root.id, root.revision, &json!({"title":"Manual title","plot":"Manual plot"})).unwrap();
+        db.save_native_artwork(&library.id, &root.id, &NativeArtwork {kind:"poster".into(),path:"@managed/cover.jpg".into(),source:"manual".into()}).unwrap();
+        let expected = db.native_catalog(&library.id).unwrap().into_iter().find(|entry| entry.id == root.id).unwrap();
+        db.connection().unwrap().execute("UPDATE native_catalog_sources SET snapshot_json='{}' WHERE library_id=?1 AND relative_path='TV/Unrelated'", [&library.id]).unwrap();
+        assert!(db.native_catalog(&library.id).is_err());
+        let actual = db.native_catalog_item(&library.id, &root.id).unwrap().unwrap();
+        assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(&expected).unwrap());
+        assert_eq!(db.native_catalog_path(&library.id, "TV/Series").unwrap().unwrap().title, "Manual title");
+        assert!(db.native_catalog_item(&other_library.id, &root.id).unwrap().is_none());
+        assert!(db.native_catalog_item(&library.id, "missing").unwrap().is_none());
+        let seasons = db.native_catalog_children(&library.id,"TV/Series").unwrap();
+        assert_eq!(seasons.len(), 1);
+        assert_eq!(seasons[0].kind, "season");
+        let episodes = db.native_catalog_children(&library.id, &seasons[0].path).unwrap();
+        assert_eq!(episodes.len(), 1);
+        assert_eq!(episodes[0].kind, "episode");
     }
     #[test]
     fn artwork_lookup_is_scoped_and_does_not_load_catalog_snapshots() {

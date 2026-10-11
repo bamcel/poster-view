@@ -126,33 +126,16 @@ not be compatible with older versions. Local development for this channel uses
 - **Connection checks**: Settings can verify saved or newly entered Fanart.tv and TheTVDB
   credentials before you depend on them for artwork searches.
 - **Persistent artwork cache**: provider results and proxied thumbnails are reused from the Docker
-  data volume under `/config/artwork-cache/servers/{server_id}`. Each server has an independent
-  250 MB default cap and 30-day expiry, including MangaDex/MediUX/PosterDB thumbnails and PosterDB
-  data. Settings shows each server's usage and lets you change its limits or clear its cache.
-  Existing cache entries and Watchdog inventories migrate automatically on startup, preserving
-  cache ages. Legacy previews without a server identifier are copied into each server's quota;
-  the shared files are removed only after every server migrates successfully.
+  data volume under `/config/artwork-cache`. Caching uses automatic 250 MB limits and 30-day
+  expiry. Settings → Scheduled Tasks provides cleanup and a global Clear provider cache action.
 - **Persistent media-image cache**: posters, backgrounds, logos, and other media-server images are
   stored under `/config/media-image-cache` after their first request, so repeat page loads do not
   download them from Plex, Jellyfin, or Emby again. This separate cache is capped at 10 GB with a
   365-day retention period. Applying or reverting artwork immediately replaces the affected
   title's cached image; editing or deleting a server clears that server's entries.
-- **Per-title refresh + Artwork Watchdog**: right-click any movie, series, or collection in a
-  library to refresh its cached provider data. The optional Watchdog in Settings → Database walks
-  current libraries on a schedule and records a persistent inventory. After its initial build, it
-  caches only new titles and removes item-linked data for titles no longer present. Interrupted scans
-  resume from their checkpoint, and cleanup is skipped whenever any library or provider fails.
-  Cancel interrupts in-flight requests. HTTP requests have 10-second connection and 30-second
-  total timeouts; each Watchdog lookup has a 45-second deadline. Temporary failures retry up to
-  twice after 1 and 2 seconds, then pause the run for five minutes. Invalid credentials and other
-  permanent failures stop scheduling until you resolve the error and start Watchdog again.
-  Settings → Database shows Idle, Scanning, Preloading, Stopping, or Failed for
-  each server, plus its last successful run and next scheduled run. Connection-test results stay
-  visible inside their provider cards. Disabled databases are excluded from caching.
-  ThePosterDB prewarming keeps only the top three Movies,
-  Shows, and Collections matches per title. Those cached matches appear immediately during an
-  interactive search, then PosterView replaces them with every result that has artwork when the
-  complete live search finishes.
+- **Per-title refresh**: refresh one item's cached provider data when needed. Manual provider
+  requests retain bounded timeouts and retry temporary failures. Background artwork prewarming
+  and its inventory, scheduling, and cancellation controls have been removed.
 - **Artwork source preferences**: choose the database that opens first for every title and enable
   only the sources you use. Existing installations keep all sources enabled by default. Ordinary
   preferences save automatically; artwork-source credentials share one explicit **Save Settings**
@@ -444,10 +427,7 @@ The frontend uses the following stable HTTP API endpoints:
 | `GET` | `/api/artwork?provider=&server_id=&item_id=[&id_override=]` | Fanart/TVDB/AniList/MediUX artwork |
 | `GET` | `/api/artwork/search?provider=&server_id=&item_id=&query=` | title search + picker for Fanart/TVDB/MediUX when no id is known |
 | `GET/PUT` | `/api/artwork/settings` | API keys, default source, and enabled databases |
-| `GET/PUT/DELETE` | `/api/artwork/cache/{server_id}` | cache usage, limits, expiry, and clear |
 | `POST` | `/api/artwork/cache/refresh` | refresh and prewarm one movie/show/collection |
-| `POST` | `/api/artwork/cache/{server_id}/watchdog/run` | start a full-library prewarm in the background |
-| `POST` | `/api/artwork/cache/{server_id}/watchdog/cancel` | cancel an active scan, including in-flight requests |
 | `GET` | `/api/artwork/mangadex/image?server_id=&url=` | cached MangaDex thumbnail proxy |
 | `GET` | `/api/posterdb/search/preview?server_id=&term=` | cached top-three matches per category |
 | `POST` | `/api/artwork/test` | verify saved or supplied Fanart/TVDB credentials |
@@ -463,11 +443,11 @@ The frontend uses the following stable HTTP API endpoints:
 
 MIT — see [LICENSE](LICENSE).
 
-### Manual artwork synchronization
+### Catalog caching
 
-Manual libraries can opt into **Connected Server Sync** when created or edited. Select one Emby or Jellyfin library as the incoming source and recovery authority. PosterView pushes applicable edits to all connected servers by default; disable **Push changes to all connected servers** to choose additional destinations individually. Shared metadata and static artwork synchronize; enhanced data and animations remain local. Plex destinations receive supported static artwork only. See [manual-library sync](docs/native-libraries.md#connected-server-sync) for importing, NFO merging, matching, and conflict handling.
+Library catalogs load on demand and are prefetched when you hover or focus a library link. Unused catalog data stays in browser memory for five minutes. ServerConnect imports, outgoing sync queues, and sync statuses have been removed.
 
-Recently visited page data is retained in browser memory for 30 minutes and revalidated according to each page’s freshness interval. Manual artwork uses private browser caching and ETags: unchanged images return a lightweight 304 response after their cache expires. Artwork edits use revisioned URLs, and scan completion invalidates library data. This cache is not persisted across browser reloads.
+Other recently visited page data is retained in browser memory for 30 minutes and revalidated according to each page’s freshness interval. Manual artwork uses private browser caching and ETags: unchanged images return a lightweight 304 response after their cache expires. Artwork edits use revisioned URLs, and scan completion invalidates library data. This cache is not persisted across browser reloads.
 
 ### Google Books metadata plugin
 

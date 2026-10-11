@@ -73,7 +73,9 @@ impl NativeLibrary {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NativeLibraryOptions {
-    pub server_sync: NativeServerSync,
+    // Accept older stored options, but never expose or use the retired integration.
+    #[serde(rename = "server_sync", skip_serializing)]
+    pub legacy_server_sync: serde_json::Value,
     pub read_nfo: bool,
     pub save_nfo: bool,
     pub local_artwork: bool,
@@ -95,7 +97,7 @@ pub struct NativeLibraryOptions {
 impl Default for NativeLibraryOptions {
     fn default() -> Self {
         Self {
-            server_sync: NativeServerSync::default(),
+            legacy_server_sync: serde_json::Value::Null,
             read_nfo: true,
             save_nfo: false,
             local_artwork: true,
@@ -157,20 +159,17 @@ pub struct NativeScanProgress {
     pub current: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct NativeServerSync {
-    pub enabled: bool,
-    pub mode: String,
-    #[serde(default="sync_all_servers")]
-    pub push_to_all: bool,
-    pub push_server_ids: Vec<i64>,
-    pub server_id: Option<i64>,
-    pub library_id: String,
-    pub override_locked: bool,
-    pub write_nfo: bool,
+
+#[cfg(test)]
+mod compatibility_tests {
+    #[test]
+    fn retired_sync_options_are_accepted_but_not_exposed() {
+        let options: super::NativeLibraryOptions = serde_json::from_value(serde_json::json!({
+            "server_sync":{"enabled":true,"mode":"two_way","server_id":1},
+            "save_nfo":true,
+        })).unwrap();
+        assert!(options.save_nfo);
+        assert!(serde_json::to_value(&options).unwrap().get("server_sync").is_none());
+        assert!(serde_json::from_value::<super::NativeLibraryOptions>(serde_json::json!({"unexpected_option":true})).is_err());
+    }
 }
-
-fn sync_all_servers()->bool{true}
-
-impl Default for NativeServerSync {fn default()->Self{Self{enabled:false,mode:"two_way".into(),push_to_all:true,push_server_ids:Vec::new(),server_id:None,library_id:String::new(),override_locked:false,write_nfo:false}}}

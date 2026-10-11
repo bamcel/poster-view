@@ -75,27 +75,6 @@ impl ArtworkCache {
         Some(envelope.value)
     }
 
-    pub fn has_fresh_json(&self, key: &str, ttl_days: i64) -> bool {
-        let Ok(_guard) = self.lock.lock() else {
-            return false;
-        };
-        let path = self.metadata_path(key);
-        let Ok(bytes) = fs::read(&path) else {
-            return false;
-        };
-        let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
-            return false;
-        };
-        let cached_at = value
-            .get("cached_at")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0);
-        if expired(cached_at, ttl_days) {
-            let _ = fs::remove_file(path);
-            return false;
-        }
-        true
-    }
 
     pub fn put_json<T: Serialize>(
         &self,

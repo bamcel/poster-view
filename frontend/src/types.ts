@@ -165,8 +165,6 @@ export interface ArtworkSettings {
 export interface ArtworkCacheSettings {
   max_mb: number;
   ttl_days: number;
-  watchdog_enabled: boolean;
-  watchdog_interval_hours: number;
 }
 
 export interface ArtworkCacheStatus extends ArtworkCacheSettings {
@@ -174,16 +172,6 @@ export interface ArtworkCacheStatus extends ArtworkCacheSettings {
   server_name: string;
   used_bytes: number;
   file_count: number;
-  watchdog_running: boolean;
-  watchdog_state?: "idle" | "scanning" | "preloading" | "stopping" | "failed";
-  watchdog_last_successful_run?: string | null;
-  watchdog_next_run?: string | null;
-  watchdog_last_run?: string | null;
-  watchdog_last_message?: string | null;
-  watchdog_progress_current: number;
-  watchdog_progress_total: number;
-  watchdog_current_title?: string | null;
-  watchdog_cancel_requested: boolean;
 }
 
 export interface ArtworkCacheClearResult {

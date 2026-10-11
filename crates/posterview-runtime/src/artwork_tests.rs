@@ -45,20 +45,7 @@ fn legacy_disabled_sources_remain_available_without_disable_controls() {
 }
 use posterview_contracts::{ItemDetail, ItemType, Server, ServerCreate, ServerType};
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-
-#[test]
-fn book_sync_queues_changed_links_or_stale_cache_but_skips_unchanged_books() {
-    let links = BTreeMap::from([("anilist-manga".to_owned(), "123".to_owned())]);
-    let previous = BookSyncState { source_path: Some("/media/Manga/Series".to_owned()), links: links.clone() };
-    assert!(!book_sync_needs_refresh(&previous, &links, |_, _| false));
-    assert!(book_sync_needs_refresh(&previous, &links, |provider, id| provider == "anilist-manga" && id == "123"));
-    let changed = BTreeMap::from([("anilist-manga".to_owned(), "456".to_owned())]);
-    assert!(book_sync_needs_refresh(&previous, &changed, |_, _| false));
-    assert!(book_sync_needs_refresh(&previous, &BTreeMap::new(), |_, _| false));
-    let empty = BookSyncState { source_path: None, links: BTreeMap::new() };
-    assert!(!book_sync_needs_refresh(&empty, &BTreeMap::new(), |_, _| true));
-}
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn provider_test_item(item_type: ItemType, external_ids: &[(&str, &str)]) -> ItemDetail {
     ItemDetail {
@@ -198,7 +185,7 @@ fn server_quotas_and_clear_are_independent() {
 }
 
 #[test]
-fn migration_preserves_artwork_inventory_and_does_not_restore_cleared_data() {
+fn migration_preserves_cached_artwork_and_does_not_restore_cleared_data() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = Runtime::new(directory.path());
     runtime.initialize().unwrap();
@@ -218,20 +205,6 @@ fn migration_preserves_artwork_inventory_and_does_not_restore_cleared_data() {
         .artwork_cache
         .put_image("mediux-image:url", b"jpeg", "image/jpeg", 250, 30)
         .unwrap();
-    runtime
-        .server_store()
-        .unwrap()
-        .set_setting(
-            "artwork_watchdog_inventory",
-            &serde_json::json!({format!("{}:one", a.id): "One", format!("{}:two", b.id): "Two"})
-                .to_string(),
-        )
-        .unwrap();
-    runtime
-        .server_store()
-        .unwrap()
-        .set_setting("artwork_watchdog_checkpoint", &format!("{}:one", a.id))
-        .unwrap();
     drop(runtime);
     let runtime = Runtime::new(directory.path());
     runtime.initialize().unwrap();
@@ -249,183 +222,14 @@ fn migration_preserves_artwork_inventory_and_does_not_restore_cleared_data() {
                 .get_image("mediux-image:url", 30)
                 .is_some()
         );
-        let inventory: std::collections::BTreeMap<String, String> = serde_json::from_str(
-            &runtime
-                .server_store()
-                .unwrap()
-                .get_setting(&Runtime::server_setting(
-                    server.id,
-                    "artwork_watchdog_inventory",
-                ))
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(inventory.len(), 1);
-        assert!(
-            inventory
-                .keys()
-                .all(|key| key.starts_with(&format!("{}:", server.id)))
-        );
     }
     assert_eq!(runtime.artwork_cache.usage().unwrap().bytes, 0);
-    assert!(runtime.watchdog_due(a.id).unwrap());
-    assert!(!runtime.watchdog_due(b.id).unwrap());
     runtime.clear_artwork_cache(a.id).unwrap();
     drop(runtime);
     let runtime = Runtime::new(directory.path());
     runtime.initialize().unwrap();
     assert_eq!(runtime.artwork_cache_status(a.id).unwrap().used_bytes, 0);
     assert!(runtime.artwork_cache_status(b.id).unwrap().used_bytes > 0);
-}
-
-#[test]
-fn scheduling_uses_each_servers_interval_and_failure_delay() {
-    let directory = tempfile::tempdir().unwrap();
-    let runtime = Runtime::new(directory.path());
-    runtime.initialize().unwrap();
-    let a = add_server(&runtime, "A", "http://localhost:8096");
-    let b = add_server(&runtime, "B", "http://localhost:8097");
-    assert!(!runtime.watchdog_due(a.id).unwrap());
-    for (server, interval) in [(&a, 6), (&b, 24)] {
-        runtime
-            .set_artwork_cache_settings(
-                server.id,
-                &ArtworkCacheSettings {
-                    watchdog_enabled: true,
-                    watchdog_interval_hours: interval,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-        runtime
-            .server_store()
-            .unwrap()
-            .set_setting(
-                &Runtime::server_setting(server.id, "artwork_watchdog_last_run"),
-                &(chrono::Utc::now() - chrono::Duration::hours(7)).to_rfc3339(),
-            )
-            .unwrap();
-    }
-    assert!(runtime.watchdog_due(a.id).unwrap());
-    assert!(!runtime.watchdog_due(b.id).unwrap());
-    let next = chrono::DateTime::parse_from_rfc3339(
-        &runtime
-            .artwork_cache_status(b.id)
-            .unwrap()
-            .watchdog_next_run
-            .unwrap(),
-    )
-    .unwrap();
-    assert!(next > chrono::Utc::now());
-    runtime.watchdog_running.lock().unwrap().insert(a.id);
-    assert!(!runtime.watchdog_due(a.id).unwrap());
-    runtime.watchdog_running.lock().unwrap().remove(&a.id);
-    let store = runtime.server_store().unwrap();
-    store
-        .set_setting(
-            &Runtime::server_setting(a.id, "artwork_watchdog_checkpoint"),
-            &format!("{}:one", a.id),
-        )
-        .unwrap();
-    store
-        .set_setting(
-            &Runtime::server_setting(a.id, "artwork_watchdog_retry_after"),
-            &(chrono::Utc::now() + chrono::Duration::minutes(5)).to_rfc3339(),
-        )
-        .unwrap();
-    assert!(!runtime.watchdog_due(a.id).unwrap());
-    store
-        .set_setting(
-            &Runtime::server_setting(a.id, "artwork_watchdog_retry_after"),
-            &(chrono::Utc::now() - chrono::Duration::seconds(1)).to_rfc3339(),
-        )
-        .unwrap();
-    assert!(runtime.watchdog_due(a.id).unwrap());
-}
-
-#[test]
-fn watchdog_phase_and_successful_run_are_reported_independently() {
-    let directory = tempfile::tempdir().unwrap();
-    let runtime = Runtime::new(directory.path());
-    runtime.initialize().unwrap();
-    let server = add_server(&runtime, "Family", "http://localhost:8096");
-    assert_eq!(
-        runtime
-            .artwork_cache_status(server.id)
-            .unwrap()
-            .watchdog_state,
-        WatchdogState::Idle
-    );
-    runtime.watchdog_running.lock().unwrap().insert(server.id);
-    runtime
-        .server_store()
-        .unwrap()
-        .set_setting(
-            &Runtime::server_setting(server.id, "artwork_watchdog_state"),
-            "preloading",
-        )
-        .unwrap();
-    assert_eq!(
-        runtime
-            .artwork_cache_status(server.id)
-            .unwrap()
-            .watchdog_state,
-        WatchdogState::Preloading
-    );
-    runtime.cancel_watchdog(server.id).unwrap();
-    let status = runtime.artwork_cache_status(server.id).unwrap();
-    assert_eq!(status.watchdog_state, WatchdogState::Stopping);
-    assert!(status.watchdog_next_run.is_none());
-}
-
-#[tokio::test]
-async fn cancel_interrupts_an_in_flight_media_request_and_cleans_state() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    let directory = tempfile::tempdir().unwrap();
-    let runtime = Arc::new(Runtime::new(directory.path()));
-    runtime.initialize().unwrap();
-    let server = add_server(&runtime, "Stalled", &url);
-    let last_success = "2026-09-16T12:00:00+00:00";
-    runtime
-        .server_store()
-        .unwrap()
-        .set_setting(
-            &Runtime::server_setting(server.id, "artwork_watchdog_last_successful_run"),
-            last_success,
-        )
-        .unwrap();
-    let worker_runtime = Arc::clone(&runtime);
-    let worker = tokio::spawn(async move { worker_runtime.run_watchdog(server.id).await });
-    let (_socket, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        runtime
-            .artwork_cache_status(server.id)
-            .unwrap()
-            .watchdog_state,
-        WatchdogState::Scanning
-    );
-    assert!(runtime.cancel_watchdog(server.id).unwrap().ok);
-    let result = tokio::time::timeout(Duration::from_secs(1), worker)
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert!(!result.ok);
-    assert!(result.message.contains("cancelled"));
-    let status = runtime.artwork_cache_status(server.id).unwrap();
-    assert!(!status.watchdog_running);
-    assert!(!status.watchdog_cancel_requested);
-    assert!(status.watchdog_current_title.is_none());
-    assert_eq!(status.watchdog_state, WatchdogState::Idle);
-    assert_eq!(
-        status.watchdog_last_successful_run.as_deref(),
-        Some(last_success)
-    );
-    assert!(!runtime.watchdog_due(server.id).unwrap());
 }
 
 #[tokio::test]
@@ -495,143 +299,6 @@ async fn cached_provider_images_and_thumbnail_links_use_the_requested_server() {
     }
     assert_eq!(runtime.posterdb_image(a.id, "url").await.unwrap().0, b"a");
     assert_eq!(runtime.posterdb_image(b.id, "url").await.unwrap().0, b"b");
-}
-
-#[tokio::test(start_paused = true)]
-async fn cancel_drops_pending_provider_work_without_cancelling_another_server() {
-    struct OnDrop<'a>(&'a AtomicBool);
-    impl Drop for OnDrop<'_> {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::SeqCst);
-        }
-    }
-    let directory = tempfile::tempdir().unwrap();
-    let runtime = Runtime::new(directory.path());
-    runtime.initialize().unwrap();
-    let a = add_server(&runtime, "A", "http://localhost:8096");
-    let b = add_server(&runtime, "B", "http://localhost:8097");
-    runtime
-        .watchdog_running
-        .lock()
-        .unwrap()
-        .extend([a.id, b.id]);
-    let dropped = AtomicBool::new(false);
-    let work = async {
-        let _guard = OnDrop(&dropped);
-        request_with_retry::<(), _, _>("Provider", std::future::pending)
-            .await
-            .unwrap();
-        unreachable!()
-    };
-    let cancel = async {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        runtime.cancel_watchdog(a.id).unwrap();
-    };
-    let (result, _) = tokio::join!(runtime.cancellable_watchdog(a.id, work), cancel);
-    assert!(result.unwrap().message.contains("cancelled"));
-    assert!(dropped.load(Ordering::SeqCst));
-    assert!(!runtime.watchdog_cancel_requested(b.id));
-    assert!(runtime.watchdog_is_running(b.id));
-}
-
-#[tokio::test]
-async fn successful_watchdog_records_success_and_next_scheduled_run() {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    let fixture = tokio::spawn(async move {
-        for _ in 0..3 {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut request = Vec::new();
-            while !request.ends_with(b"\r\n\r\n") {
-                request.push(socket.read_u8().await.unwrap());
-            }
-            let body = if String::from_utf8_lossy(&request).contains("/Users") {
-                "[{\"Id\":\"reader\"}]"
-            } else {
-                "{\"Items\":[]}"
-            };
-            socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
-        }
-    });
-    let directory = tempfile::tempdir().unwrap();
-    let runtime = Runtime::new(directory.path());
-    runtime.initialize().unwrap();
-    let server = add_server(&runtime, "Family", &url);
-    runtime
-        .set_artwork_cache_settings(
-            server.id,
-            &ArtworkCacheSettings {
-                watchdog_enabled: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-    assert!(runtime.run_watchdog(server.id).await.unwrap().ok);
-    fixture.await.unwrap();
-    let status = runtime.artwork_cache_status(server.id).unwrap();
-    assert_eq!(status.watchdog_state, WatchdogState::Idle);
-    let success =
-        chrono::DateTime::parse_from_rfc3339(&status.watchdog_last_successful_run.unwrap())
-            .unwrap();
-    let next = chrono::DateTime::parse_from_rfc3339(&status.watchdog_next_run.unwrap()).unwrap();
-    assert_eq!(next - success, chrono::Duration::hours(24));
-}
-
-#[tokio::test]
-async fn invalid_credentials_stop_scheduling_and_preserve_failure_details() {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    let fixture = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let mut request = Vec::new();
-        while !request.ends_with(b"\r\n\r\n") {
-            request.push(socket.read_u8().await.unwrap());
-        }
-        socket
-            .write_all(
-                b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            )
-            .await
-            .unwrap();
-    });
-    let directory = tempfile::tempdir().unwrap();
-    let runtime = Runtime::new(directory.path());
-    runtime.initialize().unwrap();
-    let server = add_server(&runtime, "Invalid", &url);
-    runtime
-        .set_artwork_cache_settings(
-            server.id,
-            &ArtworkCacheSettings {
-                watchdog_enabled: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-    assert!(runtime.watchdog_due(server.id).unwrap());
-    let result = runtime.run_watchdog(server.id).await;
-    fixture.await.unwrap();
-    let message = result.unwrap_err().to_string();
-    assert!(message.contains("rejected"), "{message}");
-    let status = runtime.artwork_cache_status(server.id).unwrap();
-    assert!(!status.watchdog_running);
-    assert_eq!(status.watchdog_state, WatchdogState::Failed);
-    assert!(status.watchdog_next_run.is_none());
-    assert!(status.watchdog_last_message.unwrap().contains("rejected"));
-    assert!(status.watchdog_last_run.is_none());
-    assert!(!runtime.watchdog_due(server.id).unwrap());
-    assert!(
-        runtime
-            .server_store()
-            .unwrap()
-            .get_setting(&Runtime::server_setting(
-                server.id,
-                "artwork_watchdog_checkpoint"
-            ))
-            .unwrap()
-            .is_empty()
-    );
 }
 
 #[tokio::test(start_paused = true)]

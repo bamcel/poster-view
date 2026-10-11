@@ -3,10 +3,9 @@ mod native_artwork;
 pub use native_artwork::native_artwork_target;
 mod artwork_cache;
 mod history;
-mod nfo_sources;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
 };
@@ -53,8 +52,6 @@ pub struct Runtime {
     artwork_cache: ArtworkCache,
     server_artwork_caches: Mutex<HashMap<i64, Arc<ArtworkCache>>>,
     media_image_cache: ArtworkCache,
-    watchdog_running: Mutex<HashSet<i64>>,
-    watchdog_cancelled: Mutex<HashSet<i64>>,
 }
 
 #[derive(Debug, Error)]
@@ -64,7 +61,7 @@ pub enum RuntimeError {
     #[error("PosterView runtime has not been initialized")]
     NotInitialized,
     #[error("{0}")]
-    Watchdog(String),
+    Artwork(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -72,11 +69,11 @@ pub enum RuntimeError {
 impl Runtime {
     pub async fn comicvine_metadata(&self, id: &str) -> Result<ComicVineMetadata, RuntimeError> {
         let key = self.server_store()?.get_setting("comicvine_api_key")?;
-        self.artwork.comicvine_metadata(&key, id).await.map_err(RuntimeError::Watchdog)
+        self.artwork.comicvine_metadata(&key, id).await.map_err(RuntimeError::Artwork)
     }
 
     pub async fn anilist_manga_metadata(&self, id: &str) -> Result<AniListMangaMetadata, RuntimeError> {
-        posterview_infra_artwork::anilist_manga_metadata(id).await.map_err(RuntimeError::Watchdog)
+        posterview_infra_artwork::anilist_manga_metadata(id).await.map_err(RuntimeError::Artwork)
     }
     #[must_use]
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
@@ -88,8 +85,6 @@ impl Runtime {
             data_dir,
             servers: OnceLock::new(),
             artwork: ArtworkService::default(),
-            watchdog_running: Mutex::new(HashSet::new()),
-            watchdog_cancelled: Mutex::new(HashSet::new()),
         }
     }
 
@@ -172,12 +167,6 @@ impl Runtime {
                 .join(id.to_string());
             if cache_dir.exists() {
                 std::fs::remove_dir_all(cache_dir)?;
-            }
-            if let Ok(mut running) = self.watchdog_running.lock() {
-                running.remove(&id);
-            }
-            if let Ok(mut cancelled) = self.watchdog_cancelled.lock() {
-                cancelled.remove(&id);
             }
         }
         Ok(deleted)
@@ -652,37 +641,12 @@ fn image_reference<'a>(detail: &'a ItemDetail, target: &ImageTarget) -> Option<&
     }
 }
 
-pub(crate) fn parse_nonnegative(value: &str, fallback: i64) -> i64 {
-    value.parse::<i64>().unwrap_or(fallback).max(0)
-}
-
-fn watchdog_inventory_diff(
-    previous: &std::collections::BTreeMap<String, String>,
-    current: &std::collections::BTreeMap<String, String>,
-) -> (std::collections::HashSet<String>, Vec<(String, String)>) {
-    let added = current
-        .keys()
-        .filter(|key| !previous.contains_key(*key))
-        .cloned()
-        .collect();
-    let removed = previous
-        .iter()
-        .filter(|(key, _)| !current.contains_key(*key))
-        .map(|(key, title)| (key.clone(), title.clone()))
-        .collect();
-    (added, removed)
-}
-
 fn posterdb_top_three(mut results: PosterSearchResults) -> PosterSearchResults {
     for category in &mut results.categories {
         category.results.truncate(3);
         category.count = category.results.len();
     }
     results
-}
-
-fn optional_setting(value: String) -> Option<String> {
-    (!value.is_empty()).then_some(value)
 }
 
 async fn connection_test(config: ConnectionConfig<'_>) -> ConnectionTest {
@@ -706,13 +670,11 @@ async fn connection_test(config: ConnectionConfig<'_>) -> ConnectionTest {
 mod tests {
     use super::{
         Runtime, image_reference_belongs_to_item, posterdb_top_three, save_companion_cover,
-        watchdog_inventory_diff,
     };
     use posterview_contracts::{
         AppearanceSettings, PosterCategory, PosterSearchResults, PosterTitleResult, ServerCreate,
         ServerType,
     };
-    use std::collections::BTreeMap;
 
     #[test]
     fn appearance_settings_persist_globally_and_are_clamped() {
@@ -806,51 +768,6 @@ mod tests {
             "Items/volume-1/Images/Primary?tag=volume-cover",
             "series-1",
         ));
-    }
-
-    #[test]
-    fn watchdog_inventory_finds_only_added_and_removed_items() {
-        let previous = BTreeMap::from([
-            ("1:kept".to_owned(), "Kept".to_owned()),
-            ("1:removed".to_owned(), "Removed".to_owned()),
-        ]);
-        let current = BTreeMap::from([
-            ("1:kept".to_owned(), "Kept".to_owned()),
-            ("1:new".to_owned(), "New".to_owned()),
-        ]);
-
-        let (added, removed) = watchdog_inventory_diff(&previous, &current);
-        assert_eq!(added, ["1:new".to_owned()].into_iter().collect());
-        assert_eq!(
-            removed,
-            vec![("1:removed".to_owned(), "Removed".to_owned())]
-        );
-    }
-
-    #[test]
-    fn watchdog_checkpoint_is_due_even_when_scheduling_is_disabled() {
-        let directory = tempfile::tempdir().expect("temporary directory");
-        let runtime = Runtime::new(directory.path());
-        runtime.initialize().expect("initialize runtime");
-        let server = runtime
-            .create_server(&ServerCreate {
-                name: "Test".to_owned(),
-                server_type: ServerType::Jellyfin,
-                base_url: "http://localhost:8096".to_owned(),
-                token: "test".to_owned(),
-                is_default: true,
-                nfo_metadata_enabled: false,
-            })
-            .expect("create server");
-        runtime
-            .server_store()
-            .expect("server store")
-            .set_setting(
-                &format!("artwork_watchdog_checkpoint:{}", server.id),
-                "1:item",
-            )
-            .expect("save checkpoint");
-        assert!(runtime.watchdog_due(server.id).expect("watchdog status"));
     }
 
     #[test]

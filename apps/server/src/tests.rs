@@ -931,7 +931,8 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
         .unwrap();
     let providers: serde_json::Value =
         serde_json::from_slice(&providers.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(providers.as_array().unwrap().len(), 11);
+    assert!(providers.as_array().unwrap().iter().all(|provider| provider["name"] != "omdb"));
+    assert!(providers.as_array().unwrap().iter().any(|provider| provider["name"] == "tvdb"));
     assert!(providers.as_array().unwrap().iter().any(|provider|
         provider["name"] == "anilist-manga" && provider["configured"] == true
     ));
@@ -1045,7 +1046,7 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
 #[tokio::test]
 async fn automatic_cache_controls_are_removed_and_global_clear_is_available() {
     let directory=tempdir().unwrap();let runtime=Arc::new(Runtime::new(directory.path()));runtime.initialize().unwrap();
-    let settings=runtime.artwork_cache_settings(0).unwrap();assert_eq!(settings.max_mb,250);assert_eq!(settings.ttl_days,30);assert!(!settings.watchdog_enabled);
+    let settings=runtime.artwork_cache_settings(0).unwrap();assert_eq!(settings.max_mb,250);assert_eq!(settings.ttl_days,30);
     let app=router(runtime,PathBuf::from("missing-ui"));
     let old=app.clone().oneshot(Request::get("/api/artwork/cache/1").body(Body::empty()).unwrap()).await.unwrap();assert_eq!(old.status(),StatusCode::NOT_FOUND);
     let result=app.oneshot(Request::delete("/api/tasks/provider-cache").body(Body::empty()).unwrap()).await.unwrap();assert_eq!(result.status(),StatusCode::OK);
@@ -1145,4 +1146,18 @@ async fn native_artwork_shared_upload_and_remove_routes_work_without_a_media_ser
     assert!(db.native_artwork(&library.id,&entry.id,"backdrop").unwrap().is_none());
     let response = app.oneshot(Request::post("/api/posterdb/apply").header("content-type","application/json").body(Body::from(serde_json::json!({"server_id":0,"item_id":format!("native:wrong:{}",entry.id),"download_url":"http://127.0.0.1/private.png"}).to_string())).unwrap()).await.unwrap();
     assert_eq!(response.status(),StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn retired_sync_endpoints_cannot_start_background_work() {
+    let directory = tempdir().unwrap();
+    let runtime = Arc::new(Runtime::new(directory.path()));
+    runtime.initialize().unwrap();
+    let app = router(runtime.clone(), directory.path().join("ui"));
+    for (method, path) in [("POST", "/api/native/libraries/old-library/sync"), ("PUT", "/api/plugins/server-connect")] {
+        let response = app.clone().oneshot(Request::builder().method(method).uri(path)
+            .header("content-type", "application/json").body(Body::from("{\"enabled\":true}")).unwrap()).await.unwrap();
+        assert!(response.status().is_client_error());
+    }
+    assert!(posterview_infra_sqlite::ServerStore::new(runtime.data_dir()).native_libraries().unwrap().is_empty());
 }
