@@ -26,6 +26,7 @@ export default function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/media/:libraryId" element={<DashboardPage />} />
               <Route path="/media/:libraryId/:itemSlug" element={<DashboardPage />} />
+              <Route path="/media/:libraryId/:itemSlug/:seasonSlug/:episodeSlug" element={<DashboardPage />} />
               <Route path="/media/:libraryId/:itemSlug/:seasonSlug" element={<DashboardPage />} />
               <Route path="/server/:serverId/series/:seriesId/season/:seasonId" element={<Suspense fallback={<p role="status" className="p-8">Loading page…</p>}><SeasonDetailPage /></Suspense>} />
               <Route path="/history" element={<Navigate to="/" replace />} />

@@ -1,5 +1,5 @@
 import {describe,it,expect} from "vitest";
-import {libraryPath,itemPath,resolveNamed,namedSlug} from "./mediaPaths";
+import {libraryPath,itemPath,resolveNamed,namedSlug,resolveNumbered} from "./mediaPaths";
 describe("readable media paths",()=>{
  it("uses safe library and title segments",()=>{
   const library={id:"lib",name:"Anime"},item={id:"item",title:"Dragon Ball"};
@@ -11,7 +11,11 @@ describe("readable media paths",()=>{
   const series={id:"show",title:"Attack on Titan",kind:"series",path:"anime/aot"};
   const season={id:"s1",title:"Season 1",kind:"season",path:"anime/aot/s1",parent_path:series.path};
   const other={id:"s2",title:"Season 1",kind:"season",path:"anime/other/s1",parent_path:"anime/other"};
-  expect(itemPath(library,[library],season,[series,season,other])).toBe("/media/Anime/Attack-on-Titan/Season-1");
+  const episode={id:"ep",title:"A title",kind:"episode",path:"anime/aot/s1/e1",parent_path:season.path,metadata:{episode:1}};
+  expect(itemPath(library,[library],episode,[series,season,other,episode])).toBe("/media/Anime/Attack-on-Titan/Season-01/Episode-01");
+  expect(resolveNumbered("Season-01",[season,other].filter(e=>e.parent_path===series.path))?.id).toBe("s1");
+  expect(resolveNumbered("Season-1",[season])?.id).toBe("s1");
+  expect(itemPath(library,[library],season,[series,season,other])).toBe("/media/Anime/Attack-on-Titan/Season-01");
  });
  it("resolves old IDs and disambiguates duplicate names",()=>{
   const items=[{id:"a",title:"Kingdom"},{id:"b",title:"Kingdom"}];

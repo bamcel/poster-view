@@ -1,7 +1,7 @@
 import {useParams} from "../lib/libraryNavigation";
 import {useEffect, useContext, useMemo} from "react";
 import {useNavigate, LibraryNavigationContext} from "../lib/libraryNavigation";
-import {libraryPath, itemPath, resolveNamed} from "../lib/mediaPaths";
+import {libraryPath, itemPath, resolveNamed, resolveNumbered} from "../lib/mediaPaths";
 import {nativeCatalogView} from "../lib/nativeCatalogView";
 import {createSearchParams, type SetURLSearchParams} from "react-router-dom";
 import {useQuery} from "@tanstack/react-query";
@@ -11,7 +11,7 @@ import NativeLibraryBrowser from "../components/NativeLibraryBrowser";
 
 export default function DashboardPage() {
  const routeParams=useParams();
- const {libraryId,itemSlug,seasonSlug}=routeParams;
+ const {libraryId,itemSlug,seasonSlug,episodeSlug}=routeParams;
  const preview=useContext(LibraryNavigationContext);
  const navigate=useNavigate();
  const [params]=useSearchParams();
@@ -23,7 +23,8 @@ export default function DashboardPage() {
  const view=useMemo(()=>nativeCatalogView(catalog.data??[]),[catalog.data]);
  const entries=view.entries;
  const series=seasonSlug ? resolveNamed(itemSlug,entries.filter(entry=>entry.kind==="series")) : undefined;
- const routeItem=seasonSlug ? (series ? resolveNamed(seasonSlug,entries.filter(entry=>entry.kind==="season"&&entry.parent_path===series.path)) : undefined) : resolveNamed(itemSlug,entries);
+ const season=series ? resolveNumbered(seasonSlug,entries.filter(entry=>entry.kind==="season"&&entry.parent_path===series.path)) : undefined;
+ const routeItem=episodeSlug ? (season ? resolveNumbered(episodeSlug,entries.filter(entry=>entry.kind==="episode"&&entry.parent_path===season.path)) : undefined) : seasonSlug ? season : resolveNamed(itemSlug,entries);
  const effective=new URLSearchParams(params);
  if(library&&!preview) effective.set("native_library",library.id);
  if(itemSlug&&!preview){effective.delete("native_item");if(routeItem)effective.set("native_item",routeItem.id);}
@@ -38,8 +39,8 @@ export default function DashboardPage() {
  useEffect(()=>{
   if(preview||!library||catalog.isPending||catalog.isError)return;
   if(itemSlug&&!routeItem)return;
-  if(!itemSlug||(!seasonSlug&&routeItem?.kind==="season")||params.has("native_library")||params.has("native_item"))setReadable(effective,{replace:true});
- },[library?.id,catalog.data,itemSlug,seasonSlug,params.toString(),preview]);
+  if(!itemSlug||(routeItem&&itemPath(library,libraries.data??[],routeItem,entries)!==`/media/${encodeURIComponent(libraryId??"")}/${encodeURIComponent(itemSlug??"")}${seasonSlug?`/${encodeURIComponent(seasonSlug)}`:""}${episodeSlug?`/${encodeURIComponent(episodeSlug)}`:""}`)||params.has("native_library")||params.has("native_item"))setReadable(effective,{replace:true});
+ },[library?.id,catalog.data,itemSlug,seasonSlug,episodeSlug,params.toString(),preview]);
  const navigation=preview??{navigate,params:routeParams,searchParams:effective,setSearchParams:setReadable};
  if(libraryId&&!library&&!libraries.isPending)return <p className="p-5 text-muted">Library not found.</p>;
  if(catalog.isError&&!catalog.data&&!preview)return <p role="alert" className="p-5 text-danger">{catalog.error.message}</p>;
