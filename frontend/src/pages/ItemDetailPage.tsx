@@ -260,7 +260,7 @@ export default function ItemDetailPage() {
                         {item.summary}
                       </p>
                     )}
-                    {isSeries && <div className="hidden sm:block"><DetailSynopsis key={item.id} text={item.summary} /></div>}
+                    {isSeries && <div className="hidden sm:block"><DetailSynopsis lines={8} key={item.id} text={item.summary} /></div>}
                     {metadataQ.data && (
                       <section className="mt-4 max-w-2xl text-left [text-shadow:0_2px_12px_rgba(0,0,0,0.8)]">
                         <div className="flex flex-wrap items-center gap-2">
@@ -290,7 +290,7 @@ export default function ItemDetailPage() {
                   </div>
                 </div>
 
-                {isSeries && <div className="sm:hidden"><DetailSynopsis key={item.id} text={item.summary} /></div>}
+                {isSeries && <div className="sm:hidden"><DetailSynopsis lines={8} key={item.id} text={item.summary} /></div>}
 
                 {/* Seasons */}
                 {item.seasons.length > 0 && (

@@ -839,13 +839,13 @@ function NativeDetail({
                   {["series","movie","book_series","book"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")} data-icon-button="true"><Fingerprint className="size-4"/></button>}
                 </div>}
                 <div className={isSeries || isBookSeries ? "hidden sm:block" : "text-left"}>
-                  <DetailSynopsis text={overview} />
+                  <DetailSynopsis text={overview} lines={isSeries || isBookSeries || entry.kind==="season" ? 8 : 3} />
                 </div>
               </div>
             </div>
             {(isSeries || isBookSeries) && (
               <div className="sm:hidden">
-                <DetailSynopsis text={overview} />
+                <DetailSynopsis text={overview} lines={isSeries || isBookSeries || entry.kind==="season" ? 8 : 3} />
               </div>
             )}
             {children.some((e) => e.kind !== "episode" && showMissingEntry(library,e)) && (
