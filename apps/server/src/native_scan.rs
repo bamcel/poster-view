@@ -404,13 +404,17 @@ fn clean_title(stem: &str) -> String {
     let name = BRACKETS.replace_all(stem, "");
     name.replace(['.', '_'], " ").trim().to_owned()
 }
+const MEDIA_INFO_VERSION: u64 = 2;
+fn current_media_info(info: &Value) -> bool {
+    info["posterview_probe_version"].as_u64() == Some(MEDIA_INFO_VERSION)
+}
 fn probe(path: &Path) -> Result<Value, String> {
     use std::{
         process::{Command, Stdio},
         time::{Duration, Instant},
     };
     let output = tempfile::NamedTempFile::new().map_err(|e| e.to_string())?;
-    let mut child=Command::new("ffprobe").args(["-v","error","-protocol_whitelist","file,pipe","-show_entries","format=duration,format_name,bit_rate:stream=index,codec_type,codec_name,width,height,channels,sample_rate,bit_rate,duration","-of","json"]).arg(path).stdout(Stdio::from(output.reopen().map_err(|e|e.to_string())?)).stderr(Stdio::null()).spawn().map_err(|_|"ffprobe is unavailable; media codecs and duration were not inspected.".to_string())?;
+    let mut child=Command::new("ffprobe").args(["-v","error","-protocol_whitelist","file,pipe","-show_streams","-show_format","-of","json"]).arg(path).stdout(Stdio::from(output.reopen().map_err(|e|e.to_string())?)).stderr(Stdio::null()).spawn().map_err(|_|"ffprobe is unavailable; media codecs and duration were not inspected.".to_string())?;
     let started = Instant::now();
     loop {
         match child.try_wait().map_err(|e| e.to_string())? {
@@ -439,8 +443,11 @@ fn probe(path: &Path) -> Result<Value, String> {
     {
         return Err("Media information exceeds 4 MB.".into());
     }
-    serde_json::from_slice(&fs::read(output.path()).map_err(|e| e.to_string())?)
-        .map_err(|_| "Invalid media information.".into())
+    let mut info: Value = serde_json::from_slice(&fs::read(output.path()).map_err(|e| e.to_string())?)
+        .map_err(|_| "Invalid media information.".to_string())?;
+    if !info.is_object() { return Err("Invalid media information.".into()); }
+    info["posterview_probe_version"] = json!(MEDIA_INFO_VERSION);
+    Ok(info)
 }
 #[cfg(test)]
 pub(crate) fn collect(
@@ -547,7 +554,7 @@ pub(crate) fn collect_scoped(
     let mut probes = if library.library_type != NativeLibraryType::Books {
         progress.report("inspecting", 0, Some(total), 0, "", true);
         crate::workers::parallel(files.clone(), |file| {
-            let cached=previous_files.get(&file).filter(|v|fs::metadata(&file).is_ok_and(|m|v["size"].as_u64()==Some(m.len()) && v["mtime_ns"].as_str()==m.modified().ok().and_then(|t|t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_nanos().to_string()).as_deref()) && !v["media_info"].is_null());
+            let cached=previous_files.get(&file).filter(|v|fs::metadata(&file).is_ok_and(|m|v["size"].as_u64()==Some(m.len()) && v["mtime_ns"].as_str()==m.modified().ok().and_then(|t|t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_nanos().to_string()).as_deref()) && current_media_info(&v["media_info"]));
             let result = if let Some(cached)=cached {Ok(cached["media_info"].clone())} else if unavailable.load(std::sync::atomic::Ordering::Relaxed) {
                 Err("ffprobe is unavailable; media codecs and duration were not inspected.".into())
             } else {
@@ -1278,4 +1285,16 @@ mod identity_nfo_tests {
   capture_book_cover(&book).unwrap();let image=image::open(book.with_extension("jpg")).unwrap();assert!(image.height()>image.width());assert!(image.width()<=1200);
  }
  #[test] fn invalid_book_does_not_create_a_sidecar(){let temp=tempfile::tempdir().unwrap();let book=temp.path().join("bad.cbz");fs::write(&book,b"broken").unwrap();assert!(capture_book_cover(&book).is_err());assert!(!book.with_extension("jpg").exists());}
+}
+
+#[cfg(test)]
+mod media_info_cache_tests {
+    use super::*;
+    #[test]
+    fn old_probe_results_are_refreshed() {
+        assert!(!current_media_info(&json!({"streams": []})));
+        assert!(!current_media_info(&Value::Null));
+        assert!(current_media_info(&json!({"posterview_probe_version": MEDIA_INFO_VERSION, "streams": []})));
+        assert!(!current_media_info(&json!({"posterview_probe_version": 1})));
+    }
 }

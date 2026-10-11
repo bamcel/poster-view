@@ -8,11 +8,18 @@ function frameRate(value:unknown) {
  if(typeof value!=="string")return value;
  const [a,b]=value.split("/").map(Number);return b ? (a/b).toFixed(3).replace(/\.?0+$/,"") : value==="0/0"?undefined:value;
 }
+function language(value:unknown) {
+ if(!value)return undefined;
+ const code=String(value), aliases:Record<string,string>={eng:"en",jpn:"ja",kor:"ko",fra:"fr",fre:"fr",deu:"de",ger:"de",spa:"es",zho:"zh",chi:"zh",ita:"it",por:"pt",rus:"ru"};
+ try{return new Intl.DisplayNames([navigator.language||"en"],{type:"language"}).of(aliases[code]??code)??code;}catch{return code;}
+}
 function StreamCard({stream}:{stream:Record<string,unknown>}) {
  const type=String(stream.codec_type??"Track"),tags=stream.tags as Record<string,unknown>|undefined,flags=stream.disposition as Record<string,unknown>|undefined;
  const Icon=type==="video"?Film:type==="audio"?AudioLines:type==="subtitle"?Captions:Paperclip;
+ const codec=String(stream.codec_name??"").toUpperCase();
+ const title=type==="video" ? `${stream.height?`${stream.height}p `:""}${codec}` : type==="audio" ? [language(tags?.language),codec,stream.channel_layout,flags?.default?"(Default)":undefined].filter(Boolean).join(" ") : type==="subtitle" ? [language(tags?.language),`(${flags?.default?"Default ":""}${codec})`].filter(Boolean).join(" ") : tags?.filename;
  const rows:[string,unknown][]=[
-  ["Embedded Title",tags?.title],["Language",tags?.language],["Codec",stream.codec_name?String(stream.codec_name).toUpperCase():undefined],
+  ["Title",title],["Embedded Title",tags?.title],["Language",language(tags?.language)],["Codec",stream.codec_name?String(stream.codec_name).toUpperCase():undefined],
   ["Profile",stream.profile],["Level",stream.level],["Resolution",stream.width&&stream.height?`${stream.width}×${stream.height}`:undefined],
   ["Aspect Ratio",stream.display_aspect_ratio],["Interlaced",stream.field_order?stream.field_order==="progressive"?"No":String(stream.field_order):undefined],
   ["Framerate",frameRate(stream.avg_frame_rate??stream.r_frame_rate)],["Layout",stream.channel_layout],["Channels",stream.channels?`${stream.channels} ch`:undefined],
@@ -21,7 +28,7 @@ function StreamCard({stream}:{stream:Record<string,unknown>}) {
   ["Bit Depth",stream.bits_per_raw_sample&&Number(stream.bits_per_raw_sample)>0?`${stream.bits_per_raw_sample} bit`:undefined],["Pixel Format",stream.pix_fmt],["Reference Frames",stream.refs],
   ["Default",flags&&["audio","subtitle"].includes(type)?flags.default?"Yes":"No":undefined],
   ["Forced",flags&&type==="subtitle"?flags.forced?"Yes":"No":undefined],["Hearing Impaired",flags&&type==="subtitle"?flags.hearing_impaired?"Yes":"No":undefined],
-  ["File",tags?.filename],
+  ["External",["subtitle","attachment"].includes(type)?"No":undefined],["File",tags?.filename],
  ];
  return <article className="w-[285px] shrink-0 rounded-md bg-white/[0.09] p-4 sm:w-[300px]">
   <h3 className="mb-4 flex items-center gap-2 text-[15px] font-semibold capitalize"><Icon className="size-4"/>{type}</h3>
