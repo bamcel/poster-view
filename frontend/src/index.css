@@ -259,8 +259,8 @@ button[data-icon-button="true"]:disabled { opacity: .5; }
 @media (max-width: 767px) { button[data-icon-button="true"] { width: 44px; height: 44px; } }
 
 .episode-detail { font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; }
-.episode-detail .episode-inline-action { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border:0; background:transparent; color:var(--color-detail-metadata); }
-.episode-detail .episode-inline-action:hover:not(:disabled) { background:transparent; color:var(--color-detail-title); }
-.episode-detail .episode-inline-action:disabled { opacity:.5; }
-.episode-detail .episode-inline-action:focus-visible { outline:2px solid var(--color-accent); outline-offset:3px; }
+.episode-inline-action { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border:0; background:transparent; color:var(--color-detail-metadata); }
+.episode-inline-action:hover:not(:disabled) { background:transparent; color:var(--color-detail-title); }
+.episode-inline-action:disabled { opacity:.5; }
+.episode-inline-action:focus-visible { outline:2px solid var(--color-accent); outline-offset:3px; }
 .episode-detail .detail-synopsis { font-size:16px; line-height:1.65; font-weight:400; }
