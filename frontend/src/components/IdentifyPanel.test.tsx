@@ -191,3 +191,12 @@ it("selects a Google Books edition with an alphanumeric ID for an individual boo
  fireEvent.click(screen.getByText("Save identification"));
  await waitFor(()=>expect(nativeLibraries.identify).toHaveBeenCalledWith("lib","item",expect.objectContaining({identifiers:{googlebooks:"a-B_12"}})));
 });
+
+it("hides disabled AniDB from Identify without submitting its saved ID",async()=>{
+ vi.mocked(apiRequest).mockResolvedValueOnce({anidb_enabled:false});
+ vi.mocked(nativeLibraries.identify).mockResolvedValue({entry,warnings:[],message:"Saved"});
+ render(<IdentifyPanel library={library} entry={{...entry,metadata:{identifiers:{tvdb:"123",anidb:"99"}}}} busy={false} onSaved={()=>{}}/>);
+ await waitFor(()=>expect(screen.queryByLabelText("AniDB identification ID")).toBeNull());
+ fireEvent.click(screen.getByText("Save identification"));
+ await waitFor(()=>expect(nativeLibraries.identify).toHaveBeenCalledWith("lib","item",expect.objectContaining({identifiers:{tvdb:"123"}})));
+});

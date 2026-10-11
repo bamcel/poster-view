@@ -21,7 +21,7 @@ it("preserves saved AniDB settings, saves changes, and reports a failed connecti
  expect(screen.getByRole("button",{name:"Test connection"})).toHaveProperty("disabled",true);
  fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
  await screen.findByText("Configuration saved.");
- expect(apiRequest).toHaveBeenCalledWith("/native/providers/settings",{method:"PUT",body:JSON.stringify({anidb_client:"new_client",anidb_client_version:"1"})});
+ expect(apiRequest).toHaveBeenCalledWith("/native/providers/settings",{method:"PUT",body:JSON.stringify({anidb_enabled:true,anidb_client:"new_client",anidb_client_version:"1"})});
  fireEvent.click(screen.getByRole("button",{name:"Test connection"}));
  expect(await screen.findByRole("alert")).toHaveProperty("textContent","AniDB rejected the client.");
 });
@@ -33,4 +33,15 @@ it("shows a successful connection result",async()=>{
  fireEvent.click(screen.getByRole("button",{name:"Test connection"}));
  expect(await screen.findByText("Provider connection succeeded.")).toBeTruthy();
  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("disables AniDB without clearing existing client credentials",async()=>{
+ vi.mocked(apiRequest).mockImplementation(async(_path,input)=>input?.method==="PUT"?JSON.parse(input.body as string):{anidb_enabled:true,anidb_client:"saved_client",anidb_client_version:"2"});
+ render(<QueryClientProvider client={new QueryClient()}><AniDBPlugin/></QueryClientProvider>);
+ fireEvent.click(await screen.findByRole("button",{name:/AniDB Anime metadata/}));
+ await waitFor(()=>expect(screen.getByLabelText("AniDB registered client name")).toHaveProperty("value","saved_client"));
+ fireEvent.click(screen.getByRole("switch",{name:"Enable AniDB"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ await screen.findByText("Configuration saved.");
+ expect(apiRequest).toHaveBeenCalledWith("/native/providers/settings",{method:"PUT",body:JSON.stringify({anidb_enabled:false,anidb_client:"saved_client",anidb_client_version:"2"})});
 });

@@ -750,6 +750,7 @@ async fn enrich_one(
         .map(|p| (p.clone(), false))
         .chain(image_order.iter().map(|p| (p.clone(), true)))
     {
+        if provider_name=="anidb"&&!crate::native_provider_extra::anidb_enabled(state) {continue;}
         if provider_name == "comicvine" && missing(&entry.metadata["identifiers"]["comicvine"]) { continue; }
         if !image_phase
             && metadata_complete(entry)

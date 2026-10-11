@@ -16,7 +16,9 @@ export default function IdentifyPanel(props:{library:NativeLibrary;entry:NativeC
 function ProviderIdentifyPanel({library,entry,busy,onSaved}:{library:NativeLibrary;entry:NativeCatalogEntry;busy:boolean;onSaved:()=>void}) {
   const books=entry.kind.startsWith("book");
   const surface={backgroundColor:translucentPanelColor("--color-surface-2",panelSolidity(),panelOverlay()),backdropFilter:`blur(${backdropBlur()}px)`};
-  const providers=books?(library.options?.metadata_providers?.book_series??["comicvine","anilist","mal"]):library.library_type==="anime"?Object.keys(names).filter(p=>p!=="comicvine"&&p!=="mangadex"&&p!=="googlebooks"):["tvdb","tmdb","imdb"];
+  const plugin=useQuery({queryKey:["native-provider-settings"],queryFn:()=>apiRequest<{anidb_enabled?:boolean}>("/native/providers/settings")});
+  const anidbEnabled=plugin.data?.anidb_enabled!==false;
+  const providers=(books?(library.options?.metadata_providers?.book_series??["comicvine","anilist","mal"]):library.library_type==="anime"?Object.keys(names).filter(p=>p!=="comicvine"&&p!=="mangadex"&&p!=="googlebooks"):["tvdb","tmdb","imdb"]).filter(provider=>provider!=="anidb"||anidbEnabled);
   const [title,setTitle]=useState(entry.title.replace(/\s*[([](?:19|20)\d{2}[)\]]\s*$/, ""));
   const [year,setYear]=useState("");
   const [ids,setIds]=useState<Record<string,string>>(()=>Object.fromEntries(Object.entries((entry.metadata.identifiers as Record<string,string>)??{}).filter(([provider])=>providers.includes(provider))));
@@ -79,7 +81,7 @@ function ProviderIdentifyPanel({library,entry,busy,onSaved}:{library:NativeLibra
         if(result.warnings.length)setNotice(result.warnings.join(" "));else onSaved();
         return;
       }
-      const result=await nativeLibraries.identify(library.id,entry.id,{revision:entry.revision,title,year:year?Number(year):null,identifiers:Object.fromEntries(Object.entries(ids).filter(([,value])=>value.trim()).map(([key,value])=>[key,value.trim()]))});
+      const result=await nativeLibraries.identify(library.id,entry.id,{revision:entry.revision,title,year:year?Number(year):null,identifiers:Object.fromEntries(Object.entries(ids).filter(([provider,value])=>value.trim()&&(provider!=="anidb"||anidbEnabled)).map(([key,value])=>[key,value.trim()]))});
       if(result.warnings.length){setNotice(result.warnings.join(" "));}else onSaved();
     } catch(e){setError((e as Error).message);}finally{setSaving(false);}
   }

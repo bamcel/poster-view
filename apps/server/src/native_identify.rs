@@ -572,7 +572,7 @@ pub(crate) async fn search(
     } else {
         vec!["tmdb", "tvdb"]
     };
-    let providers=providers.into_iter().filter(|provider|input.providers.as_ref().is_none_or(|requested|requested.iter().any(|p|p==provider))).collect::<Vec<_>>();
+    let providers=providers.into_iter().filter(|provider|*provider!="anidb"||crate::native_provider_extra::anidb_enabled(&state)).filter(|provider|input.providers.as_ref().is_none_or(|requested|requested.iter().any(|p|p==provider))).collect::<Vec<_>>();
     let mut jobs = tokio::task::JoinSet::new();
     for selected_provider in providers.iter().copied() {
         let provider = match selected_provider {"comicvine"=>"comicvine", "anilist"=>"anilist", "mal"=>"mal", "mangadex"=>"mangadex", "googlebooks"=>"googlebooks", "tmdb"=>"tmdb", "tvdb"=>"tvdb", _=>"anidb"};
@@ -649,6 +649,10 @@ pub(crate) async fn apply(
     let mut ids = input.identifiers.clone();
     // Fetch explicit selections by ID and use only provider-declared cross references.
     for (provider, id) in &input.identifiers {
+        if provider=="anidb"&&!crate::native_provider_extra::anidb_enabled(&state) {
+            if entry.metadata["identifiers"]["anidb"]!=json!(id) {return Err(HttpError::bad_request("AniDB plugin is disabled."));}
+            continue;
+        }
         if ["imdb"].contains(&provider.as_str()) {
             continue;
         }
@@ -707,6 +711,7 @@ pub(crate) async fn apply(
         data.fields["_identify_replace_artwork"]=json!(input.replace_artwork);
         replacement=Some(data.fields);
     }
+    if !crate::native_provider_extra::anidb_enabled(&state) {if let Some(saved)=entry.metadata["identifiers"]["anidb"].as_str(){ids.insert("anidb".into(),saved.into());}}
     let store = db(&state);let id = library.clone();let item_id = item.clone();
     let title = replacement.as_ref().and_then(|v|v["title"].as_str()).unwrap_or(input.title.trim()).to_string();
     let year = replacement.as_ref().and_then(|v|v["year"].as_i64()).or(input.year);
@@ -810,6 +815,7 @@ fn anidb_poster(xml:&str)->Result<Option<String>,String> {
     Ok(root.get_child("picture").and_then(|e|e.get_text()).filter(|s|!s.is_empty() && s.chars().all(|c|c.is_ascii_alphanumeric()||"._-".contains(c))).map(|s|format!("https://cdn-eu.anidb.net/images/main/{s}")))
 }
 pub(crate) async fn anidb_preview(State(state):State<AppState>,Path(id):Path<String>)->Result<Json<Value>,HttpError> {
+    if !crate::native_provider_extra::anidb_enabled(&state) {return Err(HttpError::bad_request("AniDB plugin is disabled."));}
     if id.is_empty() || !id.bytes().all(|c|c.is_ascii_digit()) {return Err(HttpError::bad_request("Invalid AniDB ID."));}
     let client=reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).user_agent("PosterView/0.1 (+https://github.com/bamcel/poster-view)").build().map_err(|_|HttpError::bad_gateway("Could not initialize AniDB client."))?;
     let xml=crate::native_provider_extra::anidb_document(&state,&client,&id).await.map_err(HttpError::bad_request)?;
@@ -823,6 +829,7 @@ async fn anidb_lookup(
     movie: bool,
     language:&str,
 ) -> Result<Vec<Value>, String> {
+    if !crate::native_provider_extra::anidb_enabled(state) {return Err("AniDB plugin is disabled.".into());}
     if let Some(id) = id {
         let _network = crate::workers::network().await;
         let xml = crate::native_provider_extra::anidb_document(state, client, id).await?;

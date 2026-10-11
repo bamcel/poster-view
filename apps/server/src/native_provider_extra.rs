@@ -17,6 +17,7 @@ use std::{
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SettingsInput {
+    anidb_enabled: Option<bool>,
     mal_client_id: Option<String>,
     omdb_api_key: Option<String>,
     anidb_client: Option<String>,
@@ -24,6 +25,7 @@ pub(crate) struct SettingsInput {
 }
 #[derive(Serialize)]
 pub(crate) struct Settings {
+    anidb_enabled: bool,
     mal_configured: bool,
     omdb_configured: bool,
     anidb_client: String,
@@ -35,8 +37,10 @@ fn store(state: &AppState) -> ServerStore {
 fn setting(state: &AppState, name: &str) -> String {
     store(state).get_setting(name).unwrap_or_default()
 }
+pub(crate) fn anidb_enabled(state:&AppState)->bool {setting(state,"plugin-anidb-enabled")!="false"}
 fn settings_value(state: &AppState) -> Settings {
     Settings {
+        anidb_enabled: anidb_enabled(state),
         mal_configured: !setting(state, "mal_client_id").is_empty(),
         omdb_configured: !setting(state, "omdb_api_key").is_empty(),
         anidb_client: setting(state, "anidb_client"),
@@ -80,6 +84,7 @@ pub(crate) async fn save_settings(
                 .map_err(|_| HttpError::bad_request("Unable to save provider settings."))?;
         }
     }
+    if let Some(enabled)=input.anidb_enabled {store(&state).set_setting("plugin-anidb-enabled",if enabled {"true"} else {"false"}).map_err(|_|HttpError::bad_request("Unable to save AniDB plugin settings."))?;}
     Ok(Json(settings_value(&state)))
 }
 pub(crate) async fn test_provider(
@@ -239,7 +244,7 @@ pub(crate) async fn fetch(
             )
             .await
         }
-        "anidb" => anidb(state, client, library, entry, parent).await,
+        "anidb" => if anidb_enabled(state) {anidb(state, client, library, entry, parent).await} else {Err("AniDB plugin is disabled.".into())},
         _ => Err("Unsupported native provider.".into()),
     }
 }
@@ -1061,6 +1066,16 @@ pub(super) fn mangadex_fields(data: &Value, language: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn disabling_anidb_preserves_saved_credentials() {
+        let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());
+        store(&state).set_setting("anidb_client","saved_client").unwrap();store(&state).set_setting("anidb_client_version","2").unwrap();
+        assert!(anidb_enabled(&state));
+        let _ = save_settings(State(state.clone()),Json(SettingsInput{anidb_enabled:Some(false),..Default::default()})).await.unwrap();
+        assert!(!anidb_enabled(&state));assert_eq!(setting(&state,"anidb_client"),"saved_client");assert_eq!(setting(&state,"anidb_client_version"),"2");
+        let _ = save_settings(State(state.clone()),Json(SettingsInput{anidb_enabled:Some(true),..Default::default()})).await.unwrap();assert!(anidb_enabled(&state));
+    }
+
     use super::*;
     #[test]
     fn mangadex_metadata_uses_localized_fields_and_declared_links_without_credits() {
