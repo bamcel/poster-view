@@ -1,3 +1,4 @@
+import {useCatalogPrefetch} from "../lib/catalogPrefetch";
 import {resetHomeNavigation} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
@@ -23,6 +24,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   const artworkPlugin=useArtworkPlugin();
   const serverConnect=useServerConnectPlugin();
   const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,enabled:true});
+  useCatalogPrefetch(libraries.data);
   const previewNavigate = useLibraryNavigate();
   const showSignOut = useContext(AuthSessionContext)?.password_required !== false && !preview;
   const [panelSolid, setPanelSolid] = useState(panelSolidity);

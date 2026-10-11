@@ -20,7 +20,7 @@ export default function DashboardPage() {
    ?? libraries.data?.find(l=>params.has("lib")&&l.options?.server_sync?.library_id===params.get("lib"))
    ?? (!libraryId ? libraries.data?.find(l=>l.id===localStorage.getItem("posterview.manualLibraryTab")) ?? libraries.data?.[0] : undefined);
 
- const catalog=useQuery({queryKey:["native-catalog",library?.id],queryFn:()=>nativeLibraries.catalog(library!.id),enabled:!!library&&!preview});
+ const catalog=useQuery({queryKey:["native-catalog",library?.id],queryFn:()=>nativeLibraries.catalog(library!.id),enabled:!!library&&!preview,staleTime:60_000,gcTime:30*60_000});
  const view=useMemo(()=>nativeCatalogView(catalog.data??[]),[catalog.data]);
  const entries=view.entries;
  const routeItem=resolveNamed(itemSlug,entries);
@@ -42,7 +42,7 @@ export default function DashboardPage() {
  },[library?.id,catalog.data,itemSlug,params.toString(),preview]);
  const navigation=preview??{navigate,params:routeParams,searchParams:effective,setSearchParams:setReadable};
  if(libraryId&&!library&&!libraries.isPending)return <p className="p-5 text-muted">Library not found.</p>;
- if(catalog.isError&&!preview)return <p role="alert" className="p-5 text-danger">{catalog.error.message}</p>;
+ if(catalog.isError&&!catalog.data&&!preview)return <p role="alert" className="p-5 text-danger">{catalog.error.message}</p>;
  if(itemSlug&&!routeItem&&!catalog.isPending&&!preview)return <p className="p-5 text-muted">This title could not be found in {library?.name}.</p>;
  return <LibraryNavigationContext.Provider value={navigation}><div className="flex h-full min-h-0 flex-col">
   {!effective.has("native_item")&&<header aria-label="Library header" className="relative z-20 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 bg-transparent px-4 pt-0 sm:px-6 md:flex-nowrap md:pt-4 lg:px-8">
