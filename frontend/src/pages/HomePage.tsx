@@ -25,14 +25,17 @@ function LibraryHome(){
  const sections=[{name:"Movies",kinds:["movie"]},{name:"Series",kinds:["series"]},{name:"Episodes",kinds:["episode"]},{name:"Books",kinds:["book","book_series"]}].map(section=>({...section,results:results.filter(({entry})=>section.kinds.includes(entry.kind))})).filter(section=>section.results.length>0);
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
  return <main className="h-full overflow-y-auto px-5 py-5 sm:px-8">
-  <div role="search" className="mb-8 flex justify-center">
-   <div className="relative w-full max-w-[21rem]">
+  <header className="mb-5 grid items-center gap-4 pt-10 md:grid-cols-[1fr_auto_1fr]">
+   <h1 className="order-2 text-2xl font-semibold text-white md:order-1">{term?"Search results":"My Media"}</h1>
+  <div role="search" className="order-1 flex justify-center md:order-2">
+   <div className="relative w-full max-w-[21rem] md:w-[21rem]">
     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint"/>
     <input aria-label="Search all libraries" placeholder="Search all libraries" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-10 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"/>
     {search&&<button type="button" aria-label="Clear search" onClick={()=>setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white" data-icon-button="true"><X className="size-4"/></button>}
    </div>
   </div>
-  <h1 className="mb-5 text-2xl font-semibold text-white">{term?"Search results":"My Media"}</h1>
+   <div aria-hidden="true" className="hidden md:order-3 md:block"/>
+  </header>
   {libraries.isPending&&<p role="status" className="text-muted">Loading libraries…</p>}
   {libraries.error&&<p role="alert" className="text-danger">{libraries.error.message}</p>}
   {libraries.data?.length===0&&<div className="space-y-3 text-muted"><p>Your libraries will appear here once you add them.</p><Link className="text-accent hover:underline" to="/settings/libraries">Add a library</Link></div>}
