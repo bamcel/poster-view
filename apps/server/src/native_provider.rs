@@ -73,6 +73,11 @@ fn missing_images(entry: &NativeCatalogEntry, library: &NativeLibrary) -> Vec<St
         .cloned()
         .collect()
 }
+fn needs_credit_portraits(entry:&NativeCatalogEntry)->bool {
+    if !matches!(entry.kind.as_str(),"series"|"movie") || entry.metadata["_sources"]["credits"]=="manual" {return false;}
+    entry.metadata["credits"].as_array().is_some_and(|credits|credits.iter().any(|credit|
+        credit["category"]=="cast" && credit["name"].as_str().is_some_and(|name|!name.trim().is_empty()) && missing(&credit["image"])))
+}
 pub(crate) fn merge_credit_portraits(metadata: &mut Value, incoming: &Value) {
     if metadata["_sources"]["credits"] == "manual" {
         return;
@@ -707,6 +712,7 @@ async fn enrich_one(
         && missing_images(entry, library).is_empty()
         && !needs_voice_cast(entry, library)
         && !needs_book_characters(entry, library)
+        && !needs_credit_portraits(entry)
     {
         return;
     }
@@ -748,6 +754,7 @@ async fn enrich_one(
         if !image_phase
             && metadata_complete(entry)
             && !(provider_name == "anilist" && (needs_voice_cast(entry, library) || needs_book_characters(entry, library)))
+            && !(matches!(provider_name.as_str(),"tmdb"|"tvdb") && needs_credit_portraits(entry))
         {
             continue;
         }
@@ -1270,6 +1277,17 @@ mod tests {
             .metadata_providers
             .insert("movie".into(), vec!["tmdb".into()]);
         assert!(!needs_voice_cast(&entry, &library));
+    }
+    #[test]
+    fn missing_cast_portraits_need_enrichment_even_with_existing_credits() {
+        let mut entry=local_entry("series");
+        entry.metadata=json!({"credits":[{"name":"Actor","category":"cast","image":null}]});
+        assert!(needs_credit_portraits(&entry));
+        entry.metadata["credits"][0]["image"]=json!("https://example.com/photo.jpg");
+        assert!(!needs_credit_portraits(&entry));
+        entry.metadata["credits"][0]["image"]=Value::Null;
+        entry.metadata["_sources"]["credits"]=json!("manual");
+        assert!(!needs_credit_portraits(&entry));
     }
     #[test]
     fn fills_missing_credit_portraits_without_replacing_local_or_manual_values() {
