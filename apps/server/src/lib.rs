@@ -40,6 +40,7 @@ mod native_provider_extra;
 mod native_monitor;
 mod native_artwork;
 mod plugins;
+mod transcoding;
 mod native_animation;
 mod native_identify;
 mod native_progress;
@@ -87,6 +88,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 
     let protected = Router::new()
+        .route("/api/transcoding/settings", get(transcoding::get).put(transcoding::save))
         .route("/api/native/providers/settings", get(native_provider_extra::settings).put(native_provider_extra::save_settings))
         .route("/api/native/providers/test/{provider}", axum::routing::post(native_provider_extra::test_provider))
         .route("/api/native/libraries", get(native::list).post(native::create))
