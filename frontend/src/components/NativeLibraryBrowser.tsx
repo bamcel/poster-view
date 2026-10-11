@@ -881,8 +881,7 @@ function NativeDetail({
                         <button
                           aria-label={`Open ${episode.title}`}
                           onClick={() => open(episode)}
-                          className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-lg bg-base sm:w-64 lg:w-80"
-                         data-icon-button="true">
+                          className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-lg bg-base sm:w-64 lg:w-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
                           <Artwork
                             src={picture(library, episode, "thumb")}
                             alt={`${episode.title} episode still`}
