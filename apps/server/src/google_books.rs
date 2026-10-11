@@ -43,9 +43,19 @@ async fn request_with_key(client:&reqwest::Client,id:Option<&str>,query:&str,key
  let url=id.map(|id|format!("https://www.googleapis.com/books/v1/volumes/{id}")).unwrap_or_else(||"https://www.googleapis.com/books/v1/volumes".into());
  let mut request=client.get(url).query(&[("key",key)]);
  if id.is_none(){request=request.query(&[("q",query),("maxResults","20"),("printType","books")]);}
- let response=request.send().await.map_err(|error|if error.is_timeout(){"Google Books request timed out. Try again."}else{"Could not connect to Google Books. Check the server's internet access."})?;
+ let response=send_with_retry(request).await?;
  if !response.status().is_success(){let status=response.status().as_u16();let body=response.json::<Value>().await.unwrap_or(Value::Null);return Err(provider_error(status,&body));}
  response.json().await.map_err(|_|"Invalid Google Books response.".into())
+}
+// Retry transient upstream failures without retrying invalid credentials or quota errors.
+async fn send_with_retry(request:reqwest::RequestBuilder)->Result<reqwest::Response,String>{
+ for attempt in 0..3 {
+  let result=request.try_clone().ok_or("Could not prepare Google Books request.")?.timeout(std::time::Duration::from_secs(6)).send().await;
+  let retry=match &result {Ok(response)=>matches!(response.status().as_u16(),500|502|503|504),Err(error)=>error.is_timeout()||error.is_connect()};
+  if retry&&attempt<2 {tokio::time::sleep(std::time::Duration::from_millis(500*(attempt+1))).await;continue;}
+  return result.map_err(|error|if error.is_timeout(){"Google Books request timed out after retries. Try again.".into()}else{"Could not connect to Google Books. Check the server's internet access.".into()});
+ }
+ unreachable!()
 }
 fn provider_error(status:u16,body:&Value)->String{
  let reasons=body["error"]["errors"].as_array().into_iter().flatten().map(|v|v["reason"].as_str().unwrap_or("")).chain(body["error"]["details"].as_array().into_iter().flatten().map(|v|v["reason"].as_str().unwrap_or(""))).collect::<Vec<_>>();
@@ -65,6 +75,23 @@ pub(crate) fn fields(raw:&Value)->Value{
 pub(crate) fn candidate(raw:&Value)->Option<Value>{let id=raw["id"].as_str()?;if !valid_id(id){return None;}let fields=fields(raw);Some(json!({"provider":"googlebooks","id":id,"title":fields["title"].as_str()?,"year":fields["year"],"overview":fields["plot"],"format":"Book edition","publisher":fields["publisher"],"poster":raw["volumeInfo"]["imageLinks"]["thumbnail"].as_str().map(|url|url.replacen("http://","https://",1)),"identifiers":{"googlebooks":id}}))}
 #[cfg(test)] mod tests {
  use super::*;
+ #[tokio::test] async fn retries_transient_failure_but_not_credentials_or_quota(){
+  use std::sync::{Arc,atomic::{AtomicUsize,Ordering}};
+  for status in [503u16,502,403,429] {
+   let calls=Arc::new(AtomicUsize::new(0));let counter=calls.clone();
+   let app=axum::Router::new().route("/",axum::routing::get(move || {let counter=counter.clone();async move {
+    let call=counter.fetch_add(1,Ordering::SeqCst);
+    (axum::http::StatusCode::from_u16(if status==503&&call==2 {200}else{status}).unwrap(),axum::Json(json!({"items":[{"id":"IXzjCwAAQBAJ","volumeInfo":{"title":"Black Clover, Vol. 1"}}]})))
+   }}));
+   let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();let address=listener.local_addr().unwrap();
+   let server=tokio::spawn(async move {axum::serve(listener,app).await.unwrap()});
+   let response=send_with_retry(reqwest::Client::new().get(format!("http://{address}/"))).await.unwrap();
+   assert_eq!(calls.load(Ordering::SeqCst),if matches!(status,502|503) {3}else{1});
+   assert_eq!(response.status().as_u16(),if status==503 {200}else{status});
+   if status==503 {let raw=response.json::<Value>().await.unwrap();assert_eq!(candidate(&raw["items"][0]).unwrap()["id"],"IXzjCwAAQBAJ");}
+   server.abort();
+  }
+ }
  #[test] fn provider_errors_explain_failures_without_exposing_keys(){
   assert!(provider_error(400,&json!({"error":{"details":[{"reason":"API_KEY_INVALID"}]}})).contains("Invalid Google Books API key"));
   assert!(provider_error(403,&json!({"error":{"errors":[{"reason":"accessNotConfigured"}]}})).contains("not enabled"));
