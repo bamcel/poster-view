@@ -292,7 +292,7 @@ it("shows book series NFO pills and a wrapping grid of volume covers",async()=>{
  expect(screen.getByText("Translation")).toBeTruthy();expect(screen.getByText("English",{exact:false})).toBeTruthy();
  expect(screen.getByText("19 Volumes Missing")).toBeTruthy();
  expect(screen.getByRole("button",{name:"Fetch Metadata"})).toBeTruthy();
- const heading=screen.getByRole("heading",{name:"Volumes"});expect(heading.nextElementSibling?.className).toContain("grid");
+ const heading=screen.getByRole("heading",{name:"Volumes"});expect(heading.parentElement?.nextElementSibling?.className).toContain("grid");
  expect(screen.getByText("2 Volumes")).toBeTruthy();
  expect(screen.getAllByLabelText("Colored edition")).toHaveLength(3);
  expect(screen.getByRole("heading",{name:"Example Series"}).className).toContain("poster-colored-title");
@@ -505,4 +505,15 @@ it("uses series header metadata on seasons while preserving season overrides",as
  expect(header.getByText("Comedy")).toBeTruthy();
  expect(header.getByText("2011")).toBeTruthy();
  expect(header.getByText("1 Season")).toBeTruthy();
+});
+
+it("filters books by volume or chapter number and title within the current series",async()=>{
+ const root={...series,kind:"book_series"};
+ const books=[{...series,id:"v2",kind:"book",parent_path:series.path,path:series.path+"/02.cbz",title:"Second book",metadata:{volume:2}},{...series,id:"v12",kind:"book",parent_path:series.path,path:series.path+"/12.cbz",title:"Final battle",metadata:{chapter:12}}];
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([root,...books]);mount("/?native_library=native&native_item=show",{...library,library_type:"books"});
+ const input=await screen.findByRole("textbox",{name:"Search volumes and chapters"});
+ fireEvent.change(input,{target:{value:"volume 02"}});expect(screen.getByText("Second book")).toBeTruthy();expect(screen.queryByText("Final battle")).toBeNull();
+ fireEvent.change(input,{target:{value:"chapter 12"}});expect(screen.getByText("Final battle")).toBeTruthy();expect(screen.queryByText("Second book")).toBeNull();
+ fireEvent.change(input,{target:{value:"nothing"}});expect(screen.getByText("No matching volumes or chapters.")).toBeTruthy();
+ fireEvent.change(input,{target:{value:""}});expect(screen.getByText("Second book")).toBeTruthy();expect(screen.getByText("Final battle")).toBeTruthy();
 });

@@ -634,6 +634,15 @@ function NativeDetail({
   const [, , bookDisplay] = useTrackingOverlays(library.library_type === "books");
   const coloredBook = library.library_type === "books" && String(entry.metadata.edition ?? parent?.metadata.edition ?? "").trim().toLowerCase() === "colored";
   const isBookSeries = entry.kind === "book_series";
+  useEffect(()=>setSearch(""),[entry.id]);
+  const bookMatches=(child:NativeCatalogEntry)=>{
+    const term=search.trim().toLocaleLowerCase();
+    if(!term)return true;
+    const numeric=term.match(/^(?:(volume|vol|chapter|ch)\s*)?(\d+(?:\.\d+)?)$/);
+    if(numeric){const value=Number(numeric[2]);return (numeric[1]?.startsWith("ch")?[child.metadata.chapter]:numeric[1]?[child.metadata.volume]:[child.metadata.volume,child.metadata.chapter]).some(v=>v!=null&&Number(v)===value);}
+    return [child.title,child.path.split("/").pop()].some(v=>v?.toLocaleLowerCase().includes(term));
+  };
+  const visibleBooks=children.filter(e=>e.kind!=="episode"&&showMissingEntry(library,e)&&(!isBookSeries||bookMatches(e)));
   const bookUnit = children.length > 0 && children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapter" : "Volume";
   const isSeries = entry.kind === "series" || entry.kind === "season";
   const isEpisode = entry.kind === "episode";
@@ -831,12 +840,15 @@ function NativeDetail({
             )}
             {children.some((e) => e.kind !== "episode" && showMissingEntry(library,e)) && (
               <section className="mt-10">
-                <h2 className="mb-3 text-xl font-semibold">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-xl font-semibold">
                   {entry.kind === "series" ? "Seasons" : children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapters" : "Volumes"}
                 </h2>
+                {isBookSeries&&<div role="search" className="relative w-full sm:w-80"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint"/><input aria-label="Search volumes and chapters" placeholder="Find a volume or chapter" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none focus:border-accent md:text-sm"/></div>}
+                </div>
+                {isBookSeries&&visibleBooks.length===0&&<p role="status" className="py-4 text-muted">No matching volumes or chapters.</p>}
                 <div className={isBookSeries ? posterGrid : "-mx-2 -mt-2 flex gap-5 overflow-x-auto px-2 pb-3 pt-2 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]"}>
-                  {children
-                    .filter((e) => e.kind !== "episode" && (showMissingEntry(library,e)))
+                  {visibleBooks
                     .map((child) => (
                       <PosterCard
                   animationOnHover={hoverOnly}
