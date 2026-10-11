@@ -399,9 +399,9 @@ fn choose_art(result: &mut BTreeMap<String,(u8,NativeArtwork)>, priority:u8, kin
 }
 
 fn clean_title(stem: &str) -> String {
-    let name = regex::Regex::new(r"\[[^\]]*\]")
-        .unwrap()
-        .replace_all(stem, "");
+    static BRACKETS: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"\[[^\]]*\]").unwrap());
+    let name = BRACKETS.replace_all(stem, "");
     name.replace(['.', '_'], " ").trim().to_owned()
 }
 fn probe(path: &Path) -> Result<Value, String> {
@@ -504,10 +504,15 @@ pub(crate) fn collect_scoped(
             }
         }
     }
-    let episode =
-        regex::Regex::new(r"(?i)(?:s(\d{1,3})[ ._-]*e(\d{1,4})|(\d{1,3})x(\d{1,4}))").unwrap();
-    let anime_number = regex::Regex::new(r"(?i) - (\d{1,3})(?:v\d)?(?:\s|\[|$)").unwrap();
-    let year_regex = regex::Regex::new(r"(?:\(|\[|\s)((?:19|20)\d{2})(?:\)|\]|$)").unwrap();
+    static EPISODE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)(?:s(\d{1,3})[ ._-]*e(\d{1,4})|(\d{1,3})x(\d{1,4}))").unwrap());
+    let episode = &*EPISODE;
+    static ANIME_NUMBER: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i) - (\d{1,3})(?:v\d)?(?:\s|\[|$)").unwrap());
+    let anime_number = &*ANIME_NUMBER;
+    static YEAR_REGEX: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?:\(|\[|\s)((?:19|20)\d{2})(?:\)|\]|$)").unwrap());
+    let year_regex = &*YEAR_REGEX;
     let mut entries = BTreeMap::<String, NativeCatalogEntry>::new();
     let mut probe_unavailable = false;
     files.retain(|p| {
@@ -871,8 +876,12 @@ fn capture_book_cover(file:&Path)->Result<(),String>{
 
 // Missing books are catalog-only targets; no media or sidecar is created.
 pub(crate) fn book_placeholders(entries: &mut Vec<NativeCatalogEntry>) {
-    let number = regex::Regex::new(r"(?i)(?:^|[^a-z])(?:volume|vol\.?|v|chapter|ch\.?|c)\s*[-_ ]*([0-9]+)").unwrap();
-    let chapter = regex::Regex::new(r"(?i)(?:^|[^a-z])(?:chapter|ch\.?|c)\s*[-_ ]*[0-9]+").unwrap();
+    static NUMBER: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)(?:^|[^a-z])(?:volume|vol\.?|v|chapter|ch\.?|c)\s*[-_ ]*([0-9]+)").unwrap());
+    let number = &*NUMBER;
+    static CHAPTER: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)(?:^|[^a-z])(?:chapter|ch\.?|c)\s*[-_ ]*[0-9]+").unwrap());
+    let chapter = &*CHAPTER;
     entries.retain(|e| e.metadata["missing"] != true);
     for entry in entries.iter_mut().filter(|e| e.kind == "book") {
         let filename = Path::new(&entry.path).file_stem().unwrap_or_default().to_string_lossy();
@@ -882,9 +891,15 @@ pub(crate) fn book_placeholders(entries: &mut Vec<NativeCatalogEntry>) {
         }
         entry.metadata["missing"] = json!(false);
     }
-    let series = entries.iter().filter(|e| e.kind == "book_series" && e.available).cloned().collect::<Vec<_>>();
-    for series in series {
-        let children = entries.iter().filter(|e| e.kind == "book" && e.available && e.parent_path.as_deref() == Some(&series.path)).collect::<Vec<_>>();
+    let mut by_parent: BTreeMap<&str, Vec<&NativeCatalogEntry>> = BTreeMap::new();
+    for entry in entries.iter().filter(|e| e.kind == "book" && e.available) {
+        if let Some(parent) = entry.parent_path.as_deref() {
+            by_parent.entry(parent).or_default().push(entry);
+        }
+    }
+    let mut missing = Vec::new();
+    for series in entries.iter().filter(|e| e.kind == "book_series" && e.available) {
+        let children = by_parent.get(series.path.as_str()).map(Vec::as_slice).unwrap_or(&[]);
         let key = if !children.is_empty() && children.iter().all(|e| !e.metadata["chapter"].is_null() && e.metadata["volume"].is_null()) {"chapter"} else {"volume"};
         // Do not guess which numbers are absent when existing files have no identity.
         if children.iter().any(|e| e.metadata[key].is_null()) {continue;}
@@ -893,9 +908,10 @@ pub(crate) fn book_placeholders(entries: &mut Vec<NativeCatalogEntry>) {
         for n in 1..=total {
             if present.contains(&n) {continue;}
             let title = format!("{} {n:02}", if key == "chapter" {"Chapter"} else {"Volume"});
-            entries.push(NativeCatalogEntry {id:String::new(),path:format!("{}/@missing-{key}-{n}",series.path),kind:"book".into(),parent_path:Some(series.path.clone()),title:title.clone(),metadata:json!({"title":title,key:n,"missing":true}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1});
+            missing.push(NativeCatalogEntry {id:String::new(),path:format!("{}/@missing-{key}-{n}",series.path),kind:"book".into(),parent_path:Some(series.path.clone()),title:title.clone(),metadata:json!({"title":title,key:n,"missing":true}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1});
         }
     }
+    entries.extend(missing);
 }
 
 pub(crate) fn write_identification_nfo(state: &AppState, entry: &NativeCatalogEntry) -> Result<(String,String),String> { write_nfo_inner(state,entry,true) }
@@ -1188,6 +1204,21 @@ mod missing_book_tests {
         let actual = db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.path.ends_with("Volume 02.cbz")).unwrap();
         assert_eq!(actual.id,missing.id);assert_eq!(actual.metadata["missing"],false);assert_eq!(actual.artwork[0].path,"@managed/cover.jpg");
         assert!(!db.native_catalog(&library.id).unwrap().iter().any(|e|e.available && e.path.ends_with("@missing-volume-2")));
+    }
+    #[test]
+    fn missing_numbers_are_scoped_to_each_book_series() {
+        let mut volumes = blank("Books/Volumes".into(), "book_series", None, "Volumes".into());
+        volumes.metadata = json!({"volumes": 2});
+        let mut chapters = blank("Books/Chapters".into(), "book_series", None, "Chapters".into());
+        chapters.metadata = json!({"chapters": 2});
+        let first = blank("Books/Volumes/Volume 01.cbz".into(), "book", Some(volumes.path.clone()), "Volume 01".into());
+        let second = blank("Books/Chapters/Chapter 02.cbz".into(), "book", Some(chapters.path.clone()), "Chapter 02".into());
+        let mut entries = vec![volumes, chapters, first, second];
+        book_placeholders(&mut entries);
+        let missing: Vec<_> = entries.iter().filter(|entry| entry.metadata["missing"] == true).collect();
+        assert_eq!(missing.len(), 2);
+        assert_eq!(missing[0].path, "Books/Volumes/@missing-volume-2");
+        assert_eq!(missing[1].path, "Books/Chapters/@missing-chapter-1");
     }
     #[test]
     fn chapter_collections_use_chapter_totals_and_unknown_files_are_not_guessed() {

@@ -12,7 +12,6 @@ import {Server, X} from "lucide-react";
 import {apiRequest,api} from "../api/client";
 import {ServersSection,DefaultArtworkSourcesFields} from "../pages/SettingsPage";
 import {useServerConnectPlugin,type PluginSettings,SERVER_CONNECT_AVAILABLE} from "../lib/serverConnectPlugin";
-export {useServerConnectPlugin} from "../lib/serverConnectPlugin";
 import ServerConnectLibraries from "./ServerConnectLibraries";
 export function ServerConnectPopup({onClose}:{onClose:()=>void}){
  const dialog=useRef<HTMLDialogElement>(null);

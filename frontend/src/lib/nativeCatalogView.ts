@@ -16,18 +16,17 @@ function ids(entry: NativeCatalogEntry): Record<string, string> {
   identifierCache.set(entry, result);
   return result;
 }
+const strong = ["tvdb", "tmdb", "imdb"] as const;
+const anime = ["anilist", "mal", "anidb"] as const;
+const identityProviders = [...strong, ...anime];
+
 function sameSeries(a: NativeCatalogEntry, b: NativeCatalogEntry) {
   const left = ids(a),
     right = ids(b);
-  const strong = ["tvdb", "tmdb", "imdb"];
-  const anime = ["anilist", "mal", "anidb"];
-  if ([...strong, ...anime].some((key) => left[key] && right[key] && left[key] !== right[key]))
+  if (identityProviders.some((key) => left[key] && right[key] && left[key] !== right[key]))
     return false;
   if (strong.some((key) => left[key] && left[key] === right[key])) return true;
-  return (
-    !anime.some((key) => left[key] && right[key] && left[key] !== right[key]) &&
-    anime.some((key) => left[key] && left[key] === right[key])
-  );
+  return anime.some((key) => left[key] && left[key] === right[key]);
 }
 
 // Presentation grouping only: retain every underlying record and media file.
@@ -38,17 +37,33 @@ export function nativeCatalogView(input: NativeCatalogEntry[]) {
   const paths = new Map<string, string>();
   const hidden = new Set<string>();
   const groups: NativeCatalogEntry[][] = [];
+  const groupsByIdentity = new Map<string, Set<number>>();
   for (const entry of active
     .filter((e) => e.kind === "series" && !e.parent_path)
     .sort(
       (a, b) =>
         b.artwork.length - a.artwork.length || a.path.localeCompare(b.path),
     )) {
-    const group = groups.find((g) =>
-      g.every((member) => sameSeries(member, entry)),
-    );
-    if (group) group.push(entry);
+    const candidates = new Set<number>();
+    const identifiers = ids(entry);
+    for (const provider of identityProviders) {
+      const value = identifiers[provider];
+      if (value) for (const index of groupsByIdentity.get(`${provider}:${value}`) ?? []) candidates.add(index);
+    }
+    // Preserve the original first-compatible-group rule for partial identities.
+    const compatible = [...candidates].sort((a, b) => a - b)
+      .find(index => groups[index].every(member => sameSeries(member, entry)));
+    const index = compatible ?? groups.length;
+    if (compatible != null) groups[index].push(entry);
     else groups.push([entry]);
+    for (const provider of identityProviders) {
+      const value = identifiers[provider];
+      if (!value) continue;
+      const key = `${provider}:${value}`;
+      let matches = groupsByIdentity.get(key);
+      if (!matches) groupsByIdentity.set(key, matches = new Set());
+      matches.add(index);
+    }
   }
   for (const group of groups)
     for (const entry of group) {
@@ -56,6 +71,7 @@ export function nativeCatalogView(input: NativeCatalogEntry[]) {
       paths.set(entry.path, group[0].path);
       if (entry !== group[0]) hidden.add(entry.id);
     }
+  const groupedParents = new Set(groups.filter(group => group.length > 1).map(group => group[0].path));
   const seasons = new Map<string, NativeCatalogEntry>();
   for (const entry of active
     .filter((e) => e.kind === "season")
@@ -65,7 +81,7 @@ export function nativeCatalogView(input: NativeCatalogEntry[]) {
     )) {
     const parent = entry.parent_path && paths.get(entry.parent_path);
     // Only combine seasons when their parent series were actually grouped.
-    if (!parent || !groups.some((g) => g.length > 1 && g[0].path === parent))
+    if (!parent || !groupedParents.has(parent))
       continue;
     const value = entry.metadata.season;
     if (

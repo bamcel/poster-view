@@ -233,7 +233,7 @@ it("groups existing providers without disable controls or new metadata providers
     expect(screen.getByRole("button", { name: `Configure ${name}` })).toBeTruthy();
   }
   expect(screen.getByRole("button", { name: "Configure TMDB" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Configure AniDB" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Configure AniDB" })).toBeNull();
   expect(screen.queryByText("Show Providers")).toBeNull();
   client.clear();
 });

@@ -205,7 +205,9 @@ pub(super) async fn response(response: reqwest::Response) -> Result<Value, Strin
     serde_json::from_slice(&bytes).map_err(|_| "Invalid metadata response.".into())
 }
 pub(super) fn search_title(entry: &NativeCatalogEntry) -> String {
-    let re = regex::Regex::new(r"\s*[\[(](?:19|20)\d{2}[\])]\s*$").unwrap();
+    static RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"\s*[\[(](?:19|20)\d{2}[\])]\s*$").unwrap());
+    let re = &*RE;
     re.replace(&entry.title, "").trim().into()
 }
 fn select<'a>(

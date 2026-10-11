@@ -2,7 +2,7 @@ import {useCatalogPrefetch} from "../lib/catalogPrefetch";
 import {resetHomeNavigation} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
-import {useServerConnectPlugin} from "./PluginsPage";
+import {useServerConnectPlugin} from "../lib/serverConnectPlugin";
 import {useQuery} from "@tanstack/react-query";
 import {nativeLibraries} from "../api/nativeLibraries";
 // App chrome: a left sidebar (logo, nav, active-server picker) + routed content.

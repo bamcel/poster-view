@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {api} from "../api/client";
 import {useServerConnectPlugin} from "../lib/serverConnectPlugin";
-vi.mock("../api/client",()=>({api:{listServers:vi.fn()}}));
+vi.mock("../api/client",()=>({api:{listServers:vi.fn()},apiRequest:vi.fn().mockResolvedValue({omdb_enabled:false})}));
 vi.mock("../lib/serverConnectPlugin",()=>({useServerConnectPlugin:vi.fn(),SERVER_CONNECT_AVAILABLE:false}));
 import NativeLibrariesSection, { LibraryDialog } from "./NativeLibrariesSection";
 import { defaultNativeOptions, nativeLibraries, type NativeLibrary } from "../api/nativeLibraries";

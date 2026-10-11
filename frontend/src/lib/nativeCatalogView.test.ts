@@ -59,3 +59,18 @@ it("keeps distinct anime folders visible when a shared TVDB ID conflicts with an
     expect(result.aliases.get(z.id)).toBe(z.id);
   }
 });
+
+it("does not merge through a conflicting bridge of partial provider identities", () => {
+  const result = nativeCatalogView([
+    entry("a", "series", null, {identifiers:{tvdb:"1",tmdb:"10"}}),
+    entry("b", "series", null, {identifiers:{tvdb:"2",tmdb:"20"}}),
+    entry("c", "series", null, {identifiers:{tvdb:"1",imdb:"shared"}}),
+    entry("d", "series", null, {identifiers:{tvdb:"2",imdb:"shared"}}),
+    entry("e", "series", null, {identifiers:{imdb:"shared"}}),
+    entry("unidentified"),
+  ]);
+  expect(result.entries.map(item=>item.id)).toEqual(["a","b","e","unidentified"]);
+  expect(result.aliases.get("c")).toBe("a");
+  expect(result.aliases.get("d")).toBe("b");
+  expect(result.aliases.get("e")).toBe("e");
+});
