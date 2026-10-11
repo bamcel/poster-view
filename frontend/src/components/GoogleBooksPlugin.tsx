@@ -1,13 +1,14 @@
+import PluginCard from "./PluginCard";
 import {useEffect,useRef,useState} from "react";
 import {createPortal} from "react-dom";
 import {useQuery,useMutation,useQueryClient} from "@tanstack/react-query";
-import {BookOpen,X} from "lucide-react";
+import {X} from "lucide-react";
 import {apiRequest} from "../api/client";
 type Settings={enabled:boolean;configured:boolean};
 export default function GoogleBooksPlugin(){
  const [open,setOpen]=useState(false);
  const settings=useQuery({queryKey:["plugin-google-books"],queryFn:()=>apiRequest<Settings>("/plugins/google-books")});
- return <><button onClick={()=>setOpen(true)} className="w-full min-w-0 rounded-2xl border border-border bg-window p-6 text-left hover:border-accent"><BookOpen className="mb-4 size-9 text-accent"/><h2 className="text-lg font-semibold">Google Books</h2><p className="mt-2 text-sm text-muted">Search book editions and pull titles, authors, descriptions, publishers, ISBNs, and other book metadata.</p><p className="mt-4 text-xs text-muted">{settings.data?.enabled&&settings.data.configured?"Enabled · API key saved":"Configure API connection"}</p></button>{open&&<GoogleBooksPopup onClose={()=>setOpen(false)}/>}</>;
+ return <><PluginCard title="Google Books" description="Search book editions and pull titles, authors, descriptions, publishers, ISBNs, and other book metadata." status={settings.data?.enabled&&settings.data.configured?"Enabled · API key saved":"Configure API connection"} onClick={()=>setOpen(true)} bannerClassName="bg-[linear-gradient(115deg,#4285f4_0%,#4285f4_25%,#ea4335_50%,#fbbc05_75%,#34a853_100%)]" branding={<div className="rounded-lg bg-white px-4 py-3 shadow-sm"><img src="/plugins/google-logo.png" alt="" className="h-10 w-auto"/><span className="block text-right text-sm leading-none text-[#4285f4]">Books</span></div>}/>{open&&<GoogleBooksPopup onClose={()=>setOpen(false)}/>}</>;
 }
 export function GoogleBooksPopup({onClose}:{onClose:()=>void}){
  const dialog=useRef<HTMLDialogElement>(null),client=useQueryClient();
