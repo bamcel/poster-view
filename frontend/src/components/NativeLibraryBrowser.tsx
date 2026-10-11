@@ -840,11 +840,11 @@ function NativeDetail({
             )}
             {children.some((e) => e.kind !== "episode" && showMissingEntry(library,e)) && (
               <section className="mt-10">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div className={isBookSeries?"mb-3 grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_auto_1fr]":"mb-3 flex flex-wrap items-center justify-between gap-3"}>
                 <h2 className="text-xl font-semibold">
                   {entry.kind === "series" ? "Seasons" : children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapters" : "Volumes"}
                 </h2>
-                {isBookSeries&&<div role="search" className="relative w-full sm:w-80"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint"/><input aria-label="Search volumes and chapters" placeholder="Find a volume or chapter" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none focus:border-accent md:text-sm"/></div>}
+                {isBookSeries&&<div role="search" className="relative mx-auto w-[min(21rem,100%)] sm:w-80"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint"/><input aria-label="Search volumes and chapters" placeholder="Find a volume or chapter" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none focus:border-accent md:text-sm"/></div>}
                 </div>
                 {isBookSeries&&visibleBooks.length===0&&<p role="status" className="py-4 text-muted">No matching volumes or chapters.</p>}
                 <div className={isBookSeries ? posterGrid : "-mx-2 -mt-2 flex gap-5 overflow-x-auto px-2 pb-3 pt-2 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]"}>
