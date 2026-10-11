@@ -1,3 +1,4 @@
+import VideoPreferences,{useVideoPreferences} from "./VideoPreferences";
 import {stillArtwork} from "./AnimatedArtwork";
 import {HOME_RESET_EVENT} from "../lib/homeNavigation";
 import AnimeDubEditor from "./AnimeDubEditor";
@@ -467,7 +468,7 @@ export default function NativeLibraryBrowser({
                   style={style}
                 />
               </div>
-              <LibraryPopup title="Filters and sorting" label="Filter and sort titles" icon={<ListFilter className="size-4"/>} style={style} editorStyle={library.library_type === "anime"}>
+              <LibraryPopup title="Filters and sorting" label="Filter and sort titles" icon={<ListFilter className="size-4"/>} style={style} editorStyle>
                   <h3 className="mb-3 text-sm font-semibold">Artwork</h3>
                   <label className="block text-xs text-muted">
                     Artwork availability
@@ -504,9 +505,9 @@ export default function NativeLibraryBrowser({
                     </select>
                   </label>
               </LibraryPopup>
-              <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style} editorStyle={library.library_type === "anime"}>
+              <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style} editorStyle>
                 <div className="space-y-7"><LibraryViewPreferences library={library.id}/>
-                <ArtworkPreferences library={library.id}/>{library.library_type === "books" && <BookPreferences/>}{library.library_type === "anime" && <AnimePreferences library={library.id}/>}</div>
+                <ArtworkPreferences library={library.id}/>{library.library_type === "books" && <BookPreferences/>}{library.library_type === "anime" && <AnimePreferences library={library.id}/>} {(["shows","movies"].includes(library.library_type))&&<VideoPreferences library={library.id}/>}</div>
               </LibraryPopup>
             </div>
             {status.data?.status === "scanning" && status.data.show_progress !== false ? <aside aria-label="Library scan progress" className="w-full min-w-0 lg:ml-auto lg:max-w-80"><NativeScanProgress status={status.data} compact/></aside> : <div aria-hidden="true" className="hidden lg:block"/>}
@@ -610,6 +611,7 @@ function NativeDetail({
   const dubClient=useQueryClient();
   const {hoverOnly}=useAnimatedArtworkPreference(library.id);
   const {value:animePreferences} = useAnimePreferences(library.id);
+  const {value:videoPreferences}=useVideoPreferences(library.id);
   const parent = entries.find((e) => e.path === entry.parent_path);
   const series =
     entry.kind === "series"
@@ -684,6 +686,7 @@ function NativeDetail({
   const credits = (Array.isArray(entry.metadata.credits)
     ? (entry.metadata.credits as Record<string, unknown>[])
     : []).filter(credit => {
+      if (["shows","movies"].includes(library.library_type) && (credit.category==="crew"?!videoPreferences.crew:!videoPreferences.casts)) return false;
       if (credit.category === "crew") return true;
       if (credit.category === "character" || characterNames.has(voiceName(credit.name))) return false;
       return !voiceCast || (credit.category !== "voice" && !voiceCast.names.has(voiceName(credit.name)));
