@@ -1,5 +1,5 @@
 import {useArtworkPlugin} from "../lib/artworkPlugin";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -493,4 +493,16 @@ it("excludes specials from the series season count while keeping their folder",a
  expect(await screen.findByText("1 Season")).toBeTruthy();
  expect(screen.queryByText("2 Seasons")).toBeNull();
  expect(screen.getByRole("button",{name:/Open Specials/})).toBeTruthy();
+});
+
+it("uses series header metadata on seasons while preserving season overrides",async()=>{
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series,metadata:{...series.metadata,rating:8.1,year:2010,studios:["Example Network"],genres:["Comedy"],mpaa:"TV-MA"}},{...season,metadata:{season:1,year:2011,genres:[]}},episode]);
+ mount("/?native_library=native&native_item=season");
+ expect(await screen.findByLabelText("Rating 8.1 out of 10")).toBeTruthy();
+ const header=within(screen.getByLabelText("Title information"));
+ expect(header.getByText("Example Network")).toBeTruthy();
+ expect(header.getByText("TV-MA")).toBeTruthy();
+ expect(header.getByText("Comedy")).toBeTruthy();
+ expect(header.getByText("2011")).toBeTruthy();
+ expect(header.getByText("1 Season")).toBeTruthy();
 });

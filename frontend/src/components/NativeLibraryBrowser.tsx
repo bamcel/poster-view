@@ -635,24 +635,25 @@ function NativeDetail({
   const bookUnit = children.length > 0 && children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapter" : "Volume";
   const isSeries = entry.kind === "series" || entry.kind === "season";
   const isEpisode = entry.kind === "episode";
+  const headerMetadata = entry.kind === "season" ? {...series?.metadata,...Object.fromEntries(Object.entries(entry.metadata).filter(([,value])=>value!=null&&value!==""&&(!Array.isArray(value)||value.length>0)))} : entry.metadata;
+  const headerSeasons = entry.kind === "season" && series ? entries.filter(e=>e.available&&e.parent_path===series.path&&e.kind==="season") : children.filter(e=>e.kind==="season");
   const detail: ItemDetail = {
     id: entry.id,
     title: entry.title,
     type:
-      entry.kind === "series"
+      isSeries
         ? "show"
         : entry.kind.startsWith("book")
           ? "book"
           : "movie",
-    year: number(entry.metadata.year),
-    rating: number(entry.metadata.rating),
-    content_rating: String(entry.metadata.mpaa ?? ""),
-    tags: strings(entry.metadata.tags),
-    genres: strings(entry.metadata.genres),
-    studios: strings(entry.metadata.studios),
-    season_count: children.filter(e => e.kind === "season" && number(e.metadata.season) !== 0 && !/^specials?$/i.test(e.title.trim())).length,
-    seasons: children
-      .filter((e) => e.kind === "season")
+    year: number(headerMetadata.year),
+    rating: number(headerMetadata.rating),
+    content_rating: String(headerMetadata.mpaa ?? ""),
+    tags: strings(headerMetadata.tags),
+    genres: strings(headerMetadata.genres),
+    studios: strings(headerMetadata.studios),
+    season_count: headerSeasons.filter(e => number(e.metadata.season) !== 0 && !/^specials?$/i.test(e.title.trim())).length,
+    seasons: headerSeasons
       .map((e) => ({ id: e.id, title: e.title })),
     members: [],
     external_ids: Object.fromEntries(
@@ -770,7 +771,7 @@ function NativeDetail({
                     className="mt-2 text-sm text-accent"
                     onClick={() => open(series)}
                   >
-                    {series.title}
+                    {entry.title} · {children.filter(e=>e.kind==="episode"&&showMissingEntry(library,e)).length} Episodes
                   </button>
                 )}
                 {isBookSeries ? <p className="mt-2 text-sm text-white/70">{children.filter(e=>e.metadata.missing!==true).length} {children.filter(e=>e.metadata.missing!==true).length === 1 ? bookUnit : `${bookUnit}s`}</p> : <TitleMetadata item={detail} />}
