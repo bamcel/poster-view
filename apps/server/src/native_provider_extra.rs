@@ -18,6 +18,7 @@ use std::{
 #[serde(deny_unknown_fields)]
 pub(crate) struct SettingsInput {
     anidb_enabled: Option<bool>,
+    omdb_enabled: Option<bool>,
     mal_client_id: Option<String>,
     omdb_api_key: Option<String>,
     anidb_client: Option<String>,
@@ -26,6 +27,7 @@ pub(crate) struct SettingsInput {
 #[derive(Serialize)]
 pub(crate) struct Settings {
     anidb_enabled: bool,
+    omdb_enabled: bool,
     mal_configured: bool,
     omdb_configured: bool,
     anidb_client: String,
@@ -38,9 +40,11 @@ fn setting(state: &AppState, name: &str) -> String {
     store(state).get_setting(name).unwrap_or_default()
 }
 pub(crate) fn anidb_enabled(state:&AppState)->bool {setting(state,"plugin-anidb-enabled")!="false"}
+pub(crate) fn omdb_enabled(state:&AppState)->bool {setting(state,"plugin-omdb-enabled")=="true"}
 fn settings_value(state: &AppState) -> Settings {
     Settings {
         anidb_enabled: anidb_enabled(state),
+        omdb_enabled: omdb_enabled(state),
         mal_configured: !setting(state, "mal_client_id").is_empty(),
         omdb_configured: !setting(state, "omdb_api_key").is_empty(),
         anidb_client: setting(state, "anidb_client"),
@@ -85,6 +89,7 @@ pub(crate) async fn save_settings(
         }
     }
     if let Some(enabled)=input.anidb_enabled {store(&state).set_setting("plugin-anidb-enabled",if enabled {"true"} else {"false"}).map_err(|_|HttpError::bad_request("Unable to save AniDB plugin settings."))?;}
+    if let Some(enabled)=input.omdb_enabled {store(&state).set_setting("plugin-omdb-enabled",if enabled {"true"} else {"false"}).map_err(|_|HttpError::bad_request("Unable to save OMDb plugin settings."))?;}
     Ok(Json(settings_value(&state)))
 }
 pub(crate) async fn test_provider(
@@ -112,6 +117,7 @@ pub(crate) async fn test_provider(
                 }
             }
         }
+        "omdb" if !omdb_enabled(&state) => Err("Enable the OMDb plugin first.".into()),
         "omdb" => {
             let key = setting(&state, "omdb_api_key");
             if key.is_empty() {
@@ -232,6 +238,7 @@ pub(crate) async fn fetch(
         }
 
         "mal" => mal(state, client, library, entry).await,
+        "omdb" if !omdb_enabled(state) => Err("The OMDb plugin is disabled.".into()),
         "omdb" => omdb(state, client, entry, parent).await,
         "tvdb" => tvdb(state, service, library, entry, parent).await,
         "fanart" => {

@@ -1,3 +1,5 @@
+import {useEffect,useState} from "react";
+import {apiRequest} from "../api/client";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { NativeLibraryOptions, NativeLibraryType } from "../api/nativeLibraries";
 
@@ -16,13 +18,15 @@ function UnavailableSelect({label, value, help}: {label: string; value: string; 
 }
 function ProviderList({title, supported, unavailable, order, onChange}: {title: string; supported: string[]; unavailable: string[]; order: string[]; onChange: (order: string[]) => void}) {
   const move = (index: number, offset: number) => {const next = [...order]; [next[index], next[index + offset]] = [next[index + offset], next[index]]; onChange(next);};
-  const rows = [...order, ...supported.filter(p => !order.includes(p)), ...unavailable];
+  const rows = [...order.filter(p=>supported.includes(p)), ...supported.filter(p => !order.includes(p)), ...unavailable];
   return <Group title={title}><p className="text-xs leading-relaxed text-muted">Enable sources and set their priority. Lower priority sources fill missing information. Use the arrows to reorder enabled sources.</p><ul className="divide-y divide-edge">{rows.map(provider => {
     const enabled = order.includes(provider), available = supported.includes(provider), index = order.indexOf(provider);
     return <li key={provider} className="flex items-center gap-3 py-3"><input aria-label={`${title}: ${LABELS[provider]}`} type="checkbox" disabled={!available} checked={enabled} className="size-5 accent-accent disabled:opacity-40" onChange={e => onChange(e.target.checked ? [...order, provider] : order.filter(p => p !== provider))} /><span className={`min-w-0 flex-1 text-sm ${available ? "text-white" : "text-faint"}`}>{LABELS[provider]}{!available && <span className="mt-1 block text-xs">Not yet available</span>}</span>{enabled && <div className="flex gap-1"><button type="button" disabled={index === 0} aria-label={`Move ${LABELS[provider]} up in ${title}`} className="rounded-lg p-2 text-muted hover:bg-base disabled:opacity-30" onClick={() => move(index, -1)} data-icon-button="true"><ArrowUp className="size-4" /></button><button type="button" disabled={index === order.length - 1} aria-label={`Move ${LABELS[provider]} down in ${title}`} className="rounded-lg p-2 text-muted hover:bg-base disabled:opacity-30" onClick={() => move(index, 1)} data-icon-button="true"><ArrowDown className="size-4" /></button></div>}</li>;
   })}</ul></Group>;
 }
 export default function NativeLibrarySettings({options, type, animeContent, section, onChange}: {options: NativeLibraryOptions; type: NativeLibraryType; animeContent: "both" | "shows" | "movies"; section: number; onChange: (options: NativeLibraryOptions) => void}) {
+  const [omdbEnabled,setOmdbEnabled]=useState(false);
+  useEffect(()=>{let mounted=true;void apiRequest<{omdb_enabled:boolean}>("/native/providers/settings").then(value=>{if(mounted)setOmdbEnabled(value.omdb_enabled===true);}).catch(()=>{});return()=>{mounted=false;};},[]);
   const books = type === "books";
   const update = <K extends keyof NativeLibraryOptions>(key: K, value: NativeLibraryOptions[K]) => onChange({...options, [key]: value});
   const languages = (key: "metadata_language" | "image_language", label: string) => <label className="block text-sm text-muted">{label}<select aria-label={label} className={INPUT} value={options[key]} onChange={e => update(key, e.target.value)}>{Object.entries(LANGUAGES).map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>;
@@ -31,7 +35,7 @@ export default function NativeLibrarySettings({options, type, animeContent, sect
   const groups: [string, string][] = [...(movies ? [["movie", "Movie"] as [string,string]] : []), ...(shows ? [["series", "Series"] as [string,string], ["season", "Season"] as [string,string], ["episode", "Episode"] as [string,string]] : []), ...(type === "books" ? [["book_series", "Book series"] as [string,string]] : [])];
   const providerGroups = (images: boolean) => groups.map(([kind, name]) => {
     if (kind === "book_series" && !images) return <div key={kind} className="space-y-5"><ProviderList title="Book metadata providers" supported={["comicvine", "anilist", "mal", "mangadex", "googlebooks"]} unavailable={[]} order={options.metadata_providers.book_series ?? ["comicvine", "anilist", "mal"]} onChange={order => update("metadata_providers", {...options.metadata_providers, book_series: order})}/><Group title="Book series Metadata"><p className="text-sm leading-relaxed text-muted">Selected providers appear in Identify for this library and supply missing metadata after identification. Exclude AniList and MyAnimeList for libraries that do not contain manga or light novels. Open a book series and select Identify to choose the correct provider record, then scan files. Enable NFO saving to write metadata to your library folders. With no providers selected, use local NFO files and manual metadata editing.</p></Group></div>;
-    const supported = kind === "book_series" ? ["anilist", "mal", "comicvine"] : kind === "season" ? ["tmdb", "tvdb", ...(images ? ["fanart"] : [])] : kind === "episode" ? ["tmdb", "tvdb", "omdb", ...(type === "anime" && !images ? ["anidb"] : [])] : [ ...(type === "anime" ? ["anilist", "mal", "anidb"] : []), "tmdb", "tvdb", "omdb", ...(images ? ["fanart"] : [])];
+    const supported = kind === "book_series" ? ["anilist", "mal", "comicvine"] : kind === "season" ? ["tmdb", "tvdb", ...(images ? ["fanart"] : [])] : kind === "episode" ? ["tmdb", "tvdb", ...(omdbEnabled?["omdb"]:[]), ...(type === "anime" && !images ? ["anidb"] : [])] : [ ...(type === "anime" ? ["anilist", "mal", "anidb"] : []), "tmdb", "tvdb", ...(omdbEnabled?["omdb"]:[]), ...(images ? ["fanart"] : [])];
     const defaults = supported.length ? [supported[0]] : [];
     const key = images ? "image_providers" : "metadata_providers";
     const unavailable = images && kind === "episode" ? ["capture"] : [];

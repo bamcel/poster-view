@@ -1102,6 +1102,16 @@ async fn native_provider_credentials_are_encrypted_and_not_returned() {
     assert_eq!(response.status(),StatusCode::OK);
     let bytes=response.into_body().collect().await.unwrap().to_bytes();let body:serde_json::Value=serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["mal_configured"],true);assert!(!String::from_utf8_lossy(&bytes).contains("secret-fixture"));
+    assert_eq!(body["omdb_enabled"],false);
+    let disabled=app.clone().oneshot(Request::post("/api/native/providers/test/omdb").body(Body::empty()).unwrap()).await.unwrap();
+    let disabled:serde_json::Value=serde_json::from_slice(&disabled.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(disabled["ok"],false);assert!(disabled["message"].as_str().unwrap().contains("Enable"));
+    for enabled in [true,false] {
+        let response=app.clone().oneshot(Request::put("/api/native/providers/settings").header("content-type","application/json").body(Body::from(serde_json::json!({"omdb_enabled":enabled}).to_string())).unwrap()).await.unwrap();
+        assert_eq!(response.status(),StatusCode::OK);
+        let body:serde_json::Value=serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+        assert_eq!(body["omdb_enabled"],enabled);assert_eq!(body["omdb_configured"],true);
+    }
     // Read the store's actual connection separately through its public settings API.
     let store=posterview_infra_sqlite::ServerStore::new(dir.path());
     assert_eq!(store.get_setting("mal_client_id").unwrap(),"mal-secret-fixture");

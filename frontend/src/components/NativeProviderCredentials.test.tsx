@@ -23,3 +23,14 @@ it("saves new provider credentials without showing saved secrets and tests saved
   fireEvent.click(screen.getByRole("button",{name:"Test MyAnimeList"}));
   expect(await screen.findByText("Provider connection succeeded.")).toBeTruthy();
 });
+
+it("hides OMDb unless its plugin is enabled",async()=>{
+ vi.mocked(apiRequest).mockResolvedValue({mal_configured:false,omdb_configured:true,omdb_enabled:false});
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<QueryClientProvider client={client}><NativeProviderCredentials/></QueryClientProvider>);
+ await screen.findByRole("button",{name:"Configure MyAnimeList"});
+ expect(screen.queryByRole("button",{name:"Configure OMDb"})).toBeNull();
+ vi.mocked(apiRequest).mockResolvedValue({mal_configured:false,omdb_configured:true,omdb_enabled:true});
+ await client.invalidateQueries({queryKey:["native-provider-settings"]});
+ expect(await screen.findByRole("button",{name:"Configure OMDb"})).toBeTruthy();
+});
