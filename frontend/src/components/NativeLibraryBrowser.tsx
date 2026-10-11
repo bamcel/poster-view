@@ -731,14 +731,16 @@ function NativeDetail({
       )}
       <div className="media-detail scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain">
         <div className="relative min-h-full">
-          <button
-            onClick={back}
-            aria-label="Back"
-            className="absolute left-5 top-5 z-10 grid size-9 max-md:size-[44px] place-items-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/70"
-           data-icon-button="true">
-            <ArrowLeft className="size-5" />
-          </button>
-          <div className="relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-10 lg:pt-20">
+          <div className="absolute inset-x-5 top-5 z-10 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
+            <button onClick={back} aria-label="Back" className="grid place-items-center" data-icon-button="true">
+              <ArrowLeft className="size-5" />
+            </button>
+            {(isBookSeries || entry.kind === "season") && <div role="search" className="relative mx-auto w-full max-w-[21rem]">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
+              <input aria-label={isBookSeries ? "Search volumes and chapters" : "Search episodes"} placeholder={isBookSeries ? "Find a volume or chapter" : "Find an episode"} value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm" style={{backgroundColor:translucentPanelColor("--color-surface-2",panelSolidity(),panelOverlay()),backdropFilter:`blur(${backdropBlur()}px)`}} />
+            </div>}
+          </div>
+          <div className="relative z-[1] px-4 pb-8 pt-20 sm:px-6 sm:pb-10 lg:px-10 lg:pt-20">
             <div
               className={
                 isSeries || isBookSeries
@@ -840,11 +842,11 @@ function NativeDetail({
             )}
             {children.some((e) => e.kind !== "episode" && showMissingEntry(library,e)) && (
               <section className="mt-10">
-                <div className={isBookSeries?"mb-3 grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_auto_1fr]":"mb-3 flex flex-wrap items-center justify-between gap-3"}>
+                <div className="mb-3">
                 <h2 className="text-xl font-semibold">
                   {entry.kind === "series" ? "Seasons" : children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapters" : "Volumes"}
                 </h2>
-                {isBookSeries&&<div role="search" className="relative mx-auto w-[min(21rem,100%)] sm:w-80"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint"/><input aria-label="Search volumes and chapters" placeholder="Find a volume or chapter" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none focus:border-accent md:text-sm"/></div>}
+
                 </div>
                 {isBookSeries&&visibleBooks.length===0&&<p role="status" className="py-4 text-muted">No matching volumes or chapters.</p>}
                 <div className={isBookSeries ? posterGrid : "-mx-2 -mt-2 flex gap-5 overflow-x-auto px-2 pb-3 pt-2 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]"}>
@@ -868,20 +870,7 @@ function NativeDetail({
             )}
             {children.some((e) => e.kind === "episode" && showMissingEntry(library,e)) && (
               <section className="mt-10">
-                <div className="mb-6 grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_auto_1fr]">
-                  <h2 className="text-xl font-semibold">Episodes</h2>
-                  <div className="relative mx-auto w-[min(21rem,100%)] sm:w-80">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
-                    <input
-                      aria-label="Search episodes"
-                      placeholder="Find an episode"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"
-                      style={{backgroundColor:translucentPanelColor("--color-surface-2",panelSolidity(),panelOverlay()),backdropFilter:`blur(${backdropBlur()}px)`}}
-                    />
-                  </div>
-                </div>
+                <h2 className="mb-6 text-xl font-semibold">Episodes</h2>
                 <div className="space-y-5">
                   {children
                     .filter(
