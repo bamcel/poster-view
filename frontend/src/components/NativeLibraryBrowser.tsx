@@ -1,3 +1,4 @@
+import EpisodeMediaInfo from "./EpisodeMediaInfo";
 import VideoPreferences,{useVideoPreferences} from "./VideoPreferences";
 import {stillArtwork} from "./AnimatedArtwork";
 import {HOME_RESET_EVENT} from "../lib/homeNavigation";
@@ -979,7 +980,7 @@ function NativeDetail({
                 </PeopleRow>
               </section>
             )}
-            {entry.files.length > 0 && (
+            {entry.files.length > 0 && (isEpisode ? <EpisodeMediaInfo files={entry.files}/> : (
               <section className="mt-8">
                 <h2 className="mb-4 text-xl font-semibold">
                   Media information
@@ -1003,7 +1004,7 @@ function NativeDetail({
                   </div>
                 ))}
               </section>
-            )}
+            ))}
             {entry.kind === "series" && <ItemAbout item={detail} />}
           </div>
         </div>
