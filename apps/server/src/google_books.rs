@@ -41,11 +41,20 @@ pub(crate) async fn request(state:&AppState,client:&reqwest::Client,id:Option<&s
 async fn request_with_key(client:&reqwest::Client,id:Option<&str>,query:&str,key:&str)->Result<Value,String>{
  if id.is_some_and(|id|!valid_id(id)){return Err("Invalid Google Books volume ID.".into());}
  let url=id.map(|id|format!("https://www.googleapis.com/books/v1/volumes/{id}")).unwrap_or_else(||"https://www.googleapis.com/books/v1/volumes".into());
- let mut request=client.get(url).header("X-Goog-Api-Key",key);
+ let mut request=client.get(url).query(&[("key",key)]);
  if id.is_none(){request=request.query(&[("q",query),("maxResults","20"),("printType","books")]);}
- let response=request.send().await.map_err(|_|"Google Books connection failed.")?;
- if !response.status().is_success(){return Err(match response.status().as_u16(){401|403=>"Google Books rejected the API key or access. Check that Books API is enabled and key restrictions allow server requests.",429=>"Google Books quota exceeded. Try again later.",404=>"Google Books volume not found.",_=>"Google Books request failed."}.into());}
+ let response=request.send().await.map_err(|error|if error.is_timeout(){"Google Books request timed out. Try again."}else{"Could not connect to Google Books. Check the server's internet access."})?;
+ if !response.status().is_success(){let status=response.status().as_u16();let body=response.json::<Value>().await.unwrap_or(Value::Null);return Err(provider_error(status,&body));}
  response.json().await.map_err(|_|"Invalid Google Books response.".into())
+}
+fn provider_error(status:u16,body:&Value)->String{
+ let reasons=body["error"]["errors"].as_array().into_iter().flatten().map(|v|v["reason"].as_str().unwrap_or("")).chain(body["error"]["details"].as_array().into_iter().flatten().map(|v|v["reason"].as_str().unwrap_or(""))).collect::<Vec<_>>();
+ let message=if reasons.iter().any(|r|["API_KEY_INVALID","keyInvalid"].contains(r)){"Invalid Google Books API key. Replace it in the plugin configuration."}
+ else if reasons.iter().any(|r|["SERVICE_DISABLED","accessNotConfigured"].contains(r)){"Books API is not enabled for this Google Cloud project. Enable it and try again."}
+ else if reasons.iter().any(|r|["API_KEY_HTTP_REFERRER_BLOCKED","API_KEY_IP_ADDRESS_BLOCKED","API_KEY_SERVICE_BLOCKED","ipRefererBlocked"].contains(r)){"Google Books key restrictions blocked this server. Check API and application restrictions in Google Cloud."}
+ else if status==429||reasons.iter().any(|r|["rateLimitExceeded","dailyLimitExceeded","quotaExceeded","RESOURCE_EXHAUSTED"].contains(r)){"Google Books quota exceeded. Check your project's quota or try again later."}
+ else {match status{400=>"Google Books rejected the request. Check the API key, title query, or volume ID.",401|403=>"Google Books denied access. Check the key, Books API enablement, restrictions, and quota.",404=>"Google Books volume not found. Enter its volume ID rather than its title.",500..=599=>"Google Books is temporarily unavailable. Try again later.",_=>"Google Books request failed."}};
+ format!("{message} (HTTP {status})")
 }
 pub(crate) fn fields(raw:&Value)->Value{
  let info=&raw["volumeInfo"];
@@ -56,6 +65,14 @@ pub(crate) fn fields(raw:&Value)->Value{
 pub(crate) fn candidate(raw:&Value)->Option<Value>{let id=raw["id"].as_str()?;if !valid_id(id){return None;}let fields=fields(raw);Some(json!({"provider":"googlebooks","id":id,"title":fields["title"].as_str()?,"year":fields["year"],"overview":fields["plot"],"format":"Book edition","publisher":fields["publisher"],"poster":raw["volumeInfo"]["imageLinks"]["thumbnail"].as_str().map(|url|url.replacen("http://","https://",1)),"identifiers":{"googlebooks":id}}))}
 #[cfg(test)] mod tests {
  use super::*;
+ #[test] fn provider_errors_explain_failures_without_exposing_keys(){
+  assert!(provider_error(400,&json!({"error":{"details":[{"reason":"API_KEY_INVALID"}]}})).contains("Invalid Google Books API key"));
+  assert!(provider_error(403,&json!({"error":{"errors":[{"reason":"accessNotConfigured"}]}})).contains("not enabled"));
+  assert!(provider_error(403,&json!({"error":{"details":[{"reason":"API_KEY_HTTP_REFERRER_BLOCKED"}]}})).contains("restrictions"));
+  assert!(provider_error(503,&Value::Null).contains("temporarily unavailable"));
+  assert!(!provider_error(400,&json!({"error":{"message":"key=secret-fixture"}})).contains("secret-fixture"));
+ }
+
  #[test] fn maps_edition_without_inventing_series_counts(){let raw=json!({"id":"a-B_12","volumeInfo":{"title":"Example","authors":["Author"],"publishedDate":"2021-02-09","pageCount":178,"averageRating":4.5,"industryIdentifiers":[{"type":"ISBN_13","identifier":"9781646090716"}]}});let value=fields(&raw);assert_eq!(value["year"],2021);assert_eq!(value["rating"],9.0);assert_eq!(value["isbn_13"],"9781646090716");assert_eq!(value["credits"][0]["category"],"author");assert!(value["volumes"].is_null());assert_eq!(candidate(&raw).unwrap()["id"],"a-B_12");assert!(!valid_id("../secret"));}
  #[tokio::test] async fn key_is_not_returned_and_blank_save_preserves_it(){let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());let result=save(State(state.clone()),Json(SettingsInput{enabled:true,api_key:Some("test-secret".into()),clear_key:false})).await.unwrap().0;assert_eq!(result,json!({"enabled":true,"configured":true}));let _=save(State(state.clone()),Json(SettingsInput{enabled:false,api_key:Some("".into()),clear_key:false})).await.unwrap();assert_eq!(ServerStore::new(state.runtime.data_dir()).get_setting("google_books_api_key").unwrap(),"test-secret");}
 }
