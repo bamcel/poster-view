@@ -36,7 +36,7 @@ fn key(state: &AppState, name: &str) -> String {
 }
 fn book_providers(lib: &posterview_contracts::native::NativeLibrary) -> Vec<&str> {
     lib.options.metadata_providers.get("book_series")
-        .map(|providers| providers.iter().map(String::as_str).filter(|p| ["comicvine", "anilist", "mal", "mangadex"].contains(p)).collect())
+        .map(|providers| providers.iter().map(String::as_str).filter(|p| ["comicvine", "anilist", "mal", "mangadex", "googlebooks"].contains(p)).collect())
         .unwrap_or_else(|| vec!["comicvine", "anilist", "mal"])
 }
 fn numeric(v: &Value) -> Option<String> {
@@ -54,7 +54,7 @@ fn comicvine_id(value: &str) -> Option<String> {
     url.path_segments()?.find_map(|part| part.strip_prefix("4050-").and_then(|id| numeric(&json!(id))))
 }
 fn identification_id(provider: &str, value: &Value) -> bool {
-    if provider=="mangadex" { value.as_str().is_some_and(posterview_infra_artwork::valid_manga_id) } else { numeric(value).is_some() }
+    if provider=="googlebooks" { value.as_str().is_some_and(crate::google_books::valid_id) } else if provider=="mangadex" { value.as_str().is_some_and(posterview_infra_artwork::valid_manga_id) } else { numeric(value).is_some() }
 }
 fn year(v: &Value) -> Value {
     v.as_i64()
@@ -410,6 +410,10 @@ async fn lookup(
                     .collect()
             }
         }
+        "googlebooks" if books => {
+            let raw=crate::google_books::request(state,client,id,title).await?;
+            return Ok(if id.is_some(){crate::google_books::candidate(&raw).into_iter().collect()}else{raw["items"].as_array().into_iter().flatten().filter_map(crate::google_books::candidate).collect()});
+        }
         "mangadex" if books => {
             let request=client.get(id.map(|id|format!("https://api.mangadex.org/manga/{id}")).unwrap_or_else(||"https://api.mangadex.org/manga".into())).query(&[("includes[]","cover_art")]);
             let request=if id.is_some(){request}else{request.query(&[("title",title),("limit","15")])};
@@ -492,8 +496,8 @@ async fn context(
             .into_iter()
             .find(|e| e.id == item && e.available)
             .ok_or_else(HttpError::not_found)?;
-        if !["series", "movie", "book_series"].contains(&entry.kind.as_str()) {
-            return Err(HttpError::bad_request("Identify a series, movie, or book series."));
+        if !["series", "movie", "book_series", "book"].contains(&entry.kind.as_str()) {
+            return Err(HttpError::bad_request("Identify a series, movie, or book."));
         }
         Ok((lib, entry))
     })
@@ -561,7 +565,7 @@ pub(crate) async fn search(
         ));
     }
     let client = client()?;
-    let providers = if entry.kind == "book_series" {
+    let providers = if entry.kind.starts_with("book") {
         book_providers(&lib)
     } else if lib.library_type == posterview_contracts::native::NativeLibraryType::Anime {
         vec!["anilist", "tmdb", "tvdb", "mal", "anidb"]
@@ -571,12 +575,12 @@ pub(crate) async fn search(
     let providers=providers.into_iter().filter(|provider|input.providers.as_ref().is_none_or(|requested|requested.iter().any(|p|p==provider))).collect::<Vec<_>>();
     let mut jobs = tokio::task::JoinSet::new();
     for selected_provider in providers.iter().copied() {
-        let provider = match selected_provider {"comicvine"=>"comicvine", "anilist"=>"anilist", "mal"=>"mal", "mangadex"=>"mangadex", "tmdb"=>"tmdb", "tvdb"=>"tvdb", _=>"anidb"};
+        let provider = match selected_provider {"comicvine"=>"comicvine", "anilist"=>"anilist", "mal"=>"mal", "mangadex"=>"mangadex", "googlebooks"=>"googlebooks", "tmdb"=>"tmdb", "tvdb"=>"tvdb", _=>"anidb"};
         let state = state.clone();
         let client = client.clone();
         let title = input.title.clone();
         let movie = entry.kind == "movie";
-        let books = entry.kind == "book_series";
+        let books = entry.kind.starts_with("book");
         let adult = lib.allows_adult_metadata();
         let language = lib.options.metadata_language.clone();
         jobs.spawn(async move {
@@ -629,9 +633,9 @@ pub(crate) async fn apply(
         *id = comicvine_id(id).ok_or_else(|| HttpError::bad_request("Enter a ComicVine volume ID or series URL (4050), not an issue URL."))?;
     }
     for (provider, id) in &input.identifiers {
-        if (lib.library_type!=posterview_contracts::native::NativeLibraryType::Anime && entry.kind!="book_series" && !["tmdb","tvdb","imdb"].contains(&provider.as_str()))
-            || (entry.kind == "book_series" && !book_providers(&lib).contains(&provider.as_str()))
-            || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "imdb", "anidb", "mangadex"].contains(&provider.as_str())
+        if (lib.library_type!=posterview_contracts::native::NativeLibraryType::Anime && !entry.kind.starts_with("book") && !["tmdb","tvdb","imdb"].contains(&provider.as_str()))
+            || (entry.kind.starts_with("book") && !book_providers(&lib).contains(&provider.as_str()))
+            || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "imdb", "anidb", "mangadex", "googlebooks"].contains(&provider.as_str())
             || if provider == "imdb" {
                 !id.starts_with("tt") || numeric(&json!(&id[2..])).is_none()
             } else {
@@ -658,7 +662,7 @@ pub(crate) async fn apply(
             (
                 lib.allows_adult_metadata(),
                 &lib.options.metadata_language,
-                entry.kind == "book_series",
+                entry.kind.starts_with("book"),
             ),
         )
         .await
@@ -667,7 +671,7 @@ pub(crate) async fn apply(
             HttpError::bad_request("That provider ID does not match the library's media type.")
         })?;
         for (name, value) in record["identifiers"].as_object().into_iter().flatten() {
-            if entry.kind == "book_series" && !book_providers(&lib).contains(&name.as_str()) { continue; }
+            if entry.kind.starts_with("book") && !book_providers(&lib).contains(&name.as_str()) { continue; }
             let Some(value) = value.as_str() else {
                 continue;
             };
@@ -691,7 +695,7 @@ pub(crate) async fn apply(
             return Err(HttpError::bad_request("Invalid linked provider ID."));
         }
     }
-    if lib.library_type!=posterview_contracts::native::NativeLibraryType::Anime && entry.kind!="book_series" {ids.retain(|name,_|["tvdb","tmdb","imdb"].contains(&name.as_str()));}
+    if lib.library_type!=posterview_contracts::native::NativeLibraryType::Anime && !entry.kind.starts_with("book") {ids.retain(|name,_|["tvdb","tmdb","imdb"].contains(&name.as_str()));}
     let mut replacement=None;let mut images=Vec::new();let mut warnings=Vec::<String>::new();
     if input.rewrite_metadata {
         if entry.kind!="series" || !ids.contains_key("tvdb") {return Err(HttpError::bad_request("Select a TVDB series before rewriting metadata."));}
@@ -1058,8 +1062,8 @@ pub(crate) async fn resolve(
     if input.provider == "comicvine" {
         input.id = comicvine_id(&input.id).ok_or_else(|| HttpError::bad_request("Enter a ComicVine volume ID or series URL (4050), not an issue URL."))?;
     }
-    if (entry.kind == "book_series" && !book_providers(&lib).contains(&input.provider.as_str()))
-        || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "anidb", "mangadex"].contains(&input.provider.as_str())
+    if (entry.kind.starts_with("book") && !book_providers(&lib).contains(&input.provider.as_str()))
+        || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "anidb", "mangadex", "googlebooks"].contains(&input.provider.as_str())
         || !identification_id(&input.provider, &json!(input.id))
     {
         return Err(HttpError::bad_request("Choose a valid provider record."));
@@ -1085,7 +1089,7 @@ pub(crate) async fn resolve(
             (
                 lib.allows_adult_metadata(),
                 &lib.options.metadata_language,
-                entry.kind == "book_series",
+                entry.kind.starts_with("book"),
             ),
         )
         .await
@@ -1093,7 +1097,7 @@ pub(crate) async fn resolve(
             Ok(values) => {
                 if let Some(record) = values.first() {
                     for (name, value) in record["identifiers"].as_object().into_iter().flatten() {
-                        if entry.kind == "book_series" && !book_providers(&lib).contains(&name.as_str()) { continue; }
+                        if entry.kind.starts_with("book") && !book_providers(&lib).contains(&name.as_str()) { continue; }
                         let Some(value) = value.as_str() else {
                             continue;
                         };
@@ -1107,7 +1111,7 @@ pub(crate) async fn resolve(
                         }
                     }
                     let mut record = record.clone();
-                    if entry.kind == "book_series" { if let Some(values) = record["identifiers"].as_object_mut() { values.retain(|name, _| book_providers(&lib).contains(&name.as_str())); } }
+                    if entry.kind.starts_with("book") { if let Some(values) = record["identifiers"].as_object_mut() { values.retain(|name, _| book_providers(&lib).contains(&name.as_str())); } }
                     records.push(record);
                 } else {
                     warnings.push(format!("{provider}: no record for the item's media type."));
@@ -1126,7 +1130,7 @@ pub(crate) async fn resolve(
 pub(crate) struct MetadataPreview { provider: String }
 pub(crate) async fn metadata_preview(State(state): State<AppState>, Path((library,item)): Path<(String,String)>, Json(input): Json<MetadataPreview>) -> Result<Json<Value>,HttpError> {
     let (lib,entry)=context(&state,&library,&item).await?;
-    if entry.kind != "book_series" || !book_providers(&lib).contains(&input.provider.as_str()) {return Err(HttpError::bad_request("Select an enabled book metadata provider."));}
+    if !entry.kind.starts_with("book") || !book_providers(&lib).contains(&input.provider.as_str()) {return Err(HttpError::bad_request("Select an enabled book metadata provider."));}
     if !identification_id(&input.provider, &entry.metadata["identifiers"][&input.provider]) {return Err(HttpError::bad_request("Identify this series with the selected provider first."));}
     let client=client()?;
     let fields=if input.provider == "anilist" {
@@ -1136,8 +1140,8 @@ pub(crate) async fn metadata_preview(State(state): State<AppState>, Path((librar
         crate::native_provider_extra::fetch(&state,&client,&posterview_infra_artwork::ArtworkService::default(),&input.provider,&lib,&entry,&Value::Null).await.map_err(HttpError::bad_gateway)?.fields
     };
     let mut fields=fields.as_object().cloned().unwrap_or_default();
-    fields.retain(|key,value| ["title","originaltitle","plot","year","volumes","chapters","publisher","status","country","genres","tags","characters"].contains(&key.as_str()) && !value.is_null() && value.as_str().is_none_or(|text|!text.trim().is_empty()));
-    let prefix=if input.provider=="comicvine" {"edition"} else {"original"};
+    fields.retain(|key,value| ["title","originaltitle","subtitle","plot","year","volumes","chapters","publisher","publishers","status","country","genres","tags","characters","credits","pages","language","published_date","isbn_10","isbn_13","rating","ratings_count","source_url"].contains(&key.as_str()) && !value.is_null() && value.as_str().is_none_or(|text|!text.trim().is_empty()));
+    let prefix=if ["comicvine","googlebooks"].contains(&input.provider.as_str()) {"edition"} else {"original"};
     for name in ["year","volumes"] {if let Some(value)=fields.get(name).cloned() {fields.insert(format!("{prefix}_{name}"),value);}}
     Ok(Json(json!({"provider":input.provider,"fields":fields})))
 }

@@ -205,6 +205,11 @@ pub(crate) async fn fetch(
     parent: &Value,
 ) -> Result<Data, String> {
     match provider {
+        "googlebooks" if entry.kind.starts_with("book") => {
+            let selected=id(&entry.metadata,"googlebooks").ok_or("Identify this book with Google Books first.")?;
+            let raw=crate::google_books::request(state,client,Some(&selected),"").await?;
+            Ok(Data{id:Some(selected),fields:crate::google_books::fields(&raw),artwork:vec![],raw})
+        }
         "mangadex" if entry.kind == "book_series" => {
             let selected = id(&entry.metadata,"mangadex").ok_or("Identify this series with MangaDex first.")?;
             if !posterview_infra_artwork::valid_manga_id(&selected) { return Err("Invalid MangaDex series ID.".into()); }

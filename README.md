@@ -468,3 +468,18 @@ MIT — see [LICENSE](LICENSE).
 Manual libraries can opt into **Connected Server Sync** when created or edited. Select one Emby or Jellyfin library as the incoming source and recovery authority. PosterView pushes applicable edits to all connected servers by default; disable **Push changes to all connected servers** to choose additional destinations individually. Shared metadata and static artwork synchronize; enhanced data and animations remain local. Plex destinations receive supported static artwork only. See [manual-library sync](docs/native-libraries.md#connected-server-sync) for importing, NFO merging, matching, and conflict handling.
 
 Recently visited page data is retained in browser memory for 30 minutes and revalidated according to each page’s freshness interval. Manual artwork uses private browser caching and ETags: unchanged images return a lightweight 304 response after their cache expires. Artwork edits use revisioned URLs, and scan completion invalidates library data. This cache is not persisted across browser reloads.
+
+### Google Books metadata plugin
+
+Open **Settings → Plugins → Google Books** to enable the plugin and save an API key.
+Enable the Books API in your Google Cloud project, restrict the key to that API,
+and use restrictions compatible with server requests (not browser referrers).
+The key is encrypted at rest and is never returned by the configuration endpoint.
+Save the configuration, then use **Test connection** to check access and quota.
+
+Enable **Google Books** in the book library's metadata provider list. Use **Identify**
+to search and select a Google Books edition, then **Fetch Metadata** to preview and
+choose fields, or **Refresh Metadata** to fetch missing values. Individual books
+and book series can use Google Books IDs. Google Books supplies edition metadata,
+not a reliable series volume count or completion status. Cover thumbnails appear
+in identification results; this plugin does not download artwork automatically.

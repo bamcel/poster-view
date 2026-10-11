@@ -177,3 +177,18 @@ it("deselects one provider without clearing other saved IDs",async()=>{
  expect((screen.getByLabelText("TheTVDB identification ID") as HTMLInputElement).value).toBe("456");
  expect(card.getAttribute("aria-pressed")).toBe("false");
 });
+
+it("selects a Google Books edition with an alphanumeric ID for an individual book",async()=>{
+ const book={...entry,kind:"book",title:"Example",metadata:{}};
+ const match={provider:"googlebooks",id:"a-B_12",title:"Example",year:2021,format:"Book edition",overview:null,identifiers:{googlebooks:"a-B_12"}};
+ vi.mocked(nativeLibraries.identifySearch).mockResolvedValue({groups:[{provider:"googlebooks",results:[match]}]});
+ vi.mocked(nativeLibraries.identifyResolve).mockResolvedValue({identifiers:match.identifiers,candidates:[match],warnings:[]});
+ vi.mocked(nativeLibraries.identify).mockResolvedValue({entry:book,warnings:[],message:"Saved"});
+ render(<IdentifyPanel library={{...library,library_type:"books",options:{...defaultNativeOptions,metadata_providers:{book_series:["googlebooks"]}}}} entry={book} busy={false} onSaved={()=>{}}/>);
+ fireEvent.click(screen.getByText("Search all providers"));
+ expect(await screen.findByRole("region",{name:"Google Books matches"})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:/Example.*2021/}));
+ await waitFor(()=>expect(screen.queryByText("Finding linked provider IDs…")).toBeNull());
+ fireEvent.click(screen.getByText("Save identification"));
+ await waitFor(()=>expect(nativeLibraries.identify).toHaveBeenCalledWith("lib","item",expect.objectContaining({identifiers:{googlebooks:"a-B_12"}})));
+});

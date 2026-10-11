@@ -719,7 +719,8 @@ async fn enrich_one(
         vec!["tmdb".to_owned()]
     };
     let book_default = vec!["comicvine".to_owned(), "anilist".to_owned(), "mal".to_owned()];
-    let metadata_default = if entry.kind == "book_series" { &book_default } else { &default };
+    let edition_default=library.options.metadata_providers.get("book_series").into_iter().flatten().filter(|p|p.as_str()=="googlebooks").cloned().collect::<Vec<_>>();
+    let metadata_default = if entry.kind == "book_series" { &book_default } else if entry.kind=="book" {&edition_default} else { &default };
     let selected_order=entry.metadata["_identify_source"].as_str().filter(|p|*p=="tvdb").map(|p|vec![p.to_string()]);
     let metadata_order = library
         .options

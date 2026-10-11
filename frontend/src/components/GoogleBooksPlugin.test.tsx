@@ -1,0 +1,24 @@
+import {render,screen,fireEvent,waitFor,cleanup} from "@testing-library/react";
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
+import {afterEach,it,expect,vi} from "vitest";
+import GoogleBooksPlugin from "./GoogleBooksPlugin";
+import {apiRequest} from "../api/client";
+vi.mock("../api/client",()=>({apiRequest:vi.fn()}));
+afterEach(()=>{cleanup();vi.clearAllMocks();});
+it("configures an API key in the popup, clears its input, and tests the saved connection",async()=>{
+ Object.defineProperty(HTMLDialogElement.prototype,"showModal",{configurable:true,value(){this.setAttribute("open","");}});
+ vi.mocked(apiRequest).mockImplementation(async(path,options)=>path.endsWith("/test")?{message:"Connection successful"}:options?.method==="PUT"?{enabled:true,configured:true}:{enabled:false,configured:false});
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<QueryClientProvider client={client}><GoogleBooksPlugin/></QueryClientProvider>);
+ fireEvent.click(screen.getByRole("button",{name:/Google Books/}));
+ await waitFor(()=>expect((screen.getByLabelText("API key") as HTMLInputElement).disabled).toBe(false));
+ fireEvent.click(screen.getByLabelText("Enable Google Books"));
+ fireEvent.change(screen.getByLabelText("API key"),{target:{value:"test-key"}});
+ fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ await screen.findByText("Configuration saved.");
+ expect((screen.getByLabelText("API key") as HTMLInputElement).value).toBe("");
+ const saved=vi.mocked(apiRequest).mock.calls.find(([,options])=>options?.method==="PUT");
+ expect(JSON.parse(String(saved?.[1]?.body))).toEqual({enabled:true,api_key:"test-key",clear_key:false});
+ fireEvent.click(screen.getByRole("button",{name:"Test connection"}));
+ expect(await screen.findByText("Connection successful")).toBeTruthy();
+});

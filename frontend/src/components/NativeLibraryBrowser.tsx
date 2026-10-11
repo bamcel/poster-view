@@ -239,7 +239,7 @@ export default function NativeLibraryBrowser({
   const [sort, setSort] = useState("title");
   const [artFilter, setArtFilter] = useState("all");
   const [metadataFilter,setMetadataFilter]=useState("all");
-  const providerNames:Record<string,string>={comicvine:"ComicVine",anilist:"AniList",mal:"MyAnimeList",mangadex:"MangaDex",tmdb:"TheMovieDB",tvdb:"TheTVDB",anidb:"AniDB",imdb:"IMDb"};
+  const providerNames:Record<string,string>={comicvine:"ComicVine",anilist:"AniList",mal:"MyAnimeList",googlebooks:"Google Books",mangadex:"MangaDex",tmdb:"TheMovieDB",tvdb:"TheTVDB",anidb:"AniDB",imdb:"IMDb"};
   const providerKind=library.library_type==="books"?"book_series":library.library_type==="movies"?"movie":"series";
   const metadataProviders=(library.options?.metadata_providers?.[providerKind]??(library.library_type==="books"?["comicvine","anilist","mal"]:library.library_type==="anime"?["anilist","tmdb","tvdb","mal","anidb"]:library.library_type==="movies"?["tmdb","imdb"]:["tmdb","tvdb","imdb"])).filter(p=>providerNames[p]);
   const hasId=(entry:NativeCatalogEntry,provider:string)=>{const ids=entry.metadata.identifiers as Record<string,unknown>|undefined;const value=ids?.[provider];return (typeof value==="string"&&!!value.trim()&&value.trim()!=="0")||(typeof value==="number"&&value>0);};
@@ -785,8 +785,8 @@ function NativeDetail({
                   >
                     <Images className="size-4" />
                   </button>}
-                  {entry.kind === "book_series" && <button className={detailActionClass} aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")}><Database className="size-4"/></button>}
-                  {["series","movie","book_series"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")}><Fingerprint className="size-4"/></button>}
+                  {entry.kind.startsWith("book") && <button className={detailActionClass} aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")}><Database className="size-4"/></button>}
+                  {["series","movie","book_series","book"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")}><Fingerprint className="size-4"/></button>}
                 </div>
                 {entry.kind.startsWith("book") && <BookSeriesMetadata unit={isBookSeries ? bookUnit : entry.metadata.chapter!=null && entry.metadata.volume==null ? "Chapter" : "Volume"} metadata={entry.metadata} count={isBookSeries ? children.filter(e=>e.metadata.missing!==true).length : 1}/>}
                 <div className={isSeries ? "hidden sm:block" : "text-left"}>

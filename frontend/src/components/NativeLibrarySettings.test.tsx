@@ -98,3 +98,8 @@ it("places missing specials under episode discovery and defaults it off",()=>{
  fireEvent.click(screen.getByRole("switch",{name:"Find Missing Episodes"}));
  expect(screen.queryByRole("switch",{name:"Show Missing Specials"})).toBeNull();
 });
+
+it("offers Google Books metadata for book libraries",()=>{
+ render(<NativeLibrarySettings options={defaultNativeOptions} type="books" animeContent="both" section={3} onChange={()=>{}}/>);
+ expect(screen.getByLabelText("Book metadata providers: Google Books")).toBeTruthy();
+});

@@ -33,6 +33,7 @@ mod native_operations;
 mod native_scan;
 mod native_missing;
 mod native_provider;
+mod google_books;
 mod native_jikan;
 mod native_provider_extra;
 mod native_monitor;
@@ -211,6 +212,8 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .route_layer(middleware::from_fn_with_state(auth, require_auth));
 
     Router::new()
+        .route("/api/plugins/google-books/test", axum::routing::post(google_books::test))
+        .route("/api/plugins/google-books", get(google_books::get).put(google_books::save))
         .route("/api/plugins/artwork", get(plugins::artwork_get).put(plugins::artwork_save))
         .route("/api/plugins/server-connect", get(plugins::get).put(plugins::save))
         .route("/api/health", get(health))
