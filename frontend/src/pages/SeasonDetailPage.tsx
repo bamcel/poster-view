@@ -93,7 +93,7 @@ export default function SeasonDetailPage() {
 
             <h1 className="mt-3 text-xl font-semibold leading-tight sm:text-2xl">{season.title}</h1>
             <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-white/75">{season.index === 0 && <span>Specials</span>}{period && <span>{period}</span>}<span className="media-detail-pill inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5"><Layers3 className="size-3.5" />{episodes.length} {episodes.length === 1 ? "episode" : "episodes"}</span></div>
-            <div className="mt-4"><button aria-label="Refresh season" title="Refresh season" disabled={seasonQ.isFetching} className="rounded-full border border-white/15 p-2.5 text-white/70 hover:bg-white/10 disabled:opacity-40" onClick={() => { void seasonQ.refetch(); void seriesQ.refetch(); }}><RefreshCw className={`size-4 ${seasonQ.isFetching ? "animate-spin" : ""}`} /></button></div>
+            <div className="mt-4"><button aria-label="Refresh season" title="Refresh season" disabled={seasonQ.isFetching} className="rounded-full border border-white/15 p-2.5 text-white/70 hover:bg-white/10 disabled:opacity-40" onClick={() => { void seasonQ.refetch(); void seriesQ.refetch(); }} data-icon-button="true"><RefreshCw className={`size-4 ${seasonQ.isFetching ? "animate-spin" : ""}`} /></button></div>
             <div className="hidden sm:block"><DetailSynopsis key={season.id} text={season.summary || series?.summary} /></div>
           </div>
         </div>}

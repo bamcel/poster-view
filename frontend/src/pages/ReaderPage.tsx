@@ -523,7 +523,7 @@ export default function ReaderPage() {
             exit();
           }}
           aria-label="Close reader"
-        >
+         data-icon-button="true">
           <ArrowLeft className="size-5" />
         </button>
         <div className="min-w-0 flex-1">
@@ -607,7 +607,7 @@ export default function ReaderPage() {
       {notice && (
         <div className="flex items-center gap-2 bg-surface-2 px-4 py-2 text-xs text-muted">
           <span className="flex-1">{notice}</span>
-          <button onClick={() => setNotice("")} aria-label="Dismiss notice">
+          <button onClick={() => setNotice("")} aria-label="Dismiss notice" data-icon-button="true">
             <X className="size-4" />
           </button>
         </div>
@@ -708,7 +708,7 @@ export default function ReaderPage() {
               disabled={pages[0] === 0 && state.offset === 0}
               onClick={() => turn(-1)}
               aria-label="Previous page"
-            >
+             data-icon-button="true">
               <ChevronLeft className="size-5" />
             </button>
             <label className="sr-only" htmlFor="reader-position">
@@ -735,7 +735,7 @@ export default function ReaderPage() {
               }
               onClick={() => turn(1)}
               aria-label="Next page"
-            >
+             data-icon-button="true">
               <ChevronRight className="size-5" />
             </button>
             {pages[pages.length - 1] >= count - 1 && book?.next && (
@@ -807,7 +807,7 @@ export default function ReaderPage() {
                 className={button}
                 onClick={() => setPanel(null)}
                 aria-label="Close panel"
-              >
+               data-icon-button="true">
                 <X className="size-5" />
               </button>
             </div>
@@ -1090,7 +1090,7 @@ export default function ReaderPage() {
                             ),
                           }))
                         }
-                      >
+                       data-icon-button="true">
                         <X className="size-4" />
                       </button>
                     </div>
@@ -1154,7 +1154,7 @@ export default function ReaderPage() {
                     <button
                       className={button}
                       disabled={searching || !query.trim()}
-                    >
+                     data-icon-button="true">
                       <Search className="size-4" />
                     </button>
                   </form>

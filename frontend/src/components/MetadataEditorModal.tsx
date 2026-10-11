@@ -105,7 +105,7 @@ export default function MetadataEditorModal({
       <form onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="metadata-editor-title" className="flex h-[85dvh] max-h-[900px] w-full max-w-[52rem] flex-col overflow-hidden rounded-2xl border border-border bg-sidebar shadow-2xl">
         <header className="flex shrink-0 items-center gap-4 px-6 py-4 sm:px-8">
           <div className="min-w-0"><h2 id="metadata-editor-title" className="text-lg font-semibold">{incoming ? `Review ${sourceLabel ?? "imported"} metadata` : "Edit metadata"}</h2><p className="text-xs text-faint">Review the fields below, then save changes to this title’s NFO file.</p></div>
-          <button type="button" onClick={onClose} disabled={saving} aria-label="Close metadata editor" className="ml-auto shrink-0 grid size-9 place-items-center rounded-lg text-muted hover:bg-elevated hover:text-white disabled:opacity-50"><X className="size-5" /></button>
+          <button type="button" onClick={onClose} disabled={saving} aria-label="Close metadata editor" className="ml-auto shrink-0 grid size-9 place-items-center rounded-lg text-muted hover:bg-elevated hover:text-white disabled:opacity-50" data-icon-button="true"><X className="size-5" /></button>
         </header>
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 overflow-y-auto px-6 pb-6 sm:px-10">
           {incoming && conflicts.length > 0 && (

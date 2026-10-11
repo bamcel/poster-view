@@ -213,7 +213,7 @@ function Modal({
           aria-label="Close editor"
           className={metadata ? "ml-auto shrink-0 rounded-md p-1 text-muted hover:text-white" : detailActionClass}
           onClick={onClose}
-        >
+         data-icon-button="true">
           <X className="size-4" />
         </button>
       </header>
@@ -721,7 +721,7 @@ function NativeDetail({
             onClick={back}
             aria-label="Back"
             className="absolute left-5 top-5 z-10 grid size-9 max-md:size-[44px] place-items-center rounded-full bg-black/40 text-white backdrop-blur hover:bg-black/70"
-          >
+           data-icon-button="true">
             <ArrowLeft className="size-5" />
           </button>
           <div className="relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-10 lg:pt-20">
@@ -788,7 +788,7 @@ function NativeDetail({
                     aria-label="Edit Metadata"
                     title="Edit Metadata"
                     onClick={() => edit("metadata")}
-                  >
+                   data-icon-button="true">
                     <Pencil className="size-4" />
                   </button>
                   <button
@@ -797,7 +797,7 @@ function NativeDetail({
                     title="Refresh"
                     disabled={fetching}
                     onClick={refresh}
-                  >
+                   data-icon-button="true">
                     <RefreshCw
                       className={`size-4 ${fetching ? "animate-spin" : ""}`}
                     />
@@ -807,11 +807,11 @@ function NativeDetail({
                     aria-label="Edit Images"
                     title="Edit Images"
                     onClick={() => edit("artwork")}
-                  >
+                   data-icon-button="true">
                     <Images className="size-4" />
                   </button>}
-                  {entry.kind.startsWith("book") && <button className={detailActionClass} aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")}><Database className="size-4"/></button>}
-                  {["series","movie","book_series","book"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")}><Fingerprint className="size-4"/></button>}
+                  {entry.kind.startsWith("book") && <button className={detailActionClass} aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")} data-icon-button="true"><Database className="size-4"/></button>}
+                  {["series","movie","book_series","book"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")} data-icon-button="true"><Fingerprint className="size-4"/></button>}
                 </div>
                 {entry.kind.startsWith("book") && <BookSeriesMetadata unit={isBookSeries ? bookUnit : entry.metadata.chapter!=null && entry.metadata.volume==null ? "Chapter" : "Volume"} metadata={entry.metadata} count={isBookSeries ? children.filter(e=>e.metadata.missing!==true).length : 1}/>}
                 <div className={isSeries ? "hidden sm:block" : "text-left"}>
@@ -880,7 +880,7 @@ function NativeDetail({
                           aria-label={`Open ${episode.title}`}
                           onClick={() => open(episode)}
                           className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-lg bg-base sm:w-64 lg:w-80"
-                        >
+                         data-icon-button="true">
                           <Artwork
                             src={picture(library, episode, "thumb")}
                             alt={`${episode.title} episode still`}
@@ -937,7 +937,7 @@ function NativeDetail({
 
             {editingDubs && library.library_type==="anime" && <Modal backdrop={picture(library,entry,"backdrop")} title="Edit Dub Credits" onClose={()=>setEditingDubs(false)}><AnimeDubEditor library={library} entry={entry} onSaved={()=>{setEditingDubs(false);void dubClient.invalidateQueries({queryKey:["native-catalog",library.id]});}}/></Modal>}
             {animePreferences.casts && voiceCast?.groups.filter((_,index)=> index===0 ? animePreferences.original || (voiceCast.groups.length===1 && animePreferences.dub) : animePreferences.dub).map(group => <section key={group.title} className="mt-8">
-              <div className="mb-4 flex items-center gap-3"><h2 className="text-xl font-semibold">{group.title}</h2><button aria-label={`Edit dub credits for ${group.title}`} title="Edit dub credits" className="rounded-full border border-border p-2 text-muted hover:text-white" onClick={()=>setEditingDubs(true)}><Pencil className="size-4"/></button></div>
+              <div className="mb-4 flex items-center gap-3"><h2 className="text-xl font-semibold">{group.title}</h2><button aria-label={`Edit dub credits for ${group.title}`} title="Edit dub credits" className="rounded-full border border-border p-2 text-muted hover:text-white" onClick={()=>setEditingDubs(true)} data-icon-button="true"><Pencil className="size-4"/></button></div>
               {group.cast.length ? <PeopleRow label={group.title}>{group.cast.map((person, i) => <div key={i} className="w-48 shrink-0 rounded-xl p-4">
                 <PersonPortrait person={person} images={portraitImages} />
                 <p className="text-sm font-medium">{String(person.name ?? "")}</p>

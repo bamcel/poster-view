@@ -169,7 +169,7 @@ export default function ItemDetailPage() {
             onClick={goBack}
             className="absolute left-5 top-5 z-10 grid size-9 place-items-center rounded-full bg-black/40 text-white backdrop-blur transition-colors hover:bg-black/70"
             aria-label="Back"
-          >
+           data-icon-button="true">
             <ArrowLeft className="size-5" />
           </button>
 
@@ -234,7 +234,7 @@ export default function ItemDetailPage() {
                             className={detailActionClass}
                             aria-label="Edit Metadata"
                             title="Edit Metadata"
-                          >
+                           data-icon-button="true">
                             <Pencil className="size-4" aria-hidden="true" />
                           </button>
                         )}
@@ -243,13 +243,13 @@ export default function ItemDetailPage() {
                         className={detailActionClass}
                         aria-label={isSeries ? "Refresh Series" : "Refresh"}
                         title={isSeries ? "Refresh Series" : "Refresh from server"}
-                      >
+                       data-icon-button="true">
                         <RefreshCw
                           className={`size-4 ${detailQ.isFetching ? "animate-spin" : ""}`} aria-hidden="true"
                         />
 
                       </button>
-                      {artworkPlugin.data?.enabled !== false && <button type="button" onClick={() => setArtworkOpen(true)} aria-label="Edit Artwork" title="Edit Artwork" aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className={detailActionClass}>
+                      {artworkPlugin.data?.enabled !== false && <button type="button" onClick={() => setArtworkOpen(true)} aria-label="Edit Artwork" title="Edit Artwork" aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className={detailActionClass} data-icon-button="true">
                         <Images className="size-4" aria-hidden="true" />
                       </button>}
                       </div>
@@ -276,7 +276,7 @@ export default function ItemDetailPage() {
                           ].filter(Boolean).map((entry) => {
                             const [label, value] = entry as string[];
                             const displayValue = label === "Status" || label === "Source" ? sentenceCaseMetadata(value) : value;
-                            return <span key={label} className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span className="min-w-0 truncate"><span className="text-white/50">{label}</span> · {displayValue}</span>{label === "Publisher" && publisherArtworkTarget && <button type="button" onClick={() => { setArtworkTarget({ ...publisherArtworkTarget, nonce: Date.now() }); setArtworkOpen(true); }} aria-label={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} title={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} className="ml-1 shrink-0 rounded-full p-0.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white"><ExternalLink className="size-3.5" /></button>}</span>;
+                            return <span key={label} className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span className="min-w-0 truncate"><span className="text-white/50">{label}</span> · {displayValue}</span>{label === "Publisher" && publisherArtworkTarget && <button type="button" onClick={() => { setArtworkTarget({ ...publisherArtworkTarget, nonce: Date.now() }); setArtworkOpen(true); }} aria-label={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} title={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} className="ml-1 shrink-0 rounded-full p-0.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white" data-icon-button="true"><ExternalLink className="size-3.5" /></button>}</span>;
                           })}
                           {missingInstallments > 0 && installmentInfo && (
                             <span className="rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 text-xs font-medium text-amber-200">

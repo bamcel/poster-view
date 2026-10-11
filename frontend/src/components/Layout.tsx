@@ -89,7 +89,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           ))}
 
         </nav>
-        {showSignOut && <button type="button" onClick={signOut} aria-label="Sign out" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white">
+        {showSignOut && <button type="button" onClick={signOut} aria-label="Sign out" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white" data-icon-button="true">
           <LogOut className="size-[18px]" />
         </button>}
 

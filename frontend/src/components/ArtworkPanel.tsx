@@ -173,7 +173,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
             {plugin.data?.poster_edit !== false && <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="edit"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><PosterIcon className="size-4"/>PosterEdit</button>}
             {plugin.data?.backdrop_edit !== false && <button role="tab" aria-selected={mode==="backdrop"} onClick={()=>setMode("backdrop")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="backdrop"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Wallpaper className="size-4"/>BackdropEdit</button>}
           </div>
-          {onClose && <button type="button" onClick={onClose} aria-label="Close artwork" className="grid size-9 place-items-center rounded-lg text-muted transition-colors hover:bg-white/10 hover:text-white"><X className="size-5" /></button>}
+          {onClose && <button type="button" onClick={onClose} aria-label="Close artwork" className="grid size-9 place-items-center rounded-lg text-muted transition-colors hover:bg-white/10 hover:text-white" data-icon-button="true"><X className="size-5" /></button>}
         </div>
         {mode === "artwork" && <>{sourceLayout === "list" ? (
           <div>
@@ -234,7 +234,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
               disabled={refreshing}
               onClick={() => void refreshProvider()}
               className="shrink-0 rounded-md p-2 text-muted transition-colors hover:bg-elevated hover:text-white disabled:opacity-50"
-            >
+             data-icon-button="true">
               <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
             </button>
           </div>
