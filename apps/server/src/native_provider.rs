@@ -1471,7 +1471,7 @@ mod tests {
         };
         // These providers would reject the deliberately absent credentials if called.
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         let mut warnings = Vec::new();
         enrich_one(&state, &library, &mut episode, &mut warnings, &context).await;
         assert!(warnings.is_empty());

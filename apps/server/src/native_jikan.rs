@@ -379,7 +379,7 @@ mod tests {
     #[tokio::test]
     async fn fresh_cached_people_are_reused_without_network() {
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         let dir = state.runtime.data_dir().join("jikan-cache");
         std::fs::create_dir_all(&dir).unwrap();
         let body = json!({"data":[]});
@@ -398,7 +398,7 @@ mod tests {
     #[tokio::test]
     async fn successful_empty_check_does_not_fetch_again() {
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         let mut library = NativeLibrary {
             id: "library".into(),
             name: "Anime".into(),

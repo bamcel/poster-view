@@ -1081,7 +1081,7 @@ pub(super) fn mangadex_fields(data: &Value, language: &str) -> Value {
 mod tests {
     #[tokio::test]
     async fn disabling_anidb_preserves_saved_credentials() {
-        let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());
+        let temp=tempfile::tempdir().unwrap();let state=crate::test_support::state(temp.path());
         store(&state).set_setting("anidb_client","saved_client").unwrap();store(&state).set_setting("anidb_client_version","2").unwrap();
         assert!(anidb_enabled(&state));
         let _ = save_settings(State(state.clone()),Json(SettingsInput{anidb_enabled:Some(false),..Default::default()})).await.unwrap();

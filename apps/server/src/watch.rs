@@ -902,6 +902,18 @@ pub(crate) async fn save_rules(
     .map_err(failure)?
 }
 
+
+pub(crate) fn routes() -> axum::Router<AppState> {
+    axum::Router::new()
+        .route("/api/watch/native/{library}/{item}", axum::routing::get(get_state).put(set_state))
+        .route("/api/watch/native/{library}/{item}/begin", axum::routing::post(begin))
+        .route("/api/watch/native/{library}/{item}/progress", axum::routing::put(progress))
+        .route("/api/watch/continue", axum::routing::get(continue_watching))
+        .route("/api/watch/libraries/{library}/rules", axum::routing::get(get_rules).put(save_rules))
+        .route("/api/watch/libraries/{library}/states", axum::routing::get(library_states))
+        .route("/api/playback/preferences", axum::routing::get(get_preferences).put(save_preferences))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1213,7 +1225,7 @@ mod tests {
     async fn endpoints_use_catalog_duration_and_refresh_preserves_watch_state() {
         use posterview_contracts::native::{AnimeContent, NativeLibraryInput, NativeLibraryType};
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         let db = ServerStore::new(state.runtime.data_dir());
         let lib = db
             .save_native_library(

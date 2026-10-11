@@ -322,7 +322,7 @@ mod internal_artwork_tests {
     use super::*;
     #[test]
     fn scan_skips_editor_backups_without_reading_or_writing_media_files() {
-        let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());
+        let temp=tempfile::tempdir().unwrap();let state=crate::test_support::state(temp.path());
         let entry=NativeCatalogEntry{id:"test".into(),path:"Shows/Test".into(),kind:"series".into(),parent_path:None,title:"Test".into(),metadata:serde_json::json!({}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
         for kind in ["poster-edit-original","poster-previous","thumb-previous","backdrop-previous","logo-previous"] {write(&state,&entry,&NativeArtwork{kind:kind.into(),path:"@managed/backup.jpg".into(),source:"manual".into()},false).unwrap();}
         assert!(!temp.path().join("media/Shows").exists());

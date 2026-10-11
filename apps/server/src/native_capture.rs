@@ -300,7 +300,7 @@ mod tests {
             return;
         }
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         let file = temp
             .path()
             .join("media/Shows/Test/Season 1/Test.S01E01.mkv");
@@ -389,7 +389,7 @@ mod tests {
     #[tokio::test]
     async fn a_file_outside_the_media_mount_is_rejected_without_capture() {
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         let outside = temp.path().join("outside.mkv");
         fs::write(&outside, b"not media").unwrap();
         let mut entry = episode();

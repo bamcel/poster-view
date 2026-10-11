@@ -7,7 +7,7 @@ mod tests {
     #[tokio::test]
     async fn artwork_plugin_preserves_defaults_and_persists_disabled_state() {
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         let settings=super::artwork_load(&state).unwrap();
         assert!(settings.enabled && settings.poster_edit && settings.backdrop_edit);
         assert!(!settings.pinned);

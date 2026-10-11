@@ -458,7 +458,7 @@ mod tests {
     #[test]
     fn disposable_records_preview_and_cleanup_preserve_active_data() {
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         let store = ServerStore::new(state.runtime.data_dir());
         let library = store.save_native_library(None,&NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],options:Default::default(),revision:None}).unwrap();
         store.set_setting("native-server-sync:removed", "{}").unwrap();
@@ -482,7 +482,7 @@ mod tests {
     }
     #[test]
     fn retiring_history_removes_backups_but_preserves_current_art_and_editor_originals() {
-        let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());
+        let temp=tempfile::tempdir().unwrap();let state=crate::test_support::state(temp.path());
         let store=ServerStore::new(state.runtime.data_dir());
         let dir=state.runtime.data_dir().join("history");std::fs::create_dir_all(&dir).unwrap();let backup=dir.join("old.jpg");std::fs::write(&backup,b"old").unwrap();
         store.insert_history(1,"item","Title","poster",backup.to_str().unwrap(),"image/jpeg","manual").unwrap();
@@ -510,7 +510,7 @@ mod tests {
     async fn cleanup_keeps_hidden_missing_artwork_edits_and_animation_stills() {
         let _guard = TEST_LOCK.lock().await;
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         let dir = state.runtime.data_dir().join("native-artwork");
         std::fs::create_dir_all(&dir).unwrap();
         for name in [
@@ -621,7 +621,7 @@ mod tests {
     async fn schedules_are_disabled_by_default_validated_and_persisted() {
         let _guard = TEST_LOCK.lock().await;
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         assert!(load(&state).unwrap().iter().all(|t| !t.enabled));
         *RUNNING_TASK.lock().unwrap() = Some("cleanup".into());
         let running = RunningTask;
@@ -654,7 +654,7 @@ mod tests {
     }
     #[tokio::test]
     async fn hidden_placeholders_and_unused_covers_are_cleaned_after_retention() {
-        let _guard=TEST_LOCK.lock().await;let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());let db=ServerStore::new(state.runtime.data_dir());
+        let _guard=TEST_LOCK.lock().await;let temp=tempfile::tempdir().unwrap();let state=crate::test_support::state(temp.path());let db=ServerStore::new(state.runtime.data_dir());
         let library=db.save_native_library(None,&NativeLibraryInput{name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:NativeLibraryOptions{show_missing_files:false,..Default::default()}}).unwrap();
         let entry=NativeCatalogEntry{id:String::new(),path:"Books/Test/@missing-volume-1".into(),kind:"book".into(),parent_path:Some("Books/Test".into()),title:"Missing".into(),metadata:serde_json::json!({"missing":true,"volume":1}),artwork:vec![NativeArtwork{kind:"poster".into(),path:"@managed/hidden.jpg".into(),source:"manual".into()}],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
         db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();let dir=state.runtime.data_dir().join("native-artwork");std::fs::create_dir_all(&dir).unwrap();let cover=dir.join("hidden.jpg");std::fs::write(&cover,b"cover").unwrap();aged(&cover);

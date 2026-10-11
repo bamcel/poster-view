@@ -273,7 +273,7 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn local_logo_updates_refresh_the_managed_copy_without_a_scan_or_manual_override() {
-        let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());
+        let temp=tempfile::tempdir().unwrap();let state=crate::test_support::state(temp.path());
         let folder=temp.path().join("media/Anime/Test");std::fs::create_dir_all(&folder).unwrap();let path=folder.join("clearlogo.png");
         let png=|width|{let mut bytes=std::io::Cursor::new(Vec::new());image::DynamicImage::new_rgba8(width,8).write_to(&mut bytes,image::ImageFormat::Png).unwrap();bytes.into_inner()};
         std::fs::write(&path,png(16)).unwrap();

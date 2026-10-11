@@ -210,7 +210,7 @@ mod tests {
     async fn collage_uses_native_posters_without_connected_servers() {
         use posterview_contracts::native::{NativeLibraryInput, NativeLibraryType, AnimeContent, NativeArtwork};
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         let media = temp.path().join("media");
         for name in ["One", "Two"] {
             fs::create_dir_all(media.join(name)).unwrap();

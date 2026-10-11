@@ -1101,15 +1101,8 @@ mod tests {
             .next()
             .unwrap()
             .to_owned();
-        let state = AppState {
-            active_native_scans: Default::default(),
-            playback: std::sync::Arc::new(crate::playback::PlaybackStore::new(runtime.data_dir())),
-            runtime,
-            auth: auth.clone(),
-            metadata: Arc::new(crate::metadata::MetadataStore::new(temp.path().into())),
-            login_backdrop: crate::login_backdrop::LoginBackdrop::new(temp.path()),
-            reader,
-        };
+        let mut state = AppState::new(runtime, auth.clone(), temp.path().into());
+        state.reader = reader;
         let app = Router::new()
             .route("/books/{id}/file", get(file))
             .route("/books/{id}/state", get(load_state).put(save_state))
@@ -1207,7 +1200,7 @@ mod tests {
     }
     #[tokio::test]
     async fn native_books_open_without_a_connected_server_and_reject_missing_files() {
-        let temp=tempfile::tempdir().unwrap();let state=crate::native::scan_tests::state(temp.path());
+        let temp=tempfile::tempdir().unwrap();let state=crate::test_support::state(temp.path());
         let folder=temp.path().join("media/Books/Series");fs::create_dir_all(&folder).unwrap();
         let file=folder.join("Volume 1.cbz");let mut zip=zip::ZipWriter::new(File::create(&file).unwrap());
         zip.start_file("1.png",zip::write::SimpleFileOptions::default()).unwrap();zip.write_all(b"image").unwrap();zip.finish().unwrap();

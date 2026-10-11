@@ -885,18 +885,8 @@ mod tests {
         std::fs::create_dir_all(media.join("Anime")).unwrap();
         let runtime = Arc::new(posterview_runtime::Runtime::new(dir.path().join("data")));
         runtime.initialize().unwrap();
-        let state = AppState {
-            active_native_scans: Default::default(),
-            playback: std::sync::Arc::new(crate::playback::PlaybackStore::new(runtime.data_dir())),
-            runtime: runtime.clone(),
-            auth: crate::AuthState::for_tests(""),
-            login_backdrop: crate::login_backdrop::LoginBackdrop::new(runtime.data_dir()),
-            metadata: Arc::new(crate::metadata::MetadataStore::new(media.clone())),
-            reader: Arc::new(crate::reader::ReaderStore::new(
-                media,
-                dir.path().join("reader.sqlite"),
-            )),
-        };
+        let mut state = AppState::new(runtime.clone(), crate::AuthState::for_tests(""), media.clone());
+        state.reader = Arc::new(crate::reader::ReaderStore::new(media, dir.path().join("reader.sqlite")));
         let mut input = NativeLibraryInput {
             name: "Anime".into(),
             library_type: NativeLibraryType::Anime,
@@ -929,25 +919,8 @@ mod tests {
 pub(crate) mod scan_tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryOptions, NativeLibraryType};
-    use std::{fs, sync::Arc};
-    pub(crate) fn state(dir: &std::path::Path) -> AppState {
-        let media = dir.join("media");
-        fs::create_dir_all(&media).unwrap();
-        let runtime = Arc::new(posterview_runtime::Runtime::new(dir.join("config")));
-        runtime.initialize().unwrap();
-        AppState {
-            active_native_scans: Default::default(),
-            playback: std::sync::Arc::new(crate::playback::PlaybackStore::new(runtime.data_dir())),
-            runtime: runtime.clone(),
-            auth: crate::AuthState::for_tests(""),
-            login_backdrop: crate::login_backdrop::LoginBackdrop::new(runtime.data_dir()),
-            metadata: Arc::new(crate::metadata::MetadataStore::new(media.clone())),
-            reader: Arc::new(crate::reader::ReaderStore::new(
-                media,
-                dir.join("config/reader.sqlite"),
-            )),
-        }
-    }
+    use std::fs;
+    use crate::test_support::state;
     #[tokio::test]
     async fn overlay_only_edits_do_not_rewrite_nfo_or_artwork() {
         let temp = tempfile::tempdir().unwrap();

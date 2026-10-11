@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn gif_original_and_static_fallback_are_stored_separately() {
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         let bytes = gif();
         let path = crate::native_provider::store_image(&state, &bytes).unwrap();
         assert!(path.ends_with(".gif"));
@@ -265,7 +265,7 @@ mod tests {
     async fn animated_artwork_serves_original_and_fallback_for_all_native_types() {
         use posterview_contracts::native::*;
         let temp = tempfile::tempdir().unwrap();
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         fs::create_dir_all(temp.path().join("media/Shows/Example")).unwrap();
         let db = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
         let library = db
@@ -412,7 +412,7 @@ mod tests {
                 .all(|s| s["codec_type"] == "video")
         );
         assert_eq!(prepare(&clean).unwrap().0, clean);
-        let state = crate::native::scan_tests::state(temp.path());
+        let state = crate::test_support::state(temp.path());
         let cached = local(&state, &input, &bytes, false).unwrap();
         assert_eq!(prepare(&cached).unwrap().0, cached);
         assert_eq!(local(&state, &input, &bytes, false).unwrap(), cached);

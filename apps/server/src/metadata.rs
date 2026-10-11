@@ -1029,15 +1029,8 @@ mod tests {
             fs::write(&nfo, "<series><title>Local Manga</title><edition>Colored</edition></series>").unwrap();
             let metadata = std::sync::Arc::new(crate::metadata::MetadataStore::new(media.clone()));
             metadata.remember_source(1, "manga", series.to_str().unwrap());
-            let state = AppState {
-                active_native_scans: Default::default(),
-            playback: std::sync::Arc::new(crate::playback::PlaybackStore::new(runtime.data_dir())),
-                runtime: runtime.clone(),
-                auth: crate::AuthState::for_tests(""),
-                login_backdrop: crate::login_backdrop::LoginBackdrop::new(&config),
-                metadata,
-                reader: std::sync::Arc::new(crate::reader::ReaderStore::new(media.clone(), config.join("reader.sqlite"))),
-            };
+            let mut state = AppState::new(runtime.clone(), crate::AuthState::for_tests(""), media.clone());
+            state.metadata = metadata;
             let fields = state.metadata.read_for_source(series.to_str().unwrap()).unwrap().unwrap();
             assert_eq!(fields.edition, "Colored");
             let book = serde_json::to_value(crate::reader::info(State(state.clone()), axum::extract::Path((1, "manga".into()))).await.unwrap().0).unwrap();
