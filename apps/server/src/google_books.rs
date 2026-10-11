@@ -20,9 +20,15 @@ pub(crate) async fn save(State(state):State<AppState>,Json(input):Json<SettingsI
  db.set_setting("plugin-google-books-enabled",if input.enabled{"true"}else{"false"}).map_err(|_|HttpError::bad_request("Could not save Google Books settings."))?;
  Ok(Json(status(&state)?))
 }
-pub(crate) async fn test(State(state):State<AppState>)->Result<Json<Value>,HttpError>{
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TestInput { api_key: Option<String> }
+pub(crate) async fn test(State(state):State<AppState>,input:Option<Json<TestInput>>)->Result<Json<Value>,HttpError>{
  let client=reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).build().map_err(|_|HttpError::bad_gateway("Could not create Google Books client."))?;
- request(&state,&client,None,"isbn:9780747532699").await.map_err(HttpError::bad_gateway)?;Ok(Json(json!({"message":"Google Books connection successful."})))
+ let supplied=input.and_then(|value|value.0.api_key).unwrap_or_default();
+ let key=if supplied.trim().is_empty(){ServerStore::new(state.runtime.data_dir()).get_setting("google_books_api_key").map_err(|_|HttpError::bad_request("Could not read API key."))?}else{supplied.trim().to_owned()};
+ if key.is_empty()||key.len()>256||!key.bytes().all(|c|c.is_ascii_alphanumeric()||b"-_".contains(&c)){return Err(HttpError::bad_request("Enter a valid Google Books API key."));}
+ request_with_key(&client,None,"isbn:9780747532699",&key).await.map_err(HttpError::bad_gateway)?;Ok(Json(json!({"message":"Google Books connection successful."})))
 }
 pub(crate) fn valid_id(id:&str)->bool{!id.is_empty()&&id.len()<=128&&id.bytes().all(|c|c.is_ascii_alphanumeric()||b"-_".contains(&c))}
 pub(crate) async fn request(state:&AppState,client:&reqwest::Client,id:Option<&str>,query:&str)->Result<Value,String>{
@@ -30,6 +36,9 @@ pub(crate) async fn request(state:&AppState,client:&reqwest::Client,id:Option<&s
  if db.get_setting("plugin-google-books-enabled").unwrap_or_default()!="true"{return Err("Enable Google Books in Settings → Plugins.".into());}
  let key=db.get_setting("google_books_api_key").map_err(|_|"Could not read Google Books API key.")?;
  if key.is_empty(){return Err("Connect your API key in Settings → Plugins → Google Books.".into());}
+ request_with_key(client,id,query,&key).await
+}
+async fn request_with_key(client:&reqwest::Client,id:Option<&str>,query:&str,key:&str)->Result<Value,String>{
  if id.is_some_and(|id|!valid_id(id)){return Err("Invalid Google Books volume ID.".into());}
  let url=id.map(|id|format!("https://www.googleapis.com/books/v1/volumes/{id}")).unwrap_or_else(||"https://www.googleapis.com/books/v1/volumes".into());
  let mut request=client.get(url).header("X-Goog-Api-Key",key);

@@ -475,7 +475,7 @@ Open **Settings → Plugins → Google Books** to enable the plugin and save an 
 Enable the Books API in your Google Cloud project, restrict the key to that API,
 and use restrictions compatible with server requests (not browser referrers).
 The key is encrypted at rest and is never returned by the configuration endpoint.
-Save the configuration, then use **Test connection** to check access and quota.
+Use **Test connection** to check an entered or saved key, even while the plugin is disabled. Testing does not save a new key; use **Save configuration** to keep it.
 
 Enable **Google Books** in the book library's metadata provider list. Use **Identify**
 to search and select a Google Books edition, then **Fetch Metadata** to preview and

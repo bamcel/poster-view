@@ -22,3 +22,19 @@ it("configures an API key in the popup, clears its input, and tests the saved co
  fireEvent.click(screen.getByRole("button",{name:"Test connection"}));
  expect(await screen.findByText("Connection successful")).toBeTruthy();
 });
+
+it("tests an unsaved key while the plugin is disabled without saving configuration",async()=>{
+ Object.defineProperty(HTMLDialogElement.prototype,"showModal",{configurable:true,value(){this.setAttribute("open","");}});
+ vi.mocked(apiRequest).mockImplementation(async path=>path.endsWith("/test")?{message:"Connection successful"}:{enabled:false,configured:false});
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<QueryClientProvider client={client}><GoogleBooksPlugin/></QueryClientProvider>);
+ fireEvent.click(screen.getByRole("button",{name:/Google Books/}));
+ await waitFor(()=>expect((screen.getByLabelText("API key") as HTMLInputElement).disabled).toBe(false));
+ expect((screen.getByRole("button",{name:"Test connection"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.change(screen.getByLabelText("API key"),{target:{value:"unsaved-key"}});
+ expect((screen.getByRole("button",{name:"Test connection"}) as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.click(screen.getByRole("button",{name:"Test connection"}));
+ await screen.findByText("Connection successful");
+ expect(apiRequest).toHaveBeenCalledWith("/plugins/google-books/test",{method:"POST",body:JSON.stringify({api_key:"unsaved-key"})});
+ expect(vi.mocked(apiRequest).mock.calls.some(([,options])=>options?.method==="PUT")).toBe(false);
+});
