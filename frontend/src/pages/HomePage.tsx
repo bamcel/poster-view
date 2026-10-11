@@ -1,5 +1,6 @@
 import {libraryPath} from "../lib/mediaPaths";
-import {Link, Navigate, useSearchParams} from "react-router-dom";
+import {Navigate} from "react-router-dom";
+import {Link, useSearchParams} from "../lib/libraryNavigation";
 import {useState} from "react";
 import {Search, X, Film} from "lucide-react";
 import {useQueries, useQuery} from "@tanstack/react-query";

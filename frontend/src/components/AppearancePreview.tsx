@@ -6,6 +6,7 @@ import { ArrowLeft, Home, Maximize, X } from "lucide-react";
 import Layout from "./Layout";
 import { LibraryNavigationContext } from "../lib/libraryNavigation";
 import DashboardPage from "../pages/DashboardPage";
+import HomePage from "../pages/HomePage";
 import ItemDetailPage from "../pages/ItemDetailPage";
 import SeasonDetailPage from "../pages/SeasonDetailPage";
 
@@ -63,7 +64,7 @@ export default function AppearancePreview({ onClose }: { onClose: () => void }) 
         <LibraryNavigationContext.Provider value={libraryNavigation.current}><DashboardPage /></LibraryNavigationContext.Provider>
       </div>
       <LibraryNavigationContext.Provider value={navigation}>
-        {libraryPage ? null : url.pathname === "/" ? <div className="h-full p-6"><h1 className="text-2xl font-semibold">Home</h1></div> : url.pathname === "/settings" ? <ServerSettingsDashboard/> : url.pathname.startsWith("/settings/") ? <SettingsPage previewSection={url.pathname.split("/")[2]}/> : season ? <SeasonDetailPage /> : item ? <ItemDetailPage /> : <div className="p-6 text-sm text-muted">This page is available outside the preview. Use Back or select a Media library to continue previewing.</div>}
+        {libraryPage ? null : url.pathname === "/" ? <HomePage /> : url.pathname === "/settings" ? <ServerSettingsDashboard/> : url.pathname.startsWith("/settings/") ? <SettingsPage previewSection={url.pathname.split("/")[2]}/> : season ? <SeasonDetailPage /> : item ? <ItemDetailPage /> : <div className="p-6 text-sm text-muted">This page is available outside the preview. Use Back or select a Media library to continue previewing.</div>}
       </LibraryNavigationContext.Provider>
       </Layout>
       </LibraryNavigationContext.Provider>

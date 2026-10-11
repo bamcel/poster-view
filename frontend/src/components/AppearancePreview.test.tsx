@@ -7,7 +7,8 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { LibraryBackdrop, Link, useNavigate, useParams, useSearchParams } from "../lib/libraryNavigation";
 import AppearancePreview from "./AppearancePreview";
 
-vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(async()=>[{id:"anime",name:"Anime",library_type:"anime"}])}}));
+vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(async()=>[{id:"anime",name:"Anime",library_type:"anime"}]),catalog:vi.fn(async()=>[] )}}));
+vi.mock("./LibraryPosterStrip",()=>({default:()=> <div>Library collage</div>}));
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [], selectedId: null, setSelectedId: vi.fn() }) }));
 let measure: () => void;
 beforeEach(() => {
@@ -98,3 +99,14 @@ it("fits the full desktop by default and selects the icon only for pane-sized pr
 
 function render(node:ReactNode){return rtlRender(<QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>);}
 
+
+it("shows the actual homepage and keeps its tiles inside split view",async()=>{
+ render(<MemoryRouter initialEntries={["/settings/appearance"]}><Location/><AppearancePreview onClose={vi.fn()}/></MemoryRouter>);
+ expect(await screen.findByRole("heading",{name:"My Media"})).toBeTruthy();
+ expect(screen.getByRole("textbox",{name:"Search all libraries"})).toBeTruthy();
+ fireEvent.click(await screen.findByRole("link",{name:"Open Anime"}));
+ expect(screen.getByLabelText("Filter titles")).toBeTruthy();
+ expect(screen.getByTestId("outer-location").textContent).toBe("/settings/appearance");
+ fireEvent.click(screen.getByRole("button",{name:"Preview library home"}));
+ expect(await screen.findByRole("heading",{name:"My Media"})).toBeTruthy();
+});
