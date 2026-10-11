@@ -574,7 +574,8 @@ pub(crate) fn initial_cover(path:&FsPath)->Result<Vec<u8>,String>{
   command.args(["-f","1","-singlefile","-scale-to","1200","-jpeg"]).arg(path).arg(&output).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
   #[cfg(windows)] {use std::os::windows::process::CommandExt;command.creation_flags(0x08000000);}
   let mut child=command.spawn().map_err(|_|"PDF cover capture requires pdftoppm (Poppler).".to_string())?;let started=std::time::Instant::now();
-  loop {if let Some(status)=child.try_wait().map_err(|e|e.to_string())? {if !status.success(){return Err("PDF first-page capture failed.".into());}break;}if started.elapsed()>std::time::Duration::from_secs(30){let _=child.kill();let _=child.wait();return Err("PDF cover capture timed out.".into());}std::thread::sleep(std::time::Duration::from_millis(50));}
+  loop {if let Some(status)=child.try_wait().map_err(|e|e.to_string())? {if !status.success(){return Err("PDF first-page capture failed.".into());}break;}
+ if started.elapsed()>std::time::Duration::from_secs(30){let _=child.kill();let _=child.wait();return Err("PDF cover capture timed out.".into());}std::thread::sleep(std::time::Duration::from_millis(50));}
   return std::fs::read(output.with_extension("jpg")).map_err(|e|e.to_string());
  }
  let mut zip=archive(path).map_err(error)?;

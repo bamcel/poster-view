@@ -1228,7 +1228,7 @@ mod identity_nfo_tests {
   if std::process::Command::new("pdftoppm").arg("-v").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_err(){return;}
   let temp=tempfile::tempdir().unwrap();let book=temp.path().join("Volume 02.pdf");
   let stream="1 0 0 rg 0 0 200 300 re f";
-  let objects=vec!["<< /Type /Catalog /Pages 2 0 R >>".to_string(),"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Resources << >> /Contents 4 0 R >>".to_string(),format!("<< /Length {} >>\nstream\n{}\nendstream",stream.len(),stream)];
+  let objects=["<< /Type /Catalog /Pages 2 0 R >>".to_string(),"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Resources << >> /Contents 4 0 R >>".to_string(),format!("<< /Length {} >>\nstream\n{}\nendstream",stream.len(),stream)];
   let mut pdf="%PDF-1.4\n".to_string();let mut offsets=Vec::new();for (index,object) in objects.iter().enumerate(){offsets.push(pdf.len());pdf+=&format!("{} 0 obj\n{}\nendobj\n",index+1,object);}
   let xref=pdf.len();pdf+="xref\n0 5\n0000000000 65535 f \n";for offset in offsets {pdf+=&format!("{offset:010} 00000 n \n");}pdf+=&format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF");fs::write(&book,pdf).unwrap();
   capture_book_cover(&book).unwrap();let image=image::open(book.with_extension("jpg")).unwrap();assert!(image.height()>image.width());assert!(image.width()<=1200);

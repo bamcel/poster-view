@@ -633,6 +633,7 @@ async fn tvdb(
         &library.options.image_language,
         &library.options.certification_country,
         entry.kind.as_str(),
+        library.library_type != posterview_contracts::native::NativeLibraryType::Anime,
     ))
 }
 fn map_tvdb(
@@ -642,8 +643,9 @@ fn map_tvdb(
     language: &str,
     country: &str,
     kind: &str,
+    role_portraits: bool,
 ) -> Data {
-    let credits=raw["characters"].as_array().into_iter().flatten().filter_map(|v|Some(json!({"name":v["personName"].as_str()?,"role":v["name"],"category":if v["type"]==3{"crew"}else{"cast"},"provider_id":v["peopleId"],"image":v["personImgURL"]}))).collect::<Vec<_>>();
+    let credits=raw["characters"].as_array().into_iter().flatten().filter_map(|v|Some(json!({"name":v["personName"].as_str()?,"role":v["name"],"category":if v["type"]==3{"crew"}else{"cast"},"provider_id":v["peopleId"],"image":tvdb_credit_image(v,role_portraits)}))).collect::<Vec<_>>();
     let mut identifiers = json!({});
     for v in raw["remoteIds"].as_array().into_iter().flatten() {
         let name = v["sourceName"].as_str().unwrap_or("").to_lowercase();
@@ -731,6 +733,10 @@ fn map_tvdb(
         artwork,
         raw,
     }
+}
+fn tvdb_credit_image(credit: &Value, role_portraits: bool) -> Option<String> {
+ let fields=if role_portraits {["image","personImgURL"]}else{["personImgURL","image"]};
+ fields.into_iter().find_map(|field|credit[field].as_str().map(str::trim).filter(|v|!v.is_empty()).map(tvdb_image))
 }
 fn tvdb_image(v: &str) -> String {
     if v.starts_with("/") {
@@ -1103,6 +1109,14 @@ mod tests {
         assert_eq!(data.artwork.len(), 1);
     }
     #[test]
+    fn tvdb_cast_portraits_prefer_roles_and_normalize_relative_urls() {
+        let credit=json!({"image":"/banners/role.jpg","personImgURL":"https://example.com/person.jpg"});
+        assert_eq!(tvdb_credit_image(&credit,true).unwrap(),"https://artworks.thetvdb.com/banners/role.jpg");
+        assert_eq!(tvdb_credit_image(&credit,false).unwrap(),"https://example.com/person.jpg");
+        assert_eq!(tvdb_credit_image(&json!({"image":" ","personImgURL":"/banners/person.jpg"}),true).unwrap(),"https://artworks.thetvdb.com/banners/person.jpg");
+        assert!(tvdb_credit_image(&json!({}),true).is_none());
+    }
+    #[test]
     fn maps_tvdb_identity_rating_and_preferred_artwork() {
         let data = map_tvdb(
             json!({"name":"Example","firstAired":"2020-01-01","genres":[{"name":"Action"}],"remoteIds":[{"sourceName":"IMDB","id":"tt123"}],"contentRatings":[{"country":"usa","name":"TV-14"}],"artworks":[{"type":2,"language":"jpn","image":"/jp.jpg"},{"type":2,"language":"eng","image":"/en.jpg"}]}),
@@ -1111,6 +1125,7 @@ mod tests {
             "en",
             "US",
             "series",
+            true,
         );
         assert_eq!(data.fields["year"], 2020);
         assert_eq!(data.fields["identifiers"]["imdb"], "tt123");
