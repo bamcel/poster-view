@@ -10,7 +10,7 @@ import {nativeLibraries, type NativeLibrary} from "../api/nativeLibraries";
 import DashboardPage from "./DashboardPage";
 
 function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:NativeLibrary[]}) {
- return <Link to={libraryPath(library,libraries)} aria-label={`Open ${library.name}`} className="group block rounded-xl p-2 text-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
+ return <Link to={libraryPath(library,libraries)} aria-label={`Open ${library.name}`} className="group block rounded-xl text-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
   <div className="overflow-hidden rounded-md transition-transform duration-200 group-hover:scale-[1.03]"><LibraryPosterStrip library={library.id}/></div>
   <h2 className="mt-2 text-sm font-semibold text-white group-hover:text-accent">{library.name}</h2>
  </Link>;
@@ -24,8 +24,8 @@ function LibraryHome(){
  const results=catalogs.flatMap((catalog,index)=>(catalog.data??[]).filter(entry=>entry.available&&entry.kind!=="season"&&[entry.title,entry.metadata.originaltitle].some(value=>typeof value==="string"&&value.toLocaleLowerCase().includes(term))).map(entry=>({entry,library:libraries.data![index]})));
  const sections=[{name:"Movies",kinds:["movie"]},{name:"Series",kinds:["series"]},{name:"Episodes",kinds:["episode"]},{name:"Books",kinds:["book","book_series"]}].map(section=>({...section,results:results.filter(({entry})=>section.kinds.includes(entry.kind))})).filter(section=>section.results.length>0);
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
- return <main className="h-full overflow-y-auto px-5 py-5 sm:px-8">
-  <header className="mb-5 flex flex-col gap-5">
+ return <main className="h-full overflow-y-auto px-5 pb-8 pt-5 sm:px-8 md:px-12 md:pt-16">
+  <header className="mb-3 flex flex-col gap-7 md:gap-10">
    <h1 className="order-2 text-2xl font-semibold text-white">{term?"Search results":"My Media"}</h1>
   <div role="search" className="order-1 flex justify-center">
    <div className="relative w-full max-w-[21rem] md:w-[21rem]">
@@ -50,7 +50,7 @@ function LibraryHome(){
    </Link>)}</div>
    {section.results.length>100&&<p className="mt-3 text-sm text-muted">Showing 100 of {section.results.length} matches. Refine your search to see fewer results.</p>}
    </section>)}</div>
-  </>:<div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">{libraries.data?.map(library=><LibraryTile key={library.id} library={library} libraries={libraries.data??[]}/>)}</div>}
+  </>:<div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 lg:gap-x-7 lg:gap-y-10 xl:grid-cols-4 2xl:grid-cols-6">{libraries.data?.map(library=><LibraryTile key={library.id} library={library} libraries={libraries.data??[]}/>)}</div>}
  </main>;
 }
 export default function HomePage(){
