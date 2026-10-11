@@ -1103,6 +1103,7 @@ mod tests {
             .to_owned();
         let state = AppState {
             active_native_scans: Default::default(),
+            playback: std::sync::Arc::new(crate::playback::PlaybackStore::new(runtime.data_dir())),
             runtime,
             auth: auth.clone(),
             metadata: Arc::new(crate::metadata::MetadataStore::new(temp.path().into())),

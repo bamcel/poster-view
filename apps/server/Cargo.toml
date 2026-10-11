@@ -34,6 +34,9 @@ rusqlite.workspace = true
 tower.workspace = true
 zip = { version = "8.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.30", features = ["signal", "process"] }
+
 [dev-dependencies]
 http-body-util.workspace = true
 tempfile.workspace = true

@@ -1031,6 +1031,7 @@ mod tests {
             metadata.remember_source(1, "manga", series.to_str().unwrap());
             let state = AppState {
                 active_native_scans: Default::default(),
+            playback: std::sync::Arc::new(crate::playback::PlaybackStore::new(runtime.data_dir())),
                 runtime: runtime.clone(),
                 auth: crate::AuthState::for_tests(""),
                 login_backdrop: crate::login_backdrop::LoginBackdrop::new(&config),

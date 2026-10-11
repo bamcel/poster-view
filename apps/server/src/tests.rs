@@ -15,6 +15,35 @@ fn router(runtime: Arc<Runtime>, ui_dir: PathBuf) -> axum::Router {
 }
 
 #[tokio::test]
+async fn native_playback_and_watch_routes_require_authentication() {
+    let directory = tempdir().unwrap();
+    let runtime = Arc::new(Runtime::new(directory.path()));
+    runtime.initialize().unwrap();
+    let app = super::router(runtime, PathBuf::from("missing-ui"), super::AuthState::for_tests("test-password"));
+    for (method,path) in [
+        ("GET","/api/playback/native/library/item"),
+        ("POST","/api/playback/native/library/item/sessions"),
+        ("GET","/api/playback/sessions/session/stream"),
+        ("GET","/api/playback/sessions/session/hls/index.m3u8"),
+        ("GET","/api/playback/native/library/item/subtitles/1"),
+        ("GET","/api/playback/native/library/item/fonts/2"),
+        ("POST","/api/playback/sessions/session/heartbeat"),
+        ("DELETE","/api/playback/sessions/session"),
+        ("GET","/api/watch/continue"),
+        ("GET","/api/watch/libraries/library/states"),
+        ("PUT","/api/watch/native/library/item/progress"),
+        ("POST","/api/watch/native/library/item/begin"),
+        ("PUT","/api/watch/native/library/item"),
+        ("GET","/api/playback/preferences"),
+    ] {
+        let response=app.clone().oneshot(Request::builder().method(method).uri(path)
+            .header("content-type","application/json").body(Body::from("{}"))
+            .unwrap()).await.unwrap();
+        assert_eq!(response.status(),StatusCode::UNAUTHORIZED,"{method} {path}");
+    }
+}
+
+#[tokio::test]
 async fn manga_selection_persists_across_restart_and_is_scoped_to_the_library_item() {
     let directory = tempdir().unwrap();
     let runtime = Arc::new(Runtime::new(directory.path()));

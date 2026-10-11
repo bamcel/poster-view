@@ -14,6 +14,13 @@ const queryClient = new QueryClient({
   },
 });
 
+// Refresh the watch controls when a player report finishes, including exit reports.
+window.addEventListener("posterview-watch-updated", () => {
+  for (const key of ["continue-watching", "watch-state", "watch-library-states"]) {
+    void queryClient.invalidateQueries({ queryKey: [key] });
+  }
+});
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

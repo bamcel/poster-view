@@ -16,3 +16,7 @@ frontend/dist/
 *.md
 LICENSE
 dev.ps1
+
+# Local test recordings, snapshots and Rust artifacts
+output/
+target/

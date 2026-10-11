@@ -30,7 +30,7 @@ it("keeps provider priorities scoped by media type and supports disabling every 
   expect(JSON.parse(screen.getByTestId("options").textContent!).metadata_providers.series).toEqual([]);
   expect((screen.getByLabelText("Series Metadata Downloaders: TheTVDB") as HTMLInputElement).disabled).toBe(false);
 });
-it("stores image choices separately from metadata and shows playback as unavailable", () => {
+it("stores image choices separately from metadata and requires a saved library for playback rules", () => {
   const view = render(<Harness section={4} />);
   fireEvent.click(screen.getByRole("switch", {name: "Save artwork into media folders"}));
   fireEvent.click(screen.getByRole("switch", {name: "Download logo"}));
@@ -41,7 +41,7 @@ it("stores image choices separately from metadata and shows playback as unavaila
   expect(options.image_providers.series).toEqual(["anilist", "tmdb"]);
   expect(options.metadata_providers).toEqual({});
   view.unmount(); render(<Harness section={5} />);
-  expect((screen.getByLabelText("Minimum resume percentage") as HTMLInputElement).disabled).toBe(true);
+  expect(screen.getByText("Save the library first to configure resume and completion rules.")).toBeTruthy();
 });
 
 it("lets a book library exclude manga metadata providers", () => {

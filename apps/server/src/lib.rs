@@ -41,6 +41,8 @@ mod native_monitor;
 mod native_artwork;
 mod plugins;
 mod transcoding;
+mod playback;
+mod watch;
 mod native_animation;
 mod native_identify;
 mod native_progress;
@@ -60,6 +62,7 @@ struct AppState {
     login_backdrop: login_backdrop::LoginBackdrop,
     metadata: Arc<metadata::MetadataStore>,
     reader: Arc<reader::ReaderStore>,
+    playback: Arc<playback::PlaybackStore>,
 }
 
 pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router {
@@ -75,6 +78,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         .unwrap_or_else(|| PathBuf::from("/media"));
     let state = AppState {
         active_native_scans: Default::default(),
+        playback: Arc::new(playback::PlaybackStore::new(runtime.data_dir())),
         reader: Arc::new(reader::ReaderStore::new(media_dir.clone(), runtime.data_dir().join("reader.sqlite"))),
         metadata: Arc::new(metadata::MetadataStore::new(media_dir)),
         runtime,
@@ -82,12 +86,29 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         login_backdrop,
     };
     if let Err(error)=scheduled_tasks::retire_artwork_history(&state){tracing::warn!(error=%error.detail,"Unable to remove legacy artwork history");}
+    state.playback.start_cleanup();
     native_monitor::start(state.clone());
     scheduled_tasks::start(state.clone());
     let index = ui_dir.join("index.html");
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 
     let protected = Router::new()
+        .route("/api/playback/capabilities", get(playback::capabilities))
+        .route("/api/playback/native/{library}/{item}", get(playback::info))
+        .route("/api/playback/native/{library}/{item}/sessions", axum::routing::post(playback::create))
+        .route("/api/playback/native/{library}/{item}/subtitles/{index}", get(playback::subtitle))
+        .route("/api/playback/native/{library}/{item}/fonts/{index}", get(playback::font))
+        .route("/api/playback/sessions/{id}/stream", get(playback::stream))
+        .route("/api/playback/sessions/{id}/hls/{name}", get(playback::segment))
+        .route("/api/playback/sessions/{id}/heartbeat", axum::routing::post(playback::heartbeat))
+        .route("/api/playback/sessions/{id}", axum::routing::delete(playback::stop))
+        .route("/api/watch/native/{library}/{item}", get(watch::get_state).put(watch::set_state))
+        .route("/api/watch/native/{library}/{item}/begin", axum::routing::post(watch::begin))
+        .route("/api/watch/native/{library}/{item}/progress", axum::routing::put(watch::progress))
+        .route("/api/watch/continue", get(watch::continue_watching))
+        .route("/api/watch/libraries/{library}/rules", get(watch::get_rules).put(watch::save_rules))
+        .route("/api/watch/libraries/{library}/states", get(watch::library_states))
+        .route("/api/playback/preferences", get(watch::get_preferences).put(watch::save_preferences))
         .route("/api/transcoding/settings", get(transcoding::get).put(transcoding::save))
         .route("/api/native/providers/settings", get(native_provider_extra::settings).put(native_provider_extra::save_settings))
         .route("/api/native/providers/test/{provider}", axum::routing::post(native_provider_extra::test_provider))

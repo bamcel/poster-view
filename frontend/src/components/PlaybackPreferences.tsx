@@ -1,0 +1,36 @@
+import {useEffect,useState} from "react";
+import {useQuery} from "@tanstack/react-query";
+import {watchApi,type PlaybackPreferences as Preferences} from "../api/watch";
+import {SETTINGS_BUTTON} from "./SettingsPageFrame";
+const input="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm";
+export default function PlaybackPreferences() {
+  const query=useQuery({queryKey:["playback-preferences"],queryFn:watchApi.preferences});
+  const [audioText,setAudioText]=useState(""),[subtitleText,setSubtitleText]=useState("");
+  const [settings,setSettings]=useState<Preferences>(),[saving,setSaving]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");
+  useEffect(()=>{if(query.data){setSettings(query.data);setAudioText(query.data.audio_languages.join(", "));setSubtitleText(query.data.subtitle_languages.join(", "));}},[query.data]);
+  if(query.isError)return <p role="alert" className="text-danger">{query.error.message}</p>;
+  if(!settings)return <p role="status" className="text-muted">Loading playback preferences…</p>;
+  const change=<K extends keyof Preferences>(key:K,value:Preferences[K])=>{setSettings({...settings,[key]:value});setMessage("");setError("");};
+  const toggle=(key:"prefer_default_audio"|"remember_audio"|"remember_subtitles"|"autoplay_next"|"up_next",label:string,help:string)=><label className="flex items-start justify-between gap-5 py-3"><span><span className="block text-sm font-medium">{label}</span><span className="mt-1 block text-xs text-muted">{help}</span></span><input type="checkbox" role="switch" aria-label={label} checked={settings[key]} onChange={e=>change(key,e.target.checked)} className="mt-1 size-4 shrink-0 accent-accent"/></label>;
+  const number=(key:"resume_rewind_seconds"|"skip_back_seconds"|"skip_forward_seconds"|"still_watching_minutes"|"subtitle_size",label:string,min:number,max:number,help?:string)=><label className="block text-sm">{label}<input type="number" className={input} value={settings[key]} min={min} max={max} onChange={e=>change(key,Number(e.target.value))}/>{help&&<span className="mt-1 block text-xs text-muted">{help}</span>}</label>;
+  return <form className="max-w-3xl space-y-6" onSubmit={async e=>{e.preventDefault();setSaving(true);setError("");try{const value=await watchApi.savePreferences({...settings,audio_languages:audioText.split(",").map(s=>s.trim()).filter(Boolean),subtitle_languages:subtitleText.split(",").map(s=>s.trim()).filter(Boolean)});setSettings(value);setMessage("Playback preferences saved.");}catch(e){setError(e instanceof Error?e.message:"Could not save preferences.");}finally{setSaving(false);}}}>
+    <fieldset className="rounded-xl border border-border p-5"><legend className="px-2 font-semibold">Audio</legend>
+      <label className="block text-sm">Preferred audio languages<input aria-label="Preferred audio languages" className={input} value={audioText} onChange={e=>{setAudioText(e.target.value);setMessage("");}}/><span className="mt-1 block text-xs text-muted">Language codes in preference order, such as en, ja, ko.</span></label>
+      {toggle("prefer_default_audio","Prefer default audio track","Use the file’s default audio track before language preferences.")}
+      {toggle("remember_audio","Remember audio selections","Remember your selected track for each video.")}
+    </fieldset>
+    <fieldset className="space-y-4 rounded-xl border border-border p-5"><legend className="px-2 font-semibold">Subtitles</legend>
+      <label className="block text-sm">Preferred subtitle languages<input aria-label="Preferred subtitle languages" className={input} value={subtitleText} onChange={e=>{setSubtitleText(e.target.value);setMessage("");}}/></label>
+      <label className="block text-sm">Subtitle mode<select className={input} value={settings.subtitle_mode} onChange={e=>change("subtitle_mode",e.target.value as Preferences["subtitle_mode"])}>{[["default","File default"],["smart","Smart: subtitles for other audio languages"],["forced","Forced only"],["hearing_impaired","Hearing impaired"],["always","Always"],["off","Off"]].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+      {toggle("remember_subtitles","Remember subtitle selections","Per-video selections take priority over automatic subtitle preferences.")}
+      {number("subtitle_size","Text subtitle size (%)",50,200,"Applies to plain text tracks; ASS / SSA tracks preserve their embedded styling.")}
+    </fieldset>
+    <fieldset className="rounded-xl border border-border p-5"><legend className="px-2 font-semibold">Watching</legend>
+      {toggle("autoplay_next","Play next episode automatically","Continue to the next available episode when the current one ends.")}
+      {toggle("up_next","Show Up Next preview","Display the next episode near the end of playback.")}
+      <div className="mt-3 grid gap-4 sm:grid-cols-2">{number("skip_back_seconds","Skip back (seconds)",5,120)}{number("skip_forward_seconds","Skip forward (seconds)",5,120)}{number("resume_rewind_seconds","Rewind on resume (seconds)",0,30,"Only when resuming saved progress, not after each pause.")}{number("still_watching_minutes","Still-watching prompt (minutes)",0,1440,"0 disables the inactivity prompt.")}</div>
+    </fieldset>
+    {error&&<p role="alert" className="text-sm text-danger">{error}</p>}{message&&<p role="status" className="text-sm text-accent">{message}</p>}
+    <button disabled={saving} className={SETTINGS_BUTTON}>{saving?"Saving…":"Save preferences"}</button>
+  </form>;
+}

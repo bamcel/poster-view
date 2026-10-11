@@ -10,6 +10,7 @@ import { lazy, Suspense } from "react";
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ItemDetailPage = lazy(() => import("./pages/ItemDetailPage"));
 const SeasonDetailPage = lazy(() => import("./pages/SeasonDetailPage"));
+const PlayerPage = lazy(() => import("./pages/PlayerPage"));
 const ReaderPage = lazy(() => import("./pages/ReaderPage"));
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
         <ServerProvider>
           <ToastProvider>
             <Routes>
+            <Route path="/play/native/:libraryId/:itemId" element={<Suspense fallback={<p className="p-8">Opening player…</p>}><PlayerPage /></Suspense>} />
             <Route path="/read/native/:libraryId/:itemId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
             <Route path="/read/:serverId/:itemId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
             <Route path="/reader/:bookId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />

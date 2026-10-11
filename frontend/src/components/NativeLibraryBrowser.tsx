@@ -1,3 +1,5 @@
+import NativeSeriesPlay from "./NativeSeriesPlay";
+import NativePlaybackActions from "./NativePlaybackActions";
 import EpisodeMediaInfo from "./EpisodeMediaInfo";
 import VideoPreferences,{useVideoPreferences} from "./VideoPreferences";
 import {stillArtwork} from "./AnimatedArtwork";
@@ -647,6 +649,7 @@ function NativeDetail({
   const bookUnit = children.length > 0 && children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapter" : "Volume";
   const isSeries = entry.kind === "series" || entry.kind === "season";
   const isEpisode = entry.kind === "episode";
+  const playable = entry.available && ["episode","movie"].includes(entry.kind) && entry.files.length>0;
   const siblings=isEpisode?entries.filter(sibling=>sibling.available&&sibling.kind==="episode"&&sibling.parent_path===entry.parent_path&&sibling.id!==entry.id&&showMissingEntry(library,sibling)).sort((a,b)=>(number(a.metadata.episode)??0)-(number(b.metadata.episode)??0)):[];
   const streams=entry.files[0]?.media_info?.streams??[];
   const episodeTracks=["video","audio","subtitle"].map(type=>({type,values:streams.filter(stream=>stream.codec_type===type).map(stream=>[stream.width&&stream.height?`${stream.width}×${stream.height}`:"",String((stream.tags as Record<string,unknown>|undefined)?.language??""),String(stream.codec_name??"").toUpperCase()].filter(Boolean).join(" "))})).filter(track=>track.values.length>0);
@@ -838,6 +841,8 @@ function NativeDetail({
                   {entry.kind.startsWith("book") && <button className={detailActionClass} aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")} data-icon-button="true"><Database className="size-4"/></button>}
                   {["series","movie","book_series","book"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")} data-icon-button="true"><Fingerprint className="size-4"/></button>}
                 </div>}
+                {playable&&<NativePlaybackActions library={library.id} item={entry.id}/>}
+                {(isSeries||entry.kind==="season")&&<NativeSeriesPlay library={library.id} path={entry.path} entries={entries}/>}
                 <div className={isSeries || isBookSeries ? "hidden sm:block" : "text-left"}>
                   <DetailSynopsis text={overview} lines={isSeries || isBookSeries || entry.kind==="season" ? 8 : 3} />
                 </div>

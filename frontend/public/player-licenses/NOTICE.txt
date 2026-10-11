@@ -1,0 +1,20 @@
+PosterView playback libraries
+
+hls.js 1.7.3
+Copyright Dailymotion and contributors. Apache-2.0.
+Source and build instructions: https://github.com/video-dev/hls.js/tree/v1.7.3
+See hls.js.txt for the distributed license and copyright notices.
+
+JASSUB 2.5.20
+Copyright JASSUB and JavascriptSubtitlesOctopus contributors.
+See JASSUB.txt for the JavaScript wrapper license.
+The distributed WebAssembly renderer contains libass and its dependencies;
+the upstream package identifies their licenses as LGPL-2.1-or-later AND
+(FTL OR GPL-2.0-or-later) AND MIT AND MIT-Modern-Variant AND ISC AND NTP AND
+Zlib AND BSL-1.0. PosterView uses the upstream binaries without modification.
+Corresponding source, dependency references, licenses, and build instructions:
+https://github.com/ThaUnknown/jassub
+https://github.com/libass/libass
+
+The playback page dynamically loads these libraries from the same origin.
+They do not require external CDN assets or remote font lookup.

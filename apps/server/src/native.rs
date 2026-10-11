@@ -887,6 +887,7 @@ mod tests {
         runtime.initialize().unwrap();
         let state = AppState {
             active_native_scans: Default::default(),
+            playback: std::sync::Arc::new(crate::playback::PlaybackStore::new(runtime.data_dir())),
             runtime: runtime.clone(),
             auth: crate::AuthState::for_tests(""),
             login_backdrop: crate::login_backdrop::LoginBackdrop::new(runtime.data_dir()),
@@ -936,6 +937,7 @@ pub(crate) mod scan_tests {
         runtime.initialize().unwrap();
         AppState {
             active_native_scans: Default::default(),
+            playback: std::sync::Arc::new(crate::playback::PlaybackStore::new(runtime.data_dir())),
             runtime: runtime.clone(),
             auth: crate::AuthState::for_tests(""),
             login_backdrop: crate::login_backdrop::LoginBackdrop::new(runtime.data_dir()),
@@ -1345,7 +1347,7 @@ pub(crate) mod scan_tests {
             "landscape.jpg",
             "season01-poster.jpg",
             "season02-poster.jpg",
-            "Season 01/Example.S01E01.jpg",
+            "Season 01/Example.S01E01-thumb.jpg",
         ] {
             assert_eq!(
                 image::guess_format(&fs::read(series.join(path)).unwrap()).unwrap(),
@@ -1372,7 +1374,7 @@ pub(crate) mod scan_tests {
             episode
                 .artwork
                 .iter()
-                .any(|a| a.kind == "thumb" && a.path.ends_with("Example.S01E01.jpg"))
+                .any(|a| a.kind == "thumb" && a.path.ends_with("Example.S01E01-thumb.jpg"))
         );
         fs::write(series.join("poster.jpg"), b"preserve existing sidecar").unwrap();
         run_scan(state.clone(), library.clone()).await.unwrap();
@@ -1712,7 +1714,7 @@ pub(crate) mod scan_tests {
         fs::write(dir.join("Example.mkv"),b"fixture").unwrap();
         let library=store(&state).save_native_library(None,&NativeLibraryInput{name:"Movies".into(),library_type:NativeLibraryType::Movies,anime_content:AnimeContent::Both,paths:vec!["Movies".into()],revision:None,options:NativeLibraryOptions{fetch_missing:false,save_nfo:false,save_artwork:false,..Default::default()}}).unwrap();
         let (mut entries,_)=crate::native_scan::collect_scoped(&state,&library,None).unwrap();
-        entries[0].files[0]["media_info"]=serde_json::json!({"cached_fixture":true});
+        entries[0].files[0]["media_info"]=serde_json::json!({"cached_fixture":true,"posterview_probe_version":crate::native_scan::MEDIA_INFO_VERSION});
         store(&state).ingest_native_catalog(&library.id,library.revision,&entries).unwrap();
         run_scan_scoped(state.clone(),library.clone(),None).await.unwrap();
         let first=store(&state).native_catalog(&library.id).unwrap();

@@ -404,7 +404,7 @@ fn clean_title(stem: &str) -> String {
     let name = BRACKETS.replace_all(stem, "");
     name.replace(['.', '_'], " ").trim().to_owned()
 }
-const MEDIA_INFO_VERSION: u64 = 2;
+pub(crate) const MEDIA_INFO_VERSION: u64 = 3;
 fn current_media_info(info: &Value) -> bool {
     info["posterview_probe_version"].as_u64() == Some(MEDIA_INFO_VERSION)
 }
@@ -414,7 +414,7 @@ fn probe(path: &Path) -> Result<Value, String> {
         time::{Duration, Instant},
     };
     let output = tempfile::NamedTempFile::new().map_err(|e| e.to_string())?;
-    let mut child=Command::new("ffprobe").args(["-v","error","-protocol_whitelist","file,pipe","-show_streams","-show_format","-of","json"]).arg(path).stdout(Stdio::from(output.reopen().map_err(|e|e.to_string())?)).stderr(Stdio::null()).spawn().map_err(|_|"ffprobe is unavailable; media codecs and duration were not inspected.".to_string())?;
+    let mut child=Command::new("ffprobe").args(["-v","error","-protocol_whitelist","file,pipe","-show_streams","-show_format","-show_chapters","-of","json"]).arg(path).stdout(Stdio::from(output.reopen().map_err(|e|e.to_string())?)).stderr(Stdio::null()).spawn().map_err(|_|"ffprobe is unavailable; media codecs and duration were not inspected.".to_string())?;
     let started = Instant::now();
     loop {
         match child.try_wait().map_err(|e| e.to_string())? {
