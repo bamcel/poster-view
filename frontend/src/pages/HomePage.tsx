@@ -32,7 +32,7 @@ function LibraryHome(){
   <div role="search" className="order-1 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
    <div className="relative col-start-2 mx-auto w-full max-w-[21rem]">
     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint"/>
-    <input aria-label="Search all libraries" placeholder="Search all libraries" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-10 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"/>
+    <input aria-label="Search all libraries" placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-10 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"/>
     {search&&<button type="button" aria-label="Clear search" onClick={()=>setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white" data-icon-button="true"><X className="size-4"/></button>}
    </div>
   </div>

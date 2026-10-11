@@ -181,11 +181,7 @@ export default function VizPanel({
           className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-9 text-sm outline-none focus:border-accent"
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder={
-            isComicVine
-              ? "Search a comic or manga title…"
-              : "Search a title or paste a VIZ catalog URL…"
-          }
+          placeholder="Search"
         />
         <a
           href={

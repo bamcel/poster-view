@@ -276,7 +276,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
           aria-label="Search ThePosterDB by title or poster/set URL"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search a title, or paste a poster/set URL…"
+          placeholder="Search"
           className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-9 text-sm outline-none focus:border-accent"
         />
         <a

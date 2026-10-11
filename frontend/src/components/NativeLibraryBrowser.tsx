@@ -461,7 +461,7 @@ export default function NativeLibraryBrowser({
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
                 <input
                   aria-label="Search titles"
-                  placeholder="Search titles"
+                  placeholder="Search"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"
@@ -737,7 +737,7 @@ function NativeDetail({
             </button>
             {(isBookSeries || entry.kind === "season") && <div role="search" className="relative mx-auto w-full max-w-[21rem]">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
-              <input aria-label={isBookSeries ? "Search volumes and chapters" : "Search episodes"} placeholder={isBookSeries ? "Find a volume or chapter" : "Find an episode"} value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm" style={{backgroundColor:translucentPanelColor("--color-surface-2",panelSolidity(),panelOverlay()),backdropFilter:`blur(${backdropBlur()}px)`}} />
+              <input aria-label={isBookSeries ? "Search volumes and chapters" : "Search episodes"} placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm" style={{backgroundColor:translucentPanelColor("--color-surface-2",panelSolidity(),panelOverlay()),backdropFilter:`blur(${backdropBlur()}px)`}} />
             </div>}
           </div>
           <div className="relative z-[1] px-4 pb-8 pt-20 sm:px-6 sm:pb-10 lg:px-10 lg:pt-20">

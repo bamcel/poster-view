@@ -50,16 +50,6 @@ function defaultIdFor(provider: string, item: ItemDetail): string {
   return "";
 }
 
-function idPlaceholder(provider: string, item: ItemDetail): string {
-  if (provider === "fanart") return item.type === "movie" ? "TMDB/IMDb id or a title…" : "TVDB id or a title…";
-  if (provider === "tvdb") return "TVDB id or a title…";
-  if (provider === "anilist") return "AniList id or title…";
-  if (provider.startsWith("myanimelist")) return "MyAnimeList id or title…";
-  if (provider === "anilist-manga") return "AniList manga id or title…";
-  if (provider === "mediux") return "TMDB id or a title…";
-  return "id…";
-}
-
 // Where the site icon links to: the item's own page when the box holds an
 // id, otherwise the site itself (or its search page) for a manual look-up.
 function externalSiteUrl(provider: string, item: ItemDetail, idInput: string): string {
@@ -237,7 +227,7 @@ export default function ArtworkBrowser({
         aria-label={`Search ${providerLabel(provider)} by title or ID`}
         value={idInput}
         onChange={(e) => setIdInput(e.target.value)}
-        placeholder={idPlaceholder(provider, item)}
+        placeholder="Search"
         className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-9 text-sm outline-none focus:border-accent"
       />
       <a

@@ -285,7 +285,7 @@ export default function MangaDexPanel({
               className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-9 text-sm outline-none focus:border-accent"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search a title or paste a MangaDex ID…"
+              placeholder="Search"
             />
             <a
               href={`https://mangadex.org/search?q=${encodeURIComponent(query.trim())}`}
