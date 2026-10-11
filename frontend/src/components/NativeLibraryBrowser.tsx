@@ -1,3 +1,4 @@
+import {stillArtwork} from "./AnimatedArtwork";
 import {HOME_RESET_EVENT} from "../lib/homeNavigation";
 import AnimeDubEditor from "./AnimeDubEditor";
 import SeriesActionsDialog from "./SeriesActionsDialog";
@@ -173,7 +174,9 @@ function Modal({
   title,
   onClose,
   children,
+  poster,
 }: {
+  poster?: string;
   title: string;
   onClose: () => void;
   children: ReactNode;
@@ -190,8 +193,10 @@ function Modal({
       ref={ref}
       onCancel={onClose}
       aria-label={title}
-      className={metadata ? "m-auto h-[85dvh] max-h-[900px] w-[min(52rem,calc(100vw-2rem))] max-w-4xl overflow-hidden rounded-2xl border border-border bg-sidebar p-0 text-white backdrop:bg-black/70" : "m-auto max-h-[90dvh] w-[min(56rem,calc(100vw-2rem))] max-w-4xl overflow-y-auto rounded-2xl border border-border bg-sidebar p-5 text-white backdrop:bg-black/70"}
+      style={poster&&!metadata?{width:"min(42rem, calc(100vw - 2rem))",height:"min(90dvh, 60rem)"}:undefined}
+      className={metadata ? "relative isolate m-auto h-[90dvh] max-h-[960px] w-[min(42rem,calc(100vw-2rem))] max-w-4xl overflow-hidden rounded-2xl border border-border bg-sidebar p-0 text-white backdrop:bg-black/70" : "relative isolate m-auto max-h-[90dvh] w-[min(56rem,calc(100vw-2rem))] max-w-4xl overflow-y-auto rounded-2xl border border-border bg-sidebar p-5 text-white backdrop:bg-black/70"}
     >
+      {poster&&<div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl"><img src={stillArtwork(poster)} alt="" className="h-full w-full scale-110 object-cover opacity-40 blur-sm" onError={event=>{event.currentTarget.style.visibility="hidden";}}/><div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/55 to-black/75"/></div>}
       <header className={metadata ? "flex h-16 shrink-0 items-center gap-4 px-6 sm:px-8" : "mb-5 flex items-center justify-between gap-4"}>
         <h2 className={`text-lg font-semibold`}>{title}</h2>
         <button
@@ -362,6 +367,15 @@ export default function NativeLibraryBrowser({
     setEditor(null);
   };
   const editEntry = editor && entries.find((e) => e.id === editor.id);
+  let posterEntry=editEntry || undefined;
+  const posterParents=new Set<string>();
+  while(posterEntry?.parent_path&&!posterParents.has(posterEntry.path)){
+    posterParents.add(posterEntry.path);
+    const parent=entries.find(e=>e.path===posterEntry?.parent_path);
+    if(!parent)break;
+    posterEntry=parent;
+  }
+  const editorPoster=picture(library,posterEntry,"poster")??picture(library,editEntry || undefined,"poster");
   const backgroundUrls = useMemo(
     () =>
       (catalog.data ?? [])
@@ -542,15 +556,15 @@ export default function NativeLibraryBrowser({
           </section>
         </div>
       ) : editor && ["remove-identification","refresh-metadata","missing-files"].includes(editor.kind) ? (
-        <Modal title={editor.kind==="remove-identification"?"Remove Identification":editor.kind==="refresh-metadata"?"Refresh Metadata":editEntry.kind==="series"?"Missing Episodes":"Missing Files"} onClose={()=>setEditor(null)}><SeriesActionsDialog action={editor.kind} library={library} entry={editEntry} entries={entries} onSaved={()=>{updated();void client.invalidateQueries({queryKey:["native-scan",library.id]});}}/></Modal>
+        <Modal poster={editorPoster} title={editor.kind==="remove-identification"?"Remove Identification":editor.kind==="refresh-metadata"?"Refresh Metadata":editEntry.kind==="series"?"Missing Episodes":"Missing Files"} onClose={()=>setEditor(null)}><SeriesActionsDialog action={editor.kind} library={library} entry={editEntry} entries={entries} onSaved={()=>{updated();void client.invalidateQueries({queryKey:["native-scan",library.id]});}}/></Modal>
       ) : editor?.kind === "fetch-metadata" ? (
-        <Modal title="Fetch Metadata" onClose={()=>setEditor(null)}><FetchBookMetadata library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated}/></Modal>
+        <Modal poster={editorPoster} title="Fetch Metadata" onClose={()=>setEditor(null)}><FetchBookMetadata library={library} entry={editEntry} busy={status.data?.status === "scanning"} onSaved={updated}/></Modal>
       ) : editor?.kind === "identify" ? (
-        <Modal title="Identify" onClose={() => setEditor(null)}>
+        <Modal poster={editorPoster} title="Identify" onClose={() => setEditor(null)}>
           <IdentifyPanel library={library} entry={editEntry} busy={false} onSaved={updated}/>
         </Modal>
       ) : (
-        <Modal title="Edit Metadata" onClose={() => setEditor(null)}>
+        <Modal poster={editorPoster} title="Edit Metadata" onClose={() => setEditor(null)}>
           <EntryEditor library={library} entry={editEntry} busy={false} onSaved={updated} dialog />
         </Modal>
       ))}
@@ -912,7 +926,7 @@ function NativeDetail({
                 </section>
               )}
 
-            {editingDubs && library.library_type==="anime" && <Modal title="Edit Dub Credits" onClose={()=>setEditingDubs(false)}><AnimeDubEditor library={library} entry={entry} onSaved={()=>{setEditingDubs(false);void dubClient.invalidateQueries({queryKey:["native-catalog",library.id]});}}/></Modal>}
+            {editingDubs && library.library_type==="anime" && <Modal poster={picture(library,entry,"poster")} title="Edit Dub Credits" onClose={()=>setEditingDubs(false)}><AnimeDubEditor library={library} entry={entry} onSaved={()=>{setEditingDubs(false);void dubClient.invalidateQueries({queryKey:["native-catalog",library.id]});}}/></Modal>}
             {animePreferences.casts && voiceCast?.groups.filter((_,index)=> index===0 ? animePreferences.original || (voiceCast.groups.length===1 && animePreferences.dub) : animePreferences.dub).map(group => <section key={group.title} className="mt-8">
               <div className="mb-4 flex items-center gap-3"><h2 className="text-xl font-semibold">{group.title}</h2><button aria-label={`Edit dub credits for ${group.title}`} title="Edit dub credits" className="rounded-full border border-border p-2 text-muted hover:text-white" onClick={()=>setEditingDubs(true)}><Pencil className="size-4"/></button></div>
               {group.cast.length ? <PeopleRow label={group.title}>{group.cast.map((person, i) => <div key={i} className="w-48 shrink-0 rounded-xl p-4">
