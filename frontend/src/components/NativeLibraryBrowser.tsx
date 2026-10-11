@@ -748,7 +748,7 @@ function NativeDetail({
             >
               <div
                 className={
-                  isSeries
+                  isSeries || isBookSeries
                     ? "w-28 shrink-0 sm:w-[25%] sm:max-w-[328px]"
                     : isEpisode
                       ? "w-full max-w-md shrink-0 sm:w-[35%]"
@@ -793,6 +793,7 @@ function NativeDetail({
                     {String(entry.metadata.episode ?? "")}
                   </p>
                 )}
+                {entry.kind.startsWith("book") && <BookSeriesMetadata unit={isBookSeries ? bookUnit : entry.metadata.chapter!=null && entry.metadata.volume==null ? "Chapter" : "Volume"} metadata={entry.metadata} count={isBookSeries ? children.filter(e=>e.metadata.missing!==true).length : 1}/>}
                 <div
                   data-testid="detail-actions"
                   className="mt-4 flex flex-wrap items-center gap-2"
@@ -827,13 +828,12 @@ function NativeDetail({
                   {entry.kind.startsWith("book") && <button className={detailActionClass} aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")} data-icon-button="true"><Database className="size-4"/></button>}
                   {["series","movie","book_series","book"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")} data-icon-button="true"><Fingerprint className="size-4"/></button>}
                 </div>
-                {entry.kind.startsWith("book") && <BookSeriesMetadata unit={isBookSeries ? bookUnit : entry.metadata.chapter!=null && entry.metadata.volume==null ? "Chapter" : "Volume"} metadata={entry.metadata} count={isBookSeries ? children.filter(e=>e.metadata.missing!==true).length : 1}/>}
-                <div className={isSeries ? "hidden sm:block" : "text-left"}>
+                <div className={isSeries || isBookSeries ? "hidden sm:block" : "text-left"}>
                   <DetailSynopsis text={overview} />
                 </div>
               </div>
             </div>
-            {isSeries && (
+            {(isSeries || isBookSeries) && (
               <div className="sm:hidden">
                 <DetailSynopsis text={overview} />
               </div>
