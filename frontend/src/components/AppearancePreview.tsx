@@ -28,7 +28,7 @@ export default function AppearancePreview({ onClose }: { onClose: () => void }) 
   const [history, setHistory] = useState({ entries: ["/"], index: 0 });
   const location = history.entries[history.index];
   const url = useMemo(() => new URL(location, "http://preview.local"), [location]);
-  const media = matchPath("/media/:libraryId", url.pathname);
+  const media = matchPath("/media/:libraryId/:itemSlug/:seasonSlug", url.pathname) ?? matchPath("/media/:libraryId/:itemSlug", url.pathname) ?? matchPath("/media/:libraryId", url.pathname);
   const item = matchPath("/server/:serverId/item/:itemId", url.pathname);
   const season = matchPath("/server/:serverId/series/:seriesId/season/:seasonId", url.pathname);
   const navigate: NavigateFunction = useCallback((to: To | number, options?: NavigateOptions) => {

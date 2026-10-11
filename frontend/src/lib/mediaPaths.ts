@@ -1,4 +1,4 @@
-type Named = {id:string;name?:string;title?:string};
+type Named = {id:string;name?:string;title?:string;kind?:string;path?:string;parent_path?:string|null};
 export function mediaSlug(value:string) {
  return value.normalize("NFKC").trim().replace(/[\/\\?#%]+/g,"-").replace(/\s+/g,"-") || "Untitled";
 }
@@ -18,5 +18,10 @@ export function libraryPath(library:Named, peers:Named[]=[]) {
  return `/media/${encodeURIComponent(namedSlug(library,peers))}`;
 }
 export function itemPath(library:Named, libraries:Named[], item:Named, entries:Named[]) {
+ const parent=item.kind==="season" ? entries.find(entry=>entry.path===item.parent_path && entry.kind==="series") : undefined;
+ if(parent) {
+  const siblings=entries.filter(entry=>entry.parent_path===parent.path && entry.kind==="season");
+  return `${libraryPath(library,libraries)}/${encodeURIComponent(namedSlug(parent,entries.filter(entry=>entry.kind==="series")))}/${encodeURIComponent(namedSlug(item,siblings))}`;
+ }
  return `${libraryPath(library,libraries)}/${encodeURIComponent(namedSlug(item,entries))}`;
 }

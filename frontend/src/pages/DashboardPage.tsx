@@ -11,7 +11,7 @@ import NativeLibraryBrowser from "../components/NativeLibraryBrowser";
 
 export default function DashboardPage() {
  const routeParams=useParams();
- const {libraryId,itemSlug}=routeParams;
+ const {libraryId,itemSlug,seasonSlug}=routeParams;
  const preview=useContext(LibraryNavigationContext);
  const navigate=useNavigate();
  const [params]=useSearchParams();
@@ -22,7 +22,8 @@ export default function DashboardPage() {
  const catalog=useQuery({queryKey:["native-catalog",library?.id],queryFn:()=>nativeLibraries.catalog(library!.id),enabled:!!library&&!preview,staleTime:60_000,gcTime:5*60_000});
  const view=useMemo(()=>nativeCatalogView(catalog.data??[]),[catalog.data]);
  const entries=view.entries;
- const routeItem=resolveNamed(itemSlug,entries);
+ const series=seasonSlug ? resolveNamed(itemSlug,entries.filter(entry=>entry.kind==="series")) : undefined;
+ const routeItem=seasonSlug ? (series ? resolveNamed(seasonSlug,entries.filter(entry=>entry.kind==="season"&&entry.parent_path===series.path)) : undefined) : resolveNamed(itemSlug,entries);
  const effective=new URLSearchParams(params);
  if(library&&!preview) effective.set("native_library",library.id);
  if(itemSlug&&!preview){effective.delete("native_item");if(routeItem)effective.set("native_item",routeItem.id);}
@@ -37,8 +38,8 @@ export default function DashboardPage() {
  useEffect(()=>{
   if(preview||!library||catalog.isPending||catalog.isError)return;
   if(itemSlug&&!routeItem)return;
-  if(!itemSlug||params.has("native_library")||params.has("native_item"))setReadable(effective,{replace:true});
- },[library?.id,catalog.data,itemSlug,params.toString(),preview]);
+  if(!itemSlug||(!seasonSlug&&routeItem?.kind==="season")||params.has("native_library")||params.has("native_item"))setReadable(effective,{replace:true});
+ },[library?.id,catalog.data,itemSlug,seasonSlug,params.toString(),preview]);
  const navigation=preview??{navigate,params:routeParams,searchParams:effective,setSearchParams:setReadable};
  if(libraryId&&!library&&!libraries.isPending)return <p className="p-5 text-muted">Library not found.</p>;
  if(catalog.isError&&!catalog.data&&!preview)return <p role="alert" className="p-5 text-danger">{catalog.error.message}</p>;
