@@ -624,6 +624,7 @@ function NativeDetail({
     tags: strings(entry.metadata.tags),
     genres: strings(entry.metadata.genres),
     studios: strings(entry.metadata.studios),
+    season_count: children.filter(e => e.kind === "season" && number(e.metadata.season) !== 0 && !/^specials?$/i.test(e.title.trim())).length,
     seasons: children
       .filter((e) => e.kind === "season")
       .map((e) => ({ id: e.id, title: e.title })),

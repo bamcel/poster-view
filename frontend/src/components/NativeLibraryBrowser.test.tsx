@@ -485,3 +485,12 @@ it("includes explicitly edited credits in the metadata patch", async()=>{
  fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
  await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",imported,{credits:[{name:"Correct actor",category:"cast"}]}));
 });
+
+it("excludes specials from the series season count while keeping their folder",async()=>{
+ const specials={...season,id:"specials",path:"Anime/Show/Specials",title:"Specials",metadata:{season:0}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([series,season,specials,episode,{...episode,id:"special-episode",path:"Anime/Show/Specials/S00E01.mkv",parent_path:specials.path,metadata:{season:0,episode:1}}]);
+ mount("/?native_library=native&native_item=show");
+ expect(await screen.findByText("1 Season")).toBeTruthy();
+ expect(screen.queryByText("2 Seasons")).toBeNull();
+ expect(screen.getByRole("button",{name:/Open Specials/})).toBeTruthy();
+});
