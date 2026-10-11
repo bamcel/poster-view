@@ -853,16 +853,17 @@ function NativeDetail({
               <section className="mt-10">
                 <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
                   <h2 className="text-xl font-semibold">Episodes</h2>
-                  <label className="flex items-center gap-2 rounded-full border border-border bg-surface px-4 py-2.5 text-muted">
-                    <Search className="size-4" />
+                  <div className="relative w-[min(21rem,calc(100vw-10rem))]">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
                     <input
                       aria-label="Search episodes"
                       placeholder="Find an episode"
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
-                      className="w-40 bg-transparent text-sm outline-none"
+                      className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"
+                      style={{backgroundColor:translucentPanelColor("--color-surface-2",panelSolidity(),panelOverlay()),backdropFilter:`blur(${backdropBlur()}px)`}}
                     />
-                  </label>
+                  </div>
                 </div>
                 <div className="space-y-5">
                   {children
