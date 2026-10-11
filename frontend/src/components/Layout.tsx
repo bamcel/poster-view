@@ -1,3 +1,4 @@
+import {resetHomeNavigation} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
 import {useServerConnectPlugin} from "./PluginsPage";
@@ -53,14 +54,17 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
   return (
     <div className={`flex h-full flex-col md:flex-row ${preview && !showPreviewChrome ? "[&>aside]:hidden [&>header]:hidden [&>div]:hidden" : ""}`}
-      onClickCapture={preview ? event => {
+      onClickCapture={event => {
         const anchor = (event.target as Element).closest("a");
         if (!anchor || !event.currentTarget.contains(anchor) ) return;
+        const href=anchor.getAttribute("href");
+        if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
+        if(href==="/")resetHomeNavigation();
+        if(!preview)return;
         event.preventDefault();
         event.stopPropagation();
-        const href=anchor.getAttribute("href");
         if(href?.startsWith("/")) void previewNavigate(href);
-      } : undefined}>
+      }}>
       <header className="relative z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-sidebar/90 px-3 backdrop-blur-xl md:hidden">
         <NavLink to="/" aria-label="Go to Home" className="mr-auto min-w-0">
           <Logo className="w-36 overflow-hidden [&>img]:max-w-full [&>img]:translate-y-[5px] sm:w-auto sm:[&>img]:max-w-none" />

@@ -1,7 +1,8 @@
+import {HOME_RESET_EVENT} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
 import {Navigate} from "react-router-dom";
 import {Link, useSearchParams} from "../lib/libraryNavigation";
-import {useState} from "react";
+import {useEffect,useState} from "react";
 import {Search, X, Film} from "lucide-react";
 import {useQueries, useQuery} from "@tanstack/react-query";
 import LibraryPosterStrip from "../components/LibraryPosterStrip";
@@ -17,6 +18,7 @@ function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:Native
 function LibraryHome(){
  const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list});
  const [search,setSearch]=useState("");
+ useEffect(()=>{const reset=()=>setSearch("");window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
  const term=search.trim().toLocaleLowerCase();
  const catalogs=useQueries({queries:(libraries.data??[]).map(library=>({queryKey:["native-catalog",library.id],queryFn:()=>nativeLibraries.catalog(library.id),enabled:!!term,staleTime:60_000}))});
  const results=catalogs.flatMap((catalog,index)=>(catalog.data??[]).filter(entry=>entry.available&&entry.kind!=="season"&&[entry.title,entry.metadata.originaltitle].some(value=>typeof value==="string"&&value.toLocaleLowerCase().includes(term))).map(entry=>({entry,library:libraries.data![index]})));

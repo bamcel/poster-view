@@ -1,3 +1,4 @@
+import {HOME_RESET_EVENT} from "../lib/homeNavigation";
 import AnimeDubEditor from "./AnimeDubEditor";
 import SeriesActionsDialog from "./SeriesActionsDialog";
 import FetchBookMetadata from "./FetchBookMetadata";
@@ -239,6 +240,7 @@ export default function NativeLibraryBrowser({
   const [sort, setSort] = useState("title");
   const [artFilter, setArtFilter] = useState("all");
   const [metadataFilter,setMetadataFilter]=useState("all");
+  useEffect(()=>{const reset=()=>{setSearch("");setSort("title");setArtFilter("all");setMetadataFilter("all");};window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
   const providerNames:Record<string,string>={comicvine:"ComicVine",anilist:"AniList",mal:"MyAnimeList",googlebooks:"Google Books",mangadex:"MangaDex",tmdb:"TheMovieDB",tvdb:"TheTVDB",anidb:"AniDB",imdb:"IMDb"};
   const providerKind=library.library_type==="books"?"book_series":library.library_type==="movies"?"movie":"series";
   const metadataProviders=(library.options?.metadata_providers?.[providerKind]??(library.library_type==="books"?["comicvine","anilist","mal"]:library.library_type==="anime"?["anilist","tmdb","tvdb","mal","anidb"]:library.library_type==="movies"?["tmdb","imdb"]:["tmdb","tvdb","imdb"])).filter(p=>providerNames[p]);

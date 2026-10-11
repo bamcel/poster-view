@@ -110,3 +110,13 @@ it("shows the actual homepage and keeps its tiles inside split view",async()=>{
  fireEvent.click(screen.getByRole("button",{name:"Preview library home"}));
  expect(await screen.findByRole("heading",{name:"My Media"})).toBeTruthy();
 });
+
+it("clears homepage search when Home is clicked while already at preview home",async()=>{
+ render(<MemoryRouter initialEntries={["/settings/appearance"]}><Location/><AppearancePreview onClose={vi.fn()}/></MemoryRouter>);
+ await screen.findByRole("link",{name:"Open Anime"});
+ fireEvent.change(screen.getByRole("textbox",{name:"Search all libraries"}),{target:{value:"example"}});
+ fireEvent.click(screen.getAllByRole("link",{name:"Home"})[0]);
+ expect((screen.getByRole("textbox",{name:"Search all libraries"}) as HTMLInputElement).value).toBe("");
+ expect(screen.getByRole("heading",{name:"My Media"})).toBeTruthy();
+ expect(screen.getByTestId("outer-location").textContent).toBe("/settings/appearance");
+});
