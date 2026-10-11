@@ -1,3 +1,4 @@
+use posterview_contracts::native::NativeCatalogEntry;
 use crate::{AppState, HttpError};
 use axum::{
     Json,
@@ -406,6 +407,7 @@ async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option
     let previous=store(&state).native_catalog_scoped(&library.id,scopes.as_deref()).map_err(error)?;
     for missing in previous.into_iter().filter(|e|e.metadata["missing"]==true) {if !entries.iter().any(|e|e.path==missing.path) && !crate::native_missing::arrived(&entries,&missing){entries.push(missing);}}
     crate::native_missing::reconcile_library(&state,&library,&mut entries,false,&mut warnings).await;
+    for entry in &mut entries { normalize_season_title(entry); }
     // Publish the local catalog before network enrichment so large libraries are usable immediately.
     let mut local_entries = entries.clone();
     for entry in &mut local_entries {if let Some(fields)=entry.metadata.as_object_mut(){fields.remove("_scan_unchanged");}}
@@ -435,6 +437,7 @@ async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option
     crate::native_provider::enrich(&state, &library, &mut entries, &mut warnings).await;
     crate::native_missing::reconcile_library(&state,&library,&mut entries,true,&mut warnings).await;
     if library.options.show_missing_files && library.library_type == NativeLibraryType::Books {crate::native_scan::book_placeholders(&mut entries);}
+    for entry in &mut entries { normalize_season_title(entry); }
     let unchanged_paths=entries.iter().filter(|e|e.metadata["_scan_unchanged"]==true).map(|e|e.path.clone()).collect::<std::collections::BTreeSet<_>>();
     for entry in &mut entries {if let Some(fields)=entry.metadata.as_object_mut(){fields.remove("_scan_unchanged");}}
     let count = entries.len();
@@ -1997,9 +2000,28 @@ pub(crate) async fn remove_variant(State(state):State<AppState>,Path((library,it
  Ok(StatusCode::NO_CONTENT)
 }
 
+fn normalize_season_title(entry: &mut NativeCatalogEntry) {
+ if entry.kind != "season" || entry.metadata["_title_locked"] == true { return; }
+ let Some(season)=entry.metadata["season"].as_u64().or_else(||entry.metadata["season"].as_str().and_then(|v|v.parse().ok())) else { return; };
+ let title=if season==0 {"Specials".to_string()} else {format!("Season {season}")};
+ entry.title=title.clone();
+ entry.metadata["title"]=serde_json::json!(title);
+ entry.metadata["_sources"]["title"]=serde_json::json!("season_number");
+}
+
 #[cfg(test)]
 mod identification_refresh_tests {
     use super::*;
+    #[test]
+    fn season_titles_use_numbers_and_respect_manual_locks() {
+        let mut entry=NativeCatalogEntry {id:"season".into(),path:"Show/Season 1".into(),parent_path:Some("Show".into()),kind:"season".into(),title:"Emperor Pilaf Saga".into(),metadata:serde_json::json!({"season":1,"title":"Emperor Pilaf Saga","plot":"Keep description"}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+        normalize_season_title(&mut entry);
+        assert_eq!(entry.title,"Season 1");assert_eq!(entry.metadata["title"],"Season 1");assert_eq!(entry.metadata["plot"],"Keep description");
+        entry.metadata["season"]=serde_json::json!(0);normalize_season_title(&mut entry);assert_eq!(entry.title,"Specials");
+        entry.title="Custom season".into();entry.metadata["title"]=serde_json::json!("Custom season");entry.metadata["_title_locked"]=serde_json::json!(true);
+        normalize_season_title(&mut entry);assert_eq!(entry.title,"Custom season");
+    }
+
     #[test]
     fn rescan_does_not_restore_discarded_nfo_values_but_accepts_changed_values(){
         let previous=serde_json::json!({"_identify_discarded":{"plot":[posterview_infra_sqlite::ServerStore::identification_value_hash(&serde_json::json!("Old plot"))],"identifiers":[posterview_infra_sqlite::ServerStore::identification_value_hash(&serde_json::json!({"tvdb":"99"}))]}});
