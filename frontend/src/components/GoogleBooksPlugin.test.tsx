@@ -38,3 +38,15 @@ it("tests an unsaved key while the plugin is disabled without saving configurati
  expect(apiRequest).toHaveBeenCalledWith("/plugins/google-books/test",{method:"POST",body:JSON.stringify({api_key:"unsaved-key"})});
  expect(vi.mocked(apiRequest).mock.calls.some(([,options])=>options?.method==="PUT")).toBe(false);
 });
+
+it("shows a persistent failure notification beside the connection controls",async()=>{
+ Object.defineProperty(HTMLDialogElement.prototype,"showModal",{configurable:true,value(){this.setAttribute("open","");}});
+ vi.mocked(apiRequest).mockImplementation(async path=>{if(path.endsWith("/test"))throw new Error("API key invalid (HTTP 400)");return {enabled:false,configured:true};});
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<QueryClientProvider client={client}><GoogleBooksPlugin/></QueryClientProvider>);
+ fireEvent.click(screen.getByRole("button",{name:/Google Books/}));
+ await waitFor(()=>expect((screen.getByRole("button",{name:"Test connection"}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByRole("button",{name:"Test connection"}));
+ expect(await screen.findByRole("alert")).toHaveProperty("textContent","Google Books connection failed: API key invalid (HTTP 400)");
+ expect(screen.queryByText("Connection successful")).toBeNull();
+});
