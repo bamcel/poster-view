@@ -60,6 +60,7 @@ import {
   panelSolidity,
   panelOverlay,
   backdropBlur,
+  BACKDROP_BLUR_EVENT,
   translucentPanelColor,
 } from "../lib/dashboardSettings";
 
@@ -181,6 +182,14 @@ function Modal({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const [appearance,setAppearance]=useState(()=>({blur:backdropBlur(),overlay:backdropOverlay()}));
+  useEffect(()=>{
+    const update=()=>setAppearance({blur:backdropBlur(),overlay:backdropOverlay()});
+    window.addEventListener(BACKDROP_BLUR_EVENT,update);
+    window.addEventListener(BACKDROP_OVERLAY_EVENT,update);
+    window.addEventListener("storage",update);
+    return ()=>{window.removeEventListener(BACKDROP_BLUR_EVENT,update);window.removeEventListener(BACKDROP_OVERLAY_EVENT,update);window.removeEventListener("storage",update);};
+  },[]);
   const metadata = title === "Edit Metadata" || title === "Identify" || title === "Fetch Metadata";
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -196,7 +205,7 @@ function Modal({
       style={poster&&!metadata?{width:"min(42rem, calc(100vw - 2rem))",height:"min(90dvh, 60rem)"}:undefined}
       className={metadata ? "relative isolate m-auto h-[90dvh] max-h-[960px] w-[min(42rem,calc(100vw-2rem))] max-w-4xl overflow-hidden rounded-2xl border border-border bg-sidebar p-0 text-white backdrop:bg-black/70" : "relative isolate m-auto max-h-[90dvh] w-[min(56rem,calc(100vw-2rem))] max-w-4xl overflow-y-auto rounded-2xl border border-border bg-sidebar p-5 text-white backdrop:bg-black/70"}
     >
-      {poster&&<div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl"><img src={stillArtwork(poster)} alt="" className="h-full w-full scale-110 object-cover opacity-40 blur-sm" onError={event=>{event.currentTarget.style.visibility="hidden";}}/><div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/55 to-black/75"/></div>}
+      {poster&&<div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl"><img src={stillArtwork(poster)} alt="" className="h-full w-full scale-110 object-cover" style={{filter:`blur(${appearance.blur}px)`}} onError={event=>{event.currentTarget.style.visibility="hidden";}}/><div className="absolute inset-0 md:hidden" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).mobile}}/><div className="absolute inset-0 hidden md:block" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).desktop}}/></div>}
       <header className={metadata ? "flex h-16 shrink-0 items-center gap-4 px-6 sm:px-8" : "mb-5 flex items-center justify-between gap-4"}>
         <h2 className={`text-lg font-semibold`}>{title}</h2>
         <button
