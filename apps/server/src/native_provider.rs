@@ -762,6 +762,12 @@ async fn enrich_one(
         {
             continue;
         }
+        if image_phase && provider_name == "capture" {
+            if let Err(error)=crate::native_capture::capture(state,library,entry).await {
+                warnings.push(format!("{} (Image Capture): {error}",entry.title));
+            }
+            continue;
+        }
         if image_phase {
             if missing_images(entry, library).is_empty() {
                 break;

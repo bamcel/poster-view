@@ -21,6 +21,7 @@ static CPU: LazyLock<(Mutex<usize>, Condvar, usize)> = LazyLock::new(|| {
 static NETWORK_LIMIT: LazyLock<usize> = LazyLock::new(|| limit("POSTERVIEW_NETWORK_WORKERS", 4));
 static NETWORK: LazyLock<Arc<tokio::sync::Semaphore>> =
     LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(*NETWORK_LIMIT)));
+pub(crate) fn media_limit() -> usize {CPU.2}
 pub(crate) fn network_limit() -> usize {
     *NETWORK_LIMIT
 }

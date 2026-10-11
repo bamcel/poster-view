@@ -170,6 +170,7 @@ fn provider_supported(
         }
         "tmdb" | "tvdb" => kind != "book_series",
         "omdb" => ["movie", "series", "episode"].contains(&kind),
+        "capture" => images && library != NativeLibraryType::Books && ["movie", "episode"].contains(&kind),
         "fanart" => images && ["movie", "series", "season"].contains(&kind),
         _ => false,
     }
@@ -203,7 +204,7 @@ fn validate(input: &NativeLibraryInput) -> Result<(), StoreError> {
     ] {
         for (kind, list) in providers {
             if !["movie", "series", "season", "episode", "book_series"].contains(&kind.as_str())
-                || list.len() > 7
+                || list.len() > 8
                 || list.iter().enumerate().any(|(i, p)| list[..i].contains(p))
                 || list
                     .iter()
@@ -476,6 +477,21 @@ mod tests {
         tx.execute("DELETE FROM native_libraries WHERE id=?1",[&saved.id]).unwrap();
         assert_eq!(store.native_libraries().unwrap().len(),1);
         tx.commit().unwrap();assert!(store.native_libraries().unwrap().is_empty());
+    }
+    #[test]
+    fn image_capture_is_valid_only_for_video_image_providers() {
+        let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
+        let mut input=NativeLibraryInput {name:"Shows".into(),library_type:NativeLibraryType::Shows,anime_content:AnimeContent::Both,paths:vec!["Shows".into()],revision:None,options:Default::default()};
+        input.options.image_providers.insert("episode".into(),vec!["tvdb".into(),"capture".into()]);
+        input.options.image_providers.insert("movie".into(),vec!["capture".into()]);
+        let saved=db.save_native_library(None,&input).unwrap();
+        assert_eq!(saved.options.image_providers,input.options.image_providers);
+        input.name="Anime".into();input.library_type=NativeLibraryType::Anime;
+        input.options.image_providers.insert("movie".into(),["anilist","mal","anidb","tmdb","tvdb","omdb","fanart","capture"].into_iter().map(str::to_owned).collect());
+        assert!(db.save_native_library(None,&input).is_ok());
+        input.name="Invalid".into();
+        input.options.metadata_providers.insert("episode".into(),vec!["capture".into()]);assert!(db.save_native_library(None,&input).is_err());
+        input.options.metadata_providers.clear();input.options.image_providers.insert("season".into(),vec!["capture".into()]);assert!(db.save_native_library(None,&input).is_err());
     }
     #[test]
     fn book_libraries_accept_comicvine_metadata_and_image_orders() {

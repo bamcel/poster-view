@@ -103,3 +103,16 @@ it("offers Google Books metadata for book libraries",()=>{
  render(<NativeLibrarySettings options={defaultNativeOptions} type="books" animeContent="both" section={3} onChange={()=>{}}/>);
  expect(screen.getByLabelText("Book metadata providers: Google Books")).toBeTruthy();
 });
+
+it("enables image capture independently for episode and movie thumbnails", () => {
+ render(<Harness section={4}/>);
+ const checkbox=screen.getByLabelText("Episode Image Fetchers: Image Capture") as HTMLInputElement;
+ expect(checkbox.disabled).toBe(false);expect(checkbox.checked).toBe(false);
+ fireEvent.click(checkbox);
+ expect(JSON.parse(screen.getByTestId("options").textContent!).image_providers.episode).toEqual(["tmdb","capture"]);
+ fireEvent.click(screen.getByRole("button",{name:"Move Image Capture up in Episode Image Fetchers"}));
+ expect(JSON.parse(screen.getByTestId("options").textContent!).image_providers.episode).toEqual(["capture","tmdb"]);
+ fireEvent.click(screen.getByLabelText("Movie Image Fetchers: Image Capture"));
+ expect(JSON.parse(screen.getByTestId("options").textContent!).image_providers.movie).toContain("capture");
+ expect(JSON.parse(screen.getByTestId("options").textContent!).metadata_providers).toEqual({});
+});

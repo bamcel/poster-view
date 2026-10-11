@@ -427,11 +427,12 @@ async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option
     .map_err(|_| HttpError::bad_request("Local catalog save interrupted."))?
     .map_err(error)?;
     crate::native_provider::enrich(&state, &library, &mut entries, &mut warnings).await;
+    crate::native_capture::fill_missing(&state,&library,&mut entries,&mut warnings).await;
     crate::native_missing::reconcile_library(&state,&library,&mut entries,true,&mut warnings).await;
     if library.options.show_missing_files && library.library_type == NativeLibraryType::Books {crate::native_scan::book_placeholders(&mut entries);}
     for entry in &mut entries { normalize_season_title(entry); }
     let unchanged_paths=entries.iter().filter(|e|e.metadata["_scan_unchanged"]==true).map(|e|e.path.clone()).collect::<std::collections::BTreeSet<_>>();
-    for entry in &mut entries {if let Some(fields)=entry.metadata.as_object_mut(){fields.remove("_scan_unchanged");}}
+    for entry in &mut entries {if let Some(fields)=entry.metadata.as_object_mut(){fields.remove("_scan_unchanged");fields.remove("_image_capture_attempted");}}
     let count = entries.len();
     let db = store(&state);
     let scan_library = library.clone();

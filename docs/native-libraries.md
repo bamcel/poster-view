@@ -354,3 +354,15 @@ Series right-click actions include Edit Metadata, Edit Images, Identify, Remove 
 Refresh Metadata opens a dialog with Replace all metadata (default) or Search for missing metadata and an optional Replace existing images switch. Replacement clears descriptive values, including manual edits, while preserving current IDs, numbering, technical data and artwork. Image replacements use configured providers and only overwrite successfully downloaded types; animation is preserved. Video preview thumbnail regeneration is unavailable.
 
 For series, movies and anime, Refresh Metadata image replacement uses TVDB exclusively, independently of metadata provider priority. Book libraries retain configured image providers. Failed/missing TVDB replacements keep existing images without falling back to other providers.
+
+### Image Capture thumbnails
+
+In a video library's Artwork settings, enable **Image Capture** under **Episode Image Fetchers** or **Movie Image Fetchers**, and keep **Download thumb** enabled. It is off by default. Place it below online providers to use it as a fallback, or move it first to prefer video frames when a thumbnail is missing.
+
+Library scans and folder-level Scan Library Files generate missing thumbnails from local video files, including local-only scans with internet metadata fetching disabled. Existing thumbnails and landscape images are preserved, including manual artwork. Missing-episode placeholders have no video to capture. Replace existing images continues to use TVDB only.
+
+Capture seeks to 10% of a known video duration (10 seconds when duration is unknown), then selects a representative frame from 24 nearby frames. If seeking produces no frame, it tries the beginning of the file. Generated JPEGs fit within 1280×720 while preserving display aspect ratio. Capture uses the shared bounded media workers and has a 30-second deadline. Unchanged entries with thumbnails do not run FFmpeg again.
+
+Images stay in PosterView application data. With Save artwork into media folders enabled, the existing artwork exporter writes an episode's matching filename.jpg sidecar or a movie's filename-thumb.jpg (so movies sharing a folder keep separate thumbnails). Disabling the Artwork plugin also disables capture. FFmpeg is included in the Docker image.
+
+The approach follows [Jellyfin's screen grabber](https://github.com/jellyfin/jellyfin/blob/master/MediaBrowser.Providers/MediaInfo/VideoImageProvider.cs) and FFmpeg's [representative-frame thumbnail filter](https://ffmpeg.org/ffmpeg-filters.html#thumbnail).

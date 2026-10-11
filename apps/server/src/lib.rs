@@ -31,6 +31,7 @@ mod reader;
 mod native;
 mod native_operations;
 mod native_scan;
+mod native_capture;
 mod native_missing;
 mod native_provider;
 mod google_books;
