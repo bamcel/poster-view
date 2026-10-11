@@ -129,7 +129,7 @@ it("browses series, seasons and episodes with detail views rather than editors",
   fireEvent.click(screen.getByRole("button", { name: /Open Season 1/ }));
   expect(screen.getByRole("heading", { name: "Episodes" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Open First Episode" }));
-  expect(screen.getByRole("heading", { name: "First Episode" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "S1:E1 - First Episode" })).toBeTruthy();
   expect(screen.getByText("Episode synopsis")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(screen.getByRole("heading", { name: "Season 1" })).toBeTruthy();
@@ -516,4 +516,15 @@ it("filters books by volume or chapter number and title within the current serie
  fireEvent.change(input,{target:{value:"chapter 12"}});expect(screen.getByText("Final battle")).toBeTruthy();expect(screen.queryByText("Second book")).toBeNull();
  fireEvent.change(input,{target:{value:"nothing"}});expect(screen.getByText("No matching volumes or chapters.")).toBeTruthy();
  fireEvent.change(input,{target:{value:""}});expect(screen.getByText("Second book")).toBeTruthy();expect(screen.getByText("Final battle")).toBeTruthy();
+});
+
+it("shows episode context and navigates through the season thumbnail row",async()=>{
+ const second={...episode,id:"second",title:"Second Episode",metadata:{season:1,episode:2}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([series,season,episode,second]);
+ mount("/?native_library=native&native_item=episode");
+ expect(await screen.findByRole("heading",{name:"S1:E1 - First Episode"})).toBeTruthy();
+ expect(screen.getByRole("heading",{name:/More from Season/})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Open episode 2: Second Episode"}));
+ expect(await screen.findByRole("heading",{name:"S1:E2 - Second Episode"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Edit Metadata"})).toBeTruthy();
 });

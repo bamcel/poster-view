@@ -646,6 +646,9 @@ function NativeDetail({
   const bookUnit = children.length > 0 && children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapter" : "Volume";
   const isSeries = entry.kind === "series" || entry.kind === "season";
   const isEpisode = entry.kind === "episode";
+  const siblings=isEpisode?entries.filter(sibling=>sibling.available&&sibling.kind==="episode"&&sibling.parent_path===entry.parent_path&&sibling.id!==entry.id&&showMissingEntry(library,sibling)).sort((a,b)=>(number(a.metadata.episode)??0)-(number(b.metadata.episode)??0)):[];
+  const streams=entry.files[0]?.media_info?.streams??[];
+  const episodeTracks=["video","audio","subtitle"].map(type=>({type,values:streams.filter(stream=>stream.codec_type===type).map(stream=>[stream.width&&stream.height?`${stream.width}×${stream.height}`:"",String((stream.tags as Record<string,unknown>|undefined)?.language??""),String(stream.codec_name??"").toUpperCase()].filter(Boolean).join(" "))})).filter(track=>track.values.length>0);
   const headerMetadata = entry.kind === "season" ? {...series?.metadata,...Object.fromEntries(Object.entries(entry.metadata).filter(([,value])=>value!=null&&value!==""&&(!Array.isArray(value)||value.length>0)))} : entry.metadata;
   const headerSeasons = entry.kind === "season" && series ? entries.filter(e=>e.available&&e.parent_path===series.path&&e.kind==="season") : children.filter(e=>e.kind==="season");
   const detail: ItemDetail = {
@@ -680,7 +683,7 @@ function NativeDetail({
     picture(library, entry, "backdrop") ?? picture(library, series, "backdrop");
   const logo =
     picture(library, entry, "logo") ??
-    (entry.kind === "season" ? picture(library, series, "logo") : undefined);
+    (["season","episode"].includes(entry.kind) ? picture(library, series, "logo") : undefined);
   const poster =
     picture(library, entry, isEpisode ? "thumb" : "poster") ??
     picture(library, series, "poster");
@@ -729,7 +732,7 @@ function NativeDetail({
           </div>
         </LibraryBackdrop>
       )}
-      <div className="media-detail scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain">
+      <div className={`media-detail ${isEpisode?"episode-detail":""} scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain`}>
         <div className="relative min-h-full">
           <div className="absolute inset-x-5 top-5 z-10 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
             <button onClick={back} aria-label="Back" className="grid place-items-center" data-icon-button="true">
@@ -745,7 +748,7 @@ function NativeDetail({
               className={
                 isSeries || isBookSeries
                   ? "flex flex-row items-start gap-5 sm:gap-8 lg:gap-9"
-                  : "flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6"
+                  : isEpisode ? "flex flex-col items-start gap-6 md:flex-row md:gap-9" : "flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6"
               }
             >
               <div
@@ -753,7 +756,7 @@ function NativeDetail({
                   isSeries || isBookSeries
                     ? "w-28 shrink-0 sm:w-[25%] sm:max-w-[328px]"
                     : isEpisode
-                      ? "w-full max-w-md shrink-0 sm:w-[35%]"
+                      ? "w-full shrink-0 md:w-[38%] md:max-w-[520px]"
                       : "w-40 shrink-0 min-[390px]:w-44 sm:w-48 lg:w-56"
                 }
               >
@@ -766,13 +769,13 @@ function NativeDetail({
                 </div>
               </div>
               <div
-                className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries || isBookSeries ? "text-left" : "text-center sm:text-left"}`}
+                className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries || isBookSeries || isEpisode ? "text-left" : "text-center sm:text-left"}`}
               >
-                {logo ? (
+                {isEpisode ? (<><button onClick={()=>series&&open(series)} disabled={!series} className="block text-left" aria-label={series?`Open ${series.title}`:undefined}>{logo?<AnimatedArtwork src={logo} alt={series?.title??entry.title} className="max-h-20 max-w-[240px] object-contain object-left"/>:<span className="text-2xl font-semibold">{series?.title??"Episode"}</span>}</button><div className="mt-4 flex flex-wrap items-center gap-3"><h1 className="text-[17px] font-medium leading-snug">S{String(entry.metadata.season??parent?.metadata.season??1)}:E{String(entry.metadata.episode??"")} - {entry.title}</h1><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button>{artworkPlugin.data?.enabled!==false&&<button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button>}</div></>) : logo ? (
                   <AnimatedArtwork
                     src={logo}
                     alt={entry.title}
-                    className="max-h-24 max-w-full object-contain object-left sm:max-w-[400px]"
+                    className={isEpisode?"max-h-20 max-w-[240px] object-contain object-left":"max-h-24 max-w-full object-contain object-left sm:max-w-[400px]"}
                   />
                 ) : (
                   <h1 className={`text-3xl font-bold leading-tight sm:text-4xl ${coloredBook && bookDisplay.coloredTitle ? "poster-colored-title" : ""}`}>
@@ -788,38 +791,33 @@ function NativeDetail({
                     {entry.title} · {children.filter(e=>e.kind==="episode"&&showMissingEntry(library,e)).length} Episodes
                   </button>
                 )}
-                {isBookSeries ? <p className="mt-2 text-sm text-white/70">{children.filter(e=>e.metadata.missing!==true).length} {children.filter(e=>e.metadata.missing!==true).length === 1 ? bookUnit : `${bookUnit}s`}</p> : <TitleMetadata item={detail} />}
-                {isEpisode && (
-                  <p className="mt-2 text-sm text-muted">
-                    Season {String(entry.metadata.season ?? "")} · Episode{" "}
-                    {String(entry.metadata.episode ?? "")}
-                  </p>
-                )}
+                {isBookSeries ? <p className="mt-2 text-sm text-white/70">{children.filter(e=>e.metadata.missing!==true).length} {children.filter(e=>e.metadata.missing!==true).length === 1 ? bookUnit : `${bookUnit}s`}</p> : isEpisode ? <div aria-label="Title information" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">{detail.rating!=null&&<span>★ {detail.rating.toFixed(1)}</span>}{typeof entry.metadata.aired==="string"&&entry.metadata.aired&&<span>{new Date(`${entry.metadata.aired.slice(0,10)}T12:00:00Z`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric",timeZone:"UTC"})}</span>}{entry.metadata.runtime!=null&&<span>{String(entry.metadata.runtime)}m</span>}{detail.content_rating&&<span className="rounded border border-white/40 px-1.5 text-xs">{detail.content_rating}</span>}</div> : <TitleMetadata item={detail} />}
                 {entry.kind.startsWith("book") && <BookSeriesMetadata unit={isBookSeries ? bookUnit : entry.metadata.chapter!=null && entry.metadata.volume==null ? "Chapter" : "Volume"} metadata={entry.metadata} count={isBookSeries ? children.filter(e=>e.metadata.missing!==true).length : 1}/>}
+                {isEpisode&&episodeTracks.length>0&&<dl aria-label="Episode media tracks" className="mt-4 flex flex-wrap gap-x-6 gap-y-3 text-sm">{episodeTracks.map(track=><div key={track.type} className="flex items-baseline gap-2"><dt className="font-medium capitalize">{track.type==="subtitle"?"Subtitles":track.type}</dt><dd className="text-muted">{track.values.join(" · ")}</dd></div>)}</dl>}
                 <div
                   data-testid="detail-actions"
                   className="mt-4 flex flex-wrap items-center gap-2"
                 >
-                  <button
+                  {!isEpisode&&<button
                     className={detailActionClass}
                     aria-label="Edit Metadata"
                     title="Edit Metadata"
                     onClick={() => edit("metadata")}
                    data-icon-button="true">
                     <Pencil className="size-4" />
-                  </button>
+                  </button>}
                   <button
-                    className={detailActionClass}
+                    className={isEpisode?"episode-action":detailActionClass}
                     aria-label="Refresh"
                     title="Refresh"
                     disabled={fetching}
                     onClick={refresh}
-                   data-icon-button="true">
+                   data-icon-button={isEpisode?undefined:"true"}>
                     <RefreshCw
                       className={`size-4 ${fetching ? "animate-spin" : ""}`}
                     />
                   </button>
-                  {artworkPlugin.data?.enabled !== false && <button
+                  {!isEpisode&&artworkPlugin.data?.enabled !== false && <button
                     className={detailActionClass}
                     aria-label="Edit Images"
                     title="Edit Images"
@@ -916,6 +914,7 @@ function NativeDetail({
                 </div>
               </section>
             )}
+            {isEpisode&&siblings.length>0&&<section className="mt-10"><h2 className="mb-4 text-xl font-semibold">More from {parent?.title??`Season ${entry.metadata.season??1}`}</h2><div className="flex gap-5 overflow-x-auto pb-3">{siblings.map(sibling=><button key={sibling.id} aria-label={`Open episode ${sibling.metadata.episode??""}: ${sibling.title}`} onClick={()=>open(sibling)} className="group w-60 shrink-0 text-left sm:w-64"><div className="aspect-video overflow-hidden rounded-lg bg-surface-2"><Artwork src={picture(library,sibling,"thumb")} alt={`${sibling.title} episode still`}/></div><p className="mt-2 truncate text-sm font-medium">{String(sibling.metadata.episode??"")}. {sibling.title}</p></button>)}</div></section>}
             {entry.metadata.missing!==true && entry.kind !== "series" && !entry.kind.startsWith("book") && <ItemAbout item={detail} />}
             {(library.library_type !== "anime" || animePreferences.characters) && Array.isArray(entry.metadata.characters) &&
               entry.metadata.characters.length > 0 && (

@@ -257,3 +257,11 @@ button[data-icon-button="true"]:hover:not(:disabled) { border-color: rgb(255 255
 button[data-icon-button="true"]:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 button[data-icon-button="true"]:disabled { opacity: .5; }
 @media (max-width: 767px) { button[data-icon-button="true"] { width: 44px; height: 44px; } }
+
+.episode-detail { font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif; }
+.episode-detail .episode-inline-action { display:inline-flex; align-items:center; justify-content:center; width:28px; height:28px; border:0; background:transparent; color:var(--color-detail-metadata); }
+.episode-detail .episode-action { display:inline-flex; align-items:center; justify-content:center; width:48px; height:48px; border:0; border-radius:50%; background:var(--color-surface-2); color:var(--color-detail-text); }
+.episode-detail .episode-action > svg { width:22px; height:22px; }
+.episode-detail :is(.episode-action,.episode-inline-action):hover { background:var(--color-elevated); color:var(--color-detail-title); }
+.episode-detail :is(.episode-action,.episode-inline-action):focus-visible { outline:2px solid var(--color-accent); outline-offset:3px; }
+.episode-detail .detail-synopsis { font-size:16px; line-height:1.65; font-weight:400; }
