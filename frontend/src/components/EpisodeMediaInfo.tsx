@@ -13,6 +13,7 @@ function language(value:unknown) {
  const code=String(value), aliases:Record<string,string>={eng:"en",jpn:"ja",kor:"ko",fra:"fr",fre:"fr",deu:"de",ger:"de",spa:"es",zho:"zh",chi:"zh",ita:"it",por:"pt",rus:"ru"};
  try{return new Intl.DisplayNames([navigator.language||"en"],{type:"language"}).of(aliases[code]??code)??code;}catch{return code;}
 }
+const videoFields=new Set(["Title","Embedded Title","Codec","Profile","Resolution","Aspect Ratio","Interlaced","Framerate","Bitrate","Bit Depth","Pixel Format","Reference Frames"]);
 function StreamCard({stream}:{stream:Record<string,unknown>}) {
  const type=String(stream.codec_type??"Track"),tags=stream.tags as Record<string,unknown>|undefined,flags=stream.disposition as Record<string,unknown>|undefined;
  const Icon=type==="video"?Film:type==="audio"?AudioLines:type==="subtitle"?Captions:Paperclip;
@@ -32,7 +33,7 @@ function StreamCard({stream}:{stream:Record<string,unknown>}) {
  ];
  return <article className="w-[285px] shrink-0 rounded-md bg-white/[0.09] p-4 sm:w-[300px]">
   <h3 className="mb-4 flex items-center gap-2 text-[15px] font-semibold capitalize"><Icon className="size-4"/>{type}</h3>
-  <dl className="space-y-1.5 text-[13px] leading-[1.4]">{rows.filter(([,value])=>value!=null&&value!==""&&value!=="unknown").map(([label,value])=><div key={label} className="flex items-baseline gap-3"><dt className="shrink-0 font-medium">{label}</dt><dd className="min-w-0 break-words text-white/70">{String(value)}</dd></div>)}</dl>
+  <dl className="space-y-1.5 text-[13px] leading-[1.4]">{rows.filter(([label,value])=>(type!=="video"||videoFields.has(label))&&value!=null&&value!==""&&value!=="unknown").map(([label,value])=><div key={label} className="flex items-baseline gap-3"><dt className="shrink-0 font-medium">{label}</dt><dd className="min-w-0 break-words text-white/70">{String(value)}</dd></div>)}</dl>
  </article>;
 }
 export default function EpisodeMediaInfo({files}:{files:NativeCatalogEntry["files"]}) {
