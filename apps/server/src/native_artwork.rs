@@ -31,7 +31,8 @@ fn destination(entry: &NativeCatalogEntry, kind: &str) -> Result<(String, String
         .ok_or("Media has no parent folder.")?
         .to_string_lossy()
         .replace('\\', "/");
-    if entry.kind == "movie" && kind == "thumb" {
+    if (entry.kind == "movie" && kind == "thumb")
+        || (entry.kind == "episode" && ["thumb", "landscape", "poster"].contains(&kind)) {
         let stem = path.file_stem().ok_or("Media has no filename.")?.to_string_lossy();
         return Ok((folder, format!("{stem}-thumb.jpg")));
     }
@@ -55,6 +56,7 @@ fn destination(entry: &NativeCatalogEntry, kind: &str) -> Result<(String, String
 fn sidecar_name(entry:&NativeCatalogEntry,directory:&Path,name:String)->Result<String,String>{
     // A flat movie folder needs filename-prefixed sidecars to avoid title collisions.
     Ok(if entry.kind == "movie"
+        && !name.starts_with(&format!("{}-", Path::new(&entry.path).file_stem().ok_or("Media has no filename.")?.to_string_lossy()))
         && fs::read_dir(directory)
             .map_err(|e| e.to_string())?
             .filter_map(Result::ok)
@@ -330,6 +332,22 @@ mod internal_artwork_tests {
 #[cfg(test)]
 mod capture_destinations {
     use super::*;
+    #[test]
+    fn episode_thumbnail_exports_use_thumb_suffix_and_books_keep_cover_names() {
+        let mut entry = NativeCatalogEntry {id:String::new(),path:"Shows/Show S01E01.mkv".into(),kind:"episode".into(),parent_path:None,title:String::new(),metadata:serde_json::json!({}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+        assert_eq!(destination(&entry,"thumb").unwrap(), ("Shows".into(), "Show S01E01-thumb.jpg".into()));
+        entry.kind = "book".into();
+        assert_eq!(destination(&entry,"poster").unwrap().1, "Show S01E01.jpg");
+    }
+    #[test]
+    fn flat_movie_thumbnail_names_are_not_prefixed_twice() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("First.mkv"), b"video").unwrap();
+        fs::write(temp.path().join("Second.mkv"), b"video").unwrap();
+        let entry = NativeCatalogEntry {id:String::new(),path:"Movies/First.mkv".into(),kind:"movie".into(),parent_path:None,title:String::new(),metadata:serde_json::json!({}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+        assert_eq!(sidecar_name(&entry,temp.path(),"First-thumb.jpg".into()).unwrap(), "First-thumb.jpg");
+    }
+
     #[test]
     fn movie_thumbnails_do_not_share_a_sidecar_in_flat_folders() {
         let make_entry = |path: &str| NativeCatalogEntry {id:String::new(),path:path.into(),kind:"movie".into(),parent_path:None,title:path.into(),metadata:serde_json::json!({}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};

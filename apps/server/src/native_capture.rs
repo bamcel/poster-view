@@ -370,7 +370,7 @@ mod tests {
         .unwrap();
         assert_eq!((image.width(), image.height()), (1280, 720));
         assert!(image.to_rgb8().pixels().next().unwrap()[0] > 200);
-        let sidecar = file.with_extension("jpg");
+        let sidecar = file.with_file_name(format!("{}-thumb.jpg", file.file_stem().unwrap().to_string_lossy()));
         let before = fs::read(&sidecar).unwrap();
         let count = fs::read_dir(state.runtime.data_dir().join("native-artwork"))
             .unwrap()

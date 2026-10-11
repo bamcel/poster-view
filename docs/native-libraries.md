@@ -363,6 +363,8 @@ Library scans and folder-level Scan Library Files generate missing thumbnails fr
 
 Capture seeks to 10% of a known video duration (10 seconds when duration is unknown), then selects a representative frame from 24 nearby frames. If seeking produces no frame, it tries the beginning of the file. Generated JPEGs fit within 1280×720 while preserving display aspect ratio. Capture uses the shared bounded media workers and has a 30-second deadline. Unchanged entries with thumbnails do not run FFmpeg again.
 
-Images stay in PosterView application data. With Save artwork into media folders enabled, the existing artwork exporter writes an episode's matching filename.jpg sidecar or a movie's filename-thumb.jpg (so movies sharing a folder keep separate thumbnails). Disabling the Artwork plugin also disables capture. FFmpeg is included in the Docker image.
+Images stay in PosterView application data. With Save artwork into media folders enabled, the existing artwork exporter writes an episode's or movie's matching filename-thumb.jpg sidecar (so movies sharing a folder keep separate thumbnails). Disabling the Artwork plugin also disables capture. FFmpeg is included in the Docker image.
 
 The approach follows [Jellyfin's screen grabber](https://github.com/jellyfin/jellyfin/blob/master/MediaBrowser.Providers/MediaInfo/VideoImageProvider.cs) and FFmpeg's [representative-frame thumbnail filter](https://ffmpeg.org/ffmpeg-filters.html#thumbnail).
+
+Episode thumbnails named either filename-thumb.jpg or filename.jpg are read during scans. New episode thumbnail sidecars use filename-thumb.jpg; existing files are preserved.

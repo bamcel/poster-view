@@ -1163,6 +1163,19 @@ fn is_artwork_video(path: &Path, media_stems: &std::collections::BTreeSet<PathBu
 mod animated_artwork_tests {
     use super::*;
     #[test]
+    fn episode_thumbnails_accept_both_sidecar_conventions() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        for name in ["Show S01E01.jpg", "Show S01E01-thumb.jpg"] {
+            let file = root.join(name);
+            fs::write(&file, b"thumbnail").unwrap();
+            let art = local_art(&root, &root, Some("Show S01E01"));
+            assert!(art.iter().any(|a| a.kind == "thumb" && a.path == name));
+            fs::remove_file(file).unwrap();
+        }
+    }
+
+    #[test]
     fn artwork_videos_are_excluded_and_animated_sidecars_have_priority() {
         let temp=tempfile::tempdir().unwrap(); let root=temp.path().canonicalize().unwrap(); let dir=root.as_path();
         fs::write(dir.join("poster.jpg"),b"static").unwrap();
