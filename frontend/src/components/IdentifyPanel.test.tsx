@@ -152,14 +152,13 @@ it("fills a missing MAL ID from the saved AniList link without a MAL title searc
  expect(screen.getByLabelText("TheTVDB identification ID")).toHaveProperty("value","82234");
 });
 
-it("shows all results beneath their provider ID in a four-column grid",async()=>{
+it("shows all results inside their provider card",async()=>{
  const results=Array.from({length:6},(_,i)=>({provider:"mal",id:String(i+1),title:`Match ${i+1}`,year:2000,format:"TV",overview:null,identifiers:{mal:String(i+1)}}));
  vi.mocked(nativeLibraries.identifySearch).mockResolvedValue({groups:[{provider:"mal",results}]});
  render(<IdentifyPanel library={library} entry={{...entry,metadata:{}}} busy={false} onSaved={()=>{}}/>);
  fireEvent.click(screen.getByRole("button",{name:"Search all providers"}));
  const region=await screen.findByRole("region",{name:"MyAnimeList matches"});
  expect(region.parentElement?.querySelector('input[aria-label="MyAnimeList identification ID"]')).toBeTruthy();
- expect(region.querySelector(".sm\\:grid-cols-4")).toBeTruthy();
  expect(screen.queryByRole("button",{name:"Show more MyAnimeList matches"})).toBeNull();
  expect(region.querySelectorAll('button[aria-pressed]').length).toBe(6);
  expect(screen.queryByRole("tablist")).toBeNull();
