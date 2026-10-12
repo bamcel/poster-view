@@ -129,6 +129,12 @@ time when changing startup, seeking, audio or subtitle behavior. Capability
 support does not guarantee efficient native MKV seeking: browser indexing,
 source keyframes and HTTP delivery still need runtime measurements.
 
+Brief native fetch/decode waits leave the original video attached and show a buffering
+indicator only after 500 ms; startup preparation remains immediate. This is a
+visual delay, not a claim that unbuffered seeks require no network or decoding.
+Ignore queued media error events with a cleared `MediaError`; only an owned
+current source with a real error may terminate playback.
+
 Playback preference appearance fields are defaulted when older JSON is loaded:
 `subtitle_color`, `subtitle_shadow`, `subtitle_background` and `subtitle_position`.
 The server validates colors and option values; plain-text cue styling/placement

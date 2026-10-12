@@ -27,6 +27,15 @@ export default function PlayerPage() {
   const [preferences,setPreferences]=useState(defaultPlaybackPreferences);
   const [error,setError]=useState(""), [notice,setNotice]=useState(""), [loading,setLoading]=useState(true);
   const [playing,setPlaying]=useState(false), [buffering,setBuffering]=useState(false), [visible,setVisible]=useState(true);
+  const [bufferingVisible,setBufferingVisible]=useState(false);
+  useEffect(()=>{
+    setBufferingVisible(false);
+    if(!buffering||loading)return;
+    // Native unbuffered seeks often settle quickly. Keep the current frame
+    // visible and avoid flashing a spinner for these brief fetch/decode waits.
+    const timer=window.setTimeout(()=>setBufferingVisible(true),500);
+    return()=>window.clearTimeout(timer);
+  },[buffering,loading,routeKey,session?.id]);
   const [position,setPosition]=useState(0), [scrubbing,setScrubbing]=useState<number|null>(null), [buffered,setBuffered]=useState(0);
   const [audio,setAudio]=useState<number|null>(null), [subtitle,setSubtitle]=useState(-1);
   const [nativeAudioChoices,setNativeAudioChoices]=useState<number[]>([]),[audioHelp,setAudioHelp]=useState("");
@@ -432,8 +441,9 @@ export default function PlayerPage() {
   };
   replayRef.current=replay;
   const mediaError=()=>{
-    if(!ownsMedia())return;
-    terminalError(video.current?.error?.code===2?"The original file could not be loaded. Retry playback.":"This browser cannot play the original file. Try a browser that supports its video and audio formats.");
+    const mediaError=video.current?.error;
+    if(!ownsMedia()||!mediaError)return;
+    terminalError(mediaError.code===2?"The original file could not be loaded. Retry playback.":"This browser cannot play the original file. Try a browser that supports its video and audio formats.");
   };
   const duration=info?.duration_seconds||session?.duration_seconds||0;
   const retryLabel="Retry original playback";
@@ -450,7 +460,7 @@ export default function PlayerPage() {
         <button className="pv-icon" aria-label={fullscreen?"Exit fullscreen":"Fullscreen"} onClick={()=>void toggleFullscreen()}>{fullscreen?<Minimize/>:<Maximize/>}</button>
       </div>
     </div>
-    {(loading||buffering)&&!error&&<div className="pv-player-loading" role="status"><span className="pv-spinner"/><span>{loading?"Preparing playback…":"Buffering…"}</span></div>}
+    {(loading||buffering&&bufferingVisible)&&!error&&<div className="pv-player-loading" role="status"><span className="pv-spinner"/><span>{loading?"Preparing playback…":"Buffering…"}</span></div>}
     {error&&<div className="pv-player-message" role="alert"><h1>Unable to play</h1><p>{error}</p><div><button className="pv-primary" onClick={retryPlayback}>{retryLabel}</button><button className="pv-button" onClick={exit}>Back to media</button></div></div>}
     {watchPrompt&&<div className="pv-player-message" role="dialog" aria-modal="true" aria-label="Still watching" onKeyDown={event=>{if(event.key!=="Tab")return;const buttons=event.currentTarget.querySelectorAll<HTMLButtonElement>("button"),first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}}><h2>Are you still watching?</h2><p>Playback paused after inactivity.</p><button className="pv-primary" autoFocus onClick={()=>{setWatchPrompt(false);interact();void play();}}>Continue watching</button><button className="pv-button" onClick={exit}>Stop playback</button></div>}
     {notice&&<div className="pv-player-notice" role="status">{notice}<button aria-label="Dismiss message" onClick={()=>setNotice("")}><X size={16}/></button></div>}

@@ -20,6 +20,7 @@ function CaptureNavigation(){navigateInTest=useNavigate();return null;}
 function player(strict=false){const content=<MemoryRouter initialEntries={["/play/native/anime/one?return=%2Fmedia%2FAnime"]}><CaptureNavigation/><Routes><Route path="/play/native/:libraryId/:itemId" element={<PlayerPage/>}/><Route path="/media/Anime" element={<p>Media page</p>}/></Routes></MemoryRouter>;return render(strict?<StrictMode>{content}</StrictMode>:content);}
 async function ready(){await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());const video=document.querySelector("video")!;fireEvent.loadedMetadata(video);fireEvent.seeked(video);await waitFor(()=>expect(screen.getByRole("heading",{name:"S1:E1 – Maomao"})).toBeTruthy());return video;}
 function scrubTo(value:number){const slider=screen.getByRole("slider",{name:"Seek"});fireEvent.change(slider,{target:{value:String(value)}});fireEvent.pointerUp(slider);return slider as HTMLInputElement;}
+function mediaError(video:HTMLVideoElement,code:number|null){Object.defineProperty(video,"error",{value:code===null?null:{code,message:"Media playback failed"},configurable:true});}
 beforeEach(()=>{
  browserAudio=undefined;Object.defineProperty(HTMLMediaElement.prototype,"audioTracks",{get:()=>browserAudio,configurable:true});
  vi.clearAllMocks();vi.spyOn(HTMLMediaElement.prototype,"load").mockImplementation(()=>{});vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue();vi.spyOn(HTMLMediaElement.prototype,"canPlayType").mockReturnValue("probably");
@@ -27,6 +28,21 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();if(originalAudioProperty)Object.defineProperty(HTMLMediaElement.prototype,"audioTracks",originalAudioProperty);else Reflect.deleteProperty(HTMLMediaElement.prototype,"audioTracks");});
 describe("original-file player",()=>{
+ it("keeps brief native seek waits unobtrusive and shows sustained buffering without replacing the source",async()=>{
+  player();const video=await ready();const source=video.getAttribute("src");
+  Object.defineProperty(video,"paused",{value:false,configurable:true});
+  vi.useFakeTimers();
+  Object.defineProperty(video,"readyState",{value:1,configurable:true});fireEvent.waiting(video);
+  act(()=>vi.advanceTimersByTime(499));expect(screen.queryByText("Buffering…")).toBeNull();
+  Object.defineProperty(video,"readyState",{value:4,configurable:true});fireEvent.playing(video);
+  act(()=>vi.advanceTimersByTime(1000));expect(screen.queryByText("Buffering…")).toBeNull();
+  Object.defineProperty(video,"readyState",{value:1,configurable:true});fireEvent.waiting(video);
+  act(()=>vi.advanceTimersByTime(499));expect(screen.queryByText("Buffering…")).toBeNull();
+  act(()=>vi.advanceTimersByTime(1));expect(screen.getByText("Buffering…")).toBeTruthy();
+  Object.defineProperty(video,"readyState",{value:4,configurable:true});fireEvent.playing(video);
+  expect(screen.queryByText("Buffering…")).toBeNull();expect(video.getAttribute("src")).toBe(source);
+  expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(playbackApi.stop).not.toHaveBeenCalled();
+ });
  it("creates only an original-file request and ignores legacy conversion permissions",async()=>{
   vi.mocked(playbackApi.info).mockResolvedValue({...info,conversion_allowed:true,audio_conversion_allowed:true,bandwidth_adaptation_allowed:true,remux_allowed:true,source_bitrate:10_000_000});const fetcher=vi.spyOn(globalThis,"fetch");
   player();const video=await ready();expect(video.getAttribute("src")).toBe(session.url);expect(video.currentTime).toBe(295);
@@ -77,7 +93,7 @@ describe("original-file player",()=>{
   browserAudio=audioList([{language:"jpn",enabled:true},{language:"eng",get enabled(){return false;},set enabled(_value:boolean){/* Browser refuses this selection. */}}]);player();await ready();fireEvent.click(screen.getByRole("button",{name:"Audio"}));fireEvent.click(screen.getByRole("button",{name:/English/}));expect(screen.getByText(/current track is still selected/)).toBeTruthy();expect(screen.getByRole("button",{name:/Japanese/}).getAttribute("aria-pressed")).toBe("true");expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(playbackApi.stop).not.toHaveBeenCalled();
  });
  it("stops decoder failures with no automatic source, encoding or remux retry",async()=>{
-  vi.useFakeTimers({shouldAdvanceTime:true});player();const video=await ready();video.currentTime=310;fireEvent.timeUpdate(video);await act(async()=>{});vi.mocked(playbackApi.heartbeat).mockClear();fireEvent.error(video);await screen.findByText(/cannot play the original file/);expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");expect(video.getAttribute("src")).toBeNull();await act(async()=>{await vi.advanceTimersByTimeAsync(20_000);});expect(playbackApi.heartbeat).not.toHaveBeenCalled();
+  vi.useFakeTimers({shouldAdvanceTime:true});player();const video=await ready();video.currentTime=310;fireEvent.timeUpdate(video);await act(async()=>{});vi.mocked(playbackApi.heartbeat).mockClear();mediaError(video,4);fireEvent.error(video);await screen.findByText(/cannot play the original file/);expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");expect(video.getAttribute("src")).toBeNull();await act(async()=>{await vi.advanceTimersByTimeAsync(20_000);});expect(playbackApi.heartbeat).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button",{name:"Retry original playback"}));await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));expect(watchApi.begin).toHaveBeenCalledTimes(1);expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:310}));
  });
  it("handles native play rejection without another error event or fallback request",async()=>{
@@ -98,8 +114,13 @@ describe("original-file player",()=>{
   vi.mocked(playbackApi.create).mockResolvedValue({...session,id:"playback-two",url:"/api/playback/sessions/two/file"});await act(async()=>resolve({...info,title:"Episode two",episode:2}));await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));fireEvent.loadedMetadata(video);fireEvent.seeked(video);expect(video.currentTime).toBe(295);expect(watchApi.progress).toHaveBeenLastCalledWith("anime","two",expect.objectContaining({position_seconds:295,playback_session_id:"playback-two"}),false);
  });
  it("waits for metadata of the owned original URL instead of consuming a queued old-source event",async()=>{
-  player();await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());const video=document.querySelector("video")!;Object.defineProperty(video,"currentSrc",{value:new URL("/old-file",window.location.href).href,configurable:true});fireEvent.loadedMetadata(video);fireEvent.error(video);expect(video.play).not.toHaveBeenCalled();expect(screen.queryByRole("alert")).toBeNull();
+  player();await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());const video=document.querySelector("video")!;Object.defineProperty(video,"currentSrc",{value:new URL("/old-file",window.location.href).href,configurable:true});fireEvent.loadedMetadata(video);mediaError(video,4);fireEvent.error(video);expect(video.play).not.toHaveBeenCalled();expect(screen.queryByRole("alert")).toBeNull();
   Object.defineProperty(video,"currentSrc",{value:new URL(session.url,window.location.href).href,configurable:true});fireEvent.loadedMetadata(video);fireEvent.seeked(video);expect(video.play).toHaveBeenCalledTimes(1);expect(video.currentTime).toBe(295);
+ });
+ it.each([2,4])("ignores an old null-error event after a route switch but stops the current error code %s once",async code=>{
+  player();const video=await ready();vi.mocked(playbackApi.info).mockResolvedValue({...info,title:"Episode two",episode:2});vi.mocked(playbackApi.create).mockResolvedValue({...session,id:"playback-two",url:"/api/playback/sessions/two/file"});await act(async()=>navigateInTest!("/play/native/anime/two"));await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");vi.mocked(playbackApi.stop).mockClear();
+  Object.defineProperty(video,"currentSrc",{value:"",configurable:true});mediaError(video,null);fireEvent.error(video);expect(screen.queryByRole("alert")).toBeNull();expect(video.getAttribute("src")).toBe("/api/playback/sessions/two/file");expect(playbackApi.stop).not.toHaveBeenCalled();fireEvent.loadedMetadata(video);fireEvent.seeked(video);await screen.findByRole("heading",{name:"S1:E2 – Episode two"});video.currentTime=360;fireEvent.timeUpdate(video);
+  mediaError(video,code);fireEvent.error(video);await screen.findByText(code===2?/original file could not be loaded/:/cannot play the original file/);fireEvent.error(video);expect(playbackApi.stop).toHaveBeenCalledTimes(1);expect(playbackApi.stop).toHaveBeenCalledWith("playback-two");expect(video.getAttribute("src")).toBeNull();expect(playbackApi.create).toHaveBeenCalledTimes(2);expect(watchApi.progress).toHaveBeenLastCalledWith("anime","two",expect.objectContaining({position_seconds:360,playback_session_id:"playback-two"}),false);
  });
  it("ignores obsolete watch failures after a newer report succeeds",async()=>{
   let rejectOld!:(error:Error)=>void,resolveNew!:(value:typeof state)=>void;vi.mocked(watchApi.progress).mockImplementationOnce(()=>new Promise((_resolve,reject)=>{rejectOld=reject;})).mockImplementationOnce(()=>new Promise(resolve=>{resolveNew=resolve;}));player();await ready();await act(async()=>{resolveNew(state);rejectOld(new Error("Stale"));});expect(screen.queryByText(/Watch progress could not be saved/)).toBeNull();
