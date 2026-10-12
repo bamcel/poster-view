@@ -1,4 +1,4 @@
-//! Pure capability and quality decisions, independent of HTTP and process management.
+//! Capability and quality decisions without filesystem access or process/state mutation.
 use super::{HttpError, SessionInput, bad, duration, number};
 use crate::transcoding::Settings;
 use serde_json::Value;

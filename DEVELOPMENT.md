@@ -1,233 +1,178 @@
-# PosterView — developer guide
+# PosterView developer guide
 
-Self-hosted artwork manager for Plex/Jellyfin/Emby. Rust/Axum + SQLite backend,
-React/Vite/TS/Tailwind v4 frontend, shipped as one Docker image. See README.md
-for the user-facing overview; this file is for working on the code.
+PosterView combines native media libraries and artwork management for connected
+Plex, Emby and Jellyfin servers. Rust/Axum and SQLite provide the server;
+React/Vite/TypeScript/Tailwind provide the frontend. One Docker image serves both.
+Read `AGENTS.md` and relevant scoped instructions before changing ownership.
 
 ## Commands
 
-```bash
-# backend (from repo root)
-cargo run --package posterview-server # dev server on :7979
-cargo test --workspace --locked       # contract/integration tests
+```sh
+# Repository root
+cargo run --package posterview-server
+cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
 
-# frontend (from frontend/)
-npm run dev                            # Vite on :5173, proxies /api -> :7979
-npm test                               # Vitest component and API-client tests
-npm run build                          # tsc typecheck + production bundle -> dist/
-
-# deploy the running container (rebuilds frontend + backend into the image)
-docker compose up -d --build           # serves SPA + API on :7979
+# frontend/
+npm run dev
+npm test
+npm run build
 ```
 
-Automated fixtures cover contracts, CRUD, encryption, normalization, uploads, and history.
-Live provider/media-server verification remains opt-in because it needs user credentials.
+The server defaults to 7979; Vite uses 5173 and proxies `/api` to the server. The
+workspace minimum Rust version and Docker/CI toolchain are 1.88. Newer Clippy
+versions may diagnose existing code differently; record the toolchain used.
+FFmpeg/ffprobe enable media fixtures. Live provider verification needs explicitly
+supplied credentials and is opt-in. Install dependencies with `npm ci` and use the
+committed Cargo/npm lockfiles. Build/deployment configuration is unchanged.
 
-## Deployment security
+Use focused checks while editing, then the full commands above. On Windows,
+serialize Cargo tests/builds sharing `target/`: running executables cannot be
+relinked. If monitor tests time out during parallel media processing, compare
+`cargo test --workspace --locked -- --test-threads=1` and report both outcomes.
+Do not hide baseline failures or waive regressions.
 
-By default, PosterView requires an administrator session for every API route except health and sign-in/out.
-Set `POSTERVIEW_PASSWORD`, or retrieve the generated first-run password from
-`data/admin-password.txt`. Set `POSTERVIEW_SECURE_COOKIES=true` behind HTTPS. Keep the service on a
-trusted network or behind a reverse proxy because application login does not replace TLS and
-network access controls.
+## Rust module map
 
-The administrator username is configured by `POSTERVIEW_USERNAME` (default `admin`). Login
-requires both `username` and `password`; failed credentials return the same generic error.
-The optional remember-username preference is per browser and stores only the username, never
-the password. It is independent of the shared security settings described below.
+| Boundary | Responsibility |
+| --- | --- |
+| `posterview-contracts` | Shared normalized API and native library/catalog models |
+| `posterview-infra-media-servers` | Plex/Emby/Jellyfin normalization and remote operations |
+| `posterview-infra-artwork` | Artwork provider clients, authentication/search/downloads |
+| `posterview-infra-sqlite` | Main database, encrypted secrets, native catalog and migrations |
+| `posterview-url-security` | Media-server/provider URL trust policy |
+| `posterview-runtime` | Host-independent orchestration, artwork operations and cache |
+| `apps/server/src/lib.rs` | Public facade, SPA/middleware composition, worker startup |
+| `apps/server/src/state.rs` | Shared state constructor and backdrop refresh helper |
+| `apps/server/src/routes/` | System/auth, connected-server and artwork HTTP adapters; legacy registry |
+| `apps/server/src/playback/` | Native playback and feature route registration |
 
-`POSTERVIEW_AUTH_ENABLED` accepts `true` or `false`. When unset it defaults to `true`;
-the Unraid template explicitly defaults it to `false`. False bypasses authentication for all
-connections, not only LAN peers, and overrides inactivity and local-bypass settings. A startup
-warning is logged when disabled. Credentials are preserved so enabling login restores them.
+`playback/models.rs` holds wire models; `planner.rs` makes capability/quality
+choices; `hardware.rs` probes/selects encoders; `manifest.rs` owns HLS retention.
+`mod.rs` remains the delivery/session/resource facade. Planner/manifest tests are
+adjacent; `tests.rs` covers cross-boundary streaming and process behavior.
 
-`GET/PUT /api/security/settings` manages `/config/security-settings.json` (or the configured data
-directory). `idle_timeout_minutes` is null for disabled, otherwise an integer from 1 to 1440.
-Sessions track monotonic last-activity time; only authenticated `POST /api/auth/activity` extends
-it. Normal API calls, status polling, and image loads never extend the session. The frontend sends
-activity updates for user input and shares activity across same-origin tabs.
+Native CRUD/scan coordination remains in `native.rs`. Discovery/probing,
+monitoring, missing items, identification, providers and artwork already have
+separate `native_*.rs` modules. `google_books.rs`, `reader.rs`, `metadata.rs`,
+`watch.rs`, `transcoding.rs` and `scheduled_tasks.rs` keep their feature interfaces.
+Shared fixtures now come from `test_support.rs`, not native scan tests. Feature
+routers return `Router<AppState>`; central composition applies authentication
+once. Preserve explicit public and compatibility registrations.
 
-`local_network_bypass` defaults to false. When enabled, middleware and auth status use Axum's
-TCP `ConnectInfo<SocketAddr>` to allow private IPv4, loopback, link-local, and IPv6 unique-local
-peers (including IPv4-mapped addresses). Missing peer info fails closed. Forwarded headers are
-not trusted. A private reverse proxy can therefore bypass authentication for remote visitors;
-the UI explicitly warns about this. Tailscale's IPv4 100.64.0.0/10 range is not treated as private.
-Password-free access has no session to expire; turning bypass off restores password enforcement.
+Existing crates already supply the necessary dependency boundaries. No new crate
+was added. Further extraction should identify a reusable interface or concrete
+ownership/dependency problem first.
 
-The public `GET /api/login-backdrop` manifest and `/api/login-backdrop/{opaque-name}` images serve
-only the sanitized login cache under the data directory. Refreshing uses the default/first server,
-randomizes libraries/items, downloads at most five rows × fourteen posters, decodes them, and
-re-encodes 280×420 maximum JPEG thumbnails without names, IDs, upstream URLs, or tokens. Image
-requests are restricted to names present in the current manifest. Refresh work runs asynchronously
-at startup, login, server creation, and backdrop enablement; concurrent refreshes collapse into one.
-`login_backdrop_enabled` is backward-compatible and defaults to true in security settings.
+## Frontend module map
 
-Server URLs intentionally support LAN IPs, direct Tailscale IPs, resolvable MagicDNS names, and
-complete domain URLs because PosterView must reach remote media servers. URL validation therefore
-allows private destinations only for configured media-server bases. Artwork downloads and their
-redirects are HTTPS-only and restricted to the selected provider's domain.
+```text
+src/
+  App.tsx, main.tsx          routing and bootstrap
+  api/                      shared transport and existing catalog/server clients
+  features/
+    playback/
+      PlayerPage.tsx, .css   player entry point and layout
+      types.ts              canonical playback/watch contracts and defaults
+      api/                  delivery and watch/preferences/rules clients
+      components/           Play/Resume, Continue Watching, preferences/rules
+      lib/                  capability and track-selection helpers
+    settings/
+      appearance/           appearance/theme controls
+      providers/            credentials and default artwork provider forms
+      formStyles.ts         shared settings input styling
+  pages/                    remaining route composition and pages
+  components/, lib/         reused UI/utilities and remaining catalog/reader/auth
+```
 
-## Architecture
+Playback tests moved with their code. Wire definitions and watch endpoints have
+one implementation each. Both feature API clients use `apiRequest`; the player
+uses the watch client for watch operations. Media/WASM dependencies stay lazy-loaded.
+API modules re-export their types for existing consumers; definitions live in
+`features/playback/types.ts`.
 
-- `crates/posterview-infra-media-servers/` — Plex, Jellyfin, and Emby adapters.
-  Everything is normalized to the `Normalized*` / `ItemDetail` schemas so
-  routers and the UI never branch on server type.
-- `crates/posterview-infra-artwork/` — ThePosterDB session/scraping plus
-  Fanart.tv, TheTVDB, AniList, and MediUX providers.
-- `crates/posterview-infra-sqlite/` — compatible SQLite schema and Fernet secrets.
-- `crates/posterview-url-security/` — shared media-server and provider URL trust rules.
-- `crates/posterview-runtime/` — host-independent orchestration, apply, history, and revert.
-- `apps/server/` — Axum routes, authentication, configuration, errors, and compiled-SPA serving.
-- **Title search for Fanart.tv/TheTVDB/MediUX** (`GET /api/artwork/search`,
-  `ArtworkBrowser.tsx`'s id/search box): typing a non-numeric value shows a
-  picker of candidates instead of an id lookup. None of the three has its
-  own title-search API — Fanart.tv has none at all, MediUX's is invite-only
-  beta, and Fanart/MediUX both need a TMDB (or, for Fanart movies, IMDb) id
-  rather than a TVDB one — so all three are backed by `TVDBProvider.search()`
-  (TheTVDB's own `/search` endpoint), which conveniently returns each
-  candidate's `remote_ids` (TMDB/IMDb correlations) alongside its own tvdb
-  id. `remote_id()` in `tvdb.py` pulls the right one out per provider: tvdb
-  id for TVDB (and Fanart shows), TMDB for MediUX, TMDB/IMDb for Fanart
-  movies. This means title search on **any of the three tabs requires a
-  TheTVDB API key**, even when searching from the Fanart.tv or MediUX tab —
-  surfaced as a friendly message, not an error, when the key's missing.
-- `frontend/src/components/ArtworkPanel.tsx` — provider selector wrapping
-  `PosterDBBody` (ThePosterDB drill-down), `ArtworkBrowser` (API providers),
-  and `ManualUpload`. Apply targets are built once in `lib/targets.ts`.
-- `crates/posterview-runtime/` owns apply history (revert-to-previous-image). Every
-  successful `set_image` call, from any of the two apply endpoints
-  (`/posterdb/apply`, `/artwork/upload`), also calls `history.record(...)`,
-  which writes the bytes to `data/history/` and indexes them in the
-  `apply_history` SQLite table. Two independent, **user-configurable** caps:
-  a global entry-count ceiling (`history_max_entries` setting, default 50,
-  always enforced on insert — oldest rows + files pruned first, not
-  per-item, a single shared budget; lowering it in Settings also prunes
-  immediately via `history.enforce_max_entries()`, not just on the next
-  apply) and an optional max age in days (`history_purge_days` setting, 0 =
-  disabled — only entries *older than* the threshold are ever touched,
-  swept opportunistically on every `record()` call, no scheduler needed).
-  Revert re-applies those same bytes and records that as a new entry —
-  reverting never deletes the entry it reverted to, so history stays a true
-  timeline, not a stack. The UI is a single **global** feed
-  (`frontend/src/pages/HistoryPage.tsx`, linked from the sidebar) rather
-  than a per-item tab, grouped client-side into one tile per (item, target)
-  — the newest entry in each group is the tile's image; clicking it opens a
-  modal listing every version in that group with Revert — `GET /api/history`
-  returns that global feed when
-  called without `item_id`; `POST /api/history/purge` triggers an immediate
-  manual purge. `item_title` is denormalized onto each row (sent by the
-  frontend at apply time, since it's already in hand there) specifically so
-  the global feed doesn't need an extra media-server round trip per row
-  just to render.
-- Secrets (server tokens, TPDb password, API keys) remain Fernet-encrypted in
-  SQLite; the key lives in `data/secret.key`. Neither
-  is ever sent to the browser.
-- All images the browser shows are proxied through the backend
-  (`/api/servers/{id}/image`, `/api/posterdb/image`) so credentials/sessions
-  stay server-side and CORS never applies.
+`SettingsPage.tsx` selects sections and provides their frame. Appearance and
+provider editors are independent leaves. `PluginsPage.tsx` imports default
+provider forms directly, removing its cycle with SettingsPage. Appearance preview
+loads the settings page lazily instead of statically importing its composition.
+Existing page tests still verify the composed flow.
 
-## Gotchas (learned the hard way)
+Artwork (`ArtworkPanel`, `ArtworkBrowser`, `PosterDBPanel`, provider panels),
+reading (`ReaderPage`, `ReaderPages`, `lib/reader*`), catalog/detail views
+(`NativeLibraryBrowser`, native catalog helpers), and authentication (`AuthGate`,
+`AuthProvider`, idle-session helpers) remain in established locations. Shared UI,
+transport, navigation, theme and artwork-target utilities remain shared. Move
+these only when a task needs a useful responsibility boundary.
 
-- **Jellyfin/Emby image upload** wants the request body **base64-encoded**
-  with `Content-Type` set to the real image mime. Raw bytes fail.
-- **Emby backdrops are a list** — `POST /Items/{id}/Images/Backdrop` appends;
-  it does not replace the displayed image. `set_image` deletes existing
-  backdrops first so the new one becomes index 0.
-- **Emby item ids change on library rescan.** Never cache them across
-  sessions; always re-list.
-- **Plex logo upload** uses `POST /library/metadata/{id}/clearLogos` (same
-  raw-bytes pattern as `posters`/`arts`).
-- **ThePosterDB is behind Cloudflare** but a logged-in httpx session with
-  browser-like headers gets through. A 429 is rate-limiting, NOT a dead
-  session — do not re-login on it (re-login used to tear down the shared
-  client and kill every in-flight request). Grid thumbnails must use the
-  small optimized webp from each card's `<picture><source srcset>` (~70 KB),
-  never the full-res `/api/assets/{id}` (2–5 MB), or big sets rate-limit.
-- **ThePosterDB search results come from TMDB**, so most matched titles have
-  zero uploaded posters. `/api/posterdb/verify` counts posters per title and
-  the UI hides the empty ones.
-- **The user's Emby goes offline intermittently.** If "nothing loads", hit
-  `/api/servers/{id}/test` before suspecting PosterView; restarting the
-  container does not fix an unreachable media server.
-- **Git Bash on Windows mangles container paths** (`/tmp/...` becomes
-  `C:/...`) in `docker exec`/`docker cp` args — wrap the remote command in
-  `sh -c '...'` or set `MSYS_NO_PATHCONV=1`.
-- **Emby's `/Items?Ids=` lookup silently returns nothing for a BoxSet**
-  unless `IncludeItemTypes` explicitly allow-lists it alongside the regular
-  types (`Movie,Series,BoxSet`) — no error, just an empty result, which reads
-  as "item not found."
-- **Emby's `CollapseBoxSetItems` query param doesn't reliably group a
-  library's movies into their collections** — tested live: it silently drops
-  the extra member items instead of replacing them with a collection tile.
-  Grouping is done by hand instead (`JellyfinClient._collapse_boxsets`):
-  list every BoxSet, fetch each one's children via `ParentId` in parallel,
-  then substitute.
-- **MediUX needs no login**, unlike ThePosterDB — a plain browser-header GET
-  reaches `mediux.pro/{movies,shows,collections}/{tmdbId}` fine. But its
-  Next.js image proxy (used for thumbnails) 403s without a same-origin
-  `Referer` header and 400s on a non-whitelisted `w=` value (only specific
-  sizes like 256 are allowed) — see `crates/posterview-infra-artwork/src/lib.rs`.
-- **SQLite's `datetime('now')`** (used for `apply_history.applied_at`) is
-  `"YYYY-MM-DD HH:MM:SS"` UTC with **no timezone marker and a space, not a
-  `T`** — `Date.parse()` on the frontend needs
-  `str.replace(" ", "T") + "Z"` first or it's ambiguous/wrong depending on
-  the browser. Jellyfin/Emby's `DateCreated` and Plex's normalized
-  `added_at` are proper ISO 8601 and don't need this.
-- **Plex's collection-grouping (`_collapse_collections`) and the rest of the
-  Plex collections code are unverified** — there's no Plex server in this
-  dev environment. It mirrors Jellyfin's `_collapse_boxsets` pattern closely
-  (fetch the section's own collections, fetch each one's children via
-  `/library/collections/{id}/children` in parallel, substitute), but the
-  first real Plex test is the thing most likely to need a tweak.
-- **`db.SCHEMA`'s `CREATE TABLE IF NOT EXISTS` doesn't retroactively add new
-  columns** to a table that already exists on disk (e.g. adding `item_title`
-  to `apply_history` after the table was already created) — needs an
-  explicit `ALTER TABLE ... ADD COLUMN` in `db._migrate()`, gated on a
-  `PRAGMA table_info` check, run from `init_db()` on every startup.
-- **The container's non-root user doesn't survive a bind mount.** The Dockerfile
-  bakes in `chown -R posterview:posterview /config` at build time, which is enough for a
-  Docker-managed named volume (docker-compose's `posterview-data`) since Docker
-  copies that ownership over on first creation — but a bind mount to a host path
-  (e.g. Unraid's `Type="Path"` config, which Unraid creates as root) always
-  reflects the host directory's actual ownership and ignores the image, so
-  `secret.key`/`posterview.db` writes previously failed with a permission error.
-  Fixed by starting the container as root and using `docker-entrypoint.sh` to
-  repair ownership of the selected state directory at *runtime*, excluding media
-  roots (works for both bind mounts and named volumes), before dropping to uid 10001 via `setpriv --reuid=10001
-  --regid=10001 --init-groups`. Verified live: a fresh root-owned bind-mounted
-  directory now starts cleanly and `docker top` confirms `posterview-server` runs
-  as uid 10001, not root.
-- **`apply_history` prunes to the last 50 rows *globally*** (not per item)
-  — deletes both the DB row and the file on disk, on every `record()` call.
-  Originally per-(server,item,target) capped at 5; changed to one shared
-  global budget per user request. If a specific history entry you were
-  expecting seems to have vanished mid-testing, check whether repeated
-  applies (to *any* title) pushed it out of that window before assuming
-  something's broken (bit us once while testing revert).
-- **A manually-placed Unraid template XML must go in `templates-user/`, not
-  `templates/`.** Confirmed live: the user first dropped the downloaded XML
-  into `/boot/config/plugins/dockerMan/templates/` — selecting PosterView from
-  the Add Container → Template dropdown still produced a blank/default form
-  (no WebUI Port/Data rows, Network Type: None) even though the XML itself
-  was valid and complete. Moving the exact same file to
-  `/boot/config/plugins/dockerMan/templates-user/` fixed it immediately —
-  full Overview/Network/WebUI Port/Data rows populated correctly.
-  `templates/` is treated as Community-Applications/system-managed;
-  `templates-user/` is the directory Unraid actually scans for manually
-  supplied templates. README's Unraid instructions lead with this
-  local-file method (curl straight into `templates-user/`) rather than
-  Unraid's in-UI "Template repositories" paste-a-URL flow, which was never
-  confirmed working in this troubleshooting session.
+## Dividing cross-layer work
 
-## Conventions
+Assign exact files and interfaces before concurrent edits. The main agent owns
+shared contracts, dependencies, schemas/migrations, configuration, composition
+and documentation. Feature agents own implementations and behavior tests.
+Read-only review is useful alongside implementation; subagents are unnecessary
+for every small edit.
 
-- Applying artwork always flows through `POST /api/posterdb/apply`
-  (`provider` field decides how the bytes are fetched) or
-  `POST /api/artwork/upload` for user files — then `MediaClient.set_image`,
-  then `history.record(...)`. Any new apply path must call all three, in
-  that order — history is written from the bytes that were actually
-  uploaded, not re-fetched from the source afterward.
-- Banners are display-only everywhere: no supported media server has a
-  banner-upload endpoint.
-- Keep commits focused and verify both the Rust workspace and frontend build before pushing.
+Example: a playback quality option.
+
+1. Main agrees request/response/default behavior and reserves Rust
+   `playback/models.rs`, frontend `features/playback/types.ts`, configuration and
+   integration edits.
+2. Backend agent owns `playback/planner.rs` and its tests. Reserve `hardware.rs`
+   separately only when a different encoder needs investigation.
+3. Frontend agent owns `features/playback/PlayerPage.tsx` and interaction tests
+   against that agreed contract; it requests client/contract changes instead of
+   racing the integration owner.
+4. Main integrates sequentially, verifies both layers, reviews the diff and
+   handles authorized shipping.
+
+Example: a book metadata provider.
+
+1. Backend agent owns the new provider adapter and local fixtures.
+2. Frontend agent owns its dedicated configuration/search components and tests.
+3. Main owns provider enums/settings, encrypted persistence, HTTP registration,
+   native-library wiring, dependencies and deployment configuration. These edits
+   are sequenced after agreeing the provider contract.
+
+Do not assign the same file to two writers, even for different functions. Renames
+and import rewrites require coordination with consumers. Remaining large native,
+reader, catalog and watch files have one writer per task; further splits should
+follow responsibilities rather than a size quota.
+
+## Compatibility and storage
+
+The refactor preserves URL patterns, JSON fields/defaults, catalog identity,
+query/localStorage keys, worker behavior and deployment files. Native paths and
+connected-server URLs retain their existing trust rules.
+
+`posterview.db` holds application/server settings, encrypted credentials and the
+native catalog. `reader.sqlite` and `watch.sqlite` remain separate stores under
+application data. Authentication/security configuration and the Fernet key stay
+in their established locations. SQL changes anywhere require migration ownership;
+moving a module does not authorize changing its schema or data location.
+
+Protected routes require administrator authentication by default. Configuration
+still controls disabled authentication, TCP-peer LAN bypass, idle timeout and
+secure cookies. Public health/auth/backdrop and existing compatibility plugin
+registrations are unchanged. Forwarded headers do not define trusted peers.
+Playing heartbeats refresh authenticated activity; ordinary polling/image loads
+do not. Credential handling and URL validation remain server-side.
+
+Artwork applies retain runtime/provider behavior. Legacy artwork history has
+been retired; older Python-era instructions requiring history recording on every
+apply no longer apply. See [native playback setup](docs/native-playback.md) for
+playback behavior and GPU configuration.
+
+## Practical checks
+
+- Preserve untouched NFO fields and media sidecars during native metadata edits.
+- Jellyfin/Emby uploads use base64 payloads; backdrops have list semantics. Plex
+  and providers have different upload rules; use the existing adapters.
+- Rate limits and unavailable servers are not cache/authentication failures; test
+  connections before changing shared behavior.
+- `docker-entrypoint.sh` prepares data bind-mount ownership and excludes media.
+  PUID/PGID/UMASK and GPU device access remain host configuration.
+- Manually installed Unraid templates belong in `templates-user/`.
+
+Finish with focused commits and verification, baseline failures, remaining
+coordination points and authorized push/build status. Preserve local artifacts
+and unrelated changes; repository guidance alone is not shipping permission.
