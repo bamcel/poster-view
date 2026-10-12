@@ -93,6 +93,15 @@ uses the watch client for watch operations. Media/WASM dependencies stay lazy-lo
 API modules re-export their types for existing consumers; definitions live in
 `features/playback/types.ts`.
 
+Player seeks use source time consistently across direct and converted streams.
+Reuse individual buffered/retained HLS ranges before allocating another job;
+outside-range seeks retain the requested timeline position through restart.
+Session generations and pending-seek guards prevent reset-clock events from
+rewinding the UI or watch state. Server lookup stays scoped to the episode's
+series, and playback encoder validation is selective while the explicit
+capability test remains comprehensive. Preserve these boundaries when changing
+startup or buffering behavior; no request/response or database changes are needed.
+
 Playback preference appearance fields are defaulted when older JSON is loaded:
 `subtitle_color`, `subtitle_shadow`, `subtitle_background` and `subtitle_position`.
 The server validates colors and option values; plain-text cue styling/placement

@@ -152,34 +152,68 @@ async fn source(state: &AppState, library: String, item: String) -> Result<Sourc
         let root = state.metadata.directory("", true)?;
         let path = safe_source_path(&root, file, &lib.paths)?;
         let fingerprint = stamp(&path)?;
-        let catalog = if entry.kind == "episode" {
-            db.native_catalog(&library)
+        let parent = if entry.kind == "episode" {
+            entry
+                .parent_path
+                .as_deref()
+                .map(|path| db.native_catalog_path(&library, path))
+                .transpose()
+                .map_err(|_| failure("Unable to load the episode parent."))?
+                .flatten()
+        } else {
+            None
+        };
+        let series = if let Some(parent) = &parent {
+            if parent.kind == "series" {
+                Some(parent.clone())
+            } else {
+                parent
+                    .parent_path
+                    .as_deref()
+                    .map(|path| db.native_catalog_path(&library, path))
+                    .transpose()
+                    .map_err(|_| failure("Unable to load the episode series."))?
+                    .flatten()
+            }
+        } else {
+            None
+        };
+        // Playback, subtitles and fonts must not deserialize unrelated series in the library.
+        // The scoped subtree also retains next-episode navigation across seasons.
+        let catalog = if let Some(series) = &series {
+            db.native_catalog_scoped(&library, Some(std::slice::from_ref(&series.path)))
                 .map_err(|_| failure("Unable to load episodes."))?
+        } else if entry.kind == "episode" {
+            entry
+                .parent_path
+                .as_deref()
+                .map(|path| db.native_catalog_children(&library, path))
+                .transpose()
+                .map_err(|_| failure("Unable to load episodes."))?
+                .unwrap_or_default()
         } else {
             vec![]
         };
-        let season = catalog
-            .iter()
-            .find(|e| Some(&e.path) == entry.parent_path.as_ref());
-        let series = season
-            .and_then(|s| {
-                catalog
-                    .iter()
-                    .find(|e| Some(&e.path) == s.parent_path.as_ref())
-            })
-            .or_else(|| season.filter(|s| s.kind == "series"));
+        let series_parents = series.as_ref().map(|series| {
+            std::iter::once(series.path.as_str())
+                .chain(
+                    catalog
+                        .iter()
+                        .filter(|candidate| {
+                            candidate.parent_path.as_deref() == Some(series.path.as_str())
+                        })
+                        .map(|candidate| candidate.path.as_str()),
+                )
+                .collect::<std::collections::HashSet<_>>()
+        });
         let mut episodes = catalog
             .iter()
             .filter(|e| {
                 e.available && e.kind == "episode" && e.metadata["missing"] != true && {
-                    if let Some(series) = series {
-                        catalog
-                            .iter()
-                            .find(|s| Some(&s.path) == e.parent_path.as_ref())
-                            .is_some_and(|s| {
-                                s.path == series.path
-                                    || s.parent_path.as_deref() == Some(series.path.as_str())
-                            })
+                    if let Some(parents) = &series_parents {
+                        e.parent_path
+                            .as_deref()
+                            .is_some_and(|path| parents.contains(path))
                     } else {
                         e.parent_path == entry.parent_path && entry.parent_path.is_some()
                     }
@@ -207,7 +241,7 @@ async fn source(state: &AppState, library: String, item: String) -> Result<Sourc
             item: entry.clone(),
             path,
             fingerprint,
-            series_title: series.map(|s| s.title.clone()),
+            series_title: series.map(|s| s.title),
             next,
         })
     })
@@ -248,12 +282,19 @@ struct Session {
     cache_limit: u64,
     error: Option<String>,
 }
+fn throttle_actions(buffer_seconds: u32, paused: bool, lead: f64) -> (bool, bool) {
+    let cap = f64::from(buffer_seconds);
+    (
+        lead > cap || (paused && lead > 12.0),
+        !paused && lead < cap * 0.5,
+    )
+}
 pub(crate) struct PlaybackStore {
     root: PathBuf,
     instance: String,
     sessions: Mutex<HashMap<String, Session>>,
     probes: Mutex<HashMap<PathBuf, ProbeCache>>,
-    hardware: Mutex<Option<(Instant, Vec<Encoder>)>>,
+    hardware: Mutex<HashMap<String, (Instant, Encoder)>>,
     resources: Mutex<HashMap<ResourceKey, ResourceCache>>,
     jobs: Arc<Semaphore>,
     started: AtomicBool,
@@ -282,7 +323,7 @@ impl PlaybackStore {
             instance,
             sessions: Mutex::new(HashMap::new()),
             probes: Mutex::new(HashMap::new()),
-            hardware: Mutex::new(None),
+            hardware: Mutex::new(HashMap::new()),
             resources: Mutex::new(HashMap::new()),
             jobs: Arc::new(Semaphore::new(2)),
             started: AtomicBool::new(false),
@@ -392,8 +433,7 @@ impl PlaybackStore {
                         .map_or(0.0, |d| playlist_seconds(&d.join("index.m3u8")))
                         + s.response.offset_seconds;
                     let lead = generated - s.position;
-                    let suspend = lead > f64::from(s.buffer_seconds) || (s.paused && lead > 12.0);
-                    let resume = !s.paused && lead < f64::from(s.buffer_seconds).max(24.0) * 0.5;
+                    let (suspend, resume) = throttle_actions(s.buffer_seconds, s.paused, lead);
                     if let Some(pid) = child.id() {
                         if suspend && !s.suspended && signal(pid, false).await {
                             s.suspended = true;
@@ -1108,7 +1148,7 @@ fn hls_command(
         } else {
             cmd.arg("-vf").arg(filter);
         }
-        cmd.args(["-c:v", name, "-force_key_frames", "expr:gte(t,n_forced*4)"]);
+        cmd.args(["-c:v", name, "-force_key_frames", "expr:gte(t,n_forced*2)"]);
         if backend == "software" {
             cmd.args([
                 "-preset",
@@ -1176,7 +1216,7 @@ fn hls_command(
         "-f",
         "hls",
         "-hls_time",
-        "4",
+        if encoder.is_some() { "2" } else { "4" },
         "-hls_playlist_type",
         "event",
         "-hls_list_size",

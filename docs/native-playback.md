@@ -42,7 +42,13 @@ never modified. Direct streaming supports HTTP byte ranges instead of loading
 entire videos into memory. Converted sessions use segmented HLS, with encoding
 ahead limited by the configured buffer. Consumed segments are retired after a
 one-minute safety window; the served playlist advertises the retained segments.
-Seeking starts a new conversion session at the requested source position.
+Seeking inside buffered or retained HLS segments reuses the current stream.
+Seeking outside that window starts a new conversion session at the requested
+source position. The timeline keeps the requested position while the new source
+loads; reset-clock events cannot move it back to the beginning or overwrite
+watch progress. Paused playback stays paused after seeking.
+Video conversion produces two-second segments/keyframes for quicker startup;
+stream-copy segments still depend on the original video's keyframes.
 Converted video uses an encoder supported by both the browser and server
 settings. Compatible audio is preserved unless conversion/downmixing or the
 requested bitrate budget requires otherwise. Audio boost applies only when
@@ -66,6 +72,10 @@ An encoder appearing in FFmpeg's list does not establish that the GPU is usable.
 Tests are cached for five minutes. Full source profiles and filtering can have
 additional requirements. Hardware encoding does not guarantee hardware decoding
 or GPU tone mapping; CPU filters may still be used.
+Playback validates only the encoder candidates needed for its selected codec
+and backend, stopping once one works. The explicit hardware test still reports
+all supported candidates. Episode lookup is scoped to its series rather than
+loading the entire library for each playback/subtitle/font request.
 
 For Intel Quick Sync/VA-API, enable the integrated GPU in the host BIOS, make
 `/dev/dri` available in Unraid, and add a device mapping `/dev/dri:/dev/dri` to

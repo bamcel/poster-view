@@ -4,6 +4,142 @@ use super::test_support::{input, probe};
 use super::*;
 use serde_json::json;
 #[test]
+fn throttling_keeps_separate_suspend_and_resume_thresholds_at_small_buffer_limits() {
+    assert_eq!(throttle_actions(10, false, 11.0), (true, false));
+    assert_eq!(throttle_actions(10, false, 4.0), (false, true));
+    assert_eq!(throttle_actions(600, true, 13.0), (true, false));
+    for cap in 10..=600 {
+        assert_eq!(
+            throttle_actions(cap, false, f64::from(cap) * 0.75),
+            (false, false)
+        );
+        assert!(
+            !throttle_actions(cap, true, 0.0).1,
+            "A paused job must not resume itself."
+        );
+    }
+}
+#[tokio::test]
+async fn episode_source_lookup_ignores_unrelated_series_and_preserves_next_across_seasons() {
+    use posterview_contracts::native::{
+        AnimeContent, NativeLibraryInput, NativeLibraryOptions, NativeLibraryType,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let state = crate::test_support::state(directory.path());
+    let file = directory.path().join("media/Shows/Show/Season1/one.mkv");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, b"fixture").unwrap();
+    let flat_file = directory.path().join("media/Shows/Flat/one.mkv");
+    std::fs::create_dir_all(flat_file.parent().unwrap()).unwrap();
+    std::fs::write(&flat_file, b"fixture").unwrap();
+    let database = ServerStore::new(state.runtime.data_dir());
+    let library = database
+        .save_native_library(
+            None,
+            &NativeLibraryInput {
+                name: "Shows".into(),
+                library_type: NativeLibraryType::Shows,
+                anime_content: AnimeContent::Both,
+                paths: vec!["Shows".into()],
+                revision: None,
+                options: NativeLibraryOptions::default(),
+            },
+        )
+        .unwrap();
+    let make = |path: &str, kind: &str, parent: Option<&str>, season: u32, episode: u32| {
+        NativeCatalogEntry {
+            id: String::new(),
+            path: path.into(),
+            kind: kind.into(),
+            parent_path: parent.map(str::to_owned),
+            title: path.rsplit('/').next().unwrap().into(),
+            metadata: json!({"season":season,"episode":episode}),
+            artwork: vec![],
+            files: if kind == "episode" {
+                vec![json!({"path":path})]
+            } else {
+                vec![]
+            },
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        }
+    };
+    let mut missing = make(
+        "Shows/Show/Season1/missing.mkv",
+        "episode",
+        Some("Shows/Show/Season1"),
+        1,
+        2,
+    );
+    missing.metadata["missing"] = json!(true);
+    let entries = vec![
+        make("Shows/Show", "series", None, 0, 0),
+        make("Shows/Show/Season1", "season", Some("Shows/Show"), 1, 0),
+        make("Shows/Show/Season2", "season", Some("Shows/Show"), 2, 0),
+        make(
+            "Shows/Show/Season1/one.mkv",
+            "episode",
+            Some("Shows/Show/Season1"),
+            1,
+            1,
+        ),
+        missing,
+        make(
+            "Shows/Show/Season2/unavailable.mkv",
+            "episode",
+            Some("Shows/Show/Season2"),
+            2,
+            1,
+        ),
+        make(
+            "Shows/Show/Season2/next.mkv",
+            "episode",
+            Some("Shows/Show/Season2"),
+            2,
+            2,
+        ),
+        make("Shows/Other", "series", None, 0, 0),
+        make("Shows/Flat", "series", None, 0, 0),
+        make("Shows/Flat/one.mkv", "episode", Some("Shows/Flat"), 1, 1),
+        make("Shows/Flat/two.mkv", "episode", Some("Shows/Flat"), 1, 2),
+    ];
+    database
+        .ingest_native_catalog(&library.id, library.revision, &entries)
+        .unwrap();
+    database
+        .ingest_native_catalog_scoped(
+            &library.id,
+            library.revision,
+            &[],
+            Some(&["Shows/Show/Season2/unavailable.mkv".into()]),
+        )
+        .unwrap();
+    // A targeted lookup must not depend on parsing any unrelated library snapshot.
+    let connection =
+        rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).unwrap();
+    connection.execute("UPDATE native_catalog_sources SET snapshot_json='{}' WHERE library_id=?1 AND relative_path='Shows/Other'",[&library.id]).unwrap();
+    drop(connection);
+    assert!(database.native_catalog(&library.id).is_err());
+    let entry = database
+        .native_catalog_path(&library.id, "Shows/Show/Season1/one.mkv")
+        .unwrap()
+        .unwrap();
+    let resolved = source(&state, library.id.clone(), entry.id).await.unwrap();
+    assert_eq!(resolved.series_title.as_deref(), Some("Show"));
+    let next = resolved.next.unwrap();
+    assert_eq!(next.library_id, library.id);
+    assert_eq!(next.title, "next.mkv");
+    let entry = database
+        .native_catalog_path(&library.id, "Shows/Flat/one.mkv")
+        .unwrap()
+        .unwrap();
+    let resolved = source(&state, library.id, entry.id).await.unwrap();
+    assert_eq!(resolved.series_title.as_deref(), Some("Flat"));
+    assert_eq!(resolved.next.unwrap().title, "two.mkv");
+}
+#[test]
 fn stream_duration_fallback_excludes_subtitle_timelines() {
     let data = json!({"format":{},"streams":[{"codec_type":"video","duration":"120.0"},{"codec_type":"audio","duration":125.0},{"codec_type":"subtitle","duration":999.0}]});
     assert_eq!(duration(&data), 125.0);
@@ -468,6 +604,32 @@ async fn real_ffmpeg_remux_audio_conversion_subtitles_and_cleanup() {
     .0;
     assert_eq!(converted.method, "transcode");
     assert_eq!(converted.encoder.as_deref(), Some("libx264"));
+    let converted_directory = state
+        .playback
+        .sessions
+        .lock()
+        .await
+        .get(&converted.id)
+        .unwrap()
+        .directory
+        .clone()
+        .unwrap();
+    let playlist = std::fs::read_to_string(converted_directory.join("index.m3u8")).unwrap();
+    assert!(playlist.contains("#EXT-X-TARGETDURATION:2"));
+    let first_fragment = playlist
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("#EXTINF:")?
+                .split(',')
+                .next()?
+                .parse::<f64>()
+                .ok()
+        })
+        .unwrap();
+    assert!(
+        (1.9..=2.1).contains(&first_fragment),
+        "The first transcoded fragment should contain two seconds of video: {first_fragment}"
+    );
     state.playback.stop_id(&converted.id).await;
     let mut request = input();
     request.subtitle_burn_index = Some(3);

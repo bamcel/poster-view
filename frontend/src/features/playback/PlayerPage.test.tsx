@@ -12,10 +12,12 @@ vi.mock("./api/playback",async importOriginal=>{
 vi.mock("./api/watch",()=>({watchApi:{preferences:vi.fn(),state:vi.fn(),begin:vi.fn(),progress:vi.fn()}}));
 const renderer=vi.hoisted(()=>({construct:vi.fn(),destroy:vi.fn()}));
 vi.mock("jassub",()=>({default:class {ready=Promise.resolve();constructor(options:unknown){renderer.construct(options);}destroy(){renderer.destroy();return Promise.resolve();}}}));
-const fakeHls=vi.hoisted(()=>({supported:false,errors:[] as ((event:string,data:{fatal:boolean;type:string;details:string})=>void)[],destroy:vi.fn(),recover:vi.fn()}));
+type HlsFailure={fatal:boolean;type:string;details:string;response?:{code:number}};
+const fakeHls=vi.hoisted(()=>({supported:false,fragments:[] as {start:number;end:number;gap?:boolean}[],errors:[] as ((event:string,data:HlsFailure)=>void)[],destroy:vi.fn(),recover:vi.fn()}));
 vi.mock("hls.js",()=>({default:class {
  static Events={ERROR:"error"};static ErrorTypes={MEDIA_ERROR:"mediaError"};static isSupported(){return fakeHls.supported;}
- on(_event:string,listener:(event:string,data:{fatal:boolean;type:string;details:string})=>void){fakeHls.errors.push(listener);}
+ get latestLevelDetails(){return {fragments:fakeHls.fragments};}
+ on(_event:string,listener:(event:string,data:HlsFailure)=>void){fakeHls.errors.push(listener);}
  attachMedia(){}loadSource(){}destroy(){fakeHls.destroy();}recoverMediaError(){fakeHls.recover();}
 }}));
 const info:PlaybackInfo={title:"Maomao",series_title:"The Apothecary Diaries",season:1,episode:1,duration_seconds:1200,chapters:[{title:"Opening",start_seconds:90}],tracks:[{index:1,kind:"video",codec:"h264",width:1920,height:1080},{index:2,kind:"audio",codec:"aac",language:"ja",default:true},{index:3,kind:"audio",codec:"aac",language:"en"}],next:{library_id:"anime",item_id:"two",title:"Episode two"}};
@@ -24,9 +26,11 @@ const state={session_id:null,version:0,position_seconds:300,duration_seconds:120
 let navigateInTest:NavigateFunction|undefined;
 function CaptureNavigation(){navigateInTest=useNavigate();return null;}
 function player(strict=false){const content=<MemoryRouter initialEntries={["/play/native/anime/one?return=%2Fmedia%2FAnime"]}><CaptureNavigation/><Routes><Route path="/play/native/:libraryId/:itemId" element={<PlayerPage/>}/><Route path="/media/Anime" element={<p>Media page</p>}/></Routes></MemoryRouter>;return render(strict?<StrictMode>{content}</StrictMode>:content);}
-async function ready(){await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());const video=document.querySelector("video")!;fireEvent.loadedMetadata(video);await waitFor(()=>expect(screen.getByRole("heading",{name:"S1:E1 – Maomao"})).toBeTruthy());return video;}
+async function ready(){await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());const video=document.querySelector("video")!;fireEvent.loadedMetadata(video);fireEvent.seeked(video);await waitFor(()=>expect(screen.getByRole("heading",{name:"S1:E1 – Maomao"})).toBeTruthy());return video;}
+function mediaRanges(...values:[number,number][]){return {length:values.length,start:(index:number)=>values[index][0],end:(index:number)=>values[index][1]};}
+function scrubTo(value:number){const slider=screen.getByRole("slider",{name:"Seek"});fireEvent.change(slider,{target:{value:String(value)}});fireEvent.pointerUp(slider);return slider as HTMLInputElement;}
 beforeEach(()=>{
- fakeHls.supported=false;fakeHls.errors.length=0;
+ fakeHls.supported=false;fakeHls.fragments=[];fakeHls.errors.length=0;
  vi.clearAllMocks();vi.spyOn(HTMLMediaElement.prototype,"load").mockImplementation(()=>{});vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue();vi.spyOn(HTMLMediaElement.prototype,"canPlayType").mockReturnValue("probably");
  vi.mocked(playbackApi.info).mockResolvedValue(info);vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);vi.mocked(watchApi.state).mockResolvedValue(state);vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state});vi.mocked(playbackApi.create).mockResolvedValue(session);vi.mocked(playbackApi.stop).mockResolvedValue();vi.mocked(watchApi.progress).mockResolvedValue({...state,audio_index:2,subtitle_index:-1});vi.mocked(playbackApi.heartbeat).mockResolvedValue();
 });
@@ -45,7 +49,7 @@ describe("native player",()=>{
  });
  it("aligns resumed copy playback to the prior keyframe while preserving source time",async()=>{
   vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",offset_seconds:290,mime:"application/vnd.apple.mpegurl"});
-  player();await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());const video=document.querySelector("video")!;fireEvent.loadedMetadata(video);
+  player();await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());const video=document.querySelector("video")!;fireEvent.loadedMetadata(video);fireEvent.seeked(video);
   expect(video.currentTime).toBe(5);video.currentTime=17;fireEvent.timeUpdate(video);fireEvent.pause(video);
   expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:307}),false);
  });
@@ -65,7 +69,7 @@ describe("native player",()=>{
   vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-two",state:{...state,position_seconds:0}});
   fireEvent.click(screen.getByRole("button",{name:"Play again"}));
   await waitFor(()=>expect(watchApi.begin).toHaveBeenCalledTimes(2));await waitFor(()=>expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:0})));
-  fireEvent.loadedMetadata(video);expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({session_id:"watch-two",sequence:1,position_seconds:0}),false);
+  fireEvent.loadedMetadata(video);expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({session_id:"watch-two",position_seconds:0,seeking:true}),false);
  });
  it("does not display an obsolete watch error after a newer report succeeds",async()=>{
   let rejectOld!:(error:Error)=>void,resolveNew!:(value:typeof state)=>void;
@@ -150,6 +154,89 @@ describe("native player",()=>{
   player();const video=await ready();await waitFor(()=>expect(renderer.construct).toHaveBeenCalled());
   expect(renderer.construct).toHaveBeenCalledWith({video,subContent:"[Script Info]\n[Events]\n",fonts:["/font.ttf"],timeOffset:0,queryFonts:false});
   expect(document.querySelector("track")).toBeNull();
+ });
+ it("seeks immediately inside buffered HLS ranges without replacing the source or watch token",async()=>{
+  fakeHls.supported=true;vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",mime:"application/vnd.apple.mpegurl",offset_seconds:290});
+  player();const video=await ready();Object.defineProperty(video,"buffered",{value:mediaRanges([0,15],[25,45]),configurable:true});vi.mocked(video.load).mockClear();
+  const slider=scrubTo(320);expect(video.currentTime).toBe(30);expect(slider.value).toBe("320");
+  expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(playbackApi.stop).not.toHaveBeenCalled();expect(video.load).not.toHaveBeenCalled();expect(fakeHls.destroy).not.toHaveBeenCalled();expect(watchApi.begin).toHaveBeenCalledTimes(1);
+  expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:320,seeking:true,playback_session_id:"playback-one"}),false);
+  fireEvent.seeked(video);video.currentTime=31;fireEvent.timeUpdate(video);expect(slider.value).toBe("321");
+ });
+ it("reuses retained HLS fragments and finite native HLS seekable ranges",async()=>{
+  fakeHls.supported=true;fakeHls.fragments=[{start:20,end:30},{start:30,end:40,gap:true}];
+  vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"audio_transcode",mime:"application/vnd.apple.mpegurl",offset_seconds:290});
+  player();const video=await ready();scrubTo(315);expect(video.currentTime).toBe(25);expect(playbackApi.create).toHaveBeenCalledTimes(1);
+  fireEvent.seeked(video);scrubTo(325);await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));
+  expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:325}));
+ });
+ it("uses native HLS seekable intervals without restarting the server",async()=>{
+  vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",mime:"application/vnd.apple.mpegurl",offset_seconds:290});
+  player();const video=await ready();Object.defineProperty(video,"seekable",{value:mediaRanges([0,60]),configurable:true});
+  scrubTo(330);expect(video.currentTime).toBe(40);expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(playbackApi.stop).not.toHaveBeenCalled();
+ });
+ it("keeps an unbuffered seek target through delayed stop, creation, and reset-clock events",async()=>{
+  let stop!:(value?:void)=>void,create!:(value:PlaybackSession)=>void;
+  fakeHls.supported=true;vi.mocked(playbackApi.create).mockResolvedValueOnce({...session,method:"remux",mime:"application/vnd.apple.mpegurl",offset_seconds:290}).mockImplementationOnce(()=>new Promise(resolve=>{create=resolve;}));
+  player();const video=await ready();vi.mocked(playbackApi.stop).mockImplementationOnce(()=>new Promise(resolve=>{stop=resolve;}));
+  const slider=scrubTo(700);expect(slider.value).toBe("700");expect(slider.getAttribute("aria-valuetext")).toBe("11:40 of 20:00");expect(playbackApi.create).toHaveBeenCalledTimes(1);
+  video.currentTime=0;fireEvent.timeUpdate(video);fireEvent.progress(video);fireEvent.playing(video);fireEvent.ended(video);expect(slider.value).toBe("700");
+  expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:700,seeking:true}),false);
+  await act(async()=>stop());await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));expect(slider.value).toBe("700");
+  await act(async()=>create({...session,id:"seek-job",method:"remux",mime:"application/vnd.apple.mpegurl",offset_seconds:696}));fireEvent.loadedMetadata(video);expect(video.currentTime).toBe(4);
+  video.currentTime=0;fireEvent.timeUpdate(video);fireEvent.progress(video);fireEvent.playing(video);fireEvent.seeked(video);fireEvent.pause(video);expect(slider.value).toBe("700");
+  expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:700,seeking:true,playback_session_id:"seek-job"}),false);
+  video.currentTime=4;fireEvent.seeked(video);video.currentTime=5;fireEvent.timeUpdate(video);fireEvent.pause(video);expect(slider.value).toBe("701");
+  expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:701,seeking:false}),false);
+ });
+ it("keeps the latest rapid seek and pause intent while superseded allocation is cleaned up",async()=>{
+  let createOld!:(value:PlaybackSession)=>void,stopOld!:(value?:void)=>void;
+  fakeHls.supported=true;vi.mocked(playbackApi.create).mockResolvedValueOnce({...session,method:"remux",mime:"application/vnd.apple.mpegurl",offset_seconds:290}).mockImplementationOnce(()=>new Promise(resolve=>{createOld=resolve;})).mockResolvedValueOnce({...session,id:"latest-job",method:"remux",mime:"application/vnd.apple.mpegurl",offset_seconds:756});
+  player();const video=await ready();Object.defineProperty(video,"paused",{value:true,configurable:true});vi.mocked(video.play).mockClear();scrubTo(700);
+  await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));expect((screen.getByRole("slider",{name:"Seek"}) as HTMLInputElement).disabled).toBe(false);scrubTo(730);scrubTo(760);
+  const slider=screen.getByRole("slider",{name:"Seek"}) as HTMLInputElement;expect(slider.value).toBe("760");expect(playbackApi.create).toHaveBeenCalledTimes(2);
+  vi.mocked(playbackApi.stop).mockImplementationOnce(()=>new Promise(resolve=>{stopOld=resolve;}));await act(async()=>createOld({...session,id:"superseded-job",method:"remux",offset_seconds:700}));
+  expect(playbackApi.stop).toHaveBeenCalledWith("superseded-job");expect(playbackApi.create).toHaveBeenCalledTimes(2);expect(slider.value).toBe("760");
+  await act(async()=>stopOld());await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(3));expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:760}));
+  // The real server aligns copy output at or before the target; retain that offset.
+  vi.mocked(video.play).mockClear();fireEvent.loadedMetadata(video);expect(video.play).not.toHaveBeenCalled();expect(watchApi.begin).toHaveBeenCalledTimes(1);expect(slider.value).toBe("760");
+ });
+ it("waits for a pending seek to settle, clears buffering then, and preserves playing intent across reset pause events",async()=>{
+  fakeHls.supported=true;vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",mime:"application/vnd.apple.mpegurl",offset_seconds:290});
+  player();const video=await ready();Object.defineProperty(video,"paused",{value:false,writable:true,configurable:true});Object.defineProperty(video,"seeking",{value:false,writable:true,configurable:true});Object.defineProperty(video,"readyState",{value:4,configurable:true});Object.defineProperty(video,"buffered",{value:mediaRanges([0,60]),configurable:true});fireEvent.play(video);
+  const slider=scrubTo(330);Object.defineProperty(video,"seeking",{value:true,writable:true});fireEvent.waiting(video);fireEvent.playing(video);
+  expect(screen.getByText("Buffering…")).toBeTruthy();expect(slider.value).toBe("330");
+  // A queued reset pause during a seek cannot switch the next source to paused.
+  Object.defineProperty(video,"paused",{value:true,writable:true});fireEvent.pause(video);vi.mocked(video.play).mockClear();fireEvent.click(screen.getByRole("button",{name:"Forward 30 seconds"}));
+  await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));fireEvent.loadedMetadata(video);expect(video.play).toHaveBeenCalled();
+  Object.defineProperty(video,"paused",{value:false,writable:true});Object.defineProperty(video,"seeking",{value:true,writable:true});fireEvent.waiting(video);fireEvent.playing(video);expect(screen.getByText("Buffering…")).toBeTruthy();
+  Object.defineProperty(video,"seeking",{value:false,writable:true});fireEvent.seeked(video);expect(screen.queryByText("Buffering…")).toBeNull();expect(slider.value).toBe("360");
+ });
+ it("rejects an unrequested clock reset after a confirmed seek without rewinding watch position",async()=>{
+  player();const video=await ready();const slider=scrubTo(600);fireEvent.seeked(video);video.currentTime=601;fireEvent.timeUpdate(video);expect(slider.value).toBe("601");
+  video.currentTime=0;fireEvent.timeUpdate(video);expect(slider.value).toBe("601");expect(video.currentTime).toBe(601);fireEvent.pause(video);
+  expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:601,seeking:true}),false);expect(playbackApi.create).toHaveBeenCalledTimes(1);
+ });
+ it("restarts an unbuffered backward seek advertised by a stale completed manifest after its prefix was pruned",async()=>{
+  vi.useFakeTimers({shouldAdvanceTime:true});fakeHls.supported=true;fakeHls.fragments=[{start:0,end:910}];
+  vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",mime:"application/vnd.apple.mpegurl",offset_seconds:290});
+  player();const video=await ready();video.currentTime=600;fireEvent.timeUpdate(video);await act(async()=>{await vi.advanceTimersByTimeAsync(10_000);});
+  expect(playbackApi.heartbeat).toHaveBeenCalledWith("playback-one",890,true);
+  Object.defineProperty(video,"buffered",{value:mediaRanges([500,610]),configurable:true});scrubTo(810);fireEvent.seeked(video);expect(playbackApi.create).toHaveBeenCalledTimes(1);
+  // The browser can retain cached data behind the server's pruning floor. A
+  // second backward target without cached data still needs a fresh source.
+  Object.defineProperty(video,"buffered",{value:mediaRanges(),configurable:true});scrubTo(780);await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));
+  expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:780}));expect((screen.getByRole("slider",{name:"Seek"}) as HTMLInputElement).value).toBe("780");
+ });
+ it("retries a pruned pending fragment once at the same quality before the bounded decode fallback",async()=>{
+  fakeHls.supported=true;fakeHls.fragments=[{start:0,end:200}];const converted={...session,method:"remux" as const,mime:"application/vnd.apple.mpegurl",offset_seconds:290};
+  vi.mocked(playbackApi.create).mockResolvedValueOnce(converted).mockResolvedValueOnce({...converted,id:"range-retry"}).mockResolvedValueOnce({...converted,id:"compatible",method:"transcode",offset_seconds:360});
+  player();const video=await ready();scrubTo(360);
+  const missing={fatal:true,type:"networkError",details:"fragLoadError",response:{code:404}};
+  await act(async()=>fakeHls.errors[0]("error",missing));await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));
+  expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:360,max_height:0,max_bitrate:0,force_transcode:false}));fireEvent.loadedMetadata(video);
+  await act(async()=>fakeHls.errors[1]("error",missing));await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(3));expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:360,force_transcode:true}));
+  fireEvent.loadedMetadata(video);await act(async()=>fakeHls.errors[2]("error",missing));expect(screen.getByRole("alert")).toBeTruthy();expect(playbackApi.create).toHaveBeenCalledTimes(3);expect(watchApi.begin).toHaveBeenCalledTimes(1);
  });
  it("stops a terminal native decode failure, flushes once, and resumes heartbeats only after Retry",async()=>{
   vi.useFakeTimers({shouldAdvanceTime:true});
