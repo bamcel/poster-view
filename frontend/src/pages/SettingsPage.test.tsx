@@ -302,13 +302,13 @@ it("hides Server Connect even when saved settings enable it",async()=>{
  expect(screen.queryByRole("button",{name:"Add server"})).toBeNull();
 });
 
-it.each(["/settings/transcoding", "/settings?tab=transcoding"])("redirects retired conversion settings to Playback: %s", async(path)=>{
+it.each(["/settings/transcoding", "/settings?tab=transcoding"])("opens playback transcoding policy through existing settings URLs: %s", async(path)=>{
   function Location(){const location=useLocation();return <output aria-label="Current settings location">{location.pathname}</output>;}
   const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
   render(<MemoryRouter initialEntries={[path]}><QueryClientProvider client={client}><SettingsPage/><Location/></QueryClientProvider></MemoryRouter>);
-  await waitFor(()=>expect(screen.getByLabelText("Current settings location").textContent).toBe("/settings/playback"));
-  expect(await screen.findByRole("heading",{name:"Playback"})).toBeTruthy();
-  expect(screen.queryByRole("switch",{name:/conversion|transcod|remux/i})).toBeNull();
-  expect(vi.mocked(apiRequest).mock.calls.some(([url])=>url.startsWith("/transcoding")||url==="/playback/capabilities")).toBe(false);
+  await waitFor(()=>expect(screen.getByLabelText("Current settings location").textContent).toBe("/settings/transcoding"));
+  expect(await screen.findByRole("heading",{name:"Transcoding"})).toBeTruthy();
+  await waitFor(()=>expect(vi.mocked(apiRequest)).toHaveBeenCalledWith("/transcoding/settings"));
+  expect(vi.mocked(apiRequest).mock.calls.some(([url])=>url==="/playback/capabilities")).toBe(false);
   client.clear();
 });

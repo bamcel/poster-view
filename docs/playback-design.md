@@ -1,0 +1,148 @@
+# Playback delivery decisions
+
+PosterView prefers the least processing that satisfies the selected tracks and
+client capabilities. Processing here creates a temporary playback stream; it does
+not replace originals or produce permanent optimized library versions.
+
+| Delivery | When it is useful | Video | Audio |
+| --- | --- | --- | --- |
+| Direct Play | The original container, profile and selected track work in the browser | Original bytes | Original bytes |
+| Direct Stream | Browser packaging or embedded audio selection needs a different stream | Copied | Copied |
+| Audio-only transcoding | The selected audio is unsupported, including TrueHD, DTS or PCM | Copied | AAC stereo, 192 kbps |
+| Video transcoding | The original video cannot decode, or a selected bitrate/resolution limit requires encoding | Encoded | Copied when supported, otherwise AAC |
+
+Direct Stream is strictly lossless with respect to selected audio/video packets.
+It cannot make an unsupported video decoder work. Audio-only conversion changes
+the audio and does not retain lossless surround or Atmos metadata. Video encoding
+is lossy; HLS packaging itself is not a quality reduction.
+
+## Why Direct Play remains the default
+
+Direct Play avoids a server producer, manifest preparation and client MSE setup.
+Earlier measurements on The Apothecary Diaries S01E01 showed a live unbuffered
+seek reaching playback in about 305 ms. An independent native-video test against
+the same MKV over SMB reached its `playing` event in about 205 ms. Those tests used
+different delivery servers and warmed caches; they are evidence that native
+seeking can be fast, not a universal performance guarantee.
+
+The earlier 26-second resume and 13-second seek observations also remain relevant.
+Startup, storage latency, source indexes, browser decoder behavior and background
+tab scheduling can vary. Sending every compatible original through an encoder
+would not address all of these causes and would add cost and quality loss.
+
+Use Direct Stream to compare delivery on a particular client, to choose an audio
+track that native browser APIs cannot identify, or when the original container is
+unsupported. Use video transcoding for an actual compatibility or bandwidth need.
+Server encode FPS measures production speed, not Direct Play decode speed. Direct
+Play decoding happens on the client, and an unbuffered seek still needs bytes and
+a decodable keyframe.
+
+## Session and seek ownership
+
+Direct playback keeps its authenticated range URL through native seeks. Segmented
+playback has one logical session and generation-specific HLS URLs. A seek inside
+retained produced segments reuses them. Repositioning the producer or changing
+selected streams creates a new generation inside the same logical session.
+
+The seek request supplies the expected generation. A stale generation returns
+409 rather than replacing a newer producer. The client serializes requests and
+coalesces rapid seek intent. UI and watch reports use the full source clock;
+generation-relative media events cannot reset the displayed time to zero. Watch
+sessions and completion sequencing remain separate from delivery generations.
+Closing a session marks it closed and removes active membership before queued
+operations can restart it. The cleanup worker also sweeps marked abandoned jobs
+after canceled preparation expires, rechecking active membership before removing
+each directory. Unrelated and other-instance directories are preserved by this
+periodic sweep; preparing a new job separately retires recognized older-instance
+jobs.
+Extracted resources have a separate bounded sweep for unindexed generated files.
+It skips active extraction and cached tracks, and retries files still locked by
+Windows on a later cleanup tick.
+
+HLS stream-copy boundaries follow source keyframes. Re-encoding may insert shorter
+closed GOPs, which can improve segment latency at the cost of processing and
+quality. No mode guarantees an instantaneous seek beyond downloaded media.
+
+## Limits and compatibility
+
+Administrator settings separately permit remuxing, audio encoding, video encoding
+and automatic bandwidth adaptation. Existing stored settings retain their JSON
+keys and explicit permissions. Hardware selection uses a small real encoder probe;
+an installed encoder name alone is insufficient. An encoder probe does not prove
+hardware decoding, HDR tone mapping or sustained real-file throughput.
+
+Automatic bandwidth decisions use HLS fragment transfer evidence and sustained
+buffering. They exclude startup, recent seeks, pauses and cached transfers. Native
+Direct Play has no reliable throughput sample in the current browser API, so it
+does not silently switch based on a brief native buffering event. Users can select
+a lower playback bitrate explicitly when video transcoding is permitted.
+
+PGS and VobSub are copied into bounded subtitle resources and rendered in a local
+WASM canvas overlay. ASS retains its authored styling and fonts; text subtitles
+use WebVTT. Subtitle selection does not require video encoding. Overlays may not
+appear in the browser's picture-in-picture window.
+
+FFmpeg commands remain server-authored and operate on resolved, validated library
+sources. Job limits, timeouts, generation validation and private temporary folders
+bound work. The media root is never a cleanup target. Resource extraction can
+time out on very large or slow sources and reports that failure explicitly.
+
+## Runtime comparison and verification
+
+The restored pipeline was checked with isolated, local synthetic media on Windows
+and the production Linux image. The Linux image uses its packaged FFmpeg 5.1;
+it was run with a read-only media mount and no exposed GPU. These are warm local
+API preparation measurements, not end-to-end Unraid playback benchmarks:
+
+| Mode | Linux session preparation | Windows session preparation |
+| --- | --- | --- |
+| Direct Play, H.264/AAC MP4 | 89 ms | 32 ms |
+| Direct Stream, copied H.264/AAC | 677 ms | 2,137 ms |
+| Software H.264 at a selected 1.5 Mbps budget | 1,063 ms | 2,001 ms |
+| TrueHD to AAC with copied video | 759 ms | 3,284 ms |
+| DTS to AAC with copied video | 1,076 ms | 5,127 ms |
+| PCM to AAC with copied video | 1,097 ms | 4,078 ms |
+
+Browser checks kept the original Direct Play URL across buffered and unbuffered
+seeks. A local unbuffered seek was observed playing again within about 229 ms of
+the UI action; that includes tool timing and is not a precise seek-event trace.
+Retained HLS seeks kept the attached source and full source clock. Cold Windows
+HLS seeks that needed a new producer took about 2.0–3.3 seconds for the 90-second
+fixture. Source keyframes, OS/filesystem behavior and producer analysis matter;
+HLS is therefore a compatibility/quality tool, not a universal latency fix.
+
+Video packet hashes matched the originals for sampled stream-copy and audio-only
+output (96 H.264 or 168 HEVC packets). AAC output was inspected for generated
+TrueHD, DTS-core and PCM inputs. Synthetic PGS and a public-domain VobSub fixture
+rendered in browser canvas overlays during original playback; bitmap resources
+also returned authenticated range responses in both runtimes. Linux read-ahead
+was observed sending SIGSTOP/SIGCONT, stale generations returned 409, and stopping
+sessions removed owned temporary directories and FFmpeg processes.
+
+A High10 H.264 source with six-channel AAC verified the video-only fallback:
+the video encoded to browser-compatible H.264 while 83 sampled AAC packets stayed
+identical and retained all six channels. The production browser build played it
+to completion without a media error. When source video cannot be copied, the
+client proves each audio profile against every advertised encoded-video output;
+it does not infer audio-copy support from the rejected source-video profile.
+
+Final checks passed 442 frontend tests, the frontend production build, the full
+Rust workspace serially, Clippy with warnings denied, and production Docker
+build/runtime checks. The requested default parallel Rust command still hit the
+two recorded library-monitor timeout failures (`manual_scan_nfo_writes_do_not_restart_monitor_scans`
+and `monitoring_scans_new_files_and_can_be_disabled`). Those passed in the serial
+workspace run. A new playback test's ENDLIST-versus-process-exit timing assumption
+was corrected to wait for actual producer-slot release before asserting it.
+
+Real Unraid GPU encoding, large NAS files, real DTS-HD/TrueHD sources and long bitmap
+tracks still need live validation. Audio-only output is stereo AAC, not lossless
+passthrough. Bitmap extraction currently scans the complete source before serving
+the cached track, with a 45-second timeout and 128 MiB resource limit; particularly
+large or slow sources can fail that bounded extraction. Native Direct Play does
+not automatically adapt bandwidth, and seeking outside retained HLS data still
+prepares a new producer.
+
+References: [Emby delivery modes](https://emby.media/support/articles/DirectPlay-Stream-Transcoding.html),
+[Plex Direct Play and Direct Stream](https://support.plex.tv/articles/200250387-streaming-media-direct-play-and-direct-stream/),
+[FFmpeg HLS muxer](https://ffmpeg.org/ffmpeg-formats.html#hls-2), and
+[libbitsub renderer](https://github.com/altqx/libbitsub).

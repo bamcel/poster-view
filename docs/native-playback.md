@@ -1,23 +1,25 @@
 # Native video playback
 
-PosterView plays movies and episodes from native libraries by serving their original
-files. It does not transcode, remux, burn subtitles, downmix audio, reduce resolution
-or adapt bitrate. Connected Plex, Emby and Jellyfin libraries remain artwork and
+PosterView prefers original files for movies and episodes in native libraries.
+Optional Direct Stream and transcoding create temporary playback streams when
+packaging, selected tracks, browser compatibility or quality limits require them.
+Original library files remain unchanged. Connected Plex, Emby and Jellyfin libraries remain artwork and
 metadata sources; their playback engines are not used for native library playback.
 
 ## Start watching
 
 Open a movie or episode and choose **Play** or **Resume**. Series and season pages
-choose an available in-progress or unwatched episode. The player supports native
-audio selection, browser-rendered text subtitles, speed, chapters, fullscreen,
+choose an available in-progress or unwatched episode. The player supports multiple
+audio selections, browser-rendered text and bitmap subtitles, speed, chapters, fullscreen,
 picture in picture when supported, and Up Next. Space/K toggles playback,
 left/right arrows skip, F toggles fullscreen, and M toggles mute. Controls remain
 visible while paused or using a menu and hide during uninterrupted playback.
 
 Settings → Playback controls preferred languages, remembered tracks, subtitles,
 skip lengths, resume rewind, automatic next episode and the inactivity prompt.
-Old Transcoding-page links redirect to Playback. No conversion or hardware-encoder
-settings are available.
+Settings → Transcoding separately permits lossless remuxing, audio-only encoding,
+video encoding and automatic bandwidth adaptation. Hardware and temporary storage
+limits apply to segmented playback. Old saved permission keys remain compatible.
 
 ## Browser compatibility and delivery
 
@@ -40,11 +42,13 @@ assets retain ordinary compression. Media stays private and is not persistently
 cached by the browser; metadata probes cache against file size and modification time.
 
 Several audio tracks do not prevent playback of the default track. Other tracks
-can be selected only when the browser exposes them and their identities can be
-matched reliably to the file. Unsupported or unidentifiable choices are disabled.
-TrueHD, DTS/DTS-HD and PCM/LPCM are currently unsupported by this player;
-there is no audio conversion fallback. Unsupported containers or video profiles
-produce a clear direct-play error instead of silently changing the media.
+use reliable native selection where available, otherwise authorized Direct Stream
+selects and copies the requested track. Unsupported selected audio, including
+TrueHD, DTS/DTS-HD and PCM/LPCM, can use AAC stereo at 192 kbps when audio encoding
+is permitted. This changes audio quality and does not preserve lossless surround
+or Atmos metadata; video is copied when compatible. Unsupported video can use an
+authorized video encoder. With these permissions disabled, the player explains
+compatibility limits.
 
 ## Subtitles and metadata
 
@@ -54,14 +58,16 @@ and placement preferences apply to plain text; ASS/SSA retains its authored styl
 Subtitle selection and Off preserve the original audio/video stream and watch session.
 Picture in picture may omit browser-rendered styled subtitles.
 
-PGS and VobSub/DVD are bitmap subtitle formats. The current browser renderer does
-not support them, and subtitle burn-in has been removed. Those choices are disabled.
+PGS and VobSub/DVD use the local libbitsub WASM renderer and a canvas overlay.
+Their copied .sup/.mks resources retain timestamps and DVD palettes. Subtitles do
+not require video burn-in. Other unknown bitmap formats remain unavailable.
 
-FFmpeg/ffprobe remain installed for metadata, bounded text-subtitle/font extraction,
+FFmpeg/ffprobe are installed for metadata, bounded subtitle/font extraction,
 and existing book/artwork capture features. These operations do not re-encode the
 playback video or audio. Subtitle/font resources cache by source fingerprint and
-track, with entry-count, size and LRU limits. Playback never starts an audio/video encoder,
-HLS producer or stream-copy process.
+track, with entry-count, size and LRU limits. Playback jobs run only for permitted selected modes, with concurrency, temporary
+storage and idle-session limits. Very large or slow subtitle extraction can time
+out and reports that failure.
 
 ## Watch tracking
 
@@ -77,20 +83,43 @@ does not count as watching. Seeking or staying paused near completion does not m
 an item watched; completion requires new actual playback progress. Initialization
 establishes watch tracking before playing, and changing episodes stops the old source.
 
+## Playback modes, seeking and quality
+
+Auto prefers Direct Play. Original requires compatible direct playback. Direct
+Stream copies selected video and audio without encoding. Explicit lower bitrate
+choices encode video only when permitted; HLS packaging itself does not reduce
+quality. The player reports the actual delivery mode and codecs.
+
+HLS seeks within retained available segments use the current stream. Beyond that
+range the server repositions a keyframe-aligned producer inside the same logical
+session, preserving the full episode timeline and watch token. That can still
+require a short wait for network, muxing or decoding. Transcoding cannot guarantee
+seamless unbuffered seeks and may be slower than a compatible original.
+
+Automatic bandwidth adaptation applies to HLS with reliable transfer evidence and
+sustained stalls. It excludes startup, recent seeks and cached transfers. Direct
+Play has no reliable throughput sample here, so native buffering alone does not
+silently trigger video encoding. Select a lower bitrate explicitly when needed.
+
 ## Unraid and upgrades
 
-Direct playback requires the server to read the original files and sufficient network
-bandwidth for their bitrate. Hardware decoding, when available, happens on the client.
-PosterView needs no server GPU mapping, NVIDIA runtime or hardware encoder drivers.
-Application-data, media mounts, PUID, PGID and UMASK keep their existing behavior.
+Direct playback requires readable media and network bandwidth for its bitrate.
+Client hardware decodes Direct Play; server GPU encoding is optional. PUID, PGID,
+UMASK, application-data and media mounts retain existing behavior.
 
-Existing conversion settings are retained in the database but ignored. Existing
-generated HLS files are not served or reused; application data and original media
-are not rewritten or deleted during this change. No playback temporary mount is
-required. Legacy `/transcode` mounts remain excluded from automatic media-root
-discovery so an old container configuration does not become an extra library root.
+For Intel Quick Sync or VA-API, map `/dev/dri` into the container. The image includes
+Intel media drivers and preserves mapped render-device group access after dropping
+privileges. For NVIDIA, install the Unraid NVIDIA driver plugin, use the NVIDIA
+container runtime and expose the intended GPU. Use **Test hardware encoders** to
+verify actual access. AVC is the default compatibility encoder; HEVC and AV1 require
+both enabled server encoders and browser support. GPU decode support does not
+imply support for encoding the same format; encoder availability is checked at runtime.
 
-Existing native playback and watch URLs retain their purpose. Legacy conversion
-request fields are decoded for compatibility, but requests that ask for encoding,
-remuxing, quality/bitrate changes, encoder selection or burn-in fail explicitly.
-The retired settings, hardware-capability and HLS endpoints return not found.
+Temporary streams live in a private server-owned cache or configured absolute
+path; an SSD-backed mapped directory can help. Existing permission JSON is reused.
+Original media is preserved. Cleanup targets only recognized, marked temporary
+playback jobs and bounded extracted resources; unrelated folders are preserved.
+Legacy `/transcode` mounts remain excluded from media-root discovery.
+
+See [playback decisions](playback-design.md) for implementation ownership, tradeoffs
+and measured Direct Play limits.

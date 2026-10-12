@@ -1,3 +1,4 @@
+import TranscodingSettings from "../features/settings/transcoding/TranscodingSettings";
 import PlaybackPreferences from "../features/playback/components/PlaybackPreferences";
 import SettingsPageFrame from "../components/SettingsPageFrame";
 import ScheduledTasks from "../components/ScheduledTasks";
@@ -12,11 +13,12 @@ import NativeLibrariesSection, { NativeLibraryCount } from "../components/Native
 import { type SettingsSaveStatus } from "../lib/settingsSaveStatus";
 import AppearanceSection from "../features/settings/appearance/AppearanceSection";
 import ArtworkSourcesSection from "../features/settings/providers/ArtworkSourcesSection";
-type SettingsTab = "playback" | "plugins" | "artwork" | "libraries" | "sources" | "tasks" | "appearance" | "security";
+type SettingsTab = "playback" | "transcoding" | "plugins" | "artwork" | "libraries" | "sources" | "tasks" | "appearance" | "security";
 
 
 const TABS: { id: SettingsTab; label: string; icon: ReactNode }[] = [
   {id:"playback",label:"Playback",icon:<ServerIcon className="size-4"/>},
+  {id:"transcoding",label:"Transcoding",icon:<ServerIcon className="size-4"/>},
   { id: "artwork", label: "Artwork", icon: <ImageIcon className="size-4" /> },
   { id: "plugins", label: "Plugins", icon: <ServerIcon className="size-4" /> },
   { id: "libraries", label: "Libraries", icon: <HardDrive className="size-4" /> },
@@ -32,7 +34,7 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
   const location = useLocation();
   const requestedTab = searchParams.get("tab") === "database" ? "tasks" : searchParams.get("tab");
   const section = previewSection ?? location.pathname.split("/")[2];
-  const candidate = section === "database" ? "tasks" : section === "transcoding" ? "playback" : section;
+  const candidate = section === "database" ? "tasks" : section;
   const tab = TABS.find(section => section.id === candidate)?.id;
   const [artworkOpen,setArtworkOpen]=useState(false);
   const [saveStatus, setSaveStatus] = useState<SettingsSaveStatus>("saved");
@@ -45,16 +47,16 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
 
   useEffect(()=>{setSaveStatus("saved");},[tab]);
 
-  if (!previewSection && (section === "transcoding" || requestedTab === "transcoding")) return <Navigate replace to="/settings/playback" />;
   if (!previewSection && requestedTab && TABS.some(section => section.id === requestedTab)) return <Navigate replace to={`/settings/${requestedTab}`} />;
   if (!tab) return <ServerSettingsDashboard />;
-  const descriptions:Record<SettingsTab,string>={playback:"Set audio, subtitle, resume, and watching preferences for direct playback.",plugins:"Choose a plugin to manage its features and settings.",artwork:"Configure artwork browsing and editing tools.",libraries:"Manage media folders, metadata providers, and artwork.",sources:"Configure provider accounts and test their connections.",tasks:"Review cleanup and schedule application maintenance.",appearance:"Customize your theme, layout, and backgrounds.",security:"Manage sign-in, session, and privacy preferences."};
+  const descriptions:Record<SettingsTab,string>={playback:"Set audio, subtitle, resume, and watching preferences.",transcoding:"Choose how temporary playback streams adapt to your browser and connection.",plugins:"Choose a plugin to manage its features and settings.",artwork:"Configure artwork browsing and editing tools.",libraries:"Manage media folders, metadata providers, and artwork.",sources:"Configure provider accounts and test their connections.",tasks:"Review cleanup and schedule application maintenance.",appearance:"Customize your theme, layout, and backgrounds.",security:"Manage sign-in, session, and privacy preferences."};
   return <SettingsPageFrame title={TABS.find(section=>section.id===tab)!.label} description={descriptions[tab]} wide={tab==="appearance"} split={tab==="appearance"} status={tab==="libraries"?<NativeLibraryCount/>:saveStatus!=="saved"?<span className={saveStatus==="error"?"text-danger":"text-accent"}>{saveStatus==="saving"?"Savingâ€¦":"Settings could not be saved."}</span>:undefined}>
           {(tab === "plugins" || tab === "artwork") && <PluginsPage artworkOpen={tab === "artwork" || artworkOpen} onArtworkOpen={()=>setArtworkOpen(true)} onClose={()=>{setArtworkOpen(false);if(tab === "artwork") navigate("/settings/plugins");}}/>}
           {tab === "libraries" && <NativeLibrariesSection />}
           {tab === "sources" && <ArtworkSourcesSection />}
           {tab === "tasks" && <ScheduledTasks/>}
           {tab === "playback" && <PlaybackPreferences/>}
+          {tab === "transcoding" && <TranscodingSettings/>}
           {tab === "appearance" && <AppearanceSection preview={!!previewSection} />}
           {tab === "security" && <SecuritySection />}
   </SettingsPageFrame>;

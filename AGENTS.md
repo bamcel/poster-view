@@ -18,7 +18,7 @@ changes and local artifacts; never reset or overwrite someone else's work.
 | URL trust rules | `crates/posterview-url-security/src/` |
 | Server composition/state | `apps/server/src/lib.rs`, `state.rs` |
 | HTTP adapters/central legacy registration | `apps/server/src/routes/` |
-| Direct playback delivery, models, capability checks and text resources | `apps/server/src/playback/` |
+| Playback delivery, models, planning, segmented jobs and resources | `apps/server/src/playback/` |
 | Native libraries/scans/identification/artwork | `apps/server/src/native*.rs`, `google_books.rs` |
 | Reading, metadata/NFO editing, watch persistence | `apps/server/src/reader.rs`, `metadata.rs`, `watch.rs` |
 | Frontend playback/watch experience | `frontend/src/features/playback/` |

@@ -27,6 +27,7 @@ mod native_provider;
 mod native_provider_extra;
 mod native_scan;
 mod playback;
+mod transcoding;
 mod plugins;
 mod reader;
 mod routes;

@@ -1,10 +1,13 @@
 //! Original-file playback, media inspection, resource extraction, and direct session lifecycle.
+mod hardware;
+mod manifest;
 mod models;
 mod planner;
+mod segmented;
 #[cfg(test)]
 mod test_support;
-use models::{Chapter, Font, Info, NextItem, SessionInput, SessionResponse, Track};
-use planner::{plan, selected_stream, validate_request};
+use models::{Chapter, Font, Info, NextItem, SeekInput, SessionInput, SessionResponse, Track};
+use planner::{plan, plan_for_delivery, selected_stream, validate_request};
 
 use crate::{AppState, HttpError};
 use axum::{
@@ -18,11 +21,11 @@ use posterview_infra_sqlite::ServerStore;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Component, Path as FsPath, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        Arc, Mutex as StdMutex,
     },
     time::{Duration, Instant},
 };
@@ -36,6 +39,7 @@ use tower_http::services::ServeFile;
 const MAX_PROBE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_SUBTITLE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_FONT_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_BITMAP_BYTES: u64 = 128 * 1024 * 1024;
 const SESSION_IDLE: Duration = Duration::from_secs(90);
 const MAX_SESSIONS: usize = 64;
 const MAX_PLAYBACK_SECONDS: f64 = 7.0 * 86_400.0;
@@ -67,6 +71,7 @@ fn stamp(path: &FsPath) -> Result<(u64, u128), HttpError> {
     ))
 }
 
+#[derive(Clone)]
 struct Source {
     library_id: String,
     item: NativeCatalogEntry,
@@ -255,23 +260,45 @@ struct ResourceCache {
     bytes: u64,
     used: Instant,
 }
+fn generated_resource(entry: &std::fs::DirEntry) -> bool {
+    let path = entry.path();
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .is_some_and(|stem| uuid::Uuid::parse_str(stem).is_ok())
+        && path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| matches!(extension, "ass" | "vtt" | "font" | "sup" | "mks"))
+        && entry
+            .file_type()
+            .is_ok_and(|kind| kind.is_file() && !kind.is_symlink())
+}
 struct Session {
-    library_id: String,
-    item_id: String,
-    source: PathBuf,
-    stamp: (u64, u128),
+    source: Source,
+    probe: Value,
+    input: SessionInput,
     response: SessionResponse,
     touched: Instant,
+    producer: Option<segmented::Producer>,
+    position: f64,
+    paused: bool,
+    speed: f64,
+    closed: bool,
 }
 
 pub(crate) struct PlaybackStore {
     root: PathBuf,
-    sessions: Mutex<HashMap<String, Session>>,
+    sessions: Mutex<HashMap<String, Arc<Mutex<Session>>>>,
     probes: Mutex<HashMap<PathBuf, ProbeCache>>,
     resources: Mutex<HashMap<ResourceKey, ResourceCache>>,
     // Only media inspection and subtitle/font extraction use subprocess permits.
     jobs: Arc<Semaphore>,
     started: AtomicBool,
+    hardware: Mutex<HashMap<String, (Instant, hardware::Encoder)>>,
+    producers: Arc<AtomicU32>,
+    instance: String,
+    cache_roots: StdMutex<HashSet<PathBuf>>,
+    cache_budget: AtomicU64,
 }
 impl PlaybackStore {
     pub(crate) fn new(data_dir: &FsPath) -> Self {
@@ -279,13 +306,7 @@ impl PlaybackStore {
         // Retire only generated resource files, never media files or unrelated folders.
         if let Ok(files) = std::fs::read_dir(root.join("resources")) {
             for entry in files.flatten() {
-                if entry
-                    .path()
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .is_some_and(|s| uuid::Uuid::parse_str(s).is_ok())
-                    && entry.file_type().is_ok_and(|t| t.is_file())
-                {
+                if generated_resource(&entry) {
                     let _ = std::fs::remove_file(entry.path());
                 }
             }
@@ -297,6 +318,11 @@ impl PlaybackStore {
             resources: Mutex::new(HashMap::new()),
             jobs: Arc::new(Semaphore::new(2)),
             started: AtomicBool::new(false),
+            hardware: Mutex::new(HashMap::new()),
+            producers: Arc::new(AtomicU32::new(0)),
+            instance: uuid::Uuid::new_v4().to_string(),
+            cache_roots: StdMutex::new(HashSet::new()),
+            cache_budget: AtomicU64::new(10 * 1024 * 1024 * 1024),
         }
     }
     pub(crate) fn start_cleanup(self: &Arc<Self>) {
@@ -316,26 +342,106 @@ impl PlaybackStore {
         });
     }
     pub(crate) async fn session_details(&self, id: &str) -> Option<(String, String, f64)> {
-        let sessions = self.sessions.lock().await;
-        let session = sessions.get(id)?;
-        if session.touched.elapsed() > SESSION_IDLE || stamp(&session.source).ok()? != session.stamp
+        let handle = self.sessions.lock().await.get(id)?.clone();
+        let session = handle.lock().await;
+        if session.closed
+            || !self.sessions.lock().await.contains_key(id)
+            || session.touched.elapsed() > SESSION_IDLE
+            || stamp(&session.source.path).ok()? != session.source.fingerprint
         {
             return None;
         }
         Some((
-            session.library_id.clone(),
-            session.item_id.clone(),
+            session.source.library_id.clone(),
+            session.source.item.id.clone(),
             session.response.duration_seconds,
         ))
     }
     async fn stop_id(&self, id: &str) {
-        self.sessions.lock().await.remove(id);
+        let handle = self.sessions.lock().await.remove(id);
+        if let Some(handle) = handle {
+            let producer = {
+                let mut session = handle.lock().await;
+                session.closed = true;
+                session.producer.take()
+            };
+            if let Some(producer) = producer {
+                producer.stop().await;
+            }
+        }
     }
     async fn maintain(&self) {
-        self.sessions
+        let handles = self
+            .sessions
             .lock()
             .await
-            .retain(|_, session| session.touched.elapsed() <= SESSION_IDLE);
+            .iter()
+            .map(|(id, handle)| (id.clone(), handle.clone()))
+            .collect::<Vec<_>>();
+        let mut expired = Vec::new();
+        let mut total = segmented::total_bytes(self);
+        let mut sizes = Vec::new();
+        for (id, handle) in handles {
+            let Ok(mut session) = handle.try_lock() else {
+                continue;
+            };
+            let position = (session.position - session.response.offset_seconds).max(0.0);
+            let paused = session.paused;
+            let speed = session.speed;
+            let valid = session
+                .producer
+                .as_mut()
+                .is_none_or(|producer| producer.maintain(position, paused, speed));
+            if session.touched.elapsed() > SESSION_IDLE || !valid {
+                expired.push(id);
+            } else if let Some(producer) = &session.producer {
+                let size = segmented::directory_bytes(&producer.dir);
+                sizes.push((id, size, producer.cache_bytes));
+            }
+        }
+        let limit = self.cache_budget.load(Ordering::Acquire);
+        sizes.sort_by_key(|entry| std::cmp::Reverse(entry.1));
+        for (id, size, _) in sizes {
+            if total <= limit {
+                break;
+            }
+            total = total.saturating_sub(size);
+            expired.push(id);
+        }
+        for id in expired {
+            self.stop_id(&id).await;
+        }
+        let active = self.sessions.lock().await.keys().cloned().collect();
+        segmented::sweep_abandoned(self, &active).await;
+        self.sweep_resources();
+    }
+    fn sweep_resources(&self) {
+        // A fill owns this mutex from before file creation through insertion.
+        // try_lock prevents cleanup from blocking or deleting a live extraction.
+        let Ok(cache) = self.resources.try_lock() else {
+            return;
+        };
+        let cached = cache
+            .values()
+            .map(|entry| entry.path.as_path())
+            .collect::<HashSet<_>>();
+        let mut attempts = 0usize;
+        for entry in std::fs::read_dir(self.root.join("resources"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .take(4096)
+        {
+            let path = entry.path();
+            if !generated_resource(&entry) || cached.contains(path.as_path()) {
+                continue;
+            }
+            if attempts >= 32 {
+                break;
+            }
+            attempts += 1;
+            let _ = std::fs::remove_file(path);
+        }
     }
     async fn probe(&self, source: &Source) -> Result<Value, HttpError> {
         {
@@ -433,7 +539,7 @@ async fn run(cmd: &mut Command, timeout: Duration, label: &str) -> Result<(), Ht
     }
 }
 
-fn tracks(probe: &Value, source: &Source) -> Vec<Track> {
+fn tracks(probe: &Value, source: &Source, subtitle_extraction: bool) -> Vec<Track> {
     probe["streams"]
         .as_array()
         .into_iter()
@@ -453,6 +559,10 @@ fn tracks(probe: &Value, source: &Source) -> Vec<Track> {
                 } else if ["subrip", "webvtt", "mov_text", "text", "srt"].contains(&codec.as_str())
                 {
                     "vtt"
+                } else if codec == "hdmv_pgs_subtitle" {
+                    "pgs"
+                } else if codec == "dvd_subtitle" {
+                    "vobsub"
                 } else {
                     "image"
                 }
@@ -460,7 +570,7 @@ fn tracks(probe: &Value, source: &Source) -> Vec<Track> {
             });
             let url = subtitle_format
                 .as_ref()
-                .filter(|v| v.as_str() != "image")
+                .filter(|v| v.as_str() != "image" && subtitle_extraction)
                 .map(|_| {
                     format!(
                         "/api/playback/native/{}/{}/subtitles/{index}",
@@ -587,6 +697,7 @@ pub(crate) async fn info(
     State(state): State<AppState>,
     Path((library, item)): Path<(String, String)>,
 ) -> Result<Json<Info>, HttpError> {
+    let settings = crate::transcoding::load(&state)?;
     let source = source(&state, library, item).await?;
     let probe = state.playback.probe(&source).await?;
     let chapters = probe["chapters"]
@@ -606,7 +717,7 @@ pub(crate) async fn info(
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|s| font_stream(s))
+        .filter(|s| settings.font_extraction && font_stream(s))
         .filter_map(|s| {
             let index = s["index"].as_u64()? as u32;
             Some(Font {
@@ -646,83 +757,400 @@ pub(crate) async fn info(
                 )
             }),
         duration_seconds: duration(&probe),
-        conversion_allowed: false,
-        audio_conversion_allowed: false,
-        bandwidth_adaptation_allowed: false,
+        conversion_allowed: settings.allow_conversion,
+        audio_conversion_allowed: settings.allow_conversion || settings.allow_audio_transcoding,
+        bandwidth_adaptation_allowed: settings.auto_bandwidth_transcoding,
         source_bitrate: source_bitrate(&probe),
-        remux_allowed: false,
+        remux_allowed: settings.allow_remux,
         container: container(&source.path),
-        tracks: tracks(&probe, &source),
+        tracks: tracks(&probe, &source, settings.subtitle_extraction),
         chapters,
         fonts,
         next: source.next.clone(),
     }))
 }
 
-pub(crate) async fn create(
-    State(state): State<AppState>,
-    Path((library, item)): Path<(String, String)>,
-    Json(input): Json<SessionInput>,
-) -> Result<Json<SessionResponse>, HttpError> {
-    // Reject retired conversion controls before source inspection or session allocation.
-    validate_request(&input)?;
-    let source = source(&state, library, item).await?;
-    let probe = state.playback.probe(&source).await?;
-    let plan = plan(&probe, &container(&source.path), &input)?;
-    let id = uuid::Uuid::new_v4().to_string();
-    let response = SessionResponse {
-        id: id.clone(),
+fn original_mime(path: &FsPath) -> &'static str {
+    match container(path).as_str() {
+        "mkv" => "video/x-matroska",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        _ => "video/mp4",
+    }
+}
+fn response(
+    id: &str,
+    source: &Source,
+    probe: &Value,
+    plan: &planner::Plan,
+    generation: u64,
+    offset: f64,
+    encoder: Option<String>,
+) -> SessionResponse {
+    let source_height = plan.video["height"].as_u64().map(|height| height as u32);
+    let height = if plan.method == "transcode" {
+        source_height.map(|height| {
+            let height = if plan.height > 0 {
+                height.min(plan.height)
+            } else {
+                height
+            };
+            height / 2 * 2
+        })
+    } else {
+        source_height
+    };
+    let width = plan.video["width"].as_u64().map(|width| {
+        if plan.method == "transcode" {
+            let source_height = source_height.unwrap_or(1).max(1);
+            let ratio = |value: &Value| {
+                value
+                    .as_str()
+                    .and_then(|value| value.split_once(':'))
+                    .and_then(|(a, b)| Some(a.parse::<f64>().ok()? / b.parse::<f64>().ok()?))
+                    .filter(|value| value.is_finite() && *value > 0.0)
+            };
+            let dar = ratio(&plan.video["display_aspect_ratio"]).unwrap_or_else(|| {
+                width as f64 / source_height as f64
+                    * ratio(&plan.video["sample_aspect_ratio"]).unwrap_or(1.0)
+            });
+            ((dar * f64::from(height.unwrap_or(source_height)) / 2.0).floor() * 2.0) as u32
+        } else {
+            width as u32
+        }
+    });
+    SessionResponse {
+        id: id.into(),
         method: plan.method.into(),
         reason: plan.reason.into(),
-        url: format!("/api/playback/sessions/{id}/stream"),
-        mime: match container(&source.path).as_str() {
-            "mkv" => "video/x-matroska",
-            "webm" => "video/webm",
-            _ => "video/mp4",
+        url: if generation == 0 {
+            format!("/api/playback/sessions/{id}/stream")
+        } else {
+            format!("/api/playback/sessions/{id}/hls/{generation}/index.m3u8")
+        },
+        mime: if generation == 0 {
+            original_mime(&source.path)
+        } else {
+            "application/vnd.apple.mpegurl"
         }
         .into(),
-        offset_seconds: 0.0,
-        duration_seconds: duration(&probe),
-        encoder: None,
+        offset_seconds: offset,
+        duration_seconds: duration(probe),
+        encoder,
         audio_index: plan
             .audio
             .as_ref()
             .and_then(|audio| audio["index"].as_u64())
             .map(|index| index as u32),
-    };
-    let mut sessions = state.playback.sessions.lock().await;
-    sessions.retain(|_, session| session.touched.elapsed() <= SESSION_IDLE);
-    if sessions.len() >= MAX_SESSIONS {
-        return Err(HttpError {
-            status: StatusCode::TOO_MANY_REQUESTS,
-            detail: "The direct playback session limit has been reached.".into(),
-        });
-    }
-    sessions.insert(
-        id,
-        Session {
-            library_id: source.library_id,
-            item_id: source.item.id,
-            source: source.path,
-            stamp: source.fingerprint,
-            response: response.clone(),
-            touched: Instant::now(),
+        generation,
+        video_codec: Some(plan.output_codec.clone()),
+        audio_codec: plan.audio.as_ref().map(|audio| {
+            if plan.convert_audio {
+                "aac".into()
+            } else {
+                audio["codec_name"].as_str().unwrap_or("unknown").into()
+            }
+        }),
+        width,
+        height,
+        bitrate: if plan.method == "transcode" {
+            Some(segmented::video_bitrate(plan).saturating_add(segmented::audio_budget(plan)))
+        } else {
+            source_bitrate(probe)
         },
-    );
-    Ok(Json(response))
+    }
 }
-
-async fn session_path(state: &AppState, id: &str) -> Result<(PathBuf, String), HttpError> {
-    let mut sessions = state.playback.sessions.lock().await;
-    let session = sessions
-        .get_mut(id)
-        .filter(|session| session.touched.elapsed() <= SESSION_IDLE)
-        .ok_or_else(|| bad("Playback session expired. Reopen the player."))?;
-    if stamp(&session.source)? != session.stamp {
+struct GenerationOptions {
+    number: u64,
+    select_in_stream: bool,
+}
+async fn prepare(
+    store: &PlaybackStore,
+    id: &str,
+    source: &Source,
+    probe: &Value,
+    mut input: SessionInput,
+    settings: &crate::transcoding::Settings,
+    options: GenerationOptions,
+) -> Result<(SessionResponse, Option<segmented::Producer>), HttpError> {
+    let GenerationOptions {
+        number: generation,
+        select_in_stream,
+    } = options;
+    let mut planned = plan_for_delivery(
+        probe,
+        &container(&source.path),
+        &input,
+        settings,
+        select_in_stream,
+    )?;
+    if planned.method == "direct" {
+        return Ok((response(id, source, probe, &planned, 0, 0.0, None), None));
+    }
+    if planned.method != "transcode" {
+        match segmented::copy_seek_start(source, input.position_seconds).await {
+            Ok(position) => input.position_seconds = position,
+            Err(error) if !settings.allow_conversion || input.force_remux => return Err(error),
+            Err(_) => {
+                input.force_transcode = true;
+                planned = plan_for_delivery(
+                    probe,
+                    &container(&source.path),
+                    &input,
+                    settings,
+                    select_in_stream,
+                )?;
+            }
+        }
+    }
+    let (producer, encoder) = segmented::start(
+        store,
+        id,
+        generation,
+        &segmented::Delivery {
+            source,
+            probe,
+            plan: &planned,
+            input: &input,
+            settings,
+            select_in_stream,
+        },
+    )
+    .await?;
+    let result = response(
+        id,
+        source,
+        probe,
+        &planned,
+        generation,
+        input.position_seconds,
+        encoder,
+    );
+    Ok((result, Some(producer)))
+}
+pub(crate) async fn create(
+    State(state): State<AppState>,
+    Path((library, item)): Path<(String, String)>,
+    Json(input): Json<SessionInput>,
+) -> Result<Json<SessionResponse>, HttpError> {
+    validate_request(&input)?;
+    state.playback.maintain().await;
+    let source = source(&state, library, item).await?;
+    let probe = state.playback.probe(&source).await?;
+    let settings = crate::transcoding::load(&state)?;
+    let planned = plan(&probe, &container(&source.path), &input, &settings)?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let initial = response(&id, &source, &probe, &planned, 0, 0.0, None);
+    let session = Arc::new(Mutex::new(Session {
+        source,
+        probe,
+        input: input.clone(),
+        response: initial,
+        touched: Instant::now(),
+        producer: None,
+        position: input.position_seconds,
+        paused: false,
+        speed: 1.0,
+        closed: false,
+    }));
+    let mut guard = session.lock().await;
+    {
+        let mut sessions = state.playback.sessions.lock().await;
+        if sessions.len() >= MAX_SESSIONS {
+            return Err(HttpError {
+                status: StatusCode::TOO_MANY_REQUESTS,
+                detail: "The playback session limit has been reached.".into(),
+            });
+        }
+        sessions.insert(id.clone(), session.clone());
+    }
+    let result = prepare(
+        &state.playback,
+        &id,
+        &guard.source,
+        &guard.probe,
+        input,
+        &settings,
+        GenerationOptions {
+            number: 1,
+            select_in_stream: false,
+        },
+    )
+    .await;
+    match result {
+        Ok((response, producer)) => {
+            guard.response = response.clone();
+            guard.producer = producer;
+            guard.touched = Instant::now();
+            Ok(Json(response))
+        }
+        Err(error) => {
+            drop(guard);
+            state.playback.stop_id(&id).await;
+            Err(error)
+        }
+    }
+}
+async fn handle(store: &PlaybackStore, id: &str) -> Result<Arc<Mutex<Session>>, HttpError> {
+    store
+        .sessions
+        .lock()
+        .await
+        .get(id)
+        .cloned()
+        .ok_or_else(|| bad("Playback session expired. Reopen the player."))
+}
+fn validate_session(session: &Session) -> Result<(), HttpError> {
+    if session.closed || session.touched.elapsed() > SESSION_IDLE {
+        return Err(bad("Playback session expired. Reopen the player."));
+    }
+    if stamp(&session.source.path)? != session.source.fingerprint {
         return Err(bad("The video file changed. Reopen the player."));
     }
+    Ok(())
+}
+async fn validate_active(
+    store: &PlaybackStore,
+    id: &str,
+    session: &Session,
+) -> Result<(), HttpError> {
+    if !store.sessions.lock().await.contains_key(id) {
+        return Err(bad("Playback session expired. Reopen the player."));
+    }
+    validate_session(session)
+}
+fn conflict() -> HttpError {
+    HttpError {
+        status: StatusCode::CONFLICT,
+        detail: "The playback generation changed. Use the current session generation.".into(),
+    }
+}
+pub(crate) async fn seek(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<SeekInput>,
+) -> Result<Json<SessionResponse>, HttpError> {
+    let handle = handle(&state.playback, &id).await?;
+    seek_session(state, id, handle, request).await
+}
+async fn seek_session(
+    state: AppState,
+    id: String,
+    handle: Arc<Mutex<Session>>,
+    request: SeekInput,
+) -> Result<Json<SessionResponse>, HttpError> {
+    let mut session = handle.lock().await;
+    validate_active(&state.playback, &id, &session).await?;
+    if request.generation != session.response.generation {
+        return Err(conflict());
+    }
+    if !request.position_seconds.is_finite()
+        || request.position_seconds < 0.0
+        || request.position_seconds > MAX_PLAYBACK_SECONDS
+        || (session.response.duration_seconds > 0.0
+            && request.position_seconds > session.response.duration_seconds)
+    {
+        return Err(bad("Playback position is out of range."));
+    }
+    let changed_audio = request
+        .audio_index
+        .is_some_and(|index| Some(index) != session.response.audio_index);
+    if let Some(index) = request.audio_index {
+        selected_stream(&session.probe, "audio", Some(index))?;
+    }
+    if session.response.generation == 0 && request.audio_index.is_none() {
+        session.position = request.position_seconds;
+        session.touched = Instant::now();
+        return Ok(Json(session.response.clone()));
+    }
+    if !changed_audio && session.response.generation > 0 {
+        let target = request.position_seconds - session.response.offset_seconds;
+        if let Some(producer) = session.producer.as_mut() {
+            let raw = std::fs::read_to_string(producer.dir.join("index.m3u8")).unwrap_or_default();
+            if manifest::retained_range(&raw, &producer.dir)
+                .is_some_and(|(start, end)| target >= start && target < end - 0.1)
+            {
+                session.touched = Instant::now();
+                // A requested seek is speculative until the client reports its actual
+                // media clock. Do not prune the attached generation using the target.
+                let position = (session.position - session.response.offset_seconds).max(0.0);
+                let paused = session.paused;
+                let speed = session.speed;
+                if let Some(producer) = session.producer.as_mut() {
+                    producer.maintain(position, paused, speed);
+                }
+                return Ok(Json(session.response.clone()));
+            }
+        }
+    }
+    let mut input = session.input.clone();
+    input.position_seconds = request.position_seconds;
+    if let Some(index) = request.audio_index {
+        input.audio_index = Some(index);
+    }
+    let settings = crate::transcoding::load(&state)?;
+    // Validate before retiring the current producer. Audio promotion explicitly bypasses
+    // the original-file preference because native track selection has already failed.
+    plan_for_delivery(
+        &session.probe,
+        &container(&session.source.path),
+        &input,
+        &settings,
+        true,
+    )?;
+    let generation = session
+        .response
+        .generation
+        .checked_add(1)
+        .ok_or_else(|| bad("Playback generation limit reached."))?;
+    if let Some(producer) = session.producer.take() {
+        producer.stop().await;
+    }
+    let result = prepare(
+        &state.playback,
+        &id,
+        &session.source,
+        &session.probe,
+        input.clone(),
+        &settings,
+        GenerationOptions {
+            number: generation,
+            select_in_stream: true,
+        },
+    )
+    .await;
+    match result {
+        Ok((response, producer)) => {
+            if !state.playback.sessions.lock().await.contains_key(&id) {
+                if let Some(producer) = producer {
+                    producer.stop().await;
+                }
+                session.closed = true;
+                return Err(bad("Playback session expired. Reopen the player."));
+            }
+            session.input = input;
+            session.response = response.clone();
+            session.producer = producer;
+            session.position = request.position_seconds;
+            session.touched = Instant::now();
+            Ok(Json(response))
+        }
+        Err(error) => {
+            drop(session);
+            state.playback.stop_id(&id).await;
+            Err(error)
+        }
+    }
+}
+async fn session_path(state: &AppState, id: &str) -> Result<(PathBuf, String), HttpError> {
+    let handle = handle(&state.playback, id).await?;
+    let mut session = handle.lock().await;
+    validate_active(&state.playback, id, &session).await?;
+    if session.response.generation != 0 {
+        return Err(bad("This session uses segmented playback."));
+    }
     session.touched = Instant::now();
-    Ok((session.source.clone(), session.response.mime.clone()))
+    Ok((session.source.path.clone(), session.response.mime.clone()))
 }
 async fn serve(path: PathBuf, mime: &str, request: Request) -> Result<Response, HttpError> {
     let mut response = ServeFile::new(path)
@@ -750,11 +1178,62 @@ pub(crate) async fn stream(
     let (path, mime) = session_path(&state, &id).await?;
     serve(path, &mime, request).await
 }
-#[derive(Deserialize)]
+pub(crate) async fn segment(
+    State(state): State<AppState>,
+    Path((id, generation, name)): Path<(String, u64, String)>,
+    request: Request,
+) -> Result<Response, HttpError> {
+    if !manifest::safe_segment(&name) {
+        return Err(bad("Invalid playback resource name."));
+    }
+    let handle = handle(&state.playback, &id).await?;
+    let mut session = handle.lock().await;
+    validate_active(&state.playback, &id, &session).await?;
+    if session.response.generation != generation {
+        return Err(conflict());
+    }
+    let producer = session
+        .producer
+        .as_ref()
+        .ok_or_else(|| bad("This session has no segmented producer."))?;
+    let path = producer.dir.join(&name);
+    if !path.is_file() {
+        return Err(HttpError::not_found());
+    }
+    let playlist = if name == "index.m3u8" {
+        Some(manifest::rolling_manifest(
+            &std::fs::read_to_string(&path)
+                .map_err(|_| failure("Unable to read playback playlist."))?,
+            &producer.dir,
+        )?)
+    } else {
+        None
+    };
+    session.touched = Instant::now();
+    drop(session);
+    if let Some(playlist) = playlist {
+        Ok((
+            [
+                (header::CONTENT_TYPE, "application/vnd.apple.mpegurl"),
+                (header::CACHE_CONTROL, "private, no-store"),
+                (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            ],
+            playlist,
+        )
+            .into_response())
+    } else {
+        serve(path, "video/mp4", request).await
+    }
+}
+#[derive(Default, Deserialize)]
 pub(crate) struct Heartbeat {
     pub(crate) position_seconds: f64,
     #[serde(default)]
     paused: bool,
+    generation: Option<u64>,
+    fps: Option<f64>,
+    speed: Option<f64>,
+    buffered_seconds: Option<f64>,
 }
 pub(crate) async fn heartbeat(
     State(state): State<AppState>,
@@ -762,28 +1241,54 @@ pub(crate) async fn heartbeat(
     headers: HeaderMap,
     Json(input): Json<Heartbeat>,
 ) -> Result<Json<Value>, HttpError> {
-    let mut sessions = state.playback.sessions.lock().await;
-    let s = sessions
-        .get_mut(&id)
-        .filter(|session| session.touched.elapsed() <= SESSION_IDLE)
-        .ok_or_else(|| bad("Playback session expired."))?;
-    if stamp(&s.source)? != s.stamp {
-        return Err(bad("The video file changed. Reopen the player."));
+    let handle = handle(&state.playback, &id).await?;
+    let mut session = handle.lock().await;
+    validate_active(&state.playback, &id, &session).await?;
+    if input
+        .generation
+        .is_some_and(|generation| generation != session.response.generation)
+    {
+        return Err(conflict());
     }
     if !input.position_seconds.is_finite()
         || input.position_seconds < 0.0
         || input.position_seconds > MAX_PLAYBACK_SECONDS
-        || (s.response.duration_seconds > 0.0
-            && input.position_seconds > s.response.duration_seconds + 5.0)
+        || (session.response.duration_seconds > 0.0
+            && input.position_seconds > session.response.duration_seconds + 5.0)
+        || input
+            .speed
+            .is_some_and(|speed| !speed.is_finite() || !(0.25..=4.0).contains(&speed))
+        || input
+            .fps
+            .is_some_and(|fps| !fps.is_finite() || !(0.0..=240.0).contains(&fps))
+        || input
+            .buffered_seconds
+            .is_some_and(|seconds| !seconds.is_finite() || !(0.0..=3600.0).contains(&seconds))
     {
-        return Err(bad("Playback position is out of range."));
+        return Err(bad("Playback position or diagnostics are out of range."));
     }
-    s.touched = Instant::now();
+    session.position = input.position_seconds;
+    session.paused = input.paused;
+    session.speed = input.speed.unwrap_or(session.speed);
+    session.touched = Instant::now();
+    let position = (session.position - session.response.offset_seconds).max(0.0);
+    let speed = session.speed;
+    if let Some(producer) = session.producer.as_mut() {
+        if !producer.maintain(position, input.paused, speed) {
+            drop(session);
+            state.playback.stop_id(&id).await;
+            return Err(failure("Playback temporary storage limit was reached."));
+        }
+    }
     if !input.paused {
         state.auth.activity(&headers);
     }
+    let (fps, encoding_speed) = session
+        .producer
+        .as_ref()
+        .map_or((None, None), |producer| producer.progress());
     Ok(Json(
-        json!({"ok":true,"method":"direct","encoder":null,"transcoding":false,"throttled":false}),
+        json!({"ok":true,"method":session.response.method,"encoder":session.response.encoder,"generation":session.response.generation,"transcoding":session.response.method=="transcode"||session.response.method=="audio_transcode","throttled":session.producer.as_ref().is_some_and(|producer|producer.suspended),"fps":fps,"speed":encoding_speed}),
     ))
 }
 pub(crate) async fn stop(State(state): State<AppState>, Path(id): Path<String>) -> StatusCode {
@@ -796,7 +1301,7 @@ async fn extracted_resource(
     source: &Source,
     index: u32,
     format: &str,
-) -> Result<Vec<u8>, HttpError> {
+) -> Result<PathBuf, HttpError> {
     let key = (
         source.path.clone(),
         source.fingerprint.0,
@@ -808,8 +1313,8 @@ async fn extracted_resource(
     let mut cache = store.resources.lock().await;
     if let Some(value) = cache.get_mut(&key) {
         value.used = Instant::now();
-        if let Ok(bytes) = tokio::fs::read(&value.path).await {
-            return Ok(bytes);
+        if value.path.is_file() {
+            return Ok(value.path.clone());
         }
     }
     let _permit = store
@@ -822,7 +1327,12 @@ async fn extracted_resource(
         .await
         .map_err(|_| failure("Media resource cache is not writable."))?;
     let name = uuid::Uuid::new_v4().to_string();
-    let path = root.join(format!("{name}.{format}"));
+    let extension = match format {
+        "pgs" => "sup",
+        "vobsub" => "mks",
+        format => format,
+    };
+    let path = root.join(format!("{name}.{extension}"));
     let mut cmd = command("ffmpeg");
     cmd.args(["-nostdin", "-v", "error", "-y"]);
     let limit = if format == "font" {
@@ -844,20 +1354,38 @@ async fn extracted_resource(
             "file,pipe",
             "-format_whitelist",
             VIDEO_DEMUXERS,
-            "-i",
-        ])
-        .arg(&source.path)
-        .arg("-map")
-        .arg(format!("0:{index}"))
-        .args(["-vn", "-an", "-dn"])
-        .args([
-            "-c:s",
-            if format == "ass" { "ass" } else { "webvtt" },
-            "-fs",
-        ])
-        .arg(MAX_SUBTITLE_BYTES.to_string())
-        .arg(&path);
-        MAX_SUBTITLE_BYTES
+        ]);
+        let bitmap = matches!(format, "pgs" | "vobsub");
+        if bitmap {
+            cmd.args(["-copyts", "-avoid_negative_ts", "disabled"]);
+        }
+        cmd.arg("-i")
+            .arg(&source.path)
+            .arg("-map")
+            .arg(format!("0:{index}"))
+            .args([
+                "-vn",
+                "-an",
+                "-dn",
+                "-c:s",
+                if bitmap {
+                    "copy"
+                } else if format == "ass" {
+                    "ass"
+                } else {
+                    "webvtt"
+                },
+            ]);
+        let limit = if bitmap {
+            MAX_BITMAP_BYTES
+        } else {
+            MAX_SUBTITLE_BYTES
+        };
+        if bitmap {
+            cmd.args(["-f", if format == "pgs" { "sup" } else { "matroska" }]);
+        }
+        cmd.arg("-fs").arg(limit.to_string()).arg(&path);
+        limit
     };
     if let Err(error) = run(
         &mut cmd,
@@ -870,15 +1398,18 @@ async fn extracted_resource(
         return Err(error);
     }
     let size = std::fs::metadata(&path).map_or(u64::MAX, |m| m.len());
+    if stamp(&source.path)? != source.fingerprint {
+        let _ = tokio::fs::remove_file(&path).await;
+        return Err(bad(
+            "The video file changed during resource extraction. Reopen the player.",
+        ));
+    }
     if size >= limit {
         let _ = tokio::fs::remove_file(&path).await;
         return Err(failure(
             "Extracted media resource is too large or was truncated.",
         ));
     }
-    let bytes = tokio::fs::read(&path)
-        .await
-        .map_err(|_| failure("Unable to read extracted media resource."))?;
     while cache.len() >= 128
         || cache.values().map(|v| v.bytes).sum::<u64>() + size > 256 * 1024 * 1024
     {
@@ -896,59 +1427,58 @@ async fn extracted_resource(
     cache.insert(
         key,
         ResourceCache {
-            path,
+            path: path.clone(),
             bytes: size,
             used: Instant::now(),
         },
     );
-    Ok(bytes)
+    Ok(path)
 }
 
 pub(crate) async fn subtitle(
     State(state): State<AppState>,
     Path((library, item, index)): Path<(String, String, u32)>,
+    request: Request,
 ) -> Result<Response, HttpError> {
+    if !crate::transcoding::load(&state)?.subtitle_extraction {
+        return Err(bad(
+            "Subtitle extraction is disabled in Transcoding settings.",
+        ));
+    }
     let source = source(&state, library, item).await?;
     let probe = state.playback.probe(&source).await?;
     let track = selected_stream(&probe, "subtitle", Some(index))?
         .ok_or_else(|| bad("Subtitle track not found."))?;
-    let ass = matches!(track["codec_name"].as_str(), Some("ass" | "ssa"));
-    if !ass
-        && !matches!(
-            track["codec_name"].as_str(),
-            Some("subrip" | "webvtt" | "mov_text" | "text" | "srt")
-        )
-    {
-        return Err(bad("This subtitle track is not supported in direct playback. Choose ASS/SSA or a text subtitle track."));
-    }
-    let bytes = extracted_resource(
-        &state.playback,
-        &source,
-        index,
-        if ass { "ass" } else { "vtt" },
-    )
-    .await?;
-    Ok((
-        [
-            (
-                header::CONTENT_TYPE,
-                if ass {
-                    "text/plain; charset=utf-8"
-                } else {
-                    "text/vtt; charset=utf-8"
-                },
-            ),
-            (header::CACHE_CONTROL, "private, no-store"),
-            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-        ],
-        bytes,
-    )
-        .into_response())
+    let (format, mime, name) = match track["codec_name"].as_str() {
+        Some("ass" | "ssa") => ("ass", "text/plain; charset=utf-8", "track.ass"),
+        Some("subrip" | "webvtt" | "mov_text" | "text" | "srt") => {
+            ("vtt", "text/vtt; charset=utf-8", "track.vtt")
+        }
+        Some("hdmv_pgs_subtitle") => ("pgs", "application/octet-stream", "track.sup"),
+        Some("dvd_subtitle") => ("vobsub", "application/octet-stream", "track.mks"),
+        _ => {
+            return Err(bad(
+                "This subtitle format has no supported client renderer.",
+            ))
+        }
+    };
+    let path = extracted_resource(&state.playback, &source, index, format).await?;
+    let mut response = serve(path, mime, request).await?;
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        format!("inline; filename=\"{name}\"").parse().unwrap(),
+    );
+    Ok(response)
 }
 pub(crate) async fn font(
     State(state): State<AppState>,
     Path((library, item, index)): Path<(String, String, u32)>,
 ) -> Result<Response, HttpError> {
+    if !crate::transcoding::load(&state)?.font_extraction {
+        return Err(bad(
+            "Embedded font extraction is disabled in Transcoding settings.",
+        ));
+    }
     let source = source(&state, library, item).await?;
     let probe = state.playback.probe(&source).await?;
     if !probe["streams"]
@@ -969,7 +1499,10 @@ pub(crate) async fn font(
     {
         return Err(bad("Embedded font is too large."));
     }
-    let bytes = extracted_resource(&state.playback, &source, index, "font").await?;
+    let path = extracted_resource(&state.playback, &source, index, "font").await?;
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|_| failure("Unable to read extracted font."))?;
     let mime = if bytes.starts_with(b"OTTO") {
         "font/otf"
     } else if bytes.starts_with(&[0, 1, 0, 0]) || bytes.starts_with(b"true") {
@@ -992,6 +1525,18 @@ pub(crate) async fn font(
 
 pub(crate) fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route(
+            "/api/playback/capabilities",
+            axum::routing::get(hardware::capabilities),
+        )
+        .route(
+            "/api/playback/sessions/{id}/seek",
+            axum::routing::post(seek),
+        )
+        .route(
+            "/api/playback/sessions/{id}/hls/{generation}/{name}",
+            axum::routing::get(segment),
+        )
         .route(
             "/api/playback/native/{library}/{item}",
             axum::routing::get(info),

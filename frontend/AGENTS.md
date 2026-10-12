@@ -13,9 +13,11 @@
   authentication handling. Feature clients own feature URLs, not another transport.
   Binary media/subtitle/font loading has separate delivery requirements; preserve
   same-origin URLs, cancellation and existing error behavior.
-- Playback uses the original file only. Keep its media URL/session stable across
-  native seeks and identified audio-track changes. Unsupported native codecs,
-  tracks or bitmap subtitles need clear feedback, without a conversion fallback.
+- Playback prefers the original file. Keep its media URL/session stable across
+  native seeks and identified audio-track changes. Segmented playback keeps the
+  absolute source clock and watch ownership through policy-authorized seeks and
+  track changes. Show the actual delivery/encoding method. Client bitmap subtitles
+  overlay the video; quality changes affect temporary playback streams only.
 - Main integration owns `App.tsx`, `Layout.tsx`, `main.tsx`, global CSS, shared
   types/transport, dependencies and configuration. Request these edits when your
   assigned feature does not explicitly reserve them.

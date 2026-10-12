@@ -62,14 +62,15 @@ pub(crate) struct Info {
     pub(super) fonts: Vec<Font>,
     pub(super) next: Option<NextItem>,
 }
-#[derive(Default, Deserialize)]
+#[derive(Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct SessionInput {
     pub(super) position_seconds: f64,
     pub(super) audio_index: Option<u32>,
     pub(super) subtitle_index: Option<u32>,
-    // Decode legacy controls so older clients receive an explicit direct-only
-    // error when requesting conversion, rather than changing media implicitly.
+    // Playback-only delivery controls; saved policy authorizes each operation.
+    pub(super) direct_only: bool,
+    pub(super) hls_supported: bool,
     pub(super) subtitle_burn_index: Option<u32>,
     pub(super) max_height: u32,
     pub(super) max_bitrate: u64,
@@ -78,10 +79,13 @@ pub(crate) struct SessionInput {
     pub(super) audio_codecs: Vec<String>,
     pub(super) hls_video_codecs: Vec<String>,
     pub(super) hls_audio_codecs: Vec<String>,
+    // Precise track/profile support; absent retains legacy codec-level reports.
+    pub(super) hls_audio_track_indexes: Option<Vec<u32>>,
     pub(super) hls_aac_supported: bool,
     pub(super) containers: Vec<String>,
     pub(super) native_audio_tracks: bool,
     pub(super) source_video_supported: Option<bool>,
+    pub(super) source_hls_video_supported: Option<bool>,
     pub(super) force_transcode: bool,
     pub(super) force_remux: bool,
     pub(super) preferred_encoder: Option<String>,
@@ -96,5 +100,19 @@ pub(crate) struct SessionResponse {
     pub(super) offset_seconds: f64,
     pub(super) duration_seconds: f64,
     pub(super) encoder: Option<String>,
+    pub(super) audio_index: Option<u32>,
+    pub(super) generation: u64,
+    pub(super) video_codec: Option<String>,
+    pub(super) audio_codec: Option<String>,
+    pub(super) width: Option<u32>,
+    pub(super) height: Option<u32>,
+    pub(super) bitrate: Option<u64>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct SeekInput {
+    pub(super) position_seconds: f64,
+    pub(super) generation: u64,
     pub(super) audio_index: Option<u32>,
 }

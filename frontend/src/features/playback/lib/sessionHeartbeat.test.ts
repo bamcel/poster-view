@@ -28,4 +28,14 @@ describe("session heartbeat queue",()=>{
     queue.request("one",50,true);queue.request("one",80,false);reject(new Error("temporary"));await flush();
     expect(send).toHaveBeenLastCalledWith("one",80,false);
   });
+  it("captures generations and speed before dispatch and drops old queued positions when the same session repositions",async()=>{
+    let rejectOld!:(error:Error)=>void,completeNew!:()=>void;
+    const send=vi.fn().mockImplementationOnce(()=>new Promise<void>((_resolve,reject)=>{rejectOld=reject;})).mockImplementationOnce(()=>new Promise<void>(resolve=>{completeNew=resolve;})).mockResolvedValue(undefined),queue=createSessionHeartbeatQueue(send);
+    queue.request("one",800,false,1,1);queue.request("one",820,false,1,1);queue.forget("one");queue.request("one",50,true,2,1.25);queue.request("one",55,false,2,1.25);
+    expect(send.mock.calls).toEqual([["one",800,false,1,1],["one",50,true,2,1.25]]);rejectOld(new Error("409 stale generation"));await flush();expect(send).toHaveBeenCalledTimes(2);completeNew();await flush();expect(send).toHaveBeenLastCalledWith("one",55,false,2,1.25);expect(send.mock.calls.some(call=>call[1]===820)).toBe(false);
+  });
+  it("does not coalesce equal clocks from different generations or playback speeds",async()=>{
+    let complete!:()=>void;const send=vi.fn().mockImplementationOnce(()=>new Promise<void>(resolve=>{complete=resolve;})).mockResolvedValue(undefined),queue=createSessionHeartbeatQueue(send);
+    queue.request("one",50,false,1,1);queue.request("one",50,false,2,1.5);complete();await flush();expect(send).toHaveBeenLastCalledWith("one",50,false,2,1.5);
+  });
 });

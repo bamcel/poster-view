@@ -19,12 +19,12 @@ function CurrentLocation() {
   return <p>{location.pathname}{location.search}</p>;
 }
 
-it("offers Playback preferences without conversion settings in navigation",async()=>{
+it("offers separate Playback preferences and Transcoding policy in navigation",async()=>{
   vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
   render(<MemoryRouter initialEntries={["/settings/playback"]}><AuthGate><Layout/></AuthGate></MemoryRouter>);
   expect(await screen.findByRole("link",{name:"Playback"})).toBeTruthy();
-  expect(screen.queryByRole("link",{name:"Transcoding"})).toBeNull();
-  expect(screen.queryByRole("option",{name:"Transcoding"})).toBeNull();
+  expect(screen.getByRole("link",{name:"Transcoding"}).getAttribute("href")).toBe("/settings/transcoding");
+  expect(screen.getByRole("option",{name:"Transcoding"})).toBeTruthy();
 });
 
 it.each([true, false])("shows Sign out only when password_required is true (%s)", async (required) => {

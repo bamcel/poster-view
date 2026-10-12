@@ -6,7 +6,7 @@ export interface PlaybackTrack {
   default?: boolean; forced?: boolean; hearing_impaired?: boolean;
   profile?: string | null; width?: number | null; height?: number | null; channels?: number | null;
   bit_depth?: number | null; pixel_format?: string | null; bitrate?: number | null; frame_rate?: number | null;
-  subtitle_format?: "ass" | "vtt" | "image"; url?: string | null;
+  subtitle_format?: "ass" | "vtt" | "image" | "pgs" | "vobsub"; url?: string | null;
 }
 export interface PlaybackInfo {
   title: string; series_title?: string | null; season?: number | null; episode?: number | null;
@@ -21,15 +21,31 @@ export interface PlaybackInfo {
   next?: { library_id: string; item_id: string; title: string } | null;
 }
 export interface PlaybackSession {
-  id: string; method: "direct"; reason: string;
-  url: string; mime: string; offset_seconds: number; duration_seconds: number; encoder?: null;
+  id: string; method: "direct" | "remux" | "audio_transcode" | "transcode"; reason: string;
+  url: string; mime: string; offset_seconds: number; duration_seconds: number; encoder?: string | null;
   audio_index?: number | null;
+  generation?: number;
+  video_codec?: string | null; audio_codec?: string | null;
+  width?: number | null; height?: number | null; bitrate?: number | null;
 }
 export interface PlaybackRequest {
   position_seconds: number; audio_index: number | null; subtitle_index: number | null;
   video_codecs: string[]; audio_codecs: string[]; containers: string[];
   native_audio_tracks?: boolean;
   source_video_supported?: boolean;
+  source_hls_video_supported?: boolean;
+  direct_only?: boolean; hls_supported?: boolean;
+  hls_video_codecs?: string[]; hls_audio_codecs?: string[]; hls_aac_supported?: boolean;
+  hls_audio_track_indexes?: number[];
+  force_remux?: boolean; force_transcode?: boolean;
+  max_height?: number; max_bitrate?: number; bandwidth_limit_bps?: number;
+  preferred_encoder?: "avc" | "hevc" | "av1";
+}
+export interface PlaybackSeek {position_seconds:number;generation:number;audio_index?:number}
+export interface PlaybackDiagnostics {
+  ok?:boolean; method?:PlaybackSession["method"]; encoder?:string|null;
+  transcoding?:boolean; throttled?:boolean; generation?:number;
+  fps?:number|null; speed?:number|null; buffered_seconds?:number|null;
 }
 export interface WatchState {
   position_seconds:number; duration_seconds:number; watched:boolean; play_count:number;

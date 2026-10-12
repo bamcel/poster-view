@@ -26,7 +26,8 @@ When the host defaults to another toolchain, run the Cargo commands through
 `rustup run 1.88.0 cargo` for CI-aligned verification.
 FFmpeg/ffprobe enable media fixtures. Live provider verification needs explicitly
 supplied credentials and is opt-in. Install dependencies with `npm ci` and use the
-committed Cargo/npm lockfiles. Direct playback needs no server GPU passthrough.
+committed Cargo/npm lockfiles. Direct playback needs no server GPU passthrough;
+optional hardware encoding requires explicitly mapped devices and working drivers.
 
 Use focused checks while editing, then the full commands above. On Windows,
 serialize Cargo tests/builds sharing `target/`: running executables cannot be
@@ -49,10 +50,12 @@ Do not hide baseline failures or waive regressions.
 | `apps/server/src/routes/` | System/auth, connected-server and artwork HTTP adapters; legacy registry |
 | `apps/server/src/playback/` | Native playback and feature route registration |
 
-`playback/models.rs` holds wire models; `planner.rs` validates direct-play
-capabilities and track choices. `mod.rs` owns original-file delivery, bounded
-sessions, metadata probing and subtitle/font resources. Planner tests are adjacent;
-`tests.rs` covers authenticated delivery, middleware, resource extraction and lifecycle.
+`playback/models.rs` holds wire models; `planner.rs` chooses the least processing
+permitted by administrator policy and browser capabilities. `mod.rs` owns original
+range delivery, sessions, probes and subtitle/font resources. Segmented jobs,
+hardware probes and rolling manifests have focused modules. `transcoding.rs` owns
+persisted playback permissions and resource settings. Planner tests are adjacent;
+`tests.rs` covers authenticated delivery, resources, generation changes and cleanup.
 
 Native CRUD/scan coordination remains in `native.rs`. Discovery/probing,
 monitoring, missing items, identification, providers and artwork already have
@@ -82,6 +85,7 @@ src/
     settings/
       appearance/           appearance/theme controls
       providers/            credentials and default artwork provider forms
+      transcoding/          temporary playback policy, hardware and resource controls
       formStyles.ts         shared settings input styling
   pages/                    remaining route composition and pages
   components/, lib/         reused UI/utilities and remaining catalog/reader/auth
@@ -93,29 +97,35 @@ uses the watch client for watch operations. Media/WASM dependencies stay lazy-lo
 API modules re-export their types for existing consumers; definitions live in
 `features/playback/types.ts`.
 
-Playback is direct-only. The server serves the original file through authenticated
-HTTP byte ranges, with source offset zero; the player keeps one media URL/session
-through native seeks. It does not encode audio/video, remux, burn subtitles, produce
-HLS or adapt bitrate. Native codec/profile/container capability checks reject
-unsupported sources. Audio changes use identified native browser tracks; an
-unavailable track is disabled rather than encoded or mislabeled.
+Playback prefers authenticated original-file byte ranges with source offset zero.
+Native seeks keep one URL and session. When permitted and needed, the planner
+chooses stream-copy HLS, audio-only AAC encoding, or video encoding. Direct Stream
+never encodes selected audio/video; audio-only mode copies the video. Compatible
+originals are not encoded merely because hardware acceleration is enabled.
 
-The removed Transcoding settings page redirects old links to Playback. Its API,
-hardware probing and segmented-delivery routes are retired. Existing saved
-transcoding settings and old generated media folders are left untouched but are
-not read, served or reused. No database migration or media rewrite is needed.
-The server decodes legacy conversion request fields for compatibility; non-neutral
-quality, bitrate, forced conversion/remux, encoder or burn-in requests fail with
-a direct-only error. Legacy playback-info permission booleans stay false, and
-session/heartbeat encoder values stay null. New clients send only native source
-capabilities, position and selected tracks.
+Settings → Transcoding controls these permissions independently and preserves old
+`transcoding-settings` JSON names/defaults. `allow_conversion` is the legacy key
+for playback video encoding, not an offline library conversion workflow. There is
+no database migration or original-media rewrite. Routes for settings, real encoder
+probes, generation-scoped HLS resources and seek replacement are authenticated.
 
-Metadata probing and text subtitle/font preparation remain bounded, cached and
-scoped to the selected source. ASS/SSA uses the local browser renderer and embedded
-fonts; other supported text subtitles are prepared as WebVTT. This does not alter
-audio or video. PGS/VobSub have no client bitmap renderer and are unavailable.
-FFmpeg/ffprobe remain for those resources, media inspection and book/artwork
-capture; the playback encoding pipeline and encoder-driver packages are removed.
+Segmented requests retain agreed client capabilities and selected options. A seek
+inside retained produced segments reuses the producer. An unavailable seek or
+track promotion uses `/sessions/{id}/seek` with the expected generation, returning
+409 for stale work. Logical session ID, watch token and full source duration remain
+stable through delivery generations. Direct seeks use the browser and need no job.
+
+Metadata and resource preparation are bounded, cached and source-scoped. ASS/SSA
+uses JASSUB and embedded fonts; text uses WebVTT. PGS and VobSub are stream-copied
+into .sup/.mks resources and drawn by local libbitsub overlays with source-clock
+synchronization. Unknown bitmap formats stay unavailable. Neither subtitle track
+changes nor bitmap overlays require video burn-in.
+
+Automatic bandwidth adaptation uses sustained HLS transfer/stall evidence. It does
+not infer native Direct Play throughput from a short buffering event. Quality caps
+remain explicit. Hardware encoder availability is verified by a small real encode;
+that result does not imply hardware source decoding or HDR tone-mapping support.
+See [playback decisions](docs/playback-design.md) for tradeoffs and measurement limits.
 
 Original media bypasses HTTP compression for full responses and ranges, preserving
 its exact bytes, Content-Length and Accept-Ranges. Keep JSON/CSS/JavaScript compression.
@@ -177,7 +187,7 @@ Example: improving native audio-track support.
 1. Main agrees request/response/default behavior and reserves Rust
    `playback/models.rs`, frontend `features/playback/types.ts`, configuration and
    integration edits.
-2. Backend agent owns `playback/planner.rs` and its direct-play compatibility
+2. Backend agent owns `playback/planner.rs` and its delivery policy
    tests; it does not change shared wire models independently.
 3. Frontend agent owns `features/playback/PlayerPage.tsx` and interaction tests
    against that agreed contract; it requests client/contract changes instead of
@@ -220,7 +230,12 @@ do not. Credential handling and URL validation remain server-side.
 Artwork applies retain runtime/provider behavior. Legacy artwork history has
 been retired; older Python-era instructions requiring history recording on every
 apply no longer apply. See [native playback setup](docs/native-playback.md) for
-direct playback behavior and browser compatibility.
+delivery policy, browser compatibility and optional hardware setup.
+See [playback design and runtime comparison](docs/playback-design.md) for the
+direct-first decision, generation ownership, measured preparation costs and
+remaining GPU/large-file validation limits. Keep temporary encoding opt-in and
+preserve original media. Hardware encoder detection does not establish hardware
+decoding support or throughput on the user's actual Unraid server.
 
 ## Practical checks
 

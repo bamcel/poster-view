@@ -5,7 +5,7 @@ mod media_servers;
 pub(crate) mod system;
 use crate::{
     AppState, AuthState, metadata, native, native_identify, native_provider_extra, playback,
-    reader, scheduled_tasks, watch,
+    reader, scheduled_tasks, transcoding, watch,
 };
 use axum::{
     Json, Router,
@@ -20,6 +20,7 @@ pub(crate) fn protected(auth: AuthState) -> Router<AppState> {
     Router::new()
         .merge(playback::routes())
         .merge(watch::routes())
+        .route("/api/transcoding/settings", get(transcoding::get).put(transcoding::save))
         .merge(system::protected())
         .merge(media_servers::routes())
         .merge(artwork::routes())

@@ -34,6 +34,11 @@ async fn native_playback_and_watch_routes_require_authentication() {
         ("POST","/api/watch/native/library/item/begin"),
         ("PUT","/api/watch/native/library/item"),
         ("GET","/api/playback/preferences"),
+        ("GET","/api/transcoding/settings"),
+        ("PUT","/api/transcoding/settings"),
+        ("GET","/api/playback/capabilities"),
+        ("POST","/api/playback/sessions/session/seek"),
+        ("GET","/api/playback/sessions/session/hls/1/index.m3u8"),
     ] {
         let response=app.clone().oneshot(Request::builder().method(method).uri(path)
             .header("content-type","application/json").body(Body::from("{}"))
@@ -43,14 +48,11 @@ async fn native_playback_and_watch_routes_require_authentication() {
 }
 
 #[tokio::test]
-async fn retired_playback_conversion_endpoints_are_unavailable() {
+async fn legacy_unversioned_segment_urls_are_unavailable() {
     let directory = tempdir().unwrap();
     let state = crate::test_support::state(directory.path());
     let app = crate::routes::protected(state.auth.clone()).with_state(state);
     for (method, path) in [
-        ("GET", "/api/transcoding/settings"),
-        ("PUT", "/api/transcoding/settings"),
-        ("GET", "/api/playback/capabilities"),
         ("GET", "/api/playback/sessions/session/hls/index.m3u8"),
     ] {
         let response = app.clone().oneshot(

@@ -16,5 +16,10 @@ Corresponding source, dependency references, licenses, and build instructions:
 https://github.com/ThaUnknown/jassub
 https://github.com/libass/libass
 
+libbitsub 1.13.0
+Copyright altqx and contributors. MIT.
+Source, WASM build instructions and runtime dependencies: https://github.com/altqx/libbitsub
+See libbitsub.txt for the distributed license.
+
 The playback page dynamically loads these libraries from the same origin.
 They do not require external CDN assets or remote font lookup.

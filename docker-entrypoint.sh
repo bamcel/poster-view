@@ -73,4 +73,16 @@ mkdir -p "$POSTERVIEW_DATA_DIR"
 find "$POSTERVIEW_DATA_DIR" -xdev \( -path /data/media -o -path "$POSTERVIEW_MEDIA_DIR" \) -prune -o -exec chown -h "$PUID:$PGID" {} +
 
 echo "PosterView: starting with UID=$PUID GID=$PGID UMASK=$UMASK"
+# Keep access to explicitly mapped GPU render devices after dropping privileges.
+# Device ownership and permissions remain controlled by the host.
+gpu_groups=""
+for gpu_device in /dev/dri/renderD* /dev/dri/card*; do
+    [ -c "$gpu_device" ] || continue
+    gpu_gid=$(stat -c '%g' "$gpu_device")
+    case ",$gpu_groups," in *",$gpu_gid,"*) continue ;; esac
+    gpu_groups="${gpu_groups:+$gpu_groups,}$gpu_gid"
+done
+if [ -n "$gpu_groups" ]; then
+    exec setpriv --reuid="$PUID" --regid="$PGID" --groups="$gpu_groups" "$@"
+fi
 exec setpriv --reuid="$PUID" --regid="$PGID" --clear-groups "$@"

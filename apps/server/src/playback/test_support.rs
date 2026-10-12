@@ -30,6 +30,10 @@ pub(super) fn input() -> SessionInput {
         video_codecs: vec!["h264".into()],
         audio_codecs: vec!["aac".into()],
         containers: vec!["mp4".into()],
+        hls_supported: true,
+        hls_video_codecs: vec!["h264".into()],
+        hls_audio_codecs: vec!["aac".into()],
+        hls_aac_supported: true,
         ..Default::default()
     }
 }

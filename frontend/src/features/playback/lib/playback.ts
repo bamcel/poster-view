@@ -1,4 +1,5 @@
 import type { PlaybackInfo, PlaybackPreferences, PlaybackTrack, WatchState } from "../api/playback";
+import {segmentedPlaybackSupported} from "./hlsDelivery";
 
 export function playbackTime(seconds: number): string {
   const value = Math.max(0,Math.floor(Number.isFinite(seconds)?seconds:0));
@@ -55,12 +56,40 @@ export async function playbackCapabilities(info:PlaybackInfo,video:HTMLVideoElem
   if(source&&sourceSupported&&exactType&&navigator.mediaCapabilities?.decodingInfo){
     try{const result=await navigator.mediaCapabilities.decodingInfo({type:"file",video:{contentType:exactType,width:source.width||1920,height:source.height||1080,bitrate:source.bitrate||8_000_000,framerate:source.frame_rate||24}});sourceSupported=result.supported;}catch{/* Runtime original-file errors remain visible. */}
   }
-  const videoCodecs=Object.keys(types).filter(codec=>codec===source?.codec?sourceSupported:!!video.canPlayType(types[codec]));
+  const videoCodecs=Object.keys(types).filter(codec=>!!video.canPlayType(types[codec]));
   const audioCodecs=["aac","mp3","opus","vorbis","flac","alac","ac3","eac3"].filter(codec=>originalAudioSupported({index:0,kind:"audio",codec},video));
   const browser=navigator as Navigator&{userAgentData?:{brands?:{brand:string}[]}};
   const chromium=!!browser.userAgentData?.brands?.some(value=>/chromium|google chrome|microsoft edge/i.test(value.brand))||/(?:Chrome|Chromium|Edg)\/\d/i.test(browser.userAgent);
   const operaTv=/Opera\s*TV|OperaTV|OMI\/|HbbTV/i.test(browser.userAgent);
   let nativeAudio=false;
   try{const list=(video as HTMLVideoElement&{audioTracks?:{length:number}}).audioTracks;nativeAudio=!!list&&Number.isInteger(list.length)&&list.length>=0;}catch{/* No browser audio-selection API. */}
-  return {source_video_supported:sourceSupported,native_audio_tracks:nativeAudio,video_codecs:videoCodecs,audio_codecs:audioCodecs,containers:[...(video.canPlayType("video/mp4")?["mp4","mov"]:[]),...(video.canPlayType("video/webm")?["webm"]:[]),...(video.canPlayType("video/x-matroska")||video.canPlayType("video/mkv")||chromium&&!operaTv?["mkv"]:[])]};
+  const hlsSupported=segmentedPlaybackSupported(video),nativeHls=!!video.canPlayType("application/vnd.apple.mpegurl");
+  const supports=(mime:string)=>{try{return hlsSupported&&(typeof MediaSource!=="undefined"&&typeof MediaSource.isTypeSupported==="function"?MediaSource.isTypeSupported(mime):nativeHls&&!!video.canPlayType(mime));}catch{return false;}};
+  const sourceIdentifier=exactType?.split('"')[1];
+  // Encoded output and copied source video can have different profiles. A
+  // browser may decode AVC8 output while rejecting the source's AVC High10.
+  const sourceHlsSupported=!source||!!exactType&&commonProfile&&supports(exactType);
+  const hlsVideo=["h264","hevc","av1"].filter(codec=>supports(types[codec]));
+  const audioIdentifier=(track:PlaybackTrack)=>({aac:/HE.?AAC/i.test(track.profile??"")?/v2/i.test(track.profile??"")?"mp4a.40.29":"mp4a.40.5":"mp4a.40.2",mp3:"mp4a.40.34",opus:"opus",ac3:"ac-3",eac3:"ec-3",flac:"fLaC",alac:"alac"}[track.codec]);
+  const pair=(track:PlaybackTrack)=>{const identifier=audioIdentifier(track);return !!identifier&&(!source||!!sourceIdentifier&&commonProfile)&&supports(`${source?"video":"audio"}/mp4; codecs="${[sourceIdentifier,identifier].filter(Boolean).join(",")}"`);};
+  // If source video cannot be copied, audio can still be copied with encoded
+  // video. Prove that exact audio profile against every advertised output;
+  // the server may select any of them. Keep source-copy evidence separate.
+  const encodedPair=(track:PlaybackTrack)=>{const identifier=audioIdentifier(track);return !!identifier&&hlsVideo.length>0&&hlsVideo.every(codec=>supports(`video/mp4; codecs="${types[codec].split('"')[1]},${identifier}"`));};
+  const hlsAudioIndexes=info.tracks.filter(track=>track.kind==="audio"&&(sourceHlsSupported?pair(track):encodedPair(track))).map(track=>track.index);
+  const hlsAudio=info.tracks.filter(track=>hlsAudioIndexes.includes(track.index)).map(track=>track.codec);
+  return {source_video_supported:sourceSupported,source_hls_video_supported:sourceHlsSupported,native_audio_tracks:nativeAudio,video_codecs:videoCodecs,audio_codecs:audioCodecs,hls_supported:hlsSupported,hls_video_codecs:hlsVideo,hls_audio_codecs:Array.from(new Set(hlsAudio)),hls_aac_supported:pair({index:-1,kind:"audio",codec:"aac"}),hls_audio_track_indexes:hlsAudioIndexes,containers:[...(video.canPlayType("video/mp4")?["mp4","mov"]:[]),...(video.canPlayType("video/webm")?["webm"]:[]),...(video.canPlayType("video/x-matroska")||video.canPlayType("video/mkv")||chromium&&!operaTv?["mkv"]:[])]};
+}
+
+type DeliveryCapabilities=Omit<Awaited<ReturnType<typeof playbackCapabilities>>,"source_hls_video_supported">&{source_hls_video_supported?:boolean};
+export function audioDeliveryAllowed(info:PlaybackInfo,caps:DeliveryCapabilities|undefined,index:number,context:{videoEncoding?:boolean;bandwidthBudget?:number}={}):boolean {
+  if(!caps?.hls_supported)return false;
+  const source=info.tracks.find(track=>track.kind==="video"),copyVideo=caps.source_hls_video_supported!==false&&(!source||caps.hls_video_codecs.includes(source.codec));
+  const copyAudio=caps.hls_audio_track_indexes.includes(index);
+  const videoAllowed=info.conversion_allowed===true||context.videoEncoding===true&&(context.bandwidthBudget??0)>0&&info.bandwidth_adaptation_allowed===true;
+  return info.remux_allowed===true&&copyVideo&&copyAudio||(info.conversion_allowed===true||info.audio_conversion_allowed===true)&&copyVideo&&!copyAudio&&caps.hls_aac_supported||videoAllowed&&(context.videoEncoding===true||!copyVideo||!copyAudio)&&(copyAudio||info.conversion_allowed===true||info.audio_conversion_allowed===true)&&caps.video_codecs.includes("h264")&&caps.hls_video_codecs.includes("h264")&&caps.audio_codecs.includes("aac");
+}
+export function losslessAudioAllowed(info:PlaybackInfo,caps:DeliveryCapabilities|undefined,index:number|null):boolean {
+  const source=info.tracks.find(track=>track.kind==="video");
+  return info.remux_allowed===true&&caps?.hls_supported===true&&caps.source_hls_video_supported!==false&&(!source||caps.hls_video_codecs.includes(source.codec))&&(index===null||caps.hls_audio_track_indexes.includes(index));
 }

@@ -9,10 +9,13 @@
 - Preserve the public `router`, `AuthState` and `ServerConfig` facade. Prefer
   private modules and `pub(super)` feature helpers; reserve `pub(crate)` for real
   server-wide interfaces. Keep HTTP/domain error mapping explicit.
-- Playback is direct-only. Wire models live in `playback/models.rs`; native
-  compatibility checks in `planner.rs`; original delivery, resources and bounded
-  sessions in `mod.rs`. Do not add encoding, remuxing, HLS or bitmap burn-in as
-  an implicit fallback. Agree interfaces before assigning separate writers.
+- Playback prefers Direct Play, then policy-authorized stream copy, audio-only
+  transcoding, and video transcoding when required. Wire models live in
+  `playback/models.rs`; policy and capabilities in `planner.rs`; original delivery
+  and resources in `mod.rs`. Keep segmented jobs, hardware probes and manifests
+  in focused modules. Never replace originals or create permanent converted media.
+  Agree interfaces before assigning separate writers; bitmap subtitles use client
+  overlays rather than an implicit video burn-in fallback.
 - Reuse `crate::test_support::state` for isolated, worker-free fixtures. Do not
   borrow setup from another feature's tests. Playback has test-only fixtures and
   cross-boundary tests; pure planner tests are beside their implementation.

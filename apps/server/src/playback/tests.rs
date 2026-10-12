@@ -21,16 +21,14 @@ async fn video_fixture(bytes: &[u8], data: Value) -> VideoFixture {
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
     std::fs::write(&file, bytes).unwrap();
     let database = ServerStore::new(state.runtime.data_dir());
-    // Retired settings must neither enable conversion nor disable text/font extraction.
     database
         .set_setting(
             "transcoding-settings",
-            &json!({
-                "allow_conversion":true,"allow_remux":true,"allow_audio_transcoding":true,
-                "auto_bandwidth_transcoding":true,"hardware_acceleration":true,
-                "subtitle_extraction":false,"font_extraction":false
+            &serde_json::to_string(&crate::transcoding::Settings {
+                allow_remux: false,
+                ..Default::default()
             })
-            .to_string(),
+            .unwrap(),
         )
         .unwrap();
     let library = database
@@ -95,6 +93,389 @@ async fn direct(fixture: &VideoFixture) -> SessionResponse {
     .await
     .unwrap()
     .0
+}
+
+fn save_policy(fixture: &VideoFixture, settings: crate::transcoding::Settings) {
+    ServerStore::new(fixture.state.runtime.data_dir())
+        .set_setting(
+            "transcoding-settings",
+            &serde_json::to_string(&settings).unwrap(),
+        )
+        .unwrap();
+}
+#[tokio::test]
+async fn independent_audio_permission_is_reported_without_enabling_video() {
+    let fixture = video_fixture(b"original", original_mkv_probe()).await;
+    save_policy(
+        &fixture,
+        crate::transcoding::Settings {
+            allow_audio_transcoding: true,
+            allow_remux: false,
+            ..Default::default()
+        },
+    );
+    let metadata = info(
+        State(fixture.state.clone()),
+        Path((fixture.library.clone(), fixture.item.clone())),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert!(metadata.audio_conversion_allowed);
+    assert!(!metadata.conversion_allowed);
+    assert!(!metadata.remux_allowed);
+    let response = direct(&fixture).await;
+    assert_eq!(response.method, "direct");
+    assert_eq!(response.generation, 0);
+    assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
+async fn producer_commands_copy_tracks_and_apply_only_authorized_encoding() {
+    let fixture = video_fixture(b"original", test_support::probe()).await;
+    let resolved = source(
+        &fixture.state,
+        fixture.library.clone(),
+        fixture.item.clone(),
+    )
+    .await
+    .unwrap();
+    let probe = test_support::probe();
+    let request = input();
+    let settings = crate::transcoding::Settings::default();
+    let chosen = plan(&probe, "mkv", &request, &settings).unwrap();
+    let delivery = segmented::Delivery {
+        source: &resolved,
+        probe: &probe,
+        plan: &chosen,
+        input: &request,
+        settings: &settings,
+        select_in_stream: false,
+    };
+    let args = segmented::hls_command(&delivery, None, fixture._directory.path())
+        .unwrap()
+        .as_std()
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(args.windows(2).any(|pair| pair == ["-c:v", "copy"]));
+    assert!(args.windows(2).any(|pair| pair == ["-c:a", "copy"]));
+    assert!(!args
+        .iter()
+        .any(|arg| arg == "-vf" || arg == "-filter_complex"));
+    let mut audio_probe = probe.clone();
+    audio_probe["streams"][1]["codec_name"] = json!("truehd");
+    audio_probe["streams"][1]["channels"] = json!(6);
+    let audio_settings = crate::transcoding::Settings {
+        allow_audio_transcoding: true,
+        audio_boost: 2.0,
+        ..Default::default()
+    };
+    let chosen = plan(&audio_probe, "mkv", &request, &audio_settings).unwrap();
+    let audio_delivery = segmented::Delivery {
+        source: &resolved,
+        probe: &audio_probe,
+        plan: &chosen,
+        input: &request,
+        settings: &audio_settings,
+        select_in_stream: false,
+    };
+    let args = segmented::hls_command(&audio_delivery, None, fixture._directory.path())
+        .unwrap()
+        .as_std()
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(args.windows(2).any(|pair| pair == ["-c:v", "copy"]));
+    assert!(args.windows(2).any(|pair| pair == ["-c:a", "aac"]));
+    assert!(args.windows(2).any(|pair| pair == ["-af", "volume=2"]));
+    assert!(segmented::hls_command(
+        &audio_delivery,
+        Some(("libx264", "software")),
+        fixture._directory.path()
+    )
+    .is_err());
+    audio_probe["streams"][1]["channels"] = json!(2);
+    let chosen = plan(&audio_probe, "mkv", &request, &audio_settings).unwrap();
+    let args = segmented::hls_command(
+        &segmented::Delivery {
+            source: &resolved,
+            probe: &audio_probe,
+            plan: &chosen,
+            input: &request,
+            settings: &audio_settings,
+            select_in_stream: false,
+        },
+        None,
+        fixture._directory.path(),
+    )
+    .unwrap()
+    .as_std()
+    .get_args()
+    .map(|arg| arg.to_string_lossy().into_owned())
+    .collect::<Vec<_>>();
+    assert!(!args.iter().any(|arg| arg == "-af"));
+    let mut hdr = probe.clone();
+    hdr["streams"][0]["color_transfer"] = json!("smpte2084");
+    hdr["streams"][0]["width"] = json!(720);
+    hdr["streams"][0]["height"] = json!(480);
+    hdr["streams"][0]["sample_aspect_ratio"] = json!("32:27");
+    let encoded = SessionInput {
+        force_transcode: true,
+        ..request
+    };
+    let settings = crate::transcoding::Settings {
+        allow_conversion: true,
+        ..Default::default()
+    };
+    let chosen = plan(&hdr, "mkv", &encoded, &settings).unwrap();
+    let output = response(
+        "test",
+        &resolved,
+        &hdr,
+        &chosen,
+        1,
+        0.0,
+        Some("libx264".into()),
+    );
+    assert_eq!(output.height, Some(480));
+    assert_eq!(output.width, Some(852));
+    let args = segmented::hls_command(
+        &segmented::Delivery {
+            source: &resolved,
+            probe: &hdr,
+            plan: &chosen,
+            input: &encoded,
+            settings: &settings,
+            select_in_stream: false,
+        },
+        Some(("libx264", "software")),
+        fixture._directory.path(),
+    )
+    .unwrap()
+    .as_std()
+    .get_args()
+    .map(|arg| arg.to_string_lossy().into_owned())
+    .collect::<Vec<_>>();
+    assert!(args.iter().any(|arg| arg.contains("tonemap=tonemap=hable")));
+    assert!(args.windows(2).any(|pair| pair == ["-color_trc", "bt709"]));
+}
+
+#[tokio::test]
+async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source() {
+    let fixture = video_fixture(b"placeholder", test_support::probe()).await;
+    let mut cmd = command("ffmpeg");
+    cmd.args([
+        "-nostdin",
+        "-v",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=160x90:rate=25:duration=12",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:duration=12",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=880:duration=12",
+        "-map",
+        "0:v",
+        "-map",
+        "1:a",
+        "-map",
+        "2:a",
+        "-c:v",
+        "libx264",
+        "-threads",
+        "1",
+        "-g",
+        "50",
+        "-sc_threshold",
+        "0",
+        "-c:a",
+        "aac",
+        "-disposition:a:0",
+        "default",
+        "-disposition:a:1",
+        "0",
+    ])
+    .arg(&fixture.file);
+    run(&mut cmd, Duration::from_secs(15), "Generation fixture")
+        .await
+        .unwrap();
+    fixture.state.playback.probes.lock().await.clear();
+    save_policy(
+        &fixture,
+        crate::transcoding::Settings {
+            throttle: false,
+            max_concurrent: 1,
+            ..Default::default()
+        },
+    );
+    let original = std::fs::read(&fixture.file).unwrap();
+    let created = create(
+        State(fixture.state.clone()),
+        Path((fixture.library.clone(), fixture.item.clone())),
+        Json(SessionInput {
+            containers: vec!["mkv".into()],
+            native_audio_tracks: true,
+            hls_audio_track_indexes: Some(vec![1, 2]),
+            ..input()
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(created.method, "direct");
+    assert_eq!(created.generation, 0);
+    let promoted = seek(
+        State(fixture.state.clone()),
+        Path(created.id.clone()),
+        Json(SeekInput {
+            position_seconds: 1.0,
+            generation: 0,
+            audio_index: Some(2),
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(promoted.id, created.id);
+    assert_eq!(promoted.generation, 1);
+    assert_eq!(promoted.method, "remux");
+    assert_eq!(promoted.audio_index, Some(2));
+    assert!(promoted.encoder.is_none());
+    assert!(promoted.duration_seconds >= 12.0);
+    assert!(promoted.offset_seconds <= 1.0);
+    let stale = heartbeat(
+        State(fixture.state.clone()),
+        Path(created.id.clone()),
+        HeaderMap::new(),
+        Json(Heartbeat {
+            position_seconds: 11.0,
+            paused: true,
+            generation: Some(0),
+            ..Default::default()
+        }),
+    )
+    .await
+    .err()
+    .unwrap();
+    assert_eq!(stale.status, StatusCode::CONFLICT);
+    let handle = handle(&fixture.state.playback, &created.id).await.unwrap();
+    let dir = handle.lock().await.producer.as_ref().unwrap().dir.clone();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        fixture.state.playback.maintain().await;
+        if std::fs::read_to_string(dir.join("index.m3u8"))
+            .unwrap_or_default()
+            .contains("#EXT-X-ENDLIST")
+            && fixture.state.playback.producers.load(Ordering::Acquire) == 0
+        {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
+    let retained = seek(
+        State(fixture.state.clone()),
+        Path(created.id.clone()),
+        Json(SeekInput {
+            position_seconds: 6.0,
+            generation: 1,
+            audio_index: None,
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(retained.generation, 1);
+    assert_eq!(retained.url, promoted.url);
+    assert_eq!(handle.lock().await.position, 1.0);
+    assert_eq!(
+        seek(
+            State(fixture.state.clone()),
+            Path(created.id.clone()),
+            Json(SeekInput {
+                position_seconds: 2.0,
+                generation: 0,
+                audio_index: None
+            })
+        )
+        .await
+        .err()
+        .unwrap()
+        .status,
+        StatusCode::CONFLICT
+    );
+    std::fs::remove_file(dir.join("segment-000000.m4s")).unwrap();
+    let restarted = seek(
+        State(fixture.state.clone()),
+        Path(created.id.clone()),
+        Json(SeekInput {
+            position_seconds: 0.0,
+            generation: 1,
+            audio_index: None,
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(restarted.id, created.id);
+    assert_eq!(restarted.generation, 2);
+    assert_eq!(restarted.audio_index, Some(2));
+    assert_eq!(restarted.duration_seconds, promoted.duration_seconds);
+    assert!(!dir.exists());
+    assert_eq!(
+        segment(
+            State(fixture.state.clone()),
+            Path((created.id.clone(), 1, "init.mp4".into())),
+            Request::new(axum::body::Body::empty())
+        )
+        .await
+        .err()
+        .unwrap()
+        .status,
+        StatusCode::CONFLICT
+    );
+    let a = seek(
+        State(fixture.state.clone()),
+        Path(created.id.clone()),
+        Json(SeekInput {
+            position_seconds: 2.0,
+            generation: 2,
+            audio_index: Some(1),
+        }),
+    );
+    let b = seek(
+        State(fixture.state.clone()),
+        Path(created.id.clone()),
+        Json(SeekInput {
+            position_seconds: 3.0,
+            generation: 2,
+            audio_index: Some(1),
+        }),
+    );
+    let (a, b) = tokio::join!(a, b);
+    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
+    assert_eq!(
+        a.err().or_else(|| b.err()).unwrap().status,
+        StatusCode::CONFLICT
+    );
+    stop(State(fixture.state.clone()), Path(created.id.clone())).await;
+    assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
+    assert!(fixture
+        .state
+        .playback
+        .session_details(&created.id)
+        .await
+        .is_none());
+    assert_eq!(std::fs::read(&fixture.file).unwrap(), original);
 }
 #[tokio::test]
 async fn episode_source_lookup_ignores_unrelated_series_and_preserves_next_across_seasons() {
@@ -301,7 +682,7 @@ async fn streams_ranges_without_reading_whole_file() {
 }
 
 #[tokio::test]
-async fn original_sessions_ignore_retired_settings_and_never_start_playback_jobs() {
+async fn compatible_original_sessions_prefer_direct_and_never_start_playback_jobs() {
     let mut data = original_mkv_probe();
     data["chapters"] = json!([{"start_time":"20","tags":{"title":"Chapter 1"}}]);
     data["streams"].as_array_mut().unwrap().push(json!({"index":4,"codec_type":"attachment","codec_name":"ttf","tags":{"filename":"Cover.ttf"}}));
@@ -382,7 +763,7 @@ async fn original_sessions_ignore_retired_settings_and_never_start_playback_jobs
 }
 
 #[tokio::test]
-async fn legacy_conversion_requests_fail_before_inspection_or_allocation() {
+async fn direct_only_conversion_requests_fail_before_inspection_or_allocation() {
     let fixture = video_fixture(b"0123456789", original_mkv_probe()).await;
     let permits = fixture.state.playback.jobs.acquire_many(2).await.unwrap();
     for request in [
@@ -418,13 +799,16 @@ async fn legacy_conversion_requests_fail_before_inspection_or_allocation() {
         let error = create(
             State(fixture.state.clone()),
             Path((fixture.library.clone(), "unavailable-item".into())),
-            Json(request),
+            Json(SessionInput {
+                direct_only: true,
+                ..request
+            }),
         )
         .await
         .err()
         .unwrap();
         assert_eq!(error.status, StatusCode::BAD_REQUEST);
-        assert!(error.detail.contains("only plays original files directly"));
+        assert!(error.detail.contains("Direct-only") || error.detail.contains("burn-in"));
     }
     drop(permits);
     assert!(fixture.state.playback.sessions.lock().await.is_empty());
@@ -498,10 +882,10 @@ async fn protected_original_delivery_keeps_full_and_range_headers_when_gzip_is_a
             expected
         );
     }
-    for uri in [
-        format!("/api/playback/sessions/{}/hls/index.m3u8", response.id),
-        "/api/playback/capabilities".into(),
-    ] {
+    for uri in [format!(
+        "/api/playback/sessions/{}/hls/index.m3u8",
+        response.id
+    )] {
         assert_eq!(
             app.clone()
                 .oneshot(
@@ -560,6 +944,7 @@ async fn session_ttl_stop_limit_and_changed_source_do_not_modify_original_files(
         Json(Heartbeat {
             position_seconds: 50.0,
             paused: false,
+            ..Default::default()
         }),
     )
     .await
@@ -567,7 +952,7 @@ async fn session_ttl_stop_limit_and_changed_source_do_not_modify_original_files(
     .0;
     assert_eq!(
         valid,
-        json!({"ok":true,"method":"direct","encoder":null,"transcoding":false,"throttled":false})
+        json!({"ok":true,"method":"direct","encoder":null,"generation":0,"transcoding":false,"throttled":false,"fps":null,"speed":null})
     );
     fixture
         .state
@@ -575,8 +960,10 @@ async fn session_ttl_stop_limit_and_changed_source_do_not_modify_original_files(
         .sessions
         .lock()
         .await
-        .get_mut(&response.id)
+        .get(&response.id)
         .unwrap()
+        .lock()
+        .await
         .touched = Instant::now() - SESSION_IDLE - Duration::from_secs(1);
     assert!(fixture
         .state
@@ -607,7 +994,8 @@ async fn session_ttl_stop_limit_and_changed_source_do_not_modify_original_files(
         HeaderMap::new(),
         Json(Heartbeat {
             position_seconds: 60.0,
-            paused: true
+            paused: true,
+            ..Default::default()
         })
     )
     .await
@@ -641,7 +1029,8 @@ async fn unknown_duration_heartbeats_keep_real_positions_with_bounded_validation
         HeaderMap::new(),
         Json(Heartbeat {
             position_seconds: 600.0,
-            paused: false
+            paused: false,
+            ..Default::default()
         })
     )
     .await
@@ -654,7 +1043,8 @@ async fn unknown_duration_heartbeats_keep_real_positions_with_bounded_validation
                 HeaderMap::new(),
                 Json(Heartbeat {
                     position_seconds: position,
-                    paused: false
+                    paused: false,
+                    ..Default::default()
                 })
             )
             .await
@@ -670,18 +1060,29 @@ async fn unknown_duration_heartbeats_keep_real_positions_with_bounded_validation
 async fn session_limit_is_bounded_and_expired_entries_release_slots() {
     let fixture = video_fixture(b"0123456789", original_mkv_probe()).await;
     let response = direct(&fixture).await;
+    let resolved = source(
+        &fixture.state,
+        fixture.library.clone(),
+        fixture.item.clone(),
+    )
+    .await
+    .unwrap();
     let mut sessions = fixture.state.playback.sessions.lock().await;
     for number in 1..MAX_SESSIONS {
         sessions.insert(
             number.to_string(),
-            Session {
-                library_id: fixture.library.clone(),
-                item_id: fixture.item.clone(),
-                source: fixture.file.clone(),
-                stamp: stamp(&fixture.file).unwrap(),
+            Arc::new(Mutex::new(Session {
+                source: resolved.clone(),
+                probe: original_mkv_probe(),
+                input: original_mkv_input(),
                 response: response.clone(),
                 touched: Instant::now(),
-            },
+                producer: None,
+                position: 0.0,
+                paused: false,
+                speed: 1.0,
+                closed: false,
+            })),
         );
     }
     drop(sessions);
@@ -698,10 +1099,245 @@ async fn session_limit_is_bounded_and_expired_entries_release_slots() {
         StatusCode::TOO_MANY_REQUESTS
     );
     for session in fixture.state.playback.sessions.lock().await.values_mut() {
-        session.touched = Instant::now() - SESSION_IDLE - Duration::from_secs(1);
+        session.lock().await.touched = Instant::now() - SESSION_IDLE - Duration::from_secs(1);
     }
     assert_eq!(direct(&fixture).await.method, "direct");
     assert_eq!(fixture.state.playback.sessions.lock().await.len(), 1);
+}
+
+#[tokio::test]
+async fn queued_seek_cannot_resurrect_a_stopped_session() {
+    let fixture = video_fixture(b"unchanged original", original_mkv_probe()).await;
+    let created = direct(&fixture).await;
+    // Retain the handle exactly as a request does between lookup and acquisition
+    // of its session mutex. Queue DELETE first while another operation owns it.
+    let pending = handle(&fixture.state.playback, &created.id).await.unwrap();
+    let guard = pending.lock().await;
+    let stop_state = fixture.state.clone();
+    let stop_id = created.id.clone();
+    let stopping = tokio::spawn(async move { stop(State(stop_state), Path(stop_id)).await });
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    while fixture
+        .state
+        .playback
+        .sessions
+        .lock()
+        .await
+        .contains_key(&created.id)
+    {
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::task::yield_now().await;
+    }
+    assert!(!guard.closed);
+    assert_eq!(
+        validate_active(&fixture.state.playback, &created.id, &guard)
+            .await
+            .err()
+            .unwrap()
+            .status,
+        StatusCode::BAD_REQUEST
+    );
+    let seek_state = fixture.state.clone();
+    let seek_id = created.id.clone();
+    let stale_handle = pending.clone();
+    let queued = tokio::spawn(async move {
+        seek_session(
+            seek_state,
+            seek_id,
+            stale_handle,
+            SeekInput {
+                position_seconds: 10.0,
+                generation: 0,
+                audio_index: None,
+            },
+        )
+        .await
+    });
+    tokio::task::yield_now().await;
+    drop(guard);
+    assert_eq!(stopping.await.unwrap(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        queued.await.unwrap().err().unwrap().status,
+        StatusCode::BAD_REQUEST
+    );
+    let stopped = pending.lock().await;
+    assert!(stopped.closed);
+    assert!(validate_session(&stopped).is_err());
+    assert!(stopped.producer.is_none());
+    drop(stopped);
+    assert!(fixture
+        .state
+        .playback
+        .session_details(&created.id)
+        .await
+        .is_none());
+    assert!(fixture.state.playback.sessions.lock().await.is_empty());
+    assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
+    assert!(!fixture.state.playback.root.exists());
+    assert_eq!(std::fs::read(&fixture.file).unwrap(), b"unchanged original");
+}
+
+#[tokio::test]
+async fn canceled_preparation_is_swept_after_session_expiry_without_touching_unrelated_files() {
+    let fixture = video_fixture(b"placeholder", test_support::probe()).await;
+    let mut cmd = command("ffmpeg");
+    cmd.args([
+        "-nostdin",
+        "-v",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=160x90:rate=25:duration=120",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:duration=120",
+        "-map",
+        "0:v",
+        "-map",
+        "1:a",
+        "-c:v",
+        "libx264",
+        "-threads",
+        "1",
+        "-g",
+        "2500",
+        "-sc_threshold",
+        "0",
+        "-c:a",
+        "aac",
+    ])
+    .arg(&fixture.file);
+    run(
+        &mut cmd,
+        Duration::from_secs(15),
+        "Canceled preparation fixture",
+    )
+    .await
+    .unwrap();
+    fixture.state.playback.probes.lock().await.clear();
+    save_policy(&fixture, crate::transcoding::Settings::default());
+    let original = std::fs::read(&fixture.file).unwrap();
+    let state = fixture.state.clone();
+    let library = fixture.library.clone();
+    let item = fixture.item.clone();
+    let creating =
+        tokio::spawn(
+            async move { create(State(state), Path((library, item)), Json(input())).await },
+        );
+    let root = fixture.state.playback.root.join("posterview-playback");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let abandoned = loop {
+        assert!(
+            !creating.is_finished(),
+            "The long-GOP producer must still be preparing when canceled."
+        );
+        let pending = std::fs::read_dir(&root)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .find_map(|entry| {
+                let owner: Value =
+                    serde_json::from_slice(&std::fs::read(entry.path().join("owner.json")).ok()?)
+                        .ok()?;
+                owner["pid"].as_u64().map(|_| entry.path())
+            });
+        if let Some(path) = pending {
+            break path;
+        }
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    creating.abort();
+    let canceled = match creating.await {
+        Err(error) => error,
+        Ok(_) => panic!("Canceled preparation unexpectedly completed."),
+    };
+    assert!(canceled.is_cancelled());
+    assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
+    assert!(abandoned.join("owner.json").is_file());
+    let unrelated = root.join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir(&unrelated).unwrap();
+    std::fs::write(unrelated.join("user.txt"), b"keep").unwrap();
+    std::fs::write(root.join("user.txt"), b"keep").unwrap();
+    let handles = fixture
+        .state
+        .playback
+        .sessions
+        .lock()
+        .await
+        .values()
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(handles.len(), 1);
+    for handle in handles {
+        let mut session = handle.lock().await;
+        assert!(session.producer.is_none());
+        session.touched = Instant::now() - SESSION_IDLE - Duration::from_secs(1);
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while abandoned.exists() {
+        fixture.state.playback.maintain().await;
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(fixture.state.playback.sessions.lock().await.is_empty());
+    assert_eq!(segmented::total_bytes(&fixture.state.playback), 0);
+    assert_eq!(std::fs::read(unrelated.join("user.txt")).unwrap(), b"keep");
+    assert_eq!(std::fs::read(root.join("user.txt")).unwrap(), b"keep");
+    assert_eq!(std::fs::read(&fixture.file).unwrap(), original);
+}
+
+#[tokio::test]
+async fn sweep_rechecks_new_sessions_and_retries_locked_files_without_losing_marker() {
+    let fixture = video_fixture(b"original", original_mkv_probe()).await;
+    let old_snapshot = HashSet::new();
+    let created = direct(&fixture).await;
+    let root = fixture.state.playback.root.join("posterview-playback");
+    let dir = root.join(format!("{}.g1", created.id));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("owner.json"),
+        json!({"id":created.id,"instance":fixture.state.playback.instance,"pid":null}).to_string(),
+    )
+    .unwrap();
+    std::fs::write(dir.join("init.mp4"), b"cached fragment").unwrap();
+    fixture
+        .state
+        .playback
+        .cache_roots
+        .lock()
+        .unwrap()
+        .insert(root.canonicalize().unwrap());
+    segmented::sweep_abandoned(&fixture.state.playback, &old_snapshot).await;
+    assert!(
+        dir.join("init.mp4").is_file(),
+        "A session added after the snapshot must survive cleanup."
+    );
+    #[cfg(windows)]
+    let locked = {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(dir.join("init.mp4"))
+            .unwrap()
+    };
+    stop(State(fixture.state.clone()), Path(created.id)).await;
+    fixture.state.playback.maintain().await;
+    #[cfg(windows)]
+    {
+        assert!(
+            dir.join("owner.json").is_file(),
+            "Failed unlink must retain ownership for the next tick."
+        );
+        drop(locked);
+        fixture.state.playback.maintain().await;
+    }
+    assert!(!dir.exists());
+    assert_eq!(std::fs::read(&fixture.file).unwrap(), b"original");
 }
 
 #[test]
@@ -719,6 +1355,80 @@ fn resource_startup_cleanup_preserves_unrelated_files_and_directories() {
     assert!(!generated.exists());
     assert!(unrelated.exists());
     assert!(nested.exists());
+}
+
+#[tokio::test]
+async fn resource_sweep_removes_abandoned_outputs_but_preserves_live_cached_and_unrelated_files() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlaybackStore::new(directory.path());
+    let root = store.root.join("resources");
+    std::fs::create_dir_all(&root).unwrap();
+    let abandoned = root.join(format!("{}.sup", uuid::Uuid::new_v4()));
+    std::fs::write(&abandoned, b"partial bitmap").unwrap();
+    let cached = root.join(format!("{}.vtt", uuid::Uuid::new_v4()));
+    std::fs::write(&cached, b"cached subtitle").unwrap();
+    let active = root.join(format!("{}.mks", uuid::Uuid::new_v4()));
+    let unrelated = root.join("user.font");
+    std::fs::write(&unrelated, b"keep").unwrap();
+    let unknown = root.join(format!("{}.txt", uuid::Uuid::new_v4()));
+    std::fs::write(&unknown, b"keep").unwrap();
+    let nested = root.join(format!("{}.font", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&nested).unwrap();
+    let target = directory.path().join("original.txt");
+    std::fs::write(&target, b"original").unwrap();
+    let link = root.join(format!("{}.sup", uuid::Uuid::new_v4()));
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::symlink(&target, &link).is_ok();
+    #[cfg(windows)]
+    let linked = std::os::windows::fs::symlink_file(&target, &link).is_ok();
+    let mut fill = store.resources.lock().await;
+    fill.insert(
+        (directory.path().join("source.mkv"), 1, 1, 0, "vtt".into()),
+        ResourceCache {
+            path: cached.clone(),
+            bytes: 15,
+            used: Instant::now(),
+        },
+    );
+    std::fs::write(&active, b"live extraction").unwrap();
+    store.sweep_resources();
+    assert!(active.exists());
+    assert!(abandoned.exists());
+    drop(fill); // Simulate cancellation before inserting the active output.
+    store.maintain().await;
+    assert!(!active.exists());
+    assert!(!abandoned.exists());
+    assert!(cached.exists());
+    assert!(unrelated.exists());
+    assert!(unknown.exists());
+    assert!(nested.is_dir());
+    if linked {
+        assert!(std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+    assert_eq!(std::fs::read(target).unwrap(), b"original");
+    assert_eq!(store.resources.lock().await.len(), 1);
+}
+
+#[test]
+fn resource_sweep_limits_each_tick_and_retries_remaining_generated_outputs() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlaybackStore::new(directory.path());
+    let root = store.root.join("resources");
+    std::fs::create_dir_all(&root).unwrap();
+    for _ in 0..35 {
+        std::fs::write(
+            root.join(format!("{}.font", uuid::Uuid::new_v4())),
+            b"abandoned",
+        )
+        .unwrap();
+    }
+    store.sweep_resources();
+    assert_eq!(std::fs::read_dir(&root).unwrap().count(), 3);
+    store.sweep_resources();
+    assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
 }
 
 #[tokio::test]
@@ -816,6 +1526,7 @@ async fn real_ffmpeg_inspection_subtitles_fonts_and_direct_delivery_preserve_vid
         let first = subtitle(
             State(fixture.state.clone()),
             Path((fixture.library.clone(), fixture.item.clone(), index)),
+            Request::new(axum::body::Body::empty()),
         )
         .await
         .unwrap();
@@ -825,6 +1536,7 @@ async fn real_ffmpeg_inspection_subtitles_fonts_and_direct_delivery_preserve_vid
         let second = subtitle(
             State(fixture.state.clone()),
             Path((fixture.library.clone(), fixture.item.clone(), index)),
+            Request::new(axum::body::Body::empty()),
         )
         .await
         .unwrap()
