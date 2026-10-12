@@ -15,6 +15,21 @@ pub(super) fn original_only_settings() -> crate::transcoding::Settings {
         ..Default::default()
     }
 }
+pub(super) fn audio_only_settings() -> crate::transcoding::Settings {
+    crate::transcoding::Settings {
+        allow_audio_transcoding: true,
+        allow_remux: false,
+        ..Default::default()
+    }
+}
+pub(super) fn audio_only_input() -> SessionInput {
+    SessionInput {
+        hls_video_codecs: vec!["h264".into()],
+        hls_aac_supported: true,
+        source_video_supported: true,
+        ..input()
+    }
+}
 pub(super) fn lossless_mkv_input() -> SessionInput {
     SessionInput {
         hls_video_codecs: vec!["hevc".into()],

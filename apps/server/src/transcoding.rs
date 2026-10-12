@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub allow_conversion: bool,
+    pub allow_audio_transcoding: bool,
+    pub auto_bandwidth_transcoding: bool,
     pub allow_remux: bool,
     pub hardware_enabled: bool,
     pub hardware_backend: String,
@@ -28,6 +30,8 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             allow_conversion: false,
+            allow_audio_transcoding: false,
+            auto_bandwidth_transcoding: false,
             allow_remux: true,
             hardware_enabled: false,
             hardware_backend: "auto".into(),
@@ -123,6 +127,8 @@ mod tests {
         let state = crate::test_support::state(temp.path());
         assert!(!load(&state).unwrap().hardware_enabled);
         assert!(!load(&state).unwrap().allow_conversion);
+        assert!(!load(&state).unwrap().allow_audio_transcoding);
+        assert!(!load(&state).unwrap().auto_bandwidth_transcoding);
         assert!(load(&state).unwrap().allow_remux);
         let settings = Settings {
             allow_conversion: true,
@@ -158,6 +164,8 @@ mod tests {
         assert!(settings.hardware_enabled);
         assert_eq!(settings.hardware_backend, "nvenc");
         assert!(!settings.allow_conversion);
+        assert!(!settings.allow_audio_transcoding);
+        assert!(!settings.auto_bandwidth_transcoding);
         assert!(settings.allow_remux);
         assert!(settings.subtitle_extraction);
         assert!(settings.font_extraction);
@@ -169,5 +177,22 @@ mod tests {
         };
         let _ = save(State(state.clone()), Json(settings)).await.unwrap();
         assert!(!load(&state).unwrap().allow_remux);
+    }
+    #[tokio::test]
+    async fn audio_and_bandwidth_permissions_persist_independently_of_full_conversion() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        for (audio, bandwidth) in [(true, false), (false, true), (true, true)] {
+            let settings = Settings {
+                allow_audio_transcoding: audio,
+                auto_bandwidth_transcoding: bandwidth,
+                ..Settings::default()
+            };
+            let _ = save(State(state.clone()), Json(settings)).await.unwrap();
+            let restored = load(&state).unwrap();
+            assert!(!restored.allow_conversion);
+            assert_eq!(restored.allow_audio_transcoding, audio);
+            assert_eq!(restored.auto_bandwidth_transcoding, bandwidth);
+        }
     }
 }

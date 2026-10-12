@@ -42,6 +42,31 @@ it can change packaging and select embedded audio without encoding either stream
 Enabling media conversion also permits repackaging when needed.
 The playback mode applies to new sessions.
 
+Two independent options also default to off:
+
+- **Allow audio-only transcoding** plays unsupported TrueHD, DTS / DTS-HD and
+  PCM / LPCM audio by converting it to 192 kbps stereo AAC. Compatible video is
+  copied at original quality. This option does not permit video encoding or
+  image-subtitle burn-in, and the output does not preserve lossless surround,
+  Atmos or DTS:X information.
+- **Automatically transcode for limited bandwidth** works in the player's
+  **Original / automatic** quality mode. When measured throughput and sustained
+  low-buffer playback show that the connection cannot keep up, it lowers video
+  bitrate on the fly. This can encode video even with **Allow media conversion**
+  off. It requires a compatible source video and known source bitrate; it does
+  not enable unsupported-video recovery or subtitle burn-in.
+
+To play unsupported audio while keeping video conversion prohibited, enable
+only **Allow audio-only transcoding** and leave both video-conversion options
+off. To also permit video quality reductions for a slow connection, enable the
+automatic bandwidth option. Hardware acceleration and video-encoder choices
+apply to automatic bandwidth adaptation as well as full media conversion.
+Automatic detection runs at normal (1x) playback speed. It waits through startup
+and seeks, requires sustained slow transfers and low-buffer playback, and limits
+quality changes to avoid repeated restarts. A reduction stays in effect for the
+current item; reopen the player to retry original quality. Unknown source bitrate
+does not trigger automatic video conversion.
+
 The browser reports codec/container capabilities. Compatible MKV, MP4/M4V/MOV
 and WebM files use the original file through authenticated HTTP range requests,
 so seeking does not create another FFmpeg session or require downloading the
@@ -56,8 +81,9 @@ the source position, paused/playing state and watch session. Copy-only HLS still
 depends on source keyframes, so switching or seeking outside its retained window
 can require a short stream restart.
 
-If remuxing is disabled or the codec is unsupported, the player explains the
-limitation instead of silently encoding or claiming the wrong audio is playing.
+If remuxing or the necessary audio-conversion permission is disabled, the player
+explains the limitation instead of silently encoding or claiming the wrong audio
+is playing.
 Text and ASS/SSA subtitle changes, including Off, use the client renderer and
 do not replace the media stream.
 
@@ -105,7 +131,8 @@ opt-in for video burn-in. Stream-copy remuxing alone cannot burn in subtitles.
 
 ## Transcoding and Unraid
 
-Settings → Transcoding controls stream-copy remuxing, the encoding opt-in, codecs,
+Settings → Transcoding controls stream-copy remuxing, audio-only encoding,
+automatic bandwidth adaptation, full media conversion, codecs,
 output size, CPU fallback, concurrency, disk limits, throttling and subtitle/font
 extraction.
 **Test hardware encoders** runs small real encodes inside the server container.

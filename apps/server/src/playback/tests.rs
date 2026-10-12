@@ -1,8 +1,8 @@
 //! Cross-boundary delivery, media processing, and cleanup tests.
 
 use super::test_support::{
-    conversion_settings, input, lossless_mkv_input, original_mkv_input, original_mkv_probe,
-    original_only_settings, probe,
+    audio_only_input, audio_only_settings, conversion_settings, input, lossless_mkv_input,
+    original_mkv_input, original_mkv_probe, original_only_settings, probe,
 };
 use super::*;
 use serde_json::json;
@@ -226,6 +226,156 @@ fn stream_duration_fallback_excludes_subtitle_timelines() {
         duration(&json!({"format":{"duration":"NaN"},"streams":[]})),
         0.0
     );
+}
+#[test]
+fn source_bitrate_prefers_container_then_size_and_ignores_attachment_and_subtitle_rates() {
+    let streams = json!([
+        {"codec_type":"video","bit_rate":"3000000"},
+        {"codec_type":"audio","bit_rate":192000},
+        {"codec_type":"video","bit_rate":999000000,"disposition":{"attached_pic":1}},
+        {"codec_type":"subtitle","bit_rate":999000000}
+    ]);
+    let mut data = json!({"format":{"bit_rate":"5000000","size":"10000000","duration":"100"},"streams":streams});
+    assert_eq!(source_bitrate(&data), Some(5_000_000));
+    data["format"]["bit_rate"] = json!("NaN");
+    assert_eq!(source_bitrate(&data), Some(800_000));
+    data["format"]["duration"] = json!(0);
+    assert_eq!(source_bitrate(&data), Some(3_192_000));
+    data["streams"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("bit_rate");
+    assert_eq!(source_bitrate(&data), None);
+    data["streams"][0]["bit_rate"] = json!("3000000");
+    data["streams"][1]
+        .as_object_mut()
+        .unwrap()
+        .remove("bit_rate");
+    assert_eq!(source_bitrate(&data), None);
+    assert_eq!(source_bitrate(&json!({"format":{},"streams":[]})), None);
+}
+#[test]
+fn audio_only_command_copies_video_and_cannot_accept_a_video_encoder() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("audio.mkv");
+    std::fs::write(&file, b"fixture").unwrap();
+    let source = super::test_support::source(&file);
+    let mut data = probe();
+    data["streams"][1]["codec_name"] = json!("truehd");
+    data["streams"][1]["channels"] = json!(8);
+    let settings = audio_only_settings();
+    let request = audio_only_input();
+    let chosen = plan(&data, "mkv", &request, &settings).unwrap();
+    let command = hls_command(
+        &source,
+        &data,
+        &chosen,
+        &request,
+        &settings,
+        None,
+        directory.path(),
+    )
+    .unwrap();
+    let args = command
+        .as_std()
+        .get_args()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(args.windows(2).any(|pair| pair == ["-c:v", "copy"]));
+    assert!(args.windows(2).any(|pair| pair == ["-c:a", "aac"]));
+    assert!(args.windows(2).any(|pair| pair == ["-ac", "2"]));
+    assert!(args.windows(2).any(|pair| pair == ["-b:a", "192k"]));
+    assert!(!args.iter().any(
+        |value| ["-vf", "-b:v", "-force_key_frames", "-init_hw_device"].contains(&value.as_str())
+    ));
+    assert!(hls_command(
+        &source,
+        &data,
+        &chosen,
+        &request,
+        &settings,
+        Some(("libx264", "software")),
+        directory.path()
+    )
+    .is_err());
+    assert!(hls_command(
+        &source,
+        &data,
+        &chosen,
+        &request,
+        &original_only_settings(),
+        None,
+        directory.path()
+    )
+    .is_err());
+}
+#[test]
+fn automatic_bandwidth_command_uses_the_validated_plan_cap_without_request_mutation() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("bandwidth.mkv");
+    std::fs::write(&file, b"fixture").unwrap();
+    let source = super::test_support::source(&file);
+    let data = probe();
+    let settings = Settings {
+        auto_bandwidth_transcoding: true,
+        ..Settings::default()
+    };
+    let request = SessionInput {
+        bandwidth_limit_bps: 2_000_000,
+        ..audio_only_input()
+    };
+    let mut chosen = plan(&data, "mkv", &request, &settings).unwrap();
+    let command = hls_command(
+        &source,
+        &data,
+        &chosen,
+        &request,
+        &settings,
+        Some(("libx264", "software")),
+        directory.path(),
+    )
+    .unwrap();
+    let args = command
+        .as_std()
+        .get_args()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(request.max_bitrate, 0);
+    assert_eq!(chosen.bitrate_limit, 2_000_000);
+    assert!(args.windows(2).any(|pair| pair == ["-b:v", "1808000"]));
+    assert!(args.windows(2).any(|pair| pair == ["-maxrate", "1808000"]));
+    assert!(args.windows(2).any(|pair| pair == ["-b:a", "192k"]));
+    assert!(hls_command(
+        &source,
+        &data,
+        &chosen,
+        &request,
+        &settings,
+        None,
+        directory.path()
+    )
+    .is_err());
+    assert!(hls_command(
+        &source,
+        &data,
+        &chosen,
+        &request,
+        &Settings::default(),
+        Some(("libx264", "software")),
+        directory.path()
+    )
+    .is_err());
+    chosen.bitrate_limit = 8_000_000;
+    assert!(hls_command(
+        &source,
+        &data,
+        &chosen,
+        &request,
+        &settings,
+        Some(("libx264", "software")),
+        directory.path()
+    )
+    .is_err());
 }
 #[test]
 fn audio_boost_applies_only_to_multichannel_downmixing() {
@@ -519,6 +669,9 @@ async fn original_dual_audio_mkv_uses_ranges_and_rejects_conversion_before_jobs(
     .unwrap()
     .0;
     assert!(!metadata.conversion_allowed);
+    assert!(!metadata.audio_conversion_allowed);
+    assert!(!metadata.bandwidth_adaptation_allowed);
+    assert_eq!(metadata.source_bitrate, Some(5_000_000));
     assert!(!metadata.remux_allowed);
     assert_eq!(metadata.container, "mkv");
     assert_eq!(
@@ -710,7 +863,7 @@ fn conversion_disabled_cannot_construct_a_segmented_playback_command() {
     .err()
     .unwrap()
     .detail
-    .contains("Audio/video encoding is disabled"));
+    .contains("disabled"));
 }
 #[test]
 fn lossless_commands_reject_encoder_downmix_and_burn_in_even_when_conversion_is_enabled() {

@@ -44,13 +44,21 @@ export async function playbackCapabilities(info: PlaybackInfo, video: HTMLVideoE
   const videoTypes: Record<string,string>={h264:'video/mp4; codecs="avc1.640028"',hevc:'video/mp4; codecs="hvc1.1.6.L123.B0"',av1:'video/mp4; codecs="av01.0.08M.08"',vp9:'video/webm; codecs="vp09.00.41.08"',vp8:'video/webm; codecs="vp8"'};
   const audioTypes:Record<string,string>={aac:'audio/mp4; codecs="mp4a.40.2"',mp3:'audio/mpeg',opus:'audio/webm; codecs="opus"',vorbis:'audio/webm; codecs="vorbis"',flac:'audio/flac',alac:'audio/mp4; codecs="alac"',ac3:'audio/mp4; codecs="ac-3"',eac3:'audio/mp4; codecs="ec-3"'};
   const videoIdentifiers:Record<string,string>={h264:"avc1.640028",hevc:"hvc1.1.6.L123.B0",av1:"av01.0.08M.08",vp9:"vp09.00.41.08",vp8:"vp8"};
+  const sourceDepth=(stream:PlaybackTrack|undefined)=>stream?.bit_depth&&stream.bit_depth>0?stream.bit_depth:Number(/(?:p|p0)(10|12)(?:le|be)?$/i.exec(stream?.pixel_format??"")?.[1]??(/10|12/.exec(stream?.profile??"")?.[0]??8));
+  const sourceProfileSupported=(stream:PlaybackTrack|undefined)=>{
+    if(!stream||!["hevc","av1"].includes(stream.codec))return true;
+    if(sourceDepth(stream)>10)return false;
+    if(stream.pixel_format&&!/^(?:yuvj?420p(?:10(?:le|be))?|nv12|p010(?:le|be))$/i.test(stream.pixel_format))return false;
+    return !stream.profile||(stream.codec==="hevc"?/^main(?:\s*10)?$/i:/^main$/i).test(stream.profile.trim());
+  };
   const videoIdentifier=(stream:PlaybackTrack|undefined,codec:string)=>{
-    const highDepth=(stream?.bit_depth??8)>8||/10|12/.test(stream?.profile??"");
+    const highDepth=sourceDepth(stream)>8;
     return highDepth?(codec==="hevc"?"hvc1.2.4.L153.B0":codec==="av1"?"av01.0.08M.10":codec==="h264"?"avc1.6E0028":codec==="vp9"?"vp09.02.41.10":videoIdentifiers[codec]):videoIdentifiers[codec];
   };
   const audioIdentifiers:Record<string,string>={aac:"mp4a.40.2",mp3:"mp4a.40.34",opus:"opus",flac:"fLaC",alac:"alac",ac3:"ac-3",eac3:"ec-3"};
   const audioIdentifier=(stream:PlaybackTrack|undefined,codec:string)=>codec==="aac"&&/HE.?AAC/i.test(stream?.profile??"")?/v2/i.test(stream?.profile??"")?"mp4a.40.29":"mp4a.40.5":audioIdentifiers[codec];
   const sourceVideo=info.tracks.find(track=>track.kind==="video");
+  const preciseSourceProfile=sourceProfileSupported(sourceVideo);
   const sourceVideoIdentifier=sourceVideo?videoIdentifier(sourceVideo,sourceVideo.codec):undefined;
   const nativeHls=!!(video.canPlayType("application/vnd.apple.mpegurl")||video.canPlayType("application/x-mpegURL"));
   const mse=typeof MediaSource!=="undefined"&&typeof MediaSource.isTypeSupported==="function"&&msePlaybackAvailable;
@@ -61,12 +69,13 @@ export async function playbackCapabilities(info: PlaybackInfo, video: HTMLVideoE
   // actual source profile and the combined selected video/audio codec pair.
   const hlsVideo=Object.keys(videoIdentifiers).filter(codec=>{
     if(!["h264","hevc","av1"].includes(codec))return false;
+    if(sourceVideo?.codec===codec&&!preciseSourceProfile)return false;
     const identifier=videoIdentifier(sourceVideo?.codec===codec?sourceVideo:undefined,codec);
     return !!identifier&&supportsFragmented(`video/mp4; codecs="${identifier}"`);
   });
   const supportsAudioTrack=(stream:PlaybackTrack|undefined,codec:string)=>{
     const identifier=audioIdentifier(stream,codec);
-    if(!identifier||sourceVideo&&!sourceVideoIdentifier)return false;
+    if(!identifier||sourceVideo&&(!sourceVideoIdentifier||!preciseSourceProfile))return false;
     return supportsFragmented(`${sourceVideo?"video":"audio"}/mp4; codecs="${[sourceVideoIdentifier,identifier].filter(Boolean).join(",")}"`);
   };
   const hlsAudioTracks=info.tracks.filter(track=>track.kind==="audio"&&supportsAudioTrack(track,track.codec)).map(track=>track.index);
@@ -75,12 +84,13 @@ export async function playbackCapabilities(info: PlaybackInfo, video: HTMLVideoE
     return (sourceTracks.length?sourceTracks:[undefined]).some(stream=>supportsAudioTrack(stream,codec));
   });
   const videoCodecs:string[]=[];
-  let sourceVideoSupported=true;
+  let sourceVideoSupported=preciseSourceProfile&&(!sourceVideo||!!videoTypes[sourceVideo.codec]);
   for(const [codec,baseType] of Object.entries(videoTypes)) {
     const stream=info.tracks.find(track=>track.kind==="video"&&track.codec===codec);
     if(!video.canPlayType(baseType)){if(stream)sourceVideoSupported=false;continue;}
     videoCodecs.push(codec);
-    const highDepth=(stream?.bit_depth??8)>8||/10|12/.test(stream?.profile??"");
+    if(stream&&!preciseSourceProfile){sourceVideoSupported=false;continue;}
+    const highDepth=sourceDepth(stream)>8;
     const contentType=codec==="hevc"&&highDepth?'video/mp4; codecs="hvc1.2.4.L153.B0"':codec==="av1"&&highDepth?'video/mp4; codecs="av01.0.08M.10"':codec==="h264"&&highDepth?'video/mp4; codecs="avc1.6E0028"':baseType;
     if(stream&&!video.canPlayType(contentType)){sourceVideoSupported=false;continue;}
     if(stream&&navigator.mediaCapabilities?.decodingInfo) {
@@ -95,7 +105,7 @@ export async function playbackCapabilities(info: PlaybackInfo, video: HTMLVideoE
   const operaTv=/Opera\s*TV|OperaTV|OMI\/|HbbTV/i.test(browser.userAgent);
   let nativeAudio=false;
   try{const tracks=(video as HTMLVideoElement&{audioTracks?:{length:number}}).audioTracks;nativeAudio=!!tracks&&Number.isInteger(tracks.length)&&tracks.length>=0;}catch{/* An unavailable browser API must not enable nondefault audio. */}
-  return { source_video_supported:sourceVideoSupported, native_audio_tracks:nativeAudio, video_codecs:videoCodecs, audio_codecs:Object.keys(audioTypes).filter(codec=>!!video.canPlayType(audioTypes[codec])),hls_video_codecs:hlsVideo,hls_audio_codecs:hlsAudio,hls_audio_track_indexes:hlsAudioTracks,containers:[...(video.canPlayType("video/mp4")?["mp4","mov"]:[]),...(video.canPlayType("video/webm")?["webm"]:[]),...(video.canPlayType("video/x-matroska")||video.canPlayType("video/mkv")||(chromium&&!operaTv)?["mkv"]:[])] };
+  return { source_video_supported:sourceVideoSupported, native_audio_tracks:nativeAudio, video_codecs:videoCodecs, audio_codecs:Object.keys(audioTypes).filter(codec=>!!video.canPlayType(audioTypes[codec])),hls_video_codecs:hlsVideo,hls_audio_codecs:hlsAudio,hls_aac_supported:supportsAudioTrack(undefined,"aac"),hls_audio_track_indexes:hlsAudioTracks,containers:[...(video.canPlayType("video/mp4")?["mp4","mov"]:[]),...(video.canPlayType("video/webm")?["webm"]:[]),...(video.canPlayType("video/x-matroska")||video.canPlayType("video/mkv")||(chromium&&!operaTv)?["mkv"]:[])] };
 }
 export function canRemuxAudio(info:PlaybackInfo,caps:Pick<Awaited<ReturnType<typeof playbackCapabilities>>,"hls_video_codecs"|"hls_audio_codecs"|"hls_audio_track_indexes">|undefined,index:number|null):boolean {
   if(info.remux_allowed!==true||!caps)return false;

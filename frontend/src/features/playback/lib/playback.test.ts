@@ -23,6 +23,26 @@ describe("track selection",()=>{
  });
 });
 describe("codec capabilities",()=>{
+ it.each([
+  {codec:"hevc",profile:"Main 12",bit_depth:12,pixel_format:"yuv420p12le"},
+  {codec:"hevc",profile:"Rext",bit_depth:10,pixel_format:"yuv420p10le"},
+  {codec:"hevc",profile:"Main 10",bit_depth:10,pixel_format:"yuv444p10le"},
+  {codec:"hevc",profile:"Main",pixel_format:"yuv420p12le"},
+  {codec:"av1",profile:"Professional",bit_depth:12,pixel_format:"yuv420p12le"},
+  {codec:"av1",profile:"High",bit_depth:10,pixel_format:"yuv444p10le"},
+ ])("does not claim scoped source/copy compatibility for $codec $profile $pixel_format",async source=>{
+  vi.stubGlobal("MediaSource",{isTypeSupported:vi.fn(()=>true)});const caps=await playbackCapabilities({...info,remux_allowed:true,tracks:[{index:0,kind:"video",...source},{index:1,kind:"audio",codec:"aac"}]},{canPlayType:()=>"probably"} as unknown as HTMLVideoElement);
+  expect(caps.source_video_supported).toBe(false);expect(caps.hls_video_codecs).not.toContain(source.codec);expect(caps.hls_aac_supported).toBe(false);expect(caps.video_codecs).toContain(source.codec);expect(caps.video_codecs).toContain("h264");
+ });
+ it("verifies AAC-LC output independently of unsupported lossless and HE-AAC source tracks",async()=>{
+  vi.stubGlobal("MediaSource",{isTypeSupported:vi.fn((mime:string)=>mime.includes("hvc1.2.4.L153.B0")&&!mime.includes("40.5"))});
+  const source:PlaybackInfo={...info,remux_allowed:true,tracks:[{index:0,kind:"video",codec:"hevc",bit_depth:10},{index:1,kind:"audio",codec:"truehd"},{index:2,kind:"audio",codec:"aac",profile:"HE-AAC"}]};
+  const caps=await playbackCapabilities(source,{canPlayType:()=>"probably"} as unknown as HTMLVideoElement);expect(caps.hls_aac_supported).toBe(true);expect(caps.hls_audio_track_indexes).not.toContain(1);expect(caps.hls_audio_track_indexes).not.toContain(2);expect(canRemuxAudio(source,caps,2)).toBe(false);
+ });
+ it("does not permit audio-only AAC output with an unsupported source video profile",async()=>{
+  vi.stubGlobal("MediaSource",{isTypeSupported:vi.fn((mime:string)=>!mime.includes("hvc1.2.4"))});const source={...info,tracks:[{index:0,kind:"video",codec:"hevc",bit_depth:10},{index:1,kind:"audio",codec:"dts",profile:"DTS-HD MA"}]};
+  expect((await playbackCapabilities(source,{canPlayType:()=>"probably"} as unknown as HTMLVideoElement)).hls_aac_supported).toBe(false);
+ });
  it("probes Main 10 HEVC and both Opus audio tracks together for lossless fMP4 playback",async()=>{
   const supported=vi.fn((mime:string)=>mime.includes("hvc1.2.4.L153.B0")&&!mime.includes("mp4a"));vi.stubGlobal("MediaSource",{isTypeSupported:supported});
   const source:PlaybackInfo={...info,remux_allowed:true,tracks:[{index:0,kind:"video",codec:"hevc",bit_depth:10},{index:1,kind:"audio",codec:"opus",language:"ja"},{index:2,kind:"audio",codec:"opus",language:"en"}]};

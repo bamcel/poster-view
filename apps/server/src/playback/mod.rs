@@ -767,6 +767,39 @@ fn duration(probe: &Value) -> f64 {
         })
         .unwrap_or(0.0)
 }
+fn source_bitrate(probe: &Value) -> Option<u64> {
+    let bitrate = |value: &Value| {
+        number(value)
+            .filter(|rate| *rate >= 1.0 && *rate < u64::MAX as f64)
+            .map(|rate| rate as u64)
+    };
+    bitrate(&probe["format"]["bit_rate"])
+        .or_else(|| {
+            let bytes = number(&probe["format"]["size"])?;
+            let seconds = duration(probe);
+            let rate = bytes * 8.0 / seconds;
+            (bytes > 0.0
+                && seconds > 0.0
+                && rate.is_finite()
+                && rate >= 1.0
+                && rate < u64::MAX as f64)
+                .then_some(rate as u64)
+        })
+        .or_else(|| {
+            let mut streams = probe["streams"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|stream| {
+                    matches!(stream["codec_type"].as_str(), Some("video" | "audio"))
+                        && stream["disposition"]["attached_pic"] != 1
+                });
+            let first = bitrate(&streams.next()?["bit_rate"])?;
+            streams.try_fold(first, |total, stream| {
+                total.checked_add(bitrate(&stream["bit_rate"])?)
+            })
+        })
+}
 fn container(path: &FsPath) -> String {
     path.extension()
         .and_then(|s| s.to_str())
@@ -858,6 +891,9 @@ pub(crate) async fn info(
             }),
         duration_seconds: duration(&probe),
         conversion_allowed: settings.allow_conversion,
+        audio_conversion_allowed: settings.allow_conversion || settings.allow_audio_transcoding,
+        bandwidth_adaptation_allowed: settings.auto_bandwidth_transcoding,
+        source_bitrate: source_bitrate(&probe),
         remux_allowed: settings.allow_remux || settings.allow_conversion,
         container: container(&source.path),
         tracks: tracks(&probe, &source),
@@ -1069,26 +1105,23 @@ fn hls_command(
     encoder: Option<(&str, &str)>,
     dir: &FsPath,
 ) -> Result<Command, HttpError> {
-    let lossless_allowed = settings.allow_remux
-        && plan.method == "remux"
-        && !plan.convert_audio
-        && encoder.is_none()
-        && input.subtitle_burn_index.is_none()
-        && !input.force_transcode;
-    if !(settings.allow_conversion || lossless_allowed) {
-        return Err(bad(
-            "Audio/video encoding is disabled. Segmented playback may only copy supported tracks when lossless repackaging is enabled.",
-        ));
-    }
-    if input.force_remux
-        && (plan.method != "remux"
-            || plan.convert_audio
-            || encoder.is_some()
-            || input.subtitle_burn_index.is_some()
-            || input.force_transcode)
+    // Revalidate policy before every initial/fallback process command. Internal
+    // retries cannot turn an audio-only or bandwidth grant into broad encoding.
+    let authorized = self::plan(probe, &container(&source.path), input, settings)?;
+    if !matches!(plan.method, "remux" | "audio_transcode" | "transcode")
+        || authorized.method != plan.method
+        || authorized.convert_audio != plan.convert_audio
+        || authorized.output_codec != plan.output_codec
+        || authorized.height != plan.height
+        || authorized.hdr != plan.hdr
+        || authorized.video != plan.video
+        || authorized.audio != plan.audio
+        || authorized.bitrate_limit != plan.bitrate_limit
+        || authorized.bandwidth_adaptation != plan.bandwidth_adaptation
+        || (plan.method == "transcode") != encoder.is_some()
     {
         return Err(bad(
-            "Lossless repackaging cannot encode audio/video or render subtitles.",
+            "The playback command does not match its authorized source, codec, or bandwidth plan.",
         ));
     }
     let mut cmd = command("ffmpeg");
@@ -1190,8 +1223,9 @@ fn hls_command(
                 if name == "libsvtav1" { "8" } else { "veryfast" },
             ]);
         }
-        let bitrate = if input.max_bitrate > 0 {
-            input.max_bitrate.saturating_sub(192_000).max(300_000)
+        let bitrate = if plan.bitrate_limit > 0 {
+            let audio_budget = if plan.audio.is_some() { 192_000 } else { 0 };
+            plan.bitrate_limit.saturating_sub(audio_budget).max(300_000)
         } else {
             match plan.height {
                 0 | 2160.. => 16_000_000,
@@ -1281,7 +1315,7 @@ pub(crate) async fn create(
         match copy_seek_start(&source, input.position_seconds).await {
             Ok(start) => input.position_seconds = start,
             Err(_) if !settings.allow_conversion || input.force_remux => {
-                return Err(failure("Lossless playback could not find a valid video keyframe for this seek. Retry from the beginning or choose a different file; audio/video encoding is disabled for this request."));
+                return Err(failure("Playback with copied video could not find a valid video keyframe for this seek. Retry from the beginning or choose a different file; video encoding is not allowed for this request."));
             }
             Err(_) => {
                 input.force_transcode = true;
@@ -1417,7 +1451,8 @@ pub(crate) async fn create(
                 .as_ref()
                 .is_some_and(|(_, backend)| backend != "software")
                 && settings.software_fallback
-                && settings.allow_conversion;
+                && (settings.allow_conversion
+                    || plan.bandwidth_adaptation && settings.auto_bandwidth_transcoding);
             if fallback {
                 let mut sessions = state.playback.sessions.lock().await;
                 let s = sessions

@@ -112,11 +112,47 @@ Playback defaults to original files. `transcoding::Settings.allow_conversion`
 defaults to false, including older settings JSON with this field absent; existing
 encoder preferences are preserved. `Settings.allow_remux` defaults to true and
 allows lossless packaging changes for track selection. `PlaybackInfo` advertises
-both policies as `conversion_allowed` and `remux_allowed`. The planner and command
-builder prohibit audio/video encoding, downmixing, quality changes, burn-in and
-keyframe-to-encode fallback unless conversion is enabled. The player suppresses
-automatic encoding retries and incompatible quality/subtitle choices. Opt-in
-conversion keeps the existing encoding engine and its tests.
+the policies as `conversion_allowed` and `remux_allowed`. The separate
+`allow_audio_transcoding` and `auto_bandwidth_transcoding` settings also default
+to false in new and older saved JSON. `audio_conversion_allowed` reports the
+effective audio permission; `bandwidth_adaptation_allowed` reports the automatic
+bandwidth option. Audio-only permission can convert an incompatible audio track
+to 192 kbps stereo AAC with supported original video copied into HLS. It cannot
+encode video, lower quality or burn subtitles, including through a decode or
+keyframe-scan fallback. This path does not require the lossless remux option.
+`SessionInput.hls_aac_supported` proves the copied source-video/AAC-LC pair
+independently of the selected source audio profile; keep it separate from the
+selected-track eligibility in `hls_audio_codecs`.
+
+Automatic bandwidth adaptation is independently scoped: a nonzero
+`SessionInput.bandwidth_limit_bps` must be authorized, bounded and lower than a
+known source bitrate. It permits a bitrate reduction for compatible video;
+it does not authorize unsupported-video recovery, manual quality requests or
+subtitle burn-in. `source_video_supported` carries the client's source-profile
+probe independently of its generic output encoder capabilities. The plan owns
+the validated bitrate limit used by the command
+builder. The server advertises `source_bitrate` from probe data; unknown bitrate
+does not establish an automatic bandwidth deficit. Broad `allow_conversion`
+retains its existing compatibility, manual-quality and burn-in behavior.
+
+The player's adjacent `lib/bandwidth.ts` owns throughput evidence and downgrade
+decisions. Automatic adaptation requires measured media throughput and sustained
+low-buffer playback, with startup/seek grace, a cooldown and a per-item limit.
+HLS measures disjoint partial-fragment body windows as well as completed
+transfers, so a large fragment can establish a deficit before it finishes.
+Producer waits and time before the first byte are excluded; a startup switch
+requires measured slow transfer windows after the grace period. Stalled direct
+playback uses bounded authenticated Range probes on the owned media URL. Probes
+must be canceled on session/item cleanup, and disabled, paused or manual-quality
+playback must not probe or adapt. Keep the selected budget across track changes
+and seeks while preserving the source clock and watch session. The browser's
+general connection hint alone must never authorize a downgrade.
+Adaptation currently runs at normal (1x) playback speed. Other speeds suppress
+sampling and probing, since their media-rate demand differs from wall-clock
+network throughput. Reductions stay in effect for the current player item;
+reopening the player starts with original quality and fresh evidence.
+Without a known bitrate or measurable transfer evidence, keep the current
+stream rather than treating a waiting event as permission to encode video.
 
 Direct playback permits a supported MKV and does not reject the default audio
 because a file contains several tracks. `SessionInput.native_audio_tracks` is a
