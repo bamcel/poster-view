@@ -857,6 +857,7 @@ pub(crate) async fn info(
                 )
             }),
         duration_seconds: duration(&probe),
+        conversion_allowed: settings.allow_conversion,
         container: container(&source.path),
         tracks: tracks(&probe, &source),
         chapters,
@@ -1067,6 +1068,11 @@ fn hls_command(
     encoder: Option<(&str, &str)>,
     dir: &FsPath,
 ) -> Result<Command, HttpError> {
+    if !settings.allow_conversion {
+        return Err(bad(
+            "Conversion and remuxing are disabled. This request cannot use segmented playback.",
+        ));
+    }
     let mut cmd = command("ffmpeg");
     cmd.current_dir(dir)
         .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-y"]);
@@ -1286,10 +1292,10 @@ pub(crate) async fn create(
             format!("/api/playback/sessions/{id}/hls/index.m3u8")
         },
         mime: if direct {
-            if container(&source.path) == "webm" {
-                "video/webm"
-            } else {
-                "video/mp4"
+            match container(&source.path).as_str() {
+                "webm" => "video/webm",
+                "mkv" => "video/x-matroska",
+                _ => "video/mp4",
             }
         } else {
             "application/vnd.apple.mpegurl"
@@ -1389,7 +1395,8 @@ pub(crate) async fn create(
             let fallback = enc
                 .as_ref()
                 .is_some_and(|(_, backend)| backend != "software")
-                && settings.software_fallback;
+                && settings.software_fallback
+                && settings.allow_conversion;
             if fallback {
                 let mut sessions = state.playback.sessions.lock().await;
                 let s = sessions

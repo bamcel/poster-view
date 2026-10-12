@@ -84,13 +84,7 @@ pub(super) fn plan(
             && (video["pix_fmt"]
                 .as_str()
                 .is_some_and(|p| !["yuv420p", "nv12", "yuvj420p"].contains(&p))));
-    let audio_ok = audio.is_none()
-        || (input.audio_codecs.iter().any(|c| c == a)
-            && audio
-                .as_ref()
-                .and_then(|s| s["channels"].as_u64())
-                .unwrap_or(2)
-                <= 2);
+    let audio_ok = audio.is_none() || input.audio_codecs.iter().any(|c| c == a);
     let too_large =
         input.max_height > 0 && video["height"].as_u64().unwrap_or(0) > u64::from(input.max_height);
     let source_bitrate = number(&probe["format"]["bit_rate"])
@@ -106,18 +100,15 @@ pub(super) fn plan(
         .as_ref()
         .and_then(|a| a["index"].as_u64());
     let chosen_audio = audio.as_ref().and_then(|a| a["index"].as_u64());
-    let direct_container = matches!(ext, "mp4" | "m4v" | "mov" | "webm")
+    let direct_container = matches!(ext, "mp4" | "m4v" | "mov" | "webm" | "mkv")
         && input
             .containers
             .iter()
             .any(|c| c == ext || (c == "mp4" && ext == "m4v"));
-    let audio_count = probe["streams"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|s| s["codec_type"] == "audio")
-        .count();
-    let direct = direct_container && default_audio == chosen_audio && audio_count <= 1;
+    // Multiple embedded tracks do not prevent original-file playback. Selecting
+    // a different one requires the browser's native track-selection support.
+    let native_audio_selection = default_audio == chosen_audio || input.native_audio_tracks;
+    let direct = direct_container && native_audio_selection;
     // WebM codec support alone does not establish support for those codecs in HLS/fMP4.
     let hls_video_ok = matches!(v, "h264" | "hevc" | "av1");
     let needs_video = input.force_transcode
@@ -126,7 +117,34 @@ pub(super) fn plan(
         || too_large
         || too_fast
         || input.subtitle_burn_index.is_some();
-    let audio_ok = audio_ok && ((!needs_video && direct) || matches!(a, "aac" | "mp3" | ""));
+    if !(settings.allow_conversion || direct && video_ok && audio_ok && !needs_video) {
+        let reason = if input.force_transcode {
+            "the request requires a converted stream"
+        } else if input.subtitle_burn_index.is_some() {
+            "the selected subtitles require video rendering"
+        } else if too_large || too_fast {
+            "the requested quality requires changing the original video"
+        } else if !direct_container {
+            "the browser has not reported support for the original container"
+        } else if !native_audio_selection {
+            "this browser cannot select the requested audio track in the original file"
+        } else if !video_ok {
+            "the browser has not reported support for the original video profile"
+        } else {
+            "the browser has not reported support for the original audio track"
+        };
+        return Err(bad(format!(
+            "Original playback is unavailable: {reason}. Conversion and remuxing are disabled."
+        )));
+    }
+    let audio_ok = audio_ok
+        && ((!needs_video && direct)
+            || (matches!(a, "aac" | "mp3" | "")
+                && audio
+                    .as_ref()
+                    .and_then(|s| s["channels"].as_u64())
+                    .unwrap_or(2)
+                    <= 2));
     let convert_audio = audio.is_some() && (!audio_ok || (needs_video && input.max_bitrate > 0));
     if convert_audio && !input.audio_codecs.iter().any(|codec| codec == "aac") {
         return Err(bad("Audio conversion requires AAC support in this browser. Select a compatible audio track or a browser with AAC playback support."));
@@ -199,11 +217,113 @@ pub(super) fn plan(
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::{input, probe};
+    use super::super::test_support::{
+        conversion_settings, input, original_mkv_input, original_mkv_probe, probe,
+    };
     use super::*;
     #[test]
-    fn preserves_video_and_selects_least_cost_method() {
+    fn original_mkv_allows_default_and_natively_selectable_audio_without_conversion() {
+        let mut data = original_mkv_probe();
         let settings = Settings::default();
+        let mut request = original_mkv_input();
+        request.subtitle_index = Some(3);
+        let selected = plan(&data, "mkv", &request, &settings).unwrap();
+        assert_eq!(selected.method, "direct");
+        assert!(!selected.convert_audio);
+        assert_eq!(selected.audio.unwrap()["index"], 1);
+        // Channel count alone must not force a downmix of natively supported audio.
+        data["streams"][1]["channels"] = serde_json::json!(6);
+        assert_eq!(
+            plan(&data, "mkv", &request, &settings).unwrap().method,
+            "direct"
+        );
+        request.audio_index = Some(2);
+        let error = plan(&data, "mkv", &request, &settings).err().unwrap();
+        assert!(error
+            .detail
+            .contains("cannot select the requested audio track"));
+        request.native_audio_tracks = true;
+        let selected = plan(&data, "mkv", &request, &settings).unwrap();
+        assert_eq!(selected.method, "direct");
+        assert_eq!(selected.audio.unwrap()["index"], 2);
+        assert!(!selected.convert_audio);
+    }
+    #[test]
+    fn original_only_rejects_conversion_and_remux_requirements_with_clear_reasons() {
+        let data = original_mkv_probe();
+        let settings = Settings::default();
+        let cases = [
+            (
+                SessionInput {
+                    containers: vec!["mp4".into()],
+                    ..original_mkv_input()
+                },
+                "original container",
+            ),
+            (
+                SessionInput {
+                    video_codecs: vec!["h264".into()],
+                    ..original_mkv_input()
+                },
+                "video profile",
+            ),
+            (
+                SessionInput {
+                    audio_codecs: vec!["aac".into()],
+                    ..original_mkv_input()
+                },
+                "original audio track",
+            ),
+            (
+                SessionInput {
+                    max_height: 720,
+                    ..original_mkv_input()
+                },
+                "requested quality",
+            ),
+            (
+                SessionInput {
+                    max_bitrate: 1_000_000,
+                    ..original_mkv_input()
+                },
+                "requested quality",
+            ),
+            (
+                SessionInput {
+                    force_transcode: true,
+                    ..original_mkv_input()
+                },
+                "converted stream",
+            ),
+            (
+                SessionInput {
+                    subtitle_burn_index: Some(3),
+                    ..original_mkv_input()
+                },
+                "video rendering",
+            ),
+        ];
+        for (request, reason) in cases {
+            let error = plan(&data, "mkv", &request, &settings).err().unwrap();
+            assert_eq!(error.status, axum::http::StatusCode::BAD_REQUEST);
+            assert!(error.detail.contains(reason), "{}", error.detail);
+            assert!(error
+                .detail
+                .contains("Conversion and remuxing are disabled"));
+        }
+        let request = SessionInput {
+            containers: vec!["mp4".into()],
+            audio_codecs: vec!["opus".into(), "aac".into()],
+            ..original_mkv_input()
+        };
+        let selected = plan(&data, "mkv", &request, &conversion_settings()).unwrap();
+        assert_eq!(selected.method, "audio_transcode");
+        assert!(selected.convert_audio);
+        assert_eq!(selected.video["codec_name"], "hevc");
+    }
+    #[test]
+    fn preserves_video_and_selects_least_cost_method() {
+        let settings = conversion_settings();
         let mut p = probe();
         p["streams"].as_array_mut().unwrap().remove(2);
         assert_eq!(
@@ -242,7 +362,7 @@ mod tests {
     fn output_codec_requires_server_and_browser_support() {
         let settings = Settings {
             allow_av1: true,
-            ..Settings::default()
+            ..conversion_settings()
         };
         let mut request = input();
         request.force_transcode = true;
@@ -253,7 +373,7 @@ mod tests {
                 .output_codec,
             "av1"
         );
-        let disabled = Settings::default();
+        let disabled = conversion_settings();
         let error = plan(&probe(), "mkv", &request, &disabled).err().unwrap();
         assert!(error.detail.contains("compatible video encoder"));
         request.video_codecs = vec!["hevc".into(), "h264".into()];
@@ -266,7 +386,7 @@ mod tests {
         );
         let enabled = Settings {
             allow_hevc: true,
-            ..Settings::default()
+            ..conversion_settings()
         };
         assert_eq!(
             plan(&probe(), "mkv", &request, &enabled)
@@ -302,19 +422,19 @@ mod tests {
         request.force_transcode = true;
         request.audio_codecs = vec!["mp3".into()];
         assert!(
-            !plan(&probe, "mkv", &request, &Settings::default())
+            !plan(&probe, "mkv", &request, &conversion_settings())
                 .unwrap()
                 .convert_audio
         );
         request.audio_index = Some(2);
-        assert!(plan(&probe, "mkv", &request, &Settings::default())
+        assert!(plan(&probe, "mkv", &request, &conversion_settings())
             .err()
             .unwrap()
             .detail
             .contains("AAC support"));
         request.audio_codecs.push("aac".into());
         assert!(
-            plan(&probe, "mkv", &request, &Settings::default())
+            plan(&probe, "mkv", &request, &conversion_settings())
                 .unwrap()
                 .convert_audio
         );
@@ -325,12 +445,12 @@ mod tests {
         probe["format"].as_object_mut().unwrap().remove("duration");
         let mut request = input();
         request.position_seconds = 600.0;
-        assert!(plan(&probe, "mkv", &request, &Settings::default()).is_ok());
+        assert!(plan(&probe, "mkv", &request, &conversion_settings()).is_ok());
         request.position_seconds = MAX_PLAYBACK_SECONDS + 1.0;
-        assert!(plan(&probe, "mkv", &request, &Settings::default()).is_err());
+        assert!(plan(&probe, "mkv", &request, &conversion_settings()).is_err());
         probe["streams"][0]["duration"] = serde_json::json!(120.0);
         request.position_seconds = 121.0;
-        assert!(plan(&probe, "mkv", &request, &Settings::default()).is_err());
+        assert!(plan(&probe, "mkv", &request, &conversion_settings()).is_err());
     }
     #[test]
     fn requested_bitrate_limit_is_enforced_when_source_bitrate_is_unknown() {
@@ -339,14 +459,14 @@ mod tests {
         let mut request = input();
         request.max_bitrate = 1_000_000;
         assert_eq!(
-            plan(&probe, "mkv", &request, &Settings::default())
+            plan(&probe, "mkv", &request, &conversion_settings())
                 .unwrap()
                 .method,
             "transcode"
         );
         probe["format"]["size"] = serde_json::json!(100_000);
         assert_eq!(
-            plan(&probe, "mkv", &request, &Settings::default())
+            plan(&probe, "mkv", &request, &conversion_settings())
                 .unwrap()
                 .method,
             "remux"

@@ -1,6 +1,8 @@
 //! Cross-boundary delivery, media processing, and cleanup tests.
 
-use super::test_support::{input, probe};
+use super::test_support::{
+    conversion_settings, input, original_mkv_input, original_mkv_probe, probe,
+};
 use super::*;
 use serde_json::json;
 #[test]
@@ -15,7 +17,7 @@ fn copied_video_can_fill_ahead_faster_without_changing_transcode_or_windows_paci
     let file = directory.path().join("copy.mkv");
     std::fs::write(&file, b"fixture").unwrap();
     let source = super::test_support::source(&file);
-    let settings = Settings::default();
+    let settings = conversion_settings();
     let mut data = probe();
     data["streams"][0]["codec_name"] = json!("hevc");
     let mut request = input();
@@ -232,7 +234,7 @@ fn audio_boost_applies_only_to_multichannel_downmixing() {
     let source = super::test_support::source(&file);
     let settings = Settings {
         audio_boost: 2.0,
-        ..Settings::default()
+        ..conversion_settings()
     };
     let mut data = probe();
     data["streams"][1]["codec_name"] = json!("opus");
@@ -445,6 +447,230 @@ async fn streams_ranges_without_reading_whole_file() {
     );
 }
 #[tokio::test]
+async fn original_dual_audio_mkv_uses_ranges_and_rejects_conversion_before_jobs() {
+    use http_body_util::BodyExt;
+    use posterview_contracts::native::{
+        AnimeContent, NativeLibraryInput, NativeLibraryOptions, NativeLibraryType,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let state = crate::test_support::state(directory.path());
+    let file = directory.path().join("media/Movies/Original.mkv");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    // Cached media metadata lets this delivery/policy fixture run without FFmpeg.
+    std::fs::write(&file, b"0123456789").unwrap();
+    let database = ServerStore::new(state.runtime.data_dir());
+    let library = database
+        .save_native_library(
+            None,
+            &NativeLibraryInput {
+                name: "Original".into(),
+                library_type: NativeLibraryType::Movies,
+                anime_content: AnimeContent::Both,
+                paths: vec!["Movies".into()],
+                revision: None,
+                options: NativeLibraryOptions::default(),
+            },
+        )
+        .unwrap();
+    database
+        .ingest_native_catalog(
+            &library.id,
+            library.revision,
+            &[NativeCatalogEntry {
+                id: String::new(),
+                path: "Movies/Original.mkv".into(),
+                kind: "movie".into(),
+                parent_path: None,
+                title: "Original".into(),
+                metadata: json!({}),
+                artwork: vec![],
+                files: vec![json!({"path":"Movies/Original.mkv"})],
+                nfo_path: None,
+                nfo_xml: None,
+                available: true,
+                revision: 1,
+            }],
+        )
+        .unwrap();
+    let item = database.native_catalog(&library.id).unwrap().remove(0);
+    let resolved = source(&state, library.id.clone(), item.id.clone())
+        .await
+        .unwrap();
+    state.playback.probes.lock().await.insert(
+        resolved.path.clone(),
+        ProbeCache {
+            stamp: resolved.fingerprint,
+            probe: original_mkv_probe(),
+            used: Instant::now(),
+        },
+    );
+    let metadata = info(
+        State(state.clone()),
+        Path((library.id.clone(), item.id.clone())),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert!(!metadata.conversion_allowed);
+    assert_eq!(metadata.container, "mkv");
+    assert_eq!(
+        metadata
+            .tracks
+            .iter()
+            .filter(|track| track.kind == "audio")
+            .count(),
+        2
+    );
+    let response = create(
+        State(state.clone()),
+        Path((library.id.clone(), item.id.clone())),
+        Json(SessionInput {
+            position_seconds: 50.0,
+            subtitle_index: Some(3),
+            ..original_mkv_input()
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(response.method, "direct");
+    assert_eq!(response.mime, "video/x-matroska");
+    assert_eq!(response.offset_seconds, 0.0);
+    assert_eq!(response.audio_index, Some(1));
+    assert!(response.encoder.is_none());
+    let sessions = state.playback.sessions.lock().await;
+    let saved = sessions.get(&response.id).unwrap();
+    assert!(saved.child.is_none());
+    assert!(saved.directory.is_none());
+    drop(sessions);
+    let request = axum::http::Request::builder()
+        .header(header::RANGE, "bytes=2-4")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let delivery = stream(State(state.clone()), Path(response.id.clone()), request)
+        .await
+        .unwrap();
+    assert_eq!(delivery.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(delivery.headers()[header::CONTENT_TYPE], "video/x-matroska");
+    assert_eq!(delivery.headers()[header::CONTENT_RANGE], "bytes 2-4/10");
+    assert_eq!(
+        delivery.into_body().collect().await.unwrap().to_bytes(),
+        "234"
+    );
+    state.playback.stop_id(&response.id).await;
+    let cases = [
+        (
+            SessionInput {
+                audio_index: Some(2),
+                ..original_mkv_input()
+            },
+            "cannot select the requested audio track",
+        ),
+        (
+            SessionInput {
+                containers: vec!["mp4".into()],
+                ..original_mkv_input()
+            },
+            "original container",
+        ),
+        (
+            SessionInput {
+                video_codecs: vec!["h264".into()],
+                ..original_mkv_input()
+            },
+            "video profile",
+        ),
+        (
+            SessionInput {
+                max_height: 720,
+                ..original_mkv_input()
+            },
+            "requested quality",
+        ),
+        (
+            SessionInput {
+                subtitle_burn_index: Some(3),
+                ..original_mkv_input()
+            },
+            "video rendering",
+        ),
+        (
+            SessionInput {
+                force_transcode: true,
+                ..original_mkv_input()
+            },
+            "converted stream",
+        ),
+    ];
+    for (request, reason) in cases {
+        let error = create(
+            State(state.clone()),
+            Path((library.id.clone(), item.id.clone())),
+            Json(request),
+        )
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert!(error.detail.contains(reason), "{}", error.detail);
+        assert!(state.playback.sessions.lock().await.is_empty());
+        assert!(state.playback.hardware.lock().await.is_empty());
+        assert!(state.playback.resources.lock().await.is_empty());
+        assert!(!state.playback.root.join("posterview-playback").exists());
+    }
+    let native_selection = create(
+        State(state.clone()),
+        Path((library.id.clone(), item.id.clone())),
+        Json(SessionInput {
+            audio_index: Some(2),
+            native_audio_tracks: true,
+            ..original_mkv_input()
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(native_selection.method, "direct");
+    assert_eq!(native_selection.audio_index, Some(2));
+    state.playback.stop_id(&native_selection.id).await;
+    database
+        .set_setting(
+            "transcoding-settings",
+            &serde_json::to_string(&conversion_settings()).unwrap(),
+        )
+        .unwrap();
+    assert!(
+        info(State(state.clone()), Path((library.id, item.id)))
+            .await
+            .unwrap()
+            .0
+            .conversion_allowed
+    );
+}
+#[test]
+fn conversion_disabled_cannot_construct_a_segmented_playback_command() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("fixture.mkv");
+    std::fs::write(&file, b"fixture").unwrap();
+    let source = super::test_support::source(&file);
+    let data = probe();
+    let request = input();
+    let chosen = plan(&data, "mkv", &request, &conversion_settings()).unwrap();
+    assert!(hls_command(
+        &source,
+        &data,
+        &chosen,
+        &request,
+        &Settings::default(),
+        None,
+        directory.path()
+    )
+    .err()
+    .unwrap()
+    .detail
+    .contains("Conversion and remuxing are disabled"));
+}
+#[tokio::test]
 async fn copied_hevc_main10_with_opus_preserves_long_gop_video_and_converts_only_audio() {
     if command("ffmpeg").arg("-version").status().await.is_err() {
         eprintln!("FFmpeg not installed; HEVC playback fixture skipped.");
@@ -501,7 +727,7 @@ async fn copied_hevc_main10_with_opus_preserves_long_gop_video_and_converts_only
     request.video_codecs = vec!["hevc".into()];
     let settings = Settings {
         throttle: false,
-        ..Settings::default()
+        ..conversion_settings()
     };
     let chosen = plan(&data, "mkv", &request, &settings).unwrap();
     assert_eq!(chosen.method, "audio_transcode");
@@ -674,7 +900,7 @@ async fn real_ffmpeg_remux_audio_conversion_subtitles_and_cleanup() {
     let settings = Settings {
         throttle: false,
         max_resolution: 0,
-        ..Settings::default()
+        ..conversion_settings()
     };
     db.set_setting(
         "transcoding-settings",

@@ -53,7 +53,8 @@
 .pv-player-menu h2{font-size:17px;font-weight:600;margin:0}
 .pv-option-list{padding:6px}
 .pv-option-list>button{width:100%;display:flex;align-items:center;justify-content:space-between;gap:15px;text-align:left;padding:12px 10px;min-height:44px;border:0;border-radius:4px;background:transparent;line-height:1.5}
-.pv-option-list>button:hover,.pv-option-list>button[aria-pressed=true]{background:rgba(255,255,255,.1)}
+.pv-option-list>button:not(:disabled):hover,.pv-option-list>button[aria-pressed=true]{background:rgba(255,255,255,.1)}
+.pv-option-list>button:disabled{cursor:not-allowed}
 .pv-option-list>button svg{flex-shrink:0;color:var(--color-accent,#77b778)}
 .pv-option-list time{font-size:13px;color:#bbb}
 .pv-toggle{display:flex;align-items:center;gap:9px;padding:14px 10px;line-height:1.5}

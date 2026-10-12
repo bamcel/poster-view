@@ -59,5 +59,10 @@ export async function playbackCapabilities(info: PlaybackInfo, video: HTMLVideoE
       } catch { /* Runtime decode fallback handles inconclusive capability checks. */ }
     }
   }
-  return { source_video_supported:sourceVideoSupported, video_codecs:videoCodecs, audio_codecs:Object.keys(audioTypes).filter(codec=>!!video.canPlayType(audioTypes[codec])),containers:[...(video.canPlayType("video/mp4")?["mp4","mov"]:[]),...(video.canPlayType("video/webm")?["webm"]:[])] };
+  const browser=navigator as Navigator&{userAgentData?:{brands?:{brand:string}[]}};
+  const chromium=!!browser.userAgentData?.brands?.some(value=>/chromium|google chrome|microsoft edge/i.test(value.brand))||/(?:Chrome|Chromium|Edg)\/\d/i.test(browser.userAgent);
+  const operaTv=/Opera\s*TV|OperaTV|OMI\/|HbbTV/i.test(browser.userAgent);
+  let nativeAudio=false;
+  try{const tracks=(video as HTMLVideoElement&{audioTracks?:{length:number}}).audioTracks;nativeAudio=!!tracks&&Number.isInteger(tracks.length)&&tracks.length>=0;}catch{/* An unavailable browser API must not enable nondefault audio. */}
+  return { source_video_supported:sourceVideoSupported, native_audio_tracks:nativeAudio, video_codecs:videoCodecs, audio_codecs:Object.keys(audioTypes).filter(codec=>!!video.canPlayType(audioTypes[codec])),containers:[...(video.canPlayType("video/mp4")?["mp4","mov"]:[]),...(video.canPlayType("video/webm")?["webm"]:[]),...(video.canPlayType("video/x-matroska")||video.canPlayType("video/mkv")||(chromium&&!operaTv)?["mkv"]:[])] };
 }

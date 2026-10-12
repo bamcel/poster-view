@@ -13,16 +13,19 @@ export interface PlaybackInfo {
   poster_url?: string | null; overview?: string | null; container?: string; duration_seconds: number;
   tracks: PlaybackTrack[]; chapters: {title: string; start_seconds: number}[];
   fonts?: { index: number; url: string; name: string }[];
+  conversion_allowed?: boolean;
   next?: { library_id: string; item_id: string; title: string } | null;
 }
 export interface PlaybackSession {
   id: string; method: "direct" | "remux" | "audio_transcode" | "transcode"; reason: string;
   url: string; mime: string; offset_seconds: number; duration_seconds: number; encoder?: string | null;
+  audio_index?: number | null;
 }
 export interface PlaybackRequest {
   position_seconds: number; audio_index: number | null; subtitle_index: number | null;
   max_height: number; max_bitrate: number; video_codecs: string[]; audio_codecs: string[]; containers: string[];
   force_transcode?: boolean; preferred_encoder?: string; subtitle_burn_index?: number | null;
+  native_audio_tracks?: boolean;
 }
 export interface WatchState {
   position_seconds:number; duration_seconds:number; watched:boolean; play_count:number;

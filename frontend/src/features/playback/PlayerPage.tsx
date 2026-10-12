@@ -8,6 +8,7 @@ import { playbackCapabilities, playbackTime, safePlayerReturn, selectTracks, tra
 import {canSeekInCurrentSource} from "./lib/seek";
 import {createSessionHeartbeatQueue} from "./lib/sessionHeartbeat";
 import {hlsBufferOptions} from "./lib/hlsBuffer";
+import {defaultAudioIndex,enableNativeAudio,mapNativeAudio,nativeAudioTracks,type NativeAudioTrack} from "./lib/nativeAudio";
 import DetailSynopsis from "../../components/DetailSynopsis";
 import {applyPlainSubtitlePosition,subtitleAppearance,subtitleAppearanceVariables} from "./lib/subtitleAppearance";
 import "./PlayerPage.css";
@@ -30,6 +31,8 @@ export default function PlayerPage() {
   const [playing,setPlaying]=useState(false), [buffering,setBuffering]=useState(false), [visible,setVisible]=useState(true);
   const [position,setPosition]=useState(0), [scrubbing,setScrubbing]=useState<number|null>(null), [buffered,setBuffered]=useState(0);
   const [audio,setAudio]=useState<number|null>(null), [subtitle,setSubtitle]=useState(-1), [burnSubtitles,setBurnSubtitles]=useState(false);
+  const [nativeAudioChoices,setNativeAudioChoices]=useState<number[]>([]),[audioHelp,setAudioHelp]=useState("");
+  const audioMapping=useRef(new Map<number,NativeAudioTrack>());
   const [volume,setVolume]=useState(1), [muted,setMuted]=useState(false), [speed,setSpeed]=useState(1), [quality,setQuality]=useState(0);
   const [menu,setMenu]=useState<Menu>(null), [fullscreen,setFullscreen]=useState(false), [pip,setPip]=useState(false);
   const [watchPrompt,setWatchPrompt]=useState(false), [ended,setEnded]=useState(false), [countdown,setCountdown]=useState<number|null>(null);
@@ -56,6 +59,7 @@ export default function PlayerPage() {
   const controls=useRef({visible:true,playing:false,menu:null as Menu,dragging:false,lastActive:Date.now(),focus:false,prompt:false,ended:false});
   const restartRef=useRef<(position:number,force?:boolean)=>Promise<void>>(async()=>{});
   const replayRef=useRef<(position?:number,autoplay?:boolean)=>Promise<void>>(async()=>{});
+  const failureRef=useRef<(message:string)=>void>(()=>{});
   const report=useCallback((isEnded=false,keepalive=false,seeking=false,previousRoute=false)=>{
     if(!watchSession.current||(!ready.current&&!pendingSeek.current)||(!previousRoute&&activeRoute.current!==routeKey))return;
     const payload={session_id:watchSession.current,sequence:++sequence.current,position_seconds:sourcePosition.current,paused:video.current?.paused??true,ended:isEnded,seeking:seeking||!!pendingSeek.current,...(!keepalive&&current.current?{playback_session_id:current.current.id}:{}),audio_index:selected.current.audio,subtitle_index:selected.current.subtitle};
@@ -81,7 +85,13 @@ export default function PlayerPage() {
     // Wake a producer that was throttled while paused before waiting for the
     // browser's play promise, which can itself need the next HLS segment.
     heartbeat(false);
-    try{await element.play();setNotice(value=>value==="Press Play to begin playback."||value.startsWith("The browser cannot decode this source.")?"":value);}catch(error){setNotice(error instanceof DOMException&&error.name==="NotAllowedError"?"Press Play to begin playback.":errorMessage(error));}
+    const owned=current.current.id,generation=requestGeneration.current;
+    try{await element.play();if(activeRoute.current===routeKey&&current.current?.id===owned&&requestGeneration.current===generation)setNotice(value=>value==="Press Play to begin playback."||value.startsWith("The browser cannot decode this source.")?"":value);}catch(error){
+      if(activeRoute.current!==routeKey||current.current?.id!==owned||requestGeneration.current!==generation)return;
+      if(error instanceof DOMException&&error.name==="NotAllowedError")setNotice("Press Play to begin playback.");
+      else if(infoRef.current?.conversion_allowed!==true)failureRef.current("This browser cannot play the original file. Media conversion is disabled.");
+      else setNotice(errorMessage(error));
+    }
   },[interact,routeKey,heartbeat]);
   const terminalError=useCallback((message:string)=>{
     if(!mounted.current||activeRoute.current!==routeKey)return;
@@ -102,6 +112,7 @@ export default function PlayerPage() {
     }
     setLoading(false);setBuffering(false);setPlaying(false);setVisible(true);setError(message);
   },[report,routeKey,cancelSeekRefresh]);
+  failureRef.current=terminalError;
   const start=useCallback(async(sourceTime:number,force=false,playOverride?:boolean)=>{
     const element=video.current, data=infoRef.current, caps=capability.current;
     if(!element||!data||!caps||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!watchSession.current)return;
@@ -113,6 +124,7 @@ export default function PlayerPage() {
     report();sourcePosition.current=target;pendingSeek.current={generation,target};setPosition(target);setScrubbing(null);report(false,false,true);
     ready.current=false;mediaOwner.current=null;metadataCleanup.current?.();metadataCleanup.current=undefined;
     const previous=current.current;current.current=undefined;
+    audioMapping.current.clear();setNativeAudioChoices([]);setAudioHelp("Audio choices will be available after the browser loads the original file.");
     waitingDemand.current=false;if(previous)heartbeatQueue.current?.forget(previous.id);
     element.pause();setPlaying(false);setLoading(true);setBuffering(false);setError("");setEnded(false);setCountdown(null);
     hls.current?.destroy();hls.current=undefined;
@@ -125,9 +137,9 @@ export default function PlayerPage() {
     if(pendingAllocation.current)await pendingAllocation.current;
     if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)return;
     try{
-      const choice=selected.current, q=qualities[choice.quality];
+      const choice=selected.current, conversionAllowed=data.conversion_allowed===true,q=qualities[conversionAllowed?choice.quality:0];
       const {source_video_supported,...outputCapabilities}=caps;
-      const creating=playbackApi.create(libraryId,itemId,{position_seconds:target,audio_index:choice.audio,subtitle_index:choice.subtitle<0?null:choice.subtitle,max_height:q.height,max_bitrate:q.bitrate,...outputCapabilities,force_transcode:force||!source_video_supported,subtitle_burn_index:choice.burn&&choice.subtitle>=0?choice.subtitle:null});
+      const creating=playbackApi.create(libraryId,itemId,{position_seconds:target,audio_index:choice.audio,subtitle_index:choice.subtitle<0?null:choice.subtitle,max_height:q.height,max_bitrate:q.bitrate,...outputCapabilities,force_transcode:conversionAllowed&&(force||!source_video_supported),subtitle_burn_index:conversionAllowed&&choice.burn&&choice.subtitle>=0?choice.subtitle:null});
       const allocation=creating.then(async created=>{
         if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)await playbackApi.stop(created.id).catch(()=>{});
       }).catch(()=>{});
@@ -136,8 +148,21 @@ export default function PlayerPage() {
       const created=await creating;
       if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)return;
       current.current=created;mediaOwner.current={generation,sessionId:created.id};offset.current=created.offset_seconds;retentionPosition.current=target;confirmedPosition.current=target;setSession(created);
+      if(!conversionAllowed&&created.method!=="direct"){terminalError("The server returned converted playback while media conversion is disabled. Original playback is unavailable for this file.");return;}
       const initialize=()=>{
         if(activeRoute.current!==routeKey||generation!==requestGeneration.current||current.current?.id!==created.id)return;
+        if(created.method==="direct"){
+          const list=nativeAudioTracks(element),mapping=mapNativeAudio(data,list),requested=created.audio_index??choice.audio??defaultAudioIndex(data);
+          audioMapping.current=mapping;setNativeAudioChoices(Array.from(mapping.keys()));
+          if(list&&requested!=null&&mapping.has(requested)){
+            if(!enableNativeAudio(list,mapping,requested)){terminalError("The browser could not select the requested audio track. Original playback cannot change it reliably.");return;}
+            setAudioHelp(data.tracks.some(track=>track.kind==="audio"&&!mapping.has(track.index))?"The browser exposes only some audio tracks. Unavailable tracks cannot be selected in original playback.":"");
+          }else if(requested!=null&&requested===defaultAudioIndex(data)&&Array.from(mapping.entries()).some(([index,track])=>index!==requested&&track.enabled)){
+            setAudio(null);terminalError("The browser does not expose the requested default audio track and has selected a different identified track. Use another browser to play the requested audio.");return;
+          }else if(requested!==defaultAudioIndex(data)&&requested!=null){setAudio(null);terminalError("The browser could not identify the requested audio track. Choose the default audio track or use another browser.");return;}
+          else setAudioHelp(list?"The browser's default audio is playing. Other tracks cannot be mapped reliably.":"Original playback uses the file's default audio. This browser does not expose audio-track selection.");
+          selected.current.audio=requested;setAudio(requested);
+        }
         const relativePosition=Math.max(0,target-created.offset_seconds);
         element.currentTime=relativePosition;
         element.playbackRate=speedRef.current;ready.current=true;setLoading(false);report(false,false,true);if(shouldPlay)void play(false);else heartbeat(true);
@@ -149,6 +174,7 @@ export default function PlayerPage() {
         hls.current=instance;let mediaRecovery=false;
         instance.on(Hls.Events.ERROR,(_event,data)=>{
           if(!data.fatal||generation!==requestGeneration.current)return;
+          if(!conversionAllowed){terminalError("This browser cannot play the original file. Media conversion is disabled.");return;}
           if(data.details==="fragLoadError"&&data.response?.code===404&&pendingSeek.current&&!retentionRecovery.current){retentionRecovery.current=true;void restartRef.current(sourcePosition.current);return;}
           if(data.type===Hls.ErrorTypes.MEDIA_ERROR&&!mediaRecovery){
             mediaRecovery=true;
@@ -177,17 +203,23 @@ export default function PlayerPage() {
     infoRef.current=undefined;capability.current=undefined;
     setInitializing(true);setLoading(true);setError("");setNotice("");setWatchError("");
     setInfo(undefined);setSession(undefined);setPosition(0);setBuffered(0);setScrubbing(null);setPlaying(false);setBuffering(false);
-    setAudio(null);setSubtitle(-1);setBurnSubtitles(false);setQuality(0);setMenu(null);setEnded(false);setCountdown(null);setWatchPrompt(false);setVisible(true);
+    audioMapping.current.clear();setNativeAudioChoices([]);setAudioHelp("");setAudio(null);setSubtitle(-1);setBurnSubtitles(false);setQuality(0);setMenu(null);setEnded(false);setCountdown(null);setWatchPrompt(false);setVisible(true);
     sourcePosition.current=0;confirmedPosition.current=0;offset.current=0;retries.current=0;
     controls.current.playing=false;controls.current.menu=null;controls.current.dragging=false;controls.current.prompt=false;controls.current.ended=false;
       try{
         const [data,prefs,state]=await Promise.all([playbackApi.info(libraryId,itemId,controller.signal),watchApi.preferences(controller.signal),watchApi.state(libraryId,itemId,controller.signal)]);
         if(!isCurrent()||!video.current)return;
         const caps=await playbackCapabilities(data,video.current);if(!isCurrent())return;
-        const tracks=selectTracks(data,prefs,state), chosenSub=data.tracks.find(track=>track.index===tracks.subtitle);
+        const tracks=selectTracks(data,prefs,state);let chosenSub=data.tracks.find(track=>track.index===tracks.subtitle);
+        const conversionAllowed=data.conversion_allowed===true,messages:string[]=[];
+        if(!conversionAllowed&&!caps.native_audio_tracks&&tracks.audio!==defaultAudioIndex(data)){
+          tracks.audio=defaultAudioIndex(data);messages.push("This browser cannot switch the original file's audio tracks. The file's default audio will play instead of your saved audio preference.");
+        }
+        if(!conversionAllowed&&chosenSub?.subtitle_format==="image"){tracks.subtitle=-1;chosenSub=undefined;messages.push("Image subtitles need media conversion, which is disabled. Choose a text subtitle track.");}
         infoRef.current=data;prefsRef.current=prefs;capability.current=caps;
-        selected.current={audio:tracks.audio,subtitle:tracks.subtitle,burn:chosenSub?.subtitle_format==="image",quality:0};
+        selected.current={audio:tracks.audio,subtitle:tracks.subtitle,burn:conversionAllowed&&chosenSub?.subtitle_format==="image",quality:0};
         setInfo(data);setPreferences(prefs);setAudio(tracks.audio);setSubtitle(tracks.subtitle);setBurnSubtitles(selected.current.burn);
+        if(messages.length)setNotice(messages.join(" "));
         const watch=await watchApi.begin(libraryId,itemId);if(!isCurrent())return;
         if(!watch.session_id)throw new Error("Watch tracking could not be initialized. Try again.");
         watchSession.current=watch.session_id;sequence.current=0;initializedRoute.current=routeKey;setInitializing(false);
@@ -197,7 +229,7 @@ export default function PlayerPage() {
   },[libraryId,itemId,routeKey,startFromBeginning,start,cancelSeekRefresh]);
   const retryPlayback=()=>{
     retries.current=0;
-    if(initializedRoute.current===routeKey&&watchSession.current&&infoRef.current&&capability.current)void start(sourcePosition.current,true);
+    if(initializedRoute.current===routeKey&&watchSession.current&&infoRef.current&&capability.current)void start(sourcePosition.current,infoRef.current.conversion_allowed===true);
     else void initializeItem();
   };
   useEffect(()=>{
@@ -348,15 +380,25 @@ export default function PlayerPage() {
           };
           element.append(track);track.track.mode="showing";
         }
-      }catch(error){if(!canceled&&!controller.signal.aborted)setNotice(`Subtitles: ${errorMessage(error)} Select “Burn subtitles into video” to use the server renderer.`);}
+      }catch(error){if(!canceled&&!controller.signal.aborted)setNotice(`Subtitles: ${errorMessage(error)} ${data?.conversion_allowed===true?"Select “Burn subtitles into video” to use the server renderer.":"Choose another text subtitle track; media conversion is disabled."}`);}
     })();
     return()=>{canceled=true;controller.abort();element.textTracks.removeEventListener?.("addtrack",disableNative);void renderer?.destroy();track?.remove();if(objectUrl)URL.revokeObjectURL(objectUrl);};
   },[info,session,subtitle,burnSubtitles,libraryId,itemId,preferences.subtitle_position]);
   const changeTrack=(kind:"audio"|"subtitle",value:number)=>{
     if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
-    interact();setNotice("");if(kind==="audio"){selected.current.audio=value;setAudio(value);report();void start(sourcePosition.current);}
+    const original=infoRef.current?.conversion_allowed!==true;
+    interact();setNotice("");if(kind==="audio"){
+      if(current.current?.method==="direct"&&audioMapping.current.has(value)){
+        if(enableNativeAudio(video.current?nativeAudioTracks(video.current):null,audioMapping.current,value)){selected.current.audio=value;setAudio(value);setAudioHelp(infoRef.current?.tracks.some(track=>track.kind==="audio"&&!audioMapping.current.has(track.index))?"The browser exposes only some audio tracks. Unavailable tracks cannot be selected in original playback.":"");report();setMenu(null);return;}
+        if(original){terminalError("The browser could not select this audio track. Original playback cannot change it reliably.");return;}
+      }
+      if(original&&value!==defaultAudioIndex(infoRef.current!)){setNotice("This audio track is unavailable because the browser cannot select it reliably. Media conversion is disabled.");return;}
+      if(original&&value===selected.current.audio&&current.current){setMenu(null);return;}
+      selected.current.audio=value;setAudio(value);report();void start(sourcePosition.current);
+    }
     else{
       const previousBurn=selected.current.burn, chosen=info?.tracks.find(track=>track.index===value);
+      if(original&&chosen?.subtitle_format==="image"){setNotice("Image subtitles require media conversion, which is disabled.");return;}
       selected.current.subtitle=value;selected.current.burn=chosen?.subtitle_format==="image";setSubtitle(value);setBurnSubtitles(selected.current.burn);report();
       if(previousBurn||selected.current.burn)void start(sourcePosition.current);
     }
@@ -435,10 +477,13 @@ export default function PlayerPage() {
   replayRef.current=replay;
   const mediaError=()=>{
     if(!ownsMedia())return;
+    if(infoRef.current?.conversion_allowed!==true){terminalError("This browser cannot play the original file. Media conversion is disabled.");return;}
     if(retries.current++===0&&current.current?.method!=="transcode"){setNotice("The browser cannot decode this source. Switching to compatible playback…");void start(sourcePosition.current,true);}
     else terminalError("The browser could not decode the video. Check transcoding settings or select a lower quality.");
   };
   const duration=info?.duration_seconds||session?.duration_seconds||0;
+  const originalOnly=info?.conversion_allowed!==true;
+  const retryLabel=info?originalOnly?"Retry original playback":"Retry compatible playback":"Retry playback";
   const pendingInitialization=initializing||initializedRoute.current!==routeKey;
   const showNext=!pendingInitialization&&!!info?.next&&preferences.up_next&&duration>0&&position>=duration-20;
   const title=pendingInitialization?"Media player":info?.season!=null&&info?.episode!=null?`S${info.season}:E${info.episode} – ${info.title}`:info?.title??"Media player";
@@ -453,7 +498,7 @@ export default function PlayerPage() {
       </div>
     </div>
     {(loading||buffering)&&!error&&<div className="pv-player-loading" role="status"><span className="pv-spinner"/><span>{loading?"Preparing playback…":"Buffering…"}</span></div>}
-    {error&&<div className="pv-player-message" role="alert"><h1>Unable to play</h1><p>{error}</p><div><button className="pv-primary" onClick={retryPlayback}>Retry compatible playback</button><button className="pv-button" onClick={exit}>Back to media</button></div></div>}
+    {error&&<div className="pv-player-message" role="alert"><h1>Unable to play</h1><p>{error}</p><div><button className="pv-primary" onClick={retryPlayback}>{retryLabel}</button><button className="pv-button" onClick={exit}>Back to media</button></div></div>}
     {watchPrompt&&<div className="pv-player-message" role="dialog" aria-modal="true" aria-label="Still watching" onKeyDown={event=>{if(event.key!=="Tab")return;const buttons=event.currentTarget.querySelectorAll<HTMLButtonElement>("button"),first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}}><h2>Are you still watching?</h2><p>Playback paused after inactivity.</p><button className="pv-primary" autoFocus onClick={()=>{setWatchPrompt(false);interact();void play();}}>Continue watching</button><button className="pv-button" onClick={exit}>Stop playback</button></div>}
     {notice&&<div className="pv-player-notice" role="status">{notice}<button aria-label="Dismiss message" onClick={()=>setNotice("")}><X size={16}/></button></div>}
     {watchError&&<div className="pv-watch-error" role="status">{watchError}</div>}
@@ -461,10 +506,10 @@ export default function PlayerPage() {
     {ended&&!pendingInitialization&&!info?.next&&!error&&<div className="pv-player-message"><h2>Playback completed</h2><button className="pv-primary" onClick={()=>void replay()}>Play again</button><button className="pv-button" onClick={exit}>Back to media</button></div>}
     {menu&&!pendingInitialization&&<div className="pv-player-menu" inert={watchPrompt} role="dialog" aria-label={menu==="next"?"Up next":`${menu[0].toUpperCase()}${menu.slice(1)}`}>
       <header><h2>{menu==="next"?"Up Next":menu[0].toUpperCase()+menu.slice(1)}</h2><button className="pv-icon" aria-label="Close menu" onClick={()=>setMenu(null)}><X/></button></header>
-      {menu==="audio"&&<div className="pv-option-list">{info?.tracks.filter(track=>track.kind==="audio").map(track=><button key={track.index} aria-pressed={audio===track.index} onClick={()=>changeTrack("audio",track.index)}><span>{trackLabel(track)}</span>{audio===track.index&&<Check size={18}/>}</button>)}</div>}
-      {menu==="subtitles"&&<div className="pv-option-list"><button aria-pressed={subtitle===-1} onClick={()=>changeTrack("subtitle",-1)}>Off{subtitle===-1&&<Check size={18}/>}</button>{info?.tracks.filter(track=>track.kind==="subtitle").map(track=><button key={track.index} aria-pressed={subtitle===track.index} onClick={()=>changeTrack("subtitle",track.index)}><span>{trackLabel(track)}</span>{subtitle===track.index&&<Check size={18}/>}</button>)}{subtitle>=0&&<label className="pv-toggle"><input type="checkbox" checked={burnSubtitles} disabled={selectedSubtitle?.subtitle_format==="image"} onChange={event=>{selected.current.burn=event.target.checked;setBurnSubtitles(event.target.checked);void start(sourcePosition.current);}}/> Burn subtitles into video</label>}{selectedSubtitle?.subtitle_format==="ass"&&<p className="pv-menu-help">ASS styling uses the embedded fonts. Picture in picture may omit styled subtitles; burn in to include them.</p>}</div>}
+      {menu==="audio"&&<div className="pv-option-list">{info?.tracks.filter(track=>track.kind==="audio").map(track=><button key={track.index} aria-pressed={audio===track.index} disabled={originalOnly&&track.index!==defaultAudioIndex(info)&&!nativeAudioChoices.includes(track.index)} onClick={()=>changeTrack("audio",track.index)}><span>{trackLabel(track)}</span>{audio===track.index&&<Check size={18}/>}</button>)}{originalOnly&&audioHelp&&<p className="pv-menu-help">{audioHelp}</p>}</div>}
+      {menu==="subtitles"&&<div className="pv-option-list"><button aria-pressed={subtitle===-1} onClick={()=>changeTrack("subtitle",-1)}>Off{subtitle===-1&&<Check size={18}/>}</button>{info?.tracks.filter(track=>track.kind==="subtitle").map(track=><button key={track.index} aria-pressed={subtitle===track.index} disabled={originalOnly&&track.subtitle_format==="image"} onClick={()=>changeTrack("subtitle",track.index)}><span>{trackLabel(track)}</span>{subtitle===track.index&&<Check size={18}/>}</button>)}{subtitle>=0&&<label className="pv-toggle"><input type="checkbox" checked={burnSubtitles} disabled={originalOnly||selectedSubtitle?.subtitle_format==="image"} onChange={event=>{if(originalOnly)return;selected.current.burn=event.target.checked;setBurnSubtitles(event.target.checked);void start(sourcePosition.current);}}/> Burn subtitles into video</label>}{originalOnly&&<p className="pv-menu-help">Media conversion is disabled. Text subtitles use the browser renderer; image subtitles and burn-in are unavailable.</p>}{selectedSubtitle?.subtitle_format==="ass"&&<p className="pv-menu-help">ASS styling uses the embedded fonts.{!originalOnly&&" Picture in picture may omit styled subtitles; burn in to include them."}</p>}</div>}
       {menu==="speed"&&<div className="pv-option-list">{[0.5,0.75,1,1.25,1.5,1.75,2].map(value=><button key={value} aria-pressed={speed===value} onClick={()=>{setSpeed(value);setMenu(null);}}>{value===1?"Normal":`${value}×`}{speed===value&&<Check size={18}/>}</button>)}</div>}
-      {menu==="quality"&&<div className="pv-option-list">{qualities.map((choice,index)=><button key={choice.label} aria-pressed={quality===index} onClick={()=>{selected.current.quality=index;setQuality(index);setMenu(null);void start(sourcePosition.current);}}>{choice.label}{quality===index&&<Check size={18}/>}</button>)}<p className="pv-menu-help">Automatic preserves the source whenever the browser supports it. Server transcoding limits also apply.</p></div>}
+      {menu==="quality"&&<div className="pv-option-list">{qualities.map((choice,index)=><button key={choice.label} aria-pressed={quality===index} disabled={originalOnly&&index!==0} onClick={()=>{if(originalOnly){setMenu(null);return;}selected.current.quality=index;setQuality(index);setMenu(null);void start(sourcePosition.current);}}>{originalOnly&&index===0?"Original":choice.label}{quality===index&&<Check size={18}/>}</button>)}<p className="pv-menu-help">{originalOnly?"Media conversion is disabled. Playback keeps the original video and audio; lower-quality encodes are unavailable.":"Automatic preserves the source whenever the browser supports it. Server transcoding limits also apply."}</p></div>}
       {menu==="chapters"&&<div className="pv-option-list">{info?.chapters.map((chapter,index)=><button key={index} onClick={()=>{seek(chapter.start_seconds);setMenu(null);}}><span>{chapter.title||`Chapter ${index+1}`}</span><time>{playbackTime(chapter.start_seconds)}</time></button>)}</div>}
       {menu==="info"&&<div className="pv-player-info"><DetailSynopsis text={info?.overview} lines={8}/><dl><dt>Playback</dt><dd>{session?.method.replaceAll("_"," ")}</dd><dt>Reason</dt><dd>{session?.reason}</dd>{session?.encoder&&<><dt>Encoder</dt><dd>{session.encoder}</dd></>}<dt>Position</dt><dd>{playbackTime(position)} / {playbackTime(duration)}</dd><dt>Buffered until</dt><dd>{playbackTime(buffered)}</dd><dt>Audio</dt><dd>{info?.tracks.find(track=>track.index===audio)?trackLabel(info.tracks.find(track=>track.index===audio)!):"None"}</dd><dt>Subtitles</dt><dd>{selectedSubtitle?trackLabel(selectedSubtitle):"Off"}{burnSubtitles?" (burned in)":""}</dd></dl><p className="pv-menu-help">Shortcuts: Space/K play or pause · ←/→ skip · F fullscreen · M mute · Esc close menu.</p></div>}
       {menu==="next"&&info?.next&&<div className="pv-option-list"><button onClick={()=>next()}>{info.next.title}<ChevronRight/></button></div>}

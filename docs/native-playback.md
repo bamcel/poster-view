@@ -34,13 +34,28 @@ stops the previous source while the next episode loads.
 
 ## Playback decisions
 
-The browser reports codec/container capabilities. The server chooses direct
-streaming first, remuxing when a container or selected track requires it, audio
-conversion when only audio is incompatible, and video conversion for unsupported
-video profiles, requested lower quality, or subtitle burn-in. Original media is
-never modified. Direct streaming supports HTTP byte ranges instead of loading
-entire videos into memory. Converted sessions use segmented HLS, with encoding
-ahead limited by the configured buffer. Consumed segments are retired after a
+Original-file playback is the default. **Allow media conversion** in Settings →
+Transcoding is off for new installations and older settings that do not contain
+this option. Existing hardware/encoder choices are preserved and apply after
+conversion is explicitly enabled. The playback mode applies to new sessions.
+
+The browser reports codec/container capabilities. Compatible MKV, MP4/M4V/MOV
+and WebM files use the original file through authenticated HTTP range requests,
+so seeking does not create another FFmpeg session or require downloading the
+whole video. Multiple audio tracks do not prevent playback of the default track.
+Other audio tracks can be selected directly when the browser exposes native
+tracks and their identities can be matched to the file. Without native track
+selection, a saved alternate-audio preference falls back to the file's default
+with an explanation. A contradictory or unidentifiable requested native track
+stops playback rather than reporting the wrong language. Unsupported files
+produce an explanation without automatic audio/video conversion.
+
+When conversion is explicitly enabled, the server chooses remuxing when a
+container or selected track requires it, audio conversion when only audio is
+incompatible, and video conversion for unsupported profiles, lower quality or
+subtitle burn-in. The original media file remains untouched in either mode.
+Converted sessions use segmented HLS, with encoding ahead limited by the
+configured buffer. Consumed segments are retired after a
 one-minute safety window; the served playlist advertises the retained segments.
 Seeking inside buffered or retained HLS segments reuses the current stream.
 Seeking outside that window starts a new conversion session at the requested
@@ -68,14 +83,17 @@ conversion unless the file size and duration establish that the source fits.
 
 ASS/SSA subtitles use a local WebAssembly renderer and embedded fonts. Plain text
 subtitles are converted to WebVTT. Source timestamps remain authoritative after
-seeking and transcoding. Burn-in is offered where the server can render the
-selected subtitle format. Unsupported playback produces an explanation, with a
-bounded conversion fallback rather than an infinite retry loop.
+seeking and transcoding. Burn-in is offered where conversion is enabled and the
+server can render the selected subtitle format. Metadata inspection, subtitle
+extraction and embedded font preparation remain available for original playback;
+they do not encode the video or audio. With conversion enabled, unsupported
+playback has a bounded fallback rather than an infinite retry loop.
 
 ## Transcoding and Unraid
 
-Settings → Transcoding controls hardware encoding, allowed codecs, output size,
-CPU fallback, concurrency, disk limits, throttling and subtitle/font extraction.
+Settings → Transcoding controls the conversion opt-in, hardware encoding, codecs,
+output size, CPU fallback, concurrency, disk limits, throttling and subtitle/font
+extraction.
 **Test hardware encoders** runs small real encodes inside the server container.
 An encoder appearing in FFmpeg's list does not establish that the GPU is usable.
 Tests are cached for five minutes. Full source profiles and filtering can have

@@ -52,6 +52,7 @@ pub(crate) struct Info {
     pub(super) poster_url: Option<String>,
     pub(super) duration_seconds: f64,
     pub(super) container: String,
+    pub(super) conversion_allowed: bool,
     pub(super) tracks: Vec<Track>,
     pub(super) chapters: Vec<Chapter>,
     pub(super) fonts: Vec<Font>,
@@ -69,6 +70,7 @@ pub(crate) struct SessionInput {
     pub(super) video_codecs: Vec<String>,
     pub(super) audio_codecs: Vec<String>,
     pub(super) containers: Vec<String>,
+    pub(super) native_audio_tracks: bool,
     pub(super) force_transcode: bool,
     pub(super) preferred_encoder: Option<String>,
 }

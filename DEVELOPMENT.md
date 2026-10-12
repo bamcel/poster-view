@@ -108,6 +108,21 @@ targets account for source bitrate rather than forcing long buffers for large
 files. Copied-video pacing differs from video encoding, but both retain the
 configured server limits and keyframe-aligned segment behavior.
 
+Playback defaults to original files. `transcoding::Settings.allow_conversion`
+defaults to false, including older settings JSON with this field absent; existing
+encoder preferences are preserved. `PlaybackInfo.conversion_allowed` advertises
+the server policy. The planner enforces it before any remux/encode, keyframe
+conversion fallback or burn-in work, and the player suppresses automatic encoding
+retries and incompatible quality/subtitle choices. Opt-in conversion keeps the
+existing HLS engine and its tests.
+
+Direct playback permits a supported MKV and does not reject the default audio
+because a file contains several tracks. `SessionInput.native_audio_tracks` is a
+client capability for alternate audio; browser tracks must be identified after
+metadata loads before their enabled flags change. Inconclusive mappings must
+never claim an alternate track is playing. Direct streams keep a zero source
+offset, the source's MIME type and authenticated `ServeFile` range handling.
+
 Playback preference appearance fields are defaulted when older JSON is loaded:
 `subtitle_color`, `subtitle_shadow`, `subtitle_background` and `subtitle_position`.
 The server validates colors and option values; plain-text cue styling/placement

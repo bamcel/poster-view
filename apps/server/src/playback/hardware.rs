@@ -184,6 +184,7 @@ mod tests {
             .insert(result.name.clone(), (Instant::now(), result));
         let settings = Settings {
             hardware_enabled: true,
+            allow_conversion: true,
             ..Settings::default()
         };
         let mut request = input();
