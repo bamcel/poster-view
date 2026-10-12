@@ -1049,6 +1049,15 @@ async fn write_burn(dir: &FsPath, resources: &[(String, Vec<u8>)]) -> Result<(),
     }
     Ok(())
 }
+fn throttled_readrate(method: &str, unix: bool) -> &'static str {
+    if !unix {
+        "1"
+    } else if matches!(method, "remux" | "audio_transcode") {
+        "8"
+    } else {
+        "4"
+    }
+}
 fn hls_command(
     source: &Source,
     probe: &Value,
@@ -1067,7 +1076,9 @@ fn hls_command(
     // -readrate is supported by the Debian FFmpeg shipped in the runtime image.
     // Initial-burst options require newer FFmpeg and must not be assumed available.
     if settings.throttle {
-        cmd.args(["-readrate", if cfg!(unix) { "4" } else { "1" }]);
+        // Copied video can fill its first source-GOP segment sooner without a
+        // video encode. Unix suspension still enforces the configured lead cap.
+        cmd.args(["-readrate", throttled_readrate(plan.method, cfg!(unix))]);
     }
     let image_subtitle = input
         .subtitle_burn_index

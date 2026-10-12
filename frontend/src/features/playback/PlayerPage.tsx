@@ -1,11 +1,13 @@
 import {watchApi} from "./api/watch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import Hls from "hls.js";
+import Hls, {type LevelLoadedData} from "hls.js";
 import { ArrowLeft, Check, ChevronRight, CircleHelp, Gauge, ListVideo, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, RotateCw, Settings2, SkipForward, Subtitles, Volume2, VolumeX, X } from "lucide-react";
 import { defaultPlaybackPreferences, playbackApi, type PlaybackInfo, type PlaybackPreferences, type PlaybackSession } from "./api/playback";
 import { playbackCapabilities, playbackTime, safePlayerReturn, selectTracks, trackLabel } from "./lib/playback";
 import {canSeekInCurrentSource} from "./lib/seek";
+import {createSessionHeartbeatQueue} from "./lib/sessionHeartbeat";
+import {hlsBufferOptions} from "./lib/hlsBuffer";
 import DetailSynopsis from "../../components/DetailSynopsis";
 import {applyPlainSubtitlePosition,subtitleAppearance,subtitleAppearanceVariables} from "./lib/subtitleAppearance";
 import "./PlayerPage.css";
@@ -38,13 +40,17 @@ export default function PlayerPage() {
   const pendingAllocation=useRef<Promise<void>|undefined>(undefined);
   const metadataCleanup=useRef<(()=>void)|undefined>(undefined);
   const mediaOwner=useRef<{generation:number;sessionId:string}|null>(null);
+  const seekRefreshCleanup=useRef<(()=>void)|undefined>(undefined),seekAttempt=useRef(0);
   const pendingSeek=useRef<{generation:number;target:number}|null>(null);
   const playIntent=useRef(true);
   const retentionPosition=useRef(0), retentionRecovery=useRef(false);
+  const waitingDemand=useRef(false);
+  const heartbeatQueue=useRef<ReturnType<typeof createSessionHeartbeatQueue>|null>(null);
+  if(!heartbeatQueue.current)heartbeatQueue.current=createSessionHeartbeatQueue((session,position,paused)=>playbackApi.heartbeat(session,position,paused));
   const infoRef=useRef<PlaybackInfo|undefined>(undefined), prefsRef=useRef<PlaybackPreferences>(defaultPlaybackPreferences);
   const current=useRef<PlaybackSession|undefined>(undefined), capability=useRef<Capability|undefined>(undefined), hls=useRef<Hls|undefined>(undefined);
   const watchSession=useRef(""), sequence=useRef(0), requestGeneration=useRef(0), mounted=useRef(false);
-  const offset=useRef(0), sourcePosition=useRef(0), ready=useRef(false), retries=useRef(0);
+  const offset=useRef(0), sourcePosition=useRef(0), confirmedPosition=useRef(0),ready=useRef(false), retries=useRef(0);
   const replaying=useRef(false);
   const selected=useRef({audio:null as number|null,subtitle:-1,burn:false,quality:0});
   const controls=useRef({visible:true,playing:false,menu:null as Menu,dragging:false,lastActive:Date.now(),focus:false,prompt:false,ended:false});
@@ -61,14 +67,25 @@ export default function PlayerPage() {
   const interact=useCallback(()=>{
     controls.current.lastActive=Date.now();controls.current.visible=true;setVisible(true);
   },[]);
+  const heartbeat=useCallback((paused=video.current?.paused??true,position=seekRefreshCleanup.current?confirmedPosition.current:sourcePosition.current)=>{
+    const owned=current.current;
+    if(!owned||!ready.current||activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
+    retentionPosition.current=Math.max(retentionPosition.current,position);
+    heartbeatQueue.current?.request(owned.id,position,paused);
+  },[routeKey]);
+  const cancelSeekRefresh=useCallback(()=>{seekAttempt.current++;seekRefreshCleanup.current?.();seekRefreshCleanup.current=undefined;},[]);
   const play=useCallback(async(userInteraction=true)=>{
     const element=video.current;if(!element||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!watchSession.current||!ready.current||!current.current)return;
     playIntent.current=true;
     if(userInteraction)interact();
+    // Wake a producer that was throttled while paused before waiting for the
+    // browser's play promise, which can itself need the next HLS segment.
+    heartbeat(false);
     try{await element.play();setNotice(value=>value==="Press Play to begin playback."||value.startsWith("The browser cannot decode this source.")?"":value);}catch(error){setNotice(error instanceof DOMException&&error.name==="NotAllowedError"?"Press Play to begin playback.":errorMessage(error));}
-  },[interact,routeKey]);
+  },[interact,routeKey,heartbeat]);
   const terminalError=useCallback((message:string)=>{
     if(!mounted.current||activeRoute.current!==routeKey)return;
+    cancelSeekRefresh();
     const element=video.current;
     if(ready.current&&!pendingSeek.current&&element&&Number.isFinite(element.currentTime)){
       sourcePosition.current=Math.max(0,offset.current+element.currentTime);setPosition(sourcePosition.current);
@@ -77,16 +94,18 @@ export default function PlayerPage() {
     mediaOwner.current=null;metadataCleanup.current?.();metadataCleanup.current=undefined;
     element?.pause();hls.current?.destroy();hls.current=undefined;
     const stopped=current.current;current.current=undefined;
+    if(stopped)heartbeatQueue.current?.forget(stopped.id);
     if(element){element.removeAttribute("src");element.load();}
     if(stopped){
       const stopping=playbackApi.stop(stopped.id).catch(()=>{});pendingStop.current=stopping;
       void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});
     }
     setLoading(false);setBuffering(false);setPlaying(false);setVisible(true);setError(message);
-  },[report,routeKey]);
+  },[report,routeKey,cancelSeekRefresh]);
   const start=useCallback(async(sourceTime:number,force=false,playOverride?:boolean)=>{
     const element=video.current, data=infoRef.current, caps=capability.current;
     if(!element||!data||!caps||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!watchSession.current)return;
+    cancelSeekRefresh();
     const generation=++requestGeneration.current;
     const shouldPlay=playOverride??(current.current&&ready.current&&!pendingSeek.current?!element.paused:playIntent.current);
     playIntent.current=shouldPlay;
@@ -94,6 +113,7 @@ export default function PlayerPage() {
     report();sourcePosition.current=target;pendingSeek.current={generation,target};setPosition(target);setScrubbing(null);report(false,false,true);
     ready.current=false;mediaOwner.current=null;metadataCleanup.current?.();metadataCleanup.current=undefined;
     const previous=current.current;current.current=undefined;
+    waitingDemand.current=false;if(previous)heartbeatQueue.current?.forget(previous.id);
     element.pause();setPlaying(false);setLoading(true);setBuffering(false);setError("");setEnded(false);setCountdown(null);
     hls.current?.destroy();hls.current=undefined;
     element.removeAttribute("src");element.load();
@@ -115,44 +135,50 @@ export default function PlayerPage() {
       void allocation.finally(()=>{if(pendingAllocation.current===allocation)pendingAllocation.current=undefined;});
       const created=await creating;
       if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)return;
-      current.current=created;mediaOwner.current={generation,sessionId:created.id};offset.current=created.offset_seconds;retentionPosition.current=target;setSession(created);
+      current.current=created;mediaOwner.current={generation,sessionId:created.id};offset.current=created.offset_seconds;retentionPosition.current=target;confirmedPosition.current=target;setSession(created);
       const initialize=()=>{
         if(activeRoute.current!==routeKey||generation!==requestGeneration.current||current.current?.id!==created.id)return;
         const relativePosition=Math.max(0,target-created.offset_seconds);
         element.currentTime=relativePosition;
-        element.playbackRate=speedRef.current;ready.current=true;setLoading(false);report(false,false,true);if(shouldPlay)void play(false);
+        element.playbackRate=speedRef.current;ready.current=true;setLoading(false);report(false,false,true);if(shouldPlay)void play(false);else heartbeat(true);
       };
       element.addEventListener("loadedmetadata",initialize,{once:true});
       metadataCleanup.current=()=>element.removeEventListener("loadedmetadata",initialize);
       if(created.mime.includes("mpegurl")&&Hls.isSupported()){
-        const instance=new Hls({startPosition:Math.max(0,target-created.offset_seconds),maxBufferLength:30,maxMaxBufferLength:60,backBufferLength:20,enableWorker:true,lowLatencyMode:false});
+        const instance=new Hls({startPosition:Math.max(0,target-created.offset_seconds),...hlsBufferOptions(data,created.method,choice.audio),enableWorker:true,lowLatencyMode:false});
         hls.current=instance;let mediaRecovery=false;
         instance.on(Hls.Events.ERROR,(_event,data)=>{
           if(!data.fatal||generation!==requestGeneration.current)return;
           if(data.details==="fragLoadError"&&data.response?.code===404&&pendingSeek.current&&!retentionRecovery.current){retentionRecovery.current=true;void restartRef.current(sourcePosition.current);return;}
-          if(data.type===Hls.ErrorTypes.MEDIA_ERROR&&!mediaRecovery){mediaRecovery=true;instance.recoverMediaError();return;}
+          if(data.type===Hls.ErrorTypes.MEDIA_ERROR&&!mediaRecovery){
+            mediaRecovery=true;
+            if(seekRefreshCleanup.current)void restartRef.current(sourcePosition.current);
+            else instance.recoverMediaError();
+            return;
+          }
           if(retries.current++===0&&created.method!=="transcode")void restartRef.current(sourcePosition.current,true);
           else terminalError(`Playback failed: ${data.details}. Try a different quality or inspect transcoding settings.`);
         });
         instance.attachMedia(element);instance.loadSource(created.url);
       }else element.src=created.url;
     }catch(error){if(mounted.current&&generation===requestGeneration.current){setLoading(false);setError(errorMessage(error));}}
-  },[libraryId,itemId,routeKey,play,report,terminalError]);
+  },[libraryId,itemId,routeKey,play,report,terminalError,heartbeat,cancelSeekRefresh]);
   restartRef.current=start;
   const speedRef=useRef(speed);speedRef.current=speed;
   const startFromBeginning=params.get("start")==="0";
   const initializeItem=useCallback(async()=>{
     initializationController.current?.abort();
+    cancelSeekRefresh();
     const controller=new AbortController();initializationController.current=controller;
     const attempt=++initializationGeneration.current;requestGeneration.current++;
     const isCurrent=()=>mounted.current&&activeRoute.current===routeKey&&attempt===initializationGeneration.current&&!controller.signal.aborted;
     initializedRoute.current=null;watchSession.current="";ready.current=false;
-    pendingSeek.current=null;mediaOwner.current=null;playIntent.current=true;retentionPosition.current=0;retentionRecovery.current=false;
+    pendingSeek.current=null;mediaOwner.current=null;playIntent.current=true;retentionPosition.current=0;retentionRecovery.current=false;waitingDemand.current=false;
     infoRef.current=undefined;capability.current=undefined;
     setInitializing(true);setLoading(true);setError("");setNotice("");setWatchError("");
     setInfo(undefined);setSession(undefined);setPosition(0);setBuffered(0);setScrubbing(null);setPlaying(false);setBuffering(false);
     setAudio(null);setSubtitle(-1);setBurnSubtitles(false);setQuality(0);setMenu(null);setEnded(false);setCountdown(null);setWatchPrompt(false);setVisible(true);
-    sourcePosition.current=0;offset.current=0;retries.current=0;
+    sourcePosition.current=0;confirmedPosition.current=0;offset.current=0;retries.current=0;
     controls.current.playing=false;controls.current.menu=null;controls.current.dragging=false;controls.current.prompt=false;controls.current.ended=false;
       try{
         const [data,prefs,state]=await Promise.all([playbackApi.info(libraryId,itemId,controller.signal),watchApi.preferences(controller.signal),watchApi.state(libraryId,itemId,controller.signal)]);
@@ -168,7 +194,7 @@ export default function PlayerPage() {
         const initial=startFromBeginning?0:Math.max(0,watch.state.position_seconds-prefs.resume_rewind_seconds);
         await start(initial);
       }catch(error){if(isCurrent()){controller.abort();setLoading(false);setError(errorMessage(error));}}
-  },[libraryId,itemId,routeKey,startFromBeginning,start]);
+  },[libraryId,itemId,routeKey,startFromBeginning,start,cancelSeekRefresh]);
   const retryPlayback=()=>{
     retries.current=0;
     if(initializedRoute.current===routeKey&&watchSession.current&&infoRef.current&&capability.current)void start(sourcePosition.current,true);
@@ -178,9 +204,10 @@ export default function PlayerPage() {
     mounted.current=true;void initializeItem();
     return()=>{
       report(false,true,false,true);mounted.current=false;requestGeneration.current++;initializationGeneration.current++;
+      cancelSeekRefresh();
       initializationController.current?.abort();initializedRoute.current=null;
       ready.current=false;watchSession.current="";pendingSeek.current=null;mediaOwner.current=null;metadataCleanup.current?.();metadataCleanup.current=undefined;
-      infoRef.current=undefined;capability.current=undefined;hls.current?.destroy();hls.current=undefined;
+      heartbeatQueue.current?.clear();infoRef.current=undefined;capability.current=undefined;hls.current?.destroy();hls.current=undefined;
       const element=video.current;if(element){element.pause();element.removeAttribute("src");element.load();}
       const stopped=current.current;current.current=undefined;if(stopped)void playbackApi.stop(stopped.id).catch(()=>{});
     };
@@ -189,12 +216,12 @@ export default function PlayerPage() {
   },[initializeItem,report]);
   useEffect(()=>{
     const timer=window.setInterval(()=>{
-      if(ready.current){report();if(current.current){retentionPosition.current=Math.max(retentionPosition.current,sourcePosition.current);void playbackApi.heartbeat(current.current.id,sourcePosition.current,video.current?.paused??true).catch(()=>{});}}
+      if(ready.current){report();heartbeat();}
     },10_000);
     const flush=()=>report(false,true);
     window.addEventListener("pagehide",flush);document.addEventListener("visibilitychange",flush);
     return()=>{clearInterval(timer);window.removeEventListener("pagehide",flush);document.removeEventListener("visibilitychange",flush);};
-  },[report]);
+  },[report,heartbeat]);
   useEffect(()=>{
     controls.current.playing=playing;controls.current.menu=menu;controls.current.dragging=scrubbing!==null;controls.current.prompt=watchPrompt;controls.current.ended=ended;
   },[playing,menu,scrubbing,watchPrompt,ended]);
@@ -209,10 +236,11 @@ export default function PlayerPage() {
   },[]);
   const seek=useCallback((target:number)=>{
     if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
+    const speculative=!!seekRefreshCleanup.current;cancelSeekRefresh();const attempt=seekAttempt.current;
     interact();const bound=Math.max(0,Math.min(target,infoRef.current?.duration_seconds||target));
     if(!Number.isFinite(bound))return;
-    const actual=video.current&&Number.isFinite(video.current.currentTime)?offset.current+video.current.currentTime:0;
-    const retainedFrom=Math.max(sourcePosition.current,pendingSeek.current?.target??0,retentionPosition.current,actual)-55;
+    const actual=!speculative&&video.current&&Number.isFinite(video.current.currentTime)?offset.current+video.current.currentTime:confirmedPosition.current;
+    const retainedFrom=Math.max(speculative?confirmedPosition.current:sourcePosition.current,speculative?confirmedPosition.current:pendingSeek.current?.target??0,retentionPosition.current,actual)-55;
     retentionRecovery.current=false;
     if(current.current&&ready.current&&!pendingSeek.current&&video.current)playIntent.current=!video.current.paused;
     sourcePosition.current=bound;setPosition(bound);setScrubbing(null);
@@ -221,10 +249,30 @@ export default function PlayerPage() {
     pendingSeek.current={generation:requestGeneration.current,target:bound};report(false,false,true);
     const fragments=hls.current?hls.current.latestLevelDetails?.fragments??[]:null;
     if(element&&owned&&ready.current&&canSeekInCurrentSource(element,bound,offset.current,owned.method==="direct",fragments,retainedFrom)){
-      try{element.currentTime=bound-offset.current;return;}catch { /* Recreate if the browser rejects a local seek. */ }
+      try{element.currentTime=bound-offset.current;waitingDemand.current=false;heartbeat(!playIntent.current);return;}catch { /* Recreate if the browser rejects a local seek. */ }
+    }
+    const instance=hls.current,details=instance?.latestLevelDetails,relative=bound-offset.current;
+    // Copied-video GOPs can make the automatic playlist reload interval much
+    // longer than encoding ahead. Refresh once before recreating a nearby jump.
+    if(element&&owned&&ready.current&&instance&&details?.live&&Number.isFinite(details.fragmentEnd)&&relative>=details.fragmentEnd&&relative-details.fragmentEnd<=60){
+      const generation=requestGeneration.current;
+      const valid=()=>mounted.current&&activeRoute.current===routeKey&&initializedRoute.current===routeKey&&current.current?.id===owned.id&&hls.current===instance&&requestGeneration.current===generation&&seekAttempt.current===attempt;
+      const cleanup=()=>{window.clearTimeout(timer);instance.off(Hls.Events.LEVEL_LOADED,refreshed);if(seekRefreshCleanup.current===cleanup)seekRefreshCleanup.current=undefined;};
+      const fallback=()=>{if(!valid())return;cleanup();void start(bound);};
+      const refreshed=(_event:unknown,data:LevelLoadedData)=>{
+        if(!valid())return;cleanup();
+        if(canSeekInCurrentSource(element,bound,offset.current,false,data.details.fragments,retainedFrom)){
+          try{element.currentTime=relative;heartbeat(!playIntent.current);if(playIntent.current&&element.paused)void play(false);return;}catch { /* A browser may reject a newly advertised seek. */ }
+        }
+        void start(bound);
+      };
+      const timer=window.setTimeout(fallback,2000);seekRefreshCleanup.current=cleanup;instance.on(Hls.Events.LEVEL_LOADED,refreshed);
+      waitingDemand.current=false;setBuffering(true);heartbeat(!playIntent.current);
+      try{element.currentTime=relative;}catch { /* Reapply after the refreshed playlist extends its seekable range. */ }
+      instance.startLoad(relative,true);return;
     }
     void start(bound);
-  },[interact,start,report,routeKey]);
+  },[interact,start,report,routeKey,heartbeat,cancelSeekRefresh,play]);
   const toggle=useCallback(()=>{if(controls.current.prompt||activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;interact();if(controls.current.ended){void replayRef.current();return;}if(video.current?.paused)void play();else{playIntent.current=false;video.current?.pause();}},[play,interact,routeKey]);
   const exit=()=>{report(false,true);navigate(returnPath);};
   const next=useCallback((automatic=false)=>{
@@ -327,7 +375,7 @@ export default function PlayerPage() {
     if(pending){
       // Browser/MSE reset events may still carry time zero while a requested
       // seek is being applied. Keep the source clock until this seek settles.
-      if(pending.generation!==requestGeneration.current||element.seeking||Math.abs(source-pending.target)>1)return false;
+      if(seekRefreshCleanup.current||pending.generation!==requestGeneration.current||element.seeking||Math.abs(source-pending.target)>1)return false;
       pendingSeek.current=null;
     }else if(source<sourcePosition.current-1){
       // All player-initiated backward seeks install a pending target. An
@@ -336,14 +384,33 @@ export default function PlayerPage() {
       try{element.currentTime=Math.max(0,sourcePosition.current-offset.current);}catch { /* Keep the last source time while the media recovers. */ }
       report(false,false,true);return false;
     }
-    sourcePosition.current=Math.max(0,source);setPosition(sourcePosition.current);
-    if(!element.paused&&element.readyState>=HTMLMediaElement.HAVE_FUTURE_DATA){setBuffering(false);setLoading(false);}
+    sourcePosition.current=Math.max(0,source);confirmedPosition.current=sourcePosition.current;setPosition(sourcePosition.current);
+    const usable=element.paused?element.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA:element.readyState>=HTMLMediaElement.HAVE_FUTURE_DATA;
+    if(usable){waitingDemand.current=false;setBuffering(false);setLoading(false);}
     return true;
   };
   const progressEvent=()=>{
     const element=video.current;if(!element||!ready.current||!ownsMedia())return;
     // Download progress does not advance the source clock.
     if(element.buffered.length)setBuffered(offset.current+element.buffered.end(element.buffered.length-1));
+  };
+  const mediaPlay=()=>{
+    if(!ownsMedia()||!ready.current||video.current?.paused)return;
+    playIntent.current=true;setPlaying(true);setEnded(false);heartbeat(false);
+  };
+  const mediaPause=()=>{
+    if(!ownsMedia()||!ready.current||!video.current?.paused)return;
+    if(!pendingSeek.current)playIntent.current=false;
+    setPlaying(false);setVisible(true);report();
+    if(!playIntent.current)heartbeat(true);
+  };
+  const mediaWaiting=()=>{
+    if(!ownsMedia()||!ready.current)return;
+    setBuffering(true);
+    if(!waitingDemand.current){waitingDemand.current=true;heartbeat(!playIntent.current);}
+  };
+  const mediaPlaying=()=>{
+    if(updatePosition()&&!video.current?.paused){setPlaying(true);setBuffering(false);setLoading(false);}
   };
   const end=()=>{
     if(!ready.current||!ownsMedia()||pendingSeek.current)return;
@@ -377,7 +444,7 @@ export default function PlayerPage() {
   const title=pendingInitialization?"Media player":info?.season!=null&&info?.episode!=null?`S${info.season}:E${info.episode} – ${info.title}`:info?.title??"Media player";
   const selectedSubtitle=info?.tracks.find(track=>track.index===subtitle);
   return <div className={`pv-player ${visible||menu||watchPrompt||!playing?"controls-visible":"controls-hidden"}`} ref={root} style={{"--subtitle-scale":preferences.subtitle_size/100,...subtitleAppearanceVariables(preferences)} as React.CSSProperties} onPointerMove={interact} onKeyDownCapture={interact} onPointerDown={()=>{controls.current.focus=false;interact();}} onFocusCapture={event=>{controls.current.focus=event.target instanceof HTMLElement&&event.target.matches(":focus-visible");setVisible(true);}} onBlurCapture={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))controls.current.focus=false;}}>
-    <div className="pv-video-stage" inert={watchPrompt||pendingInitialization}><video ref={video} playsInline preload="metadata" poster={info?.poster_url??undefined} onClick={toggle} onDoubleClick={()=>void toggleFullscreen()} onPlay={()=>{if(ownsMedia()&&ready.current&&!video.current?.paused){playIntent.current=true;setPlaying(true);setEnded(false);}}} onPause={()=>{if(ownsMedia()&&ready.current&&video.current?.paused){if(!pendingSeek.current)playIntent.current=false;setPlaying(false);setVisible(true);report();}}} onWaiting={()=>{if(ownsMedia()&&ready.current)setBuffering(true);}} onPlaying={()=>{if(updatePosition()&&!video.current?.paused){setPlaying(true);setBuffering(false);setLoading(false);}}} onTimeUpdate={()=>{updatePosition();progressEvent();}} onProgress={progressEvent} onEnded={end} onError={mediaError} onSeeked={()=>{if(updatePosition())report(false,false,true);}} aria-label={title}/></div>
+    <div className="pv-video-stage" inert={watchPrompt||pendingInitialization}><video ref={video} playsInline preload="metadata" poster={info?.poster_url??undefined} onClick={toggle} onDoubleClick={()=>void toggleFullscreen()} onPlay={mediaPlay} onPause={mediaPause} onWaiting={mediaWaiting} onPlaying={mediaPlaying} onCanPlay={()=>updatePosition()} onTimeUpdate={()=>{updatePosition();progressEvent();}} onProgress={progressEvent} onEnded={end} onError={mediaError} onSeeked={()=>{if(updatePosition())report(false,false,true);}} aria-label={title}/></div>
     <div className="pv-player-header pv-controls" inert={watchPrompt} aria-hidden={!visible&&playing&&!menu}>
       <button className="pv-icon" aria-label="Back to media" onClick={exit} title="Back"><ArrowLeft/></button>
       <div className="pv-header-tools" inert={pendingInitialization}><button className="pv-icon" aria-label={muted?"Unmute":"Mute"} onClick={()=>setMuted(value=>!value)}>{muted||volume===0?<VolumeX/>:<Volume2/>}</button><input className="pv-volume" aria-label="Volume" type="range" min="0" max="1" step="0.01" value={muted?0:volume} onChange={event=>{setVolume(Number(event.target.value));setMuted(false);}}/>

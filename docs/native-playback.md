@@ -47,8 +47,17 @@ Seeking outside that window starts a new conversion session at the requested
 source position. The timeline keeps the requested position while the new source
 loads; reset-clock events cannot move it back to the beginning or overwrite
 watch progress. Paused playback stays paused after seeking.
+Play, pause and local seeks notify the producer immediately, rather than waiting
+for the periodic heartbeat. A paused seek stops showing buffering once its
+preview is ready. Copied-video playback targets a longer browser buffer when the
+source bitrate fits its buffer budget; unknown or high bitrates use a smaller
+target. A short forward seek checks a fresh live playlist before replacing a
+stream whose cached playlist may lag behind the available segments.
 Video conversion produces two-second segments/keyframes for quicker startup;
 stream-copy segments still depend on the original video's keyframes.
+On Linux, throttled stream-copy and audio-only conversion can read up to eight
+times source speed to fill that buffer, while video encoding stays at four.
+The configured encode-ahead, disk and concurrency limits continue to apply.
 Converted video uses an encoder supported by both the browser and server
 settings. Compatible audio is preserved unless conversion/downmixing or the
 requested bitrate budget requires otherwise. Audio boost applies only when

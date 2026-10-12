@@ -4,6 +4,78 @@ use super::test_support::{input, probe};
 use super::*;
 use serde_json::json;
 #[test]
+fn copied_video_can_fill_ahead_faster_without_changing_transcode_or_windows_pacing() {
+    for method in ["remux", "audio_transcode"] {
+        assert_eq!(throttled_readrate(method, true), "8");
+        assert_eq!(throttled_readrate(method, false), "1");
+    }
+    assert_eq!(throttled_readrate("transcode", true), "4");
+    assert_eq!(throttled_readrate("transcode", false), "1");
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("copy.mkv");
+    std::fs::write(&file, b"fixture").unwrap();
+    let source = super::test_support::source(&file);
+    let settings = Settings::default();
+    let mut data = probe();
+    data["streams"][0]["codec_name"] = json!("hevc");
+    let mut request = input();
+    request.video_codecs = vec!["hevc".into()];
+    for audio_index in [None, Some(2)] {
+        request.audio_index = audio_index;
+        let chosen = plan(&data, "mkv", &request, &settings).unwrap();
+        assert_eq!(
+            chosen.method,
+            if audio_index.is_some() {
+                "audio_transcode"
+            } else {
+                "remux"
+            }
+        );
+        let command = hls_command(
+            &source,
+            &data,
+            &chosen,
+            &request,
+            &settings,
+            None,
+            directory.path(),
+        )
+        .unwrap();
+        let args = command
+            .as_std()
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["-readrate", if cfg!(unix) { "8" } else { "1" }]));
+        assert!(args.windows(2).any(|pair| pair == ["-c:v", "copy"]));
+        assert!(args.windows(2).any(|pair| pair == ["-hls_time", "4"]));
+        assert!(!args.iter().any(|argument| argument == "-force_key_frames"));
+        assert!(!args
+            .iter()
+            .any(|argument| argument.contains("split_by_time")));
+        let unthrottled = Settings {
+            throttle: false,
+            ..settings.clone()
+        };
+        let command = hls_command(
+            &source,
+            &data,
+            &chosen,
+            &request,
+            &unthrottled,
+            None,
+            directory.path(),
+        )
+        .unwrap();
+        assert!(!command
+            .as_std()
+            .get_args()
+            .any(|argument| argument == "-readrate"));
+    }
+}
+#[test]
 fn throttling_keeps_separate_suspend_and_resume_thresholds_at_small_buffer_limits() {
     assert_eq!(throttle_actions(10, false, 11.0), (true, false));
     assert_eq!(throttle_actions(10, false, 4.0), (false, true));
@@ -371,6 +443,114 @@ async fn streams_ranges_without_reading_whole_file() {
             .status(),
         StatusCode::RANGE_NOT_SATISFIABLE
     );
+}
+#[tokio::test]
+async fn copied_hevc_main10_with_opus_preserves_long_gop_video_and_converts_only_audio() {
+    if command("ffmpeg").arg("-version").status().await.is_err() {
+        eprintln!("FFmpeg not installed; HEVC playback fixture skipped.");
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let video = directory.path().join("long-gop.mkv");
+    let mut generate = command("ffmpeg");
+    generate
+        .args([
+            "-nostdin",
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=96x64:rate=10:duration=14",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000:duration=14",
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libx265",
+            "-preset",
+            "ultrafast",
+            "-pix_fmt",
+            "yuv420p10le",
+            "-threads",
+            "1",
+            "-x265-params",
+            "keyint=70:min-keyint=70:scenecut=0:open-gop=0:pools=1:frame-threads=1:log-level=error",
+            "-c:a",
+            "libopus",
+            "-ac",
+            "2",
+        ])
+        .arg(&video);
+    run(
+        &mut generate,
+        Duration::from_secs(20),
+        "HEVC playback fixture creation",
+    )
+    .await
+    .unwrap();
+    let source = super::test_support::source(&video);
+    let store = PlaybackStore::new(directory.path());
+    let data = store.probe(&source).await.unwrap();
+    let mut request = input();
+    request.video_codecs = vec!["hevc".into()];
+    let settings = Settings {
+        throttle: false,
+        ..Settings::default()
+    };
+    let chosen = plan(&data, "mkv", &request, &settings).unwrap();
+    assert_eq!(chosen.method, "audio_transcode");
+    assert_eq!(chosen.video["codec_name"], "hevc");
+    assert_eq!(chosen.video["pix_fmt"], "yuv420p10le");
+    assert_eq!(chosen.audio.as_ref().unwrap()["codec_name"], "opus");
+    let output = directory.path().join("hls");
+    std::fs::create_dir(&output).unwrap();
+    let mut convert =
+        hls_command(&source, &data, &chosen, &request, &settings, None, &output).unwrap();
+    run(
+        &mut convert,
+        Duration::from_secs(20),
+        "HEVC copied playback",
+    )
+    .await
+    .unwrap();
+    let playlist = std::fs::read_to_string(output.join("index.m3u8")).unwrap();
+    let first_duration = playlist
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("#EXTINF:")?
+                .split(',')
+                .next()?
+                .parse::<f64>()
+                .ok()
+        })
+        .unwrap();
+    assert!(
+        (6.8..=7.2).contains(&first_duration),
+        "Copied video must keep its source keyframes, not force a shorter GOP: {first_duration}"
+    );
+    let first_segment = playlist
+        .lines()
+        .find(|line| safe_segment(line) && line.ends_with(".m4s"))
+        .unwrap();
+    let mut bytes = std::fs::read(output.join("init.mp4")).unwrap();
+    bytes.extend(std::fs::read(output.join(first_segment)).unwrap());
+    let fragment = directory.path().join("first-fragment.mp4");
+    std::fs::write(&fragment, bytes).unwrap();
+    let delivered = store
+        .probe(&super::test_support::source(&fragment))
+        .await
+        .unwrap();
+    let video = selected_stream(&delivered, "video", None).unwrap().unwrap();
+    let audio = selected_stream(&delivered, "audio", None).unwrap().unwrap();
+    assert_eq!(video["codec_name"], "hevc");
+    assert_eq!(video["pix_fmt"], "yuv420p10le");
+    assert_eq!(audio["codec_name"], "aac");
 }
 #[tokio::test]
 async fn real_ffmpeg_remux_audio_conversion_subtitles_and_cleanup() {

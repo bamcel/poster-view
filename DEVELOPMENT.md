@@ -101,6 +101,12 @@ rewinding the UI or watch state. Server lookup stays scoped to the episode's
 series, and playback encoder validation is selective while the explicit
 capability test remains comprehensive. Preserve these boundaries when changing
 startup or buffering behavior; no request/response or database changes are needed.
+Producer heartbeats on transport/seek events are ordered and coalesced separately
+from watch reports. Keep speculative playlist refreshes at the confirmed source
+clock so they cannot retire media that a canceled seek still needs. HLS buffer
+targets account for source bitrate rather than forcing long buffers for large
+files. Copied-video pacing differs from video encoding, but both retain the
+configured server limits and keyframe-aligned segment behavior.
 
 Playback preference appearance fields are defaulted when older JSON is loaded:
 `subtitle_color`, `subtitle_shadow`, `subtitle_background` and `subtitle_position`.

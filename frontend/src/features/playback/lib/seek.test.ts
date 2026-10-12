@@ -29,7 +29,8 @@ describe("seeking in the current source",()=>{
   it("rejects stale unbuffered playlist prefixes while retaining browser-buffered backward seeks",()=>{
     const video={buffered:ranges([10,20]),seekable:ranges([0,200])},fragments=[{start:0,end:200}];
     expect(canSeekInCurrentSource(video,315,290,false,fragments,350)).toBe(false);
-    expect(canSeekInCurrentSource(video,305,290,false,fragments,350)).toBe(true);
+    expect(canSeekInCurrentSource(video,305,290,false,fragments,350)).toBe(false);
+    expect(canSeekInCurrentSource({...video,buffered:ranges([10,80])},305,290,false,fragments,350)).toBe(true);
     expect(canSeekInCurrentSource(video,355,290,false,fragments,350)).toBe(true);
   });
 });
