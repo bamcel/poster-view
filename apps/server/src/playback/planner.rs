@@ -1,20 +1,13 @@
-//! Capability and quality decisions without filesystem access or process/state mutation.
-use super::{bad, duration, source_bitrate, HttpError, SessionInput, MAX_PLAYBACK_SECONDS};
-use crate::transcoding::Settings;
+//! Direct-file capability validation without filesystem access or process/state mutation.
+use super::{bad, duration, HttpError, SessionInput, MAX_PLAYBACK_SECONDS};
 use serde_json::Value;
 
 pub(super) struct Plan {
     pub(super) method: &'static str,
     pub(super) reason: &'static str,
-    pub(super) video: Value,
     pub(super) audio: Option<Value>,
-    pub(super) output_codec: String,
-    pub(super) hdr: bool,
-    pub(super) height: u32,
-    pub(super) convert_audio: bool,
-    pub(super) bitrate_limit: u64,
-    pub(super) bandwidth_adaptation: bool,
 }
+
 pub(super) fn selected_stream(
     probe: &Value,
     kind: &str,
@@ -24,42 +17,39 @@ pub(super) fn selected_stream(
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|s| s["codec_type"] == kind && s["disposition"]["attached_pic"] != 1)
+        .filter(|stream| stream["codec_type"] == kind && stream["disposition"]["attached_pic"] != 1)
         .collect::<Vec<_>>();
     if let Some(index) = index {
         return streams
             .into_iter()
-            .find(|s| s["index"].as_u64() == Some(u64::from(index)))
+            .find(|stream| stream["index"].as_u64() == Some(u64::from(index)))
             .cloned()
             .map(Some)
             .ok_or_else(|| bad(format!("Selected {kind} track is not available.")));
     }
     Ok(streams
         .iter()
-        .find(|s| s["disposition"]["default"] == 1)
+        .find(|stream| stream["disposition"]["default"] == 1)
         .or_else(|| streams.first())
-        .map(|s| (*s).clone()))
+        .map(|stream| (*stream).clone()))
 }
-pub(super) fn plan(
-    probe: &Value,
-    ext: &str,
-    input: &SessionInput,
-    settings: &Settings,
-) -> Result<Plan, HttpError> {
+
+pub(super) fn validate_request(input: &SessionInput) -> Result<(), HttpError> {
+    if input.max_height > 0
+        || input.max_bitrate > 0
+        || input.bandwidth_limit_bps > 0
+        || input.force_transcode
+        || input.force_remux
+        || input.subtitle_burn_index.is_some()
+        || input.preferred_encoder.is_some()
+    {
+        return Err(bad("PosterView only plays original files directly. Conversion, remuxing, quality limits, bandwidth adaptation, encoders, and subtitle burn-in are unavailable."));
+    }
     if !input.position_seconds.is_finite()
         || input.position_seconds < 0.0
         || input.position_seconds > MAX_PLAYBACK_SECONDS
-        || (duration(probe) > 0.0 && input.position_seconds > duration(probe))
-        || input.max_height > 4320
-        || input.max_bitrate > 500_000_000
     {
-        return Err(bad("Playback position or quality is out of range."));
-    }
-    if input.bandwidth_limit_bps > 0
-        && (!(500_000..=500_000_000).contains(&input.bandwidth_limit_bps)
-            || !settings.auto_bandwidth_transcoding)
-    {
-        return Err(bad("Automatic bandwidth adaptation requires its server permission and a limit between 500 Kbps and 500 Mbps."));
+        return Err(bad("Playback position is out of range."));
     }
     if input.video_codecs.len() > 32
         || input.audio_codecs.len() > 32
@@ -73,848 +63,322 @@ pub(super) fn plan(
             .chain(&input.hls_video_codecs)
             .chain(&input.hls_audio_codecs)
             .chain(&input.containers)
-            .any(|v| v.len() > 32)
+            .any(|value| value.len() > 32)
     {
         return Err(bad("Invalid browser capabilities."));
     }
-    let video = selected_stream(probe, "video", None)?
-        .ok_or_else(|| bad("This file has no video track."))?;
-    let audio = selected_stream(probe, "audio", input.audio_index)?;
-    if let Some(index) = input.subtitle_index {
-        selected_stream(probe, "subtitle", Some(index))?;
+    if input.source_video_supported == Some(false) {
+        return Err(bad("This browser does not support the original video profile. Direct playback requires a compatible browser and file."));
     }
-    if let Some(index) = input.subtitle_burn_index {
-        selected_stream(probe, "subtitle", Some(index))?;
+    Ok(())
+}
+
+pub(super) fn text_subtitle(stream: &Value) -> bool {
+    matches!(
+        stream["codec_name"].as_str(),
+        Some("ass" | "ssa" | "subrip" | "webvtt" | "mov_text" | "text" | "srt")
+    )
+}
+
+fn supported_video_profile(video: &Value, codec: &str) -> bool {
+    let pixel_format = video["pix_fmt"].as_str();
+    if codec == "h264" {
+        return pixel_format.is_none_or(|format| matches!(format, "yuv420p" | "yuvj420p" | "nv12"));
     }
-    let v = video["codec_name"].as_str().unwrap_or("");
-    let a = audio
-        .as_ref()
-        .and_then(|s| s["codec_name"].as_str())
-        .unwrap_or("");
-    let video_profile_ok = !(v == "h264"
-        && (video["pix_fmt"]
-            .as_str()
-            .is_some_and(|p| !["yuv420p", "nv12", "yuvj420p"].contains(&p))));
-    let video_ok = video_profile_ok && input.video_codecs.iter().any(|c| c == v);
-    let audio_ok = audio.is_none() || input.audio_codecs.iter().any(|c| c == a);
-    let too_large =
-        input.max_height > 0 && video["height"].as_u64().unwrap_or(0) > u64::from(input.max_height);
-    let source_bitrate = source_bitrate(probe);
-    let too_fast =
-        input.max_bitrate > 0 && source_bitrate.is_none_or(|rate| rate > input.max_bitrate);
-    let default_audio = selected_stream(probe, "audio", None)?
-        .as_ref()
-        .and_then(|a| a["index"].as_u64());
-    let chosen_audio = audio.as_ref().and_then(|a| a["index"].as_u64());
-    let direct_container = matches!(ext, "mp4" | "m4v" | "mov" | "webm" | "mkv")
-        && input
+    if matches!(codec, "hevc" | "av1") {
+        let profile = video["profile"].as_str().unwrap_or("").to_ascii_lowercase();
+        if !(profile.is_empty() || profile == "main" || codec == "hevc" && profile == "main 10") {
+            return false;
+        }
+        if super::number(&video["bits_per_raw_sample"]).is_some_and(|depth| depth > 10.0) {
+            return false;
+        }
+        return pixel_format.is_none_or(|format| {
+            matches!(
+                format,
+                "yuv420p"
+                    | "yuvj420p"
+                    | "nv12"
+                    | "yuv420p10le"
+                    | "yuv420p10be"
+                    | "p010le"
+                    | "p010be"
+            )
+        });
+    }
+    true
+}
+
+pub(super) fn plan(probe: &Value, ext: &str, input: &SessionInput) -> Result<Plan, HttpError> {
+    validate_request(input)?;
+    if duration(probe) > 0.0 && input.position_seconds > duration(probe) {
+        return Err(bad("Playback position is out of range."));
+    }
+    if !matches!(ext, "mp4" | "m4v" | "mov" | "webm" | "mkv")
+        || !input
             .containers
             .iter()
-            .any(|c| c == ext || (c == "mp4" && ext == "m4v"));
-    // Multiple embedded tracks do not prevent original-file playback. Selecting
-    // a different one requires the browser's native track-selection support.
-    let native_audio_selection = default_audio == chosen_audio || input.native_audio_tracks;
-    let direct = direct_container && native_audio_selection && !input.force_remux;
-    // WebM codec support alone does not establish support for those codecs in HLS/fMP4.
-    let hls_video_ok = matches!(v, "h264" | "hevc" | "av1");
-    let copy_video_ok =
-        hls_video_ok && video_profile_ok && input.hls_video_codecs.iter().any(|c| c == v);
-    let bandwidth_adaptation = input.bandwidth_limit_bps > 0;
-    if bandwidth_adaptation {
-        let rate = source_bitrate.ok_or_else(|| {
-            bad("Automatic bandwidth adaptation requires a known source bitrate.")
-        })?;
-        if input.bandwidth_limit_bps >= rate {
-            return Err(bad("Automatic bandwidth adaptation is not applicable: the reported bandwidth limit must be lower than the source bitrate."));
-        }
-        if input.force_remux
-            || (!settings.allow_conversion
-                && (input.force_transcode
-                    || input.subtitle_burn_index.is_some()
-                    || input.max_height > 0
-                    || input.max_bitrate > 0
-                    || !input.source_video_supported
-                    || !video_ok))
+            .any(|container| container == ext || container == "mp4" && ext == "m4v")
+    {
+        return Err(bad("This browser does not support the original container. Direct playback cannot remux the file."));
+    }
+    let video = selected_stream(probe, "video", None)?
+        .ok_or_else(|| bad("This file has no video track."))?;
+    let video_codec = video["codec_name"].as_str().unwrap_or("");
+    if !matches!(video_codec, "h264" | "hevc" | "av1" | "vp8" | "vp9")
+        || !input.video_codecs.iter().any(|codec| codec == video_codec)
+        || !supported_video_profile(&video, video_codec)
+    {
+        return Err(bad("This browser does not support the original video codec or profile. Direct playback cannot convert the video."));
+    }
+    let audio = selected_stream(probe, "audio", input.audio_index)?;
+    if let Some(audio) = &audio {
+        let codec = audio["codec_name"].as_str().unwrap_or("");
+        if !matches!(
+            codec,
+            "aac" | "mp3" | "opus" | "vorbis" | "flac" | "alac" | "ac3" | "eac3"
+        ) || !input
+            .audio_codecs
+            .iter()
+            .any(|supported| supported == codec)
         {
-            return Err(bad("Automatic bandwidth permission only adapts an otherwise compatible source at Original quality. It cannot authorize incompatible video, manual quality, forced encoding, subtitle burn-in, or forced lossless repackaging."));
+            return Err(bad("This browser does not support the original audio codec. Direct playback cannot convert or downmix the audio."));
         }
     }
-    let bitrate_limit = if bandwidth_adaptation {
-        if input.max_bitrate > 0 {
-            input.max_bitrate.min(input.bandwidth_limit_bps)
-        } else {
-            input.bandwidth_limit_bps
-        }
-    } else {
-        input.max_bitrate
-    };
-    let needs_video = input.force_transcode
-        || !video_ok
-        || (!direct && !hls_video_ok)
-        || too_large
-        || too_fast
-        || bandwidth_adaptation
-        || input.subtitle_burn_index.is_some();
-    if (!settings.allow_conversion && !bandwidth_adaptation) || input.force_remux {
-        let fits_original = direct && video_ok && audio_ok && !needs_video;
-        let remux_allowed = settings.allow_remux || settings.allow_conversion;
-        let copy_audio_ok = audio.is_none()
-            || (matches!(a, "aac" | "mp3" | "opus" | "flac" | "ac3" | "eac3" | "alac")
-                && input.hls_audio_codecs.iter().any(|c| c == a));
-        let fits_copy = !input.force_transcode
-            && !too_large
-            && !too_fast
-            && input.subtitle_burn_index.is_none();
-        if !fits_original && remux_allowed && copy_video_ok && copy_audio_ok && fits_copy {
-            let output_codec = v.to_string();
-            let hdr = matches!(
-                video["color_transfer"].as_str(),
-                Some("smpte2084" | "arib-std-b67")
-            );
-            return Ok(Plan {
-                method: "remux",
-                reason: "The selected tracks are copied without audio or video encoding.",
-                video,
-                audio,
-                output_codec,
-                hdr,
-                height: 0,
-                convert_audio: false,
-                bitrate_limit: 0,
-                bandwidth_adaptation: false,
-            });
-        }
-        if !fits_original
-            && !input.force_remux
-            && settings.allow_audio_transcoding
-            && copy_video_ok
-            && fits_copy
-            && audio.is_some()
-        {
-            if !input.audio_codecs.iter().any(|codec| codec == "aac") || !input.hls_aac_supported {
-                return Err(bad("Audio-only conversion requires browser support for AAC-LC audio with the original video in segmented playback."));
-            }
-            let output_codec = v.to_string();
-            let hdr = matches!(
-                video["color_transfer"].as_str(),
-                Some("smpte2084" | "arib-std-b67")
-            );
-            return Ok(Plan {method:"audio_transcode",reason:"The selected audio is converted to AAC; the compatible video is copied unchanged.",video,audio,output_codec,hdr,height:0,convert_audio:true,bitrate_limit:0,bandwidth_adaptation:false});
-        }
-        if !fits_original {
-            let reason = if input.force_transcode {
-                "the request requires a converted stream"
-            } else if input.subtitle_burn_index.is_some() {
-                "the selected subtitles require video rendering"
-            } else if too_large || too_fast {
-                "the requested quality requires changing the original video"
-            } else if input.force_remux && !remux_allowed {
-                "lossless track repackaging is disabled"
-            } else if input.force_remux && !copy_video_ok {
-                "the browser has not reported support for this video profile in segmented playback"
-            } else if input.force_remux && !copy_audio_ok {
-                "the browser has not reported support for the selected audio codec in segmented playback"
-            } else if !direct_container {
-                "the browser has not reported support for the original container"
-            } else if !native_audio_selection {
-                "this browser cannot select the requested audio track in the original file"
-            } else if !video_ok {
-                "the browser has not reported support for the original video profile"
-            } else {
-                "the browser has not reported support for the original audio track"
-            };
-            let policy = if settings.allow_audio_transcoding {
-                "Video encoding is disabled for this request. Audio-only conversion requires supported original video and AAC-LC segmented playback; lossless repackaging must be enabled and compatible separately."
-            } else if !remux_allowed {
-                "Conversion and remuxing are disabled."
-            } else {
-                "Audio/video encoding is disabled for this request. Lossless repackaging requires browser support for the original codecs in segmented playback."
-            };
-            return Err(bad(format!(
-                "Original playback is unavailable: {reason}. {policy}"
-            )));
+    let default_audio = selected_stream(probe, "audio", None)?;
+    if default_audio
+        .as_ref()
+        .and_then(|stream| stream["index"].as_u64())
+        != audio.as_ref().and_then(|stream| stream["index"].as_u64())
+        && !input.native_audio_tracks
+    {
+        return Err(bad("This browser cannot select the requested embedded audio track in the original file. Choose the default audio track or a browser with native audio-track selection."));
+    }
+    if let Some(index) = input.subtitle_index {
+        let subtitle = selected_stream(probe, "subtitle", Some(index))?
+            .ok_or_else(|| bad("Subtitle track not found."))?;
+        if !text_subtitle(&subtitle) {
+            return Err(bad("This subtitle track is not supported in direct playback. Choose ASS/SSA or a text subtitle track."));
         }
     }
-    let audio_ok = audio_ok
-        && ((!needs_video && direct)
-            || (matches!(a, "aac" | "mp3" | "")
-                && audio
-                    .as_ref()
-                    .and_then(|s| s["channels"].as_u64())
-                    .unwrap_or(2)
-                    <= 2));
-    let convert_audio = audio.is_some() && (!audio_ok || (needs_video && bitrate_limit > 0));
-    if convert_audio && !input.audio_codecs.iter().any(|codec| codec == "aac") {
-        return Err(bad("Audio conversion requires AAC support in this browser. Select a compatible audio track or a browser with AAC playback support."));
-    }
-    let hdr = matches!(
-        video["color_transfer"].as_str(),
-        Some("smpte2084" | "arib-std-b67")
-    );
-    let preferred = input
-        .preferred_encoder
-        .as_deref()
-        .unwrap_or(&settings.preferred_encoder);
-    if !["avc", "hevc", "av1"].contains(&preferred) {
-        return Err(bad("Unsupported output encoder preference."));
-    }
-    let preferred = if preferred == "avc" {
-        "h264"
-    } else {
-        preferred
-    };
-    let output_codec = if needs_video {
-        [preferred,"h264","hevc","av1"].into_iter().find(|codec|
-            input.video_codecs.iter().any(|supported|supported.as_str()==*codec)
-                && (settings.allow_conversion || input.hls_video_codecs.iter().any(|supported|supported.as_str()==*codec))
-                && match *codec {"hevc"=>settings.allow_hevc,"av1"=>settings.allow_av1,_=>true})
-            .ok_or_else(||bad("This browser has no compatible video encoder enabled on the server. Enable a supported HEVC or AV1 encoder in Transcoding settings, or use a browser with AVC playback support."))?
-    }else{"h264"}.to_string();
-    let height = match (input.max_height, settings.max_resolution) {
-        (0, s) => s,
-        (i, 0) => i,
-        (i, s) => i.min(s),
-    };
-    let (method, reason) = if needs_video {
-        (
-            "transcode",
-            if input.subtitle_burn_index.is_some() {
-                "The selected subtitles require video rendering."
-            } else if bandwidth_adaptation {
-                "The original bitrate exceeds the reported connection bandwidth."
-            } else if !video_ok {
-                "The browser does not support this video profile."
-            } else {
-                "The requested quality requires video conversion."
-            },
-        )
-    } else if !audio_ok {
-        (
-            "audio_transcode",
-            "The selected audio requires conversion; video is preserved.",
-        )
-    } else if direct {
-        (
-            "direct",
-            "The browser supports the original file and selected tracks.",
-        )
-    } else {
-        (
-            "remux",
-            "The original video and audio are preserved in a browser-compatible container.",
-        )
-    };
     Ok(Plan {
-        method,
-        reason,
-        video,
+        method: "direct",
+        reason:
+            "The browser plays the original file and supported selected tracks without conversion.",
         audio,
-        output_codec,
-        hdr,
-        height,
-        convert_audio,
-        bitrate_limit,
-        bandwidth_adaptation,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::test_support::{
-        audio_only_input, audio_only_settings, conversion_settings, input, lossless_mkv_input,
-        original_mkv_input, original_mkv_probe, original_only_settings, probe,
-    };
     use super::*;
+    use crate::playback::test_support::{input, original_mkv_input, original_mkv_probe, probe};
+    use serde_json::json;
+
     #[test]
-    fn independent_audio_permission_handles_truehd_dts_hd_and_lpcm_without_video_encoding() {
-        let settings = audio_only_settings();
-        for (codec, profile) in [
-            ("truehd", ""),
-            ("dts", "DTS"),
-            ("dts", "DTS-HD MA"),
-            ("dts", "DTS-HD HRA"),
-            ("dts", "DTS Express"),
-            ("pcm_s16le", ""),
-            ("pcm_s24le", ""),
-            ("pcm_s32le", ""),
-            ("pcm_bluray", ""),
-            ("pcm_dvd", ""),
-        ] {
-            let mut data = probe();
-            data["streams"][1]["codec_name"] = serde_json::json!(codec);
-            data["streams"][1]["profile"] = serde_json::json!(profile);
-            data["streams"][1]["channels"] = serde_json::json!(8);
-            let request = audio_only_input();
-            assert!(plan(&data, "mkv", &request, &original_only_settings()).is_err());
-            let chosen = plan(&data, "mkv", &request, &settings).unwrap();
-            assert_eq!(chosen.method, "audio_transcode");
-            assert!(chosen.convert_audio);
-            assert_eq!(chosen.height, 0);
-            assert_eq!(chosen.bitrate_limit, 0);
-            assert!(!chosen.bandwidth_adaptation);
-            assert_eq!(chosen.video["codec_name"], "h264");
-            assert_eq!(chosen.audio.unwrap()["codec_name"], codec);
-            assert!(!settings.allow_remux);
-            assert!(!settings.allow_conversion);
+    fn supported_original_containers_and_default_tracks_stay_direct() {
+        for container in ["mp4", "m4v", "mov", "webm", "mkv"] {
+            let mut request = input();
+            request.containers = vec![container.into()];
+            let chosen = plan(&probe(), container, &request).unwrap();
+            assert_eq!(chosen.method, "direct");
+            assert_eq!(chosen.audio.unwrap()["index"], 1);
         }
-        let data = probe();
-        assert_eq!(
-            plan(&data, "mp4", &audio_only_input(), &settings)
-                .unwrap()
-                .method,
-            "direct"
-        );
+        assert!(plan(&probe(), "m4v", &input()).is_ok());
     }
     #[test]
-    fn audio_only_permission_cannot_encode_video_burn_subtitles_or_claim_aac_support() {
-        let mut data = probe();
-        data["streams"][1]["codec_name"] = serde_json::json!("truehd");
-        data["streams"]
-            .as_array_mut()
-            .unwrap()
-            .push(serde_json::json!({"index":3,"codec_type":"subtitle","codec_name":"ass"}));
-        let cases = [
+    fn all_legacy_conversion_controls_are_rejected() {
+        for request in [
+            SessionInput {
+                max_height: 1080,
+                ..input()
+            },
+            SessionInput {
+                max_bitrate: 10_000_000,
+                ..input()
+            },
+            SessionInput {
+                bandwidth_limit_bps: 500_000,
+                ..input()
+            },
             SessionInput {
                 force_transcode: true,
-                ..audio_only_input()
+                ..input()
             },
             SessionInput {
                 force_remux: true,
-                ..audio_only_input()
-            },
-            SessionInput {
-                max_height: 720,
-                ..audio_only_input()
-            },
-            SessionInput {
-                max_bitrate: 1_000_000,
-                ..audio_only_input()
+                ..input()
             },
             SessionInput {
                 subtitle_burn_index: Some(3),
-                ..audio_only_input()
+                ..input()
             },
             SessionInput {
-                hls_video_codecs: vec![],
-                ..audio_only_input()
+                preferred_encoder: Some("avc".into()),
+                ..input()
             },
             SessionInput {
-                hls_aac_supported: false,
-                ..audio_only_input()
+                preferred_encoder: Some(String::new()),
+                ..input()
             },
-            SessionInput {
-                audio_codecs: vec!["opus".into()],
-                ..audio_only_input()
-            },
-        ];
-        for request in cases {
-            assert!(plan(&data, "mkv", &request, &audio_only_settings()).is_err());
+        ] {
+            assert_eq!(
+                plan(&probe(), "mp4", &request).err().unwrap().status,
+                axum::http::StatusCode::BAD_REQUEST
+            );
         }
-        data["streams"][0]["pix_fmt"] = serde_json::json!("yuv420p10le");
-        assert!(plan(&data, "mkv", &audio_only_input(), &audio_only_settings()).is_err());
     }
     #[test]
-    fn automatic_bandwidth_permission_is_budget_scoped_and_intersects_output_encoders() {
-        let settings = Settings {
-            auto_bandwidth_transcoding: true,
-            allow_remux: false,
-            ..Settings::default()
-        };
+    fn legacy_neutral_hls_fields_do_not_change_original_playback() {
         let request = SessionInput {
-            bandwidth_limit_bps: 1_000_000,
-            ..audio_only_input()
+            hls_video_codecs: vec!["hevc".into()],
+            hls_audio_codecs: vec!["opus".into()],
+            hls_aac_supported: true,
+            ..input()
         };
-        let chosen = plan(&probe(), "mp4", &request, &settings).unwrap();
-        assert_eq!(chosen.method, "transcode");
-        assert_eq!(chosen.bitrate_limit, 1_000_000);
-        assert!(chosen.bandwidth_adaptation);
-        assert!(chosen.convert_audio);
-        assert_eq!(chosen.output_codec, "h264");
-        assert!(plan(&probe(), "mp4", &request, &Settings::default()).is_err());
+        assert_eq!(plan(&probe(), "mp4", &request).unwrap().method, "direct");
+    }
+    #[test]
+    fn original_audio_requires_native_selection_for_alternate_track() {
+        let request = SessionInput {
+            audio_index: Some(2),
+            ..original_mkv_input()
+        };
+        assert!(plan(&original_mkv_probe(), "mkv", &request).is_err());
+        let native = SessionInput {
+            native_audio_tracks: true,
+            ..request
+        };
+        assert_eq!(
+            plan(&original_mkv_probe(), "mkv", &native)
+                .unwrap()
+                .audio
+                .unwrap()["index"],
+            2
+        );
+        let mut multichannel = original_mkv_probe();
+        multichannel["streams"][1]["channels"] = json!(6);
+        assert!(plan(&multichannel, "mkv", &original_mkv_input()).is_ok());
+    }
+    #[test]
+    fn unsupported_container_codec_and_precise_profile_are_rejected() {
+        assert!(plan(&probe(), "avi", &input()).is_err());
+        assert!(plan(&probe(), "mkv", &input()).is_err());
+        let mut high10 = probe();
+        high10["streams"][0]["pix_fmt"] = json!("yuv420p10le");
+        assert!(plan(&high10, "mp4", &input()).is_err());
+        let mut hevc12 = original_mkv_probe();
+        hevc12["streams"][0]["pix_fmt"] = json!("yuv420p12le");
+        assert!(plan(&hevc12, "mkv", &original_mkv_input()).is_err());
         assert!(plan(
             &probe(),
             "mp4",
             &SessionInput {
-                bandwidth_limit_bps: 0,
-                ..audio_only_input()
-            },
-            &settings
+                source_video_supported: Some(false),
+                ..input()
+            }
+        )
+        .is_err());
+        assert!(plan(
+            &probe(),
+            "mp4",
+            &SessionInput {
+                source_video_supported: Some(true),
+                ..input()
+            }
         )
         .is_ok());
-        let mut webm = probe();
-        webm["streams"][0]["codec_name"] = serde_json::json!("vp9");
-        let request = SessionInput {
-            bandwidth_limit_bps: 1_000_000,
-            video_codecs: vec!["vp9".into(), "h264".into()],
-            containers: vec!["webm".into()],
-            hls_aac_supported: false,
-            ..audio_only_input()
-        };
-        let chosen = plan(&webm, "webm", &request, &settings).unwrap();
-        assert_eq!(chosen.output_codec, "h264");
-        assert!(chosen.bandwidth_adaptation);
-        let request = SessionInput {
-            bandwidth_limit_bps: 1_000_000,
-            hls_video_codecs: vec!["hevc".into()],
-            ..audio_only_input()
-        };
-        assert!(plan(&probe(), "mp4", &request, &settings).is_err());
+        for codec in ["truehd", "dts", "pcm_s16le", "pcm_s24le", "pcm_bluray"] {
+            let mut unsupported = probe();
+            unsupported["streams"][1]["codec_name"] = json!(codec);
+            assert!(plan(
+                &unsupported,
+                "mp4",
+                &SessionInput {
+                    audio_codecs: vec![codec.into()],
+                    ..input()
+                }
+            )
+            .is_err());
+        }
     }
     #[test]
-    fn automatic_bandwidth_cannot_bypass_compatibility_quality_burn_or_disabled_policy() {
-        let settings = Settings {
-            auto_bandwidth_transcoding: true,
-            ..Settings::default()
-        };
+    fn invalid_tracks_and_graphical_subtitles_do_not_create_playback() {
         let mut data = probe();
         data["streams"]
             .as_array_mut()
             .unwrap()
-            .push(serde_json::json!({"index":3,"codec_type":"subtitle","codec_name":"ass"}));
-        let cases = [
-            SessionInput {
-                bandwidth_limit_bps: 499_999,
-                ..audio_only_input()
-            },
-            SessionInput {
-                bandwidth_limit_bps: 500_000_001,
-                ..audio_only_input()
-            },
-            SessionInput {
-                bandwidth_limit_bps: 5_000_000,
-                ..audio_only_input()
-            },
-            SessionInput {
-                bandwidth_limit_bps: 1_000_000,
-                force_transcode: true,
-                ..audio_only_input()
-            },
-            SessionInput {
-                bandwidth_limit_bps: 1_000_000,
-                force_remux: true,
-                ..audio_only_input()
-            },
-            SessionInput {
-                bandwidth_limit_bps: 1_000_000,
-                max_height: 1080,
-                ..audio_only_input()
-            },
-            SessionInput {
-                bandwidth_limit_bps: 1_000_000,
-                max_bitrate: 6_000_000,
-                ..audio_only_input()
-            },
-            SessionInput {
-                bandwidth_limit_bps: 1_000_000,
-                subtitle_burn_index: Some(3),
-                ..audio_only_input()
-            },
-            SessionInput {
-                bandwidth_limit_bps: 1_000_000,
-                video_codecs: vec!["hevc".into()],
-                ..audio_only_input()
-            },
-            SessionInput {
-                bandwidth_limit_bps: 1_000_000,
-                source_video_supported: false,
-                ..audio_only_input()
-            },
-        ];
-        for request in cases {
-            let error = plan(&data, "mp4", &request, &settings).err().unwrap();
-            assert_eq!(error.status, axum::http::StatusCode::BAD_REQUEST);
-        }
-        data["format"].as_object_mut().unwrap().remove("bit_rate");
+            .push(json!({"index":3,"codec_type":"subtitle","codec_name":"hdmv_pgs_subtitle"}));
         assert!(plan(
             &data,
             "mp4",
             &SessionInput {
-                bandwidth_limit_bps: 1_000_000,
-                ..audio_only_input()
-            },
-            &settings
-        )
-        .err()
-        .unwrap()
-        .detail
-        .contains("known source bitrate"));
-        data["format"]["bit_rate"] = serde_json::json!("5000000");
-        data["streams"][0]["pix_fmt"] = serde_json::json!("yuv420p10le");
-        assert!(plan(
-            &data,
-            "mp4",
-            &SessionInput {
-                bandwidth_limit_bps: 1_000_000,
-                ..audio_only_input()
-            },
-            &settings
-        )
-        .is_err());
-        let broad = Settings {
-            auto_bandwidth_transcoding: true,
-            ..conversion_settings()
-        };
-        let request = SessionInput {
-            bandwidth_limit_bps: 1_000_000,
-            max_bitrate: 750_000,
-            force_transcode: true,
-            ..audio_only_input()
-        };
-        let chosen = plan(&probe(), "mkv", &request, &broad).unwrap();
-        assert_eq!(chosen.bitrate_limit, 750_000);
-    }
-    #[test]
-    fn lossless_track_switch_preserves_opus_multichannel_and_prefers_direct_default() {
-        let settings = Settings::default();
-        let mut data = original_mkv_probe();
-        let request = lossless_mkv_input();
-        assert_eq!(
-            plan(&data, "mkv", &request, &settings).unwrap().method,
-            "direct"
-        );
-        let request = SessionInput {
-            audio_index: Some(2),
-            ..lossless_mkv_input()
-        };
-        let copied = plan(&data, "mkv", &request, &settings).unwrap();
-        assert_eq!(copied.method, "remux");
-        assert!(!copied.convert_audio);
-        assert_eq!(copied.audio.unwrap()["index"], 2);
-        data["streams"][2]["channels"] = serde_json::json!(6);
-        let copied = plan(&data, "mkv", &request, &settings).unwrap();
-        assert_eq!(copied.method, "remux");
-        assert!(!copied.convert_audio);
-        let native = SessionInput {
-            audio_index: Some(2),
-            native_audio_tracks: true,
-            ..lossless_mkv_input()
-        };
-        assert_eq!(
-            plan(&data, "mkv", &native, &settings).unwrap().method,
-            "direct"
-        );
-        let forced = SessionInput {
-            audio_index: Some(2),
-            native_audio_tracks: true,
-            force_remux: true,
-            ..lossless_mkv_input()
-        };
-        assert_eq!(
-            plan(&data, "mkv", &forced, &settings).unwrap().method,
-            "remux"
-        );
-    }
-    #[test]
-    fn lossless_requires_segmented_capabilities_and_never_adapts_quality_or_subtitles() {
-        let settings = Settings::default();
-        let data = original_mkv_probe();
-        let cases = [
-            SessionInput {
-                audio_index: Some(2),
-                hls_video_codecs: vec![],
-                ..lossless_mkv_input()
-            },
-            SessionInput {
-                audio_index: Some(2),
-                hls_audio_codecs: vec!["aac".into()],
-                ..lossless_mkv_input()
-            },
-            SessionInput {
-                force_remux: true,
-                max_height: 720,
-                ..lossless_mkv_input()
-            },
-            SessionInput {
-                force_remux: true,
-                max_bitrate: 1_000_000,
-                ..lossless_mkv_input()
-            },
-            SessionInput {
-                force_remux: true,
-                subtitle_burn_index: Some(3),
-                ..lossless_mkv_input()
-            },
-            SessionInput {
-                force_remux: true,
-                force_transcode: true,
-                ..lossless_mkv_input()
-            },
-        ];
-        for request in cases {
-            assert!(plan(&data, "mkv", &request, &settings).is_err());
-            if request.force_remux {
-                assert!(plan(&data, "mkv", &request, &conversion_settings()).is_err());
+                subtitle_index: Some(3),
+                ..input()
             }
-        }
-        let mut high10 = data;
-        high10["streams"][0]["codec_name"] = serde_json::json!("h264");
-        let request = SessionInput {
-            audio_index: Some(2),
-            hls_video_codecs: vec!["h264".into()],
-            ..lossless_mkv_input()
-        };
-        assert!(plan(&high10, "mkv", &request, &settings).is_err());
-        let request = SessionInput {
-            audio_index: Some(2),
-            ..lossless_mkv_input()
-        };
-        assert!(plan(
-            &original_mkv_probe(),
-            "mkv",
-            &request,
-            &original_only_settings()
         )
         .is_err());
+        assert!(plan(
+            &data,
+            "mp4",
+            &SessionInput {
+                audio_index: Some(20),
+                ..input()
+            }
+        )
+        .is_err());
+        assert!(plan(
+            &data,
+            "mp4",
+            &SessionInput {
+                subtitle_index: Some(20),
+                ..input()
+            }
+        )
+        .is_err());
+        data["streams"][3]["codec_name"] = json!("ass");
+        assert!(plan(
+            &data,
+            "mp4",
+            &SessionInput {
+                subtitle_index: Some(3),
+                ..input()
+            }
+        )
+        .is_ok());
     }
     #[test]
-    fn original_mkv_allows_default_and_natively_selectable_audio_without_conversion() {
-        let mut data = original_mkv_probe();
-        let settings = Settings::default();
-        let mut request = original_mkv_input();
-        request.subtitle_index = Some(3);
-        let selected = plan(&data, "mkv", &request, &settings).unwrap();
-        assert_eq!(selected.method, "direct");
-        assert!(!selected.convert_audio);
-        assert_eq!(selected.audio.unwrap()["index"], 1);
-        // Channel count alone must not force a downmix of natively supported audio.
-        data["streams"][1]["channels"] = serde_json::json!(6);
-        assert_eq!(
-            plan(&data, "mkv", &request, &settings).unwrap().method,
-            "direct"
-        );
-        request.audio_index = Some(2);
-        let error = plan(&data, "mkv", &request, &settings).err().unwrap();
-        assert!(error
-            .detail
-            .contains("cannot select the requested audio track"));
-        request.native_audio_tracks = true;
-        let selected = plan(&data, "mkv", &request, &settings).unwrap();
-        assert_eq!(selected.method, "direct");
-        assert_eq!(selected.audio.unwrap()["index"], 2);
-        assert!(!selected.convert_audio);
-    }
-    #[test]
-    fn original_only_rejects_conversion_and_remux_requirements_with_clear_reasons() {
-        let data = original_mkv_probe();
-        let settings = original_only_settings();
-        let cases = [
-            (
-                SessionInput {
-                    containers: vec!["mp4".into()],
-                    ..original_mkv_input()
-                },
-                "original container",
-            ),
-            (
-                SessionInput {
-                    video_codecs: vec!["h264".into()],
-                    ..original_mkv_input()
-                },
-                "video profile",
-            ),
-            (
-                SessionInput {
-                    audio_codecs: vec!["aac".into()],
-                    ..original_mkv_input()
-                },
-                "original audio track",
-            ),
-            (
-                SessionInput {
-                    max_height: 720,
-                    ..original_mkv_input()
-                },
-                "requested quality",
-            ),
-            (
-                SessionInput {
-                    max_bitrate: 1_000_000,
-                    ..original_mkv_input()
-                },
-                "requested quality",
-            ),
-            (
-                SessionInput {
-                    force_transcode: true,
-                    ..original_mkv_input()
-                },
-                "converted stream",
-            ),
-            (
-                SessionInput {
-                    subtitle_burn_index: Some(3),
-                    ..original_mkv_input()
-                },
-                "video rendering",
-            ),
-        ];
-        for (request, reason) in cases {
-            let error = plan(&data, "mkv", &request, &settings).err().unwrap();
-            assert_eq!(error.status, axum::http::StatusCode::BAD_REQUEST);
-            assert!(error.detail.contains(reason), "{}", error.detail);
-            assert!(error
-                .detail
-                .contains("Conversion and remuxing are disabled"));
+    fn unknown_duration_allows_resume_but_all_positions_remain_bounded() {
+        let mut data = probe();
+        data["format"].as_object_mut().unwrap().remove("duration");
+        assert!(plan(
+            &data,
+            "mp4",
+            &SessionInput {
+                position_seconds: 600.0,
+                ..input()
+            }
+        )
+        .is_ok());
+        for position in [-1.0, f64::NAN, f64::INFINITY, MAX_PLAYBACK_SECONDS + 1.0] {
+            assert!(plan(
+                &data,
+                "mp4",
+                &SessionInput {
+                    position_seconds: position,
+                    ..input()
+                }
+            )
+            .is_err());
         }
-        let request = SessionInput {
-            containers: vec!["mp4".into()],
-            audio_codecs: vec!["opus".into(), "aac".into()],
-            ..original_mkv_input()
-        };
-        let selected = plan(&data, "mkv", &request, &conversion_settings()).unwrap();
-        assert_eq!(selected.method, "audio_transcode");
-        assert!(selected.convert_audio);
-        assert_eq!(selected.video["codec_name"], "hevc");
-    }
-    #[test]
-    fn preserves_video_and_selects_least_cost_method() {
-        let settings = conversion_settings();
-        let mut p = probe();
-        p["streams"].as_array_mut().unwrap().remove(2);
-        assert_eq!(
-            plan(&p, "mp4", &input(), &settings).unwrap().method,
-            "direct"
-        );
-        assert_eq!(
-            plan(&p, "mkv", &input(), &settings).unwrap().method,
-            "remux"
-        );
-        let mut i = input();
-        i.audio_index = Some(2);
-        assert_eq!(
-            plan(&probe(), "mkv", &i, &settings).unwrap().method,
-            "audio_transcode"
-        );
-        i.audio_index = None;
-        i.max_height = 720;
-        assert_eq!(plan(&p, "mp4", &i, &settings).unwrap().method, "transcode");
-        i.max_height = 0;
-        i.max_bitrate = 1_000_000;
-        assert_eq!(plan(&p, "mp4", &i, &settings).unwrap().method, "transcode");
-    }
-    #[test]
-    fn rejects_invalid_tracks_and_positions() {
-        let mut i = input();
-        i.audio_index = Some(77);
-        assert!(plan(&probe(), "mp4", &i, &Settings::default()).is_err());
-        i.audio_index = None;
-        i.position_seconds = f64::NAN;
-        assert!(plan(&probe(), "mp4", &i, &Settings::default()).is_err());
-        i.position_seconds = 181.0;
-        assert!(plan(&probe(), "mp4", &i, &Settings::default()).is_err());
-    }
-    #[test]
-    fn output_codec_requires_server_and_browser_support() {
-        let settings = Settings {
-            allow_av1: true,
-            ..conversion_settings()
-        };
-        let mut request = input();
-        request.force_transcode = true;
-        request.video_codecs = vec!["av1".into()];
-        assert_eq!(
-            plan(&probe(), "mkv", &request, &settings)
-                .unwrap()
-                .output_codec,
-            "av1"
-        );
-        let disabled = conversion_settings();
-        let error = plan(&probe(), "mkv", &request, &disabled).err().unwrap();
-        assert!(error.detail.contains("compatible video encoder"));
-        request.video_codecs = vec!["hevc".into(), "h264".into()];
-        request.preferred_encoder = Some("hevc".into());
-        assert_eq!(
-            plan(&probe(), "mkv", &request, &disabled)
-                .unwrap()
-                .output_codec,
-            "h264"
-        );
-        let enabled = Settings {
-            allow_hevc: true,
-            ..conversion_settings()
-        };
-        assert_eq!(
-            plan(&probe(), "mkv", &request, &enabled)
-                .unwrap()
-                .output_codec,
-            "hevc"
-        );
-    }
-    #[test]
-    fn compatible_webm_does_not_need_an_enabled_conversion_codec() {
-        let mut probe = probe();
-        probe["streams"].as_array_mut().unwrap().remove(2);
-        probe["streams"][0]["codec_name"] = serde_json::json!("vp9");
-        probe["streams"][1]["codec_name"] = serde_json::json!("opus");
-        let request = SessionInput {
-            video_codecs: vec!["vp9".into()],
-            audio_codecs: vec!["opus".into()],
-            containers: vec!["webm".into()],
-            ..SessionInput::default()
-        };
-        assert_eq!(
-            plan(&probe, "webm", &request, &Settings::default())
-                .unwrap()
-                .method,
-            "direct"
-        );
-    }
-    #[test]
-    fn video_conversion_preserves_compatible_audio_and_rejects_incompatible_aac_output() {
-        let mut probe = probe();
-        probe["streams"][1]["codec_name"] = serde_json::json!("mp3");
-        let mut request = input();
-        request.force_transcode = true;
-        request.audio_codecs = vec!["mp3".into()];
-        assert!(
-            !plan(&probe, "mkv", &request, &conversion_settings())
-                .unwrap()
-                .convert_audio
-        );
-        request.audio_index = Some(2);
-        assert!(plan(&probe, "mkv", &request, &conversion_settings())
-            .err()
-            .unwrap()
-            .detail
-            .contains("AAC support"));
-        request.audio_codecs.push("aac".into());
-        assert!(
-            plan(&probe, "mkv", &request, &conversion_settings())
-                .unwrap()
-                .convert_audio
-        );
-    }
-    #[test]
-    fn unknown_duration_is_not_a_one_second_video() {
-        let mut probe = probe();
-        probe["format"].as_object_mut().unwrap().remove("duration");
-        let mut request = input();
-        request.position_seconds = 600.0;
-        assert!(plan(&probe, "mkv", &request, &conversion_settings()).is_ok());
-        request.position_seconds = MAX_PLAYBACK_SECONDS + 1.0;
-        assert!(plan(&probe, "mkv", &request, &conversion_settings()).is_err());
-        probe["streams"][0]["duration"] = serde_json::json!(120.0);
-        request.position_seconds = 121.0;
-        assert!(plan(&probe, "mkv", &request, &conversion_settings()).is_err());
-    }
-    #[test]
-    fn requested_bitrate_limit_is_enforced_when_source_bitrate_is_unknown() {
-        let mut probe = probe();
-        probe["format"].as_object_mut().unwrap().remove("bit_rate");
-        let mut request = input();
-        request.max_bitrate = 1_000_000;
-        assert_eq!(
-            plan(&probe, "mkv", &request, &conversion_settings())
-                .unwrap()
-                .method,
-            "transcode"
-        );
-        probe["format"]["size"] = serde_json::json!(100_000);
-        assert_eq!(
-            plan(&probe, "mkv", &request, &conversion_settings())
-                .unwrap()
-                .method,
-            "remux"
-        );
+        assert!(plan(
+            &probe(),
+            "mp4",
+            &SessionInput {
+                position_seconds: 181.0,
+                ..input()
+            }
+        )
+        .is_err());
     }
 }

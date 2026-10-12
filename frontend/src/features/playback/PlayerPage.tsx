@@ -1,23 +1,19 @@
 import {watchApi} from "./api/watch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import Hls, {type FragLoadedData,type FragLoadingData,type LevelLoadedData} from "hls.js";
 import subtitleFallbackFont from "jassub/dist/default.woff2?url";
-import { ArrowLeft, Check, ChevronRight, CircleHelp, Gauge, ListVideo, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, RotateCw, Settings2, SkipForward, Subtitles, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, CircleHelp, Gauge, ListVideo, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, RotateCw, SkipForward, Subtitles, Volume2, VolumeX, X } from "lucide-react";
 import { defaultPlaybackPreferences, playbackApi, type PlaybackInfo, type PlaybackPreferences, type PlaybackSession } from "./api/playback";
-import { canRemuxAudio, playbackCapabilities, playbackTime, safePlayerReturn, selectTracks, trackLabel } from "./lib/playback";
-import {canSeekInCurrentSource} from "./lib/seek";
+import { originalAudioSupported, playbackCapabilities, playbackTime, safePlayerReturn, selectTracks, trackLabel } from "./lib/playback";
 import {createSessionHeartbeatQueue} from "./lib/sessionHeartbeat";
-import {hlsBufferOptions} from "./lib/hlsBuffer";
-import {createBandwidthDetector,createFragmentTransferSampler,probeDirectBandwidth,type FragmentTransferStats} from "./lib/bandwidth";
 import {defaultAudioIndex,enableNativeAudio,mapNativeAudio,nativeAudioTracks,type NativeAudioTrack} from "./lib/nativeAudio";
 import DetailSynopsis from "../../components/DetailSynopsis";
 import {applyPlainSubtitlePosition,subtitleAppearance,subtitleAppearanceVariables} from "./lib/subtitleAppearance";
 import "./PlayerPage.css";
 
-type Menu = "audio"|"subtitles"|"speed"|"quality"|"chapters"|"info"|"next"|null;
+type Menu = "audio"|"subtitles"|"speed"|"chapters"|"info"|"next"|null;
 type Capability = Awaited<ReturnType<typeof playbackCapabilities>>;
-const qualities = [{label:"Original / automatic",height:0,bitrate:0},{label:"2160p · 20 Mbps",height:2160,bitrate:20_000_000},{label:"1080p · 8 Mbps",height:1080,bitrate:8_000_000},{label:"720p · 3 Mbps",height:720,bitrate:3_000_000},{label:"480p · 1.5 Mbps",height:480,bitrate:1_500_000}];
+const imageSubtitle=(track?:{subtitle_format?:string;codec:string})=>track?.subtitle_format==="image"||["hdmv_pgs_subtitle","dvd_subtitle","pgs","vobsub"].includes(track?.codec.toLowerCase()??"");
 const errorMessage=(error:unknown)=>error instanceof Error?error.message:"Unable to play this video.";
 
 export default function PlayerPage() {
@@ -32,18 +28,10 @@ export default function PlayerPage() {
   const [error,setError]=useState(""), [notice,setNotice]=useState(""), [loading,setLoading]=useState(true);
   const [playing,setPlaying]=useState(false), [buffering,setBuffering]=useState(false), [visible,setVisible]=useState(true);
   const [position,setPosition]=useState(0), [scrubbing,setScrubbing]=useState<number|null>(null), [buffered,setBuffered]=useState(0);
-  const [audio,setAudio]=useState<number|null>(null), [subtitle,setSubtitle]=useState(-1), [burnSubtitles,setBurnSubtitles]=useState(false);
+  const [audio,setAudio]=useState<number|null>(null), [subtitle,setSubtitle]=useState(-1);
   const [nativeAudioChoices,setNativeAudioChoices]=useState<number[]>([]),[audioHelp,setAudioHelp]=useState("");
   const audioMapping=useRef(new Map<number,NativeAudioTrack>());
-  const remuxAudioRequired=useRef(false);
-  const bandwidthDetector=useRef(createBandwidthDetector()),bandwidthBudget=useRef(0),bandwidthStall=useRef<number|null>(null);
-  const bandwidthProbe=useRef<AbortController|null>(null),lastBandwidthProbe=useRef(-Infinity);
-  const bandwidthReadyAt=useRef(0);
-  const fragmentTransfers=useRef(createFragmentTransferSampler()),sourceStarts=useRef(0),startupTransfer=useRef<{generation:number;sessionId:string}|null>(null);
-  const loadingFragment=useRef<{frag:FragLoadingData["frag"];generation:number;sessionId:string}|null>(null),fragmentStats=useRef<FragmentTransferStats|null>(null),fragmentWindowSuppressed=useRef(true);
-  const [bandwidthLimit,setBandwidthLimit]=useState(0);
-  const bandwidthTickRef=useRef<()=>void>(()=>{}),bandwidthSampleRef=useRef<(bytes:number,milliseconds:number)=>void>(()=>{});
-  const [volume,setVolume]=useState(1), [muted,setMuted]=useState(false), [speed,setSpeed]=useState(1), [quality,setQuality]=useState(0);
+  const [volume,setVolume]=useState(1), [muted,setMuted]=useState(false), [speed,setSpeed]=useState(1);
   const [menu,setMenu]=useState<Menu>(null), [fullscreen,setFullscreen]=useState(false), [pip,setPip]=useState(false);
   const [watchPrompt,setWatchPrompt]=useState(false), [ended,setEnded]=useState(false), [countdown,setCountdown]=useState<number|null>(null);
   const [watchError,setWatchError]=useState("");
@@ -53,70 +41,62 @@ export default function PlayerPage() {
   const pendingAllocation=useRef<Promise<void>|undefined>(undefined);
   const metadataCleanup=useRef<(()=>void)|undefined>(undefined);
   const mediaOwner=useRef<{generation:number;sessionId:string}|null>(null);
-  const seekRefreshCleanup=useRef<(()=>void)|undefined>(undefined),seekAttempt=useRef(0);
   const pendingSeek=useRef<{generation:number;target:number}|null>(null);
   const playIntent=useRef(true);
-  const retentionPosition=useRef(0), retentionRecovery=useRef(false);
   const waitingDemand=useRef(false);
   const heartbeatQueue=useRef<ReturnType<typeof createSessionHeartbeatQueue>|null>(null);
   if(!heartbeatQueue.current)heartbeatQueue.current=createSessionHeartbeatQueue((session,position,paused)=>playbackApi.heartbeat(session,position,paused));
   const infoRef=useRef<PlaybackInfo|undefined>(undefined), prefsRef=useRef<PlaybackPreferences>(defaultPlaybackPreferences);
-  const current=useRef<PlaybackSession|undefined>(undefined), capability=useRef<Capability|undefined>(undefined), hls=useRef<Hls|undefined>(undefined);
+  const current=useRef<PlaybackSession|undefined>(undefined), capability=useRef<Capability|undefined>(undefined);
   const watchSession=useRef(""), sequence=useRef(0), requestGeneration=useRef(0), mounted=useRef(false);
-  const offset=useRef(0), sourcePosition=useRef(0), confirmedPosition=useRef(0),ready=useRef(false), retries=useRef(0);
-  const replaying=useRef(false);
-  const selected=useRef({audio:null as number|null,subtitle:-1,burn:false,quality:0});
+  const sourcePosition=useRef(0),ready=useRef(false);
+  const replaying=useRef<{routeKey:string;generation:number}|null>(null);
+  const completedReport=useRef<{routeKey:string;generation:number;promise:Promise<void>}|null>(null);
+  const selected=useRef({audio:null as number|null,subtitle:-1});
   const controls=useRef({visible:true,playing:false,menu:null as Menu,dragging:false,lastActive:Date.now(),focus:false,prompt:false,ended:false});
-  const restartRef=useRef<(position:number,force?:boolean,playOverride?:boolean,forceRemux?:boolean)=>Promise<void>>(async()=>{});
   const replayRef=useRef<(position?:number,autoplay?:boolean)=>Promise<void>>(async()=>{});
   const failureRef=useRef<(message:string)=>void>(()=>{});
   const report=useCallback((isEnded=false,keepalive=false,seeking=false,previousRoute=false)=>{
-    if(!watchSession.current||(!ready.current&&!pendingSeek.current)||(!previousRoute&&activeRoute.current!==routeKey))return;
-    const payload={session_id:watchSession.current,sequence:++sequence.current,position_seconds:sourcePosition.current,paused:video.current?.paused??true,ended:isEnded,seeking:seeking||!!pendingSeek.current,...(!keepalive&&current.current?{playback_session_id:current.current.id}:{}),audio_index:selected.current.audio,subtitle_index:selected.current.subtitle};
-    void watchApi.progress(libraryId,itemId,payload,keepalive).then(()=>{
+    if(!watchSession.current||(!ready.current&&!pendingSeek.current)||(!previousRoute&&activeRoute.current!==routeKey))return Promise.resolve();
+    const completion=completedReport.current?.routeKey===routeKey&&completedReport.current.generation===requestGeneration.current?completedReport.current:null;
+    const payload={session_id:watchSession.current,sequence:++sequence.current,position_seconds:sourcePosition.current,paused:video.current?.paused??true,ended:isEnded||!!completion,seeking:seeking||!!pendingSeek.current,...(!keepalive&&current.current?{playback_session_id:current.current.id}:{}),audio_index:selected.current.audio,subtitle_index:selected.current.subtitle};
+    const saving=watchApi.progress(libraryId,itemId,payload,keepalive).then(()=>{
       if(mounted.current&&activeRoute.current===routeKey&&payload.session_id===watchSession.current&&payload.sequence===sequence.current)setWatchError("");
       window.dispatchEvent(new Event("posterview-watch-updated"));
     }).catch(error=>{if(mounted.current&&activeRoute.current===routeKey&&payload.session_id===watchSession.current&&payload.sequence===sequence.current)setWatchError(`Watch progress could not be saved: ${errorMessage(error)}`);});
+    if(completion)completion.promise=Promise.all([completion.promise,saving]).then(()=>{});
+    return saving;
   },[libraryId,itemId,routeKey]);
   const interact=useCallback(()=>{
     controls.current.lastActive=Date.now();controls.current.visible=true;setVisible(true);
   },[]);
-  const heartbeat=useCallback((paused=video.current?.paused??true,position=seekRefreshCleanup.current?confirmedPosition.current:sourcePosition.current)=>{
+  const heartbeat=useCallback((paused=video.current?.paused??true,position=sourcePosition.current)=>{
     const owned=current.current;
     if(!owned||!ready.current||activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
-    retentionPosition.current=Math.max(retentionPosition.current,position);
     heartbeatQueue.current?.request(owned.id,position,paused);
   },[routeKey]);
-  const cancelSeekRefresh=useCallback(()=>{seekAttempt.current++;seekRefreshCleanup.current?.();seekRefreshCleanup.current=undefined;},[]);
-  const clearBandwidthObservation=useCallback(()=>{bandwidthProbe.current?.abort();bandwidthProbe.current=null;bandwidthStall.current=null;fragmentWindowSuppressed.current=true;fragmentTransfers.current.clearWindow();bandwidthReadyAt.current=Date.now()+8_000;bandwidthDetector.current.suppressUntil(bandwidthReadyAt.current);},[]);
   const play=useCallback(async(userInteraction=true)=>{
     const element=video.current;if(!element||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!watchSession.current||!ready.current||!current.current)return;
     playIntent.current=true;
     if(userInteraction)interact();
-    // Wake a producer that was throttled while paused before waiting for the
-    // browser's play promise, which can itself need the next HLS segment.
     heartbeat(false);
     const owned=current.current.id,generation=requestGeneration.current;
     try{await element.play();if(activeRoute.current===routeKey&&current.current?.id===owned&&requestGeneration.current===generation)setNotice(value=>value==="Press Play to begin playback."||value.startsWith("The browser cannot decode this source.")?"":value);}catch(error){
       if(activeRoute.current!==routeKey||current.current?.id!==owned||requestGeneration.current!==generation)return;
       if(error instanceof DOMException&&error.name==="NotAllowedError")setNotice("Press Play to begin playback.");
-      else if(infoRef.current?.conversion_allowed!==true)failureRef.current("This browser cannot play the original file. Media conversion is disabled.");
-      else setNotice(errorMessage(error));
+      else failureRef.current("This browser cannot play the original file. Try a browser that supports its video and audio formats.");
     }
   },[interact,routeKey,heartbeat]);
   const terminalError=useCallback((message:string)=>{
     if(!mounted.current||activeRoute.current!==routeKey)return;
-    cancelSeekRefresh();
-    clearBandwidthObservation();
-    startupTransfer.current=null;fragmentTransfers.current.reset();loadingFragment.current=null;fragmentStats.current=null;
     const element=video.current;
     if(ready.current&&!pendingSeek.current&&element&&Number.isFinite(element.currentTime)){
-      sourcePosition.current=Math.max(0,offset.current+element.currentTime);setPosition(sourcePosition.current);
+      sourcePosition.current=Math.max(0,element.currentTime);setPosition(sourcePosition.current);
     }
     report();ready.current=false;pendingSeek.current=null;requestGeneration.current++;
     mediaOwner.current=null;metadataCleanup.current?.();metadataCleanup.current=undefined;
-    element?.pause();hls.current?.destroy();hls.current=undefined;
-    const stopped=current.current;current.current=undefined;
+    element?.pause();
+    const stopped=current.current;current.current=undefined;setSession(undefined);
     if(stopped)heartbeatQueue.current?.forget(stopped.id);
     if(element){element.removeAttribute("src");element.load();}
     if(stopped){
@@ -124,17 +104,13 @@ export default function PlayerPage() {
       void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});
     }
     setLoading(false);setBuffering(false);setPlaying(false);setVisible(true);setError(message);
-  },[report,routeKey,cancelSeekRefresh,clearBandwidthObservation]);
+  },[report,routeKey]);
   failureRef.current=terminalError;
-  const start=useCallback(async(sourceTime:number,force=false,playOverride?:boolean,forceRemux=false)=>{
-    const element=video.current, data=infoRef.current, caps=capability.current;
+  const start=useCallback(async(sourceTime:number,playOverride?:boolean)=>{
+    const element=video.current,data=infoRef.current,caps=capability.current;
     if(!element||!data||!caps||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!watchSession.current)return;
-    cancelSeekRefresh();
-    clearBandwidthObservation();
-    startupTransfer.current=null;fragmentTransfers.current.reset();loadingFragment.current=null;fragmentStats.current=null;
     const generation=++requestGeneration.current;
-    const shouldPlay=playOverride??(current.current&&ready.current&&!pendingSeek.current?!element.paused:playIntent.current);
-    playIntent.current=shouldPlay;
+    playIntent.current=playOverride??(current.current&&ready.current&&!pendingSeek.current?!element.paused:playIntent.current);
     const target=Math.max(0,Math.min(sourceTime,data.duration_seconds||sourceTime));
     report();sourcePosition.current=target;pendingSeek.current={generation,target};setPosition(target);setScrubbing(null);report(false,false,true);
     ready.current=false;mediaOwner.current=null;metadataCleanup.current?.();metadataCleanup.current=undefined;
@@ -142,177 +118,76 @@ export default function PlayerPage() {
     audioMapping.current.clear();setNativeAudioChoices([]);setAudioHelp("Audio choices will be available after the browser loads the original file.");
     waitingDemand.current=false;if(previous)heartbeatQueue.current?.forget(previous.id);
     element.pause();setPlaying(false);setLoading(true);setBuffering(false);setError("");setEnded(false);setCountdown(null);
-    hls.current?.destroy();hls.current=undefined;
     element.removeAttribute("src");element.load();
-    if(previous){
-      const stopping=playbackApi.stop(previous.id).catch(()=>{});pendingStop.current=stopping;
-      void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});
-    }
+    if(previous){const stopping=playbackApi.stop(previous.id).catch(()=>{});pendingStop.current=stopping;void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});}
     if(pendingStop.current)await pendingStop.current;
     if(pendingAllocation.current)await pendingAllocation.current;
     if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)return;
     try{
-      const choice=selected.current, conversionAllowed=data.conversion_allowed===true,audioConversionAllowed=conversionAllowed||data.audio_conversion_allowed===true,q=qualities[conversionAllowed?choice.quality:0];
-      const {source_video_supported,hls_audio_track_indexes,...outputCapabilities}=caps;
-      const selectedAudio=data.tracks.find(track=>track.kind==="audio"&&track.index===choice.audio);
-      const selectedHlsAudio=selectedAudio&&hls_audio_track_indexes.includes(selectedAudio.index)?[selectedAudio.codec]:[];
-      const automaticBudget=data.bandwidth_adaptation_allowed===true&&choice.quality===0&&!choice.burn&&source_video_supported?bandwidthBudget.current:0;
-      const copyAudio=automaticBudget===0&&!force&&q.height===0&&!choice.burn&&canRemuxAudio(data,caps,choice.audio)&&(forceRemux||remuxAudioRequired.current||!audioConversionAllowed&&!caps.native_audio_tracks&&choice.audio!==defaultAudioIndex(data));
-      if(copyAudio)remuxAudioRequired.current=true;
-      const creating=playbackApi.create(libraryId,itemId,{position_seconds:target,audio_index:choice.audio,subtitle_index:choice.subtitle<0?null:choice.subtitle,max_height:q.height,max_bitrate:q.bitrate,...outputCapabilities,source_video_supported,hls_audio_codecs:selectedHlsAudio,bandwidth_limit_bps:automaticBudget,force_remux:copyAudio,force_transcode:conversionAllowed&&!copyAudio&&(force||!source_video_supported),subtitle_burn_index:conversionAllowed&&choice.burn&&choice.subtitle>=0?choice.subtitle:null});
-      const allocation=creating.then(async created=>{
-        if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)await playbackApi.stop(created.id).catch(()=>{});
-      }).catch(()=>{});
-      pendingAllocation.current=allocation;
-      void allocation.finally(()=>{if(pendingAllocation.current===allocation)pendingAllocation.current=undefined;});
+      const choice=selected.current,chosenAudio=data.tracks.find(track=>track.kind==="audio"&&track.index===choice.audio);
+      const audioCodecs=caps.audio_codecs.filter(codec=>!chosenAudio||codec!==chosenAudio.codec||originalAudioSupported(chosenAudio,element));
+      const creating=playbackApi.create(libraryId,itemId,{position_seconds:target,audio_index:choice.audio,subtitle_index:choice.subtitle<0?null:choice.subtitle,...caps,audio_codecs:audioCodecs});
+      const allocation=creating.then(async created=>{if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)await playbackApi.stop(created.id).catch(()=>{});}).catch(()=>{});
+      pendingAllocation.current=allocation;void allocation.finally(()=>{if(pendingAllocation.current===allocation)pendingAllocation.current=undefined;});
       const created=await creating;
       if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)return;
-      current.current=created;mediaOwner.current={generation,sessionId:created.id};offset.current=created.offset_seconds;retentionPosition.current=target;confirmedPosition.current=target;setSession(created);
-      if(sourceStarts.current++===0&&created.mime.includes("mpegurl"))startupTransfer.current={generation,sessionId:created.id};
-      if(!conversionAllowed&&created.method!=="direct"&&!(created.method==="remux"&&data.remux_allowed===true)&&!(created.method==="audio_transcode"&&audioConversionAllowed)&&!(created.method==="transcode"&&automaticBudget>0)){terminalError("The server returned converted playback while media conversion is disabled. Original playback is unavailable for this file.");return;}
+      current.current=created;mediaOwner.current={generation,sessionId:created.id};setSession(created);
+      if(created.method!=="direct"||created.offset_seconds!==0||/mpegurl/i.test(created.mime)){terminalError("The server did not return original-file playback.");return;}
       const initialize=()=>{
-        if(activeRoute.current!==routeKey||generation!==requestGeneration.current||current.current?.id!==created.id)return;
-        startupTransfer.current=null;
-        if(created.method==="direct"){
-          const list=nativeAudioTracks(element),mapping=mapNativeAudio(data,list),requested=created.audio_index??choice.audio??defaultAudioIndex(data);
-          audioMapping.current=mapping;setNativeAudioChoices(Array.from(mapping.keys()));
-          const copyRequested=()=>{
-            if(!canRemuxAudio(data,caps,requested)||copyAudio)return false;
-            selected.current.audio=requested;remuxAudioRequired.current=true;
-            setNotice("The browser cannot select this audio track directly. Copying the original video and selected audio without encoding.");
-            void restartRef.current(target,false,playIntent.current,true);return true;
-          };
-          if(list&&requested!=null&&mapping.has(requested)){
-            if(!enableNativeAudio(list,mapping,requested)){if(copyRequested())return;terminalError("The browser could not select the requested audio track. Original playback cannot change it reliably.");return;}
-            setAudioHelp(data.tracks.some(track=>track.kind==="audio"&&!mapping.has(track.index))?"The browser exposes only some audio tracks. Compatible tracks can use lossless stream copying.":"");
-          }else if(requested!=null&&requested===defaultAudioIndex(data)&&Array.from(mapping.entries()).some(([index,track])=>index!==requested&&track.enabled)){
-            if(copyRequested())return;setAudio(null);terminalError("The browser does not expose the requested default audio track and has selected a different identified track. Use another browser to play the requested audio.");return;
-          }else if(requested!==defaultAudioIndex(data)&&requested!=null){if(copyRequested())return;setAudio(null);terminalError("The browser could not identify the requested audio track. Choose the default audio track or use another browser.");return;}
-          else setAudioHelp(list?"The browser's default audio is playing. Other tracks cannot be mapped reliably.":"Original playback uses the file's default audio. This browser does not expose audio-track selection.");
-          selected.current.audio=requested;setAudio(requested);
-        }else{
-          const actualAudio=created.audio_index??choice.audio;
-          selected.current.audio=actualAudio;setAudio(actualAudio);
-          setAudioHelp(created.method==="remux"?"The original video and selected audio are copied without encoding. Compatible audio tracks can be switched using another lossless stream.":"");
+        if(activeRoute.current!==routeKey||generation!==requestGeneration.current||current.current?.id!==created.id||element.getAttribute("src")!==created.url)return;
+        if(element.currentSrc&&element.currentSrc!==new URL(created.url,window.location.href).href)return;
+        const list=nativeAudioTracks(element),mapping=mapNativeAudio(data,list),requested=created.audio_index??choice.audio??defaultAudioIndex(data);
+        audioMapping.current=mapping;setNativeAudioChoices(Array.from(mapping.keys()).filter(index=>{const track=data.tracks.find(track=>track.index===index);return !!track&&originalAudioSupported(track,element);}));
+        const actual=data.tracks.find(track=>track.kind==="audio"&&track.index===requested);
+        if(actual&&!originalAudioSupported(actual,element)){setAudio(null);selected.current.audio=null;terminalError("This browser cannot decode the original audio track.");return;}
+        if(list&&requested!=null&&mapping.has(requested)){
+          if(!enableNativeAudio(list,mapping,requested)){setAudio(null);selected.current.audio=null;terminalError("The browser could not select the requested audio track reliably.");return;}
+          setAudioHelp(data.tracks.some(track=>track.kind==="audio"&&!mapping.has(track.index))?"Only audio tracks that the browser exposes and decodes can be selected.":"");
+        }else if(requested!=null&&requested===defaultAudioIndex(data)&&Array.from(mapping.entries()).some(([index,track])=>index!==requested&&track.enabled)){
+          setAudio(null);selected.current.audio=null;terminalError("The browser selected a different audio track and does not expose the requested default track.");return;
+        }else if(requested!==defaultAudioIndex(data)&&requested!=null){
+          setAudio(null);selected.current.audio=null;terminalError("The browser could not identify the requested audio track. Choose the default audio track or another browser.");return;
+        }else setAudioHelp(list?"The browser's default audio is playing. Other tracks cannot be mapped reliably.":"This browser plays the file's default audio and does not expose audio-track selection.");
+        selected.current.audio=requested;setAudio(requested);
+        metadataCleanup.current?.();metadataCleanup.current=undefined;
+        try{element.currentTime=pendingSeek.current?.target??target;}catch{
+          terminalError("The browser could not apply the requested playback position. Retry original playback.");return;
         }
-        const relativePosition=Math.max(0,target-created.offset_seconds);
-        element.currentTime=relativePosition;
-        element.playbackRate=speedRef.current;ready.current=true;setLoading(false);report(false,false,true);if(playIntent.current)void play(false);else heartbeat(true);
+        element.playbackRate=speedRef.current;ready.current=true;setLoading(false);report(false,false,true);
+        if(playIntent.current)void play(false);else heartbeat(true);
       };
-      element.addEventListener("loadedmetadata",initialize,{once:true});
-      metadataCleanup.current=()=>element.removeEventListener("loadedmetadata",initialize);
-      if(created.mime.includes("mpegurl")&&Hls.isSupported()){
-        const instance=new Hls({startPosition:Math.max(0,target-created.offset_seconds),...hlsBufferOptions(data,created.method,choice.audio),enableWorker:true,lowLatencyMode:false});
-        hls.current=instance;let mediaRecovery=false;
-        instance.on(Hls.Events.FRAG_LOADING,(_event,data:FragLoadingData)=>{
-          if(generation!==requestGeneration.current||current.current?.id!==created.id||data.frag.type!=="main"||data.frag.sn==="initSegment")return;
-          loadingFragment.current={frag:data.frag,generation,sessionId:created.id};fragmentStats.current=data.frag.stats;
-          fragmentTransfers.current.start(data.frag.stats);
-          fragmentWindowSuppressed.current=!ready.current||Date.now()<bandwidthReadyAt.current||!playIntent.current||!!video.current?.paused;
-          if(fragmentWindowSuppressed.current)fragmentTransfers.current.clearWindow();
-        });
-        instance.on(Hls.Events.FRAG_LOADED,(_event,data:FragLoadedData)=>{
-          if(generation!==requestGeneration.current||current.current?.id!==created.id||data.frag.type!=="main"||data.frag.sn==="initSegment"||data.frag.stats.aborted)return;
-          if(loadingFragment.current?.frag===data.frag&&fragmentStats.current!==data.frag.stats){fragmentTransfers.current.start(data.frag.stats);if(fragmentWindowSuppressed.current)fragmentTransfers.current.clearWindow();}
-          const sample=fragmentTransfers.current.finish(data.frag.stats);if(sample)bandwidthSampleRef.current(sample.bytes,sample.bodyMilliseconds);
-          if(loadingFragment.current?.frag===data.frag){loadingFragment.current=null;fragmentStats.current=null;}
-        });
-        instance.on(Hls.Events.ERROR,(_event,data)=>{
-          if(!data.fatal||generation!==requestGeneration.current)return;
-          if(data.details==="fragLoadError"&&data.response?.code===404&&pendingSeek.current&&!retentionRecovery.current){retentionRecovery.current=true;void restartRef.current(sourcePosition.current,false,undefined,created.method==="remux");return;}
-          if(data.type===Hls.ErrorTypes.MEDIA_ERROR&&!mediaRecovery){
-            mediaRecovery=true;
-            if(seekRefreshCleanup.current)void restartRef.current(sourcePosition.current,false,undefined,created.method==="remux");
-            else instance.recoverMediaError();
-            return;
-          }
-          if(!conversionAllowed){terminalError("This browser cannot play the original file. Media conversion is disabled.");return;}
-          if(retries.current++===0&&created.method!=="transcode")void restartRef.current(sourcePosition.current,true);
-          else terminalError(`Playback failed: ${data.details}. Try a different quality or inspect transcoding settings.`);
-        });
-        instance.attachMedia(element);instance.loadSource(created.url);
-      }else element.src=created.url;
-    }catch(error){if(mounted.current&&generation===requestGeneration.current){setLoading(false);setError(errorMessage(error));}}
-  },[libraryId,itemId,routeKey,play,report,terminalError,heartbeat,cancelSeekRefresh,clearBandwidthObservation]);
-  restartRef.current=start;
-  const bandwidthEligible=()=>{
-    const data=infoRef.current,element=video.current;
-    if(!data||data.bandwidth_adaptation_allowed!==true||!Number.isFinite(data.source_bitrate)||!data.source_bitrate||data.source_bitrate<=0||capability.current?.source_video_supported!==true||selected.current.quality!==0||selected.current.burn||speedRef.current!==1||!playIntent.current||controls.current.ended||!element||controls.current.dragging||!current.current||!mounted.current||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||Date.now()<bandwidthReadyAt.current)return false;
-    const initial=startupTransfer.current;
-    if(!ready.current&&initial?.sessionId===current.current.id&&initial.generation===requestGeneration.current)return !seekRefreshCleanup.current;
-    return ready.current&&!element.paused&&!element.seeking&&!pendingSeek.current&&!seekRefreshCleanup.current;
-  };
-  const sourceBitrate=()=>{
-    const data=infoRef.current;if(!data)return 0;
-    if(!data.source_bitrate||!Number.isFinite(data.source_bitrate)||data.source_bitrate<=0)return 0;
-    const sourceVideo=data.tracks.find(track=>track.kind==="video");
-    if(current.current?.method==="audio_transcode"&&sourceVideo?.bitrate&&Number.isFinite(sourceVideo.bitrate)&&sourceVideo.bitrate>0)return sourceVideo.bitrate+192_000;
-    return data.source_bitrate;
-  };
-  const secondsBuffered=()=>{
-    const element=video.current;if(!element)return 0;
-    for(let index=0;index<element.buffered.length;index++)if(element.buffered.start(index)<=element.currentTime+0.1&&element.buffered.end(index)>element.currentTime)return element.buffered.end(index)-element.currentTime;
-    return 0;
-  };
-  bandwidthSampleRef.current=(bytes,milliseconds)=>{if(bandwidthEligible())bandwidthDetector.current.observe(bytes,milliseconds,Date.now());};
-  bandwidthTickRef.current=()=>{
-    if(!bandwidthEligible())return;
-    const now=Date.now(),required=bandwidthBudget.current||sourceBitrate(),bufferSeconds=secondsBuffered();
-    if(required<=0)return;
-    const active=loadingFragment.current;
-    if(active&&active.generation===requestGeneration.current&&active.sessionId===current.current?.id&&active.frag.stats!==fragmentStats.current){fragmentStats.current=active.frag.stats;fragmentTransfers.current.start(active.frag.stats);if(fragmentWindowSuppressed.current)fragmentTransfers.current.clearWindow();}
-    const sample=fragmentTransfers.current.poll(performance.now());if(sample)bandwidthSampleRef.current(sample.bytes,sample.bodyMilliseconds);
-    // A waiting event may have arrived during startup/seek grace. Infer the
-    // continuing low-buffer stall once grace expires, without needing another
-    // event from the browser to begin measuring it.
-    if(bandwidthStall.current==null&&playIntent.current&&video.current!.readyState<HTMLMediaElement.HAVE_FUTURE_DATA&&bufferSeconds<=3&&(ready.current||fragmentTransfers.current.hasBody())){bandwidthStall.current=now;bandwidthDetector.current.underflow(now);}
-    const activeStall=bandwidthStall.current==null?0:now-bandwidthStall.current;
-    const budget=bandwidthDetector.current.recommend({now,requiredBitrate:required,bufferSeconds,stallMilliseconds:activeStall});
-    if(budget!=null&&budget<required){
-      bandwidthDetector.current.accepted(now);bandwidthBudget.current=budget;setBandwidthLimit(budget);
-      setNotice(`Automatic playback reduced the bitrate to ${(budget/1_000_000).toFixed(1)} Mbps after sustained slow transfers and buffering.`);
-      void restartRef.current(sourcePosition.current,false,playIntent.current);return;
-    }
-    if(current.current?.method!=="direct"||bandwidthProbe.current||activeStall<3_000||bufferSeconds>3||now-lastBandwidthProbe.current<10_000)return;
-    const controller=new AbortController(),owned=current.current.id,generation=requestGeneration.current;
-    bandwidthProbe.current=controller;lastBandwidthProbe.current=now;
-    const byteStart=Math.floor(sourcePosition.current*sourceBitrate()/8);
-    void probeDirectBandwidth(current.current.url,byteStart,controller.signal).then(sample=>{
-      if(sample&&!controller.signal.aborted&&current.current?.id===owned&&requestGeneration.current===generation&&bandwidthEligible())bandwidthSampleRef.current(sample.bytes,sample.bodyMilliseconds);
-    }).finally(()=>{if(bandwidthProbe.current===controller)bandwidthProbe.current=null;});
-  };
-  useEffect(()=>{const timer=window.setInterval(()=>bandwidthTickRef.current(),1_000);return()=>window.clearInterval(timer);},[]);
+      element.addEventListener("loadedmetadata",initialize);metadataCleanup.current=()=>element.removeEventListener("loadedmetadata",initialize);
+      element.src=created.url;
+    }catch(error){if(mounted.current&&activeRoute.current===routeKey&&generation===requestGeneration.current){setLoading(false);setError(errorMessage(error));}}
+  },[libraryId,itemId,routeKey,play,report,terminalError,heartbeat]);
   const speedRef=useRef(speed);speedRef.current=speed;
   const startFromBeginning=params.get("start")==="0";
   const initializeItem=useCallback(async()=>{
     initializationController.current?.abort();
-    cancelSeekRefresh();
-    clearBandwidthObservation();bandwidthDetector.current.reset(Date.now());bandwidthBudget.current=0;lastBandwidthProbe.current=-Infinity;setBandwidthLimit(0);
-    sourceStarts.current=0;startupTransfer.current=null;fragmentTransfers.current.reset();loadingFragment.current=null;fragmentStats.current=null;
     const controller=new AbortController();initializationController.current=controller;
     const attempt=++initializationGeneration.current;requestGeneration.current++;
     const isCurrent=()=>mounted.current&&activeRoute.current===routeKey&&attempt===initializationGeneration.current&&!controller.signal.aborted;
-    initializedRoute.current=null;watchSession.current="";ready.current=false;
-    pendingSeek.current=null;mediaOwner.current=null;playIntent.current=true;retentionPosition.current=0;retentionRecovery.current=false;waitingDemand.current=false;remuxAudioRequired.current=false;
+    initializedRoute.current=null;watchSession.current="";ready.current=false;replaying.current=null;completedReport.current=null;
+    pendingSeek.current=null;mediaOwner.current=null;playIntent.current=true;waitingDemand.current=false;
     infoRef.current=undefined;capability.current=undefined;
     setInitializing(true);setLoading(true);setError("");setNotice("");setWatchError("");
     setInfo(undefined);setSession(undefined);setPosition(0);setBuffered(0);setScrubbing(null);setPlaying(false);setBuffering(false);
-    audioMapping.current.clear();setNativeAudioChoices([]);setAudioHelp("");setAudio(null);setSubtitle(-1);setBurnSubtitles(false);setQuality(0);setMenu(null);setEnded(false);setCountdown(null);setWatchPrompt(false);setVisible(true);
-    sourcePosition.current=0;confirmedPosition.current=0;offset.current=0;retries.current=0;
+    audioMapping.current.clear();setNativeAudioChoices([]);setAudioHelp("");setAudio(null);setSubtitle(-1);setMenu(null);setEnded(false);setCountdown(null);setWatchPrompt(false);setVisible(true);
+    sourcePosition.current=0;
     controls.current.playing=false;controls.current.menu=null;controls.current.dragging=false;controls.current.prompt=false;controls.current.ended=false;
       try{
         const [data,prefs,state]=await Promise.all([playbackApi.info(libraryId,itemId,controller.signal),watchApi.preferences(controller.signal),watchApi.state(libraryId,itemId,controller.signal)]);
         if(!isCurrent()||!video.current)return;
-        const caps=await playbackCapabilities(data,video.current,Hls.isSupported());if(!isCurrent())return;
+        const caps=await playbackCapabilities(data,video.current);if(!isCurrent())return;
         const tracks=selectTracks(data,prefs,state);let chosenSub=data.tracks.find(track=>track.index===tracks.subtitle);
-        const conversionAllowed=data.conversion_allowed===true,audioConversionAllowed=conversionAllowed||data.audio_conversion_allowed===true,messages:string[]=[];
-        if(!audioConversionAllowed&&!caps.native_audio_tracks&&tracks.audio!==defaultAudioIndex(data)&&!canRemuxAudio(data,caps,tracks.audio)){
-          tracks.audio=defaultAudioIndex(data);messages.push("This browser cannot switch the original file's audio tracks. The file's default audio will play instead of your saved audio preference.");
+        const messages:string[]=[];
+        if(tracks.audio!==defaultAudioIndex(data)&&(!caps.native_audio_tracks||!originalAudioSupported(data.tracks.find(track=>track.index===tracks.audio)!,video.current))){
+          tracks.audio=defaultAudioIndex(data);messages.push("This browser cannot select your saved audio track. The file's default audio will play instead.");
         }
-        if(!conversionAllowed&&chosenSub?.subtitle_format==="image"){tracks.subtitle=-1;chosenSub=undefined;messages.push("Image subtitles need media conversion, which is disabled. Choose a text subtitle track.");}
+        if(imageSubtitle(chosenSub)){tracks.subtitle=-1;chosenSub=undefined;messages.push("Image subtitles are unavailable in this player. Choose a text or ASS subtitle track.");}
         infoRef.current=data;prefsRef.current=prefs;capability.current=caps;
-        selected.current={audio:tracks.audio,subtitle:tracks.subtitle,burn:conversionAllowed&&chosenSub?.subtitle_format==="image",quality:0};
-        setInfo(data);setPreferences(prefs);setAudio(tracks.audio);setSubtitle(tracks.subtitle);setBurnSubtitles(selected.current.burn);
+        selected.current={audio:tracks.audio,subtitle:tracks.subtitle};
+        setInfo(data);setPreferences(prefs);setAudio(tracks.audio);setSubtitle(tracks.subtitle);
         if(messages.length)setNotice(messages.join(" "));
         const watch=await watchApi.begin(libraryId,itemId);if(!isCurrent())return;
         if(!watch.session_id)throw new Error("Watch tracking could not be initialized. Try again.");
@@ -320,22 +195,18 @@ export default function PlayerPage() {
         const initial=startFromBeginning?0:Math.max(0,watch.state.position_seconds-prefs.resume_rewind_seconds);
         await start(initial);
       }catch(error){if(isCurrent()){controller.abort();setLoading(false);setError(errorMessage(error));}}
-  },[libraryId,itemId,routeKey,startFromBeginning,start,cancelSeekRefresh,clearBandwidthObservation]);
+  },[libraryId,itemId,routeKey,startFromBeginning,start]);
   const retryPlayback=()=>{
-    retries.current=0;
-    if(initializedRoute.current===routeKey&&watchSession.current&&infoRef.current&&capability.current)void start(sourcePosition.current,infoRef.current.conversion_allowed===true);
+    if(initializedRoute.current===routeKey&&watchSession.current&&infoRef.current&&capability.current)void start(sourcePosition.current);
     else void initializeItem();
   };
   useEffect(()=>{
     mounted.current=true;void initializeItem();
     return()=>{
       report(false,true,false,true);mounted.current=false;requestGeneration.current++;initializationGeneration.current++;
-      cancelSeekRefresh();
-      clearBandwidthObservation();
-      startupTransfer.current=null;fragmentTransfers.current.reset();loadingFragment.current=null;fragmentStats.current=null;
       initializationController.current?.abort();initializedRoute.current=null;
       ready.current=false;watchSession.current="";pendingSeek.current=null;mediaOwner.current=null;metadataCleanup.current?.();metadataCleanup.current=undefined;
-      heartbeatQueue.current?.clear();infoRef.current=undefined;capability.current=undefined;hls.current?.destroy();hls.current=undefined;
+      heartbeatQueue.current?.clear();infoRef.current=undefined;capability.current=undefined;
       const element=video.current;if(element){element.pause();element.removeAttribute("src");element.load();}
       const stopped=current.current;current.current=undefined;if(stopped)void playbackApi.stop(stopped.id).catch(()=>{});
     };
@@ -363,47 +234,19 @@ export default function PlayerPage() {
     return()=>clearInterval(timer);
   },[]);
   const seek=useCallback((target:number)=>{
-    if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
-    const speculative=!!seekRefreshCleanup.current;cancelSeekRefresh();const attempt=seekAttempt.current;
-    startupTransfer.current=null;
-    clearBandwidthObservation();
-    interact();const bound=Math.max(0,Math.min(target,infoRef.current?.duration_seconds||target));
-    if(!Number.isFinite(bound))return;
-    const actual=!speculative&&video.current&&Number.isFinite(video.current.currentTime)?offset.current+video.current.currentTime:confirmedPosition.current;
-    const retainedFrom=Math.max(speculative?confirmedPosition.current:sourcePosition.current,speculative?confirmedPosition.current:pendingSeek.current?.target??0,retentionPosition.current,actual)-55;
-    retentionRecovery.current=false;
-    if(current.current&&ready.current&&!pendingSeek.current&&video.current)playIntent.current=!video.current.paused;
-    sourcePosition.current=bound;setPosition(bound);setScrubbing(null);
+    if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!current.current||!video.current)return;
+    interact();const bound=Math.max(0,Math.min(target,infoRef.current?.duration_seconds||target));if(!Number.isFinite(bound))return;
+    const element=video.current;
     if(controls.current.ended){void replayRef.current(bound,false);return;}
-    const element=video.current,owned=current.current;
-    pendingSeek.current={generation:requestGeneration.current,target:bound};report(false,false,true);
-    const fragments=hls.current?hls.current.latestLevelDetails?.fragments??[]:null;
-    if(element&&owned&&ready.current&&canSeekInCurrentSource(element,bound,offset.current,owned.method==="direct",fragments,retainedFrom)){
-      try{element.currentTime=bound-offset.current;waitingDemand.current=false;heartbeat(!playIntent.current);return;}catch { /* Recreate if the browser rejects a local seek. */ }
+    if(ready.current&&!pendingSeek.current)playIntent.current=!element.paused;
+    const wasReady=ready.current,actual=Number.isFinite(element.currentTime)?Math.max(0,element.currentTime):sourcePosition.current;
+    sourcePosition.current=bound;setPosition(bound);setScrubbing(null);pendingSeek.current={generation:requestGeneration.current,target:bound};
+    try{element.currentTime=bound;waitingDemand.current=false;report(false,false,true);heartbeat(!playIntent.current);}catch{
+      if(wasReady){sourcePosition.current=actual;setPosition(actual);pendingSeek.current=null;}
+      report(false,false,true);setNotice("The browser cannot seek to that position in the original file yet.");
     }
-    const instance=hls.current,details=instance?.latestLevelDetails,relative=bound-offset.current;
-    // Copied-video GOPs can make the automatic playlist reload interval much
-    // longer than encoding ahead. Refresh once before recreating a nearby jump.
-    if(element&&owned&&ready.current&&instance&&details?.live&&Number.isFinite(details.fragmentEnd)&&relative>=details.fragmentEnd&&relative-details.fragmentEnd<=60){
-      const generation=requestGeneration.current;
-      const valid=()=>mounted.current&&activeRoute.current===routeKey&&initializedRoute.current===routeKey&&current.current?.id===owned.id&&hls.current===instance&&requestGeneration.current===generation&&seekAttempt.current===attempt;
-      const cleanup=()=>{window.clearTimeout(timer);instance.off(Hls.Events.LEVEL_LOADED,refreshed);if(seekRefreshCleanup.current===cleanup)seekRefreshCleanup.current=undefined;};
-      const fallback=()=>{if(!valid())return;cleanup();void start(bound);};
-      const refreshed=(_event:unknown,data:LevelLoadedData)=>{
-        if(!valid())return;cleanup();
-        if(canSeekInCurrentSource(element,bound,offset.current,false,data.details.fragments,retainedFrom)){
-          try{element.currentTime=relative;heartbeat(!playIntent.current);if(playIntent.current&&element.paused)void play(false);return;}catch { /* A browser may reject a newly advertised seek. */ }
-        }
-        void start(bound);
-      };
-      const timer=window.setTimeout(fallback,2000);seekRefreshCleanup.current=cleanup;instance.on(Hls.Events.LEVEL_LOADED,refreshed);
-      waitingDemand.current=false;setBuffering(true);heartbeat(!playIntent.current);
-      try{element.currentTime=relative;}catch { /* Reapply after the refreshed playlist extends its seekable range. */ }
-      instance.startLoad(relative,true);return;
-    }
-    void start(bound);
-  },[interact,start,report,routeKey,heartbeat,cancelSeekRefresh,play,clearBandwidthObservation]);
-  const toggle=useCallback(()=>{if(controls.current.prompt||activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;interact();if(controls.current.ended){void replayRef.current();return;}if(!ready.current&&current.current){playIntent.current=!playIntent.current;clearBandwidthObservation();setNotice(playIntent.current?"Playback will begin when the video is ready.":"Playback will start paused.");return;}if(video.current?.paused)void play();else{playIntent.current=false;clearBandwidthObservation();video.current?.pause();}},[play,interact,routeKey,clearBandwidthObservation]);
+  },[interact,report,routeKey,heartbeat]);
+  const toggle=useCallback(()=>{if(controls.current.prompt||activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;interact();if(controls.current.ended){void replayRef.current();return;}if(!ready.current&&current.current){playIntent.current=!playIntent.current;setNotice(playIntent.current?"Playback will begin when the video is ready.":"Playback will start paused.");return;}if(video.current?.paused)void play();else{playIntent.current=false;video.current?.pause();}},[play,interact,routeKey]);
   const exit=()=>{report(false,true);navigate(returnPath);};
   const next=useCallback((automatic=false)=>{
     if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
@@ -452,7 +295,7 @@ export default function PlayerPage() {
     let canceled=false, renderer:{destroy:()=>Promise<void>}|undefined, track:HTMLTrackElement|undefined, objectUrl:string|undefined;
     const disableNative=()=>{for(const native of Array.from(element.textTracks))if(native!==track?.track)native.mode="disabled";};
     disableNative();element.textTracks.addEventListener?.("addtrack",disableNative);
-    if(!session||!selectedTrack||subtitle<0||burnSubtitles)return()=>element.textTracks.removeEventListener?.("addtrack",disableNative);
+    if(!session||!selectedTrack||subtitle<0||imageSubtitle(selectedTrack))return()=>element.textTracks.removeEventListener?.("addtrack",disableNative);
     const controller=new AbortController();
     void(async()=>{
       try{
@@ -461,7 +304,7 @@ export default function PlayerPage() {
           const [{default:JASSUB},response]=await Promise.all([import("jassub"),fetch(url,{signal:controller.signal})]);
           if(!response.ok)throw new Error("Subtitle extraction failed.");
           const content=await response.text();if(canceled)return;
-          const instance=new JASSUB({video:element,subContent:content,fonts:[...(data?.fonts?.map(font=>font.url)??[]),subtitleFallbackFont],timeOffset:session.offset_seconds,queryFonts:false});renderer=instance;
+          const instance=new JASSUB({video:element,subContent:content,fonts:[...(data?.fonts?.map(font=>font.url)??[]),subtitleFallbackFont],timeOffset:0,queryFonts:false});renderer=instance;
           await instance.ready;
           if(canceled)void instance.destroy();
           else if(element.paused&&element.readyState>=2&&element.videoWidth>0&&element.videoHeight>0){
@@ -475,35 +318,27 @@ export default function PlayerPage() {
             if(!track||canceled)return;
             const text=track.track;text.mode="showing";
             for(const cue of Array.from(text.cues??[])){
-              if(cue.endTime<=session.offset_seconds){text.removeCue(cue);continue;}
-              cue.startTime=Math.max(0,cue.startTime-session.offset_seconds);cue.endTime-=session.offset_seconds;
               applyPlainSubtitlePosition(cue,subtitleAppearance(prefsRef.current).subtitle_position);
             }
           };
           element.append(track);track.track.mode="showing";
         }
-      }catch(error){if(!canceled&&!controller.signal.aborted)setNotice(`Subtitles: ${errorMessage(error)} ${data?.conversion_allowed===true?"Select “Burn subtitles into video” to use the server renderer.":"Choose another text subtitle track; media conversion is disabled."}`);}
+      }catch(error){if(!canceled&&!controller.signal.aborted)setNotice(`Subtitles: ${errorMessage(error)} Choose another text or ASS subtitle track.`);}
     })();
     return()=>{canceled=true;controller.abort();element.textTracks.removeEventListener?.("addtrack",disableNative);void renderer?.destroy();track?.remove();if(objectUrl)URL.revokeObjectURL(objectUrl);};
-  },[info,session,subtitle,burnSubtitles,libraryId,itemId,preferences.subtitle_position]);
+  },[info,session,subtitle,libraryId,itemId,preferences.subtitle_position]);
   const changeTrack=(kind:"audio"|"subtitle",value:number)=>{
     if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
-    const original=infoRef.current?.conversion_allowed!==true,audioRestricted=original&&infoRef.current?.audio_conversion_allowed!==true;
-    interact();setNotice("");if(kind==="audio"){
-      const copySupported=!!infoRef.current&&canRemuxAudio(infoRef.current,capability.current,value);
-      if(current.current?.method==="direct"&&audioMapping.current.has(value)){
-        if(enableNativeAudio(video.current?nativeAudioTracks(video.current):null,audioMapping.current,value)){selected.current.audio=value;setAudio(value);setAudioHelp(infoRef.current?.tracks.some(track=>track.kind==="audio"&&!audioMapping.current.has(track.index))?"The browser exposes only some audio tracks. Unavailable tracks cannot be selected in original playback.":"");report();setMenu(null);return;}
-        if(audioRestricted&&!copySupported){terminalError("The browser could not select this audio track. Original playback cannot change it reliably.");return;}
-      }
-      if(audioRestricted&&value!==defaultAudioIndex(infoRef.current!)&&!copySupported){setNotice("This audio track is unavailable because the browser cannot select it reliably and its codecs cannot be copied into a supported stream. Media conversion is disabled.");return;}
-      if(value===selected.current.audio&&current.current){setMenu(null);return;}
-      selected.current.audio=value;setAudio(value);report();void start(sourcePosition.current,false,undefined,copySupported);
-    }
-    else{
-      const previousBurn=selected.current.burn, chosen=info?.tracks.find(track=>track.index===value);
-      if(original&&chosen?.subtitle_format==="image"){setNotice("Image subtitles require media conversion, which is disabled.");return;}
-      selected.current.subtitle=value;selected.current.burn=chosen?.subtitle_format==="image";setSubtitle(value);setBurnSubtitles(selected.current.burn);report();
-      if(previousBurn||selected.current.burn)void start(sourcePosition.current);
+    interact();setNotice("");
+    const chosen=infoRef.current?.tracks.find(track=>track.index===value);
+    if(kind==="audio"){
+      if(value===selected.current.audio){setMenu(null);return;}
+      if(!ready.current||!current.current||!chosen||!video.current||!originalAudioSupported(chosen,video.current)||!audioMapping.current.has(value)){setNotice("This browser cannot select and decode that original audio track.");return;}
+      if(!enableNativeAudio(nativeAudioTracks(video.current),audioMapping.current,value)){setNotice("The browser could not change this audio track reliably. Your current track is still selected.");return;}
+      selected.current.audio=value;setAudio(value);report();
+    }else{
+      if(imageSubtitle(chosen)){setNotice("Image subtitles are unavailable in this player.");return;}
+      selected.current.subtitle=value;setSubtitle(value);report();
     }
     setMenu(null);
   };
@@ -512,32 +347,32 @@ export default function PlayerPage() {
   const togglePip=async()=>{
     interact();try{if(document.pictureInPictureElement)await document.exitPictureInPicture();else await video.current?.requestPictureInPicture();}catch(error){setNotice(errorMessage(error));}
   };
-  const ownsMedia=()=>mounted.current&&activeRoute.current===routeKey&&initializedRoute.current===routeKey&&!!current.current&&mediaOwner.current?.generation===requestGeneration.current&&mediaOwner.current.sessionId===current.current.id;
+  const ownsMedia=()=>mounted.current&&activeRoute.current===routeKey&&initializedRoute.current===routeKey&&!!current.current&&mediaOwner.current?.generation===requestGeneration.current&&mediaOwner.current.sessionId===current.current.id&&video.current?.getAttribute("src")===current.current.url&&(!video.current.currentSrc||video.current.currentSrc===new URL(current.current.url,window.location.href).href);
   const updatePosition=()=>{
     const element=video.current;if(!element||!ready.current||!ownsMedia())return false;
-    const source=offset.current+element.currentTime;if(!Number.isFinite(source))return false;
+    const source=element.currentTime;if(!Number.isFinite(source))return false;
     const pending=pendingSeek.current;
     if(pending){
-      // Browser/MSE reset events may still carry time zero while a requested
+      // Browser reset events may still carry time zero while a requested
       // seek is being applied. Keep the source clock until this seek settles.
-      if(seekRefreshCleanup.current||pending.generation!==requestGeneration.current||element.seeking||Math.abs(source-pending.target)>1)return false;
+      if(pending.generation!==requestGeneration.current||element.seeking||Math.abs(source-pending.target)>1)return false;
       pendingSeek.current=null;
     }else if(source<sourcePosition.current-1){
       // All player-initiated backward seeks install a pending target. An
       // unrequested reset of the reused media element must not rewind history.
       pendingSeek.current={generation:requestGeneration.current,target:sourcePosition.current};
-      try{element.currentTime=Math.max(0,sourcePosition.current-offset.current);}catch { /* Keep the last source time while the media recovers. */ }
+      try{element.currentTime=sourcePosition.current;}catch { /* Keep the last source time while the media recovers. */ }
       report(false,false,true);return false;
     }
-    sourcePosition.current=Math.max(0,source);confirmedPosition.current=sourcePosition.current;setPosition(sourcePosition.current);
+    sourcePosition.current=Math.max(0,source);setPosition(sourcePosition.current);
     const usable=element.paused?element.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA:element.readyState>=HTMLMediaElement.HAVE_FUTURE_DATA;
-    if(usable){waitingDemand.current=false;bandwidthStall.current=null;setBuffering(false);setLoading(false);}
+    if(usable){waitingDemand.current=false;setBuffering(false);setLoading(false);}
     return true;
   };
   const progressEvent=()=>{
     const element=video.current;if(!element||!ready.current||!ownsMedia())return;
     // Download progress does not advance the source clock.
-    if(element.buffered.length)setBuffered(offset.current+element.buffered.end(element.buffered.length-1));
+    if(element.buffered.length)setBuffered(element.buffered.end(element.buffered.length-1));
   };
   const mediaPlay=()=>{
     if(!ownsMedia()||!ready.current||video.current?.paused)return;
@@ -545,7 +380,6 @@ export default function PlayerPage() {
   };
   const mediaPause=()=>{
     if(!ownsMedia()||!ready.current||!video.current?.paused)return;
-    clearBandwidthObservation();
     if(!pendingSeek.current)playIntent.current=false;
     setPlaying(false);setVisible(true);report();
     if(!playIntent.current)heartbeat(true);
@@ -553,7 +387,6 @@ export default function PlayerPage() {
   const mediaWaiting=()=>{
     if(!ownsMedia()||!ready.current)return;
     setBuffering(true);
-    if(bandwidthEligible()&&bandwidthStall.current==null){bandwidthStall.current=Date.now();bandwidthDetector.current.underflow(Date.now());}
     if(!waitingDemand.current){waitingDemand.current=true;heartbeat(!playIntent.current);}
   };
   const mediaPlaying=()=>{
@@ -562,34 +395,48 @@ export default function PlayerPage() {
   const end=()=>{
     if(!ready.current||!ownsMedia()||pendingSeek.current)return;
     const duration=infoRef.current?.duration_seconds??0;
-    if(duration>0&&sourcePosition.current<duration-3){setError("Playback ended before the file finished. Retry playback or choose another quality.");return;}
-    const actualPosition=offset.current+(video.current?.currentTime??0);
+    const actualPosition=video.current?.currentTime??0;
+    if(duration>0&&actualPosition<duration-3){terminalError("Playback ended before the original file finished. Retry playback.");return;}
     sourcePosition.current=duration>0?duration:Number.isFinite(actualPosition)?Math.max(0,actualPosition):sourcePosition.current;
-    report(true);setEnded(true);setVisible(true);setPlaying(false);
+    if(completedReport.current?.routeKey===routeKey&&completedReport.current.generation===requestGeneration.current)return;
+    completedReport.current={routeKey,generation:requestGeneration.current,promise:report(true)};setEnded(true);setVisible(true);setPlaying(false);
     if(infoRef.current?.next&&prefsRef.current.autoplay_next)setCountdown(10);
   };
   const replay=async(position=0,autoplay=true)=>{
     if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
-    if(replaying.current)return;replaying.current=true;
-    const generation=requestGeneration.current;ready.current=false;initializedRoute.current=null;watchSession.current="";setInitializing(true);setLoading(true);setEnded(false);setCountdown(null);
+    if(replaying.current)return;
+    const operation={routeKey,generation:requestGeneration.current};replaying.current=operation;
+    const isCurrent=()=>mounted.current&&activeRoute.current===routeKey&&operation.generation===requestGeneration.current&&replaying.current===operation;
+    const completion=completedReport.current?.routeKey===routeKey&&completedReport.current.generation===operation.generation?completedReport.current:null;
+    ready.current=false;initializedRoute.current=null;setInitializing(true);setLoading(true);setEnded(false);setCountdown(null);
     try{
+      // Finish the prior viewing before replacing its watch token. A route
+      // change can abandon this operation without blocking the next item.
+      if(completion)await completion.promise;
+      if(!isCurrent())return;
+      watchSession.current="";
       const watch=await watchApi.begin(libraryId,itemId);
-      if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)return;
+      if(!isCurrent())return;
       if(!watch.session_id)throw new Error("Watch tracking could not be initialized. Try again.");
-      watchSession.current=watch.session_id;sequence.current=0;initializedRoute.current=routeKey;setInitializing(false);await start(position,false,autoplay);
-    }catch(error){if(mounted.current&&activeRoute.current===routeKey&&generation===requestGeneration.current){setLoading(false);setError(errorMessage(error));}}finally{replaying.current=false;}
+      watchSession.current=watch.session_id;sequence.current=0;completedReport.current=null;initializedRoute.current=routeKey;setInitializing(false);
+      if(current.current&&video.current){
+        const target=Math.max(0,Math.min(position,infoRef.current?.duration_seconds||position));
+        const element=video.current,actual=Number.isFinite(element.currentTime)?Math.max(0,element.currentTime):sourcePosition.current;
+        ready.current=true;playIntent.current=autoplay;
+        try{element.currentTime=target;}catch{
+          sourcePosition.current=actual;pendingSeek.current=null;setPosition(actual);report(false,false,true);throw new Error("The browser could not seek to the requested replay position. Retry original playback.");
+        }
+        sourcePosition.current=target;pendingSeek.current={generation:operation.generation,target};setPosition(target);setLoading(false);report(false,false,true);if(autoplay)void play(false);else heartbeat(true);
+      }else await start(position,autoplay);
+    }catch(error){if(isCurrent()){setLoading(false);setError(errorMessage(error));}}finally{if(replaying.current===operation)replaying.current=null;}
   };
   replayRef.current=replay;
   const mediaError=()=>{
     if(!ownsMedia())return;
-    if(infoRef.current?.conversion_allowed!==true){terminalError("This browser cannot play the original file. Media conversion is disabled.");return;}
-    if(retries.current++===0&&current.current?.method!=="transcode"){setNotice("The browser cannot decode this source. Switching to compatible playback…");void start(sourcePosition.current,true);}
-    else terminalError("The browser could not decode the video. Check transcoding settings or select a lower quality.");
+    terminalError(video.current?.error?.code===2?"The original file could not be loaded. Retry playback.":"This browser cannot play the original file. Try a browser that supports its video and audio formats.");
   };
   const duration=info?.duration_seconds||session?.duration_seconds||0;
-  const originalOnly=info?.conversion_allowed!==true;
-  const audioRestricted=originalOnly&&info?.audio_conversion_allowed!==true;
-  const retryLabel=info?originalOnly?"Retry original playback":"Retry compatible playback":"Retry playback";
+  const retryLabel="Retry original playback";
   const pendingInitialization=initializing||initializedRoute.current!==routeKey;
   const showNext=!pendingInitialization&&!!info?.next&&preferences.up_next&&duration>0&&position>=duration-20;
   const title=pendingInitialization?"Media player":info?.season!=null&&info?.episode!=null?`S${info.season}:E${info.episode} – ${info.title}`:info?.title??"Media player";
@@ -612,19 +459,18 @@ export default function PlayerPage() {
     {ended&&!pendingInitialization&&!info?.next&&!error&&<div className="pv-player-message"><h2>Playback completed</h2><button className="pv-primary" onClick={()=>void replay()}>Play again</button><button className="pv-button" onClick={exit}>Back to media</button></div>}
     {menu&&!pendingInitialization&&<div className="pv-player-menu" inert={watchPrompt} role="dialog" aria-label={menu==="next"?"Up next":`${menu[0].toUpperCase()}${menu.slice(1)}`}>
       <header><h2>{menu==="next"?"Up Next":menu[0].toUpperCase()+menu.slice(1)}</h2><button className="pv-icon" aria-label="Close menu" onClick={()=>setMenu(null)}><X/></button></header>
-      {menu==="audio"&&<div className="pv-option-list">{info?.tracks.filter(track=>track.kind==="audio").map(track=><button key={track.index} aria-pressed={audio===track.index} disabled={audioRestricted&&track.index!==defaultAudioIndex(info)&&!nativeAudioChoices.includes(track.index)&&!canRemuxAudio(info,capability.current,track.index)} onClick={()=>changeTrack("audio",track.index)}><span>{trackLabel(track)}</span>{audio===track.index&&<Check size={18}/>}</button>)}{originalOnly&&audioHelp&&<p className="pv-menu-help">{audioHelp}</p>}{audioRestricted&&info?.remux_allowed===true&&<p className="pv-menu-help">Compatible audio switches can copy the original codecs without encoding. Tracks unsupported by both the browser and lossless copying are unavailable.</p>}{originalOnly&&!audioRestricted&&<p className="pv-menu-help">Audio-only transcoding is enabled for unsupported tracks. This permission keeps the original video.</p>}</div>}
-      {menu==="subtitles"&&<div className="pv-option-list"><button aria-pressed={subtitle===-1} onClick={()=>changeTrack("subtitle",-1)}>Off{subtitle===-1&&<Check size={18}/>}</button>{info?.tracks.filter(track=>track.kind==="subtitle").map(track=><button key={track.index} aria-pressed={subtitle===track.index} disabled={originalOnly&&track.subtitle_format==="image"} onClick={()=>changeTrack("subtitle",track.index)}><span>{trackLabel(track)}</span>{subtitle===track.index&&<Check size={18}/>}</button>)}{subtitle>=0&&<label className="pv-toggle"><input type="checkbox" checked={burnSubtitles} disabled={originalOnly||selectedSubtitle?.subtitle_format==="image"} onChange={event=>{if(originalOnly)return;selected.current.burn=event.target.checked;setBurnSubtitles(event.target.checked);void start(sourcePosition.current);}}/> Burn subtitles into video</label>}{originalOnly&&<p className="pv-menu-help">Media conversion is disabled. Text subtitles use the browser renderer; image subtitles and burn-in are unavailable.</p>}{selectedSubtitle?.subtitle_format==="ass"&&<p className="pv-menu-help">ASS styling uses the embedded fonts.{!originalOnly&&" Picture in picture may omit styled subtitles; burn in to include them."}</p>}</div>}
+      {menu==="audio"&&<div className="pv-option-list">{info?.tracks.filter(track=>track.kind==="audio").map(track=><button key={track.index} aria-pressed={audio===track.index} disabled={!ready.current||!current.current||!video.current||!originalAudioSupported(track,video.current)||audio!==track.index&&!nativeAudioChoices.includes(track.index)} onClick={()=>changeTrack("audio",track.index)}><span>{trackLabel(track)}</span>{audio===track.index&&<Check size={18}/>}</button>)}{audioHelp&&<p className="pv-menu-help">{audioHelp}</p>}<p className="pv-menu-help">Audio tracks must be supported and exposed by your browser.</p></div>}
+      {menu==="subtitles"&&<div className="pv-option-list"><button aria-pressed={subtitle===-1} onClick={()=>changeTrack("subtitle",-1)}>Off{subtitle===-1&&<Check size={18}/>}</button>{info?.tracks.filter(track=>track.kind==="subtitle").map(track=><button key={track.index} aria-pressed={subtitle===track.index} disabled={imageSubtitle(track)} onClick={()=>changeTrack("subtitle",track.index)}><span>{trackLabel(track)}</span>{subtitle===track.index&&<Check size={18}/>}</button>)}<p className="pv-menu-help">Text and ASS subtitles use your browser. PGS and VobSub image subtitles are unavailable.</p>{selectedSubtitle?.subtitle_format==="ass"&&<p className="pv-menu-help">ASS styling uses embedded fonts. Picture in picture may omit styled subtitles.</p>}</div>}
       {menu==="speed"&&<div className="pv-option-list">{[0.5,0.75,1,1.25,1.5,1.75,2].map(value=><button key={value} aria-pressed={speed===value} onClick={()=>{setSpeed(value);setMenu(null);}}>{value===1?"Normal":`${value}×`}{speed===value&&<Check size={18}/>}</button>)}</div>}
-      {menu==="quality"&&<div className="pv-option-list">{qualities.map((choice,index)=><button key={choice.label} aria-pressed={quality===index} disabled={originalOnly&&index!==0} onClick={()=>{if(originalOnly){setMenu(null);return;}selected.current.quality=index;setQuality(index);setMenu(null);void start(sourcePosition.current);}}>{index===0&&bandwidthLimit>0?`Automatic · ${(bandwidthLimit/1_000_000).toFixed(1)} Mbps`:originalOnly&&index===0?info?.bandwidth_adaptation_allowed?"Original / automatic":"Original":choice.label}{quality===index&&<Check size={18}/>}</button>)}<p className="pv-menu-help">{originalOnly?"Manual video encoding and lower-quality choices are disabled.":"Automatic preserves the source whenever the browser supports it. Server transcoding limits also apply."}</p>{info?.bandwidth_adaptation_allowed===true&&<p className="pv-menu-help">Automatic playback may reduce the bitrate after measured slow transfers and sustained buffering. Manual quality choices are never changed automatically.</p>}</div>}
       {menu==="chapters"&&<div className="pv-option-list">{info?.chapters.map((chapter,index)=><button key={index} onClick={()=>{seek(chapter.start_seconds);setMenu(null);}}><span>{chapter.title||`Chapter ${index+1}`}</span><time>{playbackTime(chapter.start_seconds)}</time></button>)}</div>}
-      {menu==="info"&&<div className="pv-player-info"><DetailSynopsis text={info?.overview} lines={8}/><dl><dt>Playback</dt><dd>{session?.method.replaceAll("_"," ")}</dd><dt>Reason</dt><dd>{session?.reason}</dd>{session?.encoder&&<><dt>Encoder</dt><dd>{session.encoder}</dd></>}{bandwidthLimit>0&&quality===0&&<><dt>Automatic bandwidth limit</dt><dd>{(bandwidthLimit/1_000_000).toFixed(1)} Mbps</dd></>}<dt>Position</dt><dd>{playbackTime(position)} / {playbackTime(duration)}</dd><dt>Buffered until</dt><dd>{playbackTime(buffered)}</dd><dt>Audio</dt><dd>{info?.tracks.find(track=>track.index===audio)?trackLabel(info.tracks.find(track=>track.index===audio)!):"None"}</dd><dt>Subtitles</dt><dd>{selectedSubtitle?trackLabel(selectedSubtitle):"Off"}{burnSubtitles?" (burned in)":""}</dd></dl><p className="pv-menu-help">Shortcuts: Space/K play or pause · ←/→ skip · F fullscreen · M mute · Esc close menu.</p></div>}
+      {menu==="info"&&<div className="pv-player-info"><DetailSynopsis text={info?.overview} lines={8}/><dl><dt>Playback</dt><dd>Original file</dd><dt>Reason</dt><dd>{session?.reason}</dd><dt>Position</dt><dd>{playbackTime(position)} / {playbackTime(duration)}</dd><dt>Buffered until</dt><dd>{playbackTime(buffered)}</dd><dt>Audio</dt><dd>{info?.tracks.find(track=>track.index===audio)?trackLabel(info.tracks.find(track=>track.index===audio)!):"None"}</dd><dt>Subtitles</dt><dd>{selectedSubtitle?trackLabel(selectedSubtitle):"Off"}</dd></dl><p className="pv-menu-help">Shortcuts: Space/K play or pause · ←/→ skip · F fullscreen · M mute · Esc close menu.</p></div>}
       {menu==="next"&&info?.next&&<div className="pv-option-list"><button onClick={()=>next()}>{info.next.title}<ChevronRight/></button></div>}
     </div>}
     <div className="pv-player-bottom pv-controls" inert={watchPrompt||pendingInitialization} aria-hidden={!visible&&playing&&!menu}>
       <div className="pv-title-row"><div><p className="pv-series-title">{info?.series_title}</p><h1>{title}</h1></div><div className="pv-menu-buttons">
         {info?.tracks.some(track=>track.kind==="audio")&&<button className="pv-button" aria-label="Audio" aria-expanded={menu==="audio"} onClick={()=>toggleMenu("audio")}><Volume2/> <span>Audio</span></button>}
         {info?.tracks.some(track=>track.kind==="subtitle")&&<button className="pv-button" aria-label="Subtitles" aria-expanded={menu==="subtitles"} onClick={()=>toggleMenu("subtitles")}><Subtitles/> <span>Subtitles</span></button>}
-        <button className="pv-button" aria-label="Playback speed" aria-expanded={menu==="speed"} onClick={()=>toggleMenu("speed")}><Gauge/><span>{speed}×</span></button><button className="pv-icon" aria-label="Playback quality" disabled={pendingInitialization} aria-expanded={menu==="quality"} onClick={()=>toggleMenu("quality")}><Settings2/></button>
+        <button className="pv-button" aria-label="Playback speed" aria-expanded={menu==="speed"} onClick={()=>toggleMenu("speed")}><Gauge/><span>{speed}×</span></button>
       </div></div>
       <div className="pv-timeline-row"><time>{playbackTime(scrubbing??position)}</time><div className="pv-timeline" style={{"--buffered":`${duration?Math.min(100,buffered/duration*100):0}%`,"--position":`${duration?Math.min(100,(scrubbing??position)/duration*100):0}%`} as React.CSSProperties}><input aria-label="Seek" disabled={pendingInitialization||!!error||duration<=0} aria-valuetext={`${playbackTime(scrubbing??position)} of ${playbackTime(duration)}`} type="range" min="0" max={duration||1} step="0.1" value={scrubbing??Math.min(position,duration||position)} onPointerDown={()=>{controls.current.dragging=true;}} onChange={event=>setScrubbing(Number(event.target.value))} onPointerUp={event=>{const value=Number(event.currentTarget.value);setScrubbing(null);controls.current.dragging=false;seek(value);}} onKeyUp={event=>{if(["ArrowLeft","ArrowRight","Home","End","PageUp","PageDown"].includes(event.key)){const value=Number(event.currentTarget.value);setScrubbing(null);seek(value);}}} onPointerCancel={()=>{setScrubbing(null);controls.current.dragging=false;}}/></div><time>{duration>0?`-${playbackTime(duration-(scrubbing??position))}`:"--:--"}</time></div>
       <div className="pv-transport-row"><div className="pv-transport"><button className="pv-icon" aria-label={`Rewind ${preferences.skip_back_seconds} seconds`} onClick={()=>seek(position-preferences.skip_back_seconds)}><RotateCcw/><small>{preferences.skip_back_seconds}</small></button><button className="pv-icon pv-play" aria-label={playing?"Pause":"Play"} onClick={toggle} disabled={loading||pendingInitialization||!!error}>{playing?<Pause/>:<Play/>}</button><button className="pv-icon" aria-label={`Forward ${preferences.skip_forward_seconds} seconds`} onClick={()=>seek(position+preferences.skip_forward_seconds)}><RotateCw/><small>{preferences.skip_forward_seconds}</small></button>{info?.next&&<button className="pv-icon" aria-label="Next episode" onClick={()=>next()}><SkipForward/></button>}</div><div className="pv-sections"><button className="pv-button" aria-label="Info" aria-expanded={menu==="info"} onClick={()=>toggleMenu("info")}><CircleHelp/><span>Info</span></button>{!!info?.chapters.length&&<button className="pv-button" aria-label="Chapters" aria-expanded={menu==="chapters"} onClick={()=>toggleMenu("chapters")}><ListVideo/><span>Chapters</span></button>}{info?.next&&<button className="pv-button" aria-label="Up Next" aria-expanded={menu==="next"} onClick={()=>toggleMenu("next")}><SkipForward/><span>Up Next</span></button>}</div></div>

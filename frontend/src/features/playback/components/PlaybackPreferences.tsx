@@ -31,7 +31,7 @@ export default function PlaybackPreferences() {
         <label className="block text-sm">Text subtitle background<select className={input} value={settings.subtitle_background??"dark"} onChange={event=>change("subtitle_background",event.target.value as Preferences["subtitle_background"])}><option value="none">None</option><option value="dark">Dark</option><option value="light">Light</option></select></label>
         <label className="block text-sm">Text subtitle position<select className={input} value={settings.subtitle_position??"auto"} onChange={event=>change("subtitle_position",event.target.value as Preferences["subtitle_position"])}><option value="auto">Automatic (preserve cue placement)</option><option value="top">Top</option><option value="bottom">Bottom</option></select></label>
       </div>
-      <p className="text-xs text-muted">Appearance applies to plain text subtitles. Styled ASS / SSA and burned-in subtitles retain their own formatting.</p>
+      <p className="text-xs text-muted">Appearance applies to plain text subtitles. Styled ASS / SSA subtitles retain their own formatting.</p>
     </fieldset>
     <fieldset className="rounded-xl border border-border p-5"><legend className="px-2 font-semibold">Watching</legend>
       {toggle("autoplay_next","Play next episode automatically","Continue to the next available episode when the current one ends.")}

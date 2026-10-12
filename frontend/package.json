@@ -13,7 +13,6 @@
   "dependencies": {
     "@tanstack/react-query": "^5.102.8",
     "dompurify": "^3.4.16",
-    "hls.js": "1.7.3",
     "jassub": "2.5.20",
     "lucide-react": "^1.39.0",
     "pdfjs-dist": "^6.3.289",

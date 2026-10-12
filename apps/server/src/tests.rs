@@ -24,7 +24,6 @@ async fn native_playback_and_watch_routes_require_authentication() {
         ("GET","/api/playback/native/library/item"),
         ("POST","/api/playback/native/library/item/sessions"),
         ("GET","/api/playback/sessions/session/stream"),
-        ("GET","/api/playback/sessions/session/hls/index.m3u8"),
         ("GET","/api/playback/native/library/item/subtitles/1"),
         ("GET","/api/playback/native/library/item/fonts/2"),
         ("POST","/api/playback/sessions/session/heartbeat"),
@@ -40,6 +39,27 @@ async fn native_playback_and_watch_routes_require_authentication() {
             .header("content-type","application/json").body(Body::from("{}"))
             .unwrap()).await.unwrap();
         assert_eq!(response.status(),StatusCode::UNAUTHORIZED,"{method} {path}");
+    }
+}
+
+#[tokio::test]
+async fn retired_playback_conversion_endpoints_are_unavailable() {
+    let directory = tempdir().unwrap();
+    let state = crate::test_support::state(directory.path());
+    let app = crate::routes::protected(state.auth.clone()).with_state(state);
+    for (method, path) in [
+        ("GET", "/api/transcoding/settings"),
+        ("PUT", "/api/transcoding/settings"),
+        ("GET", "/api/playback/capabilities"),
+        ("GET", "/api/playback/sessions/session/hls/index.m3u8"),
+    ] {
+        let response = app.clone().oneshot(
+            Request::builder().method(method).uri(path)
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        ).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
     }
 }
 

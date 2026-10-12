@@ -9,13 +9,13 @@
 - Preserve the public `router`, `AuthState` and `ServerConfig` facade. Prefer
   private modules and `pub(super)` feature helpers; reserve `pub(crate)` for real
   server-wide interfaces. Keep HTTP/domain error mapping explicit.
-- Playback wire models live in `playback/models.rs`; decisions in `planner.rs`;
-  encoder probing in `hardware.rs`; retention in `manifest.rs`. Delivery, resources
-  and sessions currently remain in `mod.rs`. Agree interfaces before assigning
-  these files to separate writers.
+- Playback is direct-only. Wire models live in `playback/models.rs`; native
+  compatibility checks in `planner.rs`; original delivery, resources and bounded
+  sessions in `mod.rs`. Do not add encoding, remuxing, HLS or bitmap burn-in as
+  an implicit fallback. Agree interfaces before assigning separate writers.
 - Reuse `crate::test_support::state` for isolated, worker-free fixtures. Do not
   borrow setup from another feature's tests. Playback has test-only fixtures and
-  cross-boundary tests; pure planner/manifest tests are beside their implementation.
+  cross-boundary tests; pure planner tests are beside their implementation.
 - Keep application storage in existing infrastructure crates. Reader/watch still
   own separate SQLite stores in server modules; their SQL/schema changes remain
   coordinated migrations. Preserve names, paths, encryption and startup compatibility.

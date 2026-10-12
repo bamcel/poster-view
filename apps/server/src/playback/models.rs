@@ -68,6 +68,8 @@ pub(crate) struct SessionInput {
     pub(super) position_seconds: f64,
     pub(super) audio_index: Option<u32>,
     pub(super) subtitle_index: Option<u32>,
+    // Decode legacy controls so older clients receive an explicit direct-only
+    // error when requesting conversion, rather than changing media implicitly.
     pub(super) subtitle_burn_index: Option<u32>,
     pub(super) max_height: u32,
     pub(super) max_bitrate: u64,
@@ -79,7 +81,7 @@ pub(crate) struct SessionInput {
     pub(super) hls_aac_supported: bool,
     pub(super) containers: Vec<String>,
     pub(super) native_audio_tracks: bool,
-    pub(super) source_video_supported: bool,
+    pub(super) source_video_supported: Option<bool>,
     pub(super) force_transcode: bool,
     pub(super) force_remux: bool,
     pub(super) preferred_encoder: Option<String>,

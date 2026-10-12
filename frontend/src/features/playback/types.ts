@@ -21,21 +21,15 @@ export interface PlaybackInfo {
   next?: { library_id: string; item_id: string; title: string } | null;
 }
 export interface PlaybackSession {
-  id: string; method: "direct" | "remux" | "audio_transcode" | "transcode"; reason: string;
-  url: string; mime: string; offset_seconds: number; duration_seconds: number; encoder?: string | null;
+  id: string; method: "direct"; reason: string;
+  url: string; mime: string; offset_seconds: number; duration_seconds: number; encoder?: null;
   audio_index?: number | null;
 }
 export interface PlaybackRequest {
   position_seconds: number; audio_index: number | null; subtitle_index: number | null;
-  max_height: number; max_bitrate: number; video_codecs: string[]; audio_codecs: string[]; containers: string[];
-  force_transcode?: boolean; preferred_encoder?: string; subtitle_burn_index?: number | null;
+  video_codecs: string[]; audio_codecs: string[]; containers: string[];
   native_audio_tracks?: boolean;
   source_video_supported?: boolean;
-  hls_video_codecs?: string[];
-  hls_audio_codecs?: string[];
-  hls_aac_supported?: boolean;
-  force_remux?: boolean;
-  bandwidth_limit_bps?: number;
 }
 export interface WatchState {
   position_seconds:number; duration_seconds:number; watched:boolean; play_count:number;

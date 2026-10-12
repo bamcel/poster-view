@@ -1,9 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import SettingsPage from "./SettingsPage";
-import { api } from "../api/client";
+import { api, apiRequest } from "../api/client";
 import type { AppearanceSettings } from "../types";
 
 vi.mock("../components/AppearancePreview", () => ({ default: ({ onClose }: { onClose: () => void }) => <section aria-label="Live Dashboard preview"><button onClick={onClose}>Close split view</button></section> }));
@@ -300,4 +300,15 @@ it("hides Server Connect even when saved settings enable it",async()=>{
  await screen.findByRole("button",{name:/Artwork Browse/});
  expect(screen.queryByRole("button",{name:/Server Connect/})).toBeNull();
  expect(screen.queryByRole("button",{name:"Add server"})).toBeNull();
+});
+
+it.each(["/settings/transcoding", "/settings?tab=transcoding"])("redirects retired conversion settings to Playback: %s", async(path)=>{
+  function Location(){const location=useLocation();return <output aria-label="Current settings location">{location.pathname}</output>;}
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+  render(<MemoryRouter initialEntries={[path]}><QueryClientProvider client={client}><SettingsPage/><Location/></QueryClientProvider></MemoryRouter>);
+  await waitFor(()=>expect(screen.getByLabelText("Current settings location").textContent).toBe("/settings/playback"));
+  expect(await screen.findByRole("heading",{name:"Playback"})).toBeTruthy();
+  expect(screen.queryByRole("switch",{name:/conversion|transcod|remux/i})).toBeNull();
+  expect(vi.mocked(apiRequest).mock.calls.some(([url])=>url.startsWith("/transcoding")||url==="/playback/capabilities")).toBe(false);
+  client.clear();
 });

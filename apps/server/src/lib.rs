@@ -34,13 +34,25 @@ mod scheduled_tasks;
 mod state;
 #[cfg(test)]
 mod test_support;
-mod transcoding;
 mod watch;
 mod workers;
 pub use auth::AuthState;
 pub use config::ServerConfig;
 use error::HttpError;
 use state::{AppState, spawn_backdrop_refresh};
+
+pub(crate) fn media_compression_layer() -> tower_http::compression::CompressionLayer<
+    impl tower_http::compression::predicate::Predicate,
+> {
+    use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
+    // Original media keeps its byte offsets, length, and range headers even
+    // when a browser requests the entire file and advertises gzip support.
+    tower_http::compression::CompressionLayer::new().compress_when(
+        DefaultPredicate::new()
+            .and(NotForContentType::const_new("video/"))
+            .and(NotForContentType::const_new("audio/")),
+    )
+}
 
 #[cfg(test)]
 use routes::system::require_auth;
@@ -86,7 +98,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         )
         .merge(protected)
         .fallback_service(spa)
-        .layer(tower_http::compression::CompressionLayer::new())
+        .layer(media_compression_layer())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

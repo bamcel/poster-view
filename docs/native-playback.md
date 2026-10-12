@@ -1,193 +1,96 @@
 # Native video playback
 
-PosterView plays movies and episodes from native libraries. The server resolves
-files from the catalog; clients never submit filesystem paths or FFmpeg commands.
-Connected Plex, Emby and Jellyfin libraries continue to provide artwork and
-metadata browsing. They are not used as native playback sources.
+PosterView plays movies and episodes from native libraries by serving their original
+files. It does not transcode, remux, burn subtitles, downmix audio, reduce resolution
+or adapt bitrate. Connected Plex, Emby and Jellyfin libraries remain artwork and
+metadata sources; their playback engines are not used for native library playback.
 
 ## Start watching
 
 Open a movie or episode and choose **Play** or **Resume**. Series and season pages
-start the first unwatched available episode, or resume an in-progress episode. The player
-supports audio/subtitle selection, quality, speed, chapters, fullscreen, picture
-in picture when supported, and Up Next. Space/K toggles playback, left/right
-arrows skip, F toggles fullscreen, and M toggles mute. Controls remain visible
-while paused or using a menu and hide during uninterrupted playback.
+choose an available in-progress or unwatched episode. The player supports native
+audio selection, browser-rendered text subtitles, speed, chapters, fullscreen,
+picture in picture when supported, and Up Next. Space/K toggles playback,
+left/right arrows skip, F toggles fullscreen, and M toggles mute. Controls remain
+visible while paused or using a menu and hide during uninterrupted playback.
 
 Settings → Playback controls preferred languages, remembered tracks, subtitles,
-skip lengths, resume rewind, automatic next episode, and the inactivity prompt.
-Plain text subtitles support color, shadow, background and top/bottom placement.
-Automatic placement keeps the track's cue positions. ASS/SSA and burned-in
-subtitles keep their embedded or server-rendered appearance.
-Library settings → Advanced → Playback controls minimum/maximum resume
-percentages and minimum resumable **video duration**, not time spent watching.
+skip lengths, resume rewind, automatic next episode and the inactivity prompt.
+Old Transcoding-page links redirect to Playback. No conversion or hardware-encoder
+settings are available.
 
-Watch state is stored in `watch.sqlite` in application data, separate from NFOs
-and metadata. It is scoped to the configured signed-in administrator identity.
-This does not introduce multiple user accounts. Active sessions use monotonic
-report sequences; newer sessions and manual watched changes supersede older
-reports. Seeking alone does not count as watching. Metadata scans preserve state.
-Seeking near the completion threshold or remaining paused there does not mark a
-title watched; completion requires actual playback progress. Initialization
-retries establish watch tracking before starting video, and changing episodes
-stops the previous source while the next episode loads.
+## Browser compatibility and delivery
 
-## Playback decisions
+The browser must decode the original container, video profile and selected audio.
+Compatible MKV, MP4/M4V/MOV and WebM sources use authenticated HTTP byte-range
+delivery. The server resolves catalog paths and verifies that each file remains
+inside the configured media root and library. Clients cannot submit filesystem
+paths or FFmpeg commands.
 
-Original-file playback is the default. **Allow media conversion** in Settings →
-Transcoding is off for new installations and older settings that do not contain
-this option. Existing hardware/encoder choices are preserved and apply after
-conversion is explicitly enabled. **Allow stream-copy remuxing** defaults to on;
-it can change packaging and select embedded audio without encoding either stream.
-Enabling media conversion also permits repackaging when needed.
-The playback mode applies to new sessions.
+Startup, resume and seeks share the original source clock. Seeking changes the
+browser's current position without preparing another server media job or changing
+the stream URL. Pause stays paused after seeking. Byte ranges avoid requiring a
+whole-file download, but a browser can still read ahead when seeking inside some
+MKV files. Native seek performance depends on the browser and the source's index
+and keyframes; a supported codec does not guarantee instant seeking.
 
-Two independent options also default to off:
+Video and audio responses are never HTTP-compressed, including full-file responses.
+Their original bytes, length and byte-range headers remain intact. JSON and frontend
+assets retain ordinary compression. Media stays private and is not persistently
+cached by the browser; metadata probes cache against file size and modification time.
 
-- **Allow audio-only transcoding** plays unsupported TrueHD, DTS / DTS-HD and
-  PCM / LPCM audio by converting it to 192 kbps stereo AAC. Compatible video is
-  copied at original quality. This option does not permit video encoding or
-  image-subtitle burn-in, and the output does not preserve lossless surround,
-  Atmos or DTS:X information.
-- **Automatically transcode for limited bandwidth** works in the player's
-  **Original / automatic** quality mode. When measured throughput and sustained
-  low-buffer playback show that the connection cannot keep up, it lowers video
-  bitrate on the fly. This can encode video even with **Allow media conversion**
-  off. It requires a compatible source video and known source bitrate; it does
-  not enable unsupported-video recovery or subtitle burn-in.
+Several audio tracks do not prevent playback of the default track. Other tracks
+can be selected only when the browser exposes them and their identities can be
+matched reliably to the file. Unsupported or unidentifiable choices are disabled.
+TrueHD, DTS/DTS-HD and PCM/LPCM are currently unsupported by this player;
+there is no audio conversion fallback. Unsupported containers or video profiles
+produce a clear direct-play error instead of silently changing the media.
 
-To play unsupported audio while keeping video conversion prohibited, enable
-only **Allow audio-only transcoding** and leave both video-conversion options
-off. To also permit video quality reductions for a slow connection, enable the
-automatic bandwidth option. Hardware acceleration and video-encoder choices
-apply to automatic bandwidth adaptation as well as full media conversion.
-Automatic detection runs at normal (1x) playback speed. It waits through startup
-and seeks, requires sustained slow transfers and low-buffer playback, and limits
-quality changes to avoid repeated restarts. A reduction stays in effect for the
-current item; reopen the player to retry original quality. Unknown source bitrate
-does not trigger automatic video conversion.
+## Subtitles and metadata
 
-The browser reports codec/container capabilities. Compatible MKV, MP4/M4V/MOV
-and WebM files use the original file through authenticated HTTP range requests,
-so seeking does not create another FFmpeg session or require downloading the
-whole video. Multiple audio tracks do not prevent playback of the default track.
-Other audio tracks can be selected directly when the browser exposes native
-tracks and their identities can be matched to the file. When native switching
-is unavailable, the player can remux the selected audio with the original video
-into fragmented MP4/HLS. The browser must report support for that source video
-profile and audio codec in this delivery format. A remux copies both streams;
-it does not downmix, change quality or run an encoder. Track changes preserve
-the source position, paused/playing state and watch session. Copy-only HLS still
-depends on source keyframes, so switching or seeking outside its retained window
-can require a short stream restart.
+ASS/SSA subtitles use a local WebAssembly renderer with embedded fonts. Other
+supported text subtitle tracks are prepared as WebVTT. Color, shadow, background
+and placement preferences apply to plain text; ASS/SSA retains its authored styling.
+Subtitle selection and Off preserve the original audio/video stream and watch session.
+Picture in picture may omit browser-rendered styled subtitles.
 
-If remuxing or the necessary audio-conversion permission is disabled, the player
-explains the limitation instead of silently encoding or claiming the wrong audio
-is playing.
-Text and ASS/SSA subtitle changes, including Off, use the client renderer and
-do not replace the media stream.
+PGS and VobSub/DVD are bitmap subtitle formats. The current browser renderer does
+not support them, and subtitle burn-in has been removed. Those choices are disabled.
 
-When conversion is explicitly enabled, the server chooses remuxing when a
-container or selected track requires it, audio conversion when only audio is
-incompatible, and video conversion for unsupported profiles, lower quality or
-subtitle burn-in. The original media file remains untouched in either mode.
-Converted sessions use segmented HLS, with encoding ahead limited by the
-configured buffer. Consumed segments are retired after a
-one-minute safety window; the served playlist advertises the retained segments.
-Seeking inside buffered or retained HLS segments reuses the current stream.
-Seeking outside that window starts a new conversion session at the requested
-source position. The timeline keeps the requested position while the new source
-loads; reset-clock events cannot move it back to the beginning or overwrite
-watch progress. Paused playback stays paused after seeking.
-Play, pause and local seeks notify the producer immediately, rather than waiting
-for the periodic heartbeat. A paused seek stops showing buffering once its
-preview is ready. Copied-video playback targets a longer browser buffer when the
-source bitrate fits its buffer budget; unknown or high bitrates use a smaller
-target. A short forward seek checks a fresh live playlist before replacing a
-stream whose cached playlist may lag behind the available segments.
-Video conversion produces two-second segments/keyframes for quicker startup;
-stream-copy segments still depend on the original video's keyframes.
-On Linux, throttled stream-copy and audio-only conversion can read up to eight
-times source speed to fill that buffer, while video encoding stays at four.
-The configured encode-ahead, disk and concurrency limits continue to apply.
-Converted video uses an encoder supported by both the browser and server
-settings. Compatible audio is preserved unless conversion/downmixing or the
-requested bitrate budget requires otherwise. Audio boost applies only when
-downmixing multichannel audio. Missing container duration falls back to probed
-audio/video stream duration; an unknown duration is not treated as a short video.
-When source bitrate is unknown, a requested bitrate limit still triggers
-conversion unless the file size and duration establish that the source fits.
+FFmpeg/ffprobe remain installed for metadata, bounded text-subtitle/font extraction,
+and existing book/artwork capture features. These operations do not re-encode the
+playback video or audio. Subtitle/font resources cache by source fingerprint and
+track, with entry-count, size and LRU limits. Playback never starts an audio/video encoder,
+HLS producer or stream-copy process.
 
-ASS/SSA subtitles use a local WebAssembly renderer and embedded fonts. Plain text
-subtitles are converted to WebVTT. Source timestamps remain authoritative after
-seeking and transcoding. Burn-in is offered where conversion is enabled and the
-server can render the selected subtitle format. Metadata inspection, subtitle
-extraction and embedded font preparation remain available for original playback;
-they do not encode the video or audio. With conversion enabled, unsupported
-playback has a bounded fallback rather than an infinite retry loop.
-PGS and VobSub/DVD subtitles are image formats. The current browser player has
-no bitmap-subtitle renderer; showing them requires the separate media-conversion
-opt-in for video burn-in. Stream-copy remuxing alone cannot burn in subtitles.
+## Watch tracking
 
-## Transcoding and Unraid
+Watch state is stored in `watch.sqlite` under application data, separately from NFOs
+and catalog metadata, and scoped to the configured administrator identity. This
+does not add multiple accounts. Active sessions use monotonic report sequences;
+newer sessions and manual watched changes supersede older reports. Metadata scans
+preserve watch state.
 
-Settings → Transcoding controls stream-copy remuxing, audio-only encoding,
-automatic bandwidth adaptation, full media conversion, codecs,
-output size, CPU fallback, concurrency, disk limits, throttling and subtitle/font
-extraction.
-**Test hardware encoders** runs small real encodes inside the server container.
-An encoder appearing in FFmpeg's list does not establish that the GPU is usable.
-Tests are cached for five minutes. Full source profiles and filtering can have
-additional requirements. Hardware encoding does not guarantee hardware decoding
-or GPU tone mapping; CPU filters may still be used.
-Playback validates only the encoder candidates needed for its selected codec
-and backend, stopping once one works. The explicit hardware test still reports
-all supported candidates. Episode lookup is scoped to its series rather than
-loading the entire library for each playback/subtitle/font request.
+Library settings → Advanced → Playback controls minimum/maximum resume percentages
+and minimum resumable **video duration**, not time spent watching. Seeking alone
+does not count as watching. Seeking or staying paused near completion does not mark
+an item watched; completion requires new actual playback progress. Initialization
+establishes watch tracking before playing, and changing episodes stops the old source.
 
-For Intel Quick Sync/VA-API, enable the integrated GPU in the host BIOS, make
-`/dev/dri` available in Unraid, and add a device mapping `/dev/dri:/dev/dri` to
-the container. Intel userspace drivers are included. The entrypoint adds only
-the groups belonging to mapped GPU character devices when dropping privileges;
-it does not change device or media ownership.
+## Unraid and upgrades
 
-For NVIDIA, install Unraid's NVIDIA driver integration and expose the selected
-GPU through the NVIDIA container runtime. `NVIDIA_VISIBLE_DEVICES` selects the
-GPU and `NVIDIA_DRIVER_CAPABILITIES=video,utility,compute` exposes the required
-libraries. Choose NVIDIA NVENC and run the encoder test. Never assume a GPU
-supports AV1 encoding based on AV1 decoding support.
+Direct playback requires the server to read the original files and sufficient network
+bandwidth for their bitrate. Hardware decoding, when available, happens on the client.
+PosterView needs no server GPU mapping, NVIDIA runtime or hardware encoder drivers.
+Application-data, media mounts, PUID, PGID and UMASK keep their existing behavior.
 
-The default temporary location is in application data. For sustained use, map
-an SSD-backed host directory to `/transcode` and set the temporary path to
-`/transcode` in Transcoding settings. Keep it separate from media. The entrypoint
-does not treat `/transcode` as a library media mount. Ensure the configured PUID
-and PGID can write to the folder. A session limit prevents unbounded FFmpeg jobs;
-idle sessions are stopped and owned temporary files are cleaned up.
+Existing conversion settings are retained in the database but ignored. Existing
+generated HLS files are not served or reused; application data and original media
+are not rewritten or deleted during this change. No playback temporary mount is
+required. Legacy `/transcode` mounts remain excluded from automatic media-root
+discovery so an old container configuration does not become an extra library root.
 
-GPU device access and performance must be tested on the actual Unraid server.
-Software fallback can preserve playback but may be too slow for demanding 4K
-sources. HDR conversion requires supported tone-mapping filters; errors are
-reported rather than silently treating HDR frames as SDR.
-
-## Current boundaries
-
-There is no casting integration or automatic intro detection in this release.
-The player does not display fake controls for those features. Embedded chapter
-markers are supported. Large-file throughput, hardware conversion and browser
-codec support depend on the client, storage, network and container configuration.
-Test remote playback behind the same authenticated reverse proxy used for the
-rest of PosterView. Playlists, segments, subtitles and fonts require the existing
-server authentication.
-
-## Engineering references
-
-- [FFmpeg stream copy and seeking](https://ffmpeg.org/ffmpeg.html)
-- [FFmpeg HLS muxer](https://ffmpeg.org/ffmpeg-formats.html)
-- [HTTP range requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Range_requests)
-- [Browser Media Capabilities API](https://developer.mozilla.org/en-US/docs/Web/API/Media_Capabilities_API)
-- [hls.js](https://github.com/video-dev/hls.js)
-- [JASSUB](https://github.com/ThaUnknown/jassub)
-
-The interface was designed from REA observations of Emby's browser player and
-preferences. PosterView implements its own server rules and controls; browser
-evidence did not establish Emby's internal database or server algorithms.
+Existing native playback and watch URLs retain their purpose. Legacy conversion
+request fields are decoded for compatibility, but requests that ask for encoding,
+remuxing, quality/bitrate changes, encoder selection or burn-in fail explicitly.
+The retired settings, hardware-capability and HLS endpoints return not found.
