@@ -1,10 +1,11 @@
+import {watchApi} from "./api/watch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import Hls from "hls.js";
 import { ArrowLeft, Check, ChevronRight, CircleHelp, Gauge, ListVideo, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, RotateCw, Settings2, SkipForward, Subtitles, Volume2, VolumeX, X } from "lucide-react";
-import { defaultPlaybackPreferences, playbackApi, type PlaybackInfo, type PlaybackPreferences, type PlaybackSession } from "../api/playback";
-import { playbackCapabilities, playbackTime, safePlayerReturn, selectTracks, trackLabel } from "../lib/playback";
-import DetailSynopsis from "../components/DetailSynopsis";
+import { defaultPlaybackPreferences, playbackApi, type PlaybackInfo, type PlaybackPreferences, type PlaybackSession } from "./api/playback";
+import { playbackCapabilities, playbackTime, safePlayerReturn, selectTracks, trackLabel } from "./lib/playback";
+import DetailSynopsis from "../../components/DetailSynopsis";
 import "./PlayerPage.css";
 
 type Menu = "audio"|"subtitles"|"speed"|"quality"|"chapters"|"info"|"next"|null;
@@ -39,7 +40,7 @@ export default function PlayerPage() {
   const report=useCallback((isEnded=false,keepalive=false,seeking=false)=>{
     if(!watchSession.current||!ready.current)return;
     const payload={session_id:watchSession.current,sequence:++sequence.current,position_seconds:sourcePosition.current,paused:video.current?.paused??true,ended:isEnded,seeking,...(!keepalive&&current.current?{playback_session_id:current.current.id}:{}),audio_index:selected.current.audio,subtitle_index:selected.current.subtitle};
-    void playbackApi.progress(libraryId,itemId,payload,keepalive).then(()=>{
+    void watchApi.progress(libraryId,itemId,payload,keepalive).then(()=>{
       if(mounted.current&&payload.session_id===watchSession.current&&payload.sequence===sequence.current)setWatchError("");
       window.dispatchEvent(new Event("posterview-watch-updated"));
     }).catch(error=>{if(mounted.current&&payload.session_id===watchSession.current&&payload.sequence===sequence.current)setWatchError(`Watch progress could not be saved: ${errorMessage(error)}`);});
@@ -96,14 +97,14 @@ export default function PlayerPage() {
     mounted.current=true;retries.current=0;const controller=new AbortController();let active=true;
     void (async()=>{
       try{
-        const [data,prefs,state]=await Promise.all([playbackApi.info(libraryId,itemId,controller.signal),playbackApi.preferences(controller.signal),playbackApi.state(libraryId,itemId,controller.signal)]);
+        const [data,prefs,state]=await Promise.all([playbackApi.info(libraryId,itemId,controller.signal),watchApi.preferences(controller.signal),watchApi.state(libraryId,itemId,controller.signal)]);
         if(!active||!video.current)return;
         const caps=await playbackCapabilities(data,video.current);if(!active)return;
         const tracks=selectTracks(data,prefs,state), chosenSub=data.tracks.find(track=>track.index===tracks.subtitle);
         infoRef.current=data;prefsRef.current=prefs;capability.current=caps;
         selected.current={audio:tracks.audio,subtitle:tracks.subtitle,burn:chosenSub?.subtitle_format==="image",quality:0};
         setInfo(data);setPreferences(prefs);setAudio(tracks.audio);setSubtitle(tracks.subtitle);setBurnSubtitles(selected.current.burn);
-        const watch=await playbackApi.begin(libraryId,itemId);if(!active)return;
+        const watch=await watchApi.begin(libraryId,itemId);if(!active)return;
         watchSession.current=watch.session_id;sequence.current=0;
         const initial=params.get("start")==="0"?0:Math.max(0,watch.state.position_seconds-prefs.resume_rewind_seconds);
         await start(initial);
@@ -249,7 +250,7 @@ export default function PlayerPage() {
     if(replaying.current)return;replaying.current=true;
     const generation=requestGeneration.current;ready.current=false;setLoading(true);setEnded(false);setCountdown(null);
     try{
-      const watch=await playbackApi.begin(libraryId,itemId);
+      const watch=await watchApi.begin(libraryId,itemId);
       if(!mounted.current||generation!==requestGeneration.current)return;
       watchSession.current=watch.session_id;sequence.current=0;await start(position,false,autoplay);
     }catch(error){if(mounted.current){setLoading(false);setError(errorMessage(error));}}finally{replaying.current=false;}

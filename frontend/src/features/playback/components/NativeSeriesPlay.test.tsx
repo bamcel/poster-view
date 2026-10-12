@@ -4,7 +4,7 @@ import {MemoryRouter,Route,Routes,useParams} from "react-router-dom";
 import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import NativeSeriesPlay from "./NativeSeriesPlay";
 import {watchApi,type WatchState} from "../api/watch";
-import type {NativeCatalogEntry} from "../api/nativeLibraries";
+import type {NativeCatalogEntry} from "../../../api/nativeLibraries";
 vi.mock("../api/watch",()=>({watchApi:{continue:vi.fn(),states:vi.fn()}}));
 const state:WatchState={position_seconds:0,duration_seconds:1200,watched:true,play_count:1,last_played_at:null,audio_index:null,subtitle_index:null,session_id:null,version:1};
 const episode=(number:number):NativeCatalogEntry=>({id:`episode-${number}`,path:`anime/show/Season 01/Episode ${number}.mkv`,parent_path:"anime/show/Season 01",kind:"episode",title:`Episode ${number}`,metadata:{season:1,episode:number},artwork:[],files:[{path:`episode-${number}.mkv`,extension:"mkv",size:10}],nfo_path:null,available:true,revision:0});

@@ -1,4 +1,4 @@
-import ContinueWatching from "../components/ContinueWatching";
+import ContinueWatching from "../features/playback/components/ContinueWatching";
 import {useCatalogPrefetch} from "../lib/catalogPrefetch";
 import {HOME_RESET_EVENT} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";

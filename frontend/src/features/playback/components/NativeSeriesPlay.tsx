@@ -1,7 +1,7 @@
 import {useQuery} from "@tanstack/react-query";
 import {useLocation,useNavigate} from "react-router-dom";
 import {Play} from "lucide-react";
-import type {NativeCatalogEntry} from "../api/nativeLibraries";
+import type {NativeCatalogEntry} from "../../../api/nativeLibraries";
 import {watchApi} from "../api/watch";
 export default function NativeSeriesPlay({library,path,entries}:{library:string;path:string;entries:NativeCatalogEntry[]}) {
   const navigate=useNavigate(),location=useLocation();

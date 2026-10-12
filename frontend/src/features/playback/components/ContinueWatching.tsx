@@ -2,7 +2,7 @@ import {useQuery} from "@tanstack/react-query";
 import {Link} from "react-router-dom";
 import {Play} from "lucide-react";
 import {watchApi} from "../api/watch";
-import {nativeLibraries} from "../api/nativeLibraries";
+import {nativeLibraries} from "../../../api/nativeLibraries";
 
 export default function ContinueWatching() {
   const query=useQuery({queryKey:["continue-watching"],queryFn:watchApi.continue,retry:false,staleTime:0});

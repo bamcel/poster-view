@@ -1,4 +1,5 @@
-import { apiRequest } from "./client";
+// Canonical playback/watch wire contracts; coordinate shape changes with Rust models and watch handlers.
+import type { NativeCatalogEntry } from "../../api/nativeLibraries";
 
 export interface PlaybackTrack {
   index: number; kind: string; codec: string; language?: string | null; title?: string | null;
@@ -24,9 +25,9 @@ export interface PlaybackRequest {
   force_transcode?: boolean; preferred_encoder?: string; subtitle_burn_index?: number | null;
 }
 export interface WatchState {
-  position_seconds: number; duration_seconds: number; watched: boolean; play_count: number;
-  last_played_at: string | null; audio_index: number | null; subtitle_index: number | null;
-  session_id?: string | null; version?: number;
+  position_seconds:number; duration_seconds:number; watched:boolean; play_count:number;
+  last_played_at:string|null; audio_index:number|null; subtitle_index:number|null;
+  session_id:string|null; version:number;
 }
 export interface PlaybackPreferences {
   audio_languages: string[]; subtitle_languages: string[]; prefer_default_audio: boolean;
@@ -40,17 +41,6 @@ export const defaultPlaybackPreferences: PlaybackPreferences = {
   remember_subtitles: true, subtitle_mode: "default", autoplay_next: true, resume_rewind_seconds: 5,
   skip_back_seconds: 10, skip_forward_seconds: 30, still_watching_minutes: 120, up_next: true, subtitle_size: 100,
 };
-const itemPath = (library: string, item: string) => `/native/${encodeURIComponent(library)}/${encodeURIComponent(item)}`;
-export const playbackApi = {
-  info: (library: string, item: string, signal?: AbortSignal) => apiRequest<PlaybackInfo>(`/playback${itemPath(library,item)}`, {signal}),
-  create: (library: string, item: string, body: PlaybackRequest) => apiRequest<PlaybackSession>(`/playback${itemPath(library,item)}/sessions`, {method:"POST", body:JSON.stringify(body)}),
-  stop: (session: string) => apiRequest<void>(`/playback/sessions/${encodeURIComponent(session)}`, {method:"DELETE"}),
-  heartbeat: (session: string, position_seconds: number, paused = false) => apiRequest<void>(`/playback/sessions/${encodeURIComponent(session)}/heartbeat`, {method:"POST", body:JSON.stringify({position_seconds,paused})}),
-  state: (library: string, item: string, signal?: AbortSignal) => apiRequest<WatchState>(`/watch${itemPath(library,item)}`, {signal}),
-  begin: (library: string, item: string) => apiRequest<{session_id:string; state:WatchState}>(`/watch${itemPath(library,item)}/begin`, {method:"POST"}),
-  progress: (library: string, item: string, body: Record<string,unknown>, keepalive = false) => apiRequest<WatchState>(`/watch${itemPath(library,item)}/progress`, {method:"PUT", body:JSON.stringify(body), keepalive}),
-  watched: (library: string, item: string, watched: boolean) => apiRequest<WatchState>(`/watch${itemPath(library,item)}`, {method:"PUT", body:JSON.stringify({watched})}),
-  preferences: (signal?: AbortSignal) => apiRequest<PlaybackPreferences>("/playback/preferences", {signal}),
-  savePreferences: (body: PlaybackPreferences) => apiRequest<PlaybackPreferences>("/playback/preferences", {method:"PUT", body:JSON.stringify(body)}),
-  subtitle: (library: string, item: string, index: number) => `/api/playback${itemPath(library,item)}/subtitles/${index}`,
-};
+
+export interface WatchRules {minimum_percentage:number;maximum_percentage:number;minimum_duration_seconds:number}
+export interface ContinueItem {library_id:string;library_name:string;item_id:string;title:string;kind:string;entry:NativeCatalogEntry;state:WatchState}

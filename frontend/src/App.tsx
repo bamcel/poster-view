@@ -10,7 +10,7 @@ import { lazy, Suspense } from "react";
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ItemDetailPage = lazy(() => import("./pages/ItemDetailPage"));
 const SeasonDetailPage = lazy(() => import("./pages/SeasonDetailPage"));
-const PlayerPage = lazy(() => import("./pages/PlayerPage"));
+const PlayerPage = lazy(() => import("./features/playback/PlayerPage"));
 const ReaderPage = lazy(() => import("./pages/ReaderPage"));
 
 export default function App() {

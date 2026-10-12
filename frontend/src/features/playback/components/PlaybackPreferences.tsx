@@ -1,10 +1,10 @@
 import {useEffect,useState} from "react";
 import {useQuery} from "@tanstack/react-query";
 import {watchApi,type PlaybackPreferences as Preferences} from "../api/watch";
-import {SETTINGS_BUTTON} from "./SettingsPageFrame";
+import {SETTINGS_BUTTON} from "../../../components/SettingsPageFrame";
 const input="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm";
 export default function PlaybackPreferences() {
-  const query=useQuery({queryKey:["playback-preferences"],queryFn:watchApi.preferences});
+  const query=useQuery({queryKey:["playback-preferences"],queryFn:()=>watchApi.preferences()});
   const [audioText,setAudioText]=useState(""),[subtitleText,setSubtitleText]=useState("");
   const [settings,setSettings]=useState<Preferences>(),[saving,setSaving]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");
   useEffect(()=>{if(query.data){setSettings(query.data);setAudioText(query.data.audio_languages.join(", "));setSubtitleText(query.data.subtitle_languages.join(", "));}},[query.data]);

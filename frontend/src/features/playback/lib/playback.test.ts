@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {defaultPlaybackPreferences, type PlaybackInfo, type WatchState} from "../api/playback";
 import {playbackCapabilities, playbackTime, safePlayerReturn, selectTracks} from "./playback";
 const info:PlaybackInfo={title:"Episode",duration_seconds:1200,chapters:[],tracks:[{index:1,kind:"audio",codec:"aac",language:"jpn",default:true},{index:2,kind:"audio",codec:"aac",language:"eng"},{index:3,kind:"subtitle",codec:"ass",language:"eng",default:true},{index:4,kind:"subtitle",codec:"ass",language:"eng",forced:true},{index:5,kind:"subtitle",codec:"srt",language:"eng",hearing_impaired:true}]};
-const state:WatchState={position_seconds:200,duration_seconds:1200,watched:false,play_count:0,last_played_at:null,audio_index:null,subtitle_index:null};
+const state:WatchState={session_id:null,version:0,position_seconds:200,duration_seconds:1200,watched:false,play_count:0,last_played_at:null,audio_index:null,subtitle_index:null};
 describe("playback time and navigation",()=>{
  it("formats source time and rejects invalid positions",()=>{expect(playbackTime(3665.9)).toBe("1:01:05");expect(playbackTime(65)).toBe("1:05");expect(playbackTime(-1)).toBe("0:00");expect(playbackTime(NaN)).toBe("0:00");});
  it("permits local return paths and rejects protocol-relative and slash ambiguities",()=>{expect(safePlayerReturn("/media/Anime?q=x")).toBe("/media/Anime?q=x");expect(safePlayerReturn("//external.test")).toBe("/");expect(safePlayerReturn("/\\external.test")).toBe("/");expect(safePlayerReturn("https://external.test")).toBe("/");});

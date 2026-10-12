@@ -1,4 +1,4 @@
-import LibraryWatchRules from "./LibraryWatchRules";
+import LibraryWatchRules from "../features/playback/components/LibraryWatchRules";
 import {useEffect,useState} from "react";
 import {apiRequest} from "../api/client";
 import { ArrowDown, ArrowUp } from "lucide-react";

@@ -1,5 +1,5 @@
-import NativeSeriesPlay from "./NativeSeriesPlay";
-import NativePlaybackActions from "./NativePlaybackActions";
+import NativeSeriesPlay from "../features/playback/components/NativeSeriesPlay";
+import NativePlaybackActions from "../features/playback/components/NativePlaybackActions";
 import EpisodeMediaInfo from "./EpisodeMediaInfo";
 import VideoPreferences,{useVideoPreferences} from "./VideoPreferences";
 import {stillArtwork} from "./AnimatedArtwork";

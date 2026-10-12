@@ -1,5 +1,6 @@
 import {resetHomeNavigation} from "../lib/homeNavigation";
-import SettingsPage from "../pages/SettingsPage";
+import { lazy, Suspense } from "react";
+const SettingsPage = lazy(() => import("../pages/SettingsPage"));
 import ServerSettingsDashboard from "./ServerSettingsDashboard";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createSearchParams, matchPath, type NavigateFunction, type NavigateOptions, type To, type SetURLSearchParams } from "react-router-dom";
@@ -65,7 +66,7 @@ export default function AppearancePreview({ onClose }: { onClose: () => void }) 
         <LibraryNavigationContext.Provider value={libraryNavigation.current}><DashboardPage /></LibraryNavigationContext.Provider>
       </div>
       <LibraryNavigationContext.Provider value={navigation}>
-        {libraryPage ? null : url.pathname === "/" ? <HomePage /> : url.pathname === "/settings" ? <ServerSettingsDashboard/> : url.pathname.startsWith("/settings/") ? <SettingsPage previewSection={url.pathname.split("/")[2]}/> : season ? <SeasonDetailPage /> : item ? <ItemDetailPage /> : <div className="p-6 text-sm text-muted">This page is available outside the preview. Use Back or select a Media library to continue previewing.</div>}
+        {libraryPage ? null : url.pathname === "/" ? <HomePage /> : url.pathname === "/settings" ? <ServerSettingsDashboard/> : url.pathname.startsWith("/settings/") ? <Suspense fallback={<p role="status">Loading settings…</p>}><SettingsPage previewSection={url.pathname.split("/")[2]}/></Suspense> : season ? <SeasonDetailPage /> : item ? <ItemDetailPage /> : <div className="p-6 text-sm text-muted">This page is available outside the preview. Use Back or select a Media library to continue previewing.</div>}
       </LibraryNavigationContext.Provider>
       </Layout>
       </LibraryNavigationContext.Provider>
