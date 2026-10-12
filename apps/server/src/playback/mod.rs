@@ -6,28 +6,28 @@ mod planner;
 #[cfg(test)]
 mod test_support;
 pub(crate) use hardware::capabilities;
-use hardware::{Encoder, encoder, hardware_input, upload};
+use hardware::{encoder, hardware_input, upload, Encoder};
 use manifest::{playlist_seconds, prune_consumed, rolling_manifest};
 use models::{Chapter, Font, Info, NextItem, SessionInput, SessionResponse, Track};
-use planner::{Plan, plan, selected_stream};
+use planner::{plan, selected_stream, Plan};
 
-use crate::{AppState, HttpError, transcoding::Settings};
+use crate::{transcoding::Settings, AppState, HttpError};
 use axum::{
-    Json,
     extract::{Path, Request, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
+    Json,
 };
 use posterview_contracts::native::NativeCatalogEntry;
 use posterview_infra_sqlite::ServerStore;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     path::{Component, Path as FsPath, PathBuf},
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
     time::{Duration, Instant},
 };
@@ -43,6 +43,7 @@ const MAX_SUBTITLE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_FONT_BYTES: u64 = 32 * 1024 * 1024;
 const SESSION_IDLE: Duration = Duration::from_secs(90);
 const MAX_SESSIONS: usize = 64;
+const MAX_PLAYBACK_SECONDS: f64 = 7.0 * 86_400.0;
 const VIDEO_DEMUXERS: &str = "mov,matroska,webm,avi,asf,mpeg,mpegts,ogg,mpegvideo";
 
 fn bad(message: impl Into<String>) -> HttpError {
@@ -715,6 +716,15 @@ fn tracks(probe: &Value, source: &Source) -> Vec<Track> {
 fn duration(probe: &Value) -> f64 {
     number(&probe["format"]["duration"])
         .filter(|n| *n > 0.0)
+        .or_else(|| {
+            probe["streams"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|stream| matches!(stream["codec_type"].as_str(), Some("video" | "audio")))
+                .filter_map(|stream| number(&stream["duration"]).filter(|seconds| *seconds > 0.0))
+                .max_by(f64::total_cmp)
+        })
         .unwrap_or(0.0)
 }
 fn container(path: &FsPath) -> String {
@@ -1143,17 +1153,15 @@ fn hls_command(
             cmd.args(["-tag:v", "hvc1"]);
         }
     }
-    let audio_codec = plan
-        .audio
-        .as_ref()
-        .and_then(|s| s["codec_name"].as_str())
-        .unwrap_or("");
-    if plan.method == "audio_transcode"
-        || plan.method == "transcode"
-        || !matches!(audio_codec, "aac" | "mp3" | "opus" | "")
-    {
+    if plan.convert_audio {
         cmd.args(["-c:a", "aac", "-ac", "2", "-b:a", "192k"]);
-        if settings.audio_boost > 1.0 {
+        if settings.audio_boost > 1.0
+            && plan
+                .audio
+                .as_ref()
+                .and_then(|stream| stream["channels"].as_u64())
+                .is_some_and(|channels| channels > 2)
+        {
             cmd.arg("-af")
                 .arg(format!("volume={}", settings.audio_boost));
         }
@@ -1544,7 +1552,9 @@ pub(crate) async fn heartbeat(
     }
     if !input.position_seconds.is_finite()
         || input.position_seconds < 0.0
-        || input.position_seconds > s.response.duration_seconds + 5.0
+        || input.position_seconds > MAX_PLAYBACK_SECONDS
+        || (s.response.duration_seconds > 0.0
+            && input.position_seconds > s.response.duration_seconds + 5.0)
     {
         return Err(bad("Playback position is out of range."));
     }

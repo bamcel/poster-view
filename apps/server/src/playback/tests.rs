@@ -1,8 +1,146 @@
 //! Cross-boundary delivery, media processing, and cleanup tests.
 
-use super::test_support::input;
+use super::test_support::{input, probe};
 use super::*;
 use serde_json::json;
+#[test]
+fn stream_duration_fallback_excludes_subtitle_timelines() {
+    let data = json!({"format":{},"streams":[{"codec_type":"video","duration":"120.0"},{"codec_type":"audio","duration":125.0},{"codec_type":"subtitle","duration":999.0}]});
+    assert_eq!(duration(&data), 125.0);
+    assert_eq!(
+        duration(&json!({"format":{"duration":"60.0"},"streams":data["streams"]})),
+        60.0
+    );
+    assert_eq!(
+        duration(&json!({"format":{"duration":"NaN"},"streams":[]})),
+        0.0
+    );
+}
+#[test]
+fn audio_boost_applies_only_to_multichannel_downmixing() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("fixture.mkv");
+    std::fs::write(&file, b"fixture").unwrap();
+    let source = super::test_support::source(&file);
+    let settings = Settings {
+        audio_boost: 2.0,
+        ..Settings::default()
+    };
+    let mut data = probe();
+    data["streams"][1]["codec_name"] = json!("opus");
+    let request = input();
+    let chosen = plan(&data, "mkv", &request, &settings).unwrap();
+    assert!(chosen.convert_audio);
+    let command = hls_command(
+        &source,
+        &data,
+        &chosen,
+        &request,
+        &settings,
+        None,
+        directory.path(),
+    )
+    .unwrap();
+    let args = command
+        .as_std()
+        .get_args()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(
+        !args.iter().any(|argument| argument == "-af"),
+        "Stereo conversion must not receive downmix gain."
+    );
+    let mut request = input();
+    request.audio_index = Some(2);
+    let chosen = plan(&data, "mkv", &request, &settings).unwrap();
+    let command = hls_command(
+        &source,
+        &data,
+        &chosen,
+        &request,
+        &settings,
+        None,
+        directory.path(),
+    )
+    .unwrap();
+    let args = command
+        .as_std()
+        .get_args()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(args.windows(2).any(|pair| pair == ["-af", "volume=2"]));
+}
+#[tokio::test]
+async fn unknown_duration_heartbeats_keep_real_positions_with_bounded_validation() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = crate::test_support::state(directory.path());
+    let file = directory.path().join("fixture.mkv");
+    std::fs::write(&file, b"fixture").unwrap();
+    let source = super::test_support::source(&file);
+    let id = uuid::Uuid::new_v4().to_string();
+    let response = SessionResponse {
+        id: id.clone(),
+        method: "direct".into(),
+        reason: "Fixture".into(),
+        url: String::new(),
+        mime: "video/mp4".into(),
+        offset_seconds: 0.0,
+        duration_seconds: 0.0,
+        encoder: None,
+        audio_index: None,
+    };
+    state.playback.sessions.lock().await.insert(
+        id.clone(),
+        Session {
+            library_id: source.library_id,
+            item_id: source.item.id,
+            source: source.path,
+            stamp: source.fingerprint,
+            directory: None,
+            response,
+            child: None,
+            touched: Instant::now() - Duration::from_secs(100),
+            position: 0.0,
+            buffer_seconds: 0,
+            paused: false,
+            suspended: false,
+            cache_limit: 1024 * 1024 * 1024,
+            error: None,
+        },
+    );
+    let response = heartbeat(
+        State(state.clone()),
+        Path(id.clone()),
+        HeaderMap::new(),
+        Json(Heartbeat {
+            position_seconds: 600.0,
+            paused: false,
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(response["ok"], true);
+    let sessions = state.playback.sessions.lock().await;
+    let saved = sessions.get(&id).unwrap();
+    assert_eq!(saved.position, 600.0);
+    assert!(saved.touched.elapsed() < Duration::from_secs(1));
+    drop(sessions);
+    for position in [f64::NAN, -1.0, MAX_PLAYBACK_SECONDS + 1.0] {
+        assert!(heartbeat(
+            State(state.clone()),
+            Path(id.clone()),
+            HeaderMap::new(),
+            Json(Heartbeat {
+                position_seconds: position,
+                paused: false
+            })
+        )
+        .await
+        .is_err());
+    }
+    state.playback.stop_id(&id).await;
+}
 #[test]
 fn segment_paths_cannot_escape_session() {
     for good in ["index.m3u8", "init.mp4", "segment-000001.m4s"] {
@@ -217,9 +355,11 @@ async fn real_ffmpeg_remux_audio_conversion_subtitles_and_cleanup() {
     db.ingest_native_catalog(&lib.id, lib.revision, &[entry])
         .unwrap();
     let item = db.native_catalog(&lib.id).unwrap().remove(0);
-    let mut settings = Settings::default();
-    settings.throttle = false;
-    settings.max_resolution = 0;
+    let settings = Settings {
+        throttle: false,
+        max_resolution: 0,
+        ..Settings::default()
+    };
     db.set_setting(
         "transcoding-settings",
         &serde_json::to_string(&settings).unwrap(),
@@ -296,11 +436,9 @@ async fn real_ffmpeg_remux_audio_conversion_subtitles_and_cleanup() {
         .clone()
         .unwrap();
     assert!(path.join("init.mp4").exists());
-    assert!(
-        std::fs::read_to_string(path.join("index.m3u8"))
-            .unwrap()
-            .contains("segment-")
-    );
+    assert!(std::fs::read_to_string(path.join("index.m3u8"))
+        .unwrap()
+        .contains("segment-"));
     state.playback.stop_id(&session.id).await;
     assert!(!path.exists());
     assert!(state.playback.session_details(&session.id).await.is_none());
