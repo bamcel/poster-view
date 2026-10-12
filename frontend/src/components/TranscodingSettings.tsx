@@ -1,14 +1,14 @@
 import {useEffect,useState} from "react";
 import {useQuery} from "@tanstack/react-query";
 import {apiRequest} from "../api/client";
-type Settings={allow_conversion:boolean;hardware_enabled:boolean;hardware_backend:string;preferred_encoder:string;allow_hevc:boolean;allow_av1:boolean;software_fallback:boolean;max_resolution:number;max_concurrent:number;threads:number;temporary_path:string;cache_gb:number;throttle:boolean;buffer_seconds:number;subtitle_extraction:boolean;font_extraction:boolean;audio_boost:number};
+type Settings={allow_conversion:boolean;allow_remux:boolean;hardware_enabled:boolean;hardware_backend:string;preferred_encoder:string;allow_hevc:boolean;allow_av1:boolean;software_fallback:boolean;max_resolution:number;max_concurrent:number;threads:number;temporary_path:string;cache_gb:number;throttle:boolean;buffer_seconds:number;subtitle_extraction:boolean;font_extraction:boolean;audio_boost:number};
 const input="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm";
 export default function TranscodingSettings(){
  const [testHardware,setTestHardware]=useState(false);
  const hardware=useQuery({queryKey:["playback-hardware"],queryFn:()=>apiRequest<{encoders:{name:string;backend:string;codec:string;available:boolean;detail:string}[]}>("/playback/capabilities"),enabled:testHardware,retry:false,staleTime:0});
  const query=useQuery({queryKey:["transcoding-settings"],queryFn:()=>apiRequest<Settings>("/transcoding/settings")});
  const [settings,setSettings]=useState<Settings>();const [saving,setSaving]=useState(false);const [message,setMessage]=useState("");const [error,setError]=useState("");
- useEffect(()=>{if(query.data)setSettings({...query.data,allow_conversion:query.data.allow_conversion===true});},[query.data]);
+ useEffect(()=>{if(query.data)setSettings({...query.data,allow_conversion:query.data.allow_conversion===true,allow_remux:query.data.allow_remux!==false});},[query.data]);
  if(query.isError)return <p role="alert" className="text-danger">{query.error.message}</p>;
  if(!settings)return <p className="text-muted">Loading transcoding settings…</p>;
  const set=<K extends keyof Settings>(key:K,value:Settings[K])=>{setSettings({...settings,[key]:value});setMessage("");setError("");};
@@ -16,8 +16,9 @@ export default function TranscodingSettings(){
  const number=(key:keyof Settings,label:string,min:number,max:number,help?:string)=><label className="block text-sm">{label}<input type="number" min={min} max={max} step={key==="audio_boost"?.1:1} value={Number(settings[key])} onChange={e=>set(key,Number(e.target.value) as never)} className={input}/>{help&&<span className="mt-1 block text-xs text-muted">{help}</span>}</label>;
  return <form className="max-w-3xl space-y-6" onSubmit={async e=>{e.preventDefault();setSaving(true);setError("");try{const saved=await apiRequest<Settings>("/transcoding/settings",{method:"PUT",body:JSON.stringify(settings)});setSettings(saved);setMessage("Transcoding settings saved.");}catch(e){setError(e instanceof Error?e.message:"Could not save settings.");}finally{setSaving(false);}}}>
  <fieldset className="rounded-xl border border-border p-5"><legend className="px-2 font-semibold">Playback mode</legend>
- {toggle("allow_conversion","Allow media conversion","Permit repackaging, audio/video encoding and subtitle burn-in when required by the browser, selected tracks or quality. Compatible files still play directly.")}
- <p role="status" className="mt-2 text-sm text-muted">{settings.allow_conversion?"Conversion is allowed when original playback cannot satisfy the selected options.":"Play original files at original quality. If the browser cannot play a file or select an audio track, the player explains the limitation."}</p>
+ {toggle("allow_remux","Allow stream-copy remuxing","Switch embedded audio or change packaging by copying the original video and audio. Quality stays unchanged; no audio or video encoder runs.")}
+ {toggle("allow_conversion","Allow media conversion","Permit audio/video encoding and subtitle burn-in when required by the browser, selected tracks or quality. Compatible files still play directly.")}
+ <p role="status" className="mt-2 text-sm text-muted">{settings.allow_conversion?"Conversion is allowed when original playback cannot satisfy the selected options.":settings.allow_remux?"Play at original quality. Compatible files play directly; audio switching can repackage the selected streams without encoding.":"Play original files at original quality. If the browser cannot play a file or select an audio track, the player explains the limitation."}</p>
  <p className="mt-2 text-xs text-muted">Changes apply when playback starts or restarts.</p>
  </fieldset>
  <fieldset disabled={!settings.allow_conversion} className="rounded-xl border border-border p-5 disabled:opacity-60"><legend className="px-2 font-semibold">Hardware acceleration</legend>

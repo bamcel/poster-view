@@ -858,6 +858,7 @@ pub(crate) async fn info(
             }),
         duration_seconds: duration(&probe),
         conversion_allowed: settings.allow_conversion,
+        remux_allowed: settings.allow_remux || settings.allow_conversion,
         container: container(&source.path),
         tracks: tracks(&probe, &source),
         chapters,
@@ -1068,9 +1069,26 @@ fn hls_command(
     encoder: Option<(&str, &str)>,
     dir: &FsPath,
 ) -> Result<Command, HttpError> {
-    if !settings.allow_conversion {
+    let lossless_allowed = settings.allow_remux
+        && plan.method == "remux"
+        && !plan.convert_audio
+        && encoder.is_none()
+        && input.subtitle_burn_index.is_none()
+        && !input.force_transcode;
+    if !(settings.allow_conversion || lossless_allowed) {
         return Err(bad(
-            "Conversion and remuxing are disabled. This request cannot use segmented playback.",
+            "Audio/video encoding is disabled. Segmented playback may only copy supported tracks when lossless repackaging is enabled.",
+        ));
+    }
+    if input.force_remux
+        && (plan.method != "remux"
+            || plan.convert_audio
+            || encoder.is_some()
+            || input.subtitle_burn_index.is_some()
+            || input.force_transcode)
+    {
+        return Err(bad(
+            "Lossless repackaging cannot encode audio/video or render subtitles.",
         ));
     }
     let mut cmd = command("ffmpeg");
@@ -1262,6 +1280,9 @@ pub(crate) async fn create(
     if matches!(plan.method, "remux" | "audio_transcode") {
         match copy_seek_start(&source, input.position_seconds).await {
             Ok(start) => input.position_seconds = start,
+            Err(_) if !settings.allow_conversion || input.force_remux => {
+                return Err(failure("Lossless playback could not find a valid video keyframe for this seek. Retry from the beginning or choose a different file; audio/video encoding is disabled for this request."));
+            }
             Err(_) => {
                 input.force_transcode = true;
                 plan = self::plan(&probe, &container(&source.path), &input, &settings)?;

@@ -11,8 +11,8 @@ vi.mock("./api/playback",async importOriginal=>{
  return {...original,playbackApi:{info:vi.fn(),create:vi.fn(),stop:vi.fn(),heartbeat:vi.fn(),subtitle:vi.fn()}};
 });
 vi.mock("./api/watch",()=>({watchApi:{preferences:vi.fn(),state:vi.fn(),begin:vi.fn(),progress:vi.fn()}}));
-const renderer=vi.hoisted(()=>({construct:vi.fn(),destroy:vi.fn()}));
-vi.mock("jassub",()=>({default:class {ready=Promise.resolve();constructor(options:unknown){renderer.construct(options);}destroy(){renderer.destroy();return Promise.resolve();}}}));
+const renderer=vi.hoisted(()=>({construct:vi.fn(),destroy:vi.fn(),manualRender:vi.fn()}));
+vi.mock("jassub",()=>({default:class {ready=Promise.resolve();constructor(options:unknown){renderer.construct(options);}manualRender(data:unknown,repaint:boolean){renderer.manualRender(data,repaint);return Promise.resolve();}destroy(){renderer.destroy();return Promise.resolve();}}}));
 type HlsFailure={fatal:boolean;type:string;details:string;response?:{code:number}};
 type HlsLevel={details:{fragments:{start:number;end:number;gap?:boolean}[]}};
 const fakeHls=vi.hoisted(()=>({supported:false,live:false,fragments:[] as {start:number;end:number;gap?:boolean}[],errors:[] as ((event:string,data:HlsFailure)=>void)[],levels:[] as ((event:string,data:HlsLevel)=>void)[],configs:[] as unknown[],destroy:vi.fn(),recover:vi.fn(),startLoad:vi.fn()}));
@@ -45,6 +45,51 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();if(originalAudioProperty)Object.defineProperty(HTMLMediaElement.prototype,"audioTracks",originalAudioProperty);else Reflect.deleteProperty(HTMLMediaElement.prototype,"audioTracks");});
 describe("native player",()=>{
+ it("keeps a remembered alternate Opus track through lossless remux with encoding disabled",async()=>{
+  fakeHls.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:vi.fn(()=>true)});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,conversion_allowed:false,remux_allowed:true,container:"mkv",tracks:[{index:1,kind:"video",codec:"hevc",bit_depth:10},{index:2,kind:"audio",codec:"opus",language:"ja"},{index:3,kind:"audio",codec:"opus",language:"en",default:true}]});
+  vi.mocked(watchApi.state).mockResolvedValue({...state,audio_index:2});vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",audio_index:2,mime:"application/vnd.apple.mpegurl",offset_seconds:290});
+  player();const video=await ready();expect(video.currentTime).toBe(5);expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({audio_index:2,force_remux:true,force_transcode:false,subtitle_burn_index:null,max_height:0,max_bitrate:0,hls_video_codecs:expect.arrayContaining(["hevc"]),hls_audio_codecs:expect.arrayContaining(["opus"])}));
+  expect(screen.queryByText(/instead of your saved audio preference/)).toBeNull();expect(screen.queryByRole("alert")).toBeNull();expect(fakeHls.configs).toHaveLength(1);fireEvent.click(screen.getByRole("button",{name:"Audio"}));expect(screen.getByRole("button",{name:/Japanese/}).getAttribute("aria-pressed")).toBe("true");
+ });
+ it.each([true,false])("switches alternate audio by stream copying at the source position with paused=%s",async paused=>{
+  fakeHls.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:vi.fn(()=>true)});vi.mocked(playbackApi.info).mockResolvedValue({...info,conversion_allowed:false,remux_allowed:true});
+  vi.mocked(playbackApi.create).mockResolvedValueOnce({...session,audio_index:2}).mockResolvedValueOnce({...session,id:"copy-english",method:"remux",audio_index:3,mime:"application/vnd.apple.mpegurl",offset_seconds:400});
+  player();const video=await ready();Object.defineProperty(video,"paused",{value:paused,configurable:true});video.currentTime=410;fireEvent.timeUpdate(video);if(paused)fireEvent.pause(video);else fireEvent.play(video);
+  vi.mocked(video.play).mockClear();fireEvent.click(screen.getByRole("button",{name:"Audio"}));expect((screen.getByRole("button",{name:/English/}) as HTMLButtonElement).disabled).toBe(false);fireEvent.click(screen.getByRole("button",{name:/English/}));
+  await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:410,audio_index:3,force_remux:true,force_transcode:false}));fireEvent.loadedMetadata(video);fireEvent.seeked(video);
+  expect(video.currentTime).toBe(10);if(paused)expect(video.play).not.toHaveBeenCalled();else expect(video.play).toHaveBeenCalledTimes(1);expect(watchApi.begin).toHaveBeenCalledTimes(1);expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({session_id:"watch-one",audio_index:3,position_seconds:410}),false);
+  fireEvent.click(screen.getByRole("button",{name:"Audio"}));expect(screen.getByRole("button",{name:/English/}).getAttribute("aria-pressed")).toBe("true");
+ });
+ it.each(["ambiguous","contradicted","mutation failed"])("uses one lossless copy fallback for %s native audio",async mode=>{
+  fakeHls.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:vi.fn(()=>true)});browserAudio=audioList([]);
+  const requested=mode==="contradicted"?3:2;vi.mocked(playbackApi.info).mockResolvedValue({...info,conversion_allowed:false,remux_allowed:true,tracks:info.tracks.map(track=>track.kind==="audio"?{...track,default:track.index===3}:track)});vi.mocked(watchApi.state).mockResolvedValue({...state,audio_index:requested});
+  vi.mocked(playbackApi.create).mockResolvedValueOnce({...session,audio_index:requested}).mockResolvedValueOnce({...session,id:"copy-selected",method:"remux",audio_index:requested,mime:"application/vnd.apple.mpegurl",offset_seconds:290});
+  player();await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(1));const video=document.querySelector("video")!;
+  browserAudio=mode==="ambiguous"?audioList([{id:"2",enabled:true},{id:"3",enabled:false}]):mode==="contradicted"?audioList([{language:"jpn",enabled:true}]):audioList([{language:"jpn",get enabled(){return false;},set enabled(_value:boolean){/* Browser refuses selection. */}},{language:"eng",enabled:true}]);
+  fireEvent.loadedMetadata(video);await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));expect(video.play).not.toHaveBeenCalled();expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({audio_index:requested,position_seconds:295,force_remux:true,force_transcode:false}));
+  fireEvent.loadedMetadata(video);fireEvent.seeked(video);expect(video.play).toHaveBeenCalledTimes(1);expect(video.currentTime).toBe(5);expect(screen.queryByRole("alert")).toBeNull();expect(watchApi.begin).toHaveBeenCalledTimes(1);expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({audio_index:requested,session_id:"watch-one"}),false);
+ });
+ it("keeps unsupported lossless audio disabled and does not encode after a remux decode failure",async()=>{
+  fakeHls.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:vi.fn((mime:string)=>!mime.includes("ec-3"))});vi.mocked(playbackApi.info).mockResolvedValue({...info,conversion_allowed:false,remux_allowed:true,tracks:[...info.tracks,{index:4,kind:"audio",codec:"eac3",language:"fr"}]});vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",audio_index:2,mime:"application/vnd.apple.mpegurl"});
+  player();await ready();fireEvent.click(screen.getByRole("button",{name:"Audio"}));expect((screen.getByRole("button",{name:/French/}) as HTMLButtonElement).disabled).toBe(true);fireEvent.click(screen.getByRole("button",{name:/French/}));expect(playbackApi.create).toHaveBeenCalledTimes(1);
+  const failure={fatal:true,type:"mediaError",details:"bufferCodecError"};act(()=>fakeHls.errors[0]("error",failure));expect(fakeHls.recover).toHaveBeenCalledTimes(1);expect(screen.queryByRole("alert")).toBeNull();expect(playbackApi.create).toHaveBeenCalledTimes(1);
+  act(()=>fakeHls.errors[0]("error",failure));await screen.findByText(/browser cannot play the original file/);expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(fakeHls.recover).toHaveBeenCalledTimes(1);expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");
+ });
+ it("allows supported AAC-LC copying while disabling unsupported HE-AAC of the same codec",async()=>{
+  fakeHls.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:vi.fn((mime:string)=>!mime.includes("40.5"))});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,conversion_allowed:false,remux_allowed:true,tracks:[...info.tracks.map(track=>track.index===3?{...track,profile:"HE-AAC"}:track),{index:4,kind:"audio",codec:"aac",profile:"LC",language:"fr"}]});
+  vi.mocked(playbackApi.create).mockResolvedValueOnce({...session,audio_index:2}).mockResolvedValueOnce({...session,id:"aac-copy",method:"remux",audio_index:4,mime:"application/vnd.apple.mpegurl",offset_seconds:290});
+  player();const video=await ready();fireEvent.click(screen.getByRole("button",{name:"Audio"}));expect((screen.getByRole("button",{name:/English/}) as HTMLButtonElement).disabled).toBe(true);expect((screen.getByRole("button",{name:/French/}) as HTMLButtonElement).disabled).toBe(false);fireEvent.click(screen.getByRole("button",{name:/French/}));
+  await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));const request=vi.mocked(playbackApi.create).mock.lastCall![2];expect(request).toEqual(expect.objectContaining({audio_index:4,force_remux:true,force_transcode:false,hls_audio_codecs:["aac"]}));expect(request).not.toHaveProperty("hls_audio_track_indexes");
+  fireEvent.loadedMetadata(video);fireEvent.seeked(video);expect(video.currentTime).toBe(5);expect(watchApi.begin).toHaveBeenCalledTimes(1);fireEvent.click(screen.getByRole("button",{name:"Audio"}));expect(screen.getByRole("button",{name:/French/}).getAttribute("aria-pressed")).toBe("true");
+ });
+ it("switches ASS subtitles and Off on a copied stream without replacing its source",async()=>{
+  vi.spyOn(globalThis,"fetch").mockImplementation(async()=>new Response("[Script Info]\n[Events]\n"));vi.mocked(playbackApi.info).mockResolvedValue({...info,conversion_allowed:false,remux_allowed:true,tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"ass",subtitle_format:"ass",language:"ja",url:"/first.ass"},{index:5,kind:"subtitle",codec:"ass",subtitle_format:"ass",language:"en",url:"/second.ass"},{index:6,kind:"subtitle",codec:"dvd_subtitle",subtitle_format:"image"}],fonts:[{index:7,name:"Font.ttf",url:"/font.ttf"}]});vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",audio_index:2,mime:"application/vnd.apple.mpegurl",offset_seconds:290});
+  player();const video=await ready();const source=video.getAttribute("src");fireEvent.click(screen.getByRole("button",{name:"Subtitles"}));expect((screen.getByRole("button",{name:/DVD_SUBTITLE/}) as HTMLButtonElement).disabled).toBe(true);fireEvent.click(screen.getByRole("button",{name:/Japanese/}));
+  await waitFor(()=>expect(renderer.construct).toHaveBeenCalledWith({video,subContent:"[Script Info]\n[Events]\n",fonts:["/font.ttf",expect.any(String)],timeOffset:290,queryFonts:false}));fireEvent.click(screen.getByRole("button",{name:"Subtitles"}));fireEvent.click(screen.getByRole("button",{name:/English/}));await waitFor(()=>expect(renderer.construct).toHaveBeenCalledTimes(2));
+  fireEvent.click(screen.getByRole("button",{name:"Subtitles"}));expect((screen.getByRole("checkbox",{name:"Burn subtitles into video"}) as HTMLInputElement).disabled).toBe(true);fireEvent.click(screen.getByRole("button",{name:"Off"}));await waitFor(()=>expect(renderer.destroy).toHaveBeenCalledTimes(2));expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(video.getAttribute("src")).toBe(source);expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({subtitle_index:-1,position_seconds:295}),false);
+ });
  it("plays original MKV with dual Opus audio, honestly falls back to default audio, and seeks without reloading",async()=>{
   const original={...info,conversion_allowed:false,container:"mkv",tracks:[{index:1,kind:"video",codec:"hevc",bit_depth:10},{index:2,kind:"audio",codec:"opus",language:"ja"},{index:3,kind:"audio",codec:"opus",language:"en",default:true}]};
   vi.mocked(playbackApi.info).mockResolvedValue(original);vi.mocked(watchApi.state).mockResolvedValue({...state,audio_index:2});vi.mocked(playbackApi.create).mockResolvedValue({...session,mime:"video/x-matroska",audio_index:3});
@@ -114,7 +159,16 @@ describe("native player",()=>{
  });
  it("keeps styled ASS subtitles and embedded fonts available with conversion disabled",async()=>{
   vi.spyOn(globalThis,"fetch").mockResolvedValue(new Response("[Script Info]\n[Events]\n"));vi.mocked(playbackApi.info).mockResolvedValue({...info,conversion_allowed:false,tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"ass",subtitle_format:"ass",default:true,url:"/subtitle.ass"}],fonts:[{index:5,name:"Font.ttf",url:"/font.ttf"}]});
-  player();const video=await ready();await waitFor(()=>expect(renderer.construct).toHaveBeenCalledWith({video,subContent:"[Script Info]\n[Events]\n",fonts:["/font.ttf"],timeOffset:0,queryFonts:false}));expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({force_transcode:false,subtitle_burn_index:null}));
+  player();const video=await ready();await waitFor(()=>expect(renderer.construct).toHaveBeenCalledWith({video,subContent:"[Script Info]\n[Events]\n",fonts:["/font.ttf",expect.any(String)],timeOffset:0,queryFonts:false}));expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({force_transcode:false,subtitle_burn_index:null}));
+ });
+ it("renders newly selected ASS subtitles on the paused frame without seeking or replacing the source",async()=>{
+  vi.spyOn(globalThis,"fetch").mockResolvedValue(new Response("[Script Info]\n[Events]\n"));
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,conversion_allowed:false,tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"ass",subtitle_format:"ass",url:"/subtitle.ass"}]});
+  vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,subtitle_mode:"off"});
+  player();const video=await ready();Object.defineProperties(video,{readyState:{value:4},videoWidth:{value:1920},videoHeight:{value:1080}});video.currentTime=42;fireEvent.pause(video);
+  fireEvent.click(screen.getByRole("button",{name:"Subtitles"}));fireEvent.click(screen.getByRole("button",{name:/ASS/}));
+  await waitFor(()=>expect(renderer.manualRender).toHaveBeenCalledWith({mediaTime:42,width:1920,height:1080,expectedDisplayTime:expect.any(Number)},true));
+  expect(video.currentTime).toBe(42);expect(playbackApi.create).toHaveBeenCalledTimes(1);
  });
  it("resumes at source time and reports source watch progress with a separate watch session",async()=>{
   player();const video=await ready();expect(video.currentTime).toBe(295);
@@ -211,7 +265,7 @@ describe("native player",()=>{
   player();const video=await ready();video.currentTime=77;fireEvent.ended(video);
   expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:77,ended:true}),false);
  });
- it("applies plain-text cue appearance and placement while preserving source timing after a seek",async()=>{
+ it("applies plain-text cue appearance and placement on a lossless stream and switches Off without reloading",async()=>{
   const cue={startTime:300,endTime:310,line:35,snapToLines:false,position:25,align:"end"} as VTTCue;
   const textTrack={mode:"disabled",cues:[cue],removeCue:vi.fn()};
   const create=document.createElement.bind(document);
@@ -219,20 +273,22 @@ describe("native player",()=>{
   const OriginalURL=URL;vi.stubGlobal("URL",class extends OriginalURL {static createObjectURL(){return "blob:subtitles";}static revokeObjectURL(){}});
   vi.spyOn(globalThis,"fetch").mockResolvedValue(new Response("WEBVTT\n\n00:05:00.000 --> 00:05:10.000\nHello"));
   vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,subtitle_color:"#ffee00",subtitle_shadow:"outline",subtitle_background:"none",subtitle_position:"top"});
-  vi.mocked(playbackApi.info).mockResolvedValue({...info,tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"subrip",subtitle_format:"vtt",default:true,url:"/subtitle.vtt"}]});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,conversion_allowed:false,remux_allowed:true,tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"subrip",subtitle_format:"vtt",default:true,url:"/subtitle.vtt"}]});
   vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",offset_seconds:290,mime:"application/vnd.apple.mpegurl"});
-  player();await ready();await waitFor(()=>expect(document.querySelector("track")).toBeTruthy());fireEvent.load(document.querySelector("track")!);
+  player();const video=await ready();await waitFor(()=>expect(document.querySelector("track")).toBeTruthy());fireEvent.load(document.querySelector("track")!);
   expect(cue.startTime).toBe(10);expect(cue.endTime).toBe(20);expect(cue.line).toBe(0);expect(cue.snapToLines).toBe(true);expect(cue.position).toBe(25);expect(cue.align).toBe("end");
   const styles=(document.querySelector(".pv-player") as HTMLElement).style;
   expect(styles.getPropertyValue("--subtitle-color")).toBe("#ffee00");expect(styles.getPropertyValue("--subtitle-background")).toBe("transparent");expect(styles.getPropertyValue("--subtitle-shadow")).toContain("1px 1px 0 #000");
   expect(renderer.construct).not.toHaveBeenCalled();
+  const source=video.getAttribute("src");fireEvent.click(screen.getByRole("button",{name:"Subtitles"}));fireEvent.click(screen.getByRole("button",{name:"Off"}));
+  expect(document.querySelector("track")).toBeNull();expect(video.currentTime).toBe(5);expect(video.getAttribute("src")).toBe(source);expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({subtitle_index:-1,position_seconds:295}),false);
  });
  it("keeps ASS rendering and embedded fonts independent of plain-text appearance preferences",async()=>{
   vi.spyOn(globalThis,"fetch").mockResolvedValue(new Response("[Script Info]\n[Events]\n"));
   vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,subtitle_color:"#ffee00",subtitle_shadow:"outline",subtitle_background:"light",subtitle_position:"top"});
   vi.mocked(playbackApi.info).mockResolvedValue({...info,tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"ass",subtitle_format:"ass",default:true,url:"/subtitle.ass"}],fonts:[{index:5,name:"Font.ttf",url:"/font.ttf"}]});
   player();const video=await ready();await waitFor(()=>expect(renderer.construct).toHaveBeenCalled());
-  expect(renderer.construct).toHaveBeenCalledWith({video,subContent:"[Script Info]\n[Events]\n",fonts:["/font.ttf"],timeOffset:0,queryFonts:false});
+  expect(renderer.construct).toHaveBeenCalledWith({video,subContent:"[Script Info]\n[Events]\n",fonts:["/font.ttf",expect.any(String)],timeOffset:0,queryFonts:false});
   expect(document.querySelector("track")).toBeNull();
  });
  it("seeks immediately inside buffered HLS ranges without replacing the source or watch token",async()=>{
@@ -378,6 +434,17 @@ describe("native player",()=>{
   expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:360,max_height:0,max_bitrate:0,force_transcode:false}));fireEvent.loadedMetadata(video);
   await act(async()=>fakeHls.errors[1]("error",missing));await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(3));expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:360,force_transcode:true}));
   fireEvent.loadedMetadata(video);await act(async()=>fakeHls.errors[2]("error",missing));expect(screen.getByRole("alert")).toBeTruthy();expect(playbackApi.create).toHaveBeenCalledTimes(3);expect(watchApi.begin).toHaveBeenCalledTimes(1);
+ });
+ it("retries one pruned lossless HLS seek at its source clock without encoding or a new watch session",async()=>{
+  fakeHls.supported=true;fakeHls.fragments=[{start:0,end:200}];vi.stubGlobal("MediaSource",{isTypeSupported:vi.fn(()=>true)});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,conversion_allowed:false,remux_allowed:true});const copied={...session,method:"remux" as const,audio_index:2,mime:"application/vnd.apple.mpegurl",offset_seconds:290};
+  vi.mocked(playbackApi.create).mockResolvedValueOnce(copied).mockResolvedValueOnce({...copied,id:"copy-range-retry",offset_seconds:350});
+  player();const video=await ready();scrubTo(360);const missing={fatal:true,type:"networkError",details:"fragLoadError",response:{code:404}};
+  await act(async()=>fakeHls.errors[0]("error",missing));await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));
+  expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:360,audio_index:2,max_height:0,max_bitrate:0,force_remux:true,force_transcode:false,subtitle_burn_index:null}));expect((screen.getByRole("slider",{name:"Seek"}) as HTMLInputElement).value).toBe("360");
+  fireEvent.loadedMetadata(video);expect(video.currentTime).toBe(10);expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:360,session_id:"watch-one",playback_session_id:"copy-range-retry"}),false);
+  await act(async()=>fakeHls.errors[1]("error",missing));await screen.findByText(/browser cannot play the original file/);expect(playbackApi.create).toHaveBeenCalledTimes(2);expect(watchApi.begin).toHaveBeenCalledTimes(1);expect(playbackApi.stop).toHaveBeenCalledWith("copy-range-retry");
+  expect(vi.mocked(playbackApi.create).mock.calls.every(([, , request])=>request.force_transcode===false)).toBe(true);expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:360,session_id:"watch-one"}),false);
  });
  it("stops a terminal native decode failure, flushes once, and resumes heartbeats only after Retry",async()=>{
   vi.useFakeTimers({shouldAdvanceTime:true});

@@ -14,6 +14,7 @@ export interface PlaybackInfo {
   tracks: PlaybackTrack[]; chapters: {title: string; start_seconds: number}[];
   fonts?: { index: number; url: string; name: string }[];
   conversion_allowed?: boolean;
+  remux_allowed?: boolean;
   next?: { library_id: string; item_id: string; title: string } | null;
 }
 export interface PlaybackSession {
@@ -26,6 +27,9 @@ export interface PlaybackRequest {
   max_height: number; max_bitrate: number; video_codecs: string[]; audio_codecs: string[]; containers: string[];
   force_transcode?: boolean; preferred_encoder?: string; subtitle_burn_index?: number | null;
   native_audio_tracks?: boolean;
+  hls_video_codecs?: string[];
+  hls_audio_codecs?: string[];
+  force_remux?: boolean;
 }
 export interface WatchState {
   position_seconds:number; duration_seconds:number; watched:boolean; play_count:number;

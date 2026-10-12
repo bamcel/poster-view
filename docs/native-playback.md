@@ -37,18 +37,29 @@ stops the previous source while the next episode loads.
 Original-file playback is the default. **Allow media conversion** in Settings →
 Transcoding is off for new installations and older settings that do not contain
 this option. Existing hardware/encoder choices are preserved and apply after
-conversion is explicitly enabled. The playback mode applies to new sessions.
+conversion is explicitly enabled. **Allow stream-copy remuxing** defaults to on;
+it can change packaging and select embedded audio without encoding either stream.
+Enabling media conversion also permits repackaging when needed.
+The playback mode applies to new sessions.
 
 The browser reports codec/container capabilities. Compatible MKV, MP4/M4V/MOV
 and WebM files use the original file through authenticated HTTP range requests,
 so seeking does not create another FFmpeg session or require downloading the
 whole video. Multiple audio tracks do not prevent playback of the default track.
 Other audio tracks can be selected directly when the browser exposes native
-tracks and their identities can be matched to the file. Without native track
-selection, a saved alternate-audio preference falls back to the file's default
-with an explanation. A contradictory or unidentifiable requested native track
-stops playback rather than reporting the wrong language. Unsupported files
-produce an explanation without automatic audio/video conversion.
+tracks and their identities can be matched to the file. When native switching
+is unavailable, the player can remux the selected audio with the original video
+into fragmented MP4/HLS. The browser must report support for that source video
+profile and audio codec in this delivery format. A remux copies both streams;
+it does not downmix, change quality or run an encoder. Track changes preserve
+the source position, paused/playing state and watch session. Copy-only HLS still
+depends on source keyframes, so switching or seeking outside its retained window
+can require a short stream restart.
+
+If remuxing is disabled or the codec is unsupported, the player explains the
+limitation instead of silently encoding or claiming the wrong audio is playing.
+Text and ASS/SSA subtitle changes, including Off, use the client renderer and
+do not replace the media stream.
 
 When conversion is explicitly enabled, the server chooses remuxing when a
 container or selected track requires it, audio conversion when only audio is
@@ -88,10 +99,13 @@ server can render the selected subtitle format. Metadata inspection, subtitle
 extraction and embedded font preparation remain available for original playback;
 they do not encode the video or audio. With conversion enabled, unsupported
 playback has a bounded fallback rather than an infinite retry loop.
+PGS and VobSub/DVD subtitles are image formats. The current browser player has
+no bitmap-subtitle renderer; showing them requires the separate media-conversion
+opt-in for video burn-in. Stream-copy remuxing alone cannot burn in subtitles.
 
 ## Transcoding and Unraid
 
-Settings → Transcoding controls the conversion opt-in, hardware encoding, codecs,
+Settings → Transcoding controls stream-copy remuxing, the encoding opt-in, codecs,
 output size, CPU fallback, concurrency, disk limits, throttling and subtitle/font
 extraction.
 **Test hardware encoders** runs small real encodes inside the server container.

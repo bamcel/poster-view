@@ -1,7 +1,8 @@
 //! Cross-boundary delivery, media processing, and cleanup tests.
 
 use super::test_support::{
-    conversion_settings, input, original_mkv_input, original_mkv_probe, probe,
+    conversion_settings, input, lossless_mkv_input, original_mkv_input, original_mkv_probe,
+    original_only_settings, probe,
 };
 use super::*;
 use serde_json::json;
@@ -459,6 +460,12 @@ async fn original_dual_audio_mkv_uses_ranges_and_rejects_conversion_before_jobs(
     // Cached media metadata lets this delivery/policy fixture run without FFmpeg.
     std::fs::write(&file, b"0123456789").unwrap();
     let database = ServerStore::new(state.runtime.data_dir());
+    database
+        .set_setting(
+            "transcoding-settings",
+            &serde_json::to_string(&original_only_settings()).unwrap(),
+        )
+        .unwrap();
     let library = database
         .save_native_library(
             None,
@@ -512,6 +519,7 @@ async fn original_dual_audio_mkv_uses_ranges_and_rejects_conversion_before_jobs(
     .unwrap()
     .0;
     assert!(!metadata.conversion_allowed);
+    assert!(!metadata.remux_allowed);
     assert_eq!(metadata.container, "mkv");
     assert_eq!(
         metadata
@@ -636,6 +644,40 @@ async fn original_dual_audio_mkv_uses_ranges_and_rejects_conversion_before_jobs(
     database
         .set_setting(
             "transcoding-settings",
+            &serde_json::to_string(&Settings::default()).unwrap(),
+        )
+        .unwrap();
+    assert!(
+        info(
+            State(state.clone()),
+            Path((library.id.clone(), item.id.clone()))
+        )
+        .await
+        .unwrap()
+        .0
+        .remux_allowed
+    );
+    // The deliberately invalid video has cached metadata but no real keyframe.
+    // A lossless seek failure must never fall back to any audio/video encoder.
+    let failed_seek = create(
+        State(state.clone()),
+        Path((library.id.clone(), item.id.clone())),
+        Json(SessionInput {
+            position_seconds: 50.0,
+            audio_index: Some(2),
+            ..lossless_mkv_input()
+        }),
+    )
+    .await
+    .err()
+    .unwrap();
+    assert!(failed_seek.detail.contains("valid video keyframe"));
+    assert!(state.playback.sessions.lock().await.is_empty());
+    assert!(state.playback.hardware.lock().await.is_empty());
+    assert!(!state.playback.root.join("posterview-playback").exists());
+    database
+        .set_setting(
+            "transcoding-settings",
             &serde_json::to_string(&conversion_settings()).unwrap(),
         )
         .unwrap();
@@ -661,14 +703,68 @@ fn conversion_disabled_cannot_construct_a_segmented_playback_command() {
         &data,
         &chosen,
         &request,
-        &Settings::default(),
+        &original_only_settings(),
         None,
         directory.path()
     )
     .err()
     .unwrap()
     .detail
-    .contains("Conversion and remuxing are disabled"));
+    .contains("Audio/video encoding is disabled"));
+}
+#[test]
+fn lossless_commands_reject_encoder_downmix_and_burn_in_even_when_conversion_is_enabled() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("fixture.mkv");
+    std::fs::write(&file, b"fixture").unwrap();
+    let source = super::test_support::source(&file);
+    let data = original_mkv_probe();
+    let request = SessionInput {
+        audio_index: Some(2),
+        force_remux: true,
+        ..lossless_mkv_input()
+    };
+    let mut chosen = plan(&data, "mkv", &request, &Settings::default()).unwrap();
+    for settings in [Settings::default(), conversion_settings()] {
+        assert!(hls_command(
+            &source,
+            &data,
+            &chosen,
+            &request,
+            &settings,
+            Some(("libx264", "software")),
+            directory.path()
+        )
+        .is_err());
+        chosen.convert_audio = true;
+        assert!(hls_command(
+            &source,
+            &data,
+            &chosen,
+            &request,
+            &settings,
+            None,
+            directory.path()
+        )
+        .is_err());
+        chosen.convert_audio = false;
+        let burn = SessionInput {
+            audio_index: Some(2),
+            force_remux: true,
+            subtitle_burn_index: Some(3),
+            ..lossless_mkv_input()
+        };
+        assert!(hls_command(
+            &source,
+            &data,
+            &chosen,
+            &burn,
+            &settings,
+            None,
+            directory.path()
+        )
+        .is_err());
+    }
 }
 #[tokio::test]
 async fn copied_hevc_main10_with_opus_preserves_long_gop_video_and_converts_only_audio() {
@@ -693,10 +789,16 @@ async fn copied_hevc_main10_with_opus_preserves_long_gop_video_and_converts_only
             "lavfi",
             "-i",
             "sine=frequency=440:sample_rate=48000:duration=14",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=880:sample_rate=48000:duration=14",
             "-map",
             "0:v",
             "-map",
             "1:a",
+            "-map",
+            "2:a",
             "-c:v",
             "libx265",
             "-preset",
@@ -711,6 +813,14 @@ async fn copied_hevc_main10_with_opus_preserves_long_gop_video_and_converts_only
             "libopus",
             "-ac",
             "2",
+            "-metadata:s:a:0",
+            "language=eng",
+            "-metadata:s:a:1",
+            "language=jpn",
+            "-disposition:a:0",
+            "default",
+            "-disposition:a:1",
+            "0",
         ])
         .arg(&video);
     run(
@@ -777,6 +887,89 @@ async fn copied_hevc_main10_with_opus_preserves_long_gop_video_and_converts_only
     assert_eq!(video["codec_name"], "hevc");
     assert_eq!(video["pix_fmt"], "yuv420p10le");
     assert_eq!(audio["codec_name"], "aac");
+    let settings = Settings {
+        throttle: false,
+        ..Settings::default()
+    };
+    let requested = 10.0;
+    let aligned = copy_seek_start(&source, requested).await.unwrap();
+    assert!((6.9..=7.1).contains(&aligned));
+    let request = SessionInput {
+        position_seconds: aligned,
+        audio_index: Some(2),
+        ..lossless_mkv_input()
+    };
+    let chosen = plan(&data, "mkv", &request, &settings).unwrap();
+    assert_eq!(chosen.method, "remux");
+    assert!(!chosen.convert_audio);
+    let copied_output = directory.path().join("lossless");
+    std::fs::create_dir(&copied_output).unwrap();
+    let mut copy = hls_command(
+        &source,
+        &data,
+        &chosen,
+        &request,
+        &settings,
+        None,
+        &copied_output,
+    )
+    .unwrap();
+    let args = copy
+        .as_std()
+        .get_args()
+        .map(|argument| argument.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(args.windows(2).any(|pair| pair == ["-c:v", "copy"]));
+    assert!(args.windows(2).any(|pair| pair == ["-c:a", "copy"]));
+    assert!(args.windows(2).any(|pair| pair == ["-map", "0:2"]));
+    assert!(!args.iter().any(|argument| [
+        "-vf",
+        "-af",
+        "-ac",
+        "-b:v",
+        "-b:a",
+        "-filter_complex",
+        "-force_key_frames"
+    ]
+    .contains(&argument.as_str())));
+    run(
+        &mut copy,
+        Duration::from_secs(20),
+        "Lossless alternate-audio playback",
+    )
+    .await
+    .unwrap();
+    let manifest = std::fs::read_to_string(copied_output.join("index.m3u8")).unwrap();
+    let segment = manifest
+        .lines()
+        .find(|line| safe_segment(line) && line.ends_with(".m4s"))
+        .unwrap();
+    let mut bytes = std::fs::read(copied_output.join("init.mp4")).unwrap();
+    bytes.extend(std::fs::read(copied_output.join(segment)).unwrap());
+    let copied_fragment = directory.path().join("lossless-fragment.mp4");
+    std::fs::write(&copied_fragment, bytes).unwrap();
+    let delivered = store
+        .probe(&super::test_support::source(&copied_fragment))
+        .await
+        .unwrap();
+    let copied_video = selected_stream(&delivered, "video", None).unwrap().unwrap();
+    let copied_audio = selected_stream(&delivered, "audio", None).unwrap().unwrap();
+    assert_eq!(copied_video["codec_name"], "hevc");
+    assert_eq!(copied_video["pix_fmt"], "yuv420p10le");
+    assert_eq!(copied_audio["codec_name"], "opus");
+    assert_eq!(copied_audio["channels"], 2);
+    // The client resumes at requested - offset on the aligned source clock.
+    assert!((requested - aligned - 3.0).abs() < 0.1);
+    let original_video = super::test_support::packet_hashes(&source.path, "v:0").await;
+    let delivered_video = super::test_support::packet_hashes(&copied_fragment, "v:0").await;
+    assert!(!delivered_video.is_empty());
+    assert!(delivered_video.is_subset(&original_video));
+    let japanese = super::test_support::packet_hashes(&source.path, "a:1").await;
+    let english = super::test_support::packet_hashes(&source.path, "a:0").await;
+    let delivered_audio = super::test_support::packet_hashes(&copied_fragment, "a:0").await;
+    assert!(!delivered_audio.is_empty());
+    assert!(delivered_audio.is_subset(&japanese));
+    assert!(delivered_audio.is_disjoint(&english));
 }
 #[tokio::test]
 async fn real_ffmpeg_remux_audio_conversion_subtitles_and_cleanup() {

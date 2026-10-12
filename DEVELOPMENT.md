@@ -110,18 +110,33 @@ configured server limits and keyframe-aligned segment behavior.
 
 Playback defaults to original files. `transcoding::Settings.allow_conversion`
 defaults to false, including older settings JSON with this field absent; existing
-encoder preferences are preserved. `PlaybackInfo.conversion_allowed` advertises
-the server policy. The planner enforces it before any remux/encode, keyframe
-conversion fallback or burn-in work, and the player suppresses automatic encoding
-retries and incompatible quality/subtitle choices. Opt-in conversion keeps the
-existing HLS engine and its tests.
+encoder preferences are preserved. `Settings.allow_remux` defaults to true and
+allows lossless packaging changes for track selection. `PlaybackInfo` advertises
+both policies as `conversion_allowed` and `remux_allowed`. The planner and command
+builder prohibit audio/video encoding, downmixing, quality changes, burn-in and
+keyframe-to-encode fallback unless conversion is enabled. The player suppresses
+automatic encoding retries and incompatible quality/subtitle choices. Opt-in
+conversion keeps the existing encoding engine and its tests.
 
 Direct playback permits a supported MKV and does not reject the default audio
 because a file contains several tracks. `SessionInput.native_audio_tracks` is a
 client capability for alternate audio; browser tracks must be identified after
 metadata loads before their enabled flags change. Inconclusive mappings must
-never claim an alternate track is playing. Direct streams keep a zero source
-offset, the source's MIME type and authenticated `ServeFile` range handling.
+never claim an alternate track is playing. If native switching is unavailable,
+`force_remux` selects a verified stream-copy fallback; `hls_video_codecs` and
+`hls_audio_codecs` report fMP4 capability separately from original-file decoding.
+Client probes check the source profile and combined video/audio MIME support.
+The internal `hls_audio_track_indexes` map keeps each track's profile eligibility;
+strip it from requests and send only the verified selected codec in
+`hls_audio_codecs`, so an unsupported HE-AAC track cannot hide usable AAC-LC.
+Preserve source clock and pause state through remux switches; watch sessions and
+client subtitle timelines remain independent of media-session replacement.
+When a subtitle is selected on a paused frame, repaint ASS after renderer startup
+using the current media clock; do not wait for another video frame or seek to
+force rendering.
+Direct streams keep a zero source offset, the source's MIME type and authenticated
+`ServeFile` range handling. PGS/VobSub have no client bitmap renderer and still
+require explicit conversion permission for burn-in.
 
 Playback preference appearance fields are defaulted when older JSON is loaded:
 `subtitle_color`, `subtitle_shadow`, `subtitle_background` and `subtitle_position`.

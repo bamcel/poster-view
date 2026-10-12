@@ -9,6 +9,19 @@ pub(super) fn conversion_settings() -> crate::transcoding::Settings {
         ..Default::default()
     }
 }
+pub(super) fn original_only_settings() -> crate::transcoding::Settings {
+    crate::transcoding::Settings {
+        allow_remux: false,
+        ..Default::default()
+    }
+}
+pub(super) fn lossless_mkv_input() -> SessionInput {
+    SessionInput {
+        hls_video_codecs: vec!["hevc".into()],
+        hls_audio_codecs: vec!["opus".into()],
+        ..original_mkv_input()
+    }
+}
 pub(super) fn probe() -> Value {
     json!({"format":{"duration":"180","bit_rate":"5000000"},"streams":[{"index":0,"codec_type":"video","codec_name":"h264","pix_fmt":"yuv420p","height":1080},{"index":1,"codec_type":"audio","codec_name":"aac","channels":2,"disposition":{"default":1}},{"index":2,"codec_type":"audio","codec_name":"ac3","channels":6}]})
 }
@@ -58,4 +71,41 @@ pub(super) fn input() -> SessionInput {
         containers: vec!["mp4".into()],
         ..Default::default()
     }
+}
+pub(super) async fn packet_hashes(
+    path: &Path,
+    selection: &str,
+) -> std::collections::HashSet<String> {
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let mut probe = super::command("ffprobe");
+    probe
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            selection,
+            "-show_packets",
+            "-show_data_hash",
+            "sha256",
+            "-show_entries",
+            "packet=data_hash",
+            "-of",
+            "json",
+        ])
+        .arg(path)
+        .stdout(output.reopen().unwrap());
+    super::run(
+        &mut probe,
+        std::time::Duration::from_secs(15),
+        "Fixture packet inspection",
+    )
+    .await
+    .unwrap();
+    let packets: Value = serde_json::from_slice(&std::fs::read(output.path()).unwrap()).unwrap();
+    packets["packets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|packet| packet["data_hash"].as_str().unwrap().to_owned())
+        .collect()
 }

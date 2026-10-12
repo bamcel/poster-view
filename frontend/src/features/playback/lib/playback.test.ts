@@ -1,6 +1,6 @@
 import { afterEach,describe, expect, it, vi } from "vitest";
 import {defaultPlaybackPreferences, type PlaybackInfo, type WatchState} from "../api/playback";
-import {playbackCapabilities, playbackTime, safePlayerReturn, selectTracks} from "./playback";
+import {canRemuxAudio,playbackCapabilities, playbackTime, safePlayerReturn, selectTracks} from "./playback";
 const info:PlaybackInfo={title:"Episode",duration_seconds:1200,chapters:[],tracks:[{index:1,kind:"audio",codec:"aac",language:"jpn",default:true},{index:2,kind:"audio",codec:"aac",language:"eng"},{index:3,kind:"subtitle",codec:"ass",language:"eng",default:true},{index:4,kind:"subtitle",codec:"ass",language:"eng",forced:true},{index:5,kind:"subtitle",codec:"srt",language:"eng",hearing_impaired:true}]};
 const state:WatchState={session_id:null,version:0,position_seconds:200,duration_seconds:1200,watched:false,play_count:0,last_played_at:null,audio_index:null,subtitle_index:null};
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
@@ -23,6 +23,39 @@ describe("track selection",()=>{
  });
 });
 describe("codec capabilities",()=>{
+ it("probes Main 10 HEVC and both Opus audio tracks together for lossless fMP4 playback",async()=>{
+  const supported=vi.fn((mime:string)=>mime.includes("hvc1.2.4.L153.B0")&&!mime.includes("mp4a"));vi.stubGlobal("MediaSource",{isTypeSupported:supported});
+  const source:PlaybackInfo={...info,remux_allowed:true,tracks:[{index:0,kind:"video",codec:"hevc",bit_depth:10},{index:1,kind:"audio",codec:"opus",language:"ja"},{index:2,kind:"audio",codec:"opus",language:"en"}]};
+  const video={canPlayType:vi.fn(()=>"probably")} as unknown as HTMLVideoElement;
+  const caps=await playbackCapabilities(source,video);
+  expect(supported).toHaveBeenCalledWith('video/mp4; codecs="hvc1.2.4.L153.B0,opus"');expect(caps.hls_video_codecs).toContain("hevc");expect(caps.hls_audio_codecs).toContain("opus");expect(caps.hls_audio_codecs).not.toContain("aac");expect(canRemuxAudio(source,caps,2)).toBe(true);
+ });
+ it("does not infer copy support from direct Opus, separate audio support, or an 8-bit video profile",async()=>{
+  vi.stubGlobal("MediaSource",{isTypeSupported:vi.fn((mime:string)=>mime==='audio/mp4; codecs="opus"'||mime==='video/mp4; codecs="hvc1.1.6.L123.B0"')});
+  const source:PlaybackInfo={...info,remux_allowed:true,tracks:[{index:0,kind:"video",codec:"hevc",bit_depth:10},{index:1,kind:"audio",codec:"opus"}]};
+  const video={canPlayType:vi.fn(()=>"probably")} as unknown as HTMLVideoElement;
+  const caps=await playbackCapabilities(source,video);expect(caps.audio_codecs).toContain("opus");expect(caps.hls_video_codecs).not.toContain("hevc");expect(caps.hls_audio_codecs).not.toContain("opus");expect(canRemuxAudio(source,caps,1)).toBe(false);
+ });
+ it("uses native HLS codec answers only when no usable MSE path exists",async()=>{
+  vi.stubGlobal("MediaSource",{isTypeSupported:vi.fn(()=>false)});
+  const source:PlaybackInfo={...info,remux_allowed:true,tracks:[{index:0,kind:"video",codec:"h264"},{index:1,kind:"audio",codec:"aac"}]};
+  const video={canPlayType:vi.fn(()=>"probably")} as unknown as HTMLVideoElement;
+  expect(canRemuxAudio(source,await playbackCapabilities(source,video,true),1)).toBe(false);
+  expect(canRemuxAudio(source,await playbackCapabilities(source,video,false),1)).toBe(true);
+  vi.mocked(video.canPlayType).mockImplementation(type=>type.includes("mpegurl")||type.includes("mpegURL")?"":"probably");
+  expect(canRemuxAudio(source,await playbackCapabilities(source,video,false),1)).toBe(false);
+ });
+ it("keeps supported AAC-LC selectable when another AAC profile is unsupported",async()=>{
+  vi.stubGlobal("MediaSource",{isTypeSupported:vi.fn((mime:string)=>!mime.includes("40.5"))});
+  const source:PlaybackInfo={...info,remux_allowed:true,tracks:[{index:0,kind:"video",codec:"h264"},{index:1,kind:"audio",codec:"aac"},{index:2,kind:"audio",codec:"aac",profile:"HE-AAC"}]};
+  const caps=await playbackCapabilities(source,{canPlayType:()=>"probably"} as unknown as HTMLVideoElement);expect(caps.hls_audio_codecs).toContain("aac");expect(caps.hls_audio_track_indexes).toEqual([1]);expect(canRemuxAudio(source,caps,1)).toBe(true);expect(canRemuxAudio(source,caps,2)).toBe(false);expect(canRemuxAudio({...source,remux_allowed:undefined},caps,1)).toBe(false);
+ });
+ it("does not offer alternate-audio remux for video codecs outside the server copy contract",async()=>{
+  vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+  const source:PlaybackInfo={...info,remux_allowed:true,tracks:[{index:0,kind:"video",codec:"vp9"},{index:1,kind:"audio",codec:"opus"}]};
+  const caps=await playbackCapabilities(source,{canPlayType:()=>"probably"} as unknown as HTMLVideoElement);
+  expect(caps.hls_video_codecs).not.toContain("vp9");expect(canRemuxAudio(source,caps,1)).toBe(false);
+ });
  it("reports compatible MKV and Opus for a Chromium client without requiring a truthful Matroska MIME answer",async()=>{
   vi.stubGlobal("navigator",{userAgent:"Mozilla/5.0 Chrome/145.0.0.0",language:"en"});
   const video={canPlayType:vi.fn((type:string)=>/matroska|video\/mkv/.test(type)?"":"probably"),audioTracks:{length:0}} as unknown as HTMLVideoElement;
