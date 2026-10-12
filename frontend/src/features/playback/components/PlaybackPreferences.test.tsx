@@ -4,6 +4,7 @@ import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import {afterEach,expect,it,vi} from "vitest";
 import PlaybackPreferences from "./PlaybackPreferences";
 import {watchApi} from "../api/watch";
+import {defaultPlaybackPreferences} from "../types";
 vi.mock("../api/watch",()=>({watchApi:{preferences:vi.fn(),savePreferences:vi.fn()}}));
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 it("preserves ordered language entries and reports a successful server save",async()=>{
@@ -16,4 +17,14 @@ it("preserves ordered language entries and reports a successful server save",asy
   fireEvent.click(screen.getByRole("button",{name:"Save preferences"}));
   await waitFor(()=>expect(screen.getByText("Playback preferences saved.")).toBeTruthy());
   expect(watchApi.savePreferences).toHaveBeenCalledWith(expect.objectContaining({audio_languages:["ja","en"],autoplay_next:false}));
+});
+it("loads legacy subtitle appearance defaults and saves selected plain-text formatting",async()=>{
+  const legacy={...defaultPlaybackPreferences,subtitle_color:undefined,subtitle_shadow:undefined,subtitle_background:undefined,subtitle_position:undefined};
+  vi.mocked(watchApi.preferences).mockResolvedValue(legacy);vi.mocked(watchApi.savePreferences).mockImplementation(async value=>value);
+  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><PlaybackPreferences/></QueryClientProvider>);
+  const color=await screen.findByLabelText("Text subtitle color") as HTMLInputElement;
+  expect(color.value).toBe("#ffffff");expect((screen.getByLabelText("Text subtitle shadow") as HTMLSelectElement).value).toBe("none");expect((screen.getByLabelText("Text subtitle background") as HTMLSelectElement).value).toBe("dark");expect((screen.getByLabelText("Text subtitle position") as HTMLSelectElement).value).toBe("auto");
+  fireEvent.change(color,{target:{value:"#ffee00"}});fireEvent.change(screen.getByLabelText("Text subtitle shadow"),{target:{value:"outline"}});fireEvent.change(screen.getByLabelText("Text subtitle background"),{target:{value:"none"}});fireEvent.change(screen.getByLabelText("Text subtitle position"),{target:{value:"top"}});
+  fireEvent.click(screen.getByRole("button",{name:"Save preferences"}));await screen.findByText("Playback preferences saved.");
+  expect(watchApi.savePreferences).toHaveBeenCalledWith(expect.objectContaining({subtitle_color:"#ffee00",subtitle_shadow:"outline",subtitle_background:"none",subtitle_position:"top",subtitle_size:100}));
 });

@@ -2,12 +2,13 @@ import {useEffect,useState} from "react";
 import {useQuery} from "@tanstack/react-query";
 import {watchApi,type PlaybackPreferences as Preferences} from "../api/watch";
 import {SETTINGS_BUTTON} from "../../../components/SettingsPageFrame";
+import {subtitleAppearance} from "../lib/subtitleAppearance";
 const input="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm";
 export default function PlaybackPreferences() {
   const query=useQuery({queryKey:["playback-preferences"],queryFn:()=>watchApi.preferences()});
   const [audioText,setAudioText]=useState(""),[subtitleText,setSubtitleText]=useState("");
   const [settings,setSettings]=useState<Preferences>(),[saving,setSaving]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");
-  useEffect(()=>{if(query.data){setSettings(query.data);setAudioText(query.data.audio_languages.join(", "));setSubtitleText(query.data.subtitle_languages.join(", "));}},[query.data]);
+  useEffect(()=>{if(query.data){setSettings({...query.data,...subtitleAppearance(query.data)});setAudioText(query.data.audio_languages.join(", "));setSubtitleText(query.data.subtitle_languages.join(", "));}},[query.data]);
   if(query.isError)return <p role="alert" className="text-danger">{query.error.message}</p>;
   if(!settings)return <p role="status" className="text-muted">Loading playback preferences…</p>;
   const change=<K extends keyof Preferences>(key:K,value:Preferences[K])=>{setSettings({...settings,[key]:value});setMessage("");setError("");};
@@ -24,6 +25,13 @@ export default function PlaybackPreferences() {
       <label className="block text-sm">Subtitle mode<select className={input} value={settings.subtitle_mode} onChange={e=>change("subtitle_mode",e.target.value as Preferences["subtitle_mode"])}>{[["default","File default"],["smart","Smart: subtitles for other audio languages"],["forced","Forced only"],["hearing_impaired","Hearing impaired"],["always","Always"],["off","Off"]].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
       {toggle("remember_subtitles","Remember subtitle selections","Per-video selections take priority over automatic subtitle preferences.")}
       {number("subtitle_size","Text subtitle size (%)",50,200,"Applies to plain text tracks; ASS / SSA tracks preserve their embedded styling.")}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block text-sm">Text subtitle color<input aria-label="Text subtitle color" type="color" value={settings.subtitle_color??"#ffffff"} onChange={event=>change("subtitle_color",event.target.value)} className={`${input} h-11 cursor-pointer`}/></label>
+        <label className="block text-sm">Text subtitle shadow<select className={input} value={settings.subtitle_shadow??"none"} onChange={event=>change("subtitle_shadow",event.target.value as Preferences["subtitle_shadow"])}><option value="none">None</option><option value="drop">Drop shadow</option><option value="outline">Outline</option></select></label>
+        <label className="block text-sm">Text subtitle background<select className={input} value={settings.subtitle_background??"dark"} onChange={event=>change("subtitle_background",event.target.value as Preferences["subtitle_background"])}><option value="none">None</option><option value="dark">Dark</option><option value="light">Light</option></select></label>
+        <label className="block text-sm">Text subtitle position<select className={input} value={settings.subtitle_position??"auto"} onChange={event=>change("subtitle_position",event.target.value as Preferences["subtitle_position"])}><option value="auto">Automatic (preserve cue placement)</option><option value="top">Top</option><option value="bottom">Bottom</option></select></label>
+      </div>
+      <p className="text-xs text-muted">Appearance applies to plain text subtitles. Styled ASS / SSA and burned-in subtitles retain their own formatting.</p>
     </fieldset>
     <fieldset className="rounded-xl border border-border p-5"><legend className="px-2 font-semibold">Watching</legend>
       {toggle("autoplay_next","Play next episode automatically","Continue to the next available episode when the current one ends.")}

@@ -16,6 +16,9 @@ while paused or using a menu and hide during uninterrupted playback.
 
 Settings → Playback controls preferred languages, remembered tracks, subtitles,
 skip lengths, resume rewind, automatic next episode, and the inactivity prompt.
+Plain text subtitles support color, shadow, background and top/bottom placement.
+Automatic placement keeps the track's cue positions. ASS/SSA and burned-in
+subtitles keep their embedded or server-rendered appearance.
 Library settings → Advanced → Playback controls minimum/maximum resume
 percentages and minimum resumable **video duration**, not time spent watching.
 
@@ -24,6 +27,10 @@ and metadata. It is scoped to the configured signed-in administrator identity.
 This does not introduce multiple user accounts. Active sessions use monotonic
 report sequences; newer sessions and manual watched changes supersede older
 reports. Seeking alone does not count as watching. Metadata scans preserve state.
+Seeking near the completion threshold or remaining paused there does not mark a
+title watched; completion requires actual playback progress. Initialization
+retries establish watch tracking before starting video, and changing episodes
+stops the previous source while the next episode loads.
 
 ## Playback decisions
 
@@ -36,6 +43,13 @@ entire videos into memory. Converted sessions use segmented HLS, with encoding
 ahead limited by the configured buffer. Consumed segments are retired after a
 one-minute safety window; the served playlist advertises the retained segments.
 Seeking starts a new conversion session at the requested source position.
+Converted video uses an encoder supported by both the browser and server
+settings. Compatible audio is preserved unless conversion/downmixing or the
+requested bitrate budget requires otherwise. Audio boost applies only when
+downmixing multichannel audio. Missing container duration falls back to probed
+audio/video stream duration; an unknown duration is not treated as a short video.
+When source bitrate is unknown, a requested bitrate limit still triggers
+conversion unless the file size and duration establish that the source fits.
 
 ASS/SSA subtitles use a local WebAssembly renderer and embedded fonts. Plain text
 subtitles are converted to WebVTT. Source timestamps remain authoritative after

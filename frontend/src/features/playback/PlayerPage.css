@@ -2,7 +2,7 @@
 .pv-video-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
 .pv-video-stage video{height:100%;width:100%;object-fit:contain;background:#000}
 .pv-video-stage canvas{pointer-events:none}
-.pv-player video::cue{font-size:calc(clamp(16px,2.3vw,34px) * var(--subtitle-scale,1));background:rgba(0,0,0,.65);color:#fff}
+.pv-player video::cue{font-size:calc(clamp(16px,2.3vw,34px) * var(--subtitle-scale,1));background:var(--subtitle-background,rgba(0,0,0,.65));color:var(--subtitle-color,#fff);text-shadow:var(--subtitle-shadow,none)}
 .pv-player button{font:inherit;color:inherit;cursor:pointer;transition:background .15s,opacity .15s;touch-action:manipulation}
 .pv-player button:disabled{cursor:wait;opacity:.4}
 .pv-player button:focus-visible,.pv-player input:focus-visible{outline:2px solid var(--color-accent,#77b778);outline-offset:3px}

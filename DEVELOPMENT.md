@@ -22,6 +22,8 @@ npm run build
 The server defaults to 7979; Vite uses 5173 and proxies `/api` to the server. The
 workspace minimum Rust version and Docker/CI toolchain are 1.88. Newer Clippy
 versions may diagnose existing code differently; record the toolchain used.
+When the host defaults to another toolchain, run the Cargo commands through
+`rustup run 1.88.0 cargo` for CI-aligned verification.
 FFmpeg/ffprobe enable media fixtures. Live provider verification needs explicitly
 supplied credentials and is opt-in. Install dependencies with `npm ci` and use the
 committed Cargo/npm lockfiles. Build/deployment configuration is unchanged.
@@ -90,6 +92,17 @@ one implementation each. Both feature API clients use `apiRequest`; the player
 uses the watch client for watch operations. Media/WASM dependencies stay lazy-loaded.
 API modules re-export their types for existing consumers; definitions live in
 `features/playback/types.ts`.
+
+Playback preference appearance fields are defaulted when older JSON is loaded:
+`subtitle_color`, `subtitle_shadow`, `subtitle_background` and `subtitle_position`.
+The server validates colors and option values; plain-text cue styling/placement
+uses these preferences while ASS/SSA keeps its own styling. Watch completion must
+require newly credited viewing: a seek or paused report cannot reuse earlier
+viewing time to mark a title complete. Initialization retries and item changes
+must preserve independent media/watch session ownership.
+Completion uses a private viewing-sequence marker in the existing watch JSON
+column, rather than comparing wall-clock timestamps. It is omitted from API
+responses, and older records without it remain readable.
 
 `SettingsPage.tsx` selects sections and provides their frame. Appearance and
 provider editors are independent leaves. `PluginsPage.tsx` imports default

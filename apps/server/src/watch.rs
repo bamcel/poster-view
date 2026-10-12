@@ -98,6 +98,10 @@ pub(crate) struct PlaybackPreferences {
     pub still_watching_minutes: u32,
     pub up_next: bool,
     pub subtitle_size: u32,
+    pub subtitle_color: String,
+    pub subtitle_shadow: String,
+    pub subtitle_background: String,
+    pub subtitle_position: String,
 }
 impl Default for PlaybackPreferences {
     fn default() -> Self {
@@ -115,6 +119,10 @@ impl Default for PlaybackPreferences {
             still_watching_minutes: 120,
             up_next: true,
             subtitle_size: 100,
+            subtitle_color: "#ffffff".into(),
+            subtitle_shadow: "none".into(),
+            subtitle_background: "dark".into(),
+            subtitle_position: "auto".into(),
         }
     }
 }
@@ -147,6 +155,14 @@ impl PlaybackPreferences {
             || !(1..=120).contains(&self.skip_forward_seconds)
             || self.still_watching_minutes > 1_440
             || !(50..=200).contains(&self.subtitle_size)
+            || self.subtitle_color.len() != 7
+            || !self.subtitle_color.starts_with('#')
+            || !self.subtitle_color.as_bytes()[1..]
+                .iter()
+                .all(u8::is_ascii_hexdigit)
+            || !["none", "drop", "outline"].contains(&self.subtitle_shadow.as_str())
+            || !["none", "dark", "light"].contains(&self.subtitle_background.as_str())
+            || !["auto", "top", "bottom"].contains(&self.subtitle_position.as_str())
         {
             return Err(HttpError::bad_request(
                 "Playback preferences are out of range.",
@@ -188,7 +204,7 @@ impl ProgressInput {
             || self.position_seconds > 7.0 * 86_400.0
             || self
                 .duration_seconds
-                .is_some_and(|v| !v.is_finite() || v < 0.0 || v > 7.0 * 86_400.0)
+                .is_some_and(|v| !v.is_finite() || !(0.0..=7.0 * 86_400.0).contains(&v))
             || (duration > 0.0 && self.position_seconds > duration + 5.0)
             || self
                 .audio_index
@@ -236,6 +252,19 @@ pub(crate) struct ContinueItem {
 
 pub(crate) struct WatchStore {
     path: PathBuf,
+}
+struct VerifiedDuration<'a> {
+    seconds: f64,
+    signature: Option<&'a str>,
+}
+struct SessionProgress {
+    session: Option<String>,
+    sequence: i64,
+    last_report: i64,
+    last_position: f64,
+    played: f64,
+    counted: bool,
+    raw_state: String,
 }
 impl WatchStore {
     pub(crate) fn new(path: PathBuf) -> Self {
@@ -355,28 +384,53 @@ impl WatchStore {
         input: ProgressInput,
         now: i64,
     ) -> Result<WatchState, HttpError> {
-        self.report_verified_at(user, library, item, duration, input, now, None)
+        self.report_verified_at(
+            user,
+            library,
+            item,
+            VerifiedDuration {
+                seconds: duration,
+                signature: None,
+            },
+            input,
+            now,
+        )
     }
     fn report_verified_at(
         &self,
         user: &str,
         library: &str,
         item: &str,
-        duration: f64,
+        verified: VerifiedDuration<'_>,
         input: ProgressInput,
         now: i64,
-        signature: Option<&str>,
     ) -> Result<WatchState, HttpError> {
+        let VerifiedDuration {
+            seconds: duration,
+            signature,
+        } = verified;
         input.validate(duration)?;
         let mut db = self.db()?;
         let tx = db
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(failure)?;
-        let row: Option<(Option<String>, i64, i64, f64, f64, bool)> = tx.query_row(
-            "SELECT active_session,last_sequence,last_report_ms,last_position,played_seconds,completed_counted
+        let row = tx.query_row(
+            "SELECT active_session,last_sequence,last_report_ms,last_position,played_seconds,completed_counted,state_json
                 FROM video_watch WHERE user=?1 AND library=?2 AND item=?3",
-            params![user, library, item], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))).optional().map_err(failure)?;
-        let Some((session, sequence, last_report, last_position, played, counted)) = row else {
+            params![user, library, item], |r| Ok(SessionProgress {
+                session: r.get(0)?, sequence: r.get(1)?, last_report: r.get(2)?,
+                last_position: r.get(3)?, played: r.get(4)?, counted: r.get(5)?, raw_state: r.get(6)?,
+            })).optional().map_err(failure)?;
+        let Some(SessionProgress {
+            session,
+            sequence,
+            last_report,
+            last_position,
+            played,
+            counted,
+            raw_state,
+        }) = row
+        else {
             return Err(conflict(
                 "Start a playback session before reporting progress.",
             ));
@@ -413,7 +467,20 @@ impl WatchStore {
             0.0
         };
         let actual_playback = played >= 30.0_f64.min(duration * 0.05).max(1.0);
+        // Existing viewing credit must not turn a later seek/paused heartbeat
+        // into completion. A zero-delta EOF can follow a genuine final progress
+        // report; counted sessions also retain their completed zero position.
+        // Keep this report marker private in the existing JSON column. Wall-clock
+        // timestamps can collide; the monotonic sequence identifies the exact report.
+        let previous_viewed_sequence = serde_json::from_str::<serde_json::Value>(&raw_state)
+            .map_err(failure)?["_last_viewed_sequence"]
+            .as_u64();
+        let previous_report_viewed =
+            sequence >= 0 && previous_viewed_sequence == Some(sequence as u64);
+        let valid_ended = input.ended && advanced.abs() <= 2.0 && previous_report_viewed;
+        let completion_eligible = !input.seeking && (credited > 0.0 || valid_ended || counted);
         let finished = duration > 0.0
+            && completion_eligible
             && actual_playback
             && (percentage >= rules.maximum_percentage
                 || (input.ended && duration - position <= 2.0));
@@ -441,15 +508,18 @@ impl WatchStore {
             state.subtitle_index = index;
         }
         state.version += 1;
-        Self::write_state(&tx, user, library, item, &state)?;
+        let mut stored_state = serde_json::to_value(&state).map_err(failure)?;
+        if credited > 0.0 {
+            stored_state["_last_viewed_sequence"] = serde_json::json!(input.sequence);
+        }
         if let Some(signature) = signature.filter(|_| duration.is_finite() && duration > 0.0) {
             tx.execute("INSERT INTO video_verified_durations(user,library,item,signature,duration) VALUES(?1,?2,?3,?4,?5)
                 ON CONFLICT(user,library,item) DO UPDATE SET signature=excluded.signature,duration=excluded.duration",
                 params![user, library, item, signature, duration]).map_err(failure)?;
         }
         tx.execute("UPDATE video_watch SET last_sequence=?4,last_report_ms=?5,last_position=?6,played_seconds=?7,
-            completed_counted=?8 WHERE user=?1 AND library=?2 AND item=?3",
-            params![user, library, item, input.sequence as i64, now, position, played, counted || finished]).map_err(failure)?;
+            completed_counted=?8,state_json=?9 WHERE user=?1 AND library=?2 AND item=?3",
+            params![user, library, item, input.sequence as i64, now, position, played, counted || finished, stored_state.to_string()]).map_err(failure)?;
         // Keep the token through a stopped/ended report for idempotent subsequent reports. The next
         // begin or manual edit supersedes it. This also tolerates cleanup heartbeats after `ended`.
         let _ = input.paused;
@@ -771,10 +841,12 @@ pub(crate) async fn progress(
                 state.auth.username(),
                 &library,
                 &item,
-                duration,
+                VerifiedDuration {
+                    seconds: duration,
+                    signature: signature.as_deref(),
+                },
                 input,
                 now_ms(),
-                signature.as_deref(),
             )
             .map(Json)
     })
@@ -902,16 +974,33 @@ pub(crate) async fn save_rules(
     .map_err(failure)?
 }
 
-
 pub(crate) fn routes() -> axum::Router<AppState> {
     axum::Router::new()
-        .route("/api/watch/native/{library}/{item}", axum::routing::get(get_state).put(set_state))
-        .route("/api/watch/native/{library}/{item}/begin", axum::routing::post(begin))
-        .route("/api/watch/native/{library}/{item}/progress", axum::routing::put(progress))
+        .route(
+            "/api/watch/native/{library}/{item}",
+            axum::routing::get(get_state).put(set_state),
+        )
+        .route(
+            "/api/watch/native/{library}/{item}/begin",
+            axum::routing::post(begin),
+        )
+        .route(
+            "/api/watch/native/{library}/{item}/progress",
+            axum::routing::put(progress),
+        )
         .route("/api/watch/continue", axum::routing::get(continue_watching))
-        .route("/api/watch/libraries/{library}/rules", axum::routing::get(get_rules).put(save_rules))
-        .route("/api/watch/libraries/{library}/states", axum::routing::get(library_states))
-        .route("/api/playback/preferences", axum::routing::get(get_preferences).put(save_preferences))
+        .route(
+            "/api/watch/libraries/{library}/rules",
+            axum::routing::get(get_rules).put(save_rules),
+        )
+        .route(
+            "/api/watch/libraries/{library}/states",
+            axum::routing::get(library_states),
+        )
+        .route(
+            "/api/playback/preferences",
+            axum::routing::get(get_preferences).put(save_preferences),
+        )
 }
 
 #[cfg(test)]
@@ -932,14 +1021,105 @@ mod tests {
         }
     }
     #[test]
+    fn subtitle_appearance_defaults_legacy_json_and_survives_restart() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("watch.sqlite");
+        let store = WatchStore::new(path.clone());
+        let mut legacy = serde_json::to_value(PlaybackPreferences::default()).unwrap();
+        for field in [
+            "subtitle_color",
+            "subtitle_shadow",
+            "subtitle_background",
+            "subtitle_position",
+        ] {
+            legacy.as_object_mut().unwrap().remove(field);
+        }
+        legacy["audio_languages"] = serde_json::json!(["ja", "en"]);
+        store
+            .db()
+            .unwrap()
+            .execute(
+                "INSERT INTO video_preferences(user,preferences_json) VALUES(?1,?2)",
+                params!["legacy", legacy.to_string()],
+            )
+            .unwrap();
+        let loaded = store.preferences("legacy").unwrap();
+        assert_eq!(loaded.audio_languages, ["ja", "en"]);
+        assert_eq!(loaded.subtitle_color, "#ffffff");
+        assert_eq!(loaded.subtitle_shadow, "none");
+        assert_eq!(loaded.subtitle_background, "dark");
+        assert_eq!(loaded.subtitle_position, "auto");
+        store
+            .save_preferences(
+                "legacy",
+                PlaybackPreferences {
+                    subtitle_color: "#F9E23A".into(),
+                    subtitle_shadow: "outline".into(),
+                    subtitle_background: "none".into(),
+                    subtitle_position: "top".into(),
+                    ..loaded
+                },
+            )
+            .unwrap();
+        let reloaded = WatchStore::new(path);
+        let prefs = reloaded.preferences("legacy").unwrap();
+        assert_eq!(prefs.subtitle_color, "#F9E23A");
+        assert_eq!(prefs.subtitle_shadow, "outline");
+        assert_eq!(prefs.subtitle_background, "none");
+        assert_eq!(prefs.subtitle_position, "top");
+        assert_eq!(
+            reloaded.preferences("other").unwrap().subtitle_color,
+            "#ffffff"
+        );
+        // Older clients can still submit the previous JSON shape.
+        let old_input: PlaybackPreferences = serde_json::from_value(legacy).unwrap();
+        store.save_preferences("old-client", old_input).unwrap();
+    }
+
+    #[test]
+    fn invalid_subtitle_appearance_does_not_replace_saved_preferences() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = WatchStore::new(temp.path().join("watch.sqlite"));
+        store
+            .save_preferences(
+                "u",
+                PlaybackPreferences {
+                    subtitle_color: "#ffee11".into(),
+                    ..PlaybackPreferences::default()
+                },
+            )
+            .unwrap();
+        for (field, invalid) in [
+            ("subtitle_color", "red"),
+            ("subtitle_color", "#fff"),
+            ("subtitle_color", "#ffffff;url(x)"),
+            ("subtitle_color", "#gg0000"),
+            ("subtitle_shadow", "unknown"),
+            ("subtitle_background", "url(x)"),
+            ("subtitle_position", "outside"),
+        ] {
+            let mut json = serde_json::to_value(PlaybackPreferences::default()).unwrap();
+            json[field] = serde_json::json!(invalid);
+            let input = serde_json::from_value(json).unwrap();
+            assert_eq!(
+                store.save_preferences("u", input).unwrap_err().status,
+                StatusCode::BAD_REQUEST
+            );
+            assert_eq!(store.preferences("u").unwrap().subtitle_color, "#ffee11");
+        }
+    }
+
+    #[test]
     fn preferences_and_rules_survive_restart_and_are_user_scoped() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("watch.sqlite");
         let store = WatchStore::new(path.clone());
         assert_eq!(store.preferences("user").unwrap().subtitle_mode, "default");
-        let mut prefs = PlaybackPreferences::default();
-        prefs.autoplay_next = false;
-        prefs.audio_languages = vec!["ja".into()];
+        let prefs = PlaybackPreferences {
+            autoplay_next: false,
+            audio_languages: vec!["ja".into()],
+            ..PlaybackPreferences::default()
+        };
         store.save_preferences("user", prefs).unwrap();
         store
             .save_rules(
@@ -960,11 +1140,15 @@ mod tests {
     fn invalid_preferences_and_rules_are_not_saved() {
         let temp = tempfile::tempdir().unwrap();
         let store = WatchStore::new(temp.path().join("watch.sqlite"));
-        let mut prefs = PlaybackPreferences::default();
-        prefs.subtitle_mode = "invented".into();
+        let prefs = PlaybackPreferences {
+            subtitle_mode: "invented".into(),
+            ..PlaybackPreferences::default()
+        };
         assert!(store.save_preferences("user", prefs).is_err());
-        let mut rules = ResumeRules::default();
-        rules.minimum_percentage = f64::NAN;
+        let rules = ResumeRules {
+            minimum_percentage: f64::NAN,
+            ..ResumeRules::default()
+        };
         assert!(store.save_rules("anime", rules).is_err());
         assert_eq!(store.rules("anime").unwrap().minimum_percentage, 2.0);
     }
@@ -1187,6 +1371,91 @@ mod tests {
         );
     }
     #[test]
+    fn previous_viewing_cannot_make_a_seek_or_paused_report_complete() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = WatchStore::new(temp.path().join("watch.sqlite"));
+        let session = store.begin_at("u", "l", "i", 200.0, 0).unwrap().session_id;
+        store
+            .report_at("u", "l", "i", 200.0, input(&session, 0, 30.0), 30_000)
+            .unwrap();
+        let mut seek = input(&session, 1, 195.0);
+        seek.seeking = true;
+        let saved = store.report_at("u", "l", "i", 200.0, seek, 40_000).unwrap();
+        assert!(!saved.watched);
+        assert_eq!(saved.play_count, 0);
+        let mut paused = input(&session, 2, 195.0);
+        paused.paused = true;
+        paused.ended = true; // A browser can emit EOF after seeking to its end.
+        let saved = store
+            .report_at("u", "l", "i", 200.0, paused, 50_000)
+            .unwrap();
+        assert!(!saved.watched);
+        assert_eq!(saved.play_count, 0);
+        assert_eq!(saved.position_seconds, 195.0);
+        let saved = store
+            .report_at("u", "l", "i", 200.0, input(&session, 3, 196.0), 60_000)
+            .unwrap();
+        assert!(saved.watched);
+        assert_eq!(saved.play_count, 1);
+        assert_eq!(saved.position_seconds, 0.0);
+    }
+    #[test]
+    fn seek_in_the_same_millisecond_as_viewing_cannot_complete() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = WatchStore::new(temp.path().join("watch.sqlite"));
+        let session = store.begin_at("u", "l", "i", 200.0, 0).unwrap().session_id;
+        store
+            .report_at("u", "l", "i", 200.0, input(&session, 0, 30.0), 30_000)
+            .unwrap();
+        let mut seek = input(&session, 1, 195.0);
+        seek.seeking = true;
+        store.report_at("u", "l", "i", 200.0, seek, 30_000).unwrap();
+        let mut end = input(&session, 2, 195.0);
+        end.ended = true;
+        end.paused = true;
+        let saved = store.report_at("u", "l", "i", 200.0, end, 30_001).unwrap();
+        assert!(!saved.watched);
+        assert_eq!(saved.play_count, 0);
+        assert!(saved.last_played_at.is_some());
+    }
+
+    #[test]
+    fn zero_delta_end_after_genuine_playback_completes_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = WatchStore::new(temp.path().join("watch.sqlite"));
+        store
+            .save_rules(
+                "l",
+                ResumeRules {
+                    maximum_percentage: 100.0,
+                    ..ResumeRules::default()
+                },
+            )
+            .unwrap();
+        let session = store.begin_at("u", "l", "i", 100.0, 0).unwrap().session_id;
+        store
+            .report_at("u", "l", "i", 100.0, input(&session, 0, 20.0), 20_000)
+            .unwrap();
+        let mut seek = input(&session, 1, 99.8);
+        seek.seeking = true;
+        store.report_at("u", "l", "i", 100.0, seek, 30_000).unwrap();
+        assert!(
+            !store
+                .report_at("u", "l", "i", 100.0, input(&session, 2, 99.9), 31_000)
+                .unwrap()
+                .watched
+        );
+        for (sequence, time) in [(3, 32_000), (4, 33_000)] {
+            let mut end = input(&session, sequence, 99.9);
+            end.ended = true;
+            end.paused = true;
+            let saved = store.report_at("u", "l", "i", 100.0, end, time).unwrap();
+            assert!(saved.watched);
+            assert_eq!(saved.play_count, 1);
+            assert_eq!(saved.position_seconds, 0.0);
+        }
+    }
+    #[test]
     fn ended_with_fractional_timestamp_completes_at_one_hundred_percent_threshold() {
         let temp = tempfile::tempdir().unwrap();
         let store = WatchStore::new(temp.path().join("watch.sqlite"));
@@ -1342,10 +1611,12 @@ mod tests {
                 "u",
                 "l",
                 "i",
-                1_000.0,
+                VerifiedDuration {
+                    seconds: 1_000.0,
+                    signature: Some(&catalog_signature(&entry)),
+                },
                 input(&session, 0, 40.0),
                 10_000,
-                Some(&catalog_signature(&entry)),
             )
             .unwrap();
         assert_eq!(
