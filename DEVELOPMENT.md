@@ -117,6 +117,11 @@ reading (`ReaderPage`, `ReaderPages`, `lib/reader*`), catalog/detail views
 transport, navigation, theme and artwork-target utilities remain shared. Move
 these only when a task needs a useful responsibility boundary.
 
+Library title sorting uses `lib/titleSort.ts`: a nonblank NFO sort title wins;
+otherwise only a leading "The" is ignored. This is a display-time sorting key,
+so displayed titles and NFO files are unchanged. Native catalog cards use
+`metadata.sorttitle`; connected book info uses `sort_title`.
+
 ## Dividing cross-layer work
 
 Assign exact files and interfaces before concurrent edits. The main agent owns

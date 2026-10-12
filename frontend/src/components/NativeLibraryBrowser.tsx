@@ -1,4 +1,5 @@
 import NativeSeriesPlay from "../features/playback/components/NativeSeriesPlay";
+import {titleSortKey} from "../lib/titleSort";
 import NativePlaybackActions from "../features/playback/components/NativePlaybackActions";
 import EpisodeMediaInfo from "./EpisodeMediaInfo";
 import VideoPreferences,{useVideoPreferences} from "./VideoPreferences";
@@ -370,7 +371,7 @@ export default function NativeLibraryBrowser({
     .filter(e=>metadataFilter==="all" || (metadataFilter==="missing-ids" ? !Object.keys(providerNames).some(p=>hasId(e,p)) : metadataFilter==="missing-configured-ids" ? metadataProviders.some(p=>!hasId(e,p)) : metadataFilter==="missing-description" ? !String(e.metadata.plot??"").trim() : metadataFilter==="missing-year" ? !number(e.metadata.year) : !hasId(e,metadataFilter.replace("missing-id-",""))))
     .sort((a, b) =>
       sort === "title"
-        ? a.title.localeCompare(b.title)
+        ? titleSortKey(a.title, a.metadata.sorttitle).localeCompare(titleSortKey(b.title, b.metadata.sorttitle))
         : sort === "newest"
           ? (number(b.metadata.year) ?? 0) - (number(a.metadata.year) ?? 0)
           : (number(a.metadata.year) ?? 0) - (number(b.metadata.year) ?? 0),
@@ -631,7 +632,7 @@ function NativeDetail({
           0) -
           (number(
             b.kind === "season" ? b.metadata.season : b.kind === "book" ? b.metadata.volume ?? b.metadata.chapter : b.metadata.episode,
-          ) ?? 0) || a.title.localeCompare(b.title, undefined, {numeric:true}),
+          ) ?? 0) || titleSortKey(a.title, a.metadata.sorttitle).localeCompare(titleSortKey(b.title, b.metadata.sorttitle), undefined, {numeric:true}),
     );
   const [search, setSearch] = useState("");
   const [, , bookDisplay] = useTrackingOverlays(library.library_type === "books");

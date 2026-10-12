@@ -117,6 +117,27 @@ afterEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
 });
+function alphabeticalTitles(sorttitle?: string): NativeCatalogEntry[] {
+  return ["Dandadan", "The Apothecary Diaries", "Blue Box"].map((title, index) => ({
+    ...series, id: `title-${index}`, path: `Anime/Title-${index}`, title,
+    metadata: { title, ...(title.startsWith("The ") && sorttitle != null ? {sorttitle} : {}) },
+  }));
+}
+it.each(["anime", "shows", "movies", "books"] as const)("sorts %s titles after The while keeping the displayed title", async (library_type) => {
+  const kind = library_type === "books" ? "book_series" : library_type === "movies" ? "movie" : "series";
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue(alphabeticalTitles().map(entry => ({...entry, kind})));
+  mount("/", {...library, library_type});
+  await screen.findByRole("button", {name: /Open The Apothecary Diaries/});
+  expect(screen.getAllByRole("button", {name: /Open /}).map(button => within(button).getByText(/^(The Apothecary Diaries|Blue Box|Dandadan)$/).textContent))
+    .toEqual(["The Apothecary Diaries", "Blue Box", "Dandadan"]);
+});
+it("uses the imported NFO sort title to retain The in alphabetical order", async () => {
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue(alphabeticalTitles("The Apothecary Diaries"));
+  mount();
+  await screen.findByRole("button", {name: /Open The Apothecary Diaries/});
+  expect(screen.getAllByRole("button", {name: /Open /}).map(button => within(button).getByText(/^(The Apothecary Diaries|Blue Box|Dandadan)$/).textContent))
+    .toEqual(["Blue Box", "Dandadan", "The Apothecary Diaries"]);
+});
 it("browses series, seasons and episodes with detail views rather than editors", async () => {
   mount();
   fireEvent.click(

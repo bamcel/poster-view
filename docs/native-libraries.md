@@ -39,6 +39,13 @@ Choose Scan files directly on the library card. Local results are published befo
 status refreshes while scanning. The catalog supports search, series/season/episode navigation,
 metadata editing, cast/crew editing, character information, and artwork upload.
 
+Alphabetical title sorting ignores a leading "The" by default: "The Apothecary
+Diaries" sorts under "Apothecary Diaries" while keeping its full displayed title.
+A nonblank NFO `<sorttitle>` overrides this rule. For example,
+`<sorttitle>The Apothecary Diaries</sorttitle>` keeps it under T. Clear the sort
+title's value to restore automatic sorting, then run Scan Library Files with the
+NFO reader enabled to import external NFO edits.
+
 Episode filenames use S01E01 or 1x01, or numbers from episode NFOs; Anime also recognizes the
 common ' - 01' numbering pattern. Season folders support Season 01, S01, and series-prefixed names such as Roseanne - Season 01 or Roseanne - S01 inside the series folder. Unrecognized mixed Anime
 videos are treated as movies until identified; complex release layouts may require rearranging files

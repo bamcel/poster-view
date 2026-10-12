@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { readerRequest } from "./reader";
+import { titleSortKey } from "./titleSort";
 
 export interface BookInfo { title?: string; sort_title?: string; status?: "Reading" | "Finished"; colored_edition?: boolean }
 export function bookTitleOrder(a: { id: string; title: string }, b: { id: string; title: string }, info: Record<string, BookInfo>) {
-  return (info[a.id]?.sort_title || a.title).localeCompare(info[b.id]?.sort_title || b.title, undefined, { numeric: true }) || a.id.localeCompare(b.id);
+  return titleSortKey(a.title, info[a.id]?.sort_title).localeCompare(titleSortKey(b.title, info[b.id]?.sort_title), undefined, { numeric: true }) || a.id.localeCompare(b.id);
 }
 export function useBookInfo(server: number | null, items: { id: string }[] | undefined, enabled: boolean) {
   const client = useQueryClient();
