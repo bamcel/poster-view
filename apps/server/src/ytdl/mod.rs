@@ -1,6 +1,8 @@
 //! Administrator-owned YouTube downloads and durable queue.
 mod downloader;
+mod naming;
 mod nfo;
+mod subscriptions;
 use crate::{AppState, HttpError};
 use axum::{
     Json, Router,
@@ -23,6 +25,8 @@ pub(crate) struct Settings {
     pub video_codec: String,
     pub audio_codec: String,
     pub container: String,
+    #[serde(default = "legacy_filename_convention")]
+    pub filename_convention: String,
     pub max_height: u32,
     pub max_fps: u32,
     pub fallback: String,
@@ -31,6 +35,9 @@ pub(crate) struct Settings {
     pub subtitle_languages: Vec<String>,
     pub chapters: bool,
     pub thumbnail: bool,
+}
+fn legacy_filename_convention() -> String {
+    "id".into()
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -41,6 +48,7 @@ impl Default for Settings {
             video_codec: "auto".into(),
             audio_codec: "auto".into(),
             container: "mp4".into(),
+            filename_convention: "date_title_id".into(),
             max_height: 1080,
             max_fps: 60,
             fallback: "best".into(),
@@ -95,6 +103,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/api/plugins/ytdl/jobs", get(jobs_get).post(jobs_create))
         .route("/api/plugins/ytdl/jobs/{id}/cancel", post(cancel))
         .route("/api/plugins/ytdl/jobs/{id}/retry", post(retry))
+        .merge(subscriptions::routes())
 }
 async fn settings_get(State(state): State<AppState>) -> Result<Json<Value>, HttpError> {
     Ok(Json(
@@ -114,6 +123,8 @@ fn validate_settings(state: &AppState, s: &Settings) -> Result<PathBuf, HttpErro
     if !["auto", "h264", "vp9", "av1"].contains(&s.video_codec.as_str())
         || !["auto", "aac", "opus"].contains(&s.audio_codec.as_str())
         || !["mp4", "mkv", "webm"].contains(&s.container.as_str())
+        || !["id", "title", "date_title", "title_id", "date_title_id"]
+            .contains(&s.filename_convention.as_str())
         || !["best", "strict"].contains(&s.fallback.as_str())
         || !(144..=4320).contains(&s.max_height)
         || !(1..=240).contains(&s.max_fps)
@@ -323,6 +334,7 @@ pub(crate) fn start(state: AppState) {
                 }
             }
         }
+        subscriptions::start(state.clone());
         loop {
             let job = {
                 let _lock = state.ytdl_lock.lock().await;
@@ -364,6 +376,13 @@ mod tests {
             video_ids: vec![],
         }
     }
+    #[test]
+    fn older_saved_jobs_keep_id_filenames() {
+        let settings: Settings = serde_json::from_value(json!({"enabled":false})).unwrap();
+        assert_eq!(settings.filename_convention, "id");
+        assert_eq!(Settings::default().filename_convention, "date_title_id");
+    }
+
     #[test]
     fn restart_requires_explicit_retry() {
         let mut jobs = vec![job("downloading"), job("queued"), job("completed")];

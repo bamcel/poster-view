@@ -1,7 +1,7 @@
 import type { NativeCatalogEntry } from '../../api/nativeLibraries';
 
 export interface Playlist { id: string; title: string; index?: number; description?: string }
-export interface YoutubeMetadata { video_id?: string; channel_id?: string; channel?: string; source_url?: string; duration_seconds?: number; playlists?: Playlist[] }
+export interface YoutubeMetadata { video_id?: string; channel_id?: string; channel?: string; source_url?: string; duration_seconds?: number; published_at?: string; playlists?: Playlist[] }
 export interface Channel { id: string; title: string; description: string; entry?: NativeCatalogEntry; videos: NativeCatalogEntry[]; playlists: Playlist[] }
 export const youtubeMetadata = (entry: NativeCatalogEntry): YoutubeMetadata => (entry.metadata.youtube ?? {}) as YoutubeMetadata;
 export function channelsFromCatalog(entries: NativeCatalogEntry[]): Channel[] {
@@ -21,8 +21,8 @@ export function channelsFromCatalog(entries: NativeCatalogEntry[]): Channel[] {
 }
 export function playlistVideos(channel: Channel, playlist: string): NativeCatalogEntry[] {
   return channel.videos.filter(video => playlist === 'all' || youtubeMetadata(video).playlists?.some(p => p.id === playlist)).sort((a, b) => {
-    if (playlist === 'all') return String(b.metadata.aired ?? '').localeCompare(String(a.metadata.aired ?? '')) || a.title.localeCompare(b.title);
-    const position = (entry: NativeCatalogEntry) => youtubeMetadata(entry).playlists?.find(p => p.id === playlist)?.index ?? Number.MAX_SAFE_INTEGER;
-    return position(a) - position(b) || a.title.localeCompare(b.title);
+    // Display order follows upload dates, independently of playlist position or filenames.
+    return String(youtubeMetadata(b).published_at ?? b.metadata.aired ?? '').localeCompare(String(youtubeMetadata(a).published_at ?? a.metadata.aired ?? ''))
+      || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
   });
 }

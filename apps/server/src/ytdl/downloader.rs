@@ -192,6 +192,10 @@ async fn bounded_read<R: tokio::io::AsyncRead + Unpin>(
 async fn raw_inspect(url: &str) -> Result<Value, HttpError> {
     validate_url(url)?;
     let normalized = channel_playlists_url(url);
+    raw_inspect_direct(&normalized).await
+}
+async fn raw_inspect_direct(url: &str) -> Result<Value, HttpError> {
+    validate_url(url)?;
     let _permit = INSPECTIONS.acquire().await.map_err(err)?;
     let mut command = base();
     command.args([
@@ -201,7 +205,7 @@ async fn raw_inspect(url: &str) -> Result<Value, HttpError> {
         "--playlist-end",
         "10000",
         "--",
-        &normalized,
+        url,
     ]);
     serde_json::from_slice(&output(command, Duration::from_secs(180)).await?).map_err(err)
 }
@@ -228,20 +232,32 @@ fn entry(v: &Value, parent: &Value, index: usize) -> Value {
 }
 pub(super) async fn inspect(url: &str) -> Result<Value, HttpError> {
     let v = raw_inspect(url).await?;
+    Ok(inspection_value(&v, url, false))
+}
+pub(super) async fn inspect_channel_videos(url: &str) -> Result<Value, HttpError> {
+    validate_url(url)?;
+    if !is_channel_url(url) {
+        return Err(err("Choose a channel URL."));
+    }
+    let mut normalized = reqwest::Url::parse(&channel_playlists_url(url)).map_err(err)?;
+    let path = normalized.path().trim_end_matches("/playlists").to_string();
+    normalized.set_path(&format!("{path}/videos"));
+    let v = raw_inspect_direct(normalized.as_str()).await?;
+    Ok(inspection_value(&v, url, true))
+}
+fn inspection_value(v: &Value, url: &str, channel_uploads: bool) -> Value {
     let playlist = v["entries"].as_array();
     let entries = match playlist {
         Some(entries) => entries
             .iter()
             .enumerate()
             .filter(|(_, v)| valid_id(&text(v, "id")))
-            .map(|(i, e)| entry(e, &v, i))
+            .map(|(i, e)| entry(e, if channel_uploads { &Value::Null } else { v }, i))
             .collect::<Vec<_>>(),
-        None => vec![entry(&v, &Value::Null, 0)],
+        None => vec![entry(v, &Value::Null, 0)],
     };
     let formats=v["formats"].as_array().map(|fs|fs.iter().map(|f|json!({"format_id":f["format_id"],"height":f["height"],"fps":f["fps"],"vcodec":f["vcodec"],"acodec":f["acodec"],"ext":f["ext"]})).collect::<Vec<_>>()).unwrap_or_default();
-    Ok(
-        json!({"id":v["id"],"title":v["title"],"description":v["description"],"channel":v["channel"],"channel_id":v["channel_id"],"kind":if is_channel_url(url){"channel"}else if playlist.is_some(){"playlist"}else{"video"},"entries":entries,"formats":formats}),
-    )
+    json!({"id":v["id"],"title":v["title"],"description":v["description"],"channel":v["channel"],"channel_id":v["channel_id"],"kind":if is_channel_url(url){"channel"}else if playlist.is_some(){"playlist"}else{"video"},"entries":entries,"formats":formats})
 }
 async fn await_cancel(state: &AppState, job: &Job) {
     loop {
@@ -467,7 +483,14 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     let mut first_channel = None;
     let mut channel_metadata = std::collections::HashMap::new();
     update(state, &job.id, "inspecting", None, None).await?;
-    let inspection = tokio::select! {result=inspect(&job.url)=>result?,_=await_cancel(state,job)=>return Err(err("Download cancelled."))};
+    let inspect_source = async {
+        if is_channel_url(&job.url) {
+            inspect_channel_videos(&job.url).await
+        } else {
+            inspect(&job.url).await
+        }
+    };
+    let inspection = tokio::select! {result=inspect_source=>result?,_=await_cancel(state,job)=>return Err(err("Download cancelled."))};
     {
         let _lock = state.ytdl_lock.lock().await;
         let mut jobs = super::load::<Vec<Job>>(state, "plugin-ytdl-jobs")?;
@@ -569,11 +592,18 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             }
         );
         let target = state.metadata.directory(&relative, false)?;
-        let media = target.join(format!("{id}.{}", job.settings.container));
-        if !["mp4", "mkv", "webm"]
-            .iter()
-            .any(|ext| target.join(format!("{id}.{ext}")).exists())
-        {
+        let existing = super::naming::existing_media(&target)?;
+        let stem = if let Some(media) = &existing {
+            media
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| err("Existing video filename is not valid UTF-8."))?
+                .to_string()
+        } else {
+            super::naming::stem(&info, &job.settings.filename_convention)?
+        };
+        let media = target.join(format!("{stem}.{}", job.settings.container));
+        if existing.is_none() {
             let stage = tempfile::tempdir_in(&stage_root).map_err(err)?;
             update(
                 state,
@@ -646,23 +676,18 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
                 let file = file.map_err(err)?;
                 let name = file.file_name();
                 let name = name.to_string_lossy();
-                if name.starts_with(&format!("{id}."))
-                    && !["mp4", "mkv", "webm"]
-                        .iter()
-                        .any(|ext| name.ends_with(&format!(".{ext}")))
-                    && !name.contains(".part")
-                {
-                    publish(&file.path(), &target.join(name.as_ref()))?;
+                if let Some(name) = super::naming::sidecar_name(&name, &id, &stem) {
+                    publish(&file.path(), &target.join(name))?;
                 }
             }
-            super::nfo::write(&target, &info, e, &inspection, channel_info)?;
+            super::nfo::write_named(&target, &stem, &info, e, &inspection, channel_info)?;
             if cancelled(state, &job.id).await {
                 return Err(err("Download cancelled."));
             }
-            publish(&source, &media)?;
+            publish_with_modified(&source, &media, upload_modified_time(&info))?;
         }
         update(state, &job.id, "importing", None, None).await?;
-        super::nfo::write(&target, &info, e, &inspection, channel_info)?;
+        super::nfo::write_named(&target, &stem, &info, e, &inspection, channel_info)?;
         let scope = format!(
             "{}{channel_relative}",
             if job.settings.directory.is_empty() {
@@ -698,7 +723,28 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     .map_err(|_| err("Library import timed out. Retry to rescan the downloaded files."))??;
     update(state, &job.id, "completed", None, Some(100.0)).await
 }
+fn upload_modified_time(info: &Value) -> Option<std::time::SystemTime> {
+    info["timestamp"]
+        .as_i64()
+        .or_else(|| info["release_timestamp"].as_i64())
+        .and_then(|stamp| chrono::DateTime::from_timestamp(stamp, 0))
+        .or_else(|| {
+            info["upload_date"]
+                .as_str()
+                .and_then(|date| chrono::NaiveDate::parse_from_str(date, "%Y%m%d").ok())
+                .and_then(|date| date.and_hms_opt(0, 0, 0))
+                .map(|date| date.and_utc())
+        })
+        .map(Into::into)
+}
 fn publish(source: &Path, target: &Path) -> Result<(), HttpError> {
+    publish_with_modified(source, target, None)
+}
+fn publish_with_modified(
+    source: &Path,
+    target: &Path,
+    modified: Option<std::time::SystemTime>,
+) -> Result<(), HttpError> {
     if target.exists() {
         return Ok(());
     }
@@ -709,6 +755,12 @@ fn publish(source: &Path, target: &Path) -> Result<(), HttpError> {
         &mut temporary,
     )
     .map_err(err)?;
+    if let Some(modified) = modified {
+        temporary
+            .as_file()
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .map_err(err)?;
+    }
     temporary.as_file().sync_all().map_err(err)?;
     match temporary.persist_noclobber(target) {
         Ok(_) => Ok(()),
@@ -719,6 +771,66 @@ fn publish(source: &Path, target: &Path) -> Result<(), HttpError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn channel_uploads_do_not_become_a_fabricated_playlist() {
+        let v = inspection_value(
+            &json!({"id":"UCchannel","title":"Channel","entries":[{"id":"vid","title":"Video"}]}),
+            "https://www.youtube.com/@channel",
+            true,
+        );
+        assert_eq!(v["kind"], "channel");
+        assert_eq!(v["entries"][0]["playlist_id"], "");
+        assert_eq!(
+            v["entries"][0]["url"],
+            "https://www.youtube.com/watch?v=vid"
+        );
+        let playlist = inspection_value(
+            &json!({"id":"PLid","title":"Playlist","entries":[{"id":"vid"}]}),
+            "https://www.youtube.com/playlist?list=PLid",
+            false,
+        );
+        assert_eq!(playlist["entries"][0]["playlist_id"], "PLid");
+    }
+    #[test]
+    fn upload_time_uses_exact_timestamp_then_midnight_utc() {
+        let expected = |stamp| std::time::UNIX_EPOCH + Duration::from_secs(stamp);
+        assert_eq!(
+            upload_modified_time(&json!({"timestamp":1767354321,"upload_date":"20260102"})),
+            Some(expected(1767354321))
+        );
+        assert_eq!(
+            upload_modified_time(&json!({"release_timestamp":1767354321})),
+            Some(expected(1767354321))
+        );
+        assert_eq!(
+            upload_modified_time(&json!({"upload_date":"20260102"})),
+            Some(expected(1767312000))
+        );
+        assert_eq!(
+            upload_modified_time(&json!({"upload_date":"20260231"})),
+            None
+        );
+        assert_eq!(upload_modified_time(&json!({})), None);
+    }
+    #[test]
+    fn published_video_has_upload_modified_time_and_existing_file_is_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("source.mp4");
+        let target = dir.path().join("video.mp4");
+        std::fs::write(&source, b"video").unwrap();
+        let modified = upload_modified_time(&json!({"upload_date":"20260102"})).unwrap();
+        publish_with_modified(&source, &target, Some(modified)).unwrap();
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().modified().unwrap(),
+            modified
+        );
+        assert_eq!(std::fs::read(&target).unwrap(), b"video");
+        publish_with_modified(&source, &target, Some(std::time::UNIX_EPOCH)).unwrap();
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().modified().unwrap(),
+            modified
+        );
+    }
     #[tokio::test]
     async fn metadata_output_is_bounded() {
         assert!(bounded_read(&b"12345"[..], 4, false).await.is_err());

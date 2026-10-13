@@ -70,3 +70,20 @@ it("keeps the library editor inside the modal popup",async()=>{
  const editor=await screen.findByRole("dialog",{name:"Create library"});
  expect(screen.getByRole("dialog",{name:"YTDL configuration"}).contains(editor)).toBe(true);
 });
+it("saves a filename convention and previews the selected container",async()=>{
+ mount();const convention=await screen.findByLabelText("Filename convention");
+ expect((convention as HTMLSelectElement).value).toBe("id");
+ fireEvent.change(convention,{target:{value:"date_title_id"}});
+ fireEvent.change(screen.getByLabelText("Container"),{target:{value:"mkv"}});
+ expect(screen.getByText("Example: 2026-01-02 - Example video [abc123].mkv")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,filename_convention:"date_title_id",container:"mkv"}));
+});
+
+it.each([["title","Example video"],["date_title","2026-01-02 - Example video"]])("saves ID-free filename option %s",async(value,example)=>{
+ mount();const convention=await screen.findByLabelText("Filename convention");
+ fireEvent.change(convention,{target:{value}});
+ expect(screen.getByText(`Example: ${example}.mp4`)).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,filename_convention:value}));
+});

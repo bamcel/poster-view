@@ -82,6 +82,71 @@ fn persist(path: &Path, root: &Element) -> Result<(), HttpError> {
     temp.persist(path).map_err(|e| err(e.error))?;
     Ok(())
 }
+/// Whether both episode and channel NFOs already carry this playlist's current metadata.
+pub(super) fn playlist_current(
+    media: &Path,
+    entry: &Value,
+    parent: &Value,
+) -> Result<bool, HttpError> {
+    let id = text(entry, "playlist_id");
+    if id.is_empty() {
+        return Ok(true);
+    }
+    fn matches(
+        path: &Path,
+        id: &str,
+        entry: &Value,
+        parent: &Value,
+        episode: bool,
+    ) -> Result<bool, HttpError> {
+        if !path.exists() {
+            return Ok(false);
+        }
+        let root = Element::parse(std::fs::File::open(path).map_err(err)?).map_err(err)?;
+        let Some(p) = root.get_child("youtube").and_then(|yt| {
+            yt.children.iter().find_map(|node| match node {
+                XMLNode::Element(p)
+                    if p.name == "playlist" && p.attributes.get("id").is_some_and(|v| v == id) =>
+                {
+                    Some(p)
+                }
+                _ => None,
+            })
+        }) else {
+            return Ok(false);
+        };
+        if p.attributes.get("title") != Some(&text(entry, "playlist_title")) {
+            return Ok(false);
+        }
+        if episode
+            && p.attributes.get("index")
+                != Some(&entry["playlist_index"].as_u64().unwrap_or(1).to_string())
+        {
+            return Ok(false);
+        }
+        let description = text(parent, "description");
+        if !description.is_empty()
+            && p.get_child("description")
+                .and_then(Element::get_text)
+                .as_deref()
+                != Some(description.as_str())
+        {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+    let folder = media
+        .parent()
+        .ok_or_else(|| err("Video has no parent directory."))?;
+    let channel = folder
+        .parent()
+        .ok_or_else(|| err("Video has no channel directory."))?;
+    Ok(
+        matches(&media.with_extension("nfo"), &id, entry, parent, true)?
+            && matches(&channel.join("tvshow.nfo"), &id, entry, parent, false)?,
+    )
+}
+#[cfg(test)]
 pub(super) fn write(
     target: &Path,
     info: &Value,
@@ -89,8 +154,25 @@ pub(super) fn write(
     parent: &Value,
     channel_info: &Value,
 ) -> Result<(), HttpError> {
+    write_named(
+        target,
+        info["id"].as_str().unwrap_or_default(),
+        info,
+        entry,
+        parent,
+        channel_info,
+    )
+}
+pub(super) fn write_named(
+    target: &Path,
+    stem: &str,
+    info: &Value,
+    entry: &Value,
+    parent: &Value,
+    channel_info: &Value,
+) -> Result<(), HttpError> {
     let id = text(info, "id");
-    let path = target.join(format!("{id}.nfo"));
+    let path = target.join(format!("{stem}.nfo"));
     let mut episode = read(&path, "episodedetails")?;
     set(&mut episode, "title", text(info, "title"));
     set(&mut episode, "plot", text(info, "description"));
@@ -116,8 +198,8 @@ pub(super) fn write(
     unique.attributes.insert("default".into(), "true".into());
     unique.children.push(XMLNode::Text(id.clone()));
     episode.children.push(XMLNode::Element(unique));
-    if target.join(format!("{id}.jpg")).exists() {
-        set(&mut episode, "thumb", format!("{id}.jpg"));
+    if target.join(format!("{stem}.jpg")).exists() {
+        set(&mut episode, "thumb", format!("{stem}.jpg"));
     }
     if let Some(tags) = info["tags"].as_array() {
         episode
@@ -139,6 +221,14 @@ pub(super) fn write(
         format!("https://www.youtube.com/watch?v={id}"),
     );
     set(yt, "duration_seconds", seconds.to_string());
+    if let Some(published) = info["timestamp"]
+        .as_i64()
+        .or_else(|| info["release_timestamp"].as_i64())
+        .and_then(|stamp| chrono::DateTime::from_timestamp(stamp, 0))
+    {
+        set(yt, "published_at", published.to_rfc3339());
+    }
+
     if let Some(chapters) = info["chapters"].as_array() {
         let mut chapter_list = Element::new("chapters");
         for chapter in chapters {
@@ -174,6 +264,49 @@ pub(super) fn write(
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn readable_sidecar_names_preserve_metadata_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let channel = temp.path().join("channel");
+        let target = channel.join("vid");
+        std::fs::create_dir_all(&target).unwrap();
+        let stem = "2026-02-03 - Readable Title [vid]";
+        std::fs::write(target.join(format!("{stem}.jpg")), "fixture").unwrap();
+        let info = json!({"id":"vid","title":"Readable: Title?","channel":"Channel","channel_id":"UCfixture"});
+        write_named(
+            &target,
+            stem,
+            &info,
+            &Value::Null,
+            &Value::Null,
+            &Value::Null,
+        )
+        .unwrap();
+        assert!(!target.join("vid.nfo").exists());
+        let root = Element::parse(std::fs::File::open(target.join(format!("{stem}.nfo"))).unwrap())
+            .unwrap();
+        assert_eq!(
+            root.get_child("title").unwrap().get_text().unwrap(),
+            "Readable: Title?"
+        );
+        assert_eq!(
+            root.get_child("thumb").unwrap().get_text().unwrap(),
+            format!("{stem}.jpg")
+        );
+        assert_eq!(
+            root.get_child("youtube")
+                .unwrap()
+                .get_child("video_id")
+                .unwrap()
+                .get_text()
+                .unwrap(),
+            "vid"
+        );
+        assert_eq!(
+            root.get_child("uniqueid").unwrap().get_text().unwrap(),
+            "vid"
+        );
+    }
     #[test]
     fn generated_nfo_imports_one_video_with_multiple_playlist_memberships() {
         use posterview_contracts::native::{AnimeContent, NativeLibraryInput, NativeLibraryType};
@@ -266,7 +399,7 @@ mod tests {
             "<episodedetails><custom>keep</custom></episodedetails>",
         )
         .unwrap();
-        let info = json!({"id":"vid","channel_id":"UCid","channel":"A & B","title":"<Title>","description":"x & y","upload_date":"20260102","duration":123});
+        let info = json!({"id":"vid","channel_id":"UCid","channel":"A & B","title":"<Title>","description":"x & y","upload_date":"20260102","duration":123,"timestamp":1767312000});
         for id in ["playlistA", "playlistB"] {
             write(
                 &target,
@@ -294,6 +427,12 @@ mod tests {
                 .filter(|n| matches!(n,XMLNode::Element(e) if e.name=="playlist"))
                 .count(),
             2
+        );
+        assert!(
+            root.get_child("youtube")
+                .unwrap()
+                .get_child("published_at")
+                .is_some()
         );
         assert_eq!(
             root.get_child("aired").unwrap().get_text().unwrap(),

@@ -1675,6 +1675,11 @@ async fn ytdl_routes_enforce_administrator_downloads() {
         ("POST", "/api/plugins/ytdl/jobs"),
         ("POST", "/api/plugins/ytdl/jobs/job/cancel"),
         ("POST", "/api/plugins/ytdl/jobs/job/retry"),
+        ("GET", "/api/plugins/ytdl/subscriptions"),
+        ("POST", "/api/plugins/ytdl/subscriptions"),
+        ("PUT", "/api/plugins/ytdl/subscriptions/subscription"),
+        ("DELETE", "/api/plugins/ytdl/subscriptions/subscription"),
+        ("POST", "/api/plugins/ytdl/subscriptions/subscription/check"),
     ] {
         for (cookie, expected) in [
             (None, StatusCode::UNAUTHORIZED),
