@@ -1317,6 +1317,7 @@ async fn canceled_preparation_is_swept_after_session_expiry_without_touching_unr
         assert!(tokio::time::Instant::now() < deadline);
         tokio::time::sleep(Duration::from_millis(10)).await;
     };
+    assert!(abandoned.join("owner.json").is_file());
     creating.abort();
     let canceled = match creating.await {
         Err(error) => error,
@@ -1324,7 +1325,6 @@ async fn canceled_preparation_is_swept_after_session_expiry_without_touching_unr
     };
     assert!(canceled.is_cancelled());
     assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
-    assert!(abandoned.join("owner.json").is_file());
     let unrelated = root.join(uuid::Uuid::new_v4().to_string());
     std::fs::create_dir(&unrelated).unwrap();
     std::fs::write(unrelated.join("user.txt"), b"keep").unwrap();
@@ -1345,8 +1345,13 @@ async fn canceled_preparation_is_swept_after_session_expiry_without_touching_unr
         session.touched = Instant::now() - SESSION_IDLE - Duration::from_secs(1);
     }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    while abandoned.exists() {
+    // Cancellation retries directory cleanup independently of session expiry.
+    // Wait for both outcomes, even if the directory is already gone.
+    loop {
         fixture.state.playback.maintain().await;
+        if !abandoned.exists() && fixture.state.playback.sessions.lock().await.is_empty() {
+            break;
+        }
         assert!(tokio::time::Instant::now() < deadline);
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
