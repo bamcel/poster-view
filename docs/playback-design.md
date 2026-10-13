@@ -222,6 +222,23 @@ References: [Emby delivery modes](https://emby.media/support/articles/DirectPlay
 
 ## Cold resumes and copied-stream seeks
 
+Lossless producers may prepare up to 60 seconds while paused, capped by the
+speed-adjusted administrator buffer limit and existing disk accounting. They
+refill below half that lead after confirmed seeks. Conversion jobs retain the
+12-second paused threshold. This lets a warmed 30-second skip reuse buffered media
+instead of launching another producer. Browser remux delivery targets 60 seconds
+when bitrate is unknown; known-bitrate sizing retains its existing formula.
+The hls.js 48 MiB setting is a buffer target, not a strict memory cap, so buffering
+unknown high-bitrate sources can use more memory. Video/audio codecs and packet
+copying are unchanged.
+
+A local browser check on the same HEVC/AAC/ASS episode buffered roughly 61 seconds
+ahead while paused. A subsequent 30-second skip was ready and advancing within
+205 ms of the UI action, preserving its blob URL. This verifies the buffered
+client path; Unix producer suspension and refill policy are covered by tests,
+and the updated Unraid image still needs live validation. Large jumps outside
+retained media continue to incur keyframe inspection and producer startup.
+
 Auto starts a nonzero cold resume of HEVC in Matroska with stream copying when
 the administrator permits remuxing and the browser supports copying both selected
 tracks. The response must actually be a remux. Time-zero starts, warm native

@@ -34,7 +34,9 @@ export function attachSegmentedPlayback(video:HTMLVideoElement,session:PlaybackS
   let recoveryTimer:ReturnType<typeof setTimeout>|undefined;
   const owns=()=>active&&callbacks.isCurrent?.()!==false;
   const byteBudget=48*1024*1024,rate=session.bitrate??0;
-  const ahead=rate>0?Math.max(6,Math.min(60,byteBudget*8/rate)):20;
+  // Keep a typical 30-second skip inside the copied stream when its bitrate
+  // is unavailable. Encoding jobs retain their smaller startup buffer.
+  const ahead=rate>0?Math.max(6,Math.min(60,byteBudget*8/rate)):session.method==="remux"?60:20;
   void loadSegmentedEngine().then(({default:Engine})=>{
     if(!owns())return;
     if(!Engine.isSupported())throw new Error("This browser cannot play a segmented stream.");

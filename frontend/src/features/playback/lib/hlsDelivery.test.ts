@@ -5,7 +5,7 @@ const moduleLoad=vi.hoisted(()=>{
  let complete!:()=>void;const ready=new Promise<void>(resolve=>{complete=resolve;});return {ready,complete,factory:vi.fn(),created:vi.fn(),destroy:vi.fn()};
 });
 vi.mock("hls.js",async()=>{moduleLoad.factory();await moduleLoad.ready;return {default:class{
- static isSupported(){return true;}static Events={ERROR:"error",FRAG_LOADING:"loading",FRAG_LOADED:"loaded"};static ErrorTypes={MEDIA_ERROR:"media",NETWORK_ERROR:"network"};media:HTMLVideoElement|null=null;latestLevelDetails={fragments:[]};constructor(){moduleLoad.created();}on(){}loadSource(){}attachMedia(video:HTMLVideoElement){this.media=video;video.src="blob:owned-hls";}destroy(){moduleLoad.destroy();this.media=null;}startLoad(){}recoverMediaError(){}
+ static isSupported(){return true;}static Events={ERROR:"error",FRAG_LOADING:"loading",FRAG_LOADED:"loaded"};static ErrorTypes={MEDIA_ERROR:"media",NETWORK_ERROR:"network"};media:HTMLVideoElement|null=null;latestLevelDetails={fragments:[]};constructor(options:unknown){moduleLoad.created(options);}on(){}loadSource(){}attachMedia(video:HTMLVideoElement){this.media=video;video.src="blob:owned-hls";}destroy(){moduleLoad.destroy();this.media=null;}startLoad(){}recoverMediaError(){}
 }};});
 const session:PlaybackSession={id:"one",generation:1,method:"remux",url:"/hls/1/index.m3u8",offset_seconds:0,mime:"application/vnd.apple.mpegurl",reason:"Copy",duration_seconds:1200};
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
@@ -52,4 +52,19 @@ it("does not retain a failed HLS engine load across a later retry", async () => 
   await expect(loadSegmentedEngine(load)).rejects.toThrow("Temporary asset download failure");
   await expect(loadSegmentedEngine(load)).resolves.toBe(result);
   expect(load).toHaveBeenCalledTimes(2);
+});
+
+it.each([
+ {method:"remux" as const,bitrate:undefined,seconds:60},
+ {method:"audio_transcode" as const,bitrate:undefined,seconds:20},
+ {method:"transcode" as const,bitrate:0,seconds:20},
+ {method:"remux" as const,bitrate:4_000_000,seconds:60},
+ {method:"remux" as const,bitrate:16_000_000,seconds:48*1024*1024*8/16_000_000},
+ {method:"remux" as const,bitrate:100_000_000,seconds:6},
+])("buffers $method at $bitrate bitrate within the existing bounds",async({method,bitrate,seconds})=>{
+ vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+ const adapter=attachSegmentedPlayback(document.createElement("video"),{...session,method,bitrate},{fatal:vi.fn()});
+ await vi.waitFor(()=>expect(adapter.attached()).toBe(true));
+ expect(moduleLoad.created).toHaveBeenLastCalledWith(expect.objectContaining({maxBufferLength:seconds,maxMaxBufferLength:seconds,maxBufferSize:48*1024*1024,backBufferLength:60}));
+ adapter.destroy();
 });
