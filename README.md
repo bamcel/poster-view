@@ -222,11 +222,17 @@ Choose the first administrator's username, display name and password there. This
 applies to existing data directories with no profiles. After setup, manage names and passwords in **Settings → Users**.
 Usernames are case-insensitive; account edits survive container restarts.
 
+The Unraid template no longer includes administrator username/password variables.
+For an existing installation with a custom `POSTERVIEW_USERNAME`, keep that variable
+in its saved container configuration: it preserves the legacy watch/reading identity
+when creating the first profile. New installations do not need either variable;
+`POSTERVIEW_PASSWORD` is unused.
+
 The Unraid XML template includes **Require Login**, a `false`/`true` option defaulting to `false`.
 For administrator-only installations, it sets `POSTERVIEW_AUTH_ENABLED`: `false` disables login for all connections, including
 reverse proxies and remote visitors; `true` enables login (subject to the optional LAN bypass).
 With login disabled, inactivity sign-out cannot lock access. Use disabled login only on a
-trusted network. Username/password settings are retained for when login is enabled again.
+trusted network. Saved account credentials are retained for when login is enabled again.
 Outside the Unraid template, omitting this variable keeps authentication enabled. Recreate the
 container after changing the variable.
 
