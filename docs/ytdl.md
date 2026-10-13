@@ -9,14 +9,15 @@ downloads through the API.
 
 ## Setup
 
-1. Create a library with type **YouTube** from the plugin popup or Libraries.
+1. Create a library with type **YouTube** in **Settings → Libraries**.
 2. Choose **Single channel** (playlists → videos) or **Multiple channels**
    (channels → playlists → videos). Configure channel IDs, `@handles`, or HTTPS
    YouTube channel URLs. An empty channel list permits the first channel for a
    single-channel library, or any channel for a multiple-channel library.
 3. Select existing folders under the configured media mount. Docker/Unraid paths
    are container paths, not host paths. The download directory must already
-   exist, be writable, and lie within this library's selected roots.
+   exist, be writable, and lie within this library's selected roots. Use the plugin's
+   **Download directory** dropdown browser to navigate and select the destination.
 4. In the plugin popup, select the library/directory, enable YTDL, choose formats
    and metadata options, and **Save configuration**.
 5. Paste a video or playlist URL into Downloads, **Fetch Info**, select videos,
@@ -28,12 +29,19 @@ downloads through the API.
 
 ## Formats and jobs
 
-Resolution and frame rate are upper bounds; they never upscale the source.
+Quality offers Highest Available, 2160, 1080, 720, or 480. A numbered choice
+requests that source resolution. If unavailable, select Highest Available,
+Next highest (nearest larger resolution), Next lowest (nearest smaller
+resolution), or Skip. If no resolution exists in the requested direction, the
+video is skipped and the rest of the job continues. Frame rate remains an upper
+bound. Quality selection never upscales the source. Older saved settings retain
+their previous maximum-resolution behavior until Quality or its fallback changes.
 Codec preferences select available source streams without encoding unless
-**Convert to selected codecs** is enabled. Strict fallback fails when the source
-cannot match the selection. Best fallback chooses another available source
-within the quality limits. WebM requires VP9/AV1 and Opus; use MP4/MKV for
-H.264/AAC. Conversion runs FFmpeg in staging before publishing a final file.
+**Convert to selected codecs** is enabled. Quality fallbacks respect the selected
+codecs, container, and frame-rate limit. WebM requires VP9/AV1 and Opus; use MP4/MKV for
+H.264, HEVC/H.265, or AAC. HEVC conversion uses FFmpeg libx265; enable
+**Convert to selected codecs** to encode to HEVC when no matching source exists.
+Conversion runs FFmpeg in staging before publishing a final file.
 
 The queue runs one job at a time and persists job settings, status, progress,
 speed, ETA, and errors. Each job keeps the settings used when it was submitted.

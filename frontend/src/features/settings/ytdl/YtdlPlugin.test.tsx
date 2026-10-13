@@ -21,9 +21,9 @@ function mount(){render(<QueryClientProvider client={new QueryClient({defaultOpt
 it("saves codec and fallback settings through the plugin popup",async()=>{
  mount();await screen.findByLabelText("Video codec");
  fireEvent.change(screen.getByLabelText("Video codec"),{target:{value:"av1"}});
- fireEvent.change(screen.getByLabelText("Unavailable format"),{target:{value:"strict"}});
+ fireEvent.change(screen.getByLabelText("If quality is unavailable"),{target:{value:"skip"}});
  fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
- await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,video_codec:"av1",fallback:"strict"}));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,video_codec:"av1",quality:1080,fallback:"skip"}));
  expect((await screen.findByRole("status")).textContent).toBe("Configuration saved.");
 });
 it("inspects a playlist and queues only selected videos with its settings snapshot",async()=>{
@@ -64,11 +64,19 @@ it("permits the library media root and retries interrupted downloads",async()=>{
 });
 
 
-it("keeps the library editor inside the modal popup",async()=>{
+it("uses library settings for setup and browses download folders in a dropdown",async()=>{
+ vi.mocked(nativeLibraries.folders).mockImplementation(async path=>({root:"/media",path,folders:path==="YouTube"?[{name:"Downloads",path:"YouTube/Downloads",has_nfo:false}]:[]}));
  mount();await screen.findByLabelText("Video codec");
- fireEvent.click(screen.getByRole("button",{name:"Create YouTube library"}));
- const editor=await screen.findByRole("dialog",{name:"Create library"});
- expect(screen.getByRole("dialog",{name:"YTDL configuration"}).contains(editor)).toBe(true);
+ expect(screen.queryByRole("button",{name:"Create YouTube library"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Edit channels and library"})).toBeNull();
+ fireEvent.click(screen.getByLabelText("Download directory"));
+ await screen.findByRole("option",{name:"Downloads/"});
+ fireEvent.change(screen.getByLabelText("Browse directories"),{target:{value:"YouTube/Downloads"}});
+ await waitFor(()=>expect(nativeLibraries.folders).toHaveBeenCalledWith("YouTube/Downloads"));
+ await waitFor(()=>expect((screen.getByRole("button",{name:"Use selected folder"}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByRole("button",{name:"Use selected folder"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,directory:"YouTube/Downloads"}));
 });
 it("saves a filename convention and previews the selected container",async()=>{
  mount();const convention=await screen.findByLabelText("Filename convention");
@@ -86,4 +94,20 @@ it.each([["title","Example video"],["date_title","2026-01-02 - Example video"]])
  expect(screen.getByText(`Example: ${example}.mp4`)).toBeTruthy();
  fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,filename_convention:value}));
+});
+
+it("saves HEVC conversion settings",async()=>{
+ mount();await screen.findByLabelText("Video codec");
+ fireEvent.change(screen.getByLabelText("Video codec"),{target:{value:"hevc"}});
+ fireEvent.click(screen.getByLabelText("Convert to selected codecs"));
+ fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,video_codec:"hevc",convert:true}));
+});
+
+it("saves an explicit quality and nearest higher fallback",async()=>{
+ mount();await screen.findByLabelText("Quality");
+ fireEvent.change(screen.getByLabelText("Quality"),{target:{value:"720"}});
+ fireEvent.change(screen.getByLabelText("If quality is unavailable"),{target:{value:"next_highest"}});
+ fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,quality:720,fallback:"next_highest"}));
 });

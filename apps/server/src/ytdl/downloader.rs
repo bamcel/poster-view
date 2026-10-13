@@ -295,7 +295,11 @@ pub(super) async fn dependencies() -> Value {
     json!({"yt_dlp":yt,"ffmpeg":ff,"js_runtime":js})
 }
 pub(super) fn format(s: &Settings) -> String {
-    let limits = format!("[height<={}][fps<=?{}]", s.max_height, s.max_fps);
+    let limits = match s.quality {
+        None => format!("[height<={}][fps<=?{}]", s.max_height, s.max_fps),
+        Some(0) => format!("[fps<=?{}]", s.max_fps),
+        Some(height) => format!("[height={height}][fps<=?{}]", s.max_fps),
+    };
     let compatibility_video = if !s.convert && s.container == "webm" {
         "[vcodec~='^(vp9|vp09|av01)']"
     } else {
@@ -308,6 +312,14 @@ pub(super) fn format(s: &Settings) -> String {
     };
     let video = if s.convert || s.video_codec == "auto" {
         String::new()
+    } else if s.quality.is_some() && s.video_codec == "h264" {
+        "[vcodec~='^(avc1|h264)']".into()
+    } else if s.quality.is_some() && s.video_codec == "vp9" {
+        "[vcodec~='^(vp9|vp09)']".into()
+    } else if s.quality.is_some() && s.video_codec == "av1" {
+        "[vcodec~='^(av01|av1)']".into()
+    } else if s.video_codec == "hevc" {
+        "[vcodec~='^(hev1|hvc1|hevc|h265)']".into()
     } else {
         format!(
             "[vcodec^={}]",
@@ -320,6 +332,8 @@ pub(super) fn format(s: &Settings) -> String {
     };
     let audio = if s.convert || s.audio_codec == "auto" {
         String::new()
+    } else if s.quality.is_some() && s.audio_codec == "aac" {
+        "[acodec~='^(mp4a|aac)']".into()
     } else {
         format!(
             "[acodec^={}]",
@@ -333,13 +347,103 @@ pub(super) fn format(s: &Settings) -> String {
     let selected = format!(
         "bv{limits}{video}{compatibility_video}+ba{audio}{compatibility_audio}/b{limits}{video}{audio}{compatibility_video}{compatibility_audio}"
     );
-    if s.fallback == "best" {
+    if s.fallback == "best" && s.quality.is_none() {
         format!(
             "{selected}/bv{limits}{compatibility_video}+ba{compatibility_audio}/b{limits}{compatibility_video}{compatibility_audio}"
         )
     } else {
         selected
     }
+}
+#[derive(Debug, PartialEq)]
+enum QualityChoice {
+    Legacy,
+    Height(u32),
+    Skip(String),
+}
+fn codec_matches(codec: &str, preference: &str, video: bool) -> bool {
+    if preference == "auto" {
+        return true;
+    }
+    let prefixes: &[&str] = match (preference, video) {
+        ("h264", true) => &["avc1", "h264"],
+        ("hevc", true) => &["hev1", "hvc1", "hevc", "h265"],
+        ("vp9", true) => &["vp9", "vp09"],
+        ("av1", true) => &["av01", "av1"],
+        ("aac", false) => &["mp4a", "aac"],
+        ("opus", false) => &["opus"],
+        _ => &[],
+    };
+    prefixes.iter().any(|p| codec.starts_with(p))
+}
+fn source_codec_allowed(s: &Settings, codec: &str, video: bool) -> bool {
+    if codec.is_empty() || codec == "none" {
+        return false;
+    }
+    if s.convert {
+        return true;
+    }
+    if s.container == "webm"
+        && if video {
+            !codec_matches(codec, "vp9", true) && !codec_matches(codec, "av1", true)
+        } else {
+            !codec_matches(codec, "opus", false)
+        }
+    {
+        return false;
+    }
+    codec_matches(
+        codec,
+        if video {
+            &s.video_codec
+        } else {
+            &s.audio_codec
+        },
+        video,
+    )
+}
+fn choose_quality(s: &Settings, info: &Value) -> QualityChoice {
+    let Some(requested) = s.quality else {
+        return QualityChoice::Legacy;
+    };
+    let formats = info["formats"].as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let has_audio = formats.iter().any(|f| {
+        f["vcodec"].as_str() == Some("none")
+            && source_codec_allowed(s, f["acodec"].as_str().unwrap_or("none"), false)
+    });
+    let mut heights = formats
+        .iter()
+        .filter(|f| {
+            source_codec_allowed(s, f["vcodec"].as_str().unwrap_or("none"), true)
+                && f["fps"]
+                    .as_f64()
+                    .is_none_or(|fps| fps <= f64::from(s.max_fps))
+                && (source_codec_allowed(s, f["acodec"].as_str().unwrap_or("none"), false)
+                    || (has_audio && f["acodec"].as_str() == Some("none")))
+        })
+        .filter_map(|f| {
+            f["height"]
+                .as_u64()
+                .and_then(|h| u32::try_from(h).ok())
+                .filter(|h| *h > 0)
+        })
+        .collect::<Vec<_>>();
+    heights.sort_unstable();
+    heights.dedup();
+    let height = if requested == 0 {
+        heights.last().copied()
+    } else if heights.contains(&requested) {
+        Some(requested)
+    } else {
+        match s.fallback.as_str() {
+            "highest" => heights.last().copied(),
+            "next_highest" => heights.iter().copied().find(|h| *h > requested),
+            "next_lowest" => heights.iter().copied().rev().find(|h| *h < requested),
+            "best" => heights.iter().copied().rev().find(|h| *h < requested),
+            _ => None,
+        }
+    };
+    height.map(QualityChoice::Height).unwrap_or_else(||QualityChoice::Skip(format!("{}: requested {} quality is unavailable with the selected codec, container, and frame rate",text(info,"id"),if requested==0{"highest".into()}else{format!("{requested}p")})))
 }
 pub(super) fn conversion_args(s: &Settings, input: &Path, output: &Path) -> Vec<String> {
     vec![
@@ -354,6 +458,7 @@ pub(super) fn conversion_args(s: &Settings, input: &Path, output: &Path) -> Vec<
         "-c:v".into(),
         match s.video_codec.as_str() {
             "h264" => "libx264",
+            "hevc" => "libx265",
             "vp9" => "libvpx-vp9",
             "av1" => "libsvtav1",
             _ if s.container == "webm" => "libvpx-vp9",
@@ -512,6 +617,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     let stage_root = state.runtime.data_dir().join("ytdl");
     std::fs::create_dir_all(&stage_root).map_err(err)?;
     let mut scopes = Vec::new();
+    let mut skipped = Vec::new();
     for (index, e) in selected.iter().enumerate() {
         if cancelled(state, &job.id).await {
             return Err(err("Download cancelled."));
@@ -604,6 +710,15 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
         };
         let media = target.join(format!("{stem}.{}", job.settings.container));
         if existing.is_none() {
+            let mut download_settings = job.settings.clone();
+            match choose_quality(&job.settings, &info) {
+                QualityChoice::Legacy => {}
+                QualityChoice::Height(height) => download_settings.quality = Some(height),
+                QualityChoice::Skip(reason) => {
+                    skipped.push(reason);
+                    continue;
+                }
+            }
             let stage = tempfile::tempdir_in(&stage_root).map_err(err)?;
             update(
                 state,
@@ -633,7 +748,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
                     "--no-playlist",
                     "--no-overwrites",
                     "--format",
-                    &format(&job.settings),
+                    &format(&download_settings),
                     "--merge-output-format",
                     download_container,
                     "--remux-video",
@@ -700,6 +815,18 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     }
     scopes.sort();
     scopes.dedup();
+    let skipped_summary = if skipped.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "Skipped {} video(s): {}",
+            skipped.len(),
+            skipped.into_iter().take(20).collect::<Vec<_>>().join("; ")
+        ))
+    };
+    if scopes.is_empty() {
+        return update(state, &job.id, "completed", skipped_summary, Some(100.0)).await;
+    }
     crate::native::start_scan_scoped(state.clone(), job.settings.library_id.clone(), Some(scopes))
         .await?;
     // A completed job must be visible in the catalog before clients invalidate it.
@@ -721,7 +848,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     })
     .await
     .map_err(|_| err("Library import timed out. Retry to rescan the downloaded files."))??;
-    update(state, &job.id, "completed", None, Some(100.0)).await
+    update(state, &job.id, "completed", skipped_summary, Some(100.0)).await
 }
 fn upload_modified_time(info: &Value) -> Option<std::time::SystemTime> {
     info["timestamp"]
@@ -771,6 +898,92 @@ fn publish_with_modified(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn quality_fixture(heights: &[u32]) -> Value {
+        let mut formats = heights
+            .iter()
+            .map(|h| json!({"height":h,"fps":30,"vcodec":"avc1.640028","acodec":"none"}))
+            .collect::<Vec<_>>();
+        formats.push(json!({"vcodec":"none","acodec":"mp4a.40.2"}));
+        json!({"id":"fixture","formats":formats})
+    }
+    #[test]
+    fn exact_highest_and_nearest_quality_are_distinct() {
+        let mut s = Settings {
+            quality: Some(1080),
+            fallback: "highest".into(),
+            ..Default::default()
+        };
+        let info = quality_fixture(&[480, 720, 1440, 2160, 8640]);
+        assert_eq!(
+            choose_quality(&s, &quality_fixture(&[720, 1080, 2160])),
+            QualityChoice::Height(1080)
+        );
+        assert_eq!(choose_quality(&s, &info), QualityChoice::Height(8640));
+        s.fallback = "next_highest".into();
+        assert_eq!(choose_quality(&s, &info), QualityChoice::Height(1440));
+        s.fallback = "next_lowest".into();
+        assert_eq!(choose_quality(&s, &info), QualityChoice::Height(720));
+        s.fallback = "best".into();
+        assert_eq!(choose_quality(&s, &info), QualityChoice::Height(720));
+        assert!(matches!(
+            choose_quality(&s, &quality_fixture(&[2160])),
+            QualityChoice::Skip(_)
+        ));
+        s.quality = Some(0);
+        assert_eq!(choose_quality(&s, &info), QualityChoice::Height(8640));
+        assert!(!format(&s).contains("height"));
+        s.quality = Some(2160);
+        assert!(format(&s).contains("[height=2160]"));
+    }
+    #[test]
+    fn unavailable_quality_skips_only_that_playlist_entry() {
+        let s = Settings {
+            quality: Some(1080),
+            fallback: "skip".into(),
+            ..Default::default()
+        };
+        let choices = [
+            quality_fixture(&[1080]),
+            quality_fixture(&[720]),
+            quality_fixture(&[480, 1080]),
+        ]
+        .iter()
+        .map(|info| choose_quality(&s, info))
+        .collect::<Vec<_>>();
+        assert_eq!(choices[0], QualityChoice::Height(1080));
+        assert!(matches!(choices[1], QualityChoice::Skip(_)));
+        assert_eq!(choices[2], QualityChoice::Height(1080));
+        let strict = Settings {
+            fallback: "strict".into(),
+            ..s.clone()
+        };
+        assert!(matches!(
+            choose_quality(&strict, &quality_fixture(&[720])),
+            QualityChoice::Skip(_)
+        ));
+    }
+    #[test]
+    fn quality_candidates_obey_codec_fps_container_and_audio() {
+        let info = json!({"id":"fixture","formats":[{"height":720,"fps":30,"vcodec":"avc1","acodec":"none"},{"height":1080,"fps":120,"vcodec":"avc1","acodec":"none"},{"height":2160,"fps":60,"vcodec":"vp09","acodec":"none"},{"vcodec":"none","acodec":"mp4a"},{"vcodec":"none","acodec":"opus"}]});
+        let mut s = Settings {
+            quality: Some(0),
+            video_codec: "h264".into(),
+            audio_codec: "aac".into(),
+            ..Default::default()
+        };
+        assert_eq!(choose_quality(&s, &info), QualityChoice::Height(720));
+        s.convert = true;
+        assert_eq!(choose_quality(&s, &info), QualityChoice::Height(2160));
+        s.convert = false;
+        s.video_codec = "auto".into();
+        s.audio_codec = "auto".into();
+        s.container = "webm".into();
+        assert_eq!(choose_quality(&s, &info), QualityChoice::Height(2160));
+        s.audio_codec = "aac".into();
+        assert!(matches!(choose_quality(&s, &info), QualityChoice::Skip(_)));
+        s.quality = None;
+        assert_eq!(choose_quality(&s, &info), QualityChoice::Legacy);
+    }
     #[test]
     fn channel_uploads_do_not_become_a_fabricated_playlist() {
         let v = inspection_value(
@@ -872,6 +1085,19 @@ mod tests {
         assert!(before.elapsed() < Duration::from_secs(10));
     }
     #[test]
+    fn hevc_selects_source_formats_or_converts_with_x265() {
+        let mut settings = Settings {
+            video_codec: "hevc".into(),
+            fallback: "strict".into(),
+            ..Default::default()
+        };
+        assert!(format(&settings).contains("[vcodec~='^(hev1|hvc1|hevc|h265)']"));
+        settings.convert = true;
+        assert!(!format(&settings).contains("hev1"));
+        let args = conversion_args(&settings, Path::new("input.mkv"), Path::new("output.mp4"));
+        assert!(args.windows(2).any(|pair| pair == ["-c:v", "libx265"]));
+    }
+    #[test]
     fn webm_selection_and_conversion_use_compatible_codecs() {
         let settings = Settings {
             container: "webm".into(),
@@ -921,6 +1147,7 @@ mod tests {
     #[test]
     fn format_keeps_limits_on_fallback() {
         let s = Settings {
+            quality: None,
             video_codec: "h264".into(),
             audio_codec: "aac".into(),
             ..Default::default()

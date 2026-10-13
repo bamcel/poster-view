@@ -27,6 +27,8 @@ pub(crate) struct Settings {
     pub container: String,
     #[serde(default = "legacy_filename_convention")]
     pub filename_convention: String,
+    #[serde(default)]
+    pub quality: Option<u32>,
     pub max_height: u32,
     pub max_fps: u32,
     pub fallback: String,
@@ -49,6 +51,7 @@ impl Default for Settings {
             audio_codec: "auto".into(),
             container: "mp4".into(),
             filename_convention: "date_title_id".into(),
+            quality: Some(1080),
             max_height: 1080,
             max_fps: 60,
             fallback: "best".into(),
@@ -120,12 +123,22 @@ async fn settings_save(
     Ok(Json(settings))
 }
 fn validate_settings(state: &AppState, s: &Settings) -> Result<PathBuf, HttpError> {
-    if !["auto", "h264", "vp9", "av1"].contains(&s.video_codec.as_str())
+    if !["auto", "h264", "hevc", "vp9", "av1"].contains(&s.video_codec.as_str())
         || !["auto", "aac", "opus"].contains(&s.audio_codec.as_str())
         || !["mp4", "mkv", "webm"].contains(&s.container.as_str())
         || !["id", "title", "date_title", "title_id", "date_title_id"]
             .contains(&s.filename_convention.as_str())
-        || !["best", "strict"].contains(&s.fallback.as_str())
+        || ![
+            "best",
+            "strict",
+            "highest",
+            "next_highest",
+            "next_lowest",
+            "skip",
+        ]
+        .contains(&s.fallback.as_str())
+        || s.quality
+            .is_some_and(|q| ![0, 480, 720, 1080, 2160].contains(&q))
         || !(144..=4320).contains(&s.max_height)
         || !(1..=240).contains(&s.max_fps)
         || s.subtitle_languages.len() > 20
@@ -139,9 +152,11 @@ fn validate_settings(state: &AppState, s: &Settings) -> Result<PathBuf, HttpErro
     {
         return Err(err("Invalid codec, quality, or subtitle setting."));
     }
-    if s.container == "webm" && (s.video_codec == "h264" || s.audio_codec == "aac") {
+    if s.container == "webm"
+        && (["h264", "hevc"].contains(&s.video_codec.as_str()) || s.audio_codec == "aac")
+    {
         return Err(err(
-            "WebM requires VP9/AV1 video and Opus audio. Choose MKV/MP4 for H.264 or AAC.",
+            "WebM requires VP9/AV1 video and Opus audio. Choose MKV/MP4 for H.264, HEVC, or AAC.",
         ));
     }
     if !s.enabled && s.library_id.is_empty() {
