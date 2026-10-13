@@ -30,14 +30,17 @@ it("offers separate Playback preferences and Transcoding policy in navigation",a
 it.each([true, false])("shows Sign out only when password_required is true (%s)", async (required) => {
   vi.mocked(api.authStatus).mockResolvedValue({ authenticated: true, password_required: required });
   render(<MemoryRouter><AuthGate><Layout /></AuthGate></MemoryRouter>);
-  await screen.findAllByText("Settings");
-  expect(screen.queryAllByRole("button", { name: "Sign out" })).toHaveLength(required ? 2 : 0);
+  await screen.findByRole("link", {name:"Settings"});
+  fireEvent.click(screen.getByLabelText("Profile"));
+  expect(screen.queryAllByRole("button", { name: "Sign out" })).toHaveLength(required ? 1 : 0);
 });
 
-it("updates both sign-out controls when the security policy changes", async () => {
+it("updates the profile sign-out control when the security policy changes", async () => {
   vi.mocked(api.authStatus).mockResolvedValue({ authenticated: true, password_required: true });
   render(<MemoryRouter><AuthGate><Layout /></AuthGate></MemoryRouter>);
-  expect(await screen.findAllByRole("button", { name: "Sign out" })).toHaveLength(2);
+  await screen.findByRole("link", {name:"Settings"});
+  fireEvent.click(screen.getByLabelText("Profile"));
+  expect(screen.getAllByRole("button", {name:"Sign out"})).toHaveLength(1);
   vi.mocked(api.authStatus).mockResolvedValue({ authenticated: true, password_required: false });
   fireEvent(window, new Event("posterview:security-changed"));
   await waitFor(() => expect(screen.queryAllByRole("button", { name: "Sign out" })).toHaveLength(0));
@@ -59,10 +62,13 @@ it("returns to the PosterView dashboard instead of a server catalog", async () =
   );
 
   await screen.findByText("/server/7/item/classroom?return_library=novels");
-  fireEvent.click(screen.getByRole("link", {name: "Dashboard"}));
+  expect(screen.queryByRole("link", {name:"Dashboard"})).toBeNull();
+  fireEvent.click(screen.getByRole("link", {name: "Settings"}));
   await screen.findByText("/settings");
-  fireEvent.click(screen.getAllByLabelText("Home")[0]);
+  expect(screen.getByRole("link", {name:"Dashboard"})).toBeTruthy();
+  fireEvent.click(screen.getAllByRole("link", {name:"Home"})[0]);
   expect(await screen.findByText("/")).toBeTruthy();
+  expect(screen.queryByRole("link", {name:"Dashboard"})).toBeNull();
 });
 
 it("makes both PosterView logos link to the Dashboard root", async () => {
@@ -97,6 +103,7 @@ it("shows user navigation without administrator controls",async()=>{
   expect(screen.queryByRole("link",{name:"Users"})).toBeNull();
   expect(screen.queryByRole("link",{name:"Transcoding"})).toBeNull();
   expect(screen.queryByRole("link",{name:"Libraries"})).toBeNull();
-  expect(screen.getAllByRole("link",{name:"Watch history"})).toHaveLength(2);
+  expect(screen.getByRole("link",{name:"Settings"}).getAttribute("href")).toBe("/settings/playback");
+  fireEvent.click(screen.getByLabelText("Profile"));
   expect(screen.getByText("Viewer")).toBeTruthy();
 });

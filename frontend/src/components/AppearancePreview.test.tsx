@@ -81,7 +81,8 @@ it("fits the full desktop by default and selects the icon only for pane-sized pr
   expect(screen.getByRole("heading", { name: "Series show" })).toBeTruthy();
   const sidebar = frame.querySelector("aside")!;
   expect(sidebar).toBeTruthy();
-  expect(within(sidebar).getByRole("heading", {name:"Settings"})).toBeTruthy();
+  expect(within(sidebar).queryByRole("heading", {name:"Settings"})).toBeNull();
+  expect(within(frame).getByRole("link", {name:"Settings"})).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Series show" })).toBeTruthy();
   expect(screen.getByTestId("outer-location").textContent).toBe("/settings?tab=appearance");
   paneWidth = 800;
