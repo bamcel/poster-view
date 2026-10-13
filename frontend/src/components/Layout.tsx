@@ -112,7 +112,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="relative z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-sidebar/90 px-3 backdrop-blur-xl">
+      <header className="relative z-20 flex h-14 shrink-0 items-center gap-2 bg-transparent px-3">
         <NavLink to="/" aria-label="Go to Home" className="mr-auto min-w-0 md:hidden">
           <Logo className="w-20 overflow-hidden [&>img]:max-w-full [&>img]:translate-y-[5px] sm:w-36" />
         </NavLink>

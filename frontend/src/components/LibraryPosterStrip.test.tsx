@@ -6,11 +6,12 @@ import LibraryPosterStrip from "./LibraryPosterStrip";
 vi.mock("../api/nativeLibraries",async original=>({...await original<typeof import("../api/nativeLibraries")>(),nativeLibraries:{...((await original<typeof import("../api/nativeLibraries")>()).nativeLibraries),previews:vi.fn()}}));
 afterEach(()=>{cleanup();vi.useRealTimers();vi.unstubAllGlobals();vi.clearAllMocks();vi.restoreAllMocks();});
 function mount(){const client=new QueryClient({defaultOptions:{queries:{retry:false}}});client.setQueryData(["native-previews","anime"],Array.from({length:6},(_,i)=>({id:String(i),title:`Title ${i}`,revision:1})));return render(<QueryClientProvider client={client}><LibraryPosterStrip library="anime"/></QueryClientProvider>);}
-it("slides continuously right and wraps without a waiting interval",()=>{
+it("slides continuously right and wraps without a waiting interval",async()=>{
  let callback:FrameRequestCallback=()=>{};
  vi.stubGlobal("requestAnimationFrame",vi.fn((next:FrameRequestCallback)=>{callback=next;return 1;}));
  vi.stubGlobal("cancelAnimationFrame",vi.fn());
  mount();
+ await act(async()=>{});
  const images=Array.from(screen.getByLabelText("Library poster preview").querySelectorAll("img"));
  const sources=images.map(image=>image.src);
  act(()=>callback(0));act(()=>callback(100));
@@ -42,16 +43,50 @@ it("keeps poster URLs on metadata refresh and updates when media is added",async
  expect((await screen.findAllByAltText("Three"))[0]).toBeTruthy();
 });
 
-it("randomizes a new track once and preserves its order across frames",()=>{
+it("randomizes a new track once and preserves its order across frames",async()=>{
  const random=vi.spyOn(Math,"random").mockReturnValue(0);
  let callback:FrameRequestCallback=()=>{};
  vi.stubGlobal("requestAnimationFrame",vi.fn((next:FrameRequestCallback)=>{callback=next;return 1;}));
  vi.stubGlobal("cancelAnimationFrame",vi.fn());
  mount();
+ await act(async()=>{});
  const posters=()=>Array.from(screen.getByLabelText("Library poster preview").querySelectorAll("img")).map(image=>image.getAttribute("alt")).filter(Boolean);
  expect(posters()).toEqual(["Title 1","Title 2","Title 3","Title 4","Title 5","Title 0"]);
  act(()=>callback(0));
  for(let time=100;time<=31000;time+=100)act(()=>callback(time));
  expect(posters()).toEqual(["Title 1","Title 2","Title 3","Title 4","Title 5","Title 0"]);
  expect(random).toHaveBeenCalledTimes(5);
+});
+
+it("shares random poster order and revisions between Home and Settings mounts",()=>{
+ const random=vi.spyOn(Math,"random").mockReturnValue(0);
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ const items=Array.from({length:6},(_,i)=>({id:String(i),title:`Title ${i}`,revision:1}));
+ client.setQueryData(["native-previews","anime"],items);
+ const node=<QueryClientProvider client={client}><LibraryPosterStrip library="anime"/></QueryClientProvider>;
+ const first=render(node);
+ const sources=()=>Array.from(screen.getByLabelText("Library poster preview").querySelectorAll("img")).map(image=>image.getAttribute("src"));
+ const original=sources();
+ first.unmount();
+ client.setQueryData(["native-previews","anime"],items.map(item=>({...item,revision:2})));
+ render(node);
+ expect(sources()).toEqual(original);
+ expect(random).toHaveBeenCalledTimes(5);
+});
+
+it("pauses offscreen without restarting the slide",async()=>{
+ let observe:IntersectionObserverCallback=()=>{};
+ vi.stubGlobal("IntersectionObserver",class {constructor(callback:IntersectionObserverCallback){observe=callback;}observe(){}disconnect(){}});
+ let callback:FrameRequestCallback=()=>{};
+ vi.stubGlobal("requestAnimationFrame",vi.fn((next:FrameRequestCallback)=>{callback=next;return 1;}));
+ vi.stubGlobal("cancelAnimationFrame",vi.fn());
+ mount();
+ const visibility=async(isIntersecting:boolean)=>{await act(async()=>{observe([{isIntersecting} as IntersectionObserverEntry],{} as IntersectionObserver);});};
+ await visibility(true);
+ act(()=>callback(0));act(()=>callback(100));
+ const track=screen.getByLabelText("Library poster preview").firstElementChild!;
+ const position=track.getAttribute("style");
+ await visibility(false);
+ await visibility(true);
+ expect(track.getAttribute("style")).toBe(position);
 });
