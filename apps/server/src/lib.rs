@@ -38,6 +38,7 @@ mod transcoding;
 mod users;
 mod watch;
 mod workers;
+mod ytdl;
 pub use auth::AuthState;
 pub use config::ServerConfig;
 use error::HttpError;
@@ -78,6 +79,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     }
     state.playback.start_cleanup();
     native_monitor::start(state.clone());
+    ytdl::start(state.clone());
     scheduled_tasks::start(state.clone());
     let index = ui_dir.join("index.html");
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));

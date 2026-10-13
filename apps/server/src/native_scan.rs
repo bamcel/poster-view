@@ -185,6 +185,30 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
     if !fields.is_object() {
         fields = json!({});
     }
+    if let Some(youtube) = root.get_child("youtube") {
+        let mut metadata = value(youtube);
+        if !metadata.is_object() {
+            metadata = json!({});
+        }
+        if let Some(seconds) = metadata["duration_seconds"]
+            .as_str()
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|s| s.is_finite() && *s >= 0.0)
+        {
+            metadata["duration_seconds"] = json!(seconds);
+        }
+        let playlists: Vec<Value> = youtube.children.iter().filter_map(|node| {
+            let XMLNode::Element(child) = node else { return None };
+            if child.name != "playlist" { return None; }
+            let id = child.attributes.get("id")?;
+            let mut playlist = json!({"id": id, "title": child.attributes.get("title").cloned().unwrap_or_else(|| id.clone())});
+            if let Some(index) = child.attributes.get("index").and_then(|s| s.parse::<u64>().ok()) { playlist["index"] = json!(index); }
+            if let Some(description) = child.get_child("description").and_then(Element::get_text) { playlist["description"] = json!(description); }
+            Some(playlist)
+        }).collect();
+        metadata["playlists"] = json!(playlists);
+        fields["youtube"] = metadata;
+    }
     for field in ["year", "season", "episode", "runtime", "volumes"] {
         if let Some(v) = fields[field].as_str().and_then(|v| v.parse::<i64>().ok()) {
             fields[field] = json!(v);
@@ -595,13 +619,17 @@ pub(crate) fn collect_scoped(
     });
     files.retain(|p| {
         !(library.library_type != NativeLibraryType::Books
+            && library.library_type != NativeLibraryType::Youtube
             && library.options.sample_ignore_mb > 0
             && p.file_name()
                 .is_some_and(|n| n.to_string_lossy().to_ascii_lowercase().contains("sample"))
             && fs::metadata(p)
                 .is_ok_and(|m| m.len() < u64::from(library.options.sample_ignore_mb) * 1024 * 1024))
     });
-    if library.library_type != NativeLibraryType::Books {
+    if !matches!(
+        library.library_type,
+        NativeLibraryType::Books | NativeLibraryType::Youtube
+    ) {
         files.retain(|p| !credit_video(p));
     }
     let total = files.len();
@@ -724,12 +752,14 @@ pub(crate) fn collect_scoped(
                     None
                 }
             });
-        let show = !books
-            && library.library_type != NativeLibraryType::Movies
-            && library.anime_content != AnimeContent::Movies
-            && (numbers.is_some()
-                || dir.join("tvshow.nfo").is_file()
-                || library.library_type == NativeLibraryType::Shows);
+        let youtube = library.library_type == NativeLibraryType::Youtube;
+        let show = youtube
+            || (!books
+                && library.library_type != NativeLibraryType::Movies
+                && library.anime_content != AnimeContent::Movies
+                && (numbers.is_some()
+                    || dir.join("tvshow.nfo").is_file()
+                    || library.library_type == NativeLibraryType::Shows));
         if library.library_type == NativeLibraryType::Anime
             && library.anime_content == AnimeContent::Shows
             && !show
@@ -788,7 +818,7 @@ pub(crate) fn collect_scoped(
                 entries.insert(series_path.clone(), series);
             }
             parent = Some(series_path.clone());
-            if show {
+            if show && !youtube {
                 if let Some((season, _)) = numbers {
                     let season_path = format!("{series_path}/@season-{season}");
                     entries.entry(season_path.clone()).or_insert_with(|| {
@@ -851,7 +881,7 @@ pub(crate) fn collect_scoped(
             clean_title(&stem),
         );
         apply_nfo(&mut entry, sidecar);
-        if let Some((season, ep)) = numbers {
+        if let Some((season, ep)) = numbers.filter(|_| !youtube) {
             entry.metadata["season"] = json!(season);
             entry.metadata["episode"] = json!(ep);
         }
@@ -905,7 +935,7 @@ pub(crate) fn collect_scoped(
                     entry.artwork.push(cover);
                 }
             }
-            if entry.kind == "episode" || entry.kind == "book" {
+            if (entry.kind == "episode" && !youtube) || entry.kind == "book" {
                 entry.artwork.retain(|a| {
                     Path::new(&a.path).file_stem().is_some_and(|n| {
                         let n = n.to_string_lossy().to_lowercase();
@@ -1770,5 +1800,33 @@ mod media_info_cache_tests {
             &json!({"posterview_probe_version": MEDIA_INFO_VERSION, "streams": []})
         ));
         assert!(!current_media_info(&json!({"posterview_probe_version": 1})));
+    }
+}
+
+#[cfg(test)]
+mod youtube_nfo_tests {
+    use super::*;
+
+    #[test]
+    fn video_metadata_preserves_identity_and_ordered_playlist_membership() {
+        let (_, fields) = parse_nfo(br#"<episodedetails><title>Video</title><custom>keep me</custom><uniqueid type="youtube">abc123</uniqueid><youtube><video_id>abc123</video_id><channel_id>UC123</channel_id><duration_seconds>123.5</duration_seconds><playlist id="PL1" title="First" index="4"/><playlist id="PL2" title="Second" index="2"/></youtube></episodedetails>"#).unwrap();
+        assert_eq!(fields["youtube"]["duration_seconds"], json!(123.5));
+        assert_eq!(
+            fields["youtube"]["playlists"][0],
+            json!({"id":"PL1","title":"First","index":4})
+        );
+        assert_eq!(fields["youtube"]["playlists"][1]["index"], 2);
+        assert_eq!(fields["identifiers"]["youtube"], "abc123");
+        assert_eq!(fields["custom"], "keep me");
+    }
+
+    #[test]
+    fn channel_metadata_reads_playlist_descriptions_and_keeps_unknown_fields() {
+        let (_, fields) = parse_nfo(br#"<tvshow><title>Channel</title><youtube><channel_id>UC123</channel_id><custom>keep</custom><playlist id="PL1" title="Playlist"><description>Full playlist description</description></playlist></youtube></tvshow>"#).unwrap();
+        assert_eq!(
+            fields["youtube"]["playlists"][0]["description"],
+            "Full playlist description"
+        );
+        assert_eq!(fields["youtube"]["custom"], "keep");
     }
 }

@@ -8,6 +8,8 @@ use std::{path::PathBuf, sync::Arc};
 
 #[derive(Clone)]
 pub(crate) struct AppState {
+    pub(crate) ytdl_lock: Arc<tokio::sync::Mutex<()>>,
+    pub(crate) ytdl_notify: Arc<tokio::sync::Notify>,
     pub(crate) active_native_scans: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     pub(crate) maintenance_lock: Arc<tokio::sync::Mutex<()>>,
     pub(crate) running_maintenance_task: Arc<std::sync::Mutex<Option<String>>>,
@@ -21,6 +23,8 @@ pub(crate) struct AppState {
 impl AppState {
     pub(crate) fn new(runtime: Arc<Runtime>, auth: AuthState, media_dir: PathBuf) -> Self {
         Self {
+            ytdl_lock: Default::default(),
+            ytdl_notify: Default::default(),
             active_native_scans: Default::default(),
             maintenance_lock: Default::default(),
             running_maintenance_task: Default::default(),

@@ -1,7 +1,8 @@
 import { apiRequest } from "./client";
 
-export type NativeLibraryType = "movies" | "shows" | "anime" | "books";
+export type NativeLibraryType = "movies" | "shows" | "anime" | "books" | "youtube";
 export interface NativeLibraryOptions {
+  youtube_mode?: "single_channel" | "multiple_channels"; youtube_channels?: string[];
   show_missing_files?:boolean; show_missing_specials?:boolean;
   read_nfo: boolean; save_nfo: boolean; local_artwork: boolean; save_artwork: boolean; fetch_missing: boolean;
   metadata_language: string; certification_country: string; image_language: string;
@@ -9,6 +10,7 @@ export interface NativeLibraryOptions {
   metadata_providers: Record<string, string[]>; image_providers: Record<string, string[]>; image_types: string[];
 }
 export const defaultNativeOptions: NativeLibraryOptions = {
+  youtube_mode:"single_channel",youtube_channels:[],
   show_missing_files:true,show_missing_specials:false,
   read_nfo: true, save_nfo: false, local_artwork: true, save_artwork: false, fetch_missing: true,
   metadata_language: "en", certification_country: "US", image_language: "en", prefer_embedded_titles: false, real_time_monitor: false,
@@ -35,7 +37,7 @@ export interface FolderList {
   folders: { name: string; path: string; has_nfo: boolean }[];
 }
 export const nativeLibraries = {
-  previews: (id: string) => apiRequest<{id:string;title:string;revision:number}[]>(`/native/libraries/${encodeURIComponent(id)}/previews`),
+  previews: (id: string) => apiRequest<{id:string;title:string;revision:number;artwork_kind?:"poster"|"thumb"}[]>(`/native/libraries/${encodeURIComponent(id)}/previews`),
   list: () => apiRequest<NativeLibrary[]>("/native/libraries"),
   save: (input: NativeLibraryInput, id?: string) => apiRequest<NativeLibrary>(
     `/native/libraries${id ? `/${encodeURIComponent(id)}` : ""}`,

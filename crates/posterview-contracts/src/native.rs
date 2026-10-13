@@ -7,6 +7,7 @@ pub enum NativeLibraryType {
     Shows,
     Anime,
     Books,
+    Youtube,
 }
 
 impl NativeLibraryType {
@@ -16,6 +17,7 @@ impl NativeLibraryType {
             Self::Shows => "shows",
             Self::Anime => "anime",
             Self::Books => "books",
+            Self::Youtube => "youtube",
         }
     }
 }
@@ -76,6 +78,8 @@ pub struct NativeLibraryOptions {
     // Accept older stored options, but never expose or use the retired integration.
     #[serde(rename = "server_sync", skip_serializing)]
     pub legacy_server_sync: serde_json::Value,
+    pub youtube_mode: String,
+    pub youtube_channels: Vec<String>,
     pub read_nfo: bool,
     pub save_nfo: bool,
     pub local_artwork: bool,
@@ -98,6 +102,8 @@ impl Default for NativeLibraryOptions {
     fn default() -> Self {
         Self {
             legacy_server_sync: serde_json::Value::Null,
+            youtube_mode: "single_channel".into(),
+            youtube_channels: Vec::new(),
             read_nfo: true,
             save_nfo: false,
             local_artwork: true,

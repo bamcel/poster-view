@@ -1637,3 +1637,29 @@ async fn retired_sync_endpoints_cannot_start_background_work() {
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn ytdl_routes_enforce_administrator_downloads() {
+    use posterview_contracts::{UserCreate, UserPermissions, UserRole};
+    let directory=tempdir().unwrap();
+    let mut state=crate::test_support::state(directory.path());
+    let store=posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
+    state.auth=super::AuthState::load(state.runtime.data_dir(),Some("admin-password"),"admin",false).unwrap();
+    store.bootstrap_user("admin","admin-password").unwrap();
+    store.create_user(&UserCreate {username:"viewer".into(),display_name:"Viewer".into(),password:"viewer-password".into(),role:UserRole::User,enabled:true,permissions:UserPermissions::default()}).unwrap();
+    let (_,viewer)=state.auth.login("viewer","viewer-password").unwrap();
+    let (_,admin)=state.auth.login("admin","admin-password").unwrap();
+    let app=crate::routes::system::public().merge(crate::routes::protected(state.auth.clone())).with_state(state);
+    for (method,path) in [("GET","/api/plugins/ytdl"),("PUT","/api/plugins/ytdl"),("POST","/api/plugins/ytdl/inspect"),("GET","/api/plugins/ytdl/jobs"),("POST","/api/plugins/ytdl/jobs"),("POST","/api/plugins/ytdl/jobs/job/cancel"),("POST","/api/plugins/ytdl/jobs/job/retry")] {
+        for (cookie,expected) in [(None,StatusCode::UNAUTHORIZED),(Some(&viewer),StatusCode::FORBIDDEN)] {
+            let mut request=Request::builder().method(method).uri(path).header("content-type","application/json");
+            if let Some(cookie)=cookie {request=request.header("cookie",cookie);}
+            let response=app.clone().oneshot(request.body(Body::from("{}")).unwrap()).await.unwrap();
+            assert_eq!(response.status(),expected,"{method} {path}");
+        }
+    }
+    let response=app.clone().oneshot(Request::builder().uri("/api/plugins/ytdl/jobs").header("cookie",&admin).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::OK);
+    let response=app.oneshot(Request::builder().method("PUT").uri("/api/plugins/ytdl").header("cookie",&admin).header("content-type","application/json").body(Body::from("{\"enabled\":false}")).unwrap()).await.unwrap();
+    assert_eq!(response.status(),StatusCode::OK);
+}

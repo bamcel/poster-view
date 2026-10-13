@@ -149,7 +149,53 @@ INSERT INTO schema_migrations(version,name) VALUES(2,'native_scan_options_and_ar
         CREATE INDEX IF NOT EXISTS catalog_item_nfo_reverse ON catalog_item_nfo(document_id);",
     )?;
     tx.commit()?;
+    migrate_youtube(db)?;
     Ok(())
+}
+
+// SQLite cannot extend a CHECK constraint in place. Rebuild only the parent
+// table with FK enforcement temporarily disabled, preserving every child row.
+fn migrate_youtube(db: &Connection) -> Result<(), StoreError> {
+    let applied: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=3)",
+        [],
+        |row| row.get(0),
+    )?;
+    if applied {
+        return Ok(());
+    }
+    db.pragma_update(None, "foreign_keys", false)?;
+    let result = (|| {
+        let tx = db.unchecked_transaction()?;
+        tx.execute_batch(r#"
+CREATE TABLE native_libraries_youtube (
+ id TEXT PRIMARY KEY, name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 120),
+ library_type TEXT NOT NULL CHECK(library_type IN ('movies','shows','anime','books','youtube')),
+ anime_content TEXT NOT NULL CHECK(anime_content IN ('both','shows','movies')),
+ revision INTEGER NOT NULL DEFAULT 1,
+ created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+ options_json TEXT NOT NULL DEFAULT '{}'
+);
+INSERT INTO native_libraries_youtube SELECT id,name,library_type,anime_content,revision,created_at,updated_at,options_json FROM native_libraries;
+DROP TABLE native_libraries;
+ALTER TABLE native_libraries_youtube RENAME TO native_libraries;
+CREATE UNIQUE INDEX native_library_name ON native_libraries(name COLLATE NOCASE);
+INSERT INTO schema_migrations(version,name) VALUES(3,'youtube_library_type');
+"#)?;
+        let invalid: i64 =
+            tx.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })?;
+        if invalid != 0 {
+            return Err(StoreError::Validation(
+                "Library migration found invalid references.".into(),
+            ));
+        }
+        tx.commit()?;
+        Ok(())
+    })();
+    db.pragma_update(None, "foreign_keys", true)?;
+    result
 }
 
 fn provider_supported(
@@ -159,6 +205,9 @@ fn provider_supported(
     images: bool,
 ) -> bool {
     use posterview_contracts::native::NativeLibraryType;
+    if library == NativeLibraryType::Youtube {
+        return false;
+    }
     let anime = library == NativeLibraryType::Anime;
     match provider {
         "comicvine" | "mangadex" => library == NativeLibraryType::Books && kind == "book_series",
@@ -200,6 +249,18 @@ fn validate(input: &NativeLibraryInput) -> Result<(), StoreError> {
         return Err(invalid(
             "Invalid library language, country, or sample size.",
         ));
+    }
+    if !["single_channel", "multiple_channels"].contains(&options.youtube_mode.as_str())
+        || options.youtube_channels.len() > 32
+        || (input.library_type == posterview_contracts::native::NativeLibraryType::Youtube
+            && options.youtube_mode == "single_channel"
+            && options.youtube_channels.len() > 1)
+        || options
+            .youtube_channels
+            .iter()
+            .any(|channel| channel.trim().is_empty() || channel.len() > 2048)
+    {
+        return Err(invalid("Invalid YouTube channel configuration."));
     }
     for (images, providers) in [
         (false, &options.metadata_providers),
@@ -268,7 +329,7 @@ impl ServerStore {
         )?;
         let permitted = match library_type.as_str() {
             "movies" => kind == "movie",
-            "shows" => kind == "series",
+            "shows" | "youtube" => kind == "series",
             "anime" => {
                 (kind == "movie" && content != "shows") || (kind == "series" && content != "movies")
             }
@@ -463,6 +524,50 @@ impl ServerStore {
 mod tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryType};
+    #[test]
+    fn youtube_migration_preserves_existing_library_relations() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ServerStore::new(dir.path());
+        let db = store.connection().unwrap();
+        db.execute_batch(SCHEMA).unwrap();
+        db.execute_batch("INSERT INTO schema_migrations(version,name) VALUES(1,'legacy');
+            INSERT INTO native_libraries(id,name,library_type,anime_content) VALUES('old','Existing','shows','both');
+            INSERT INTO native_library_roots VALUES('old','Shows',0);
+            INSERT INTO catalog_items(id,kind,title) VALUES('item','series','Existing series');
+            INSERT INTO native_library_items VALUES('old','item');").unwrap();
+        migrate(&db).unwrap();
+        migrate(&db).unwrap();
+        let libraries = store.native_libraries().unwrap();
+        assert_eq!(libraries[0].id, "old");
+        assert_eq!(libraries[0].paths, ["Shows"]);
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM native_library_items", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.query_row("PRAGMA foreign_keys", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        let saved = store
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "YouTube".into(),
+                    library_type: NativeLibraryType::Youtube,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["YouTube".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        assert_eq!(saved.library_type, NativeLibraryType::Youtube);
+        assert_eq!(store.native_libraries().unwrap().len(), 2);
+    }
+
     #[test]
     fn catalog_reads_remain_available_during_library_deletion() {
         let dir = tempfile::tempdir().unwrap();

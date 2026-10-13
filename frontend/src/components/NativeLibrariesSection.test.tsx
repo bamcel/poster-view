@@ -179,3 +179,15 @@ it("refreshes an entire library from its action menu with the selected options",
  fireEvent.click(screen.getByRole("button",{name:/^Refresh$/}));
  await waitFor(()=>expect(nativeLibraries.refresh).toHaveBeenCalledWith(saved.id,{replaceMetadata:false,replaceImages:false}));
 });
+it("creates YouTube library with channel hierarchy and local NFO defaults", async () => {
+ mount(<LibraryDialog onClose={()=>{}} onSaved={()=>{}}/>);
+ fireEvent.change(screen.getByLabelText("Name"),{target:{value:"Creators"}});
+ fireEvent.change(screen.getByLabelText("Library type"),{target:{value:"youtube"}});
+ fireEvent.change(screen.getByLabelText("YouTube content"),{target:{value:"multiple_channels"}});
+ fireEvent.change(screen.getByLabelText("Channel URLs or IDs"),{target:{value:"@first\n@second"}});
+ fireEvent.click(screen.getByRole("button",{name:"Next"}));
+ fireEvent.click(await screen.findByRole("checkbox",{name:"Shows"}));
+ fireEvent.click(screen.getByRole("button",{name:/Review/}));
+ fireEvent.click(screen.getByRole("button",{name:"Create library"}));
+ await waitFor(()=>expect(nativeLibraries.save).toHaveBeenCalledWith(expect.objectContaining({library_type:"youtube",options:expect.objectContaining({youtube_mode:"multiple_channels",youtube_channels:["@first","@second"],read_nfo:true,save_nfo:true,fetch_missing:false,show_missing_files:false,metadata_providers:{},image_providers:{}})}),undefined));
+});

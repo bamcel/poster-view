@@ -42,8 +42,16 @@ pub(crate) async fn list(
 async fn save(
     state: AppState,
     id: Option<String>,
-    input: NativeLibraryInput,
+    mut input: NativeLibraryInput,
 ) -> Result<Json<NativeLibrary>, HttpError> {
+    if input.library_type == NativeLibraryType::Youtube {
+        input.options.read_nfo = true;
+        input.options.fetch_missing = false;
+        input.options.show_missing_files = false;
+        input.options.show_missing_specials = false;
+        input.options.metadata_providers.clear();
+        input.options.image_providers.clear();
+    }
     let result = tokio::task::spawn_blocking(move || {
         for path in &input.paths {
             state.metadata.directory(path, true)?;
@@ -260,11 +268,21 @@ pub(crate) async fn previews(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
+    let youtube = library(&state, &id).await?.library_type == NativeLibraryType::Youtube;
     let Json(entries) = catalog(State(state), Path(id)).await?;
-    Ok(Json(serde_json::Value::Array(entries.into_iter()
-        .filter(|entry| entry.available && ["series", "movie", "book", "book_series"].contains(&entry.kind.as_str()) && entry.artwork.iter().any(|art| art.kind == "poster"))
-        .map(|entry| serde_json::json!({"id":entry.id,"title":entry.title,"revision":entry.revision}))
-        .collect())))
+    let previews = entries.into_iter().filter_map(|entry| {
+        if !entry.available { return None; }
+        if youtube {
+            let kind = entry.artwork.iter().find(|art| art.kind == "thumb")
+                .or_else(|| entry.artwork.iter().find(|art| art.kind == "poster"))?;
+            if entry.kind != "episode" { return None; }
+            Some(serde_json::json!({"id":entry.id,"title":entry.title,"revision":entry.revision,"artwork_kind":kind.kind}))
+        } else if ["series", "movie", "book", "book_series"].contains(&entry.kind.as_str())
+            && entry.artwork.iter().any(|art| art.kind == "poster") {
+            Some(serde_json::json!({"id":entry.id,"title":entry.title,"revision":entry.revision}))
+        } else { None }
+    }).collect();
+    Ok(Json(serde_json::Value::Array(previews)))
 }
 fn suppress_previous_identity(metadata: &mut serde_json::Value, previous: &serde_json::Value) {
     if let Some(discarded) = previous["_identify_discarded"].as_object() {
@@ -598,8 +616,9 @@ async fn run_scan_scoped_mode(
             entries.push(missing);
         }
     }
-    crate::native_missing::reconcile_library(&state, &library, &mut entries, false, &mut warnings)
-        .await;
+    if library.library_type != NativeLibraryType::Youtube {
+        crate::native_missing::reconcile_library(&state, &library, &mut entries, false, &mut warnings).await;
+    }
     for entry in &mut entries {
         normalize_season_title(entry);
     }
@@ -633,10 +652,13 @@ async fn run_scan_scoped_mode(
     .await
     .map_err(|_| HttpError::bad_request("Local catalog save interrupted."))?
     .map_err(error)?;
-    crate::native_provider::enrich(&state, &library, &mut entries, &mut warnings).await;
+    if library.library_type != NativeLibraryType::Youtube {
+        crate::native_provider::enrich(&state, &library, &mut entries, &mut warnings).await;
+    }
     crate::native_capture::fill_missing(&state, &library, &mut entries, &mut warnings).await;
-    crate::native_missing::reconcile_library(&state, &library, &mut entries, true, &mut warnings)
-        .await;
+    if library.library_type != NativeLibraryType::Youtube {
+        crate::native_missing::reconcile_library(&state, &library, &mut entries, true, &mut warnings).await;
+    }
     if library.options.show_missing_files && library.library_type == NativeLibraryType::Books {
         crate::native_scan::book_placeholders(&mut entries);
     }

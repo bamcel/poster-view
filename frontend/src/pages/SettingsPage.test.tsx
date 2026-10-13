@@ -9,7 +9,7 @@ import type { AppearanceSettings } from "../types";
 vi.mock("../components/AppearancePreview", () => ({ default: ({ onClose }: { onClose: () => void }) => <section aria-label="Live Dashboard preview"><button onClick={onClose}>Close split view</button></section> }));
 
 vi.mock("../api/client", () => ({
-  apiRequest:vi.fn(async(url:string)=>{if(url.startsWith("/plugins/"))return {enabled:true,pinned:false,poster_edit:true,backdrop_edit:true};throw new Error("Not configured");}),
+  apiRequest:vi.fn(async(url:string)=>{if(url==="/plugins/ytdl")return {settings:{enabled:false},dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}};if(url.startsWith("/plugins/"))return {enabled:true,pinned:false,poster_edit:true,backdrop_edit:true};throw new Error("Not configured");}),
   api: {
     listServers: vi.fn(),
     createServer: vi.fn(),

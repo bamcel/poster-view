@@ -7,6 +7,7 @@ import {createSearchParams, type SetURLSearchParams} from "react-router-dom";
 import {useQuery} from "@tanstack/react-query";
 import {useSearchParams} from "../lib/libraryNavigation";
 import {nativeLibraries} from "../api/nativeLibraries";
+import YouTubeLibraryBrowser from "../features/youtube/YouTubeLibraryBrowser";
 import NativeLibraryBrowser from "../components/NativeLibraryBrowser";
 
 export default function DashboardPage() {
@@ -27,13 +28,18 @@ export default function DashboardPage() {
  const routeItem=episodeSlug ? (season ? resolveNumbered(episodeSlug,entries.filter(entry=>entry.kind==="episode"&&entry.parent_path===season.path)) : undefined) : seasonSlug ? season : resolveNamed(itemSlug,entries);
  const effective=new URLSearchParams(params);
  if(library&&!preview) effective.set("native_library",library.id);
- if(itemSlug&&!preview){effective.delete("native_item");if(routeItem)effective.set("native_item",routeItem.id);}
+ if(library?.library_type==="youtube"){
+  const video=params.get("native_item")??routeItem?.id;
+  if(video)effective.set("youtube_video",video);
+  effective.delete("native_item");
+ }
+ if(itemSlug&&!preview&&library?.library_type!=="youtube"){effective.delete("native_item");if(routeItem)effective.set("native_item",routeItem.id);}
  const setReadable:SetURLSearchParams=(update,options)=>{
   const next=createSearchParams(typeof update==="function"?update(new URLSearchParams(effective)):update);
   const item=entries.find(entry=>entry.id===(view.aliases.get(next.get("native_item")??"")??next.get("native_item")));
   if(!library)return;
   next.delete("native_library");next.delete("native_item");next.delete("lib");
-  const path=item?itemPath(library,libraries.data??[],item,entries):libraryPath(library,libraries.data??[]);
+  const path=library.library_type==="youtube"?libraryPath(library,libraries.data??[]):item?itemPath(library,libraries.data??[],item,entries):libraryPath(library,libraries.data??[]);
   navigate(`${path}${next.size?`?${next}`:""}`,options);
  };
  useEffect(()=>{
@@ -50,6 +56,6 @@ export default function DashboardPage() {
    <h1 className="py-3 text-xl font-semibold">{library?.name ?? "Media"}</h1>
 
   </header>}
-  <div className="min-h-0 flex-1">{library?<NativeLibraryBrowser key={library.id} library={library}/>:<div className="space-y-3 p-5 text-muted">{libraries.isPending?"Loading libraries…":libraries.error?libraries.error.message:<><p>Add a library in Settings → Libraries.</p></>}</div>}</div>
+  <div className="min-h-0 flex-1">{library?(library.library_type==="youtube"?<YouTubeLibraryBrowser key={library.id} library={library}/>:<NativeLibraryBrowser key={library.id} library={library}/>):<div className="space-y-3 p-5 text-muted">{libraries.isPending?"Loading libraries…":libraries.error?libraries.error.message:<><p>Add a library in Settings → Libraries.</p></>}</div>}</div>
  </div></LibraryNavigationContext.Provider>;
 }

@@ -1,4 +1,5 @@
 import SeriesActionsDialog from "./SeriesActionsDialog";
+import {youtubeOptions} from "../features/settings/ytdl/client";
 import {BACKDROP_BLUR_EVENT, PANEL_SOLIDITY_EVENT, PANEL_OVERLAY_EVENT, backdropBlur, panelSolidity, panelOverlay, translucentPanelColor} from "../lib/dashboardSettings";
 import LibraryPosterStrip from "./LibraryPosterStrip";
 import NativeScanProgress from "./NativeScanProgress";
@@ -9,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check, ChevronRight, Folder, FolderPlus, Loader2, MoreHorizontal, RefreshCw, Trash2, Plus, Search, X } from "lucide-react";
 import { defaultNativeOptions, nativeLibraries, type NativeLibrary, type NativeLibraryInput, type NativeLibraryType } from "../api/nativeLibraries";
 
-const TYPES: Record<NativeLibraryType, string> = { movies: "Movies", shows: "TV Shows", anime: "Anime", books: "Books" };
+const TYPES: Record<NativeLibraryType, string> = { movies: "Movies", shows: "TV Shows", anime: "Anime", books: "Books", youtube: "YouTube" };
 const INPUT = "w-full rounded border border-border bg-input px-3 py-2.5 text-sm text-white focus:border-accent focus:outline-none";
 const BUTTON = "rounded-xl border border-edge px-3 py-2 text-sm text-muted hover:bg-base hover:text-white disabled:opacity-50";
 const MENU_ACTION = "w-full rounded-md px-3 py-3 text-left text-sm font-medium text-muted transition-colors hover:bg-white/10 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50";
@@ -102,7 +103,7 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
   </article>;
 }
 
-export function LibraryDialog({ library, seed, onClose, onSaved }: { library?: NativeLibrary; seed?: NativeLibraryInput; onClose: () => void; onSaved: () => void }) {
+export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer }: { library?: NativeLibrary; seed?: NativeLibraryInput; onClose: () => void; onSaved: () => void; portalContainer?: HTMLElement | null }) {
   const initial = useRef<NativeLibraryInput>(seed ?? (library ? { name: library.name, library_type: library.library_type, anime_content: library.anime_content, paths: library.paths, options: { ...defaultNativeOptions, ...library.options }, revision: library.revision } : { name: "", library_type: "movies", anime_content: "both", paths: [], options: { ...defaultNativeOptions }, revision: null }));
   const [draft, setDraft] = useState(initial.current);
   const [step, setStep] = useState(0);
@@ -112,7 +113,7 @@ export function LibraryDialog({ library, seed, onClose, onSaved }: { library?: N
   const dialog = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLElement>(null);
   useEffect(() => { if (content.current) content.current.scrollTop = 0; }, [step]);
-  const save = useMutation({ mutationFn: () => nativeLibraries.save(draft.library_type === "books" ? {...draft, options:{...draft.options!, allow_adult_metadata:true}} : draft, library?.id), onSuccess: onSaved });
+  const save = useMutation({ mutationFn: () => nativeLibraries.save(draft.library_type === "youtube" ? {...draft,options:{...defaultNativeOptions,...draft.options,...youtubeOptions,youtube_channels:draft.options?.youtube_channels?.map(value=>value.trim()).filter(Boolean)??[]}} : draft.library_type === "books" ? {...draft, options:{...draft.options!, allow_adult_metadata:true}} : draft, library?.id), onSuccess: onSaved });
   const folders = useQuery({ queryKey: ["native-folders", path], queryFn: () => nativeLibraries.folders(path), enabled: step === 1 });
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial.current);
   const closeRef = useRef<() => void>(() => {});
@@ -146,7 +147,8 @@ export function LibraryDialog({ library, seed, onClose, onSaved }: { library?: N
           {discard && <div className="mb-5 rounded-xl border border-border bg-window p-4" role="alert"><p className="text-sm text-white">Discard your unsaved changes?</p><div className="mt-3 flex gap-2"><button className={BUTTON} onClick={() => setDiscard(false)}>Keep editing</button><button className={`${BUTTON} text-danger`} onClick={onClose}>Discard changes</button></div></div>}
           {step === 0 && <div className="space-y-6"><div><h3 className="font-medium text-white">General</h3><p className="mt-1 text-sm text-muted">Choose how this collection is organized.</p></div>
             <label className="block text-sm text-muted">Name<input autoComplete="off" maxLength={120} value={draft.name} onChange={e => setDraft({ ...draft, name: e.target.value })} className={`${INPUT} mt-2`} placeholder="e.g. Anime, Movies, Manga" /></label>
-            <label className="block text-sm text-muted">Library type<select className={`${INPUT} mt-2`} value={draft.library_type} onChange={e => setDraft({ ...draft, library_type: e.target.value as NativeLibraryType, options: {...defaultNativeOptions, ...draft.options, metadata_providers: {}, image_providers: {}} })}>{Object.entries(TYPES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label className="block text-sm text-muted">Library type<select className={`${INPUT} mt-2`} value={draft.library_type} onChange={e => setDraft({ ...draft, library_type: e.target.value as NativeLibraryType, options: {...defaultNativeOptions, ...draft.options, metadata_providers: {}, image_providers: {}, ...(e.target.value === "youtube" ? youtubeOptions : {})} })}>{Object.entries(TYPES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            {draft.library_type === "youtube" && <div className="space-y-4"><label className="block text-sm text-muted">YouTube content<select aria-label="YouTube content" className={`${INPUT} mt-2`} value={draft.options?.youtube_mode ?? "single_channel"} onChange={event=>setDraft({...draft,options:{...defaultNativeOptions,...draft.options,youtube_mode:event.target.value as "single_channel"|"multiple_channels"}})}><option value="single_channel">Single channel</option><option value="multiple_channels">Multiple channels</option></select></label><label className="block text-sm text-muted">Channel URLs or IDs<textarea aria-label="Channel URLs or IDs" rows={3} className={`${INPUT} mt-2`} value={draft.options?.youtube_channels?.join("\n")??""} onChange={event=>setDraft({...draft,options:{...defaultNativeOptions,...draft.options,youtube_channels:event.target.value.split("\n")}})}/></label><p className="text-sm text-muted">{draft.options?.youtube_mode==="multiple_channels"?"Channels appear as series, playlists as seasons, and videos as episodes.":"Playlists appear as series and open directly to their videos."} Downloads and metadata are configured in the YTDL plugin.</p></div>}
             {draft.library_type === "anime" && <label className="block text-sm text-muted">Anime content<select aria-label="Anime content" aria-describedby="anime-content-help" className={`${INPUT} mt-2`} value={draft.anime_content} onChange={e => setDraft({ ...draft, anime_content: e.target.value as NativeLibraryInput["anime_content"] })}><option value="both">Mixed</option><option value="shows">Shows only</option><option value="movies">Movies only</option></select><span id="anime-content-help" className="mt-2 block text-xs text-faint">Anime is a dedicated library type. Each title will retain its movie or series identity.</span></label>}
             {draft.library_type === "books" && <p className="rounded-xl bg-window p-4 text-sm text-muted">Your existing book reader and custom NFO metadata tools remain available. Native scanning preserves custom book NFO fields and identifies supported book files.</p>}
           </div>}
@@ -169,5 +171,5 @@ export function LibraryDialog({ library, seed, onClose, onSaved }: { library?: N
       </div>
       <footer className="flex shrink-0 items-center justify-between gap-3 bg-sidebar px-6 py-5 sm:px-8"><button className={BUTTON} disabled={save.isPending} onClick={() => step ? setStep(draft.library_type === "books" && step === 6 ? 4 : step - 1) : closeRef.current()}>{step ? "Back" : "Cancel"}</button>{step < STEPS.length - 1 ? <button className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={save.isPending || (step === 0 ? basicsInvalid : pathsInvalid)} onClick={() => setStep(draft.library_type === "books" && step === 4 ? 6 : step + 1)}>Next</button> : <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={basicsInvalid || pathsInvalid || save.isPending} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{save.isPending ? "Saving…" : library ? "Save library" : "Create library"}</button>}</footer>
     </div>
-  </div>, document.body);
+  </div>, portalContainer ?? document.body);
 }

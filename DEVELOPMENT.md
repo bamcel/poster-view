@@ -268,3 +268,16 @@ decoding support or throughput on the user's actual Unraid server.
 Finish with focused commits and verification, baseline failures, remaining
 coordination points and authorized push/build status. Preserve local artifacts
 and unrelated changes; repository guidance alone is not shipping permission.
+
+## YTDL and YouTube libraries
+
+`apps/server/src/ytdl/` owns downloader commands, NFO metadata, settings and the
+persistent serial queue. The central router enforces administrator-only plugin
+access. Jobs/settings use encrypted application settings in `posterview.db`.
+Native migration 3 extends library types without changing existing catalog IDs.
+
+`frontend/src/features/settings/ytdl/` owns the plugin popup and client;
+`features/youtube/` renders channel/playlist/video views using native playback
+and watch controls. `native_scan.rs` reads the YouTube NFO extension. YouTube
+libraries skip TV-provider enrichment and missing-episode generation. See
+[setup, metadata, and runtime requirements](docs/ytdl.md).

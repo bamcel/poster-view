@@ -15,10 +15,18 @@ COPY apps/ apps/
 RUN cargo build --locked --release --package posterview-server
 
 FROM debian:bookworm-slim AS runtime
+ARG YTDLP_VERSION=2026.08.19
 RUN sed -i 's/Components: main/Components: main non-free/' /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl util-linux passwd ffmpeg poppler-utils intel-media-va-driver-non-free libmfx-gen1.2 \
+    && apt-get install -y --no-install-recommends ca-certificates curl util-linux passwd ffmpeg poppler-utils intel-media-va-driver-non-free libmfx-gen1.2 python3 python3-venv \
     && rm -rf /var/lib/apt/lists/*
+# Keep downloader execution reproducible and independent of host-installed tools.
+COPY --from=frontend /usr/local/bin/node /usr/local/bin/node
+RUN python3 -m venv /opt/ytdlp \
+    && /opt/ytdlp/bin/pip install --no-cache-dir "yt-dlp[default]==${YTDLP_VERSION}" \
+    && /opt/ytdlp/bin/yt-dlp --version \
+    && node --version
+ENV PATH="/opt/ytdlp/bin:${PATH}"
 WORKDIR /app
 COPY --from=rust-build /src/target/release/posterview-server /app/posterview-server
 COPY --from=frontend /src/frontend/dist/ /app/frontend/
