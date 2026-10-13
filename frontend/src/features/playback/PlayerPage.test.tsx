@@ -228,6 +228,7 @@ it("primes cold resumed original media before seeking and never starts at zero",
   await waitFor(() => expect(playbackApi.create).toHaveBeenCalled());
   const video = document.querySelector("video")!;
   Object.defineProperty(video, "readyState", { value: 1, configurable: true });
+  Object.defineProperty(video, "seekable", { value: { length: 1, start: () => 0, end: () => 1200 }, configurable: true });
   fireEvent.loadedMetadata(video);
   expect(video.currentTime).toBe(0);
   expect(video.preload).toBe("auto");
@@ -376,5 +377,51 @@ it("does not diagnose autoplay denial as a native playback stall", async () => {
   await act(async () => { await vi.advanceTimersByTimeAsync(40_000); });
   expect(screen.getByText("Press Play to begin playback.")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Recover current playback" })).toBeNull();
+  expect(playbackApi.create).toHaveBeenCalledTimes(1);
+});
+
+
+it("retains a cold native seek deadline when synthetic clocks settle before a decoded frame", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  hlsState.supported = true;
+  vi.stubGlobal("MediaSource", { isTypeSupported: () => true });
+  vi.mocked(playbackApi.info).mockResolvedValue({ ...info, remux_allowed: true });
+  vi.mocked(playbackApi.create).mockResolvedValueOnce(session).mockResolvedValue({
+    ...session, method: "remux", generation: 1, offset_seconds: 896,
+    url: "/hls/1/index.m3u8", mime: "application/vnd.apple.mpegurl",
+  });
+  player();
+  const video = await ready();
+  scrubTo(900);
+  Object.defineProperty(video, "paused", { value: false, configurable: true });
+  Object.defineProperty(video, "readyState", { value: 1, configurable: true });
+  Object.defineProperty(video, "seeking", { value: false, configurable: true });
+  fireEvent.seeked(video);
+  video.currentTime = 900.5;
+  fireEvent.timeUpdate(video);
+  expect((screen.getByRole("slider", { name: "Seek" }) as HTMLInputElement).value).toBe("900");
+  await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+  video.currentTime = 900.7;
+  fireEvent.timeUpdate(video);
+  await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+  expect(playbackApi.create).toHaveBeenCalledTimes(2);
+  expect(playbackApi.create).toHaveBeenLastCalledWith("anime", "one", expect.objectContaining({
+    force_remux: true, max_bitrate: 0, position_seconds: 900,
+  }));
+  expect(watchApi.begin).toHaveBeenCalledTimes(1);
+});
+
+it("settles a paused native seek when its decoded frame arrives after an early seeked event", async () => {
+  player();
+  const video = await ready();
+  scrubTo(600);
+  Object.defineProperty(video, "readyState", { value: 1, configurable: true });
+  fireEvent.seeked(video);
+  video.currentTime = 600.5;
+  fireEvent.timeUpdate(video);
+  expect((screen.getByRole("slider", { name: "Seek" }) as HTMLInputElement).value).toBe("600");
+  Object.defineProperty(video, "readyState", { value: 2, configurable: true });
+  fireEvent.loadedData(video);
+  expect((screen.getByRole("slider", { name: "Seek" }) as HTMLInputElement).value).toBe("600.5");
   expect(playbackApi.create).toHaveBeenCalledTimes(1);
 });

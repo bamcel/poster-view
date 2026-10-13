@@ -152,9 +152,9 @@ export default function PlayerPage() {
       if(created.method==="direct"){
         if(element.getAttribute("src")!==created.url||element.currentSrc&&element.currentSrc!==new URL(created.url,window.location.href).href)return;
         const nativeTarget=pendingSeek.current?.target??target;
-        let targetSeekable=false;
-        for(let index=0;index<element.seekable.length;index++)if(nativeTarget>=element.seekable.start(index)&&nativeTarget<=element.seekable.end(index))targetSeekable=true;
-        if(nativeTarget>0&&element.readyState<HTMLMediaElement.HAVE_CURRENT_DATA&&!targetSeekable){element.preload="auto";return;}
+        // A seekable duration at metadata time does not prove that the native
+        // demuxer has primed its file index or decoded any media yet.
+        if(nativeTarget>0&&element.readyState<HTMLMediaElement.HAVE_CURRENT_DATA){element.preload="auto";return;}
         const list=nativeAudioTracks(element),mapping=mapNativeAudio(data,list),requested=created.audio_index??selected.current.audio??defaultAudioIndex(data);
         audioMapping.current=mapping;setNativeAudioChoices(Array.from(mapping.keys()).filter(index=>{const track=data.tracks.find(track=>track.index===index);return !!track&&originalAudioSupported(track,element);}));
         const actual=data.tracks.find(track=>track.kind==="audio"&&track.index===requested);
@@ -475,6 +475,9 @@ export default function PlayerPage() {
   const ownsMedia=()=>mounted.current&&activeRoute.current===routeKey&&initializedRoute.current===routeKey&&!!current.current&&mediaOwner.current?.generation===requestGeneration.current&&mediaOwner.current.sessionId===current.current.id&&(current.current.method==="direct"?video.current?.getAttribute("src")===current.current.url&&(!video.current.currentSrc||video.current.currentSrc===new URL(current.current.url,window.location.href).href):!!segmented.current?.owns());
   const updatePosition=()=>{
     const element=video.current;if(!element||!ready.current||!ownsMedia())return false;
+    // Assigning currentTime can update the clock and emit seeked before a frame
+    // at that position exists. Keep seek ownership and the stall deadline then.
+    if(element.readyState<HTMLMediaElement.HAVE_CURRENT_DATA)return false;
     const source=element.currentTime+(current.current?.offset_seconds??0);if(!Number.isFinite(source))return false;
     const pending=pendingSeek.current;
     if(pending){
@@ -600,7 +603,7 @@ export default function PlayerPage() {
   const title=pendingInitialization?"Media player":info?.season!=null&&info?.episode!=null?`S${info.season}:E${info.episode} – ${info.title}`:info?.title??"Media player";
   const selectedSubtitle=info?.tracks.find(track=>track.index===subtitle);
   return <div className={`pv-player ${visible||menu||watchPrompt||!playing?"controls-visible":"controls-hidden"}`} ref={root} style={{"--subtitle-scale":preferences.subtitle_size/100,...subtitleAppearanceVariables(preferences)} as React.CSSProperties} onPointerMove={interact} onKeyDownCapture={interact} onPointerDown={()=>{controls.current.focus=false;interact();}} onFocusCapture={event=>{controls.current.focus=event.target instanceof HTMLElement&&event.target.matches(":focus-visible");setVisible(true);}} onBlurCapture={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))controls.current.focus=false;}}>
-    <div className="pv-video-stage" inert={watchPrompt||pendingInitialization}><video ref={video} playsInline preload="metadata" poster={info?.poster_url??undefined} onClick={toggle} onDoubleClick={()=>void toggleFullscreen()} onPlay={mediaPlay} onPause={mediaPause} onWaiting={mediaWaiting} onPlaying={mediaPlaying} onCanPlay={()=>updatePosition()} onTimeUpdate={()=>{updatePosition();progressEvent();}} onProgress={progressEvent} onEnded={end} onError={mediaError} onSeeked={()=>{if(updatePosition())report(false,false,true);}} aria-label={title}/></div>
+    <div className="pv-video-stage" inert={watchPrompt||pendingInitialization}><video ref={video} playsInline preload="metadata" poster={info?.poster_url??undefined} onClick={toggle} onDoubleClick={()=>void toggleFullscreen()} onPlay={mediaPlay} onPause={mediaPause} onWaiting={mediaWaiting} onPlaying={mediaPlaying} onLoadedData={()=>updatePosition()} onCanPlay={()=>updatePosition()} onTimeUpdate={()=>{updatePosition();progressEvent();}} onProgress={progressEvent} onEnded={end} onError={mediaError} onSeeked={()=>{if(updatePosition())report(false,false,true);}} aria-label={title}/></div>
     <div className="pv-player-header pv-controls" inert={watchPrompt} aria-hidden={!visible&&playing&&!menu}>
       <button className="pv-icon" aria-label="Back to media" onClick={exit} title="Back"><ArrowLeft/></button>
       <div className="pv-header-tools" inert={pendingInitialization}><button className="pv-icon" aria-label={muted?"Unmute":"Mute"} onClick={()=>setMuted(value=>!value)}>{muted||volume===0?<VolumeX/>:<Volume2/>}</button><input className="pv-volume" aria-label="Volume" type="range" min="0" max="1" step="0.01" value={muted?0:volume} onChange={event=>{setVolume(Number(event.target.value));setMuted(false);}}/>

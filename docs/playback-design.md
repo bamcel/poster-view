@@ -33,6 +33,23 @@ These estimates use sampled media clocks, not instrumented first-frame events;
 the target positions and warmed browser caches differed. Native skip/seek checks
 completed in roughly 0.2 seconds. They motivated first-data seek initialization
 and policy-authorized lossless recovery rather than unconditional video encoding.
+
+A retest after deploying `b3ec79f` on October 12 still reproduced cold-resume
+buffering beyond 12.8 seconds at about 10 minutes; Emby was playing by 3.1 seconds
+at a similar position. A warm PosterView seek reached decoded data in about
+285 ms, and the Emby seek check completed in about 238 ms. Startup appeared to
+take about two seconds and one second respectively, inferred from advancing
+media clocks. These are browser-tool observations with different cache histories,
+not precise first-frame benchmarks.
+
+The follow-up fixes two native seek assumptions: a full seekable range advertised
+at metadata time does not establish decoded data, and a matching `currentTime`
+with `readyState` below `HAVE_CURRENT_DATA` does not complete a seek. Resume now
+waits for initial decoded data before assigning its target. Pending seeks retain
+their recovery deadline until a frame exists, including when early `seeked` and
+`timeupdate` events report the target. A late `loadeddata` event also settles a
+paused seek. Regression tests cover those browser states; the follow-up still
+requires deployment and another live Unraid comparison.
 Startup, storage latency, source indexes, browser decoder behavior and background
 tab scheduling can vary. Sending every compatible original through an encoder
 would not address all of these causes and would add cost and quality loss.
