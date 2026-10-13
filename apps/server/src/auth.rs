@@ -139,6 +139,10 @@ impl AuthState {
     }
 
     pub fn authenticated(&self, headers: &HeaderMap) -> bool {
+        self.authenticated_at(headers, Instant::now())
+    }
+
+    fn authenticated_at(&self, headers: &HeaderMap, now: Instant) -> bool {
         if !self.auth_enabled || self.password.is_none() {
             return true;
         }
@@ -149,7 +153,7 @@ impl AuthState {
         let Ok(mut sessions) = self.sessions.write() else {
             return false;
         };
-        sessions.retain(|_, last_activity| !expired(*last_activity, timeout));
+        sessions.retain(|_, last_activity| !expired(*last_activity, timeout, now));
         sessions.contains_key(token)
     }
 
@@ -201,6 +205,10 @@ impl AuthState {
     }
 
     pub fn activity(&self, headers: &HeaderMap) -> bool {
+        self.activity_at(headers, Instant::now())
+    }
+
+    fn activity_at(&self, headers: &HeaderMap, now: Instant) -> bool {
         let timeout = self.security_settings().idle_timeout_minutes;
         let Some(token) = cookie(headers, COOKIE_NAME) else {
             return false;
@@ -208,9 +216,9 @@ impl AuthState {
         let Ok(mut sessions) = self.sessions.write() else {
             return false;
         };
-        sessions.retain(|_, last_activity| !expired(*last_activity, timeout));
+        sessions.retain(|_, last_activity| !expired(*last_activity, timeout, now));
         if let Some(last_activity) = sessions.get_mut(token) {
-            *last_activity = Instant::now();
+            *last_activity = now;
             return true;
         }
         false
@@ -226,8 +234,9 @@ impl AuthState {
         let token = uuid::Uuid::new_v4().simple().to_string();
         let timeout = self.security_settings().idle_timeout_minutes;
         let mut sessions = self.sessions.write().ok()?;
-        sessions.retain(|_, last_activity| !expired(*last_activity, timeout));
-        sessions.insert(token.clone(), Instant::now());
+        let now = Instant::now();
+        sessions.retain(|_, last_activity| !expired(*last_activity, timeout, now));
+        sessions.insert(token.clone(), now);
         let secure = if self.secure_cookie { "; Secure" } else { "" };
         let value = HeaderValue::from_str(&format!(
             "{COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Strict{secure}"
@@ -248,9 +257,9 @@ impl AuthState {
     }
 }
 
-fn expired(last_activity: Instant, timeout: Option<u32>) -> bool {
+fn expired(last_activity: Instant, timeout: Option<u32>, now: Instant) -> bool {
     timeout.is_some_and(|minutes| {
-        last_activity.elapsed() >= Duration::from_secs(u64::from(minutes) * 60)
+        now.duration_since(last_activity) >= Duration::from_secs(u64::from(minutes) * 60)
     })
 }
 
@@ -347,18 +356,23 @@ mod tests {
         let (token, value) = auth.login("admin", "password").unwrap();
         let mut headers = HeaderMap::new();
         headers.insert(header::COOKIE, value);
-        let old = Instant::now() - Duration::from_secs(30);
-        auth.sessions.write().unwrap().insert(token.clone(), old);
-        assert!(auth.authenticated(&headers));
-        assert_eq!(auth.sessions.read().unwrap()[&token], old);
-        assert!(auth.activity(&headers));
-        assert!(auth.sessions.read().unwrap()[&token] > old);
-        auth.sessions
-            .write()
-            .unwrap()
-            .insert(token.clone(), Instant::now() - Duration::from_secs(61));
-        assert!(!auth.activity(&headers));
-        assert!(!auth.authenticated(&headers));
+        let logged_in_at = auth.sessions.read().unwrap()[&token];
+        let active_at = logged_in_at + Duration::from_secs(30);
+        assert!(auth.authenticated_at(&headers, active_at));
+        assert_eq!(auth.sessions.read().unwrap()[&token], logged_in_at);
+        assert!(auth.activity_at(&headers, active_at));
+        assert_eq!(auth.sessions.read().unwrap()[&token], active_at);
+        assert!(auth.authenticated_at(&headers, active_at + Duration::from_secs(59)));
+        assert_eq!(auth.sessions.read().unwrap()[&token], active_at);
+        let expired_at = active_at + Duration::from_secs(60);
+        assert!(!auth.activity_at(&headers, expired_at));
+        assert!(!auth.authenticated_at(&headers, expired_at));
+        assert!(!auth.sessions.read().unwrap().contains_key(&token));
+
+        let (token, value) = auth.login("admin", "password").unwrap();
+        headers.insert(header::COOKIE, value);
+        let logged_in_at = auth.sessions.read().unwrap()[&token];
+        assert!(!auth.authenticated_at(&headers, logged_in_at + Duration::from_secs(60)));
         assert!(!auth.sessions.read().unwrap().contains_key(&token));
     }
 
@@ -368,13 +382,14 @@ mod tests {
         let (token, value) = auth.login("admin", "password").unwrap();
         let mut headers = HeaderMap::new();
         headers.insert(header::COOKIE, value);
-        auth.sessions
-            .write()
-            .unwrap()
-            .insert(token, Instant::now() - Duration::from_secs(86400));
-        assert!(auth.authenticated(&headers));
+        let logged_in_at = auth.sessions.read().unwrap()[&token];
+        let next_day = logged_in_at + Duration::from_secs(86400);
+        assert!(auth.authenticated_at(&headers, next_day));
+        assert_eq!(auth.sessions.read().unwrap()[&token], logged_in_at);
+        assert!(auth.activity_at(&headers, next_day));
+        assert_eq!(auth.sessions.read().unwrap()[&token], next_day);
         auth.logout(&headers);
-        assert!(!auth.authenticated(&headers));
+        assert!(!auth.authenticated_at(&headers, next_day));
     }
 
     #[test]

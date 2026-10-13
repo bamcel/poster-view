@@ -10,12 +10,10 @@ use std::{
     path::{Path as FsPath, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-static RUN_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-static RUNNING_TASK: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-struct RunningTask;
+struct RunningTask(std::sync::Arc<std::sync::Mutex<Option<String>>>);
 impl Drop for RunningTask {
     fn drop(&mut self) {
-        *RUNNING_TASK.lock().unwrap() = None;
+        *self.0.lock().unwrap() = None;
     }
 }
 fn now() -> u64 {
@@ -108,7 +106,7 @@ fn save(state: &AppState, tasks: &[Task]) -> Result<(), HttpError> {
 pub(crate) async fn list(State(state): State<AppState>) -> Result<Json<Vec<Task>>, HttpError> {
     tokio::task::spawn_blocking(move || {
         let mut tasks = load(&state)?;
-        let running = RUNNING_TASK.lock().unwrap();
+        let running = state.running_maintenance_task.lock().unwrap();
         for task in &mut tasks {
             task.running = running.as_deref() == Some(task.id.as_str());
         }
@@ -122,8 +120,9 @@ pub(crate) async fn configure(
     Path(id): Path<String>,
     Json(input): Json<Task>,
 ) -> Result<Json<Vec<Task>>, HttpError> {
-    let _guard = RUN_LOCK.lock().await;
+    let guard = state.maintenance_lock.clone().lock_owned().await;
     tokio::task::spawn_blocking(move || {
+        let _guard = guard;
         if !(1..=365).contains(&input.interval_days) || !(1..=3650).contains(&input.retention_days)
         {
             return Err(bad(
@@ -475,12 +474,15 @@ pub(crate) async fn preview(State(state): State<AppState>) -> Result<Json<Report
     .map_err(bad)?
 }
 async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
-    let _guard = RUN_LOCK
-        .try_lock()
+    let guard = state
+        .maintenance_lock
+        .clone()
+        .try_lock_owned()
         .map_err(|_| bad("A scheduled task is already running. Try again shortly."))?;
     tokio::task::spawn_blocking(move||{
-        *RUNNING_TASK.lock().unwrap() = Some(id.clone());
-        let _running = RunningTask;
+        let _guard = guard;
+        *state.running_maintenance_task.lock().unwrap() = Some(id.clone());
+        let _running = RunningTask(state.running_maintenance_task.clone());
         let mut tasks=load(&state)?;let task=tasks.iter_mut().find(|t|t.id==id).ok_or_else(HttpError::not_found)?;
         let result=(||->Result<Report,HttpError>{match id.as_str() {
             "cleanup"=>{let db=ServerStore::new(state.runtime.data_dir());let mut report=Report{records:cleanup_records(&state,task,true)? + if task.cleanup_reader {state.reader.cleanup_orphans(true)?} else {0},..Default::default()};
@@ -502,10 +504,13 @@ async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
 pub(crate) async fn clear_provider_cache(
     State(state): State<AppState>,
 ) -> Result<Json<Report>, HttpError> {
-    let _guard = RUN_LOCK
-        .try_lock()
+    let guard = state
+        .maintenance_lock
+        .clone()
+        .try_lock_owned()
         .map_err(|_| bad("Wait for the current maintenance task to finish."))?;
     tokio::task::spawn_blocking(move || {
+        let _guard = guard;
         state.runtime.clear_all_artwork_caches().map_err(bad)?;
         let db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;
         db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;
@@ -626,7 +631,76 @@ pub(crate) fn start(state: AppState) {
 mod tests {
     use super::*;
     use posterview_contracts::native::*;
-    static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    #[tokio::test]
+    async fn maintenance_excludes_shared_state_but_not_independent_applications() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let isolated_temp = tempfile::tempdir().unwrap();
+        let isolated = crate::test_support::state(isolated_temp.path());
+        let guard = state.maintenance_lock.clone().lock_owned().await;
+        *state.running_maintenance_task.lock().unwrap() = Some("database".into());
+        let running = RunningTask(state.running_maintenance_task.clone());
+
+        let error = execute(state.clone(), "database".into())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.detail,
+            "A scheduled task is already running. Try again shortly."
+        );
+        let error = clear_provider_cache(State(state.clone()))
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.detail,
+            "Wait for the current maintenance task to finish."
+        );
+        assert!(
+            list(State(state.clone()))
+                .await
+                .unwrap()
+                .0
+                .iter()
+                .any(|task| task.running)
+        );
+        assert!(
+            list(State(isolated.clone()))
+                .await
+                .unwrap()
+                .0
+                .iter()
+                .all(|task| !task.running)
+        );
+        assert!(
+            execute(isolated.clone(), "database".into())
+                .await
+                .unwrap()
+                .result
+                .contains("passed")
+        );
+        let cleared = clear_provider_cache(State(isolated)).await.unwrap();
+        assert!(cleared.0.result.contains("Provider cache cleared"));
+
+        drop(running);
+        drop(guard);
+        assert!(
+            execute(state.clone(), "database".into())
+                .await
+                .unwrap()
+                .result
+                .contains("passed")
+        );
+        assert!(
+            list(State(state))
+                .await
+                .unwrap()
+                .0
+                .iter()
+                .all(|task| !task.running)
+        );
+    }
     #[test]
     fn disposable_records_preview_and_cleanup_preserve_active_data() {
         let temp = tempfile::tempdir().unwrap();
@@ -748,7 +822,6 @@ mod tests {
     }
     #[tokio::test]
     async fn cleanup_keeps_hidden_missing_artwork_edits_and_animation_stills() {
-        let _guard = TEST_LOCK.lock().await;
         let temp = tempfile::tempdir().unwrap();
         let state = crate::test_support::state(temp.path());
         let dir = state.runtime.data_dir().join("native-artwork");
@@ -871,12 +944,11 @@ mod tests {
     }
     #[tokio::test]
     async fn schedules_are_disabled_by_default_validated_and_persisted() {
-        let _guard = TEST_LOCK.lock().await;
         let temp = tempfile::tempdir().unwrap();
         let state = crate::test_support::state(temp.path());
         assert!(load(&state).unwrap().iter().all(|t| !t.enabled));
-        *RUNNING_TASK.lock().unwrap() = Some("cleanup".into());
-        let running = RunningTask;
+        *state.running_maintenance_task.lock().unwrap() = Some("cleanup".into());
+        let running = RunningTask(state.running_maintenance_task.clone());
         let tasks = list(State(state.clone())).await.unwrap().0;
         assert!(tasks.iter().find(|t| t.id == "cleanup").unwrap().running);
         assert!(!tasks.iter().find(|t| t.id == "database").unwrap().running);
@@ -921,7 +993,6 @@ mod tests {
     }
     #[tokio::test]
     async fn hidden_placeholders_and_unused_covers_are_cleaned_after_retention() {
-        let _guard = TEST_LOCK.lock().await;
         let temp = tempfile::tempdir().unwrap();
         let state = crate::test_support::state(temp.path());
         let db = ServerStore::new(state.runtime.data_dir());
