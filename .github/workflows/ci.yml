@@ -25,6 +25,13 @@ jobs:
           toolchain: "1.88"
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+      - name: Install media test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y ffmpeg poppler-utils
+          ffmpeg -version
+          ffprobe -version
+          pdftoppm -v
       - run: cargo fmt --all -- --check
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
