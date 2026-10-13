@@ -1,5 +1,5 @@
 use crate::{AppState, HttpError};
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use posterview_infra_sqlite::ServerStore;
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Serialize, Deserialize)]

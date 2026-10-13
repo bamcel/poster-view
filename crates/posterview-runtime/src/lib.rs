@@ -11,16 +11,15 @@ use std::{
 };
 
 use posterview_contracts::{
-    AppearanceSettings, ApplyResult, ConnectionTest, HealthResponse, ImageTarget, ItemDetail, Library,
-    LibraryVisibility, LibraryVisibilityItem, MediaItem, PosterSearchResults, Server, ServerCreate,
-    ServerUpdate, StatusResponse,
+    AppearanceSettings, ApplyResult, ConnectionTest, HealthResponse, ImageTarget, ItemDetail,
+    Library, LibraryVisibility, LibraryVisibilityItem, MediaItem, PosterSearchResults, Server,
+    ServerCreate, ServerUpdate, StatusResponse,
 };
-use posterview_infra_artwork::{AniListMangaMetadata, ArtworkService, ComicVineMetadata};
 pub use posterview_infra_artwork::valid_manga_id;
+use posterview_infra_artwork::{AniListMangaMetadata, ArtworkService, ComicVineMetadata};
 use posterview_infra_media_servers::{
     ConnectionConfig, fetch_image, get_item_detail, get_items, get_libraries, remove_image,
-    set_image,
-    test_connection,
+    set_image, test_connection,
 };
 use posterview_infra_sqlite::{ServerStore, StoreError};
 use thiserror::Error;
@@ -69,11 +68,19 @@ pub enum RuntimeError {
 impl Runtime {
     pub async fn comicvine_metadata(&self, id: &str) -> Result<ComicVineMetadata, RuntimeError> {
         let key = self.server_store()?.get_setting("comicvine_api_key")?;
-        self.artwork.comicvine_metadata(&key, id).await.map_err(RuntimeError::Artwork)
+        self.artwork
+            .comicvine_metadata(&key, id)
+            .await
+            .map_err(RuntimeError::Artwork)
     }
 
-    pub async fn anilist_manga_metadata(&self, id: &str) -> Result<AniListMangaMetadata, RuntimeError> {
-        posterview_infra_artwork::anilist_manga_metadata(id).await.map_err(RuntimeError::Artwork)
+    pub async fn anilist_manga_metadata(
+        &self,
+        id: &str,
+    ) -> Result<AniListMangaMetadata, RuntimeError> {
+        posterview_infra_artwork::anilist_manga_metadata(id)
+            .await
+            .map_err(RuntimeError::Artwork)
     }
     #[must_use]
     pub fn new(data_dir: impl Into<PathBuf>) -> Self {
@@ -187,7 +194,11 @@ impl Runtime {
     }
 
     /// Test unsaved connection edits while retaining a blank token's saved value.
-    pub async fn test_server_changes(&self, id: i64, input: &ServerUpdate) -> Result<Option<ConnectionTest>, RuntimeError> {
+    pub async fn test_server_changes(
+        &self,
+        id: i64,
+        input: &ServerUpdate,
+    ) -> Result<Option<ConnectionTest>, RuntimeError> {
         let Some(server) = self.server_store()?.get_server(id)? else {
             return Ok(None);
         };
@@ -199,8 +210,15 @@ impl Runtime {
             connection_test(ConnectionConfig {
                 server_type: input.server_type.unwrap_or(server.server_type),
                 base_url: input.base_url.as_deref().unwrap_or(&server.base_url).trim(),
-                token: input.token.as_deref().map(str::trim).filter(|value| !value.is_empty()).unwrap_or(&token),
-                allow_invalid_certificates: input.allow_invalid_certificates.unwrap_or(server.allow_invalid_certificates),
+                token: input
+                    .token
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or(&token),
+                allow_invalid_certificates: input
+                    .allow_invalid_certificates
+                    .unwrap_or(server.allow_invalid_certificates),
             })
             .await,
         ))
@@ -395,7 +413,9 @@ impl Runtime {
         item_id: &str,
     ) -> Result<Option<Result<ItemDetail, String>>, RuntimeError> {
         if id == 0 {
-            return self.native_artwork_detail(item_id).map(|detail| detail.map(Ok));
+            return self
+                .native_artwork_detail(item_id)
+                .map(|detail| detail.map(Ok));
         }
         let Some(server) = self.server_store()?.get_server(id)? else {
             return Ok(None);
@@ -418,13 +438,32 @@ impl Runtime {
         ))
     }
 
-    pub async fn get_season_detail(&self, id: i64, series_id: &str, season_id: &str) -> Result<Option<Result<posterview_contracts::SeasonDetail, String>>, RuntimeError> {
-        let Some(server) = self.server_store()?.get_server(id)? else { return Ok(None); };
-        let token = self.server_store()?.decrypted_token(id)?.unwrap_or_default();
-        Ok(Some(posterview_infra_media_servers::get_season_detail(ConnectionConfig {
-            server_type: server.server_type, base_url: &server.base_url, token: &token,
-                allow_invalid_certificates: server.allow_invalid_certificates,
-        }, series_id, season_id).await))
+    pub async fn get_season_detail(
+        &self,
+        id: i64,
+        series_id: &str,
+        season_id: &str,
+    ) -> Result<Option<Result<posterview_contracts::SeasonDetail, String>>, RuntimeError> {
+        let Some(server) = self.server_store()?.get_server(id)? else {
+            return Ok(None);
+        };
+        let token = self
+            .server_store()?
+            .decrypted_token(id)?
+            .unwrap_or_default();
+        Ok(Some(
+            posterview_infra_media_servers::get_season_detail(
+                ConnectionConfig {
+                    server_type: server.server_type,
+                    base_url: &server.base_url,
+                    token: &token,
+                    allow_invalid_certificates: server.allow_invalid_certificates,
+                },
+                series_id,
+                season_id,
+            )
+            .await,
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -717,7 +756,10 @@ mod tests {
     #[test]
     fn older_appearance_settings_keep_their_values_with_default_pill_opacity() {
         let mut stored = serde_json::to_value(AppearanceSettings::default()).unwrap();
-        stored.as_object_mut().unwrap().remove("pill_background_opacity");
+        stored
+            .as_object_mut()
+            .unwrap()
+            .remove("pill_background_opacity");
         stored["panel_blur"] = serde_json::json!(24);
         let settings: AppearanceSettings = serde_json::from_value(stored).unwrap();
         assert_eq!(settings.pill_background_opacity, 5);

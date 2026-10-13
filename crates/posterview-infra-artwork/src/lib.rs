@@ -1,12 +1,12 @@
-mod tmdb_auth;
 mod myanimelist;
+mod tmdb_auth;
 use tmdb_auth::TmdbAuth;
 mod comicvine;
 mod mangadex;
 mod posterdb;
 mod viz;
-pub use mangadex::valid_manga_id;
 pub use comicvine::ComicVineMetadata;
+pub use mangadex::valid_manga_id;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AniListMangaMetadata {
@@ -65,13 +65,28 @@ impl Default for ArtworkService {
 }
 
 impl ArtworkService {
-    pub async fn fetch_myanimelist(&self, provider: &str, key: &str, item: &ItemDetail, id_override: Option<&str>) -> Result<Vec<ArtworkItem>, String> {
+    pub async fn fetch_myanimelist(
+        &self,
+        provider: &str,
+        key: &str,
+        item: &ItemDetail,
+        id_override: Option<&str>,
+    ) -> Result<Vec<ArtworkItem>, String> {
         myanimelist::fetch(&self.client, key, provider, item, id_override).await
     }
-    pub async fn search_myanimelist(&self, provider: &str, key: &str, query: &str) -> Result<Vec<ArtworkSearchResult>, String> {
+    pub async fn search_myanimelist(
+        &self,
+        provider: &str,
+        key: &str,
+        query: &str,
+    ) -> Result<Vec<ArtworkSearchResult>, String> {
         myanimelist::search(&self.client, key, provider, query).await
     }
-    pub async fn comicvine_metadata(&self, key: &str, id: &str) -> Result<ComicVineMetadata, String> {
+    pub async fn comicvine_metadata(
+        &self,
+        key: &str,
+        id: &str,
+    ) -> Result<ComicVineMetadata, String> {
         comicvine::metadata(&self.client, key, id).await
     }
     pub async fn test_comicvine(&self, key: &str) -> Result<(), String> {
@@ -79,14 +94,29 @@ impl ArtworkService {
     }
 
     pub async fn test_tmdb(&self, token: &str) -> Result<(), String> {
-        if token.trim().is_empty() { return Err("Save a TMDB API Read Access Token in Settings first.".into()); }
-        let response = self.client.get("https://api.themoviedb.org/3/movie/11")
-            .tmdb_auth(token).timeout(std::time::Duration::from_secs(15))
-            .send().await.map_err(network_error)?;
-        if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
-            return Err("TMDB rejected the saved token. Check your API Read Access Token in Settings.".into());
+        if token.trim().is_empty() {
+            return Err("Save a TMDB API Read Access Token in Settings first.".into());
         }
-        if !response.status().is_success() { return Err(provider_status_error("TMDB", response.status())); }
+        let response = self
+            .client
+            .get("https://api.themoviedb.org/3/movie/11")
+            .tmdb_auth(token)
+            .timeout(std::time::Duration::from_secs(15))
+            .send()
+            .await
+            .map_err(network_error)?;
+        if matches!(
+            response.status(),
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+        ) {
+            return Err(
+                "TMDB rejected the saved token. Check your API Read Access Token in Settings."
+                    .into(),
+            );
+        }
+        if !response.status().is_success() {
+            return Err(provider_status_error("TMDB", response.status()));
+        }
         Ok(())
     }
 
@@ -268,18 +298,48 @@ impl ArtworkService {
         Ok(token)
     }
 
-    pub async fn native_tvdb_get(&self, path: &str, query: &[(&str, &str)], key: &str, pin: &str) -> Result<reqwest::Response, String> {
+    pub async fn native_tvdb_get(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+        key: &str,
+        pin: &str,
+    ) -> Result<reqwest::Response, String> {
         self.tvdb_get(path, query, key, pin).await
     }
-    pub async fn native_tvdb_types(&self, key: &str, pin: &str) -> Result<HashMap<i64, String>, String> {
+    pub async fn native_tvdb_types(
+        &self,
+        key: &str,
+        pin: &str,
+    ) -> Result<HashMap<i64, String>, String> {
         // Hold the cache lock through initialization so concurrent title workers fetch once.
         let mut cache = self.tvdb_types.lock().await;
-        if let Some(types) = cache.as_ref() { return Ok(types.clone()); }
+        if let Some(types) = cache.as_ref() {
+            return Ok(types.clone());
+        }
         let response = self.tvdb_get("/artwork/types", &[], key, pin).await?;
-        if !response.status().is_success() { return Err(provider_status_error("TheTVDB", response.status())); }
+        if !response.status().is_success() {
+            return Err(provider_status_error("TheTVDB", response.status()));
+        }
         let body: Value = response.json().await.map_err(network_error)?;
-        let records = body.get("data").and_then(Value::as_array).ok_or("TheTVDB returned invalid artwork types.")?;
-        let types: HashMap<i64, String> = records.iter().filter_map(|entry| Some((entry.get("id")?.as_i64()?, entry.get("slug").or_else(|| entry.get("name")).and_then(Value::as_str).unwrap_or("").to_lowercase()))).collect();
+        let records = body
+            .get("data")
+            .and_then(Value::as_array)
+            .ok_or("TheTVDB returned invalid artwork types.")?;
+        let types: HashMap<i64, String> = records
+            .iter()
+            .filter_map(|entry| {
+                Some((
+                    entry.get("id")?.as_i64()?,
+                    entry
+                        .get("slug")
+                        .or_else(|| entry.get("name"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_lowercase(),
+                ))
+            })
+            .collect();
         *cache = Some(types.clone());
         Ok(types)
     }
@@ -658,24 +718,48 @@ async fn fetch_anilist_manga(
         return Err(provider_status_error("AniList Manga", response.status()));
     }
     let body: Value = response.json().await.map_err(network_error)?;
-    let Some(media) = body.pointer("/data/Media") else { return Ok(Vec::new()); };
+    let Some(media) = body.pointer("/data/Media") else {
+        return Ok(Vec::new());
+    };
     let id = value_string(media.get("id")).unwrap_or_default();
     let source_url = format!("https://anilist.co/manga/{id}");
     let mut items = Vec::new();
-    if let Some(url) = media.pointer("/coverImage/extraLarge").or_else(|| media.pointer("/coverImage/large")).and_then(Value::as_str) {
+    if let Some(url) = media
+        .pointer("/coverImage/extraLarge")
+        .or_else(|| media.pointer("/coverImage/large"))
+        .and_then(Value::as_str)
+    {
         items.push(ArtworkItem {
-            manga: None, id: format!("anilist-manga-{id}-poster"), provider: "anilist-manga".to_owned(),
-            artwork_type: "poster".to_owned(), kind: item_kind(item), season_number: None,
-            title: Some(item.title.clone()), lang: None, likes: None, thumb_url: url.to_owned(),
-            download_url: url.to_owned(), applyable: true, source_url: Some(source_url.clone()),
+            manga: None,
+            id: format!("anilist-manga-{id}-poster"),
+            provider: "anilist-manga".to_owned(),
+            artwork_type: "poster".to_owned(),
+            kind: item_kind(item),
+            season_number: None,
+            title: Some(item.title.clone()),
+            lang: None,
+            likes: None,
+            thumb_url: url.to_owned(),
+            download_url: url.to_owned(),
+            applyable: true,
+            source_url: Some(source_url.clone()),
         });
     }
     if let Some(url) = media.get("bannerImage").and_then(Value::as_str) {
         items.push(ArtworkItem {
-            manga: None, id: format!("anilist-manga-{id}-banner"), provider: "anilist-manga".to_owned(),
-            artwork_type: "banner".to_owned(), kind: item_kind(item), season_number: None,
-            title: Some(item.title.clone()), lang: None, likes: None, thumb_url: url.to_owned(),
-            download_url: url.to_owned(), applyable: false, source_url: Some(source_url),
+            manga: None,
+            id: format!("anilist-manga-{id}-banner"),
+            provider: "anilist-manga".to_owned(),
+            artwork_type: "banner".to_owned(),
+            kind: item_kind(item),
+            season_number: None,
+            title: Some(item.title.clone()),
+            lang: None,
+            likes: None,
+            thumb_url: url.to_owned(),
+            download_url: url.to_owned(),
+            applyable: false,
+            source_url: Some(source_url),
         });
     }
     Ok(items)
@@ -696,41 +780,115 @@ async fn search_anilist_manga(query: &str) -> Result<Vec<ArtworkSearchResult>, S
         return Err(provider_status_error("AniList Manga", response.status()));
     }
     let body: Value = response.json().await.map_err(network_error)?;
-    Ok(body.pointer("/data/Page/media").and_then(Value::as_array).into_iter().flatten().filter_map(|media| {
-        Some(ArtworkSearchResult {
-            alternate_titles: Vec::new(), status: None, id: value_string(media.get("id"))?,
-            name: media.pointer("/title/english").or_else(|| media.pointer("/title/romaji")).and_then(Value::as_str)?.to_owned(),
-            year: media.pointer("/startDate/year").and_then(Value::as_i64).map(|year| year.to_string()),
-            thumb_url: media.pointer("/coverImage/medium").and_then(Value::as_str).map(str::to_owned),
-            volume_count: None, publisher: None,
+    Ok(body
+        .pointer("/data/Page/media")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|media| {
+            Some(ArtworkSearchResult {
+                alternate_titles: Vec::new(),
+                status: None,
+                id: value_string(media.get("id"))?,
+                name: media
+                    .pointer("/title/english")
+                    .or_else(|| media.pointer("/title/romaji"))
+                    .and_then(Value::as_str)?
+                    .to_owned(),
+                year: media
+                    .pointer("/startDate/year")
+                    .and_then(Value::as_i64)
+                    .map(|year| year.to_string()),
+                thumb_url: media
+                    .pointer("/coverImage/medium")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                volume_count: None,
+                publisher: None,
+            })
         })
-    }).collect())
+        .collect())
 }
 
 pub async fn anilist_manga_metadata(id: &str) -> Result<AniListMangaMetadata, String> {
-    let id = id.parse::<i64>().map_err(|_| "Select a valid AniList manga first.".to_owned())?;
+    let id = id
+        .parse::<i64>()
+        .map_err(|_| "Select a valid AniList manga first.".to_owned())?;
     const QUERY: &str = "query ($id: Int) { Media(id: $id, type: MANGA) { id idMal title { english romaji native } description(asHtml: false) status startDate { year } countryOfOrigin source genres tags { name rank isMediaSpoiler } staff(sort: [RELEVANCE], perPage: 8) { edges { role node { name { full } } } } siteUrl } }";
-    let body: Value = http_client()?.post(ANILIST_URL)
-        .json(&json!({"query": QUERY, "variables": {"id": id}})).send().await
-        .map_err(network_error)?.error_for_status().map_err(network_error)?
-        .json().await.map_err(network_error)?;
-    let media = body.pointer("/data/Media").ok_or("AniList manga was not found.")?;
-    let text_list = |path: &str| media.pointer(path).and_then(Value::as_array).into_iter().flatten()
-        .filter_map(Value::as_str).collect::<Vec<_>>().join(", ");
-    let tags = media.get("tags").and_then(Value::as_array).into_iter().flatten()
-        .filter(|tag| !tag["isMediaSpoiler"].as_bool().unwrap_or(false) && tag["rank"].as_i64().unwrap_or(0) >= 60)
-        .filter_map(|tag| tag["name"].as_str()).collect::<Vec<_>>().join(", ");
-    let creators = media.pointer("/staff/edges").and_then(Value::as_array).into_iter().flatten()
-        .filter_map(|edge| Some(format!("{}: {}", edge["role"].as_str()?, edge.pointer("/node/name/full")?.as_str()?)))
-        .collect::<Vec<_>>().join("; ");
+    let body: Value = http_client()?
+        .post(ANILIST_URL)
+        .json(&json!({"query": QUERY, "variables": {"id": id}}))
+        .send()
+        .await
+        .map_err(network_error)?
+        .error_for_status()
+        .map_err(network_error)?
+        .json()
+        .await
+        .map_err(network_error)?;
+    let media = body
+        .pointer("/data/Media")
+        .ok_or("AniList manga was not found.")?;
+    let text_list = |path: &str| {
+        media
+            .pointer(path)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let tags = media
+        .get("tags")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|tag| {
+            !tag["isMediaSpoiler"].as_bool().unwrap_or(false)
+                && tag["rank"].as_i64().unwrap_or(0) >= 60
+        })
+        .filter_map(|tag| tag["name"].as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let creators = media
+        .pointer("/staff/edges")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|edge| {
+            Some(format!(
+                "{}: {}",
+                edge["role"].as_str()?,
+                edge.pointer("/node/name/full")?.as_str()?
+            ))
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
     Ok(AniListMangaMetadata {
-        id: id.to_string(), mal_id: value_string(media.get("idMal")).unwrap_or_default(),
-        title: media.pointer("/title/english").or_else(|| media.pointer("/title/romaji")).and_then(Value::as_str).unwrap_or("Untitled").to_owned(),
-        native_title: media.pointer("/title/native").and_then(Value::as_str).unwrap_or("").to_owned(),
-        year: media.pointer("/startDate/year").and_then(Value::as_i64).map(|year| year.to_string()).unwrap_or_default(),
+        id: id.to_string(),
+        mal_id: value_string(media.get("idMal")).unwrap_or_default(),
+        title: media
+            .pointer("/title/english")
+            .or_else(|| media.pointer("/title/romaji"))
+            .and_then(Value::as_str)
+            .unwrap_or("Untitled")
+            .to_owned(),
+        native_title: media
+            .pointer("/title/native")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned(),
+        year: media
+            .pointer("/startDate/year")
+            .and_then(Value::as_i64)
+            .map(|year| year.to_string())
+            .unwrap_or_default(),
         status: media["status"].as_str().unwrap_or("").replace('_', " "),
         plot: comicvine::plain_text_for_metadata(media["description"].as_str().unwrap_or("")),
-        genres: text_list("/genres"), tags, creators,
+        genres: text_list("/genres"),
+        tags,
+        creators,
         country: media["countryOfOrigin"].as_str().unwrap_or("").to_owned(),
         source: media["source"].as_str().unwrap_or("").replace('_', " "),
         source_url: media["siteUrl"].as_str().unwrap_or("").to_owned(),
@@ -1030,7 +1188,10 @@ mod tests {
     #[tokio::test]
     async fn tvdb_artwork_types_reuse_the_shared_cache() {
         let service = super::ArtworkService::default();
-        *service.tvdb_types.lock().await = Some(std::collections::HashMap::from([(2, "series-posters".into())]));
+        *service.tvdb_types.lock().await = Some(std::collections::HashMap::from([(
+            2,
+            "series-posters".into(),
+        )]));
         let types = service.native_tvdb_types("", "").await.unwrap();
         assert_eq!(types.get(&2).map(String::as_str), Some("series-posters"));
     }

@@ -52,7 +52,9 @@ fn anilist_voice_cast(data: &Value) -> Value {
     json!(cast)
 }
 fn missing_images(entry: &NativeCatalogEntry, library: &NativeLibrary) -> Vec<String> {
-    if entry.metadata["_identify_replace_artwork"]==true {return library.options.image_types.clone();}
+    if entry.metadata["_identify_replace_artwork"] == true {
+        return library.options.image_types.clone();
+    }
     library
         .options
         .image_types
@@ -73,10 +75,21 @@ fn missing_images(entry: &NativeCatalogEntry, library: &NativeLibrary) -> Vec<St
         .cloned()
         .collect()
 }
-fn needs_credit_portraits(entry:&NativeCatalogEntry)->bool {
-    if !matches!(entry.kind.as_str(),"series"|"movie") || entry.metadata["_sources"]["credits"]=="manual" {return false;}
-    entry.metadata["credits"].as_array().is_some_and(|credits|credits.iter().any(|credit|
-        credit["category"]=="cast" && credit["name"].as_str().is_some_and(|name|!name.trim().is_empty()) && missing(&credit["image"])))
+fn needs_credit_portraits(entry: &NativeCatalogEntry) -> bool {
+    if !matches!(entry.kind.as_str(), "series" | "movie")
+        || entry.metadata["_sources"]["credits"] == "manual"
+    {
+        return false;
+    }
+    entry.metadata["credits"].as_array().is_some_and(|credits| {
+        credits.iter().any(|credit| {
+            credit["category"] == "cast"
+                && credit["name"]
+                    .as_str()
+                    .is_some_and(|name| !name.trim().is_empty())
+                && missing(&credit["image"])
+        })
+    })
 }
 pub(crate) fn merge_credit_portraits(metadata: &mut Value, incoming: &Value) {
     if metadata["_sources"]["credits"] == "manual" {
@@ -280,8 +293,20 @@ pub(super) async fn anilist(
             .as_i64()
             .ok_or("Invalid AniList ID.")?
     };
-    let query = if manga { "query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal countryOfOrigin isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}}}}}}" } else { "query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal countryOfOrigin isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors{id languageV2 name{full} image{large}} voiceActorRoles{dubGroup roleNotes voiceActor{id languageV2 name{full} image{large}}}}} staff(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}" };
-    let mut body = response(client.post("https://graphql.anilist.co").json(&json!({"query":query,"variables":{"id":selected,"type":media_type}})).send().await.map_err(|_|"AniList connection failed.")?).await?;
+    let query = if manga {
+        "query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal countryOfOrigin isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}}}}}}"
+    } else {
+        "query($id:Int,$type:MediaType){Media(id:$id,type:$type){id idMal countryOfOrigin isAdult format title{english romaji native} startDate{year month day} description(asHtml:false) status genres tags{name isAdult} studios{nodes{id name}} episodes chapters volumes duration averageScore siteUrl coverImage{extraLarge} bannerImage characters(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors{id languageV2 name{full} image{large}} voiceActorRoles{dubGroup roleNotes voiceActor{id languageV2 name{full} image{large}}}}} staff(perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}"
+    };
+    let mut body = response(
+        client
+            .post("https://graphql.anilist.co")
+            .json(&json!({"query":query,"variables":{"id":selected,"type":media_type}}))
+            .send()
+            .await
+            .map_err(|_| "AniList connection failed.")?,
+    )
+    .await?;
     // Fetch remaining connection pages without discarding the usable first page
     // if a later request fails. Each request shares the provider rate gate.
     for page in 2..=50 {
@@ -295,7 +320,11 @@ pub(super) async fn anilist(
         let gate = crate::workers::provider("anilist").await;
         drop(gate);
         let query = "query($id:Int,$type:MediaType,$page:Int){Media(id:$id,type:$type){characters(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors{id languageV2 name{full} image{large}} voiceActorRoles{dubGroup roleNotes voiceActor{id languageV2 name{full} image{large}}}}} staff(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}";
-        let query = if manga { "query($id:Int,$type:MediaType,$page:Int){Media(id:$id,type:$type){characters(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}}}}}}" } else { query };
+        let query = if manga {
+            "query($id:Int,$type:MediaType,$page:Int){Media(id:$id,type:$type){characters(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}}}}}}"
+        } else {
+            query
+        };
         let result = match client
             .post("https://graphql.anilist.co")
             .json(&json!({"query":query,"variables":{"id":selected,"type":media_type,"page":page}}))
@@ -474,7 +503,11 @@ fn image_path<'a>(data: &'a Value, list: &str, fallback: &str, language: &str) -
         .and_then(|a| a["file_path"].as_str())
         .or(data[fallback].as_str())
 }
-pub(crate) async fn download(state: &AppState, client: &reqwest::Client, url: &str) -> Result<String, String> {
+pub(crate) async fn download(
+    state: &AppState,
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<String, String> {
     let url = reqwest::Url::parse(url).map_err(|_| "Invalid artwork URL.")?;
     if url.scheme() != "https"
         || !matches!(
@@ -530,11 +563,11 @@ pub(crate) fn store_image(state: &AppState, bytes: &[u8]) -> Result<String, Stri
     if crate::native_animation::is_animated(bytes) {
         let (clean, still, extension) = crate::native_animation::prepare(bytes)?;
         let dir = state.runtime.data_dir().join("native-artwork");
-        std::fs::create_dir_all(&dir).map_err(|e|e.to_string())?;
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let id = uuid::Uuid::new_v4();
-        std::fs::write(dir.join(format!("{id}.still.png")), still).map_err(|e|e.to_string())?;
+        std::fs::write(dir.join(format!("{id}.still.png")), still).map_err(|e| e.to_string())?;
         let name = format!("{id}.{extension}");
-        std::fs::write(dir.join(&name), clean).map_err(|e|e.to_string())?;
+        std::fs::write(dir.join(&name), clean).map_err(|e| e.to_string())?;
         return Ok(format!("@managed/{name}"));
     }
     let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
@@ -567,12 +600,21 @@ struct EnrichmentContext {
     blocked: std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<String>>>,
 }
 // Persist checks so absent provider fields/images do not trigger requests on every rescan.
-fn check_identity(entry: &NativeCatalogEntry, library: &NativeLibrary, parents: &BTreeMap<String, Value>) -> Value {
-    let parent = entry.parent_path.as_deref().map(|p| p.split("/@season-").next().unwrap_or(p));
+fn check_identity(
+    entry: &NativeCatalogEntry,
+    library: &NativeLibrary,
+    parents: &BTreeMap<String, Value>,
+) -> Value {
+    let parent = entry
+        .parent_path
+        .as_deref()
+        .map(|p| p.split("/@season-").next().unwrap_or(p));
     let mut identity = json!({"title":search_title(entry),"kind":entry.kind,"ids":entry.metadata["identifiers"],
         "year":entry.metadata["year"],"season":entry.metadata["season"],"episode":entry.metadata["episode"],
         "parent":parent.and_then(|p|parents.get(p)),"options":library.options});
-    if entry.kind == "book_series" {identity["book_characters_schema"] = json!(1);}
+    if entry.kind == "book_series" {
+        identity["book_characters_schema"] = json!(1);
+    }
     identity
 }
 fn recently_checked(entry: &NativeCatalogEntry, identity: &Value, now: i64) -> bool {
@@ -590,7 +632,9 @@ pub(crate) async fn enrich(
         return;
     }
     let mut configured = library.clone();
-    if !crate::plugins::artwork_enabled(state) { configured.options.image_types.clear(); }
+    if !crate::plugins::artwork_enabled(state) {
+        configured.options.image_types.clear();
+    }
     let library = &configured;
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
@@ -637,7 +681,9 @@ pub(crate) async fn enrich(
             .iter()
             .enumerate()
             .filter(|(_, e)| {
-                e.kind != "book" && e.metadata["missing"] != true && e.metadata["_scan_unchanged"] != true
+                e.kind != "book"
+                    && e.metadata["missing"] != true
+                    && e.metadata["_scan_unchanged"] != true
                     && match e.kind.as_str() {
                         "series" | "book_series" | "movie" => tier == 0,
                         "season" => tier == 1,
@@ -699,7 +745,13 @@ pub(crate) async fn enrich(
     warnings.retain(|warning| seen.insert(warning.clone()));
 }
 fn needs_book_characters(entry: &NativeCatalogEntry, library: &NativeLibrary) -> bool {
-    entry.kind == "book_series" && !entry.metadata["characters"].is_array() && library.options.metadata_providers.get("book_series").is_none_or(|providers|providers.iter().any(|p|p=="anilist"))
+    entry.kind == "book_series"
+        && !entry.metadata["characters"].is_array()
+        && library
+            .options
+            .metadata_providers
+            .get("book_series")
+            .is_none_or(|providers| providers.iter().any(|p| p == "anilist"))
 }
 async fn enrich_one(
     state: &AppState,
@@ -730,22 +782,39 @@ async fn enrich_one(
     } else {
         vec!["tmdb".to_owned()]
     };
-    let book_default = vec!["comicvine".to_owned(), "anilist".to_owned(), "mal".to_owned()];
-    let metadata_default = if entry.kind == "book_series" { &book_default } else { &default };
-    let selected_order=entry.metadata["_identify_source"].as_str().filter(|p|*p=="tvdb").map(|p|vec![p.to_string()]);
+    let book_default = vec![
+        "comicvine".to_owned(),
+        "anilist".to_owned(),
+        "mal".to_owned(),
+    ];
+    let metadata_default = if entry.kind == "book_series" {
+        &book_default
+    } else {
+        &default
+    };
+    let selected_order = entry.metadata["_identify_source"]
+        .as_str()
+        .filter(|p| *p == "tvdb")
+        .map(|p| vec![p.to_string()]);
     let metadata_order = library
         .options
         .metadata_providers
         .get(&entry.kind)
         .unwrap_or(metadata_default);
-    let metadata_order=selected_order.as_ref().unwrap_or(metadata_order);
+    let metadata_order = selected_order.as_ref().unwrap_or(metadata_order);
     let image_order = library
         .options
         .image_providers
         .get(&entry.kind)
         .unwrap_or(&default);
-    let replacement_images=vec!["tvdb".to_string()];
-    let image_order=if entry.metadata["_identify_replace_artwork"]==true && library.library_type!=NativeLibraryType::Books {&replacement_images} else {image_order};
+    let replacement_images = vec!["tvdb".to_string()];
+    let image_order = if entry.metadata["_identify_replace_artwork"] == true
+        && library.library_type != NativeLibraryType::Books
+    {
+        &replacement_images
+    } else {
+        image_order
+    };
     // Complete essential metadata first, then try image sources in their independent priority.
     // Cache responses so a provider selected for both purposes is fetched only once.
     let mut image_candidates = BTreeMap::<String, Vec<(String, String)>>::new();
@@ -755,19 +824,26 @@ async fn enrich_one(
         .map(|p| (p.clone(), false))
         .chain(image_order.iter().map(|p| (p.clone(), true)))
     {
-        if provider_name=="omdb"&&!crate::native_provider_extra::omdb_enabled(state) {continue;}
-        if provider_name=="anidb"&&!crate::native_provider_extra::anidb_enabled(state) {continue;}
-        if provider_name == "comicvine" && missing(&entry.metadata["identifiers"]["comicvine"]) { continue; }
+        if provider_name == "omdb" && !crate::native_provider_extra::omdb_enabled(state) {
+            continue;
+        }
+        if provider_name == "anidb" && !crate::native_provider_extra::anidb_enabled(state) {
+            continue;
+        }
+        if provider_name == "comicvine" && missing(&entry.metadata["identifiers"]["comicvine"]) {
+            continue;
+        }
         if !image_phase
             && metadata_complete(entry)
-            && !(provider_name == "anilist" && (needs_voice_cast(entry, library) || needs_book_characters(entry, library)))
-            && !(matches!(provider_name.as_str(),"tmdb"|"tvdb") && needs_credit_portraits(entry))
+            && !(provider_name == "anilist"
+                && (needs_voice_cast(entry, library) || needs_book_characters(entry, library)))
+            && !(matches!(provider_name.as_str(), "tmdb" | "tvdb") && needs_credit_portraits(entry))
         {
             continue;
         }
         if image_phase && provider_name == "capture" {
-            if let Err(error)=crate::native_capture::capture(state,library,entry).await {
-                warnings.push(format!("{} (Image Capture): {error}",entry.title));
+            if let Err(error) = crate::native_capture::capture(state, library, entry).await {
+                warnings.push(format!("{} (Image Capture): {error}", entry.title));
             }
             continue;
         }
@@ -800,7 +876,11 @@ async fn enrich_one(
         {
             continue;
         }
-        let _slot = if provider_name == "anidb" {None} else {Some(crate::workers::network().await)};
+        let _slot = if provider_name == "anidb" {
+            None
+        } else {
+            Some(crate::workers::network().await)
+        };
         let gate = crate::workers::provider(&provider_name).await;
         drop(gate);
         if context
@@ -841,7 +921,11 @@ async fn enrich_one(
                     }
                     if metadata_order.contains(&provider_name) {
                         for (field, value) in fields.as_object().unwrap() {
-                            if field != "identifiers" && !(library.library_type == NativeLibraryType::Books && ["credits", "characters", "voice_cast"].contains(&field.as_str())) {
+                            if field != "identifiers"
+                                && !(library.library_type == NativeLibraryType::Books
+                                    && ["credits", "characters", "voice_cast"]
+                                        .contains(&field.as_str()))
+                            {
                                 fill(entry, field, value.clone(), &provider_name);
                             }
                         }
@@ -950,9 +1034,7 @@ async fn enrich_one(
             warnings.push(format!("{}: provider returned no metadata.", entry.title));
             continue;
         }
-        if !library.allows_adult_metadata()
-            && (data["isAdult"] == true || data["adult"] == true)
-        {
+        if !library.allows_adult_metadata() && (data["isAdult"] == true || data["adult"] == true) {
             warnings.push(format!(
                 "{}: adult metadata matching is disabled.",
                 entry.title
@@ -1027,16 +1109,16 @@ async fn enrich_one(
             fields["country_of_origin"] = data["countryOfOrigin"].clone();
             fields["characters"] = json!(characters);
             if library.library_type != NativeLibraryType::Books {
-            fields["voice_cast"] = anilist_voice_cast(&data);
-            if entry.metadata["_sources"]["voice_cast"] != "manual" {
-                entry.metadata["voice_cast"] = fields["voice_cast"].clone();
-                entry.metadata["_sources"]["voice_cast"] = json!("anilist");
-            }
-            fields["country_of_origin"] = data["countryOfOrigin"].clone();
-            // A successful empty cast is a known result, not a reason to fetch every scan.
-            entry.metadata["voice_cast_schema"] = json!(3);
-            entry.metadata["_sources"]["voice_cast_schema"] = json!("anilist");
-            fields["credits"] = json!(credits);
+                fields["voice_cast"] = anilist_voice_cast(&data);
+                if entry.metadata["_sources"]["voice_cast"] != "manual" {
+                    entry.metadata["voice_cast"] = fields["voice_cast"].clone();
+                    entry.metadata["_sources"]["voice_cast"] = json!("anilist");
+                }
+                fields["country_of_origin"] = data["countryOfOrigin"].clone();
+                // A successful empty cast is a known result, not a reason to fetch every scan.
+                entry.metadata["voice_cast_schema"] = json!(3);
+                entry.metadata["_sources"]["voice_cast_schema"] = json!("anilist");
+                fields["credits"] = json!(credits);
             }
             for (kind, value) in [
                 ("poster", &data["coverImage"]["extraLarge"]),
@@ -1195,7 +1277,7 @@ async fn download_candidates(
     artwork: &[(String, String)],
     warnings: &mut Vec<String>,
 ) {
-    let replacing=entry.metadata["_identify_replace_artwork"]==true;
+    let replacing = entry.metadata["_identify_replace_artwork"] == true;
     let needed = missing_images(entry, library);
     let mut candidates = BTreeMap::<String, Vec<(String, String)>>::new();
     for (kind, url) in artwork {
@@ -1236,10 +1318,27 @@ async fn download_candidates(
             Ok((art, notices)) => {
                 if let Some(mut art) = art {
                     if replacing {
-                        art.source="manual".into();
-                        if let Err(e)=ServerStore::new(state.runtime.data_dir()).save_native_artwork(&library.id,&entry.id,&art){warnings.push(format!("{}: artwork replacement failed: {e}",entry.title));continue;}
-                        if library.options.save_artwork || crate::native_artwork::replacement_writes_local(state,entry,&art.kind) {if let Err(e)=crate::native_artwork::write(state,entry,&art,true){warnings.push(format!("{}: artwork saved; media-folder write failed: {e}",entry.title));}}
-                        entry.artwork.retain(|existing|existing.kind!=art.kind);
+                        art.source = "manual".into();
+                        if let Err(e) = ServerStore::new(state.runtime.data_dir())
+                            .save_native_artwork(&library.id, &entry.id, &art)
+                        {
+                            warnings
+                                .push(format!("{}: artwork replacement failed: {e}", entry.title));
+                            continue;
+                        }
+                        if library.options.save_artwork
+                            || crate::native_artwork::replacement_writes_local(
+                                state, entry, &art.kind,
+                            )
+                        {
+                            if let Err(e) = crate::native_artwork::write(state, entry, &art, true) {
+                                warnings.push(format!(
+                                    "{}: artwork saved; media-folder write failed: {e}",
+                                    entry.title
+                                ));
+                            }
+                        }
+                        entry.artwork.retain(|existing| existing.kind != art.kind);
                     }
                     entry.artwork.push(art);
                 }
@@ -1252,8 +1351,12 @@ async fn download_candidates(
         }
     }
     if replacing {
-        if let Err(e)=ServerStore::new(state.runtime.data_dir()).finish_identification_artwork(&entry.id){warnings.push(format!("Artwork refresh completion failed: {e}"));}
-        entry.metadata["_identify_replace_artwork"]=json!(false);
+        if let Err(e) =
+            ServerStore::new(state.runtime.data_dir()).finish_identification_artwork(&entry.id)
+        {
+            warnings.push(format!("Artwork refresh completion failed: {e}"));
+        }
+        entry.metadata["_identify_replace_artwork"] = json!(false);
     }
     entry.artwork.sort_by(|a, b| a.kind.cmp(&b.kind));
 }
@@ -1261,12 +1364,12 @@ async fn download_candidates(
 mod tests {
     #[test]
     fn voice_cast_retains_dub_editions_and_role_notes() {
-        let data=json!({"characters":{"edges":[{"node":{"name":{"full":"Satsuki"}},"voiceActorRoles":[{"dubGroup":"Animax","roleNotes":"Young","voiceActor":{"id":1,"name":{"full":"Andrea"},"languageV2":"English"}},{"dubGroup":null,"voiceActor":{"id":2,"name":{"full":"Hilary"},"languageV2":"English"}}]}]}});
-        let cast=anilist_voice_cast(&data);
-        assert_eq!(cast[0]["dub_group"],"Animax");
-        assert_eq!(cast[0]["role_notes"],"Young");
-        assert_eq!(cast[1]["dub_group"],Value::Null);
-        assert_eq!(cast[1]["name"],"Hilary");
+        let data = json!({"characters":{"edges":[{"node":{"name":{"full":"Satsuki"}},"voiceActorRoles":[{"dubGroup":"Animax","roleNotes":"Young","voiceActor":{"id":1,"name":{"full":"Andrea"},"languageV2":"English"}},{"dubGroup":null,"voiceActor":{"id":2,"name":{"full":"Hilary"},"languageV2":"English"}}]}]}});
+        let cast = anilist_voice_cast(&data);
+        assert_eq!(cast[0]["dub_group"], "Animax");
+        assert_eq!(cast[0]["role_notes"], "Young");
+        assert_eq!(cast[1]["dub_group"], Value::Null);
+        assert_eq!(cast[1]["name"], "Hilary");
     }
     #[test]
     fn voice_cast_keeps_languages_and_only_backfills_anime_titles_once() {
@@ -1293,13 +1396,13 @@ mod tests {
     }
     #[test]
     fn missing_cast_portraits_need_enrichment_even_with_existing_credits() {
-        let mut entry=local_entry("series");
-        entry.metadata=json!({"credits":[{"name":"Actor","category":"cast","image":null}]});
+        let mut entry = local_entry("series");
+        entry.metadata = json!({"credits":[{"name":"Actor","category":"cast","image":null}]});
         assert!(needs_credit_portraits(&entry));
-        entry.metadata["credits"][0]["image"]=json!("https://example.com/photo.jpg");
+        entry.metadata["credits"][0]["image"] = json!("https://example.com/photo.jpg");
         assert!(!needs_credit_portraits(&entry));
-        entry.metadata["credits"][0]["image"]=Value::Null;
-        entry.metadata["_sources"]["credits"]=json!("manual");
+        entry.metadata["credits"][0]["image"] = Value::Null;
+        entry.metadata["_sources"]["credits"] = json!("manual");
         assert!(!needs_credit_portraits(&entry));
     }
     #[test]
@@ -1409,10 +1512,18 @@ mod tests {
         assert!(recently_checked(&entry, &identity, 100));
         assert!(!recently_checked(&entry, &identity, 200));
         entry.metadata["identifiers"] = json!({"anilist":"123"});
-        assert!(!recently_checked(&entry, &check_identity(&entry, &library, &parents), 100));
+        assert!(!recently_checked(
+            &entry,
+            &check_identity(&entry, &library, &parents),
+            100
+        ));
         entry.metadata["identifiers"] = Value::Null;
         library.options.metadata_language = "ja".into();
-        assert!(!recently_checked(&entry, &check_identity(&entry, &library, &parents), 100));
+        assert!(!recently_checked(
+            &entry,
+            &check_identity(&entry, &library, &parents),
+            100
+        ));
     }
 
     #[test]

@@ -230,7 +230,7 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
     }
     let mut credits = Vec::new();
     let mut voices = Vec::new();
-    let mut manual_voices=false;
+    let mut manual_voices = false;
     for child in &root.children {
         if let XMLNode::Element(child) = child {
             match child.name.as_str(){"actor"=>{let actor=value(child); if actor["posterviewcategory"]=="voice" {
@@ -240,7 +240,9 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
             } else {credits.push(json!({"name":actor["name"],"role":actor["role"],"category":"cast","image":actor["thumb"]}));}},"director"|"writer"|"author"|"illustrator"=>credits.push(json!({"name":child.get_text().unwrap_or_default(),"role":child.name,"category":if child.name=="author"||child.name=="illustrator"{child.name.as_str()}else{"crew"}})),_=>{}}
         }
     }
-    if !voices.is_empty() {fields["voice_cast"]=json!(voices);}
+    if !voices.is_empty() {
+        fields["voice_cast"] = json!(voices);
+    }
     if !credits.is_empty() {
         fields["credits"] = json!(credits);
     }
@@ -248,7 +250,9 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
     for field in fields.as_object().unwrap().keys() {
         sources[field] = json!("nfo");
     }
-    if manual_voices {sources["voice_cast"]=json!("manual");}
+    if manual_voices {
+        sources["voice_cast"] = json!("manual");
+    }
     fields["_sources"] = sources;
     Ok((root.name, fields))
 }
@@ -318,9 +322,14 @@ fn apply_nfo(entry: &mut NativeCatalogEntry, doc: Option<(String, Value, String,
     }
 }
 pub(crate) fn local_art(root: &Path, dir: &Path, stem: Option<&str>) -> Vec<NativeArtwork> {
-    local_art_variants(root,dir,stem,false)
+    local_art_variants(root, dir, stem, false)
 }
-pub(crate) fn local_art_variants(root: &Path, dir: &Path, stem: Option<&str>, static_only: bool) -> Vec<NativeArtwork> {
+pub(crate) fn local_art_variants(
+    root: &Path,
+    dir: &Path,
+    stem: Option<&str>,
+    static_only: bool,
+) -> Vec<NativeArtwork> {
     let Ok(files) = fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -339,8 +348,8 @@ pub(crate) fn local_art_variants(root: &Path, dir: &Path, stem: Option<&str>, st
         ("clearlogo", "logo"),
         ("disc", "disc"),
     ];
-    let mut files=files.flatten().collect::<Vec<_>>();
-    files.sort_by_key(|f|f.file_name());
+    let mut files = files.flatten().collect::<Vec<_>>();
+    files.sort_by_key(|f| f.file_name());
     for child in files {
         let path = child.path();
         if !child.file_type().is_ok_and(|t| t.is_file()) || checked_file(root, &path).is_err() {
@@ -354,8 +363,10 @@ pub(crate) fn local_art_variants(root: &Path, dir: &Path, stem: Option<&str>, st
         if !["jpg", "jpeg", "png", "webp", "gif", "webm"].contains(&ext.as_str()) {
             continue;
         }
-        let animated = u8::from(["gif","webm"].contains(&ext.as_str()));
-        if static_only && animated==1 {continue;}
+        let animated = u8::from(["gif", "webm"].contains(&ext.as_str()));
+        if static_only && animated == 1 {
+            continue;
+        }
         let base = path
             .file_stem()
             .unwrap_or_default()
@@ -363,7 +374,9 @@ pub(crate) fn local_art_variants(root: &Path, dir: &Path, stem: Option<&str>, st
             .to_ascii_lowercase();
         if stem.is_some_and(|s| base == s.to_lowercase()) {
             if let Ok(path) = relative(root, &path) {
-                choose_art(&mut result, 2 + animated,
+                choose_art(
+                    &mut result,
+                    2 + animated,
                     "thumb".to_owned(),
                     NativeArtwork {
                         kind: "thumb".into(),
@@ -392,10 +405,20 @@ pub(crate) fn local_art_variants(root: &Path, dir: &Path, stem: Option<&str>, st
             }
         }
     }
-    result.into_values().map(|(_,art)|art).collect()
+    result.into_values().map(|(_, art)| art).collect()
 }
-fn choose_art(result: &mut BTreeMap<String,(u8,NativeArtwork)>, priority:u8, kind:String, art:NativeArtwork) {
-    if result.get(&kind).is_none_or(|(current,_)|priority>*current) {result.insert(kind,(priority,art));}
+fn choose_art(
+    result: &mut BTreeMap<String, (u8, NativeArtwork)>,
+    priority: u8,
+    kind: String,
+    art: NativeArtwork,
+) {
+    if result
+        .get(&kind)
+        .is_none_or(|(current, _)| priority > *current)
+    {
+        result.insert(kind, (priority, art));
+    }
 }
 
 fn clean_title(stem: &str) -> String {
@@ -414,7 +437,25 @@ fn probe(path: &Path) -> Result<Value, String> {
         time::{Duration, Instant},
     };
     let output = tempfile::NamedTempFile::new().map_err(|e| e.to_string())?;
-    let mut child=Command::new("ffprobe").args(["-v","error","-protocol_whitelist","file,pipe","-show_streams","-show_format","-show_chapters","-of","json"]).arg(path).stdout(Stdio::from(output.reopen().map_err(|e|e.to_string())?)).stderr(Stdio::null()).spawn().map_err(|_|"ffprobe is unavailable; media codecs and duration were not inspected.".to_string())?;
+    let mut child = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-protocol_whitelist",
+            "file,pipe",
+            "-show_streams",
+            "-show_format",
+            "-show_chapters",
+            "-of",
+            "json",
+        ])
+        .arg(path)
+        .stdout(Stdio::from(output.reopen().map_err(|e| e.to_string())?))
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| {
+            "ffprobe is unavailable; media codecs and duration were not inspected.".to_string()
+        })?;
     let started = Instant::now();
     loop {
         match child.try_wait().map_err(|e| e.to_string())? {
@@ -443,9 +484,12 @@ fn probe(path: &Path) -> Result<Value, String> {
     {
         return Err("Media information exceeds 4 MB.".into());
     }
-    let mut info: Value = serde_json::from_slice(&fs::read(output.path()).map_err(|e| e.to_string())?)
-        .map_err(|_| "Invalid media information.".to_string())?;
-    if !info.is_object() { return Err("Invalid media information.".into()); }
+    let mut info: Value =
+        serde_json::from_slice(&fs::read(output.path()).map_err(|e| e.to_string())?)
+            .map_err(|_| "Invalid media information.".to_string())?;
+    if !info.is_object() {
+        return Err("Invalid media information.".into());
+    }
     info["posterview_probe_version"] = json!(MEDIA_INFO_VERSION);
     Ok(info)
 }
@@ -492,7 +536,18 @@ pub(crate) fn collect_scoped(
     files.sort();
     files.dedup();
     // Animated artwork is a sidecar, not a movie or episode.
-    let media_stems = files.iter().filter(|p|p.extension().is_some_and(|e|["mkv","mp4","avi","mov","m4v","ts","mpg","mpeg","m2ts"].contains(&e.to_string_lossy().to_ascii_lowercase().as_str()))).map(|p|p.with_extension("")).collect::<std::collections::BTreeSet<_>>();
+    let media_stems = files
+        .iter()
+        .filter(|p| {
+            p.extension().is_some_and(|e| {
+                [
+                    "mkv", "mp4", "avi", "mov", "m4v", "ts", "mpg", "mpeg", "m2ts",
+                ]
+                .contains(&e.to_string_lossy().to_ascii_lowercase().as_str())
+            })
+        })
+        .map(|p| p.with_extension(""))
+        .collect::<std::collections::BTreeSet<_>>();
     files.retain(|p| !is_artwork_video(p, &media_stems));
     let mut video_counts = BTreeMap::<PathBuf, usize>::new();
     for file in &files {
@@ -511,14 +566,17 @@ pub(crate) fn collect_scoped(
             }
         }
     }
-    static EPISODE: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)(?:s(\d{1,3})[ ._-]*e(\d{1,4})|(\d{1,3})x(\d{1,4}))").unwrap());
+    static EPISODE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)(?:s(\d{1,3})[ ._-]*e(\d{1,4})|(\d{1,3})x(\d{1,4}))").unwrap()
+    });
     let episode = &*EPISODE;
-    static ANIME_NUMBER: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i) - (\d{1,3})(?:v\d)?(?:\s|\[|$)").unwrap());
+    static ANIME_NUMBER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i) - (\d{1,3})(?:v\d)?(?:\s|\[|$)").unwrap()
+    });
     let anime_number = &*ANIME_NUMBER;
-    static YEAR_REGEX: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(?:\(|\[|\s)((?:19|20)\d{2})(?:\)|\]|$)").unwrap());
+    static YEAR_REGEX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?:\(|\[|\s)((?:19|20)\d{2})(?:\)|\]|$)").unwrap()
+    });
     let year_regex = &*YEAR_REGEX;
     let mut entries = BTreeMap::<String, NativeCatalogEntry>::new();
     let mut probe_unavailable = false;
@@ -536,7 +594,8 @@ pub(crate) fn collect_scoped(
         })
     });
     files.retain(|p| {
-        !(library.library_type != NativeLibraryType::Books && library.options.sample_ignore_mb > 0
+        !(library.library_type != NativeLibraryType::Books
+            && library.options.sample_ignore_mb > 0
             && p.file_name()
                 .is_some_and(|n| n.to_string_lossy().to_ascii_lowercase().contains("sample"))
             && fs::metadata(p)
@@ -546,16 +605,34 @@ pub(crate) fn collect_scoped(
         files.retain(|p| !credit_video(p));
     }
     let total = files.len();
-    let previous=posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir()).native_catalog_scoped(&library.id,scopes).map_err(|e|bad(e.to_string()))?;
-    let previous_files=previous.iter().flat_map(|e|e.files.iter()).filter_map(|v|Some((root.join(v["path"].as_str()?),v.clone()))).collect::<BTreeMap<_,_>>();
+    let previous = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir())
+        .native_catalog_scoped(&library.id, scopes)
+        .map_err(|e| bad(e.to_string()))?;
+    let previous_files = previous
+        .iter()
+        .flat_map(|e| e.files.iter())
+        .filter_map(|v| Some((root.join(v["path"].as_str()?), v.clone())))
+        .collect::<BTreeMap<_, _>>();
     let completed = std::sync::atomic::AtomicUsize::new(0);
     let reporter = std::sync::Mutex::new(crate::native_progress::Reporter::new(state, &library.id));
     let unavailable = std::sync::atomic::AtomicBool::new(false);
     let mut probes = if library.library_type != NativeLibraryType::Books {
         progress.report("inspecting", 0, Some(total), 0, "", true);
         crate::workers::parallel(files.clone(), |file| {
-            let cached=previous_files.get(&file).filter(|v|fs::metadata(&file).is_ok_and(|m|v["size"].as_u64()==Some(m.len()) && v["mtime_ns"].as_str()==m.modified().ok().and_then(|t|t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_nanos().to_string()).as_deref()) && current_media_info(&v["media_info"]));
-            let result = if let Some(cached)=cached {Ok(cached["media_info"].clone())} else if unavailable.load(std::sync::atomic::Ordering::Relaxed) {
+            let cached = previous_files.get(&file).filter(|v| {
+                fs::metadata(&file).is_ok_and(|m| {
+                    v["size"].as_u64() == Some(m.len())
+                        && v["mtime_ns"].as_str()
+                            == m.modified()
+                                .ok()
+                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                .map(|d| d.as_nanos().to_string())
+                                .as_deref()
+                }) && current_media_info(&v["media_info"])
+            });
+            let result = if let Some(cached) = cached {
+                Ok(cached["media_info"].clone())
+            } else if unavailable.load(std::sync::atomic::Ordering::Relaxed) {
                 Err("ffprobe is unavailable; media codecs and duration were not inspected.".into())
             } else {
                 probe(&file)
@@ -797,20 +874,34 @@ pub(crate) fn collect_scoped(
         if library.options.local_artwork {
             entry.artwork = local_art(&root, dir, Some(&stem));
             if entry.kind == "book" {
-                entry.artwork.retain(|art| std::path::Path::new(&art.path).file_stem().is_some_and(|name| {
-                    let name = name.to_string_lossy().to_lowercase();
-                    name == stem.to_lowercase() || name.starts_with(&format!("{}-",stem.to_lowercase()))
-                }));
+                entry.artwork.retain(|art| {
+                    std::path::Path::new(&art.path)
+                        .file_stem()
+                        .is_some_and(|name| {
+                            let name = name.to_string_lossy().to_lowercase();
+                            name == stem.to_lowercase()
+                                || name.starts_with(&format!("{}-", stem.to_lowercase()))
+                        })
+                });
                 // Some book tools append the image extension to the complete media filename.
                 if let Some(name) = file.file_name().and_then(|name| name.to_str()) {
                     for art in local_art(&root, dir, Some(name)) {
-                        if !entry.artwork.iter().any(|current| current.kind == art.kind) {entry.artwork.push(art);}
+                        if !entry.artwork.iter().any(|current| current.kind == art.kind) {
+                            entry.artwork.push(art);
+                        }
                     }
                 }
                 // Filename-matched book covers are posters, not video thumbnails.
-                if let Some(mut cover) = entry.artwork.iter().find(|art| art.kind == "thumb").cloned() {
+                if let Some(mut cover) = entry
+                    .artwork
+                    .iter()
+                    .find(|art| art.kind == "thumb")
+                    .cloned()
+                {
                     cover.kind = "poster".into();
-                    entry.artwork.retain(|art| art.kind != "poster" && art.kind != "thumb");
+                    entry
+                        .artwork
+                        .retain(|art| art.kind != "poster" && art.kind != "thumb");
                     entry.artwork.push(cover);
                 }
             }
@@ -820,15 +911,31 @@ pub(crate) fn collect_scoped(
                         let n = n.to_string_lossy().to_lowercase();
                         n == stem.to_lowercase()
                             || n.starts_with(&format!("{}-", stem.to_lowercase()))
-                            || (entry.kind == "book" && file.file_name().and_then(|name|name.to_str()).is_some_and(|name| n == name.to_lowercase() || n.starts_with(&format!("{}-",name.to_lowercase()))))
+                            || (entry.kind == "book"
+                                && file.file_name().and_then(|name| name.to_str()).is_some_and(
+                                    |name| {
+                                        n == name.to_lowercase()
+                                            || n.starts_with(&format!("{}-", name.to_lowercase()))
+                                    },
+                                ))
                     })
                 });
             }
         }
-        if books && library.options.local_artwork && library.options.save_artwork && !entry.artwork.iter().any(|art|art.kind=="poster") {
+        if books
+            && library.options.local_artwork
+            && library.options.save_artwork
+            && !entry.artwork.iter().any(|art| art.kind == "poster")
+        {
             match capture_book_cover(&file) {
-                Ok(())=>{entry.artwork.push(NativeArtwork{kind:"poster".into(),path:relative(&root,&file.with_extension("jpg"))?,source:"local".into()});},
-                Err(error)=>warnings.push(format!("Cover capture for {file_path}: {error}")),
+                Ok(()) => {
+                    entry.artwork.push(NativeArtwork {
+                        kind: "poster".into(),
+                        path: relative(&root, &file.with_extension("jpg"))?,
+                        source: "local".into(),
+                    });
+                }
+                Err(error) => warnings.push(format!("Cover capture for {file_path}: {error}")),
             }
         }
         let media_info = if !books && !probe_unavailable {
@@ -868,33 +975,88 @@ pub(crate) fn collect_scoped(
     progress.report("reading", total, Some(total), entries.len(), "", true);
     Ok((entries.into_values().collect(), warnings))
 }
-fn capture_book_cover(file:&Path)->Result<(),String>{
-    let target=file.with_extension("jpg");if target.exists(){return Ok(());}
-    let bytes=crate::reader::initial_cover(file)?;
-    let mut reader=image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e|e.to_string())?;
-    let mut limits=image::Limits::default();limits.max_image_width=Some(20000);limits.max_image_height=Some(20000);limits.max_alloc=Some(256*1024*1024);reader.limits(limits);
-    let decoded=reader.decode().map_err(|e|e.to_string())?;
-    let image=if decoded.width()>1200||decoded.height()>1800 {decoded.thumbnail(1200,1800).to_rgb8()}else{decoded.to_rgb8()};
-    let mut encoded=Vec::new();image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded,90).encode_image(&image).map_err(|e|e.to_string())?;
+fn capture_book_cover(file: &Path) -> Result<(), String> {
+    let target = file.with_extension("jpg");
+    if target.exists() {
+        return Ok(());
+    }
+    let bytes = crate::reader::initial_cover(file)?;
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(20000);
+    limits.max_image_height = Some(20000);
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    reader.limits(limits);
+    let decoded = reader.decode().map_err(|e| e.to_string())?;
+    let image = if decoded.width() > 1200 || decoded.height() > 1800 {
+        decoded.thumbnail(1200, 1800).to_rgb8()
+    } else {
+        decoded.to_rgb8()
+    };
+    let mut encoded = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut encoded, 90)
+        .encode_image(&image)
+        .map_err(|e| e.to_string())?;
     use std::io::Write;
-    let mut output=match fs::OpenOptions::new().write(true).create_new(true).open(&target){Ok(file)=>file,Err(error) if error.kind()==std::io::ErrorKind::AlreadyExists=>return Ok(()),Err(error)=>return Err(error.to_string())};
-    if let Err(error)=output.write_all(&encoded){drop(output);let _=fs::remove_file(&target);return Err(error.to_string());}Ok(())
+    let mut output = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&target)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(()),
+        Err(error) => return Err(error.to_string()),
+    };
+    if let Err(error) = output.write_all(&encoded) {
+        drop(output);
+        let _ = fs::remove_file(&target);
+        return Err(error.to_string());
+    }
+    Ok(())
 }
 
 // Missing books are catalog-only targets; no media or sidecar is created.
 pub(crate) fn book_placeholders(entries: &mut Vec<NativeCatalogEntry>) {
-    static NUMBER: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)(?:^|[^a-z])(?:volume|vol\.?|v|chapter|ch\.?|c)\s*[-_ ]*([0-9]+)").unwrap());
+    static NUMBER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)(?:^|[^a-z])(?:volume|vol\.?|v|chapter|ch\.?|c)\s*[-_ ]*([0-9]+)")
+            .unwrap()
+    });
     let number = &*NUMBER;
-    static CHAPTER: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)(?:^|[^a-z])(?:chapter|ch\.?|c)\s*[-_ ]*[0-9]+").unwrap());
+    static CHAPTER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)(?:^|[^a-z])(?:chapter|ch\.?|c)\s*[-_ ]*[0-9]+").unwrap()
+    });
     let chapter = &*CHAPTER;
     entries.retain(|e| e.metadata["missing"] != true);
     for entry in entries.iter_mut().filter(|e| e.kind == "book") {
-        let filename = Path::new(&entry.path).file_stem().unwrap_or_default().to_string_lossy();
-        let key = if !entry.metadata["chapter"].is_null() || chapter.is_match(&entry.title) || chapter.is_match(&filename) {"chapter"} else {"volume"};
-        if entry.metadata[key].as_u64().or_else(||entry.metadata[key].as_str().and_then(|v|v.trim().parse::<u64>().ok())).is_none() {
-            if let Some(found) = number.captures(&filename).or_else(||number.captures(&entry.title)) {entry.metadata[key] = json!(found[1].parse::<u64>().unwrap_or(0));}
+        let filename = Path::new(&entry.path)
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy();
+        let key = if !entry.metadata["chapter"].is_null()
+            || chapter.is_match(&entry.title)
+            || chapter.is_match(&filename)
+        {
+            "chapter"
+        } else {
+            "volume"
+        };
+        if entry.metadata[key]
+            .as_u64()
+            .or_else(|| {
+                entry.metadata[key]
+                    .as_str()
+                    .and_then(|v| v.trim().parse::<u64>().ok())
+            })
+            .is_none()
+        {
+            if let Some(found) = number
+                .captures(&filename)
+                .or_else(|| number.captures(&entry.title))
+            {
+                entry.metadata[key] = json!(found[1].parse::<u64>().unwrap_or(0));
+            }
         }
         entry.metadata["missing"] = json!(false);
     }
@@ -905,25 +1067,96 @@ pub(crate) fn book_placeholders(entries: &mut Vec<NativeCatalogEntry>) {
         }
     }
     let mut missing = Vec::new();
-    for series in entries.iter().filter(|e| e.kind == "book_series" && e.available) {
-        let children = by_parent.get(series.path.as_str()).map(Vec::as_slice).unwrap_or(&[]);
-        let key = if !children.is_empty() && children.iter().all(|e| !e.metadata["chapter"].is_null() && e.metadata["volume"].is_null()) {"chapter"} else {"volume"};
+    for series in entries
+        .iter()
+        .filter(|e| e.kind == "book_series" && e.available)
+    {
+        let children = by_parent
+            .get(series.path.as_str())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let key = if !children.is_empty()
+            && children
+                .iter()
+                .all(|e| !e.metadata["chapter"].is_null() && e.metadata["volume"].is_null())
+        {
+            "chapter"
+        } else {
+            "volume"
+        };
         // Do not guess which numbers are absent when existing files have no identity.
-        if children.iter().any(|e| e.metadata[key].is_null()) {continue;}
-        let total = series.metadata[if key == "chapter" {"chapters"} else {"volumes"}].as_u64().or_else(|| series.metadata[if key == "chapter" {"chapters"} else {"volumes"}].as_str().and_then(|v| v.parse().ok())).unwrap_or(0).min(5000);
-        let present = children.iter().filter_map(|e| e.metadata[key].as_u64().or_else(|| e.metadata[key].as_str().and_then(|v|v.parse().ok()))).collect::<std::collections::BTreeSet<_>>();
+        if children.iter().any(|e| e.metadata[key].is_null()) {
+            continue;
+        }
+        let total = series.metadata[if key == "chapter" {
+            "chapters"
+        } else {
+            "volumes"
+        }]
+        .as_u64()
+        .or_else(|| {
+            series.metadata[if key == "chapter" {
+                "chapters"
+            } else {
+                "volumes"
+            }]
+            .as_str()
+            .and_then(|v| v.parse().ok())
+        })
+        .unwrap_or(0)
+        .min(5000);
+        let present = children
+            .iter()
+            .filter_map(|e| {
+                e.metadata[key]
+                    .as_u64()
+                    .or_else(|| e.metadata[key].as_str().and_then(|v| v.parse().ok()))
+            })
+            .collect::<std::collections::BTreeSet<_>>();
         for n in 1..=total {
-            if present.contains(&n) {continue;}
-            let title = format!("{} {n:02}", if key == "chapter" {"Chapter"} else {"Volume"});
-            missing.push(NativeCatalogEntry {id:String::new(),path:format!("{}/@missing-{key}-{n}",series.path),kind:"book".into(),parent_path:Some(series.path.clone()),title:title.clone(),metadata:json!({"title":title,key:n,"missing":true}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1});
+            if present.contains(&n) {
+                continue;
+            }
+            let title = format!(
+                "{} {n:02}",
+                if key == "chapter" {
+                    "Chapter"
+                } else {
+                    "Volume"
+                }
+            );
+            missing.push(NativeCatalogEntry {
+                id: String::new(),
+                path: format!("{}/@missing-{key}-{n}", series.path),
+                kind: "book".into(),
+                parent_path: Some(series.path.clone()),
+                title: title.clone(),
+                metadata: json!({"title":title,key:n,"missing":true}),
+                artwork: vec![],
+                files: vec![],
+                nfo_path: None,
+                nfo_xml: None,
+                available: true,
+                revision: 1,
+            });
         }
     }
     entries.extend(missing);
 }
 
-pub(crate) fn write_identification_nfo(state: &AppState, entry: &NativeCatalogEntry) -> Result<(String,String),String> { write_nfo_inner(state,entry,true) }
-pub(crate) fn write_nfo(state: &AppState, entry: &NativeCatalogEntry) -> Result<(String,String),String> { write_nfo_inner(state,entry,false) }
-fn clear_identity_nfo(xml:&mut Element){
+pub(crate) fn write_identification_nfo(
+    state: &AppState,
+    entry: &NativeCatalogEntry,
+) -> Result<(String, String), String> {
+    write_nfo_inner(state, entry, true)
+}
+pub(crate) fn write_nfo(
+    state: &AppState,
+    entry: &NativeCatalogEntry,
+) -> Result<(String, String), String> {
+    write_nfo_inner(state, entry, false)
+}
+fn clear_identity_nfo(xml: &mut Element) {
     xml.children.retain(|node|!matches!(node,XMLNode::Element(e) if !["fileinfo","streamdetails","season","episode","thumb","fanart","art","logo","banner","posterview"].contains(&e.name.as_str())));
 }
 fn write_nfo_inner(
@@ -985,7 +1218,9 @@ fn write_nfo_inner(
             _ => "series",
         })
     };
-    if entry.metadata["_identify_nfo_reset"]==true {clear_identity_nfo(&mut xml);}
+    if entry.metadata["_identify_nfo_reset"] == true {
+        clear_identity_nfo(&mut xml);
+    }
     for field in [
         "title",
         "originaltitle",
@@ -1003,7 +1238,14 @@ fn write_nfo_inner(
         "status",
         "volumes",
         "publisher",
-        "country", "translatedtitle", "sourcematerial", "original_year", "original_volumes", "edition_year", "edition_volumes", "chapters",
+        "country",
+        "translatedtitle",
+        "sourcematerial",
+        "original_year",
+        "original_volumes",
+        "edition_year",
+        "edition_volumes",
+        "chapters",
     ] {
         let Some(v) = entry.metadata.get(field) else {
             continue;
@@ -1012,7 +1254,9 @@ fn write_nfo_inner(
             v.into()
         } else if v.is_number() {
             v.to_string()
-        } else if v.is_null() {String::new()} else {
+        } else if v.is_null() {
+            String::new()
+        } else {
             continue;
         };
         xml.children
@@ -1050,13 +1294,16 @@ fn write_nfo_inner(
             xml.children.push(XMLNode::Element(e));
         }
     }
-    let mut nfo_credits = entry.metadata["credits"].as_array().cloned().unwrap_or_default();
-    if let Some(voices)=entry.metadata["voice_cast"].as_array() {
-        nfo_credits.retain(|credit|credit["category"]!="voice");
+    let mut nfo_credits = entry.metadata["credits"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    if let Some(voices) = entry.metadata["voice_cast"].as_array() {
+        nfo_credits.retain(|credit| credit["category"] != "voice");
         nfo_credits.extend(voices.iter().cloned());
     }
     if entry.metadata["credits"].is_array() || entry.metadata["voice_cast"].is_array() {
-        let credits=&nfo_credits;
+        let credits = &nfo_credits;
         let previous_actors = xml
             .children
             .iter()
@@ -1093,7 +1340,10 @@ fn write_nfo_inner(
                     e.children.push(XMLNode::Text(text.into()));
                     actor.children.push(XMLNode::Element(e));
                 }
-                if let Some(image) = credit["image"].as_str().filter(|v| !v.trim().is_empty() && !v.starts_with("/api/servers/")) {
+                if let Some(image) = credit["image"]
+                    .as_str()
+                    .filter(|v| !v.trim().is_empty() && !v.starts_with("/api/servers/"))
+                {
                     actor
                         .children
                         .retain(|n| !matches!(n,XMLNode::Element(e) if e.name=="thumb"));
@@ -1101,12 +1351,37 @@ fn write_nfo_inner(
                     thumb.children.push(XMLNode::Text(image.into()));
                     actor.children.push(XMLNode::Element(thumb));
                 }
-                if category=="voice" {
-                    actor.children.retain(|n|!matches!(n,XMLNode::Element(e) if e.name=="posterviewmanual"));
-                    if entry.metadata["_sources"]["voice_cast"]=="manual" {let mut e=Element::new("posterviewmanual");e.children.push(XMLNode::Text("true".into()));actor.children.push(XMLNode::Element(e));}
-                    for (tag,field) in [("posterviewcategory","category"),("language","language"),("dubgroup","dub_group"),("rolenotes","role_notes"),("provider","provider"),("providerid","provider_id")] {
-                        actor.children.retain(|n|!matches!(n,XMLNode::Element(e) if e.name==tag));
-                        if !credit[field].is_null() {let text=credit[field].as_str().map(str::to_owned).unwrap_or_else(||credit[field].to_string());if !text.is_empty(){let mut e=Element::new(tag);e.children.push(XMLNode::Text(text));actor.children.push(XMLNode::Element(e));}}
+                if category == "voice" {
+                    actor
+                        .children
+                        .retain(|n| !matches!(n,XMLNode::Element(e) if e.name=="posterviewmanual"));
+                    if entry.metadata["_sources"]["voice_cast"] == "manual" {
+                        let mut e = Element::new("posterviewmanual");
+                        e.children.push(XMLNode::Text("true".into()));
+                        actor.children.push(XMLNode::Element(e));
+                    }
+                    for (tag, field) in [
+                        ("posterviewcategory", "category"),
+                        ("language", "language"),
+                        ("dubgroup", "dub_group"),
+                        ("rolenotes", "role_notes"),
+                        ("provider", "provider"),
+                        ("providerid", "provider_id"),
+                    ] {
+                        actor
+                            .children
+                            .retain(|n| !matches!(n,XMLNode::Element(e) if e.name==tag));
+                        if !credit[field].is_null() {
+                            let text = credit[field]
+                                .as_str()
+                                .map(str::to_owned)
+                                .unwrap_or_else(|| credit[field].to_string());
+                            if !text.is_empty() {
+                                let mut e = Element::new(tag);
+                                e.children.push(XMLNode::Text(text));
+                                actor.children.push(XMLNode::Element(e));
+                            }
+                        }
                     }
                 }
                 xml.children.push(XMLNode::Element(actor));
@@ -1161,9 +1436,34 @@ fn write_nfo_inner(
 }
 
 fn is_artwork_video(path: &Path, media_stems: &std::collections::BTreeSet<PathBuf>) -> bool {
-    if !path.extension().is_some_and(|e|e.to_string_lossy().eq_ignore_ascii_case("webm")) {return false;}
-    let stem=path.file_stem().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
-    media_stems.contains(&path.with_extension("")) || ["poster","cover","folder","fanart","backdrop","background","banner","landscape","thumb","logo","clearlogo","disc"].iter().any(|n|stem==*n || stem.ends_with(&format!("-{n}")))
+    if !path
+        .extension()
+        .is_some_and(|e| e.to_string_lossy().eq_ignore_ascii_case("webm"))
+    {
+        return false;
+    }
+    let stem = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_ascii_lowercase();
+    media_stems.contains(&path.with_extension(""))
+        || [
+            "poster",
+            "cover",
+            "folder",
+            "fanart",
+            "backdrop",
+            "background",
+            "banner",
+            "landscape",
+            "thumb",
+            "logo",
+            "clearlogo",
+            "disc",
+        ]
+        .iter()
+        .any(|n| stem == *n || stem.ends_with(&format!("-{n}")))
 }
 
 #[cfg(test)]
@@ -1184,22 +1484,38 @@ mod animated_artwork_tests {
 
     #[test]
     fn artwork_videos_are_excluded_and_animated_sidecars_have_priority() {
-        let temp=tempfile::tempdir().unwrap(); let root=temp.path().canonicalize().unwrap(); let dir=root.as_path();
-        fs::write(dir.join("poster.jpg"),b"static").unwrap();
-        fs::write(dir.join("poster.webm"),b"animated").unwrap();
-        let still=local_art_variants(dir,dir,None,true);
-        assert!(still.iter().all(|a|!a.path.ends_with(".webm")&&!a.path.ends_with(".gif")));
-        assert!(still.iter().any(|a|a.kind=="poster" && a.path=="poster.jpg"));
-        fs::write(dir.join("Episode.mkv"),b"media").unwrap();
-        fs::write(dir.join("Episode.webm"),b"thumb").unwrap();
-        let stems=[dir.join("Episode")].into_iter().collect();
-        assert!(is_artwork_video(&dir.join("poster.webm"),&stems));
-        assert!(is_artwork_video(&dir.join("season01-poster.webm"),&stems));
-        assert!(is_artwork_video(&dir.join("Episode.webm"),&stems));
-        assert!(!is_artwork_video(&dir.join("Movie.webm"),&stems));
-        let art=local_art(dir,dir,Some("Episode"));
-        assert!(art.iter().any(|a|a.kind=="poster" && a.path=="poster.webm"));
-        assert!(art.iter().any(|a|a.kind=="thumb" && a.path=="Episode.webm"));
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let dir = root.as_path();
+        fs::write(dir.join("poster.jpg"), b"static").unwrap();
+        fs::write(dir.join("poster.webm"), b"animated").unwrap();
+        let still = local_art_variants(dir, dir, None, true);
+        assert!(
+            still
+                .iter()
+                .all(|a| !a.path.ends_with(".webm") && !a.path.ends_with(".gif"))
+        );
+        assert!(
+            still
+                .iter()
+                .any(|a| a.kind == "poster" && a.path == "poster.jpg")
+        );
+        fs::write(dir.join("Episode.mkv"), b"media").unwrap();
+        fs::write(dir.join("Episode.webm"), b"thumb").unwrap();
+        let stems = [dir.join("Episode")].into_iter().collect();
+        assert!(is_artwork_video(&dir.join("poster.webm"), &stems));
+        assert!(is_artwork_video(&dir.join("season01-poster.webm"), &stems));
+        assert!(is_artwork_video(&dir.join("Episode.webm"), &stems));
+        assert!(!is_artwork_video(&dir.join("Movie.webm"), &stems));
+        let art = local_art(dir, dir, Some("Episode"));
+        assert!(
+            art.iter()
+                .any(|a| a.kind == "poster" && a.path == "poster.webm")
+        );
+        assert!(
+            art.iter()
+                .any(|a| a.kind == "thumb" && a.path == "Episode.webm")
+        );
     }
 }
 
@@ -1209,45 +1525,144 @@ mod missing_book_tests {
     #[test]
     fn placeholders_keep_artwork_when_numbered_files_arrive() {
         let temp = tempfile::tempdir().unwrap();
-        let db = posterview_infra_sqlite::ServerStore::new(temp.path()); db.initialize().unwrap();
-        let library = db.save_native_library(None,&posterview_contracts::native::NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],options:Default::default(),revision:None}).unwrap();
-        let mut series = blank("Books/Test".into(),"book_series",None,"Test".into()); series.metadata["volumes"] = json!(3);
-        let mut first = blank("Books/Test/Volume 01.cbz".into(),"book",Some(series.path.clone()),"Volume 01".into());first.files.push(json!({"path":first.path}));
-        let mut entries = vec![series.clone(),first.clone()];book_placeholders(&mut entries);
-        assert_eq!(entries.len(),4);assert_eq!(entries[2].metadata["volume"],2);
-        db.ingest_native_catalog(&library.id,library.revision,&entries).unwrap();
-        let missing = db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.metadata["volume"]==2).unwrap();
-        db.save_native_artwork(&library.id,&missing.id,&NativeArtwork{kind:"poster".into(),path:"@managed/cover.jpg".into(),source:"manual".into()}).unwrap();
-        let second = blank("Books/Test/Volume 02.cbz".into(),"book",Some(series.path.clone()),"Volume 02".into());
-        let mut entries = vec![series,first,second];book_placeholders(&mut entries);
-        db.ingest_native_catalog(&library.id,library.revision,&entries).unwrap();
-        let actual = db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.path.ends_with("Volume 02.cbz")).unwrap();
-        assert_eq!(actual.id,missing.id);assert_eq!(actual.metadata["missing"],false);assert_eq!(actual.artwork[0].path,"@managed/cover.jpg");
-        assert!(!db.native_catalog(&library.id).unwrap().iter().any(|e|e.available && e.path.ends_with("@missing-volume-2")));
+        let db = posterview_infra_sqlite::ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &posterview_contracts::native::NativeLibraryInput {
+                    name: "Books".into(),
+                    library_type: NativeLibraryType::Books,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Books".into()],
+                    options: Default::default(),
+                    revision: None,
+                },
+            )
+            .unwrap();
+        let mut series = blank("Books/Test".into(), "book_series", None, "Test".into());
+        series.metadata["volumes"] = json!(3);
+        let mut first = blank(
+            "Books/Test/Volume 01.cbz".into(),
+            "book",
+            Some(series.path.clone()),
+            "Volume 01".into(),
+        );
+        first.files.push(json!({"path":first.path}));
+        let mut entries = vec![series.clone(), first.clone()];
+        book_placeholders(&mut entries);
+        assert_eq!(entries.len(), 4);
+        assert_eq!(entries[2].metadata["volume"], 2);
+        db.ingest_native_catalog(&library.id, library.revision, &entries)
+            .unwrap();
+        let missing = db
+            .native_catalog(&library.id)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.metadata["volume"] == 2)
+            .unwrap();
+        db.save_native_artwork(
+            &library.id,
+            &missing.id,
+            &NativeArtwork {
+                kind: "poster".into(),
+                path: "@managed/cover.jpg".into(),
+                source: "manual".into(),
+            },
+        )
+        .unwrap();
+        let second = blank(
+            "Books/Test/Volume 02.cbz".into(),
+            "book",
+            Some(series.path.clone()),
+            "Volume 02".into(),
+        );
+        let mut entries = vec![series, first, second];
+        book_placeholders(&mut entries);
+        db.ingest_native_catalog(&library.id, library.revision, &entries)
+            .unwrap();
+        let actual = db
+            .native_catalog(&library.id)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.path.ends_with("Volume 02.cbz"))
+            .unwrap();
+        assert_eq!(actual.id, missing.id);
+        assert_eq!(actual.metadata["missing"], false);
+        assert_eq!(actual.artwork[0].path, "@managed/cover.jpg");
+        assert!(
+            !db.native_catalog(&library.id)
+                .unwrap()
+                .iter()
+                .any(|e| e.available && e.path.ends_with("@missing-volume-2"))
+        );
     }
     #[test]
     fn missing_numbers_are_scoped_to_each_book_series() {
-        let mut volumes = blank("Books/Volumes".into(), "book_series", None, "Volumes".into());
+        let mut volumes = blank(
+            "Books/Volumes".into(),
+            "book_series",
+            None,
+            "Volumes".into(),
+        );
         volumes.metadata = json!({"volumes": 2});
-        let mut chapters = blank("Books/Chapters".into(), "book_series", None, "Chapters".into());
+        let mut chapters = blank(
+            "Books/Chapters".into(),
+            "book_series",
+            None,
+            "Chapters".into(),
+        );
         chapters.metadata = json!({"chapters": 2});
-        let first = blank("Books/Volumes/Volume 01.cbz".into(), "book", Some(volumes.path.clone()), "Volume 01".into());
-        let second = blank("Books/Chapters/Chapter 02.cbz".into(), "book", Some(chapters.path.clone()), "Chapter 02".into());
+        let first = blank(
+            "Books/Volumes/Volume 01.cbz".into(),
+            "book",
+            Some(volumes.path.clone()),
+            "Volume 01".into(),
+        );
+        let second = blank(
+            "Books/Chapters/Chapter 02.cbz".into(),
+            "book",
+            Some(chapters.path.clone()),
+            "Chapter 02".into(),
+        );
         let mut entries = vec![volumes, chapters, first, second];
         book_placeholders(&mut entries);
-        let missing: Vec<_> = entries.iter().filter(|entry| entry.metadata["missing"] == true).collect();
+        let missing: Vec<_> = entries
+            .iter()
+            .filter(|entry| entry.metadata["missing"] == true)
+            .collect();
         assert_eq!(missing.len(), 2);
         assert_eq!(missing[0].path, "Books/Volumes/@missing-volume-2");
         assert_eq!(missing[1].path, "Books/Chapters/@missing-chapter-1");
     }
     #[test]
     fn chapter_collections_use_chapter_totals_and_unknown_files_are_not_guessed() {
-        let mut series = blank("Books/Test".into(),"book_series",None,"Test".into());series.metadata=json!({"volumes":2,"chapters":3});
-        let chapter = blank("Books/Test/Chapter 02.cbz".into(),"book",Some(series.path.clone()),"Chapter 02".into());
-        let mut entries=vec![series.clone(),chapter];book_placeholders(&mut entries);
-        assert_eq!(entries.len(),4);assert!(entries.iter().filter(|e|e.metadata["missing"]==true).all(|e| !e.metadata["chapter"].is_null()));
-        let unknown=blank("Books/Test/Unknown.cbz".into(),"book",Some(series.path.clone()),"Unknown".into());
-        let mut entries=vec![series,unknown];book_placeholders(&mut entries);assert_eq!(entries.len(),2);
+        let mut series = blank("Books/Test".into(), "book_series", None, "Test".into());
+        series.metadata = json!({"volumes":2,"chapters":3});
+        let chapter = blank(
+            "Books/Test/Chapter 02.cbz".into(),
+            "book",
+            Some(series.path.clone()),
+            "Chapter 02".into(),
+        );
+        let mut entries = vec![series.clone(), chapter];
+        book_placeholders(&mut entries);
+        assert_eq!(entries.len(), 4);
+        assert!(
+            entries
+                .iter()
+                .filter(|e| e.metadata["missing"] == true)
+                .all(|e| !e.metadata["chapter"].is_null())
+        );
+        let unknown = blank(
+            "Books/Test/Unknown.cbz".into(),
+            "book",
+            Some(series.path.clone()),
+            "Unknown".into(),
+        );
+        let mut entries = vec![series, unknown];
+        book_placeholders(&mut entries);
+        assert_eq!(entries.len(), 2);
     }
 }
 
@@ -1255,36 +1670,93 @@ mod missing_book_tests {
 mod identity_nfo_tests {
     use super::*;
     #[test]
-    fn identity_reset_removes_old_metadata_but_keeps_numbering_art_and_file_details(){
+    fn identity_reset_removes_old_metadata_but_keeps_numbering_art_and_file_details() {
         let mut xml=Element::parse("<episodedetails><title>Wrong</title><plot>Old</plot><genre>Old genre</genre><custompublisher>Old publisher</custompublisher><uniqueid type='tvdb'>99</uniqueid><season>1</season><episode>2</episode><fileinfo/><thumb>local.jpg</thumb></episodedetails>".as_bytes()).unwrap();
-        clear_identity_nfo(&mut xml);assert!(xml.get_child("plot").is_none());assert!(xml.get_child("genre").is_none());assert!(xml.get_child("custompublisher").is_none());assert!(xml.get_child("uniqueid").is_none());assert!(xml.get_child("season").is_some());assert!(xml.get_child("fileinfo").is_some());assert!(xml.get_child("thumb").is_some());
+        clear_identity_nfo(&mut xml);
+        assert!(xml.get_child("plot").is_none());
+        assert!(xml.get_child("genre").is_none());
+        assert!(xml.get_child("custompublisher").is_none());
+        assert!(xml.get_child("uniqueid").is_none());
+        assert!(xml.get_child("season").is_some());
+        assert!(xml.get_child("fileinfo").is_some());
+        assert!(xml.get_child("thumb").is_some());
     }
 }
 
-#[cfg(test)] mod cover_capture_tests {
- use super::*;use std::io::Write;
- #[test] fn first_cbz_page_becomes_a_sidecar_without_overwriting_existing_images(){
-  let temp=tempfile::tempdir().unwrap();let book=temp.path().join("Volume 01.cbz");
-  let mut png=std::io::Cursor::new(Vec::new());image::DynamicImage::new_rgb8(24,36).write_to(&mut png,image::ImageFormat::Png).unwrap();
-  let mut zip=zip::ZipWriter::new(fs::File::create(&book).unwrap());
-  zip.start_file("10.png",zip::write::SimpleFileOptions::default()).unwrap();zip.write_all(b"not an image").unwrap();
-  zip.start_file("2.png",zip::write::SimpleFileOptions::default()).unwrap();zip.write_all(png.get_ref()).unwrap();zip.finish().unwrap();
-  capture_book_cover(&book).unwrap();let sidecar=book.with_extension("jpg");let original=fs::read(&sidecar).unwrap();
-  assert_eq!(image::guess_format(&original).unwrap(),image::ImageFormat::Jpeg);
-  assert_eq!(image::load_from_memory(&original).unwrap().width(),24);
-  fs::write(&book,b"changed book").unwrap();capture_book_cover(&book).unwrap();assert_eq!(fs::read(sidecar).unwrap(),original);
- }
+#[cfg(test)]
+mod cover_capture_tests {
+    use super::*;
+    use std::io::Write;
+    #[test]
+    fn first_cbz_page_becomes_a_sidecar_without_overwriting_existing_images() {
+        let temp = tempfile::tempdir().unwrap();
+        let book = temp.path().join("Volume 01.cbz");
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(24, 36)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let mut zip = zip::ZipWriter::new(fs::File::create(&book).unwrap());
+        zip.start_file("10.png", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"not an image").unwrap();
+        zip.start_file("2.png", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(png.get_ref()).unwrap();
+        zip.finish().unwrap();
+        capture_book_cover(&book).unwrap();
+        let sidecar = book.with_extension("jpg");
+        let original = fs::read(&sidecar).unwrap();
+        assert_eq!(
+            image::guess_format(&original).unwrap(),
+            image::ImageFormat::Jpeg
+        );
+        assert_eq!(image::load_from_memory(&original).unwrap().width(), 24);
+        fs::write(&book, b"changed book").unwrap();
+        capture_book_cover(&book).unwrap();
+        assert_eq!(fs::read(sidecar).unwrap(), original);
+    }
 
- #[test] fn pdf_first_page_becomes_a_jpeg_sidecar(){
-  if std::process::Command::new("pdftoppm").arg("-v").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_err(){return;}
-  let temp=tempfile::tempdir().unwrap();let book=temp.path().join("Volume 02.pdf");
-  let stream="1 0 0 rg 0 0 200 300 re f";
-  let objects=["<< /Type /Catalog /Pages 2 0 R >>".to_string(),"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Resources << >> /Contents 4 0 R >>".to_string(),format!("<< /Length {} >>\nstream\n{}\nendstream",stream.len(),stream)];
-  let mut pdf="%PDF-1.4\n".to_string();let mut offsets=Vec::new();for (index,object) in objects.iter().enumerate(){offsets.push(pdf.len());pdf+=&format!("{} 0 obj\n{}\nendobj\n",index+1,object);}
-  let xref=pdf.len();pdf+="xref\n0 5\n0000000000 65535 f \n";for offset in offsets {pdf+=&format!("{offset:010} 00000 n \n");}pdf+=&format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF");fs::write(&book,pdf).unwrap();
-  capture_book_cover(&book).unwrap();let image=image::open(book.with_extension("jpg")).unwrap();assert!(image.height()>image.width());assert!(image.width()<=1200);
- }
- #[test] fn invalid_book_does_not_create_a_sidecar(){let temp=tempfile::tempdir().unwrap();let book=temp.path().join("bad.cbz");fs::write(&book,b"broken").unwrap();assert!(capture_book_cover(&book).is_err());assert!(!book.with_extension("jpg").exists());}
+    #[test]
+    fn pdf_first_page_becomes_a_jpeg_sidecar() {
+        if std::process::Command::new("pdftoppm")
+            .arg("-v")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_err()
+        {
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let book = temp.path().join("Volume 02.pdf");
+        let stream = "1 0 0 rg 0 0 200 300 re f";
+        let objects=["<< /Type /Catalog /Pages 2 0 R >>".to_string(),"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Resources << >> /Contents 4 0 R >>".to_string(),format!("<< /Length {} >>\nstream\n{}\nendstream",stream.len(),stream)];
+        let mut pdf = "%PDF-1.4\n".to_string();
+        let mut offsets = Vec::new();
+        for (index, object) in objects.iter().enumerate() {
+            offsets.push(pdf.len());
+            pdf += &format!("{} 0 obj\n{}\nendobj\n", index + 1, object);
+        }
+        let xref = pdf.len();
+        pdf += "xref\n0 5\n0000000000 65535 f \n";
+        for offset in offsets {
+            pdf += &format!("{offset:010} 00000 n \n");
+        }
+        pdf += &format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF");
+        fs::write(&book, pdf).unwrap();
+        capture_book_cover(&book).unwrap();
+        let image = image::open(book.with_extension("jpg")).unwrap();
+        assert!(image.height() > image.width());
+        assert!(image.width() <= 1200);
+    }
+    #[test]
+    fn invalid_book_does_not_create_a_sidecar() {
+        let temp = tempfile::tempdir().unwrap();
+        let book = temp.path().join("bad.cbz");
+        fs::write(&book, b"broken").unwrap();
+        assert!(capture_book_cover(&book).is_err());
+        assert!(!book.with_extension("jpg").exists());
+    }
 }
 
 #[cfg(test)]
@@ -1294,7 +1766,9 @@ mod media_info_cache_tests {
     fn old_probe_results_are_refreshed() {
         assert!(!current_media_info(&json!({"streams": []})));
         assert!(!current_media_info(&Value::Null));
-        assert!(current_media_info(&json!({"posterview_probe_version": MEDIA_INFO_VERSION, "streams": []})));
+        assert!(current_media_info(
+            &json!({"posterview_probe_version": MEDIA_INFO_VERSION, "streams": []})
+        ));
         assert!(!current_media_info(&json!({"posterview_probe_version": 1})));
     }
 }

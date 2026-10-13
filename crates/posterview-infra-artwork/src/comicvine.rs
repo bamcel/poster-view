@@ -26,7 +26,10 @@ pub async fn metadata(client: &Client, key: &str, id: &str) -> Result<ComicVineM
         client,
         &format!("/volume/4050-{id}/"),
         key,
-        &[("field_list", "id,name,start_year,description,count_of_issues,publisher,site_detail_url,image")],
+        &[(
+            "field_list",
+            "id,name,start_year,description,count_of_issues,publisher,site_detail_url,image",
+        )],
     )
     .await?;
     let value = &data["results"];
@@ -36,7 +39,10 @@ pub async fn metadata(client: &Client, key: &str, id: &str) -> Result<ComicVineM
         title: value["name"].as_str().unwrap_or("Untitled").to_owned(),
         year: value["start_year"].as_str().unwrap_or("").to_owned(),
         publisher: value["publisher"]["name"].as_str().unwrap_or("").to_owned(),
-        volumes: value["count_of_issues"].as_u64().map(|count| count.to_string()).unwrap_or_default(),
+        volumes: value["count_of_issues"]
+            .as_u64()
+            .map(|count| count.to_string())
+            .unwrap_or_default(),
         plot: plain_text_for_metadata(value["description"].as_str().unwrap_or("")),
         source_url: value["site_detail_url"].as_str().unwrap_or("").to_owned(),
     })
@@ -48,13 +54,21 @@ pub(crate) fn plain_text_for_metadata(html: &str) -> String {
     for character in html.chars() {
         match character {
             '<' => inside_tag = true,
-            '>' => { inside_tag = false; output.push(' '); }
+            '>' => {
+                inside_tag = false;
+                output.push(' ');
+            }
             _ if !inside_tag => output.push(character),
             _ => {}
         }
     }
-    output.split_whitespace().collect::<Vec<_>>().join(" ")
-        .replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'")
+    output
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
 }
 
 pub async fn test(client: &Client, key: &str) -> Result<(), String> {

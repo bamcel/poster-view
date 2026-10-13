@@ -16,22 +16,36 @@ impl Runtime {
             return Ok(None);
         };
         let db = self.server_store()?;
-        let Some(entry) = db.native_catalog_item(library, item)?.filter(|entry| entry.available) else {
+        let Some(entry) = db
+            .native_catalog_item(library, item)?
+            .filter(|entry| entry.available)
+        else {
             return Ok(None);
         };
-        let parent = entry.parent_path.as_deref().map(|path| db.native_catalog_path(library,path)).transpose()?.flatten();
+        let parent = entry
+            .parent_path
+            .as_deref()
+            .map(|path| db.native_catalog_path(library, path))
+            .transpose()?
+            .flatten();
         let series = if entry.kind == "episode" {
-            parent.as_ref().and_then(|parent|parent.parent_path.as_deref()).map(|path| db.native_catalog_path(library,path)).transpose()?.flatten()
+            parent
+                .as_ref()
+                .and_then(|parent| parent.parent_path.as_deref())
+                .map(|path| db.native_catalog_path(library, path))
+                .transpose()?
+                .flatten()
         } else {
             parent
         };
         let entries = if ["series", "book_series"].contains(&entry.kind.as_str()) {
-            db.native_catalog_children(library,&entry.path)?
+            db.native_catalog_children(library, &entry.path)?
         } else {
             Vec::new()
         };
         let mut identifiers = series
-            .as_ref().and_then(|e| e.metadata["identifiers"].as_object())
+            .as_ref()
+            .and_then(|e| e.metadata["identifiers"].as_object())
             .cloned()
             .unwrap_or_default();
         if let Some(own) = entry.metadata["identifiers"].as_object() {
@@ -53,13 +67,16 @@ impl Runtime {
             entry.artwork.iter().find(|a| a.kind == kind).map(|art| {
                 format!(
                     "/api/native/libraries/{library}/items/{item}/artwork/{kind}?v={}&format={}",
-                    entry.revision, art.path.rsplit_once('.').map(|(_,ext)|ext).unwrap_or("")
+                    entry.revision,
+                    art.path.rsplit_once('.').map(|(_, ext)| ext).unwrap_or("")
                 )
             })
         };
         Ok(Some(ItemDetail {
             source_path: None,
-            file_name: std::path::Path::new(&entry.path).file_name().map(|name| name.to_string_lossy().into_owned()),
+            file_name: std::path::Path::new(&entry.path)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned()),
             volume: text("volume"),
             id: target.into(),
             title: entry.title.clone(),
@@ -107,9 +124,28 @@ impl Runtime {
                     Some((key.to_lowercase(), value))
                 })
                 .collect(),
-            members: entries.iter().filter(|e| e.kind == "book" && e.available && e.parent_path.as_deref() == Some(entry.path.as_str())).map(|e| posterview_contracts::MediaItem {
-                id: format!("native:{library}:{}", e.id), title: e.metadata["volume"].as_str().map(str::to_owned).or_else(|| e.metadata["volume"].as_u64().map(|v| v.to_string())).map(|v| format!("{} — Volume {v}", e.title)).unwrap_or_else(|| e.title.clone()), year: e.metadata["year"].as_i64(), item_type: ItemType::Book, poster: None, background: None, added_at: None,
-            }).collect(),
+            members: entries
+                .iter()
+                .filter(|e| {
+                    e.kind == "book"
+                        && e.available
+                        && e.parent_path.as_deref() == Some(entry.path.as_str())
+                })
+                .map(|e| posterview_contracts::MediaItem {
+                    id: format!("native:{library}:{}", e.id),
+                    title: e.metadata["volume"]
+                        .as_str()
+                        .map(str::to_owned)
+                        .or_else(|| e.metadata["volume"].as_u64().map(|v| v.to_string()))
+                        .map(|v| format!("{} — Volume {v}", e.title))
+                        .unwrap_or_else(|| e.title.clone()),
+                    year: e.metadata["year"].as_i64(),
+                    item_type: ItemType::Book,
+                    poster: None,
+                    background: None,
+                    added_at: None,
+                })
+                .collect(),
         }))
     }
 }

@@ -1,10 +1,10 @@
-use posterview_contracts::native::NativeCatalogEntry;
 use crate::{AppState, HttpError};
 use axum::{
     Json,
     extract::{Path, State},
     http::StatusCode,
 };
+use posterview_contracts::native::NativeCatalogEntry;
 use posterview_contracts::native::{NativeLibrary, NativeLibraryInput, NativeLibraryType};
 use posterview_infra_sqlite::{ServerStore, StoreError};
 
@@ -32,7 +32,10 @@ pub(crate) async fn list(
     let libraries = tokio::task::spawn_blocking(move || ServerStore::new(dir).native_libraries())
         .await
         .map_err(|_| HttpError::bad_request("Library request interrupted."))?
-        .map_err(|e| {tracing::error!(%e,"Could not load native libraries");HttpError::bad_gateway("Unable to load libraries. Please retry.")})?;
+        .map_err(|e| {
+            tracing::error!(%e,"Could not load native libraries");
+            HttpError::bad_gateway("Unable to load libraries. Please retry.")
+        })?;
     Ok(Json(libraries))
 }
 
@@ -68,10 +71,19 @@ async fn save(
                 "New libraries cannot have a revision.",
             ));
         }
-        let saved=store.save_native_library(id.as_deref(),&input).map_err(error)?;
-        let key=format!("missing-hidden-since:{}",saved.id);
-        if saved.options.show_missing_files {store.set_setting(&key,"").map_err(error)?;store.set_setting(&format!("missing-cleaned:{}",saved.id),"").map_err(error)?;} else if store.get_setting(&key).map_err(error)?.is_empty() {
-            store.set_setting(&key,&chrono::Utc::now().timestamp().to_string()).map_err(error)?;
+        let saved = store
+            .save_native_library(id.as_deref(), &input)
+            .map_err(error)?;
+        let key = format!("missing-hidden-since:{}", saved.id);
+        if saved.options.show_missing_files {
+            store.set_setting(&key, "").map_err(error)?;
+            store
+                .set_setting(&format!("missing-cleaned:{}", saved.id), "")
+                .map_err(error)?;
+        } else if store.get_setting(&key).map_err(error)?.is_empty() {
+            store
+                .set_setting(&key, &chrono::Utc::now().timestamp().to_string())
+                .map_err(error)?;
         }
         Ok(saved)
     })
@@ -125,14 +137,16 @@ pub(crate) async fn status(
         }
         let mut value = serde_json::json!(status);
         value["manual_queued"] = serde_json::json!(store.manual_scan_queued(&id)?);
-        value["artwork_revision"] = serde_json::json!(store.get_setting(&format!("native-artwork-revision:{id}"))?);
-        value["show_progress"] = serde_json::json!(store.get_setting(&format!("native-scan-visible:{id}"))? != "false");
+        value["artwork_revision"] =
+            serde_json::json!(store.get_setting(&format!("native-artwork-revision:{id}"))?);
+        value["show_progress"] =
+            serde_json::json!(store.get_setting(&format!("native-scan-visible:{id}"))? != "false");
         Ok::<_, posterview_infra_sqlite::StoreError>(value)
     })
-        .await
-        .map_err(|_| HttpError::bad_request("Scan status interrupted."))?
-        .map(Json)
-        .map_err(error)
+    .await
+    .map_err(|_| HttpError::bad_request("Scan status interrupted."))?
+    .map(Json)
+    .map_err(error)
 }
 pub(crate) async fn catalog(
     State(state): State<AppState>,
@@ -142,46 +156,104 @@ pub(crate) async fn catalog(
     let store = store(&state);
     tokio::task::spawn_blocking(move || {
         let entries = store.native_catalog(&id)?;
-        if library.options.show_missing_files && library.library_type == NativeLibraryType::Books && store.native_scan_status(&id)?.status != "scanning" {
-            let mut expected = entries.iter().filter(|e|e.available).cloned().collect::<Vec<_>>();
+        if library.options.show_missing_files
+            && library.library_type == NativeLibraryType::Books
+            && store.native_scan_status(&id)?.status != "scanning"
+        {
+            let mut expected = entries
+                .iter()
+                .filter(|e| e.available)
+                .cloned()
+                .collect::<Vec<_>>();
             crate::native_scan::book_placeholders(&mut expected);
-            let additions = expected.into_iter().filter(|e|e.metadata["missing"] == true && !entries.iter().any(|old|old.available && old.path==e.path)).collect::<Vec<_>>();
+            let additions = expected
+                .into_iter()
+                .filter(|e| {
+                    e.metadata["missing"] == true
+                        && !entries
+                            .iter()
+                            .any(|old| old.available && old.path == e.path)
+                })
+                .collect::<Vec<_>>();
             if !additions.is_empty() {
                 // Backfill only new catalog targets; leave scanned files and existing artwork untouched.
-                let scopes = additions.iter().map(|e|e.path.clone()).collect::<Vec<_>>();
-                store.ingest_native_catalog_scoped(&id, library.revision, &additions, Some(&scopes))?;
+                let scopes = additions.iter().map(|e| e.path.clone()).collect::<Vec<_>>();
+                store.ingest_native_catalog_scoped(
+                    &id,
+                    library.revision,
+                    &additions,
+                    Some(&scopes),
+                )?;
                 return store.native_catalog(&id);
             }
         }
         Ok(entries)
     })
-        .await
-        .map_err(|_| HttpError::bad_request("Catalog request interrupted."))?
-        .map(Json)
-        .map_err(error)
+    .await
+    .map_err(|_| HttpError::bad_request("Catalog request interrupted."))?
+    .map(Json)
+    .map_err(error)
 }
 pub(crate) async fn refresh_artwork(
-    State(state):State<AppState>,Path((id,item)):Path<(String,String)>,
-)->Result<Json<serde_json::Value>,HttpError> {
-    library(&state,&id).await?;
-    tokio::task::spawn_blocking(move||{
-        let entries=store(&state).native_catalog(&id).map_err(error)?;
-        let entry=entries.iter().find(|e|e.available && e.id==item).ok_or_else(HttpError::not_found)?;
-        let root=state.metadata.directory("",true)?;
-        let mut files=std::collections::BTreeSet::new();
-        for current in entries.iter().filter(|e|e.available && (e.id==item || e.path.starts_with(&format!("{}/",entry.path)))) {
-            let path=root.join(&current.path);
-            let (directory,stem)=if path.is_dir() {(path.clone(),None)} else {(path.parent().unwrap_or(&root).to_path_buf(),path.file_stem().map(|s|s.to_string_lossy().into_owned()))};
-            for art in filtered_local_art(&state,current,crate::native_scan::local_art(&root,&directory,stem.as_deref())) {
-                crate::native_artwork::managed_local_copy(&state,&root.join(&art.path)).map_err(HttpError::bad_request)?;
-                store(&state).select_local_artwork(&id,&current.id,&art).map_err(error)?;
+    State(state): State<AppState>,
+    Path((id, item)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, HttpError> {
+    library(&state, &id).await?;
+    tokio::task::spawn_blocking(move || {
+        let entries = store(&state).native_catalog(&id).map_err(error)?;
+        let entry = entries
+            .iter()
+            .find(|e| e.available && e.id == item)
+            .ok_or_else(HttpError::not_found)?;
+        let root = state.metadata.directory("", true)?;
+        let mut files = std::collections::BTreeSet::new();
+        for current in entries.iter().filter(|e| {
+            e.available && (e.id == item || e.path.starts_with(&format!("{}/", entry.path)))
+        }) {
+            let path = root.join(&current.path);
+            let (directory, stem) = if path.is_dir() {
+                (path.clone(), None)
+            } else {
+                (
+                    path.parent().unwrap_or(&root).to_path_buf(),
+                    path.file_stem().map(|s| s.to_string_lossy().into_owned()),
+                )
+            };
+            for art in filtered_local_art(
+                &state,
+                current,
+                crate::native_scan::local_art(&root, &directory, stem.as_deref()),
+            ) {
+                crate::native_artwork::managed_local_copy(&state, &root.join(&art.path))
+                    .map_err(HttpError::bad_request)?;
+                store(&state)
+                    .select_local_artwork(&id, &current.id, &art)
+                    .map_err(error)?;
                 files.insert(root.join(&art.path));
             }
         }
-        let mut updated=0;let mut warnings=Vec::new();
-        for path in files {if crate::native_monitor::refresh_artwork_files(&state,&id,&std::collections::BTreeSet::from([path.clone()])) {updated+=1;}else {warnings.push(format!("Could not refresh local artwork: {}",path.file_name().unwrap_or_default().to_string_lossy()));}}
-        Ok(Json(serde_json::json!({"updated":updated,"warnings":warnings})))
-    }).await.map_err(|_|HttpError::bad_request("Artwork refresh interrupted."))?
+        let mut updated = 0;
+        let mut warnings = Vec::new();
+        for path in files {
+            if crate::native_monitor::refresh_artwork_files(
+                &state,
+                &id,
+                &std::collections::BTreeSet::from([path.clone()]),
+            ) {
+                updated += 1;
+            } else {
+                warnings.push(format!(
+                    "Could not refresh local artwork: {}",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                ));
+            }
+        }
+        Ok(Json(
+            serde_json::json!({"updated":updated,"warnings":warnings}),
+        ))
+    })
+    .await
+    .map_err(|_| HttpError::bad_request("Artwork refresh interrupted."))?
 }
 
 pub(crate) async fn previews(
@@ -194,14 +266,21 @@ pub(crate) async fn previews(
         .map(|entry| serde_json::json!({"id":entry.id,"title":entry.title,"revision":entry.revision}))
         .collect())))
 }
-fn suppress_previous_identity(metadata:&mut serde_json::Value,previous:&serde_json::Value) {
-    if let Some(discarded)=previous["_identify_discarded"].as_object(){
-        for (field,hashes) in discarded {
-            if let Some(value)=metadata.get(field) {
-                let fingerprint=serde_json::json!(posterview_infra_sqlite::ServerStore::identification_value_hash(value));
-                if hashes.as_array().is_some_and(|hashes|hashes.contains(&fingerprint)) {
+fn suppress_previous_identity(metadata: &mut serde_json::Value, previous: &serde_json::Value) {
+    if let Some(discarded) = previous["_identify_discarded"].as_object() {
+        for (field, hashes) in discarded {
+            if let Some(value) = metadata.get(field) {
+                let fingerprint = serde_json::json!(
+                    posterview_infra_sqlite::ServerStore::identification_value_hash(value)
+                );
+                if hashes
+                    .as_array()
+                    .is_some_and(|hashes| hashes.contains(&fingerprint))
+                {
                     metadata.as_object_mut().unwrap().remove(field);
-                    if let Some(sources)=metadata["_sources"].as_object_mut(){sources.remove(field);}
+                    if let Some(sources) = metadata["_sources"].as_object_mut() {
+                        sources.remove(field);
+                    }
                 }
             }
         }
@@ -218,57 +297,109 @@ pub(crate) async fn start_scan_scoped(
 ) -> Result<(), HttpError> {
     start_scan_triggered(state, id, scopes, false).await
 }
-pub(crate) async fn start_identification_scan(state:AppState,id:String,path:String)->Result<(),HttpError>{
-    start_scan_with_refresh(state,id,Some(vec![path]),true,true).await
+pub(crate) async fn start_identification_scan(
+    state: AppState,
+    id: String,
+    path: String,
+) -> Result<(), HttpError> {
+    start_scan_with_refresh(state, id, Some(vec![path]), true, true).await
 }
-async fn start_scan_triggered(state: AppState, id: String, scopes: Option<Vec<String>>, manual: bool) -> Result<(), HttpError> {
-    start_scan_with_refresh(state,id,scopes,manual,false).await
+async fn start_scan_triggered(
+    state: AppState,
+    id: String,
+    scopes: Option<Vec<String>>,
+    manual: bool,
+) -> Result<(), HttpError> {
+    start_scan_with_refresh(state, id, scopes, manual, false).await
 }
-async fn start_scan_with_refresh(state: AppState, id: String, scopes: Option<Vec<String>>, manual: bool, force_metadata:bool) -> Result<(), HttpError> {
+async fn start_scan_with_refresh(
+    state: AppState,
+    id: String,
+    scopes: Option<Vec<String>>,
+    manual: bool,
+    force_metadata: bool,
+) -> Result<(), HttpError> {
     let library = library(&state, &id).await?;
-    if force_metadata {store(&state).set_setting(&format!("native-force-metadata:{id}"),"true").map_err(error)?;}
+    if force_metadata {
+        store(&state)
+            .set_setting(&format!("native-force-metadata:{id}"), "true")
+            .map_err(error)?;
+    }
     let db = store(&state);
     let scan_id = id.clone();
     let active_scans = state.active_native_scans.clone();
-    let started=tokio::task::spawn_blocking(move || {
+    let started = tokio::task::spawn_blocking(move || {
         let initial = db.native_scan_status(&scan_id)?.status == "not_scanned";
-        let started=db.request_native_scan(&scan_id,manual)?;
-        db.set_setting(&format!("native-scan-visible:{scan_id}"), if manual || initial {"true"} else {"false"})?;
-        Ok::<_,posterview_infra_sqlite::StoreError>(started.then(|| ActiveNativeScan::new(active_scans, scan_id)))
+        let started = db.request_native_scan(&scan_id, manual)?;
+        db.set_setting(
+            &format!("native-scan-visible:{scan_id}"),
+            if manual || initial { "true" } else { "false" },
+        )?;
+        Ok::<_, posterview_infra_sqlite::StoreError>(
+            started.then(|| ActiveNativeScan::new(active_scans, scan_id)),
+        )
     })
-        .await
-        .map_err(|_| HttpError::bad_request("Scan request interrupted."))?
-        .map_err(error)?;
-    let Some(active_scan) = started else {return Ok(());};
+    .await
+    .map_err(|_| HttpError::bad_request("Scan request interrupted."))?
+    .map_err(error)?;
+    let Some(active_scan) = started else {
+        return Ok(());
+    };
     tokio::spawn(async move {
-      let _active_scan = active_scan;
-      let mut scopes=scopes;let mut force_metadata=force_metadata;
-      loop {
-        let pending_key=format!("native-force-metadata:{id}");
-        if store(&state).get_setting(&pending_key).unwrap_or_default()=="true" {force_metadata=true;let _=store(&state).set_setting(&pending_key,"");}
-        let mut scan_library=library.clone();let refresh=force_metadata;if force_metadata {scan_library.options.fetch_missing=true;force_metadata=false;}
-        let result = if refresh {run_scan_scoped_mode(state.clone(),scan_library,scopes.take(),true).await} else {run_scan_scoped(state.clone(),scan_library,scopes.take()).await};
-        let status = match result {
-            Ok(status) => status,
-            Err(e) => posterview_contracts::native::NativeScanStatus {
-                progress: None,
-                status: "failed".into(),
-                count: 0,
-                warnings: vec![e.detail],
-            },
-        };
-        let db = store(&state);
-        let scan_id=id.clone();
-        if !tokio::task::spawn_blocking(move || db.finish_or_restart_native_scan(&scan_id, &status)).await.is_ok_and(|result|result.unwrap_or(false)){break;}
-      }
+        let _active_scan = active_scan;
+        let mut scopes = scopes;
+        let mut force_metadata = force_metadata;
+        loop {
+            let pending_key = format!("native-force-metadata:{id}");
+            if store(&state).get_setting(&pending_key).unwrap_or_default() == "true" {
+                force_metadata = true;
+                let _ = store(&state).set_setting(&pending_key, "");
+            }
+            let mut scan_library = library.clone();
+            let refresh = force_metadata;
+            if force_metadata {
+                scan_library.options.fetch_missing = true;
+                force_metadata = false;
+            }
+            let result = if refresh {
+                run_scan_scoped_mode(state.clone(), scan_library, scopes.take(), true).await
+            } else {
+                run_scan_scoped(state.clone(), scan_library, scopes.take()).await
+            };
+            let status = match result {
+                Ok(status) => status,
+                Err(e) => posterview_contracts::native::NativeScanStatus {
+                    progress: None,
+                    status: "failed".into(),
+                    count: 0,
+                    warnings: vec![e.detail],
+                },
+            };
+            let db = store(&state);
+            let scan_id = id.clone();
+            if !tokio::task::spawn_blocking(move || {
+                db.finish_or_restart_native_scan(&scan_id, &status)
+            })
+            .await
+            .is_ok_and(|result| result.unwrap_or(false))
+            {
+                break;
+            }
+        }
     });
     Ok(())
 }
 // A saved scan status can outlive its worker. Track worker lifetime separately,
 // including unwinding or cancellation, so maintenance only waits for live scans.
-pub(crate) struct ActiveNativeScan(std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>, String);
+pub(crate) struct ActiveNativeScan(
+    std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    String,
+);
 impl ActiveNativeScan {
-    pub(crate) fn new(active: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>, id: String) -> Self {
+    pub(crate) fn new(
+        active: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+        id: String,
+    ) -> Self {
         active.lock().unwrap().insert(id.clone());
         Self(active, id)
     }
@@ -297,12 +428,24 @@ async fn run_scan_scoped(
     library: NativeLibrary,
     scopes: Option<Vec<String>>,
 ) -> Result<posterview_contracts::native::NativeScanStatus, HttpError> {
-    run_scan_scoped_mode(state,library,scopes,false).await
+    run_scan_scoped_mode(state, library, scopes, false).await
 }
-async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option<Vec<String>>,force_metadata:bool)->Result<posterview_contracts::native::NativeScanStatus,HttpError> {
-    static SCAN_WORKERS:tokio::sync::Semaphore=tokio::sync::Semaphore::const_new(2);
-    let _worker=SCAN_WORKERS.acquire().await.map_err(|_|HttpError::bad_request("Scan workers unavailable."))?;
-    let _operation=crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),library.id),scopes.as_deref()).await;
+async fn run_scan_scoped_mode(
+    state: AppState,
+    library: NativeLibrary,
+    scopes: Option<Vec<String>>,
+    force_metadata: bool,
+) -> Result<posterview_contracts::native::NativeScanStatus, HttpError> {
+    static SCAN_WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+    let _worker = SCAN_WORKERS
+        .acquire()
+        .await
+        .map_err(|_| HttpError::bad_request("Scan workers unavailable."))?;
+    let _operation = crate::native_operations::acquire(
+        format!("{}:{}", state.runtime.data_dir().display(), library.id),
+        scopes.as_deref(),
+    )
+    .await;
     let scan_state = state.clone();
     let scan_library = library.clone();
     let scan_scopes = scopes.clone();
@@ -324,25 +467,48 @@ async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option
         .into_iter()
         .map(|entry| (entry.path.clone(), entry))
         .collect();
-    let media_root=state.metadata.directory("",true)?;
+    let media_root = state.metadata.directory("", true)?;
     for entry in &mut entries {
-        let art=entry.artwork.iter().map(|a| {
-            let info=std::fs::metadata(media_root.join(&a.path)).ok();
-            serde_json::json!([a.kind,a.path,info.as_ref().map(|m|m.len()),info.and_then(|m|m.modified().ok()).and_then(|t|t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_nanos().to_string())])
-        }).collect::<Vec<_>>();
-        let input=serde_json::json!([entry.files,entry.nfo_xml,art,library.options,existing.get(&entry.path).map(|old|&old.metadata["identifiers"])]).to_string();
-        let mut digest=std::collections::hash_map::DefaultHasher::new();
-        std::hash::Hasher::write(&mut digest,input.as_bytes());
-        let signature=std::hash::Hasher::finish(&digest).to_string();
-        let unchanged=!force_metadata && existing.get(&entry.path).is_some_and(|old|old.available && old.metadata["_scan_signature"].as_str()==Some(&signature));
-        entry.metadata["_scan_signature"]=serde_json::json!(signature);
-        entry.metadata["_scan_unchanged"]=serde_json::json!(unchanged);
+        let art = entry
+            .artwork
+            .iter()
+            .map(|a| {
+                let info = std::fs::metadata(media_root.join(&a.path)).ok();
+                serde_json::json!([
+                    a.kind,
+                    a.path,
+                    info.as_ref().map(|m| m.len()),
+                    info.and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_nanos().to_string())
+                ])
+            })
+            .collect::<Vec<_>>();
+        let input = serde_json::json!([
+            entry.files,
+            entry.nfo_xml,
+            art,
+            library.options,
+            existing
+                .get(&entry.path)
+                .map(|old| &old.metadata["identifiers"])
+        ])
+        .to_string();
+        let mut digest = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hasher::write(&mut digest, input.as_bytes());
+        let signature = std::hash::Hasher::finish(&digest).to_string();
+        let unchanged = !force_metadata
+            && existing.get(&entry.path).is_some_and(|old| {
+                old.available && old.metadata["_scan_signature"].as_str() == Some(&signature)
+            });
+        entry.metadata["_scan_signature"] = serde_json::json!(signature);
+        entry.metadata["_scan_unchanged"] = serde_json::json!(unchanged);
     }
     for entry in &mut entries {
         if let Some(previous) = existing.get(&entry.path) {
-            entry.id=previous.id.clone();
-            entry.revision=previous.revision;
-            suppress_previous_identity(&mut entry.metadata,&previous.metadata);
+            entry.id = previous.id.clone();
+            entry.revision = previous.revision;
+            suppress_previous_identity(&mut entry.metadata, &previous.metadata);
             crate::native_provider::merge_credit_portraits(
                 &mut entry.metadata,
                 &previous.metadata["credits"],
@@ -359,7 +525,9 @@ async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option
                     if !field.starts_with('_') && previous.metadata["_sources"][field] == "server" {
                         entry.metadata[field] = value.clone();
                         entry.metadata["_sources"][field] = serde_json::json!("server");
-                        if field == "title" { entry.title = previous.title.clone(); }
+                        if field == "title" {
+                            entry.title = previous.title.clone();
+                        }
                     }
                 }
             }
@@ -372,14 +540,33 @@ async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option
                     }
                 }
             }
-            entry.artwork=filtered_local_art(&state,previous,std::mem::take(&mut entry.artwork));
+            entry.artwork =
+                filtered_local_art(&state, previous, std::mem::take(&mut entry.artwork));
             for art in &previous.artwork {
                 if entry.kind == "book" && art.source == "local" {
                     let media = std::path::Path::new(&entry.path);
-                    let stem = media.file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
-                    let filename = media.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
-                    let image_stem = std::path::Path::new(&art.path).file_stem().unwrap_or_default().to_string_lossy().to_lowercase();
-                    if image_stem != stem && !image_stem.starts_with(&format!("{stem}-")) && image_stem != filename && !image_stem.starts_with(&format!("{filename}-")) {continue;}
+                    let stem = media
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_lowercase();
+                    let filename = media
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_lowercase();
+                    let image_stem = std::path::Path::new(&art.path)
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_lowercase();
+                    if image_stem != stem
+                        && !image_stem.starts_with(&format!("{stem}-"))
+                        && image_stem != filename
+                        && !image_stem.starts_with(&format!("{filename}-"))
+                    {
+                        continue;
+                    }
                 }
                 let path = if let Some(name) = art.path.strip_prefix("@managed/") {
                     state.runtime.data_dir().join("native-artwork").join(name)
@@ -395,14 +582,34 @@ async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option
             }
         }
     }
-    if library.options.show_missing_files && library.library_type == NativeLibraryType::Books {crate::native_scan::book_placeholders(&mut entries);}
-    let previous=store(&state).native_catalog_scoped(&library.id,scopes.as_deref()).map_err(error)?;
-    for missing in previous.into_iter().filter(|e|e.metadata["missing"]==true) {if !entries.iter().any(|e|e.path==missing.path) && !crate::native_missing::arrived(&entries,&missing){entries.push(missing);}}
-    crate::native_missing::reconcile_library(&state,&library,&mut entries,false,&mut warnings).await;
-    for entry in &mut entries { normalize_season_title(entry); }
+    if library.options.show_missing_files && library.library_type == NativeLibraryType::Books {
+        crate::native_scan::book_placeholders(&mut entries);
+    }
+    let previous = store(&state)
+        .native_catalog_scoped(&library.id, scopes.as_deref())
+        .map_err(error)?;
+    for missing in previous
+        .into_iter()
+        .filter(|e| e.metadata["missing"] == true)
+    {
+        if !entries.iter().any(|e| e.path == missing.path)
+            && !crate::native_missing::arrived(&entries, &missing)
+        {
+            entries.push(missing);
+        }
+    }
+    crate::native_missing::reconcile_library(&state, &library, &mut entries, false, &mut warnings)
+        .await;
+    for entry in &mut entries {
+        normalize_season_title(entry);
+    }
     // Publish the local catalog before network enrichment so large libraries are usable immediately.
     let mut local_entries = entries.clone();
-    for entry in &mut local_entries {if let Some(fields)=entry.metadata.as_object_mut(){fields.remove("_scan_unchanged");}}
+    for entry in &mut local_entries {
+        if let Some(fields) = entry.metadata.as_object_mut() {
+            fields.remove("_scan_unchanged");
+        }
+    }
     let db = store(&state);
     let local_library = library.clone();
     let local_scopes = scopes.clone();
@@ -427,12 +634,26 @@ async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option
     .map_err(|_| HttpError::bad_request("Local catalog save interrupted."))?
     .map_err(error)?;
     crate::native_provider::enrich(&state, &library, &mut entries, &mut warnings).await;
-    crate::native_capture::fill_missing(&state,&library,&mut entries,&mut warnings).await;
-    crate::native_missing::reconcile_library(&state,&library,&mut entries,true,&mut warnings).await;
-    if library.options.show_missing_files && library.library_type == NativeLibraryType::Books {crate::native_scan::book_placeholders(&mut entries);}
-    for entry in &mut entries { normalize_season_title(entry); }
-    let unchanged_paths=entries.iter().filter(|e|e.metadata["_scan_unchanged"]==true).map(|e|e.path.clone()).collect::<std::collections::BTreeSet<_>>();
-    for entry in &mut entries {if let Some(fields)=entry.metadata.as_object_mut(){fields.remove("_scan_unchanged");fields.remove("_image_capture_attempted");}}
+    crate::native_capture::fill_missing(&state, &library, &mut entries, &mut warnings).await;
+    crate::native_missing::reconcile_library(&state, &library, &mut entries, true, &mut warnings)
+        .await;
+    if library.options.show_missing_files && library.library_type == NativeLibraryType::Books {
+        crate::native_scan::book_placeholders(&mut entries);
+    }
+    for entry in &mut entries {
+        normalize_season_title(entry);
+    }
+    let unchanged_paths = entries
+        .iter()
+        .filter(|e| e.metadata["_scan_unchanged"] == true)
+        .map(|e| e.path.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    for entry in &mut entries {
+        if let Some(fields) = entry.metadata.as_object_mut() {
+            fields.remove("_scan_unchanged");
+            fields.remove("_image_capture_attempted");
+        }
+    }
     let count = entries.len();
     let db = store(&state);
     let scan_library = library.clone();
@@ -454,7 +675,7 @@ async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option
         let write_state = state.clone();
         let id = library.id.clone();
         let write_scopes = scopes.clone();
-        let unchanged_paths=unchanged_paths.clone();
+        let unchanged_paths = unchanged_paths.clone();
         warnings.extend(
             tokio::task::spawn_blocking(move || {
                 let entries = store(&write_state)
@@ -463,7 +684,12 @@ async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option
                 let issues = crate::workers::parallel(
                     entries
                         .into_iter()
-                        .filter(|e| e.available && !unchanged_paths.contains(&e.path) && e.metadata["missing"] != true && in_scope(&e.path, write_scopes.as_deref()))
+                        .filter(|e| {
+                            e.available
+                                && !unchanged_paths.contains(&e.path)
+                                && e.metadata["missing"] != true
+                                && in_scope(&e.path, write_scopes.as_deref())
+                        })
                         .collect(),
                     |entry| {
                         let mut issues = Vec::new();
@@ -490,7 +716,7 @@ async fn run_scan_scoped_mode(state:AppState,library:NativeLibrary,scopes:Option
         let write_state = state.clone();
         let id = library.id.clone();
         let write_scopes = scopes.clone();
-        let unchanged_paths=unchanged_paths.clone();
+        let unchanged_paths = unchanged_paths.clone();
         let issues = tokio::task::spawn_blocking(move || {
             let entries = store(&write_state)
                 .native_catalog_scoped(&id, write_scopes.as_deref())
@@ -567,34 +793,116 @@ pub(crate) async fn scan(
         Json(serde_json::json!({"status":"scanning"})),
     ))
 }
-pub(crate) async fn refresh_library(State(state):State<AppState>,Path(id):Path<String>,axum::extract::Query(options):axum::extract::Query<std::collections::BTreeMap<String,String>>)->Result<(StatusCode,Json<serde_json::Value>),HttpError>{
- let lib=library(&state,&id).await?;
- let operation=crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),id),None).await;
- let db=store(&state);
- let roots=db.native_catalog(&id).map_err(error)?.into_iter().filter(|e|e.available && e.metadata["missing"]!=true && e.parent_path.is_none()).collect::<Vec<_>>();
- let replace=options.get("replace_metadata").is_some_and(|v|v=="true");let images=options.get("replace_images").is_some_and(|v|v=="true");
- for entry in roots {
-   if replace {db.identify_native_entry_with_metadata(&id,&entry.id,entry.revision,&entry.title,None,&entry.metadata["identifiers"].as_object().cloned().map(serde_json::Value::Object).unwrap_or(serde_json::json!({})),Some(&serde_json::json!({"_refresh_from_providers":true,"_identify_replace_artwork":images}))).map_err(error)?;}
-   else if images {db.request_artwork_refresh(&id,&entry.path).map_err(error)?;}
-   db.reset_provider_checks(&id,&entry.path).map_err(error)?;
- }
- drop(operation);
- start_scan_with_refresh(state,lib.id,None,true,true).await?;
- Ok((StatusCode::ACCEPTED,Json(serde_json::json!({"status":"scanning"}))))
+pub(crate) async fn refresh_library(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    axum::extract::Query(options): axum::extract::Query<std::collections::BTreeMap<String, String>>,
+) -> Result<(StatusCode, Json<serde_json::Value>), HttpError> {
+    let lib = library(&state, &id).await?;
+    let operation = crate::native_operations::acquire(
+        format!("{}:{}", state.runtime.data_dir().display(), id),
+        None,
+    )
+    .await;
+    let db = store(&state);
+    let roots = db
+        .native_catalog(&id)
+        .map_err(error)?
+        .into_iter()
+        .filter(|e| e.available && e.metadata["missing"] != true && e.parent_path.is_none())
+        .collect::<Vec<_>>();
+    let replace = options.get("replace_metadata").is_some_and(|v| v == "true");
+    let images = options.get("replace_images").is_some_and(|v| v == "true");
+    for entry in roots {
+        if replace {
+            db.identify_native_entry_with_metadata(&id,&entry.id,entry.revision,&entry.title,None,&entry.metadata["identifiers"].as_object().cloned().map(serde_json::Value::Object).unwrap_or(serde_json::json!({})),Some(&serde_json::json!({"_refresh_from_providers":true,"_identify_replace_artwork":images}))).map_err(error)?;
+        } else if images {
+            db.request_artwork_refresh(&id, &entry.path)
+                .map_err(error)?;
+        }
+        db.reset_provider_checks(&id, &entry.path).map_err(error)?;
+    }
+    drop(operation);
+    start_scan_with_refresh(state, lib.id, None, true, true).await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({"status":"scanning"})),
+    ))
 }
-pub(crate) async fn scan_folder(State(state):State<AppState>,Path((id,item)):Path<(String,String)>,axum::extract::Query(options):axum::extract::Query<std::collections::BTreeMap<String,String>>)->Result<(StatusCode,Json<serde_json::Value>),HttpError>{
- library(&state,&id).await?;
- let entry=store(&state).native_catalog_item(&id, &item).map_err(error)?.filter(|entry| entry.available).ok_or_else(HttpError::not_found)?;
- if !(["series","book_series","season"].contains(&entry.kind.as_str()) || (entry.kind=="movie" && options.get("refresh_metadata").is_some_and(|v|v=="true"))) || entry.metadata["missing"]==true {return Err(HttpError::bad_request("Select an existing series or season folder."));}
- let refresh=options.get("refresh_metadata").is_some_and(|v|v=="true");
- let _operation=if refresh {Some(crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),id),Some(&[entry.path.clone()])).await)}else{None};
- let entry=if refresh {store(&state).native_catalog_item(&id, &item).map_err(error)?.filter(|entry| entry.available).ok_or_else(HttpError::not_found)?}else{entry};
- if refresh {let replace=options.get("replace_metadata").is_some_and(|v|v=="true");
- let images=options.get("replace_images").is_some_and(|v|v=="true");
- if replace {let replacement=serde_json::json!({"_refresh_from_providers":true,"_identify_replace_artwork":images});store(&state).identify_native_entry_with_metadata(&id,&item,entry.revision,&entry.title,None,&entry.metadata["identifiers"].as_object().cloned().map(serde_json::Value::Object).unwrap_or(serde_json::json!({})),Some(&replacement)).map_err(error)?;}else if images {store(&state).request_artwork_refresh(&id,&entry.path).map_err(error)?;}
- store(&state).reset_provider_checks(&id,&entry.path).map_err(error)?;}
- start_scan_with_refresh(state,id,Some(vec![entry.path]),true,refresh).await?;
- Ok((StatusCode::ACCEPTED,Json(serde_json::json!({"status":"scanning"}))))
+pub(crate) async fn scan_folder(
+    State(state): State<AppState>,
+    Path((id, item)): Path<(String, String)>,
+    axum::extract::Query(options): axum::extract::Query<std::collections::BTreeMap<String, String>>,
+) -> Result<(StatusCode, Json<serde_json::Value>), HttpError> {
+    library(&state, &id).await?;
+    let entry = store(&state)
+        .native_catalog_item(&id, &item)
+        .map_err(error)?
+        .filter(|entry| entry.available)
+        .ok_or_else(HttpError::not_found)?;
+    if !(["series", "book_series", "season"].contains(&entry.kind.as_str())
+        || (entry.kind == "movie" && options.get("refresh_metadata").is_some_and(|v| v == "true")))
+        || entry.metadata["missing"] == true
+    {
+        return Err(HttpError::bad_request(
+            "Select an existing series or season folder.",
+        ));
+    }
+    let refresh = options.get("refresh_metadata").is_some_and(|v| v == "true");
+    let _operation = if refresh {
+        Some(
+            crate::native_operations::acquire(
+                format!("{}:{}", state.runtime.data_dir().display(), id),
+                Some(&[entry.path.clone()]),
+            )
+            .await,
+        )
+    } else {
+        None
+    };
+    let entry = if refresh {
+        store(&state)
+            .native_catalog_item(&id, &item)
+            .map_err(error)?
+            .filter(|entry| entry.available)
+            .ok_or_else(HttpError::not_found)?
+    } else {
+        entry
+    };
+    if refresh {
+        let replace = options.get("replace_metadata").is_some_and(|v| v == "true");
+        let images = options.get("replace_images").is_some_and(|v| v == "true");
+        if replace {
+            let replacement = serde_json::json!({"_refresh_from_providers":true,"_identify_replace_artwork":images});
+            store(&state)
+                .identify_native_entry_with_metadata(
+                    &id,
+                    &item,
+                    entry.revision,
+                    &entry.title,
+                    None,
+                    &entry.metadata["identifiers"]
+                        .as_object()
+                        .cloned()
+                        .map(serde_json::Value::Object)
+                        .unwrap_or(serde_json::json!({})),
+                    Some(&replacement),
+                )
+                .map_err(error)?;
+        } else if images {
+            store(&state)
+                .request_artwork_refresh(&id, &entry.path)
+                .map_err(error)?;
+        }
+        store(&state)
+            .reset_provider_checks(&id, &entry.path)
+            .map_err(error)?;
+    }
+    start_scan_with_refresh(state, id, Some(vec![entry.path]), true, refresh).await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({"status":"scanning"})),
+    ))
 }
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -626,31 +934,78 @@ pub(crate) async fn edit_item(
     Json(mut input): Json<EditRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     let library = library(&state, &library_id).await?;
-    let initial=store(&state).native_catalog_item(&library_id, &item).map_err(error)?.ok_or_else(HttpError::not_found)?;
-    let path=initial.path.clone();
-    let _operation=crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),library_id),Some(&[path])).await;
-    let fresh=store(&state).native_catalog_item(&library_id, &item).map_err(error)?.ok_or_else(HttpError::not_found)?;
-    if initial.revision!=input.revision || !crate::native_operations::same_manual_fields(&initial.metadata,&fresh.metadata) {return Err(error(StoreError::RevisionConflict));}
-    input.revision=fresh.revision;
-    let only_visual_fields=input.metadata.as_object().is_some_and(|fields| !fields.is_empty() && fields.keys().all(|key| ["posteredit", "poseredit", "backdropedit"].contains(&key.as_str())));
+    let initial = store(&state)
+        .native_catalog_item(&library_id, &item)
+        .map_err(error)?
+        .ok_or_else(HttpError::not_found)?;
+    let path = initial.path.clone();
+    let _operation = crate::native_operations::acquire(
+        format!("{}:{}", state.runtime.data_dir().display(), library_id),
+        Some(&[path]),
+    )
+    .await;
+    let fresh = store(&state)
+        .native_catalog_item(&library_id, &item)
+        .map_err(error)?
+        .ok_or_else(HttpError::not_found)?;
+    if initial.revision != input.revision
+        || !crate::native_operations::same_manual_fields(&initial.metadata, &fresh.metadata)
+    {
+        return Err(error(StoreError::RevisionConflict));
+    }
+    input.revision = fresh.revision;
+    let only_visual_fields = input.metadata.as_object().is_some_and(|fields| {
+        !fields.is_empty()
+            && fields
+                .keys()
+                .all(|key| ["posteredit", "poseredit", "backdropedit"].contains(&key.as_str()))
+    });
     let result = tokio::task::spawn_blocking(move || {
         let db = store(&state);
         db.edit_native_entry(&library_id, &item, input.revision, &input.metadata)
             .map_err(error)?;
-        if library.options.show_missing_files && library.library_type == NativeLibraryType::Books && input.metadata.as_object().is_some_and(|f| f.contains_key("volumes") || f.contains_key("chapters")) {
-            if let Some(series) = db.native_catalog_item(&library_id,&item).map_err(error)?.filter(|entry|entry.kind=="book_series") {
-                let scope=series.path.clone();
-                let mut entries = db.native_catalog_children(&library_id,&scope).map_err(error)?.into_iter().filter(|entry|entry.available).collect::<Vec<_>>();
-                if series.available {entries.push(series);}
+        if library.options.show_missing_files
+            && library.library_type == NativeLibraryType::Books
+            && input
+                .metadata
+                .as_object()
+                .is_some_and(|f| f.contains_key("volumes") || f.contains_key("chapters"))
+        {
+            if let Some(series) = db
+                .native_catalog_item(&library_id, &item)
+                .map_err(error)?
+                .filter(|entry| entry.kind == "book_series")
+            {
+                let scope = series.path.clone();
+                let mut entries = db
+                    .native_catalog_children(&library_id, &scope)
+                    .map_err(error)?
+                    .into_iter()
+                    .filter(|entry| entry.available)
+                    .collect::<Vec<_>>();
+                if series.available {
+                    entries.push(series);
+                }
                 crate::native_scan::book_placeholders(&mut entries);
-                db.ingest_native_catalog_scoped(&library_id, library.revision, &entries, Some(&[scope])).map_err(error)?;
+                db.ingest_native_catalog_scoped(
+                    &library_id,
+                    library.revision,
+                    &entries,
+                    Some(&[scope]),
+                )
+                .map_err(error)?;
             }
         }
         let entry = db
-            .native_catalog_item(&library_id, &item).map_err(error)?
+            .native_catalog_item(&library_id, &item)
+            .map_err(error)?
             .ok_or_else(HttpError::not_found)?;
         let mut warnings = Vec::<String>::new();
-        if entry.metadata["missing"] != true && library.options.save_nfo && !only_visual_fields && (entry.kind != "season" || entry.nfo_path.is_some()) {
+        if entry.metadata["missing"] != true
+            && library.options.save_nfo
+            && !only_visual_fields
+            && (entry.kind != "season" || entry.nfo_path.is_some())
+        {
             match crate::native_scan::write_nfo(&state, &entry) {
                 Ok((path, xml)) => db
                     .record_native_nfo(&library_id, &entry.id, &path, &xml)
@@ -660,39 +1015,95 @@ pub(crate) async fn edit_item(
                 )),
             }
         }
-        Ok::<_,HttpError>(Json(serde_json::json!({"entry":entry,"warnings":warnings})))
+        Ok::<_, HttpError>(Json(serde_json::json!({"entry":entry,"warnings":warnings})))
     })
     .await
     .map_err(|_| HttpError::bad_request("Metadata save interrupted."))??;
     Ok(result)
 }
-pub(crate) async fn apply_panel_artwork(state: AppState, target: String, kind: posterview_contracts::ImageTarget, bytes: Option<Vec<u8>>) -> Result<posterview_contracts::ApplyResult, HttpError> {
+pub(crate) async fn apply_panel_artwork(
+    state: AppState,
+    target: String,
+    kind: posterview_contracts::ImageTarget,
+    bytes: Option<Vec<u8>>,
+) -> Result<posterview_contracts::ApplyResult, HttpError> {
     let save_state = state.clone();
     let result = tokio::task::spawn_blocking(move || {
         let state = save_state;
-        let (library, item) = posterview_runtime::native_artwork_target(&target).ok_or_else(HttpError::not_found)?;
+        let (library, item) =
+            posterview_runtime::native_artwork_target(&target).ok_or_else(HttpError::not_found)?;
         let db = store(&state);
         // Replacements are stored as locked manual selections and survive scanner ingestion.
         // Keep deletions blocked until reconciliation completes.
-        if bytes.is_none() && db.native_scan_status(library).map_err(error)?.status == "scanning" { return Err(HttpError::bad_request("Wait for the library scan to finish before removing artwork.")); }
-        let entry = db.native_catalog_item(library, item).map_err(error)?.filter(|entry| entry.available).ok_or_else(HttpError::not_found)?;
-        let kind = match kind { posterview_contracts::ImageTarget::Background => "backdrop", posterview_contracts::ImageTarget::Logo => "logo", posterview_contracts::ImageTarget::Poster if entry.kind == "episode" => "thumb", _ => "poster" };
-        let Some(bytes) = bytes else {
-            crate::native_artwork::remove_static(&state,library,&entry,kind).map_err(HttpError::bad_request)?;
-            db.remove_native_artwork(library, item, kind).map_err(error)?;
-            return Ok(posterview_contracts::ApplyResult {ok:true,message:"Artwork removed.".into()});
+        if bytes.is_none() && db.native_scan_status(library).map_err(error)?.status == "scanning" {
+            return Err(HttpError::bad_request(
+                "Wait for the library scan to finish before removing artwork.",
+            ));
+        }
+        let entry = db
+            .native_catalog_item(library, item)
+            .map_err(error)?
+            .filter(|entry| entry.available)
+            .ok_or_else(HttpError::not_found)?;
+        let kind = match kind {
+            posterview_contracts::ImageTarget::Background => "backdrop",
+            posterview_contracts::ImageTarget::Logo => "logo",
+            posterview_contracts::ImageTarget::Poster if entry.kind == "episode" => "thumb",
+            _ => "poster",
         };
-        let path = crate::workers::blocking(|| crate::native_provider::store_image(&state, &bytes)).map_err(HttpError::bad_request)?;
-        let animated=path.ends_with(".gif")||path.ends_with(".webm");
-        let art = posterview_contracts::native::NativeArtwork {kind:if animated{format!("{kind}-animated")}else{kind.into()},path,source:"manual".into()};
-        if let Some(animated)=entry.artwork.iter().find(|a|a.kind==kind && (a.path.ends_with(".gif")||a.path.ends_with(".webm"))){let mut animated=animated.clone();animated.kind=format!("{kind}-animated");db.save_native_artwork(library,item,&animated).map_err(error)?;}
-        db.save_native_artwork(library,item,&art).map_err(error)?;
-        let config = db.native_libraries().map_err(error)?.into_iter().find(|l|l.id == library).ok_or_else(HttpError::not_found)?;
+        let Some(bytes) = bytes else {
+            crate::native_artwork::remove_static(&state, library, &entry, kind)
+                .map_err(HttpError::bad_request)?;
+            db.remove_native_artwork(library, item, kind)
+                .map_err(error)?;
+            return Ok(posterview_contracts::ApplyResult {
+                ok: true,
+                message: "Artwork removed.".into(),
+            });
+        };
+        let path = crate::workers::blocking(|| crate::native_provider::store_image(&state, &bytes))
+            .map_err(HttpError::bad_request)?;
+        let animated = path.ends_with(".gif") || path.ends_with(".webm");
+        let art = posterview_contracts::native::NativeArtwork {
+            kind: if animated {
+                format!("{kind}-animated")
+            } else {
+                kind.into()
+            },
+            path,
+            source: "manual".into(),
+        };
+        if let Some(animated) = entry
+            .artwork
+            .iter()
+            .find(|a| a.kind == kind && (a.path.ends_with(".gif") || a.path.ends_with(".webm")))
+        {
+            let mut animated = animated.clone();
+            animated.kind = format!("{kind}-animated");
+            db.save_native_artwork(library, item, &animated)
+                .map_err(error)?;
+        }
+        db.save_native_artwork(library, item, &art).map_err(error)?;
+        let config = db
+            .native_libraries()
+            .map_err(error)?
+            .into_iter()
+            .find(|l| l.id == library)
+            .ok_or_else(HttpError::not_found)?;
         let message = if config.options.save_artwork && !animated {
-            match crate::native_artwork::write(&state,&entry,&art,true) { Ok(()) => "Artwork saved in the database and media folder.".into(), Err(e) => format!("Artwork saved in the database, but media-folder write failed: {e}") }
-        } else { "Artwork saved in the database.".into() };
-        Ok(posterview_contracts::ApplyResult {ok:true,message})
-    }).await.map_err(|_|HttpError::bad_request("Artwork save interrupted."))??;
+            match crate::native_artwork::write(&state, &entry, &art, true) {
+                Ok(()) => "Artwork saved in the database and media folder.".into(),
+                Err(e) => {
+                    format!("Artwork saved in the database, but media-folder write failed: {e}")
+                }
+            }
+        } else {
+            "Artwork saved in the database.".into()
+        };
+        Ok(posterview_contracts::ApplyResult { ok: true, message })
+    })
+    .await
+    .map_err(|_| HttpError::bad_request("Artwork save interrupted."))??;
     crate::spawn_backdrop_refresh(&state);
     Ok(result)
 }
@@ -730,7 +1141,8 @@ pub(crate) async fn upload_artwork(
         let state = save_state;
         let db = store(&state);
         let entry = db
-            .native_catalog_item(&library, &item).map_err(error)?
+            .native_catalog_item(&library, &item)
+            .map_err(error)?
             .ok_or_else(HttpError::not_found)?;
         let config = db
             .native_libraries()
@@ -740,9 +1152,13 @@ pub(crate) async fn upload_artwork(
             .ok_or_else(HttpError::not_found)?;
         let path = crate::workers::blocking(|| crate::native_provider::store_image(&state, &bytes))
             .map_err(HttpError::bad_request)?;
-        let animated=path.ends_with(".gif")||path.ends_with(".webm");
+        let animated = path.ends_with(".gif") || path.ends_with(".webm");
         let art = posterview_contracts::native::NativeArtwork {
-            kind:if animated{format!("{kind}-animated")}else{kind},
+            kind: if animated {
+                format!("{kind}-animated")
+            } else {
+                kind
+            },
             path,
             source: "manual".into(),
         };
@@ -760,14 +1176,16 @@ pub(crate) async fn upload_artwork(
     })
     .await
     .map_err(|_| HttpError::bad_request("Artwork save interrupted."))??;
-    if art.kind == "poster-edit-original" { return Ok(StatusCode::NO_CONTENT); }
+    if art.kind == "poster-edit-original" {
+        return Ok(StatusCode::NO_CONTENT);
+    }
     crate::spawn_backdrop_refresh(&state);
     Ok(StatusCode::NO_CONTENT)
 }
 pub(crate) async fn artwork(
     State(state): State<AppState>,
     Path((library, item, kind)): Path<(String, String, String)>,
-    axum::extract::Query(options): axum::extract::Query<std::collections::HashMap<String,String>>,
+    axum::extract::Query(options): axum::extract::Query<std::collections::HashMap<String, String>>,
     request_headers: axum::http::HeaderMap,
 ) -> Result<(StatusCode, axum::http::HeaderMap, Vec<u8>), HttpError> {
     tokio::task::spawn_blocking(move || {
@@ -777,10 +1195,19 @@ pub(crate) async fn artwork(
             .ok_or_else(HttpError::not_found)?;
         let path = if let Some(name) = art.path.strip_prefix("@managed/") {
             let (id, ext) = name.rsplit_once('.').ok_or_else(HttpError::not_found)?;
-            if uuid::Uuid::parse_str(id).is_err() || !["jpg", "png", "webp", "gif", "webm"].contains(&ext) {
+            if uuid::Uuid::parse_str(id).is_err()
+                || !["jpg", "png", "webp", "gif", "webm"].contains(&ext)
+            {
                 return Err(HttpError::not_found());
             }
-            state.runtime.data_dir().join("native-artwork").join(if options.get("still").is_some_and(|s|s=="1") && ["gif","webm"].contains(&ext) {format!("{id}.still.png")} else {name.to_string()})
+            state.runtime.data_dir().join("native-artwork").join(
+                if options.get("still").is_some_and(|s| s == "1") && ["gif", "webm"].contains(&ext)
+                {
+                    format!("{id}.still.png")
+                } else {
+                    name.to_string()
+                },
+            )
         } else {
             let root = state.metadata.directory("", true)?;
             let path = root.join(&art.path);
@@ -808,34 +1235,69 @@ pub(crate) async fn artwork(
             return Err(HttpError::bad_request("Artwork exceeds 20 MB."));
         }
         // Validate unchanged artwork before reading or processing its contents.
-        let modified = metadata.modified().ok().and_then(|time|time.duration_since(std::time::UNIX_EPOCH).ok()).map(|time|time.as_nanos()).unwrap_or_default();
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|time| time.as_nanos())
+            .unwrap_or_default();
         let mut identity = std::hash::DefaultHasher::new();
         std::hash::Hash::hash(&art.path, &mut identity);
-        let tag = format!("W/\"{}-{}-{}-{}\"", std::hash::Hasher::finish(&identity), metadata.len(), modified, options.get("still").is_some_and(|value|value=="1"));
+        let tag = format!(
+            "W/\"{}-{}-{}-{}\"",
+            std::hash::Hasher::finish(&identity),
+            metadata.len(),
+            modified,
+            options.get("still").is_some_and(|value| value == "1")
+        );
         let etag = axum::http::HeaderValue::from_str(&tag).ok();
-        if request_headers.get(axum::http::header::IF_NONE_MATCH).and_then(|value|value.to_str().ok()).is_some_and(|value|value.split(',').any(|candidate|candidate.trim()==tag || candidate.trim()=="*")) {
+        if request_headers
+            .get(axum::http::header::IF_NONE_MATCH)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| {
+                value
+                    .split(',')
+                    .any(|candidate| candidate.trim() == tag || candidate.trim() == "*")
+            })
+        {
             if let Some(etag) = etag.clone() {
                 let mut headers = axum::http::HeaderMap::new();
                 headers.insert(axum::http::header::ETAG, etag);
-                headers.insert(axum::http::header::CACHE_CONTROL, axum::http::HeaderValue::from_static("private, max-age=60"));
+                headers.insert(
+                    axum::http::header::CACHE_CONTROL,
+                    axum::http::HeaderValue::from_static("private, max-age=60"),
+                );
                 return Ok((StatusCode::NOT_MODIFIED, headers, Vec::new()));
             }
         }
-        let read_path = if !art.path.starts_with("@managed/") {crate::native_artwork::managed_local_copy(&state,&path).map_err(HttpError::bad_request)?} else {path.clone()};
+        let read_path = if !art.path.starts_with("@managed/") {
+            crate::native_artwork::managed_local_copy(&state, &path)
+                .map_err(HttpError::bad_request)?
+        } else {
+            path.clone()
+        };
         let mut bytes = std::fs::read(&read_path).map_err(|_| HttpError::not_found())?;
         if !art.path.starts_with("@managed/") && crate::native_animation::is_animated(&bytes) {
-            bytes = crate::native_animation::local(&state, &path, &bytes, options.get("still").is_some_and(|s|s=="1")).map_err(HttpError::bad_request)?;
+            bytes = crate::native_animation::local(
+                &state,
+                &path,
+                &bytes,
+                options.get("still").is_some_and(|s| s == "1"),
+            )
+            .map_err(HttpError::bad_request)?;
         }
-        let mime = if crate::native_animation::is_webm(&bytes) { "video/webm" } else {
-        let format =
-            image::guess_format(&bytes).map_err(|_| HttpError::bad_request("Invalid artwork."))?;
-        match format {
-            image::ImageFormat::Jpeg => "image/jpeg",
-            image::ImageFormat::Png => "image/png",
-            image::ImageFormat::WebP => "image/webp",
-            image::ImageFormat::Gif => "image/gif",
-            _ => return Err(HttpError::bad_request("Unsupported artwork.")),
-        }
+        let mime = if crate::native_animation::is_webm(&bytes) {
+            "video/webm"
+        } else {
+            let format = image::guess_format(&bytes)
+                .map_err(|_| HttpError::bad_request("Invalid artwork."))?;
+            match format {
+                image::ImageFormat::Jpeg => "image/jpeg",
+                image::ImageFormat::Png => "image/png",
+                image::ImageFormat::WebP => "image/webp",
+                image::ImageFormat::Gif => "image/gif",
+                _ => return Err(HttpError::bad_request("Unsupported artwork.")),
+            }
         };
         let mut headers = axum::http::HeaderMap::new();
         headers.insert(
@@ -846,27 +1308,45 @@ pub(crate) async fn artwork(
             axum::http::header::CACHE_CONTROL,
             axum::http::HeaderValue::from_static("private, max-age=60"),
         );
-        if let Some(etag) = etag { headers.insert(axum::http::header::ETAG, etag); }
-        let mut status=StatusCode::OK;
+        if let Some(etag) = etag {
+            headers.insert(axum::http::header::ETAG, etag);
+        }
+        let mut status = StatusCode::OK;
         if mime == "video/webm" {
-            headers.insert(axum::http::header::ACCEPT_RANGES, axum::http::HeaderValue::from_static("bytes"));
-            if let Some(range)=request_headers.get(axum::http::header::RANGE) {
-                let total=bytes.len();
-                match range.to_str().ok().and_then(|r|crate::native_animation::byte_range(r,total)) {
-                    Some((start,end)) => {
-                        status=StatusCode::PARTIAL_CONTENT;
-                        headers.insert(axum::http::header::CONTENT_RANGE,format!("bytes {start}-{end}/{total}").parse().unwrap());
-                        bytes=bytes[start..=end].to_vec();
+            headers.insert(
+                axum::http::header::ACCEPT_RANGES,
+                axum::http::HeaderValue::from_static("bytes"),
+            );
+            if let Some(range) = request_headers.get(axum::http::header::RANGE) {
+                let total = bytes.len();
+                match range
+                    .to_str()
+                    .ok()
+                    .and_then(|r| crate::native_animation::byte_range(r, total))
+                {
+                    Some((start, end)) => {
+                        status = StatusCode::PARTIAL_CONTENT;
+                        headers.insert(
+                            axum::http::header::CONTENT_RANGE,
+                            format!("bytes {start}-{end}/{total}").parse().unwrap(),
+                        );
+                        bytes = bytes[start..=end].to_vec();
                     }
                     None => {
-                        status=StatusCode::RANGE_NOT_SATISFIABLE;
-                        headers.insert(axum::http::header::CONTENT_RANGE,format!("bytes */{total}").parse().unwrap());
+                        status = StatusCode::RANGE_NOT_SATISFIABLE;
+                        headers.insert(
+                            axum::http::header::CONTENT_RANGE,
+                            format!("bytes */{total}").parse().unwrap(),
+                        );
                         bytes.clear();
                     }
                 }
             }
         }
-        headers.insert(axum::http::header::CONTENT_LENGTH,bytes.len().to_string().parse().unwrap());
+        headers.insert(
+            axum::http::header::CONTENT_LENGTH,
+            bytes.len().to_string().parse().unwrap(),
+        );
         Ok((status, headers, bytes))
     })
     .await
@@ -885,8 +1365,15 @@ mod tests {
         std::fs::create_dir_all(media.join("Anime")).unwrap();
         let runtime = Arc::new(posterview_runtime::Runtime::new(dir.path().join("data")));
         runtime.initialize().unwrap();
-        let mut state = AppState::new(runtime.clone(), crate::AuthState::for_tests(""), media.clone());
-        state.reader = Arc::new(crate::reader::ReaderStore::new(media, dir.path().join("reader.sqlite")));
+        let mut state = AppState::new(
+            runtime.clone(),
+            crate::AuthState::for_tests(""),
+            media.clone(),
+        );
+        state.reader = Arc::new(crate::reader::ReaderStore::new(
+            media,
+            dir.path().join("reader.sqlite"),
+        ));
         let mut input = NativeLibraryInput {
             name: "Anime".into(),
             library_type: NativeLibraryType::Anime,
@@ -918,9 +1405,9 @@ mod tests {
 #[cfg(test)]
 pub(crate) mod scan_tests {
     use super::*;
+    use crate::test_support::state;
     use posterview_contracts::native::{AnimeContent, NativeLibraryOptions, NativeLibraryType};
     use std::fs;
-    use crate::test_support::state;
     #[tokio::test]
     async fn overlay_only_edits_do_not_rewrite_nfo_or_artwork() {
         let temp = tempfile::tempdir().unwrap();
@@ -931,48 +1418,133 @@ pub(crate) mod scan_tests {
         fs::write(folder.join("tvshow.nfo"), xml).unwrap();
         fs::write(folder.join("poster.jpg"), b"original poster").unwrap();
         let db = store(&state);
-        let library = db.save_native_library(None, &NativeLibraryInput {
-            name: "Shows".into(), library_type: NativeLibraryType::Shows,
-            anime_content: AnimeContent::Both, paths: vec!["Shows".into()], revision: None,
-            options: NativeLibraryOptions { save_nfo: true, ..Default::default() },
-        }).unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Shows".into(),
+                    library_type: NativeLibraryType::Shows,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Shows".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        save_nfo: true,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
         let entry = posterview_contracts::native::NativeCatalogEntry {
-            id: String::new(), path: "Shows/Example".into(), kind: "series".into(), parent_path: None,
-            title: "Example".into(), metadata: serde_json::json!({"title":"Example"}),
-            artwork: vec![], files: vec![], nfo_path: Some("Shows/Example/tvshow.nfo".into()),
-            nfo_xml: None, available: true, revision: 1,
+            id: String::new(),
+            path: "Shows/Example".into(),
+            kind: "series".into(),
+            parent_path: None,
+            title: "Example".into(),
+            metadata: serde_json::json!({"title":"Example"}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: Some("Shows/Example/tvshow.nfo".into()),
+            nfo_xml: None,
+            available: true,
+            revision: 1,
         };
-        db.ingest_native_catalog(&library.id, library.revision, &[entry]).unwrap();
+        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
         let entry = db.native_catalog(&library.id).unwrap().remove(0);
         let result = edit_item(State(state.clone()), Path((library.id.clone(), entry.id.clone())), Json(EditRequest {
             revision: entry.revision, metadata: serde_json::json!({"posteredit":{"mode":"overlay","x":15},"poseredit":null}),
         })).await.unwrap();
-        assert_eq!(result.0["entry"]["metadata"]["posteredit"]["mode"], "overlay");
-        let fresh=db.native_catalog(&library.id).unwrap().remove(0);
+        assert_eq!(
+            result.0["entry"]["metadata"]["posteredit"]["mode"],
+            "overlay"
+        );
+        let fresh = db.native_catalog(&library.id).unwrap().remove(0);
         let backdrop=edit_item(State(state),Path((library.id.clone(),fresh.id.clone())),Json(EditRequest {
             revision:fresh.revision,metadata:serde_json::json!({"backdropedit":{"x":25,"y":50,"zoom":150,"fit":"cover"}}),
         })).await.unwrap();
-        assert_eq!(backdrop.0["entry"]["metadata"]["backdropedit"]["zoom"],150);
+        assert_eq!(backdrop.0["entry"]["metadata"]["backdropedit"]["zoom"], 150);
 
         assert_eq!(fs::read_to_string(folder.join("tvshow.nfo")).unwrap(), xml);
-        assert_eq!(fs::read(folder.join("poster.jpg")).unwrap(), b"original poster");
-        assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["posteredit"]["mode"], "overlay");
+        assert_eq!(
+            fs::read(folder.join("poster.jpg")).unwrap(),
+            b"original poster"
+        );
+        assert_eq!(
+            db.native_catalog(&library.id).unwrap()[0].metadata["posteredit"]["mode"],
+            "overlay"
+        );
     }
 
     #[tokio::test]
     async fn opening_existing_book_catalog_backfills_missing_cards_without_rescanning() {
-        let temp=tempfile::tempdir().unwrap();let state=state(temp.path());let db=store(&state);
-        let library=db.save_native_library(None,&NativeLibraryInput{name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:NativeLibraryOptions{fetch_missing:false,..Default::default()}}).unwrap();
-        let series=posterview_contracts::native::NativeCatalogEntry{id:String::new(),path:"Books/Test".into(),kind:"book_series".into(),parent_path:None,title:"Test".into(),metadata:serde_json::json!({"volumes":21}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
-        let mut entries=vec![series.clone()];
-        for n in 1..=11 {let mut volume=series.clone();volume.path=format!("Books/Test/Test v{n:02}.cbz");volume.parent_path=Some(series.path.clone());volume.kind="book".into();volume.title=format!("Volume {n:02}");volume.metadata=serde_json::json!({"volume":""});entries.push(volume);}
-        db.ingest_native_catalog(&library.id,library.revision,&entries).unwrap();
-        let before=db.native_catalog(&library.id).unwrap();
-        let result=catalog(State(state.clone()),Path(library.id.clone())).await.unwrap().0;
-        let missing=result.iter().filter(|e|e.available && e.metadata["missing"]==true).collect::<Vec<_>>();
-        assert_eq!(missing.len(),10);assert!(missing.iter().any(|e|e.metadata["volume"]==12));assert!(missing.iter().any(|e|e.metadata["volume"]==21));
-        for old in before {assert_eq!(serde_json::to_value(result.iter().find(|e|e.id==old.id).unwrap()).unwrap(),serde_json::to_value(&old).unwrap());}
-        let again=catalog(State(state),Path(library.id)).await.unwrap().0;assert_eq!(serde_json::to_value(&again).unwrap(),serde_json::to_value(&result).unwrap());
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let db = store(&state);
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Books".into(),
+                    library_type: NativeLibraryType::Books,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Books".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        let series = posterview_contracts::native::NativeCatalogEntry {
+            id: String::new(),
+            path: "Books/Test".into(),
+            kind: "book_series".into(),
+            parent_path: None,
+            title: "Test".into(),
+            metadata: serde_json::json!({"volumes":21}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        let mut entries = vec![series.clone()];
+        for n in 1..=11 {
+            let mut volume = series.clone();
+            volume.path = format!("Books/Test/Test v{n:02}.cbz");
+            volume.parent_path = Some(series.path.clone());
+            volume.kind = "book".into();
+            volume.title = format!("Volume {n:02}");
+            volume.metadata = serde_json::json!({"volume":""});
+            entries.push(volume);
+        }
+        db.ingest_native_catalog(&library.id, library.revision, &entries)
+            .unwrap();
+        let before = db.native_catalog(&library.id).unwrap();
+        let result = catalog(State(state.clone()), Path(library.id.clone()))
+            .await
+            .unwrap()
+            .0;
+        let missing = result
+            .iter()
+            .filter(|e| e.available && e.metadata["missing"] == true)
+            .collect::<Vec<_>>();
+        assert_eq!(missing.len(), 10);
+        assert!(missing.iter().any(|e| e.metadata["volume"] == 12));
+        assert!(missing.iter().any(|e| e.metadata["volume"] == 21));
+        for old in before {
+            assert_eq!(
+                serde_json::to_value(result.iter().find(|e| e.id == old.id).unwrap()).unwrap(),
+                serde_json::to_value(&old).unwrap()
+            );
+        }
+        let again = catalog(State(state), Path(library.id)).await.unwrap().0;
+        assert_eq!(
+            serde_json::to_value(&again).unwrap(),
+            serde_json::to_value(&result).unwrap()
+        );
     }
 
     #[tokio::test]
@@ -984,20 +1556,50 @@ pub(crate) mod scan_tests {
         fs::write(media.join("poster.jpg"), b"series cover").unwrap();
         for volume in 1..=3 {
             fs::write(media.join(format!("Volume {volume:02}.cbz")), b"fixture").unwrap();
-            let cover = match volume {1=>"Volume 01.jpg",2=>"Volume 02.cbz.jpg",_=>"Volume 03-cover.PNG"};
+            let cover = match volume {
+                1 => "Volume 01.jpg",
+                2 => "Volume 02.cbz.jpg",
+                _ => "Volume 03-cover.PNG",
+            };
             fs::write(media.join(cover), b"volume cover").unwrap();
         }
         let db = store(&state);
-        let library = db.save_native_library(None,&NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:NativeLibraryOptions {fetch_missing:false,..Default::default()}}).unwrap();
-        run_scan(state,library.clone()).await.unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Books".into(),
+                    library_type: NativeLibraryType::Books,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Books".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        run_scan(state, library.clone()).await.unwrap();
         let entries = db.native_catalog(&library.id).unwrap();
-        let books: Vec<_> = entries.iter().filter(|e|e.kind=="book").collect();
-        assert_eq!(books.len(),3);
+        let books: Vec<_> = entries.iter().filter(|e| e.kind == "book").collect();
+        assert_eq!(books.len(), 3);
         for book in books {
-            let name = match book.title.as_str() {"Volume 01"=>"Volume 01.jpg","Volume 02"=>"Volume 02.cbz.jpg",_=>"Volume 03-cover.PNG"};
+            let name = match book.title.as_str() {
+                "Volume 01" => "Volume 01.jpg",
+                "Volume 02" => "Volume 02.cbz.jpg",
+                _ => "Volume 03-cover.PNG",
+            };
             let expected = format!("Books/Example/{name}");
-            assert_eq!(book.artwork.iter().find(|a|a.kind=="poster").unwrap().path,expected);
-            assert!(!book.artwork.iter().any(|a|a.kind=="thumb"));
+            assert_eq!(
+                book.artwork
+                    .iter()
+                    .find(|a| a.kind == "poster")
+                    .unwrap()
+                    .path,
+                expected
+            );
+            assert!(!book.artwork.iter().any(|a| a.kind == "thumb"));
         }
     }
 
@@ -1009,18 +1611,58 @@ pub(crate) mod scan_tests {
         fs::create_dir_all(&media).unwrap();
         fs::write(media.join("Example Volume 01.cbz"), b"fixture").unwrap();
         let db = store(&state);
-        let library = db.save_native_library(None, &NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:NativeLibraryOptions {fetch_missing:false,save_artwork:true,..Default::default()}}).unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Books".into(),
+                    library_type: NativeLibraryType::Books,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Books".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        save_artwork: true,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
         run_scan(state.clone(), library.clone()).await.unwrap();
         let entries = db.native_catalog(&library.id).unwrap();
         let series = entries.iter().find(|e| e.kind == "book_series").unwrap();
-        let detail = state.runtime.get_item_detail(0,&format!("native:{}:{}",library.id,series.id)).await.unwrap().unwrap().unwrap();
-        let missing_id=crate::native_identify::metadata_preview(State(state.clone()),Path((library.id.clone(),series.id.clone())),Json(serde_json::from_value(serde_json::json!({"provider":"comicvine"})).unwrap())).await.unwrap_err();
+        let detail = state
+            .runtime
+            .get_item_detail(0, &format!("native:{}:{}", library.id, series.id))
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let missing_id = crate::native_identify::metadata_preview(
+            State(state.clone()),
+            Path((library.id.clone(), series.id.clone())),
+            Json(serde_json::from_value(serde_json::json!({"provider":"comicvine"})).unwrap()),
+        )
+        .await
+        .unwrap_err();
         assert!(missing_id.detail.contains("Identify this series"));
         assert_eq!(detail.item_type, posterview_contracts::ItemType::Folder);
-        assert_eq!(detail.members.len(),1);
+        assert_eq!(detail.members.len(), 1);
         let mut bytes = std::io::Cursor::new(Vec::new());
-        image::DynamicImage::new_rgba8(2,2).write_to(&mut bytes,image::ImageFormat::Png).unwrap();
-        assert!(apply_panel_artwork(state,detail.members[0].id.clone(),posterview_contracts::ImageTarget::Poster,Some(bytes.into_inner())).await.unwrap().ok);
+        image::DynamicImage::new_rgba8(2, 2)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        assert!(
+            apply_panel_artwork(
+                state,
+                detail.members[0].id.clone(),
+                posterview_contracts::ImageTarget::Poster,
+                Some(bytes.into_inner())
+            )
+            .await
+            .unwrap()
+            .ok
+        );
         assert!(media.join("Example Volume 01.jpg").exists());
     }
 
@@ -1032,66 +1674,255 @@ pub(crate) mod scan_tests {
         let media = temp.path().join("media/Shows/Example/Season 01");
         fs::create_dir_all(&media).unwrap();
         fs::write(media.join("Example.S01E01.mkv"), b"fixture").unwrap();
-        fs::write(media.parent().unwrap().join("tvshow.nfo"), b"<tvshow><title>Example</title><uniqueid type=\"anilist\">123</uniqueid></tvshow>").unwrap();
+        fs::write(
+            media.parent().unwrap().join("tvshow.nfo"),
+            b"<tvshow><title>Example</title><uniqueid type=\"anilist\">123</uniqueid></tvshow>",
+        )
+        .unwrap();
         let db = store(&state);
-        let library = db.save_native_library(None, &NativeLibraryInput {name:"Shows".into(),library_type:NativeLibraryType::Anime,anime_content:AnimeContent::Both,paths:vec!["Shows".into()],revision:None,options:NativeLibraryOptions {fetch_missing:false,save_artwork:true,..Default::default()}}).unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Shows".into(),
+                    library_type: NativeLibraryType::Anime,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Shows".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        save_artwork: true,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
         run_scan(state.clone(), library.clone()).await.unwrap();
         let entries = db.native_catalog(&library.id).unwrap();
         let series = entries.iter().find(|e| e.kind == "series").unwrap();
-        let target = format!("native:{}:{}",library.id,series.id);
-        let detail = state.runtime.get_item_detail(0,&target).await.unwrap().unwrap().unwrap();
-        assert_eq!(detail.external_ids["anilist"],"123");
-        assert!(detail.seasons[0].id.starts_with(&format!("native:{}:",library.id)));
-        assert!(state.runtime.get_item_detail(0,&format!("native:other:{}",series.id)).await.unwrap().is_none());
+        let target = format!("native:{}:{}", library.id, series.id);
+        let detail = state
+            .runtime
+            .get_item_detail(0, &target)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(detail.external_ids["anilist"], "123");
+        assert!(
+            detail.seasons[0]
+                .id
+                .starts_with(&format!("native:{}:", library.id))
+        );
+        assert!(
+            state
+                .runtime
+                .get_item_detail(0, &format!("native:other:{}", series.id))
+                .await
+                .unwrap()
+                .is_none()
+        );
         assert!(state.runtime.artwork_cache_settings(0).is_ok());
         let mut bytes = std::io::Cursor::new(Vec::new());
-        image::DynamicImage::new_rgba8(2,2).write_to(&mut bytes,image::ImageFormat::Png).unwrap();
-        assert!(apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,Some(bytes.get_ref().clone())).await.unwrap().ok);
-        let art = db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap();
-        assert_eq!(art.source,"manual");
+        image::DynamicImage::new_rgba8(2, 2)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        assert!(
+            apply_panel_artwork(
+                state.clone(),
+                target.clone(),
+                ImageTarget::Poster,
+                Some(bytes.get_ref().clone())
+            )
+            .await
+            .unwrap()
+            .ok
+        );
+        let art = db
+            .native_artwork(&library.id, &series.id, "poster")
+            .unwrap()
+            .unwrap();
+        assert_eq!(art.source, "manual");
         let image_path = (library.id.clone(), series.id.clone(), "poster".to_string());
-        let (status, headers, image) = artwork(State(state.clone()), Path(image_path.clone()), axum::extract::Query(Default::default()), Default::default()).await.unwrap();
+        let (status, headers, image) = artwork(
+            State(state.clone()),
+            Path(image_path.clone()),
+            axum::extract::Query(Default::default()),
+            Default::default(),
+        )
+        .await
+        .unwrap();
         assert_eq!(status, StatusCode::OK);
         assert!(!image.is_empty());
         let mut conditional = axum::http::HeaderMap::new();
-        conditional.insert(axum::http::header::IF_NONE_MATCH, headers[axum::http::header::ETAG].clone());
-        let (status, _, image) = artwork(State(state.clone()), Path(image_path.clone()), axum::extract::Query(Default::default()), conditional.clone()).await.unwrap();
+        conditional.insert(
+            axum::http::header::IF_NONE_MATCH,
+            headers[axum::http::header::ETAG].clone(),
+        );
+        let (status, _, image) = artwork(
+            State(state.clone()),
+            Path(image_path.clone()),
+            axum::extract::Query(Default::default()),
+            conditional.clone(),
+        )
+        .await
+        .unwrap();
         assert_eq!(status, StatusCode::NOT_MODIFIED);
         assert!(image.is_empty());
-        apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,Some(bytes.get_ref().clone())).await.unwrap();
-        let (status, _, _) = artwork(State(state.clone()), Path(image_path), axum::extract::Query(Default::default()), conditional).await.unwrap();
+        apply_panel_artwork(
+            state.clone(),
+            target.clone(),
+            ImageTarget::Poster,
+            Some(bytes.get_ref().clone()),
+        )
+        .await
+        .unwrap();
+        let (status, _, _) = artwork(
+            State(state.clone()),
+            Path(image_path),
+            axum::extract::Query(Default::default()),
+            conditional,
+        )
+        .await
+        .unwrap();
         assert_eq!(status, StatusCode::OK);
-        let art = db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap();
+        let art = db
+            .native_artwork(&library.id, &series.id, "poster")
+            .unwrap()
+            .unwrap();
 
         assert!(temp.path().join("media/Shows/Example/poster.jpg").exists());
-        run_scan(state.clone(),library.clone()).await.unwrap();
-        let rescanned_art = db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap();
+        run_scan(state.clone(), library.clone()).await.unwrap();
+        let rescanned_art = db
+            .native_artwork(&library.id, &series.id, "poster")
+            .unwrap()
+            .unwrap();
         assert_eq!(rescanned_art.source, "local");
         assert_eq!(rescanned_art.path, "Shows/Example/poster.jpg");
         assert_ne!(rescanned_art.path, art.path);
-        assert!(apply_panel_artwork(state.clone(),detail.seasons[0].id.clone(),ImageTarget::Poster,Some(bytes.get_ref().clone())).await.unwrap().ok);
-        assert!(temp.path().join("media/Shows/Example/season01-poster.jpg").exists());
-        let episode = entries.iter().find(|e|e.kind=="episode").unwrap();
-        assert!(apply_panel_artwork(state.clone(),format!("native:{}:{}",library.id,episode.id),ImageTarget::Poster,Some(bytes.into_inner())).await.unwrap().ok);
-        assert!(db.native_artwork(&library.id,&episode.id,"thumb").unwrap().is_some());
-        assert!(apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,Some(b"invalid".to_vec())).await.is_err());
+        assert!(
+            apply_panel_artwork(
+                state.clone(),
+                detail.seasons[0].id.clone(),
+                ImageTarget::Poster,
+                Some(bytes.get_ref().clone())
+            )
+            .await
+            .unwrap()
+            .ok
+        );
+        assert!(
+            temp.path()
+                .join("media/Shows/Example/season01-poster.jpg")
+                .exists()
+        );
+        let episode = entries.iter().find(|e| e.kind == "episode").unwrap();
+        assert!(
+            apply_panel_artwork(
+                state.clone(),
+                format!("native:{}:{}", library.id, episode.id),
+                ImageTarget::Poster,
+                Some(bytes.into_inner())
+            )
+            .await
+            .unwrap()
+            .ok
+        );
+        assert!(
+            db.native_artwork(&library.id, &episode.id, "thumb")
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            apply_panel_artwork(
+                state.clone(),
+                target.clone(),
+                ImageTarget::Poster,
+                Some(b"invalid".to_vec())
+            )
+            .await
+            .is_err()
+        );
         db.begin_native_scan(&library.id).unwrap();
         let mut replacement = std::io::Cursor::new(Vec::new());
-        image::DynamicImage::new_rgba8(3,3).write_to(&mut replacement,image::ImageFormat::Png).unwrap();
-        assert!(apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,Some(replacement.get_ref().clone())).await.unwrap().ok);
-        assert!(apply_panel_artwork(state.clone(),detail.seasons[0].id.clone(),ImageTarget::Poster,Some(replacement.get_ref().clone())).await.unwrap().ok);
-        let latest = db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap();
+        image::DynamicImage::new_rgba8(3, 3)
+            .write_to(&mut replacement, image::ImageFormat::Png)
+            .unwrap();
+        assert!(
+            apply_panel_artwork(
+                state.clone(),
+                target.clone(),
+                ImageTarget::Poster,
+                Some(replacement.get_ref().clone())
+            )
+            .await
+            .unwrap()
+            .ok
+        );
+        assert!(
+            apply_panel_artwork(
+                state.clone(),
+                detail.seasons[0].id.clone(),
+                ImageTarget::Poster,
+                Some(replacement.get_ref().clone())
+            )
+            .await
+            .unwrap()
+            .ok
+        );
+        let latest = db
+            .native_artwork(&library.id, &series.id, "poster")
+            .unwrap()
+            .unwrap();
         let season_id = detail.seasons[0].id.split(':').next_back().unwrap();
-        let latest_season = db.native_artwork(&library.id,season_id,"poster").unwrap().unwrap();
+        let latest_season = db
+            .native_artwork(&library.id, season_id, "poster")
+            .unwrap()
+            .unwrap();
         assert_ne!(latest.path, art.path);
         // Reconcile a snapshot captured before those replacements.
-        db.ingest_native_catalog(&library.id,library.revision,&entries).unwrap();
-        assert_eq!(db.native_artwork(&library.id,&series.id,"poster").unwrap().unwrap().path,latest.path);
-        assert_eq!(db.native_artwork(&library.id,season_id,"poster").unwrap().unwrap().path,latest_season.path);
-        assert!(apply_panel_artwork(state.clone(),target.clone(),ImageTarget::Poster,None).await.is_err());
-        db.finish_native_scan(&library.id,&posterview_contracts::native::NativeScanStatus {status:"complete".into(),count:0,warnings:vec![],progress:None}).unwrap();
-        assert!(apply_panel_artwork(state,target,ImageTarget::Poster,None).await.unwrap().ok);
-        assert!(db.native_artwork(&library.id,&series.id,"poster").unwrap().is_none());
+        db.ingest_native_catalog(&library.id, library.revision, &entries)
+            .unwrap();
+        assert_eq!(
+            db.native_artwork(&library.id, &series.id, "poster")
+                .unwrap()
+                .unwrap()
+                .path,
+            latest.path
+        );
+        assert_eq!(
+            db.native_artwork(&library.id, season_id, "poster")
+                .unwrap()
+                .unwrap()
+                .path,
+            latest_season.path
+        );
+        assert!(
+            apply_panel_artwork(state.clone(), target.clone(), ImageTarget::Poster, None)
+                .await
+                .is_err()
+        );
+        db.finish_native_scan(
+            &library.id,
+            &posterview_contracts::native::NativeScanStatus {
+                status: "complete".into(),
+                count: 0,
+                warnings: vec![],
+                progress: None,
+            },
+        )
+        .unwrap();
+        assert!(
+            apply_panel_artwork(state, target, ImageTarget::Poster, None)
+                .await
+                .unwrap()
+                .ok
+        );
+        assert!(
+            db.native_artwork(&library.id, &series.id, "poster")
+                .unwrap()
+                .is_none()
+        );
         assert!(!temp.path().join("media/Shows/Example/poster.jpg").exists());
     }
     #[tokio::test]
@@ -1122,7 +1953,10 @@ pub(crate) mod scan_tests {
         // Starting/restarting monitoring must establish a baseline without scanning.
         crate::native_monitor::start(state.clone());
         tokio::time::sleep(std::time::Duration::from_secs(18)).await;
-        assert_ne!(db.native_scan_status(&library.id).unwrap().status, "scanning");
+        assert_ne!(
+            db.native_scan_status(&library.id).unwrap().status,
+            "scanning"
+        );
         assert!(db.native_catalog(&library.id).unwrap().is_empty());
         fs::write(media.join("New.mp4"), b"fixture").unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(25), async {
@@ -1361,9 +2195,20 @@ pub(crate) mod scan_tests {
             .into_iter()
             .find(|e| e.kind == "series")
             .unwrap();
-        assert_eq!(show.artwork.iter().find(|a|a.kind=="poster").unwrap().source,"local");
-        let replacement=posterview_contracts::native::NativeArtwork{kind:"poster".into(),path:managed.clone(),source:"manual".into()};
-        let art=&replacement;
+        assert_eq!(
+            show.artwork
+                .iter()
+                .find(|a| a.kind == "poster")
+                .unwrap()
+                .source,
+            "local"
+        );
+        let replacement = posterview_contracts::native::NativeArtwork {
+            kind: "poster".into(),
+            path: managed.clone(),
+            source: "manual".into(),
+        };
+        let art = &replacement;
         crate::native_artwork::write(&state, &show, art, true).unwrap();
         assert_eq!(
             image::guess_format(&fs::read(series.join("poster.jpg")).unwrap()).unwrap(),
@@ -1548,27 +2393,59 @@ pub(crate) mod scan_tests {
         for season in 1..=2 {
             let folder = show.join(format!("Roseanne - Season {season:02}"));
             fs::create_dir_all(&folder).unwrap();
-            fs::write(folder.join(format!("Roseanne.S{season:02}E01.mkv")), b"fixture").unwrap();
-            fs::write(folder.join("tvshow.nfo"), "<tvshow><title>Wrong season show</title></tvshow>").unwrap();
+            fs::write(
+                folder.join(format!("Roseanne.S{season:02}E01.mkv")),
+                b"fixture",
+            )
+            .unwrap();
+            fs::write(
+                folder.join("tvshow.nfo"),
+                "<tvshow><title>Wrong season show</title></tvshow>",
+            )
+            .unwrap();
         }
         let db = store(&state);
-        let library = db.save_native_library(None, &NativeLibraryInput {
-            name: "TV".into(),
-            library_type: NativeLibraryType::Shows,
-            anime_content: AnimeContent::Both,
-            paths: vec!["Shows".into()],
-            revision: None,
-            options: NativeLibraryOptions { fetch_missing: false, ..Default::default() },
-        }).unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "TV".into(),
+                    library_type: NativeLibraryType::Shows,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Shows".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
         run_scan(state.clone(), library.clone()).await.unwrap();
         let entries = db.native_catalog(&library.id).unwrap();
-        let shows = entries.iter().filter(|e| e.available && e.kind == "series").collect::<Vec<_>>();
+        let shows = entries
+            .iter()
+            .filter(|e| e.available && e.kind == "series")
+            .collect::<Vec<_>>();
         assert_eq!(shows.len(), 1);
         assert_eq!(shows[0].title, "Roseanne");
-        let seasons = entries.iter().filter(|e| e.available && e.kind == "season").collect::<Vec<_>>();
+        let seasons = entries
+            .iter()
+            .filter(|e| e.available && e.kind == "season")
+            .collect::<Vec<_>>();
         assert_eq!(seasons.len(), 2);
-        assert!(seasons.iter().all(|e| e.parent_path.as_deref() == Some(shows[0].path.as_str())));
-        assert_eq!(entries.iter().filter(|e| e.available && e.kind == "episode").count(), 2);
+        assert!(
+            seasons
+                .iter()
+                .all(|e| e.parent_path.as_deref() == Some(shows[0].path.as_str()))
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|e| e.available && e.kind == "episode")
+                .count(),
+            2
+        );
     }
 
     #[tokio::test]
@@ -1682,24 +2559,52 @@ pub(crate) mod scan_tests {
     }
     #[tokio::test]
     async fn unchanged_scan_reuses_inspection_and_changed_file_is_reinspected() {
-        let temp=tempfile::tempdir().unwrap();let state=state(temp.path());
-        let dir=temp.path().join("media/Movies");fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join("Example.mkv"),b"fixture").unwrap();
-        let library=store(&state).save_native_library(None,&NativeLibraryInput{name:"Movies".into(),library_type:NativeLibraryType::Movies,anime_content:AnimeContent::Both,paths:vec!["Movies".into()],revision:None,options:NativeLibraryOptions{fetch_missing:false,save_nfo:false,save_artwork:false,..Default::default()}}).unwrap();
-        let (mut entries,_)=crate::native_scan::collect_scoped(&state,&library,None).unwrap();
-        entries[0].files[0]["media_info"]=serde_json::json!({"cached_fixture":true,"posterview_probe_version":crate::native_scan::MEDIA_INFO_VERSION});
-        store(&state).ingest_native_catalog(&library.id,library.revision,&entries).unwrap();
-        run_scan_scoped(state.clone(),library.clone(),None).await.unwrap();
-        let first=store(&state).native_catalog(&library.id).unwrap();
-        assert_eq!(first[0].files[0]["media_info"]["cached_fixture"],true);
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let dir = temp.path().join("media/Movies");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("Example.mkv"), b"fixture").unwrap();
+        let library = store(&state)
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        save_nfo: false,
+                        save_artwork: false,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        let (mut entries, _) = crate::native_scan::collect_scoped(&state, &library, None).unwrap();
+        entries[0].files[0]["media_info"] = serde_json::json!({"cached_fixture":true,"posterview_probe_version":crate::native_scan::MEDIA_INFO_VERSION});
+        store(&state)
+            .ingest_native_catalog(&library.id, library.revision, &entries)
+            .unwrap();
+        run_scan_scoped(state.clone(), library.clone(), None)
+            .await
+            .unwrap();
+        let first = store(&state).native_catalog(&library.id).unwrap();
+        assert_eq!(first[0].files[0]["media_info"]["cached_fixture"], true);
         assert!(first[0].metadata.get("_scan_unchanged").is_none());
-        run_scan_scoped(state.clone(),library.clone(),Some(vec!["Movies".into()])).await.unwrap();
-        let second=store(&state).native_catalog(&library.id).unwrap();
-        assert_eq!(first[0].metadata["_scan_signature"],second[0].metadata["_scan_signature"]);
-        assert_eq!(second[0].files[0]["media_info"]["cached_fixture"],true);
-        fs::write(dir.join("Example.mkv"),b"changed media fixture").unwrap();
-        let (changed,_)=crate::native_scan::collect_scoped(&state,&library,None).unwrap();
-        assert_ne!(changed[0].files[0]["media_info"]["cached_fixture"],true);
+        run_scan_scoped(state.clone(), library.clone(), Some(vec!["Movies".into()]))
+            .await
+            .unwrap();
+        let second = store(&state).native_catalog(&library.id).unwrap();
+        assert_eq!(
+            first[0].metadata["_scan_signature"],
+            second[0].metadata["_scan_signature"]
+        );
+        assert_eq!(second[0].files[0]["media_info"]["cached_fixture"], true);
+        fs::write(dir.join("Example.mkv"), b"changed media fixture").unwrap();
+        let (changed, _) = crate::native_scan::collect_scoped(&state, &library, None).unwrap();
+        assert_ne!(changed[0].files[0]["media_info"]["cached_fixture"], true);
     }
     #[tokio::test]
     async fn incremental_mixed_scan_preserves_unrelated_items_and_reconciles_renames() {
@@ -1900,61 +2805,210 @@ pub(crate) mod scan_tests {
     }
     #[test]
     fn anime_dub_credits_roundtrip_in_nfo() {
-        let temp=tempfile::tempdir().unwrap();let state=state(temp.path());let dir=temp.path().join("media/Anime/Test");fs::create_dir_all(&dir).unwrap();
-        let entry=posterview_contracts::native::NativeCatalogEntry{id:String::new(),path:"Anime/Test".into(),kind:"series".into(),parent_path:None,title:"Test".into(),metadata:serde_json::json!({"title":"Test","_sources":{"voice_cast":"manual"},"credits":[{"name":"Actor","role":"Lead","category":"voice"}],"voice_cast":[{"name":"Actor","role":"Lead","category":"voice","language":"English","dub_group":"ADV Films","role_notes":"Young","provider":"anilist","provider_id":123,"image":"https://example.com/actor.jpg"}]}),artwork:vec![],files:vec![],nfo_path:Some("Anime/Test/tvshow.nfo".into()),nfo_xml:None,available:true,revision:1};
-        let (_,xml)=crate::native_scan::write_nfo(&state,&entry).unwrap();
-        let (_,metadata)=crate::native_scan::parse_nfo(xml.as_bytes()).unwrap();
-        assert_eq!(metadata["voice_cast"].as_array().unwrap().len(),1);
-        for field in ["language","dub_group","role_notes","provider","image"] {assert_eq!(metadata["voice_cast"][0][field],entry.metadata["voice_cast"][0][field]);}
-        assert_eq!(metadata["voice_cast"][0]["provider_id"],"123");
-        assert_eq!(metadata["_sources"]["voice_cast"],"manual");
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let dir = temp.path().join("media/Anime/Test");
+        fs::create_dir_all(&dir).unwrap();
+        let entry = posterview_contracts::native::NativeCatalogEntry {
+            id: String::new(),
+            path: "Anime/Test".into(),
+            kind: "series".into(),
+            parent_path: None,
+            title: "Test".into(),
+            metadata: serde_json::json!({"title":"Test","_sources":{"voice_cast":"manual"},"credits":[{"name":"Actor","role":"Lead","category":"voice"}],"voice_cast":[{"name":"Actor","role":"Lead","category":"voice","language":"English","dub_group":"ADV Films","role_notes":"Young","provider":"anilist","provider_id":123,"image":"https://example.com/actor.jpg"}]}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: Some("Anime/Test/tvshow.nfo".into()),
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        let (_, xml) = crate::native_scan::write_nfo(&state, &entry).unwrap();
+        let (_, metadata) = crate::native_scan::parse_nfo(xml.as_bytes()).unwrap();
+        assert_eq!(metadata["voice_cast"].as_array().unwrap().len(), 1);
+        for field in ["language", "dub_group", "role_notes", "provider", "image"] {
+            assert_eq!(
+                metadata["voice_cast"][0][field],
+                entry.metadata["voice_cast"][0][field]
+            );
+        }
+        assert_eq!(metadata["voice_cast"][0]["provider_id"], "123");
+        assert_eq!(metadata["_sources"]["voice_cast"], "manual");
     }
     #[test]
-    fn identification_nfo_replaces_old_ids_and_preserves_unknown_fields(){
-        let temp=tempfile::tempdir().unwrap();let state=state(temp.path());let dir=temp.path().join("media/Movies/Test");fs::create_dir_all(&dir).unwrap();
+    fn identification_nfo_replaces_old_ids_and_preserves_unknown_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let dir = temp.path().join("media/Movies/Test");
+        fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("Test.nfo"),"<movie><uniqueid type='tvdb'>99</uniqueid><tvdbid>99</tvdbid><uniqueid type='custom'>keep</uniqueid><custom>value</custom></movie>").unwrap();
-        let entry=posterview_contracts::native::NativeCatalogEntry{id:String::new(),path:"Movies/Test/Test.mkv".into(),kind:"movie".into(),parent_path:None,title:"Correct".into(),metadata:serde_json::json!({"title":"Correct","identifiers":{"tmdb":"12"}}),artwork:vec![],files:vec![],nfo_path:Some("Movies/Test/Test.nfo".into()),nfo_xml:None,available:true,revision:1};
-        let (_,xml)=crate::native_scan::write_identification_nfo(&state,&entry).unwrap();let (_,metadata)=crate::native_scan::parse_nfo(xml.as_bytes()).unwrap();assert_eq!(metadata["identifiers"]["tmdb"],"12");assert!(metadata["identifiers"]["tvdb"].is_null());assert!(xml.contains("<custom>value</custom>"));assert!(xml.contains("keep"));
+        let entry = posterview_contracts::native::NativeCatalogEntry {
+            id: String::new(),
+            path: "Movies/Test/Test.mkv".into(),
+            kind: "movie".into(),
+            parent_path: None,
+            title: "Correct".into(),
+            metadata: serde_json::json!({"title":"Correct","identifiers":{"tmdb":"12"}}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: Some("Movies/Test/Test.nfo".into()),
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        let (_, xml) = crate::native_scan::write_identification_nfo(&state, &entry).unwrap();
+        let (_, metadata) = crate::native_scan::parse_nfo(xml.as_bytes()).unwrap();
+        assert_eq!(metadata["identifiers"]["tmdb"], "12");
+        assert!(metadata["identifiers"]["tvdb"].is_null());
+        assert!(xml.contains("<custom>value</custom>"));
+        assert!(xml.contains("keep"));
     }
-
 }
 
-fn filtered_local_art(state:&AppState,entry:&posterview_contracts::native::NativeCatalogEntry,mut artwork:Vec<posterview_contracts::native::NativeArtwork>)->Vec<posterview_contracts::native::NativeArtwork>{
- let blocked=artwork.iter().filter(|a|a.kind.ends_with("-animated")||["gif","webm"].contains(&a.path.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str())).filter(|a|store(state).get_setting(&format!("removed-animation:{}:{}",entry.id,a.kind.trim_end_matches("-animated"))).is_ok_and(|v|v=="true")).map(|a|a.kind.trim_end_matches("-animated").to_string()).collect::<std::collections::BTreeSet<_>>();
- if blocked.is_empty(){return artwork;}
- artwork.retain(|a|!blocked.contains(a.kind.trim_end_matches("-animated")));
- if let Ok(root)=state.metadata.directory("",true){let path=root.join(&entry.path);let (directory,stem)=if path.is_dir(){(path.clone(),None)}else{(path.parent().unwrap_or(&root).to_path_buf(),path.file_stem().map(|s|s.to_string_lossy().into_owned()))};artwork.extend(crate::native_scan::local_art_variants(&root,&directory,stem.as_deref(),true).into_iter().filter(|a|blocked.contains(&a.kind)));}
- artwork
+fn filtered_local_art(
+    state: &AppState,
+    entry: &posterview_contracts::native::NativeCatalogEntry,
+    mut artwork: Vec<posterview_contracts::native::NativeArtwork>,
+) -> Vec<posterview_contracts::native::NativeArtwork> {
+    let blocked = artwork
+        .iter()
+        .filter(|a| {
+            a.kind.ends_with("-animated")
+                || ["gif", "webm"].contains(
+                    &a.path
+                        .rsplit('.')
+                        .next()
+                        .unwrap_or("")
+                        .to_ascii_lowercase()
+                        .as_str(),
+                )
+        })
+        .filter(|a| {
+            store(state)
+                .get_setting(&format!(
+                    "removed-animation:{}:{}",
+                    entry.id,
+                    a.kind.trim_end_matches("-animated")
+                ))
+                .is_ok_and(|v| v == "true")
+        })
+        .map(|a| a.kind.trim_end_matches("-animated").to_string())
+        .collect::<std::collections::BTreeSet<_>>();
+    if blocked.is_empty() {
+        return artwork;
+    }
+    artwork.retain(|a| !blocked.contains(a.kind.trim_end_matches("-animated")));
+    if let Ok(root) = state.metadata.directory("", true) {
+        let path = root.join(&entry.path);
+        let (directory, stem) = if path.is_dir() {
+            (path.clone(), None)
+        } else {
+            (
+                path.parent().unwrap_or(&root).to_path_buf(),
+                path.file_stem().map(|s| s.to_string_lossy().into_owned()),
+            )
+        };
+        artwork.extend(
+            crate::native_scan::local_art_variants(&root, &directory, stem.as_deref(), true)
+                .into_iter()
+                .filter(|a| blocked.contains(&a.kind)),
+        );
+    }
+    artwork
 }
 
-pub(crate) async fn remove_variant(State(state):State<AppState>,Path((library,item,kind)):Path<(String,String,String)>)->Result<StatusCode,HttpError>{
- let animated=kind.ends_with("-animated");
- let original=kind.ends_with("-edit-original");
- let base=kind.trim_end_matches("-animated").trim_end_matches("-edit-original");
- if !["poster","backdrop","logo","banner","thumb","landscape","disc"].contains(&base){return Err(HttpError::bad_request("Unknown artwork type."));}
- if store(&state).native_scan_status(&library).map_err(error)?.status=="scanning" {return Err(HttpError::bad_request("Wait for the library scan to finish before removing artwork."));}
- if !animated && !original {
-  let entry=store(&state).native_catalog_item(&library, &item).map_err(error)?.ok_or_else(HttpError::not_found)?;
-  crate::native_artwork::remove_static(&state,&library,&entry,&kind).map_err(HttpError::bad_request)?;
- }
- store(&state).remove_native_artwork(&library,&item,&kind).map_err(error)?;
- if animated {
- if let Some(entry)=store(&state).native_catalog_item(&library, &item).map_err(error)? {
-  if let Ok(root)=state.metadata.directory("",true) {let path=root.join(&entry.path);let (dir,stem)=if path.is_dir(){(path.clone(),None)}else{(path.parent().unwrap_or(&root).to_path_buf(),path.file_stem().map(|s|s.to_string_lossy().into_owned()))};
-   for art in crate::native_scan::local_art_variants(&root,&dir,stem.as_deref(),true).into_iter().filter(|a|a.kind==base) {store(&state).select_local_artwork(&library,&item,&art).map_err(error)?;}
-  }
- }
- }
- Ok(StatusCode::NO_CONTENT)
+pub(crate) async fn remove_variant(
+    State(state): State<AppState>,
+    Path((library, item, kind)): Path<(String, String, String)>,
+) -> Result<StatusCode, HttpError> {
+    let animated = kind.ends_with("-animated");
+    let original = kind.ends_with("-edit-original");
+    let base = kind
+        .trim_end_matches("-animated")
+        .trim_end_matches("-edit-original");
+    if ![
+        "poster",
+        "backdrop",
+        "logo",
+        "banner",
+        "thumb",
+        "landscape",
+        "disc",
+    ]
+    .contains(&base)
+    {
+        return Err(HttpError::bad_request("Unknown artwork type."));
+    }
+    if store(&state)
+        .native_scan_status(&library)
+        .map_err(error)?
+        .status
+        == "scanning"
+    {
+        return Err(HttpError::bad_request(
+            "Wait for the library scan to finish before removing artwork.",
+        ));
+    }
+    if !animated && !original {
+        let entry = store(&state)
+            .native_catalog_item(&library, &item)
+            .map_err(error)?
+            .ok_or_else(HttpError::not_found)?;
+        crate::native_artwork::remove_static(&state, &library, &entry, &kind)
+            .map_err(HttpError::bad_request)?;
+    }
+    store(&state)
+        .remove_native_artwork(&library, &item, &kind)
+        .map_err(error)?;
+    if animated {
+        if let Some(entry) = store(&state)
+            .native_catalog_item(&library, &item)
+            .map_err(error)?
+        {
+            if let Ok(root) = state.metadata.directory("", true) {
+                let path = root.join(&entry.path);
+                let (dir, stem) = if path.is_dir() {
+                    (path.clone(), None)
+                } else {
+                    (
+                        path.parent().unwrap_or(&root).to_path_buf(),
+                        path.file_stem().map(|s| s.to_string_lossy().into_owned()),
+                    )
+                };
+                for art in
+                    crate::native_scan::local_art_variants(&root, &dir, stem.as_deref(), true)
+                        .into_iter()
+                        .filter(|a| a.kind == base)
+                {
+                    store(&state)
+                        .select_local_artwork(&library, &item, &art)
+                        .map_err(error)?;
+                }
+            }
+        }
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn normalize_season_title(entry: &mut NativeCatalogEntry) {
- if entry.kind != "season" || entry.metadata["_title_locked"] == true { return; }
- let Some(season)=entry.metadata["season"].as_u64().or_else(||entry.metadata["season"].as_str().and_then(|v|v.parse().ok())) else { return; };
- let title=if season==0 {"Specials".to_string()} else {format!("Season {season}")};
- entry.title=title.clone();
- entry.metadata["title"]=serde_json::json!(title);
- entry.metadata["_sources"]["title"]=serde_json::json!("season_number");
+    if entry.kind != "season" || entry.metadata["_title_locked"] == true {
+        return;
+    }
+    let Some(season) = entry.metadata["season"].as_u64().or_else(|| {
+        entry.metadata["season"]
+            .as_str()
+            .and_then(|v| v.parse().ok())
+    }) else {
+        return;
+    };
+    let title = if season == 0 {
+        "Specials".to_string()
+    } else {
+        format!("Season {season}")
+    };
+    entry.title = title.clone();
+    entry.metadata["title"] = serde_json::json!(title);
+    entry.metadata["_sources"]["title"] = serde_json::json!("season_number");
 }
 
 #[cfg(test)]
@@ -1962,19 +3016,44 @@ mod identification_refresh_tests {
     use super::*;
     #[test]
     fn season_titles_use_numbers_and_respect_manual_locks() {
-        let mut entry=NativeCatalogEntry {id:"season".into(),path:"Show/Season 1".into(),parent_path:Some("Show".into()),kind:"season".into(),title:"Emperor Pilaf Saga".into(),metadata:serde_json::json!({"season":1,"title":"Emperor Pilaf Saga","plot":"Keep description"}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
+        let mut entry = NativeCatalogEntry {
+            id: "season".into(),
+            path: "Show/Season 1".into(),
+            parent_path: Some("Show".into()),
+            kind: "season".into(),
+            title: "Emperor Pilaf Saga".into(),
+            metadata: serde_json::json!({"season":1,"title":"Emperor Pilaf Saga","plot":"Keep description"}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
         normalize_season_title(&mut entry);
-        assert_eq!(entry.title,"Season 1");assert_eq!(entry.metadata["title"],"Season 1");assert_eq!(entry.metadata["plot"],"Keep description");
-        entry.metadata["season"]=serde_json::json!(0);normalize_season_title(&mut entry);assert_eq!(entry.title,"Specials");
-        entry.title="Custom season".into();entry.metadata["title"]=serde_json::json!("Custom season");entry.metadata["_title_locked"]=serde_json::json!(true);
-        normalize_season_title(&mut entry);assert_eq!(entry.title,"Custom season");
+        assert_eq!(entry.title, "Season 1");
+        assert_eq!(entry.metadata["title"], "Season 1");
+        assert_eq!(entry.metadata["plot"], "Keep description");
+        entry.metadata["season"] = serde_json::json!(0);
+        normalize_season_title(&mut entry);
+        assert_eq!(entry.title, "Specials");
+        entry.title = "Custom season".into();
+        entry.metadata["title"] = serde_json::json!("Custom season");
+        entry.metadata["_title_locked"] = serde_json::json!(true);
+        normalize_season_title(&mut entry);
+        assert_eq!(entry.title, "Custom season");
     }
 
     #[test]
-    fn rescan_does_not_restore_discarded_nfo_values_but_accepts_changed_values(){
-        let previous=serde_json::json!({"_identify_discarded":{"plot":[posterview_infra_sqlite::ServerStore::identification_value_hash(&serde_json::json!("Old plot"))],"identifiers":[posterview_infra_sqlite::ServerStore::identification_value_hash(&serde_json::json!({"tvdb":"99"}))]}});
-        let mut incoming=serde_json::json!({"plot":"Old plot","identifiers":{"tvdb":"99"},"season":1,"_sources":{"plot":"nfo","identifiers":"nfo"}});
-        suppress_previous_identity(&mut incoming,&previous);assert!(incoming["plot"].is_null());assert!(incoming["identifiers"].is_null());assert_eq!(incoming["season"],1);
-        incoming["plot"]=serde_json::json!("New external plot");suppress_previous_identity(&mut incoming,&previous);assert_eq!(incoming["plot"],"New external plot");
+    fn rescan_does_not_restore_discarded_nfo_values_but_accepts_changed_values() {
+        let previous = serde_json::json!({"_identify_discarded":{"plot":[posterview_infra_sqlite::ServerStore::identification_value_hash(&serde_json::json!("Old plot"))],"identifiers":[posterview_infra_sqlite::ServerStore::identification_value_hash(&serde_json::json!({"tvdb":"99"}))]}});
+        let mut incoming = serde_json::json!({"plot":"Old plot","identifiers":{"tvdb":"99"},"season":1,"_sources":{"plot":"nfo","identifiers":"nfo"}});
+        suppress_previous_identity(&mut incoming, &previous);
+        assert!(incoming["plot"].is_null());
+        assert!(incoming["identifiers"].is_null());
+        assert_eq!(incoming["season"], 1);
+        incoming["plot"] = serde_json::json!("New external plot");
+        suppress_previous_identity(&mut incoming, &previous);
+        assert_eq!(incoming["plot"], "New external plot");
     }
 }

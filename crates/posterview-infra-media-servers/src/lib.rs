@@ -153,14 +153,25 @@ async fn emby_item_detail(
     let item = data
         .get("Items")
         .and_then(Value::as_array)
-        .and_then(|items| items.iter().find(|item| item.get("Id").and_then(Value::as_str) == Some(item_id)))
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|item| item.get("Id").and_then(Value::as_str) == Some(item_id))
+        })
         .cloned();
     let item = match item {
         Some(item) => item,
         None => {
             // Some Emby/Jellyfin folder items are omitted by /Items with an Ids
             // filter even though their direct user-scoped endpoint is available.
-            emby_json(client, config, label, &format!("/Users/{user_id}/Items/{item_id}"), &[]).await?
+            emby_json(
+                client,
+                config,
+                label,
+                &format!("/Users/{user_id}/Items/{item_id}"),
+                &[],
+            )
+            .await?
         }
     };
     if item.get("Id").and_then(Value::as_str) != Some(item_id) {
@@ -272,12 +283,24 @@ async fn emby_item_detail(
         seasons,
         genres: metadata_labels(&item, "Genres", None),
         rating: item.get("CommunityRating").and_then(Value::as_f64),
-        content_rating: item.get("OfficialRating").and_then(Value::as_str).map(str::to_owned),
+        content_rating: item
+            .get("OfficialRating")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         tags: emby_tags(&item),
         studios: metadata_labels(&item, "Studios", Some("Name")),
-        external_urls: item.get("ExternalUrls").and_then(Value::as_array).into_iter().flatten().filter_map(|link| Some(posterview_contracts::MetadataLink {
-            name: link.get("Name")?.as_str()?.to_owned(), url: link.get("Url")?.as_str()?.to_owned(),
-        })).collect(),
+        external_urls: item
+            .get("ExternalUrls")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|link| {
+                Some(posterview_contracts::MetadataLink {
+                    name: link.get("Name")?.as_str()?.to_owned(),
+                    url: link.get("Url")?.as_str()?.to_owned(),
+                })
+            })
+            .collect(),
         external_ids,
         logo: emby_image_ref(&item, "Logo"),
         members,
@@ -394,10 +417,19 @@ async fn plex_item_detail(
         seasons,
         genres: metadata_labels(item, "Genre", Some("tag")),
         rating: item.get("rating").and_then(Value::as_f64),
-        content_rating: item.get("contentRating").and_then(Value::as_str).map(str::to_owned),
+        content_rating: item
+            .get("contentRating")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
         external_urls: Vec::new(),
         tags: metadata_labels(item, "Label", Some("tag")),
-        studios: item.get("studio").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(|s| vec![s.to_owned()]).unwrap_or_default(),
+        studios: item
+            .get("studio")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| vec![s.to_owned()])
+            .unwrap_or_default(),
         external_ids,
         logo,
         members,
@@ -417,10 +449,20 @@ fn emby_tags(item: &Value) -> Vec<String> {
 
 fn metadata_labels(item: &Value, field: &str, nested: Option<&str>) -> Vec<String> {
     let mut seen = HashSet::new();
-    item.get(field).and_then(Value::as_array).into_iter().flatten()
-        .filter_map(|value| nested.and_then(|key| value.get(key)).unwrap_or(value).as_str())
-        .map(str::trim).filter(|value| !value.is_empty() && seen.insert(value.to_lowercase()))
-        .map(str::to_owned).collect()
+    item.get(field)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|value| {
+            nested
+                .and_then(|key| value.get(key))
+                .unwrap_or(value)
+                .as_str()
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && seen.insert(value.to_lowercase()))
+        .map(str::to_owned)
+        .collect()
 }
 
 pub async fn fetch_image(
@@ -1335,56 +1377,208 @@ fn string_field(value: &Value, field: &str, fallback: &str) -> String {
         .to_owned()
 }
 
+mod seasons;
 #[cfg(test)]
 mod tests;
-mod seasons;
 pub use seasons::get_season_detail;
 
 /// Resolve artwork destinations without fuzzy title matching.
-pub async fn find_artwork_item(config: ConnectionConfig<'_>, path: &str, kind: &str, ids: &Value) -> Result<String, String> {
+pub async fn find_artwork_item(
+    config: ConnectionConfig<'_>,
+    path: &str,
+    kind: &str,
+    ids: &Value,
+) -> Result<String, String> {
     let client = media_client(&config)?;
     let base = config.base_url.trim_end_matches('/');
     let plex = config.server_type == ServerType::Plex;
     let request = if plex {
-        client.get(format!("{base}/library/all")).header("X-Plex-Token", config.token).header("Accept", "application/json").query(&[("includeGuids", "1"), ("type", match kind { "series" => "2", "season" => "3", "episode" => "4", _ => "1" })])
+        client
+            .get(format!("{base}/library/all"))
+            .header("X-Plex-Token", config.token)
+            .header("Accept", "application/json")
+            .query(&[
+                ("includeGuids", "1"),
+                (
+                    "type",
+                    match kind {
+                        "series" => "2",
+                        "season" => "3",
+                        "episode" => "4",
+                        _ => "1",
+                    },
+                ),
+            ])
     } else {
-        emby_family_auth(client.get(format!("{base}/Items")).query(&[("Recursive", "true"), ("Fields", "Path,ProviderIds"), ("IncludeItemTypes", match kind { "series" => "Series", "season" => "Season", "episode" => "Episode", "movie" => "Movie", "book" => "Book", _ => "" })]), &config)
+        emby_family_auth(
+            client.get(format!("{base}/Items")).query(&[
+                ("Recursive", "true"),
+                ("Fields", "Path,ProviderIds"),
+                (
+                    "IncludeItemTypes",
+                    match kind {
+                        "series" => "Series",
+                        "season" => "Season",
+                        "episode" => "Episode",
+                        "movie" => "Movie",
+                        "book" => "Book",
+                        _ => "",
+                    },
+                ),
+            ]),
+            &config,
+        )
     };
-    let response = request.send().await.map_err(|_| "Server lookup failed.".to_string())?;
-    if !response.status().is_success() { return Err(format!("Server lookup returned {}.", response.status())); }
-    let data: Value = response.json().await.map_err(|_| "Invalid server lookup response.".to_string())?;
-    let rows = if plex { &data["MediaContainer"]["Metadata"] } else { &data["Items"] };
-    select_artwork_item(rows.as_array().map(Vec::as_slice).unwrap_or_default(), path, kind, ids, plex)
+    let response = request
+        .send()
+        .await
+        .map_err(|_| "Server lookup failed.".to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("Server lookup returned {}.", response.status()));
+    }
+    let data: Value = response
+        .json()
+        .await
+        .map_err(|_| "Invalid server lookup response.".to_string())?;
+    let rows = if plex {
+        &data["MediaContainer"]["Metadata"]
+    } else {
+        &data["Items"]
+    };
+    select_artwork_item(
+        rows.as_array().map(Vec::as_slice).unwrap_or_default(),
+        path,
+        kind,
+        ids,
+        plex,
+    )
 }
 
-pub fn select_artwork_item(rows: &[Value], path: &str, kind: &str, ids: &Value, plex: bool) -> Result<String,String> {
+pub fn select_artwork_item(
+    rows: &[Value],
+    path: &str,
+    kind: &str,
+    ids: &Value,
+    plex: bool,
+) -> Result<String, String> {
     let normalize = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_string();
     let mut paths = Vec::new();
     let mut matches = Vec::new();
     for row in rows {
-        let expected = match kind { "series" => if plex { "show" } else { "Series" }, "movie" => if plex { "movie" } else { "Movie" }, "season" => if plex { "season" } else { "Season" }, "episode" => if plex { "episode" } else { "Episode" }, "book" => "Book", "book_series" if !plex => "Folder", _ => continue };
-        if row[if plex { "type" } else { "Type" }].as_str() != Some(expected) { continue; }
-        let Some(id) = row[if plex { "ratingKey" } else { "Id" }].as_str() else { continue; };
+        let expected = match kind {
+            "series" => {
+                if plex {
+                    "show"
+                } else {
+                    "Series"
+                }
+            }
+            "movie" => {
+                if plex {
+                    "movie"
+                } else {
+                    "Movie"
+                }
+            }
+            "season" => {
+                if plex {
+                    "season"
+                } else {
+                    "Season"
+                }
+            }
+            "episode" => {
+                if plex {
+                    "episode"
+                } else {
+                    "Episode"
+                }
+            }
+            "book" => "Book",
+            "book_series" if !plex => "Folder",
+            _ => continue,
+        };
+        if row[if plex { "type" } else { "Type" }].as_str() != Some(expected) {
+            continue;
+        }
+        let Some(id) = row[if plex { "ratingKey" } else { "Id" }].as_str() else {
+            continue;
+        };
         let exact = if plex {
-            row["Media"].as_array().into_iter().flatten().flat_map(|m|m["Part"].as_array().into_iter().flatten()).any(|p|p["file"].as_str().is_some_and(|v|normalize(v)==normalize(path))) || row["Location"].as_array().into_iter().flatten().any(|p|p["path"].as_str().is_some_and(|v|normalize(v)==normalize(path)))
-        } else { row["Path"].as_str().is_some_and(|v|normalize(v)==normalize(path)) };
-        if exact { paths.push(id.to_string()); }
-        if !["series", "movie", "book"].contains(&kind) { continue; }
+            row["Media"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|m| m["Part"].as_array().into_iter().flatten())
+                .any(|p| {
+                    p["file"]
+                        .as_str()
+                        .is_some_and(|v| normalize(v) == normalize(path))
+                })
+                || row["Location"].as_array().into_iter().flatten().any(|p| {
+                    p["path"]
+                        .as_str()
+                        .is_some_and(|v| normalize(v) == normalize(path))
+                })
+        } else {
+            row["Path"]
+                .as_str()
+                .is_some_and(|v| normalize(v) == normalize(path))
+        };
+        if exact {
+            paths.push(id.to_string());
+        }
+        if !["series", "movie", "book"].contains(&kind) {
+            continue;
+        }
         let mut agreed = false;
         let mut conflict = false;
         for (provider, value) in ids.as_object().into_iter().flatten() {
-            let value = value.as_str().map(str::to_string).or_else(||value.as_i64().map(|v|v.to_string())).unwrap_or_default();
-            if value.is_empty() { continue; }
+            let value = value
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| value.as_i64().map(|v| v.to_string()))
+                .unwrap_or_default();
+            if value.is_empty() {
+                continue;
+            }
             let remote = if plex {
-                row["Guid"].as_array().into_iter().flatten().filter_map(|g|g["id"].as_str()).find_map(|g|g.strip_prefix(&format!("{provider}://"))).map(str::to_string)
-            } else { row["ProviderIds"].as_object().into_iter().flatten().find(|(k,_)|k.eq_ignore_ascii_case(provider)).and_then(|(_,v)|v.as_str()).map(str::to_string) };
-            if let Some(remote) = remote { if remote == value { agreed = true; } else { conflict = true; } }
+                row["Guid"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|g| g["id"].as_str())
+                    .find_map(|g| g.strip_prefix(&format!("{provider}://")))
+                    .map(str::to_string)
+            } else {
+                row["ProviderIds"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(provider))
+                    .and_then(|(_, v)| v.as_str())
+                    .map(str::to_string)
+            };
+            if let Some(remote) = remote {
+                if remote == value {
+                    agreed = true;
+                } else {
+                    conflict = true;
+                }
+            }
         }
-        if agreed && !conflict { matches.push(id.to_string()); }
+        if agreed && !conflict {
+            matches.push(id.to_string());
+        }
     }
     let mut selected = if paths.is_empty() { matches } else { paths };
-    selected.sort(); selected.dedup();
-    match selected.len() { 1 => Ok(selected.remove(0)), 0 => Err("No matching media path or provider IDs; artwork was not pushed.".into()), _ => Err("Multiple matching items; artwork was not pushed.".into()) }
+    selected.sort();
+    selected.dedup();
+    match selected.len() {
+        1 => Ok(selected.remove(0)),
+        0 => Err("No matching media path or provider IDs; artwork was not pushed.".into()),
+        _ => Err("Multiple matching items; artwork was not pushed.".into()),
+    }
 }
 
 #[cfg(test)]
@@ -1393,16 +1587,66 @@ mod artwork_matching_tests {
     #[test]
     fn requires_unique_identity_and_correct_type() {
         let rows = serde_json::json!([{ "Id":"1", "Type":"Series", "ProviderIds":{"Tvdb":"42"}}, {"Id":"2", "Type":"Movie", "ProviderIds":{"Tvdb":"42"}}]);
-        assert_eq!(select_artwork_item(rows.as_array().unwrap(), "/show", "series", &serde_json::json!({"tvdb":"42"}), false).unwrap(), "1");
-        let duplicate = vec![rows[0].clone(), serde_json::json!({"Id":"3","Type":"Series","ProviderIds":{"Tvdb":"42"}})];
-        assert!(select_artwork_item(&duplicate, "/show", "series", &serde_json::json!({"tvdb":"42"}), false).is_err());
-        assert!(select_artwork_item(&duplicate, "/show", "episode", &serde_json::json!({"tvdb":"42"}), false).is_err());
+        assert_eq!(
+            select_artwork_item(
+                rows.as_array().unwrap(),
+                "/show",
+                "series",
+                &serde_json::json!({"tvdb":"42"}),
+                false
+            )
+            .unwrap(),
+            "1"
+        );
+        let duplicate = vec![
+            rows[0].clone(),
+            serde_json::json!({"Id":"3","Type":"Series","ProviderIds":{"Tvdb":"42"}}),
+        ];
+        assert!(
+            select_artwork_item(
+                &duplicate,
+                "/show",
+                "series",
+                &serde_json::json!({"tvdb":"42"}),
+                false
+            )
+            .is_err()
+        );
+        assert!(
+            select_artwork_item(
+                &duplicate,
+                "/show",
+                "episode",
+                &serde_json::json!({"tvdb":"42"}),
+                false
+            )
+            .is_err()
+        );
     }
     #[test]
     fn exact_path_wins_and_conflicting_ids_are_rejected() {
         let rows = serde_json::json!([{ "Id":"1", "Type":"Series", "Path":"/anime/show", "ProviderIds":{"Tvdb":"42", "Tmdb":"7"}}]);
-        assert_eq!(select_artwork_item(rows.as_array().unwrap(), "/anime/show/", "series", &serde_json::json!({}), false).unwrap(), "1");
-        assert!(select_artwork_item(rows.as_array().unwrap(), "/other", "series", &serde_json::json!({"tvdb":"42","tmdb":"8"}), false).is_err());
+        assert_eq!(
+            select_artwork_item(
+                rows.as_array().unwrap(),
+                "/anime/show/",
+                "series",
+                &serde_json::json!({}),
+                false
+            )
+            .unwrap(),
+            "1"
+        );
+        assert!(
+            select_artwork_item(
+                rows.as_array().unwrap(),
+                "/other",
+                "series",
+                &serde_json::json!({"tvdb":"42","tmdb":"8"}),
+                false
+            )
+            .is_err()
+        );
     }
 }
 
@@ -1411,7 +1655,10 @@ mod artwork_sync_http_tests {
     use super::*;
     #[tokio::test]
     async fn resolves_then_uploads_correct_image_type() {
-        use axum::{Router, routing::{get, post}, Json};
+        use axum::{
+            Json, Router,
+            routing::{get, post},
+        };
         let app = Router::new().route("/Items", get(|| async { Json(serde_json::json!({"Items":[{"Id":"123","Type":"Episode","Path":"/tv/show/episode.mkv"}]})) }))
             .route("/Items/123/Images/Thumb", post(|headers: axum::http::HeaderMap, body: String| async move {
                 assert_eq!(headers.get("content-type").unwrap(), "image/png");
@@ -1420,56 +1667,153 @@ mod artwork_sync_http_tests {
             }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
-        let handle = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
-        let config = ConnectionConfig {allow_invalid_certificates:false,server_type:ServerType::Emby, base_url:&url, token:"test-token"};
-        let id = find_artwork_item(config.clone(), "/tv/show/episode.mkv", "episode", &Value::Null).await.unwrap();
-        set_image(config, &id, "thumb", b"test-image", "image/png").await.unwrap();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let config = ConnectionConfig {
+            allow_invalid_certificates: false,
+            server_type: ServerType::Emby,
+            base_url: &url,
+            token: "test-token",
+        };
+        let id = find_artwork_item(
+            config.clone(),
+            "/tv/show/episode.mkv",
+            "episode",
+            &Value::Null,
+        )
+        .await
+        .unwrap();
+        set_image(config, &id, "thumb", b"test-image", "image/png")
+            .await
+            .unwrap();
         handle.abort();
     }
 }
 
 /// Read a complete library snapshot; no title-only matching or guessed identifiers.
-pub async fn sync_library_items(config: ConnectionConfig<'_>, library: &str) -> Result<Vec<Value>,String> {
-    if config.server_type == ServerType::Plex { return Err("Shared metadata synchronization currently requires Emby or Jellyfin.".into()); }
+pub async fn sync_library_items(
+    config: ConnectionConfig<'_>,
+    library: &str,
+) -> Result<Vec<Value>, String> {
+    if config.server_type == ServerType::Plex {
+        return Err("Shared metadata synchronization currently requires Emby or Jellyfin.".into());
+    }
     let client = media_client(&config)?;
     let mut rows = Vec::new();
-    let mut seen=std::collections::HashSet::new();
+    let mut seen = std::collections::HashSet::new();
     loop {
         let offset = rows.len().to_string();
         let response = emby_family_auth(client.get(format!("{}/Items", config.base_url.trim_end_matches('/'))).query(&[("ParentId",library),("Recursive","true"),("Fields","Path,ProviderIds,Overview,People,Genres,Tags,Studios,SortName,OriginalTitle,Taglines,DateCreated,PremiereDate,ProductionYear,CommunityRating,OfficialRating,IndexNumber,ParentIndexNumber,RunTimeTicks,Status,ImageTags,BackdropImageTags"),("Limit","500"),("StartIndex",&offset),("EnableTotalRecordCount","true")]), &config).send().await.map_err(|_|"Server library request failed.".to_string())?;
-        if !response.status().is_success() { return Err(format!("Server library returned {}.",response.status())); }
-        let data:Value=response.json().await.map_err(|_|"Invalid server library response.".to_string())?;
-        let batch=data["Items"].as_array().ok_or("Server response has no item list.")?;
-        if batch.is_empty() {break;}
-        for row in batch {let id=row["Id"].as_str().ok_or("Server item has no ID.")?;if !seen.insert(id.to_string()){return Err("Server repeated an item while paging; synchronization stopped.".into());}}
+        if !response.status().is_success() {
+            return Err(format!("Server library returned {}.", response.status()));
+        }
+        let data: Value = response
+            .json()
+            .await
+            .map_err(|_| "Invalid server library response.".to_string())?;
+        let batch = data["Items"]
+            .as_array()
+            .ok_or("Server response has no item list.")?;
+        if batch.is_empty() {
+            break;
+        }
+        for row in batch {
+            let id = row["Id"].as_str().ok_or("Server item has no ID.")?;
+            if !seen.insert(id.to_string()) {
+                return Err(
+                    "Server repeated an item while paging; synchronization stopped.".into(),
+                );
+            }
+        }
         rows.extend(batch.iter().cloned());
-        if data["TotalRecordCount"].as_u64().is_some_and(|total|rows.len()>=total as usize) || (data["TotalRecordCount"].is_null()&&batch.len()<500) {break;}
-        if rows.len()>200_000 {return Err("Library exceeds synchronization item limit.".into());}
+        if data["TotalRecordCount"]
+            .as_u64()
+            .is_some_and(|total| rows.len() >= total as usize)
+            || (data["TotalRecordCount"].is_null() && batch.len() < 500)
+        {
+            break;
+        }
+        if rows.len() > 200_000 {
+            return Err("Library exceeds synchronization item limit.".into());
+        }
     }
     Ok(rows)
 }
-pub async fn sync_update_item(config: ConnectionConfig<'_>, item: &Value) -> Result<(),String> {
-    if config.server_type == ServerType::Plex { return Err("Plex metadata synchronization is unavailable.".into()); }
-    let id=item["Id"].as_str().ok_or("Server item has no ID.")?;
-    let client=media_client(&config)?;
-    let response=emby_family_auth(client.post(format!("{}/Items/{id}",config.base_url.trim_end_matches('/'))).json(item),&config).send().await.map_err(|_|"Metadata upload failed.".to_string())?;
-    upload_result(response,"Media server","API key").await
+pub async fn sync_update_item(config: ConnectionConfig<'_>, item: &Value) -> Result<(), String> {
+    if config.server_type == ServerType::Plex {
+        return Err("Plex metadata synchronization is unavailable.".into());
+    }
+    let id = item["Id"].as_str().ok_or("Server item has no ID.")?;
+    let client = media_client(&config)?;
+    let response = emby_family_auth(
+        client
+            .post(format!(
+                "{}/Items/{id}",
+                config.base_url.trim_end_matches('/')
+            ))
+            .json(item),
+        &config,
+    )
+    .send()
+    .await
+    .map_err(|_| "Metadata upload failed.".to_string())?;
+    upload_result(response, "Media server", "API key").await
 }
-pub async fn sync_image(config:ConnectionConfig<'_>, id:&str, image_type:&str) -> Result<Vec<u8>,String> {
-    let client=media_client(&config)?;
-    let response=emby_family_auth(client.get(format!("{}/Items/{id}/Images/{image_type}/0",config.base_url.trim_end_matches('/'))),&config).send().await.map_err(|_|"Artwork download failed.".to_string())?;
-    if !response.status().is_success() {return Err(format!("Artwork download returned {}.",response.status()));}
-    if response.content_length().is_some_and(|len|len>20*1024*1024) {return Err("Artwork exceeds 20 MB.".into());}
-    let bytes=response.bytes().await.map_err(|_|"Artwork download failed.".to_string())?;
-    if bytes.len()>20*1024*1024 {return Err("Artwork exceeds 20 MB.".into());}
+pub async fn sync_image(
+    config: ConnectionConfig<'_>,
+    id: &str,
+    image_type: &str,
+) -> Result<Vec<u8>, String> {
+    let client = media_client(&config)?;
+    let response = emby_family_auth(
+        client.get(format!(
+            "{}/Items/{id}/Images/{image_type}/0",
+            config.base_url.trim_end_matches('/')
+        )),
+        &config,
+    )
+    .send()
+    .await
+    .map_err(|_| "Artwork download failed.".to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("Artwork download returned {}.", response.status()));
+    }
+    if response
+        .content_length()
+        .is_some_and(|len| len > 20 * 1024 * 1024)
+    {
+        return Err("Artwork exceeds 20 MB.".into());
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|_| "Artwork download failed.".to_string())?;
+    if bytes.len() > 20 * 1024 * 1024 {
+        return Err("Artwork exceeds 20 MB.".into());
+    }
     Ok(bytes.to_vec())
 }
 
 /// Fetch the full editable DTO before POST to avoid clearing unselected server fields.
-pub async fn sync_item(config:ConnectionConfig<'_>, id:&str)->Result<Value,String>{
-    let client=media_client(&config)?;
-    let user=emby_user_id(&client,&config,"Media server").await?;
-    let response=emby_family_auth(client.get(format!("{}/Users/{user}/Items/{id}",config.base_url.trim_end_matches('/'))),&config).send().await.map_err(|_|"Server item request failed.".to_string())?;
-    if !response.status().is_success(){return Err(format!("Server item returned {}.",response.status()));}
-    response.json().await.map_err(|_|"Invalid server item.".into())
+pub async fn sync_item(config: ConnectionConfig<'_>, id: &str) -> Result<Value, String> {
+    let client = media_client(&config)?;
+    let user = emby_user_id(&client, &config, "Media server").await?;
+    let response = emby_family_auth(
+        client.get(format!(
+            "{}/Users/{user}/Items/{id}",
+            config.base_url.trim_end_matches('/')
+        )),
+        &config,
+    )
+    .send()
+    .await
+    .map_err(|_| "Server item request failed.".to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("Server item returned {}.", response.status()));
+    }
+    response
+        .json()
+        .await
+        .map_err(|_| "Invalid server item.".into())
 }

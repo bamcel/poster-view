@@ -1,9 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{
-    ARTWORK_PROVIDERS, Runtime, RuntimeError,
-    posterdb_top_three,
-};
+use crate::{ARTWORK_PROVIDERS, Runtime, RuntimeError, posterdb_top_three};
 use posterview_contracts::{
     ApplyRequest, ApplyResult, ArtworkCacheClearResult, ArtworkCacheSettings, ArtworkCacheStatus,
     ArtworkProviderInfo, ArtworkProviderTestRequest, ArtworkProviderTestResult,
@@ -173,13 +170,24 @@ impl Runtime {
     }
 
     pub fn clear_all_artwork_caches(&self) -> Result<(), RuntimeError> {
-        let directory=self.data_dir.join("artwork-cache/servers");
+        let directory = self.data_dir.join("artwork-cache/servers");
         if directory.is_dir() && !directory.is_symlink() {
-            let mut caches=self.server_artwork_caches.lock().map_err(|_|std::io::Error::other("cache lock poisoned"))?;
+            let mut caches = self
+                .server_artwork_caches
+                .lock()
+                .map_err(|_| std::io::Error::other("cache lock poisoned"))?;
             for entry in std::fs::read_dir(directory)? {
-                let entry=entry?;if !entry.file_type()?.is_dir(){continue;}
-                let Ok(id)=entry.file_name().to_string_lossy().parse::<i64>() else {continue;};
-                caches.entry(id).or_insert_with(||Arc::new(crate::ArtworkCache::at(entry.path()))).clear()?;
+                let entry = entry?;
+                if !entry.file_type()?.is_dir() {
+                    continue;
+                }
+                let Ok(id) = entry.file_name().to_string_lossy().parse::<i64>() else {
+                    continue;
+                };
+                caches
+                    .entry(id)
+                    .or_insert_with(|| Arc::new(crate::ArtworkCache::at(entry.path())))
+                    .clear()?;
             }
         }
         self.artwork_cache.remove_matching("")?;
@@ -258,8 +266,17 @@ impl Runtime {
             &enabled,
         );
         let configured = !store.get_setting("mal_client_id")?.is_empty();
-        for (name,label) in [("myanimelist","MyAnimeList"),("myanimelist-manga","MyAnimeList Manga")] {
-            providers.push(ArtworkProviderInfo {name:name.into(),label:label.into(),configured,needs_key:true,enabled:true});
+        for (name, label) in [
+            ("myanimelist", "MyAnimeList"),
+            ("myanimelist-manga", "MyAnimeList Manga"),
+        ] {
+            providers.push(ArtworkProviderInfo {
+                name: name.into(),
+                label: label.into(),
+                configured,
+                needs_key: true,
+                enabled: true,
+            });
         }
         Ok(providers)
     }
@@ -306,7 +323,10 @@ impl Runtime {
 
     fn enabled_artwork_providers(&self) -> Result<std::collections::HashSet<String>, RuntimeError> {
         // All supported sources are available. Ignore legacy disable preferences.
-        Ok(ARTWORK_PROVIDERS.iter().map(|provider| (*provider).to_owned()).collect())
+        Ok(ARTWORK_PROVIDERS
+            .iter()
+            .map(|provider| (*provider).to_owned())
+            .collect())
     }
 
     pub fn artwork_cache_settings(
@@ -317,23 +337,37 @@ impl Runtime {
         if server_id != 0 && store.get_server(server_id)?.is_none() {
             return Err(RuntimeError::Artwork("Media server not found.".to_owned()));
         }
-        Ok(ArtworkCacheSettings {max_mb:250,ttl_days:30})
+        Ok(ArtworkCacheSettings {
+            max_mb: 250,
+            ttl_days: 30,
+        })
     }
 
-    pub fn cleanup_provider_cache(&self, apply: bool) -> Result<(usize,u64), RuntimeError> {
-        let mut usage=self.artwork_cache.expired_usage(30,apply)?;
-        let directory=self.data_dir.join("artwork-cache/servers");
+    pub fn cleanup_provider_cache(&self, apply: bool) -> Result<(usize, u64), RuntimeError> {
+        let mut usage = self.artwork_cache.expired_usage(30, apply)?;
+        let directory = self.data_dir.join("artwork-cache/servers");
         if directory.is_dir() && !directory.is_symlink() {
-            let mut caches=self.server_artwork_caches.lock().map_err(|_| std::io::Error::other("cache lock poisoned"))?;
+            let mut caches = self
+                .server_artwork_caches
+                .lock()
+                .map_err(|_| std::io::Error::other("cache lock poisoned"))?;
             for entry in std::fs::read_dir(directory)? {
-                let entry=entry?;
-                if !entry.file_type()?.is_dir() {continue;}
-                let Ok(id)=entry.file_name().to_string_lossy().parse::<i64>() else {continue;};
-                let cache=caches.entry(id).or_insert_with(||Arc::new(crate::ArtworkCache::at(entry.path())));
-                let removed=cache.expired_usage(30,apply)?;usage.files+=removed.files;usage.bytes+=removed.bytes;
+                let entry = entry?;
+                if !entry.file_type()?.is_dir() {
+                    continue;
+                }
+                let Ok(id) = entry.file_name().to_string_lossy().parse::<i64>() else {
+                    continue;
+                };
+                let cache = caches
+                    .entry(id)
+                    .or_insert_with(|| Arc::new(crate::ArtworkCache::at(entry.path())));
+                let removed = cache.expired_usage(30, apply)?;
+                usage.files += removed.files;
+                usage.bytes += removed.bytes;
             }
         }
-        Ok((usage.files,usage.bytes))
+        Ok((usage.files, usage.bytes))
     }
 
     pub fn artwork_cache_status(&self, server_id: i64) -> Result<ArtworkCacheStatus, RuntimeError> {
@@ -444,7 +478,11 @@ impl Runtime {
                 if tvdb_key.is_empty() {
                     continue;
                 }
-                let kind = if detail.item_type == ItemType::Movie { "movie" } else { "series" };
+                let kind = if detail.item_type == ItemType::Movie {
+                    "movie"
+                } else {
+                    "series"
+                };
                 let matches = request_with_retry("TheTVDB title search", || {
                     self.artwork.search(
                         provider,
@@ -493,10 +531,7 @@ impl Runtime {
         );
         let email = store.get_setting("posterdb_email")?;
         let password = store.get_setting("posterdb_password")?;
-        if enabled.contains("posterdb")
-            && !email.is_empty()
-            && !password.is_empty()
-        {
+        if enabled.contains("posterdb") && !email.is_empty() && !password.is_empty() {
             let results = request_with_retry("ThePosterDB", || {
                 self.artwork
                     .posterdb()
@@ -521,7 +556,12 @@ impl Runtime {
         input: &ArtworkSettingsUpdate,
     ) -> Result<ArtworkSettings, RuntimeError> {
         let store = self.server_store()?;
-        if let Some(value) = input.tmdb_access_token.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        if let Some(value) = input
+            .tmdb_access_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             store.set_setting("tmdb_access_token", value)?;
         }
         if let Some(value) = input
@@ -585,7 +625,11 @@ impl Runtime {
     ) -> Result<ArtworkProviderTestResult, RuntimeError> {
         let store = self.server_store()?;
         let result = match input.provider.as_str() {
-            "tmdb" => self.artwork.test_tmdb(&store.get_setting("tmdb_access_token")?).await,
+            "tmdb" => {
+                self.artwork
+                    .test_tmdb(&store.get_setting("tmdb_access_token")?)
+                    .await
+            }
             "fanart" => {
                 let key = input
                     .fanart_api_key
@@ -687,20 +731,26 @@ impl Runtime {
         };
         let store = self.server_store()?;
         let result = if matches!(provider, "myanimelist" | "myanimelist-manga") {
-            self.artwork.fetch_myanimelist(provider, &store.get_setting("mal_client_id")?, &detail, id_override).await
+            self.artwork
+                .fetch_myanimelist(
+                    provider,
+                    &store.get_setting("mal_client_id")?,
+                    &detail,
+                    id_override,
+                )
+                .await
         } else {
-            self
-            .artwork
-            .fetch(
-                provider,
-                &detail,
-                id_override,
-                &store.get_setting("fanart_api_key")?,
-                &store.get_setting("tvdb_api_key")?,
-                &store.get_setting("tvdb_pin")?,
-                &store.get_setting("comicvine_api_key")?,
-            )
-            .await
+            self.artwork
+                .fetch(
+                    provider,
+                    &detail,
+                    id_override,
+                    &store.get_setting("fanart_api_key")?,
+                    &store.get_setting("tvdb_api_key")?,
+                    &store.get_setting("tvdb_pin")?,
+                    &store.get_setting("comicvine_api_key")?,
+                )
+                .await
         };
         let response = match result {
             Ok(items) => ArtworkResults {
@@ -764,19 +814,20 @@ impl Runtime {
             "series"
         };
         let result = if matches!(provider, "myanimelist" | "myanimelist-manga") {
-            self.artwork.search_myanimelist(provider, &store.get_setting("mal_client_id")?, query).await
+            self.artwork
+                .search_myanimelist(provider, &store.get_setting("mal_client_id")?, query)
+                .await
         } else {
-            self
-            .artwork
-            .search(
-                provider,
-                query,
-                kind,
-                &store.get_setting("tvdb_api_key")?,
-                &store.get_setting("tvdb_pin")?,
-                &store.get_setting("comicvine_api_key")?,
-            )
-            .await
+            self.artwork
+                .search(
+                    provider,
+                    query,
+                    kind,
+                    &store.get_setting("tvdb_api_key")?,
+                    &store.get_setting("tvdb_pin")?,
+                    &store.get_setting("comicvine_api_key")?,
+                )
+                .await
         };
         let response = match result {
             Ok(results) => ArtworkSearchResults {
@@ -1030,7 +1081,10 @@ impl Runtime {
         Ok(result)
     }
 
-    pub async fn download_artwork_image(&self, input: &ApplyRequest) -> Result<(Vec<u8>, String), RuntimeError> {
+    pub async fn download_artwork_image(
+        &self,
+        input: &ApplyRequest,
+    ) -> Result<(Vec<u8>, String), RuntimeError> {
         let downloaded = if input.provider == "mangadex" {
             self.mangadex_image(input.server_id, &input.download_url)
                 .await
@@ -1058,7 +1112,10 @@ impl Runtime {
         if self.server_store()?.get_server(input.server_id)?.is_none() {
             return Ok(None);
         }
-        let downloaded = self.download_artwork_image(input).await.map_err(|e| e.to_string());
+        let downloaded = self
+            .download_artwork_image(input)
+            .await
+            .map_err(|e| e.to_string());
         let (data, content_type) = match downloaded {
             Ok(image) => image,
             Err(message) => {

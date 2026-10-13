@@ -1,9 +1,9 @@
 //! Encoder discovery, real hardware probes, and encoder selection.
-use super::{command, failure, planner::Plan, run, PlaybackStore};
-use crate::{transcoding::Settings, AppState, HttpError};
-use axum::{extract::State, Json};
+use super::{PlaybackStore, command, failure, planner::Plan, run};
+use crate::{AppState, HttpError, transcoding::Settings};
+use axum::{Json, extract::State};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 
@@ -222,9 +222,11 @@ mod tests {
         }
         let results = test_encoders(&store).await;
         assert_eq!(results.len(), 9);
-        assert!(results
-            .iter()
-            .all(|result| result.available == (result.backend == "nvenc")));
+        assert!(
+            results
+                .iter()
+                .all(|result| result.available == (result.backend == "nvenc"))
+        );
         assert_eq!(
             results
                 .iter()

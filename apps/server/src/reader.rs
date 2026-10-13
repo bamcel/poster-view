@@ -59,23 +59,41 @@ impl ReaderStore {
         Ok(db)
     }
     pub(crate) fn cleanup_orphans(&self, apply: bool) -> Result<usize, HttpError> {
-        if !self.db.exists() { return Ok(0); }
+        if !self.db.exists() {
+            return Ok(0);
+        }
         let _guard = self.writes.lock().map_err(failure)?;
         // An unavailable mount or parent folder is not proof that a book was deleted.
-        if !self.root.is_dir() { return Ok(0); }
+        if !self.root.is_dir() {
+            return Ok(0);
+        }
         let mut db = self.db()?;
-        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(failure)?;
-        let books = tx.prepare("SELECT id,path FROM reader_books").map_err(failure)?.query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).map_err(failure)?.collect::<Result<Vec<_>,_>>().map_err(failure)?;
+        let tx = db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(failure)?;
+        let books = tx
+            .prepare("SELECT id,path FROM reader_books")
+            .map_err(failure)?
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(failure)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(failure)?;
         let mut count = 0;
         for (id, path) in books {
             let path = PathBuf::from(path);
             let missing = matches!(fs::symlink_metadata(&path), Err(e) if e.kind() == std::io::ErrorKind::NotFound);
-            let parent_available = path.parent().is_some_and(|parent| self.checked_location(parent).is_ok_and(|p|p.is_dir()));
-            if !missing || !parent_available { continue; }
+            let parent_available = path
+                .parent()
+                .is_some_and(|parent| self.checked_location(parent).is_ok_and(|p| p.is_dir()));
+            if !missing || !parent_available {
+                continue;
+            }
             count += 1;
             if apply {
-                tx.execute("DELETE FROM reader_states WHERE book=?1", [&id]).map_err(failure)?;
-                tx.execute("DELETE FROM reader_books WHERE id=?1", [&id]).map_err(failure)?;
+                tx.execute("DELETE FROM reader_states WHERE book=?1", [&id])
+                    .map_err(failure)?;
+                tx.execute("DELETE FROM reader_books WHERE id=?1", [&id])
+                    .map_err(failure)?;
             }
         }
         let orphan_states: usize = tx.query_row("SELECT count(*) FROM reader_states WHERE NOT EXISTS(SELECT 1 FROM reader_books WHERE id=book)",[], |r|r.get(0)).map_err(failure)?;
@@ -466,12 +484,15 @@ fn xml(bytes: &[u8]) -> Result<Element, HttpError> {
     // that exact declaration; external and internal DTDs remain unsupported.
     let mut bytes = bytes.to_vec();
     const HTML_DOCTYPE: &[u8] = b"<!DOCTYPE html>";
-    if let Some(start) = bytes.windows(HTML_DOCTYPE.len()).position(|part| part == HTML_DOCTYPE) {
+    if let Some(start) = bytes
+        .windows(HTML_DOCTYPE.len())
+        .position(|part| part == HTML_DOCTYPE)
+    {
         bytes.drain(start..start + HTML_DOCTYPE.len());
     }
     if String::from_utf8_lossy(&bytes)
-            .to_ascii_uppercase()
-            .contains("<!DOCTYPE")
+        .to_ascii_uppercase()
+        .contains("<!DOCTYPE")
     {
         return Err(bad("Unsupported EPUB XML document."));
     }
@@ -566,35 +587,122 @@ pub(crate) struct Manifest {
     previous: Option<Neighbor>,
     next: Option<Neighbor>,
 }
-pub(crate) fn initial_cover(path:&FsPath)->Result<Vec<u8>,String>{
- let error=|_|"Could not read the book's cover or first page.".to_string();
- if format(path)==Some("pdf") {
-  let temp=tempfile::tempdir().map_err(|e|e.to_string())?;let output=temp.path().join("cover");
-  let mut command=std::process::Command::new("pdftoppm");
-  command.args(["-f","1","-singlefile","-scale-to","1200","-jpeg"]).arg(path).arg(&output).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-  #[cfg(windows)] {use std::os::windows::process::CommandExt;command.creation_flags(0x08000000);}
-  let mut child=command.spawn().map_err(|_|"PDF cover capture requires pdftoppm (Poppler).".to_string())?;let started=std::time::Instant::now();
-  loop {if let Some(status)=child.try_wait().map_err(|e|e.to_string())? {if !status.success(){return Err("PDF first-page capture failed.".into());}break;}
- if started.elapsed()>std::time::Duration::from_secs(30){let _=child.kill();let _=child.wait();return Err("PDF cover capture timed out.".into());}std::thread::sleep(std::time::Duration::from_millis(50));}
-  return std::fs::read(output.with_extension("jpg")).map_err(|e|e.to_string());
- }
- let mut zip=archive(path).map_err(error)?;
- let image_name=if format(path)==Some("cbz") {
-  let mut names=zip.file_names().filter(|name|!name.starts_with("__MACOSX/")&&["jpg","jpeg","png","webp","gif"].contains(&name.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str())).map(str::to_string).collect::<Vec<_>>();names.sort_by(|a,b|natural(a,b).then_with(||a.cmp(b)));names.into_iter().next()
- } else {
-  let container=xml(&read_entry(&mut zip,"META-INF/container.xml").map_err(error)?).map_err(error)?;
-  let opf=elements(&container,"rootfile").first().and_then(|e|e.attributes.get("full-path")).ok_or("EPUB package is missing.")?.clone();
-  let package=xml(&read_entry(&mut zip,&opf).map_err(error)?).map_err(error)?;
-  let cover_id=elements(&package,"meta").into_iter().find(|e|e.attributes.get("name").is_some_and(|v|v=="cover")).and_then(|e|e.attributes.get("content"));
-  let items=elements(&package,"item");
-  let cover=items.iter().find(|e|e.attributes.get("properties").is_some_and(|v|v.split_whitespace().any(|p|p=="cover-image"))||cover_id.is_some_and(|id|e.attributes.get("id")==Some(id))).and_then(|e|e.attributes.get("href"));
-  if let Some(href)=cover {Some(resolve_entry(&opf,href).map_err(error)?)} else {
-   let first=elements(&package,"itemref").into_iter().find(|e|e.attributes.get("linear").is_none_or(|v|v!="no")).and_then(|e|e.attributes.get("idref"));
-   let page=items.iter().find(|e|first.is_some_and(|id|e.attributes.get("id")==Some(id))).and_then(|e|e.attributes.get("href"));
-   if let Some(page)=page {let page=resolve_entry(&opf,page).map_err(error)?;let html=xml(&read_entry(&mut zip,&page).map_err(error)?).map_err(error)?;let image=elements(&html,"img").first().and_then(|e|e.attributes.get("src")).cloned().or_else(||elements(&html,"image").first().and_then(|e|e.attributes.get("href")).cloned());image.map(|href|resolve_entry(&page,&href).map_err(error)).transpose()?}else{None}
-  }
- };
- read_entry(&mut zip,&image_name.ok_or("No embedded cover or first-page image found.")?).map_err(error)
+pub(crate) fn initial_cover(path: &FsPath) -> Result<Vec<u8>, String> {
+    let error = |_| "Could not read the book's cover or first page.".to_string();
+    if format(path) == Some("pdf") {
+        let temp = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let output = temp.path().join("cover");
+        let mut command = std::process::Command::new("pdftoppm");
+        command
+            .args(["-f", "1", "-singlefile", "-scale-to", "1200", "-jpeg"])
+            .arg(path)
+            .arg(&output)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        let mut child = command
+            .spawn()
+            .map_err(|_| "PDF cover capture requires pdftoppm (Poppler).".to_string())?;
+        let started = std::time::Instant::now();
+        loop {
+            if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+                if !status.success() {
+                    return Err("PDF first-page capture failed.".into());
+                }
+                break;
+            }
+            if started.elapsed() > std::time::Duration::from_secs(30) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("PDF cover capture timed out.".into());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        return std::fs::read(output.with_extension("jpg")).map_err(|e| e.to_string());
+    }
+    let mut zip = archive(path).map_err(error)?;
+    let image_name = if format(path) == Some("cbz") {
+        let mut names = zip
+            .file_names()
+            .filter(|name| {
+                !name.starts_with("__MACOSX/")
+                    && ["jpg", "jpeg", "png", "webp", "gif"].contains(
+                        &name
+                            .rsplit('.')
+                            .next()
+                            .unwrap_or("")
+                            .to_ascii_lowercase()
+                            .as_str(),
+                    )
+            })
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        names.sort_by(|a, b| natural(a, b).then_with(|| a.cmp(b)));
+        names.into_iter().next()
+    } else {
+        let container =
+            xml(&read_entry(&mut zip, "META-INF/container.xml").map_err(error)?).map_err(error)?;
+        let opf = elements(&container, "rootfile")
+            .first()
+            .and_then(|e| e.attributes.get("full-path"))
+            .ok_or("EPUB package is missing.")?
+            .clone();
+        let package = xml(&read_entry(&mut zip, &opf).map_err(error)?).map_err(error)?;
+        let cover_id = elements(&package, "meta")
+            .into_iter()
+            .find(|e| e.attributes.get("name").is_some_and(|v| v == "cover"))
+            .and_then(|e| e.attributes.get("content"));
+        let items = elements(&package, "item");
+        let cover = items
+            .iter()
+            .find(|e| {
+                e.attributes
+                    .get("properties")
+                    .is_some_and(|v| v.split_whitespace().any(|p| p == "cover-image"))
+                    || cover_id.is_some_and(|id| e.attributes.get("id") == Some(id))
+            })
+            .and_then(|e| e.attributes.get("href"));
+        if let Some(href) = cover {
+            Some(resolve_entry(&opf, href).map_err(error)?)
+        } else {
+            let first = elements(&package, "itemref")
+                .into_iter()
+                .find(|e| e.attributes.get("linear").is_none_or(|v| v != "no"))
+                .and_then(|e| e.attributes.get("idref"));
+            let page = items
+                .iter()
+                .find(|e| first.is_some_and(|id| e.attributes.get("id") == Some(id)))
+                .and_then(|e| e.attributes.get("href"));
+            if let Some(page) = page {
+                let page = resolve_entry(&opf, page).map_err(error)?;
+                let html = xml(&read_entry(&mut zip, &page).map_err(error)?).map_err(error)?;
+                let image = elements(&html, "img")
+                    .first()
+                    .and_then(|e| e.attributes.get("src"))
+                    .cloned()
+                    .or_else(|| {
+                        elements(&html, "image")
+                            .first()
+                            .and_then(|e| e.attributes.get("href"))
+                            .cloned()
+                    });
+                image
+                    .map(|href| resolve_entry(&page, &href).map_err(error))
+                    .transpose()?
+            } else {
+                None
+            }
+        }
+    };
+    read_entry(
+        &mut zip,
+        &image_name.ok_or("No embedded cover or first-page image found.")?,
+    )
+    .map_err(error)
 }
 
 fn make_manifest(store: &ReaderStore, id: &str) -> Result<Manifest, HttpError> {
@@ -759,17 +867,31 @@ pub(crate) async fn open(
     .map_err(failure)?
 }
 pub(crate) async fn open_native(
-    State(state):State<AppState>,Path((library,item)):Path<(String,String)>,
-)->Result<Json<Manifest>,HttpError> {
-    tokio::task::spawn_blocking(move||{
-        let db=posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
-        let library=db.native_libraries().map_err(failure)?.into_iter().find(|l|l.id==library).ok_or_else(||bad("Book library not found."))?;
-        if library.library_type!=posterview_contracts::native::NativeLibraryType::Books {return Err(bad("Choose a book library."));}
-        let entry=db.native_catalog_item(&library.id,&item).map_err(failure)?.filter(|e|e.available && e.kind=="book" && e.metadata["missing"]!=true).ok_or_else(||bad("Book file is not available."))?;
-        let path=state.metadata.directory("",true)?.join(&entry.path);
-        let id=state.reader.register(&path)?;
-        make_manifest(&state.reader,&id).map(Json)
-    }).await.map_err(failure)?
+    State(state): State<AppState>,
+    Path((library, item)): Path<(String, String)>,
+) -> Result<Json<Manifest>, HttpError> {
+    tokio::task::spawn_blocking(move || {
+        let db = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
+        let library = db
+            .native_libraries()
+            .map_err(failure)?
+            .into_iter()
+            .find(|l| l.id == library)
+            .ok_or_else(|| bad("Book library not found."))?;
+        if library.library_type != posterview_contracts::native::NativeLibraryType::Books {
+            return Err(bad("Choose a book library."));
+        }
+        let entry = db
+            .native_catalog_item(&library.id, &item)
+            .map_err(failure)?
+            .filter(|e| e.available && e.kind == "book" && e.metadata["missing"] != true)
+            .ok_or_else(|| bad("Book file is not available."))?;
+        let path = state.metadata.directory("", true)?.join(&entry.path);
+        let id = state.reader.register(&path)?;
+        make_manifest(&state.reader, &id).map(Json)
+    })
+    .await
+    .map_err(failure)?
 }
 pub(crate) async fn manifest(
     State(state): State<AppState>,
@@ -932,7 +1054,17 @@ pub(crate) async fn load_display_preferences(
         let (reading_threshold, finished_threshold) =
             thresholds(&state.reader.db()?, state.auth.username())?;
         Ok(Json(DisplayPreferences {
-            colored_title: state.reader.db()?.query_row("SELECT enabled FROM colored_title_preferences WHERE user=?1", [state.auth.username()], |r| r.get::<_, bool>(0)).optional().map_err(failure)?.unwrap_or(false),
+            colored_title: state
+                .reader
+                .db()?
+                .query_row(
+                    "SELECT enabled FROM colored_title_preferences WHERE user=?1",
+                    [state.auth.username()],
+                    |r| r.get::<_, bool>(0),
+                )
+                .optional()
+                .map_err(failure)?
+                .unwrap_or(false),
             colored_effect: state
                 .reader
                 .db()?
@@ -1027,10 +1159,14 @@ pub(crate) async fn save_state(
 
 #[cfg(test)]
 mod tests {
-    #[test] fn epub_cover_uses_package_relative_declared_cover(){
-        let temp=tempfile::tempdir().unwrap();let book=temp.path().join("book.epub");let mut zip=zip::ZipWriter::new(File::create(&book).unwrap());
-        for (name,bytes) in [("META-INF/container.xml",b"<container><rootfiles><rootfile full-path='OPS/book.opf'/></rootfiles></container>".as_slice()),("OPS/book.opf",b"<package><manifest><item id='cover' href='images/front.png' properties='cover-image'/></manifest></package>".as_slice()),("OPS/images/front.png",b"cover bytes".as_slice())] {zip.start_file(name,zip::write::SimpleFileOptions::default()).unwrap();zip.write_all(bytes).unwrap();}zip.finish().unwrap();
-        assert_eq!(initial_cover(&book).unwrap(),b"cover bytes");
+    #[test]
+    fn epub_cover_uses_package_relative_declared_cover() {
+        let temp = tempfile::tempdir().unwrap();
+        let book = temp.path().join("book.epub");
+        let mut zip = zip::ZipWriter::new(File::create(&book).unwrap());
+        for (name,bytes) in [("META-INF/container.xml",b"<container><rootfiles><rootfile full-path='OPS/book.opf'/></rootfiles></container>".as_slice()),("OPS/book.opf",b"<package><manifest><item id='cover' href='images/front.png' properties='cover-image'/></manifest></package>".as_slice()),("OPS/images/front.png",b"cover bytes".as_slice())] {zip.start_file(name,zip::write::SimpleFileOptions::default()).unwrap();zip.write_all(bytes).unwrap();}
+        zip.finish().unwrap();
+        assert_eq!(initial_cover(&book).unwrap(), b"cover bytes");
     }
 
     use super::*;
@@ -1200,17 +1336,66 @@ mod tests {
     }
     #[tokio::test]
     async fn native_books_open_without_a_connected_server_and_reject_missing_files() {
-        let temp=tempfile::tempdir().unwrap();let state=crate::test_support::state(temp.path());
-        let folder=temp.path().join("media/Books/Series");fs::create_dir_all(&folder).unwrap();
-        let file=folder.join("Volume 1.cbz");let mut zip=zip::ZipWriter::new(File::create(&file).unwrap());
-        zip.start_file("1.png",zip::write::SimpleFileOptions::default()).unwrap();zip.write_all(b"image").unwrap();zip.finish().unwrap();
-        let db=posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
-        let library=db.save_native_library(None,&posterview_contracts::native::NativeLibraryInput{name:"Books".into(),library_type:posterview_contracts::native::NativeLibraryType::Books,anime_content:posterview_contracts::native::AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:Default::default()}).unwrap();
-        let entry=posterview_contracts::native::NativeCatalogEntry{id:String::new(),path:"Books/Series/Volume 1.cbz".into(),kind:"book".into(),parent_path:Some("Books/Series".into()),title:"Volume 1".into(),metadata:serde_json::json!({}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
-        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();let saved=db.native_catalog(&library.id).unwrap().remove(0);
-        let manifest=open_native(State(state.clone()),Path((library.id.clone(),saved.id.clone()))).await.unwrap().0;assert_eq!(manifest.format,"cbz");assert_eq!(manifest.chapters.len(),1);
-        let mut missing=entry;missing.metadata=serde_json::json!({"missing":true});db.ingest_native_catalog(&library.id,library.revision,&[missing]).unwrap();
-        assert!(open_native(State(state),Path((library.id,saved.id))).await.is_err());assert!(file.exists());
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let folder = temp.path().join("media/Books/Series");
+        fs::create_dir_all(&folder).unwrap();
+        let file = folder.join("Volume 1.cbz");
+        let mut zip = zip::ZipWriter::new(File::create(&file).unwrap());
+        zip.start_file("1.png", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"image").unwrap();
+        zip.finish().unwrap();
+        let db = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
+        let library = db
+            .save_native_library(
+                None,
+                &posterview_contracts::native::NativeLibraryInput {
+                    name: "Books".into(),
+                    library_type: posterview_contracts::native::NativeLibraryType::Books,
+                    anime_content: posterview_contracts::native::AnimeContent::Both,
+                    paths: vec!["Books".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let entry = posterview_contracts::native::NativeCatalogEntry {
+            id: String::new(),
+            path: "Books/Series/Volume 1.cbz".into(),
+            kind: "book".into(),
+            parent_path: Some("Books/Series".into()),
+            title: "Volume 1".into(),
+            metadata: serde_json::json!({}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
+            .unwrap();
+        let saved = db.native_catalog(&library.id).unwrap().remove(0);
+        let manifest = open_native(
+            State(state.clone()),
+            Path((library.id.clone(), saved.id.clone())),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(manifest.format, "cbz");
+        assert_eq!(manifest.chapters.len(), 1);
+        let mut missing = entry;
+        missing.metadata = serde_json::json!({"missing":true});
+        db.ingest_native_catalog(&library.id, library.revision, &[missing])
+            .unwrap();
+        assert!(
+            open_native(State(state), Path((library.id, saved.id)))
+                .await
+                .is_err()
+        );
+        assert!(file.exists());
     }
     #[test]
     fn cbz_manifest_and_stable_identity() {
@@ -1237,23 +1422,57 @@ mod cleanup_tests {
     use super::*;
     #[test]
     fn deleted_books_remove_all_user_states_but_unavailable_folders_are_kept() {
-        let temp=tempfile::tempdir().unwrap();
-        let root=temp.path().join("media");fs::create_dir_all(&root).unwrap();
-        let store=ReaderStore::new(root.clone(),temp.path().join("reader.sqlite"));
-        let alive=root.join("alive.pdf");fs::write(&alive,b"pdf").unwrap();
-        let db=store.db().unwrap();
-        for (id,path) in [("deleted",root.join("deleted.pdf")),("alive",alive),("unavailable",root.join("offline/book.pdf"))] {
-            db.execute("INSERT INTO reader_books VALUES(?1,?2)",params![id,path.to_string_lossy()]).unwrap();
-            for user in ["admin","other"] {db.execute("INSERT INTO reader_states VALUES(?1,?2,'rev',?3)",params![user,id,r#"{"progress":50,"bookmarks":[1],"page":5}"#]).unwrap();}
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("media");
+        fs::create_dir_all(&root).unwrap();
+        let store = ReaderStore::new(root.clone(), temp.path().join("reader.sqlite"));
+        let alive = root.join("alive.pdf");
+        fs::write(&alive, b"pdf").unwrap();
+        let db = store.db().unwrap();
+        for (id, path) in [
+            ("deleted", root.join("deleted.pdf")),
+            ("alive", alive),
+            ("unavailable", root.join("offline/book.pdf")),
+        ] {
+            db.execute(
+                "INSERT INTO reader_books VALUES(?1,?2)",
+                params![id, path.to_string_lossy()],
+            )
+            .unwrap();
+            for user in ["admin", "other"] {
+                db.execute(
+                    "INSERT INTO reader_states VALUES(?1,?2,'rev',?3)",
+                    params![user, id, r#"{"progress":50,"bookmarks":[1],"page":5}"#],
+                )
+                .unwrap();
+            }
         }
-        assert_eq!(store.cleanup_orphans(false).unwrap(),1);
-        assert_eq!(db.query_row("SELECT count(*) FROM reader_books",[],|r|r.get::<_,usize>(0)).unwrap(),3);
-        assert_eq!(store.cleanup_orphans(true).unwrap(),1);
-        assert_eq!(db.query_row("SELECT count(*) FROM reader_states WHERE book='deleted'",[],|r|r.get::<_,usize>(0)).unwrap(),0);
-        assert_eq!(db.query_row("SELECT count(*) FROM reader_states",[],|r|r.get::<_,usize>(0)).unwrap(),4);
-        assert_eq!(store.cleanup_orphans(true).unwrap(),0);
+        assert_eq!(store.cleanup_orphans(false).unwrap(), 1);
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM reader_books", [], |r| r
+                .get::<_, usize>(0))
+                .unwrap(),
+            3
+        );
+        assert_eq!(store.cleanup_orphans(true).unwrap(), 1);
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM reader_states WHERE book='deleted'",
+                [],
+                |r| r.get::<_, usize>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM reader_states", [], |r| r
+                .get::<_, usize>(0))
+                .unwrap(),
+            4
+        );
+        assert_eq!(store.cleanup_orphans(true).unwrap(), 0);
         fs::remove_file(root.join("alive.pdf")).unwrap();
         fs::remove_dir(&root).unwrap();
-        assert_eq!(store.cleanup_orphans(true).unwrap(),0);
+        assert_eq!(store.cleanup_orphans(true).unwrap(), 0);
     }
 }

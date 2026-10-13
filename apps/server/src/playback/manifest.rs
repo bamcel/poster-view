@@ -1,5 +1,5 @@
 //! HLS timeline retention and public playlist generation.
-use super::{failure, HttpError};
+use super::{HttpError, failure};
 use std::path::Path as FsPath;
 
 pub(super) fn playlist_seconds(path: &FsPath) -> f64 {

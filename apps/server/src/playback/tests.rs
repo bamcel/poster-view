@@ -160,9 +160,11 @@ async fn producer_commands_copy_tracks_and_apply_only_authorized_encoding() {
         .collect::<Vec<_>>();
     assert!(args.windows(2).any(|pair| pair == ["-c:v", "copy"]));
     assert!(args.windows(2).any(|pair| pair == ["-c:a", "copy"]));
-    assert!(!args
-        .iter()
-        .any(|arg| arg == "-vf" || arg == "-filter_complex"));
+    assert!(
+        !args
+            .iter()
+            .any(|arg| arg == "-vf" || arg == "-filter_complex")
+    );
     let mut audio_probe = probe.clone();
     audio_probe["streams"][1]["codec_name"] = json!("truehd");
     audio_probe["streams"][1]["channels"] = json!(6);
@@ -189,12 +191,14 @@ async fn producer_commands_copy_tracks_and_apply_only_authorized_encoding() {
     assert!(args.windows(2).any(|pair| pair == ["-c:v", "copy"]));
     assert!(args.windows(2).any(|pair| pair == ["-c:a", "aac"]));
     assert!(args.windows(2).any(|pair| pair == ["-af", "volume=2"]));
-    assert!(segmented::hls_command(
-        &audio_delivery,
-        Some(("libx264", "software")),
-        fixture._directory.path()
-    )
-    .is_err());
+    assert!(
+        segmented::hls_command(
+            &audio_delivery,
+            Some(("libx264", "software")),
+            fixture._directory.path()
+        )
+        .is_err()
+    );
     audio_probe["streams"][1]["channels"] = json!(2);
     let chosen = plan(&audio_probe, "mkv", &request, &audio_settings).unwrap();
     let args = segmented::hls_command(
@@ -469,12 +473,14 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
     );
     stop(State(fixture.state.clone()), Path(created.id.clone())).await;
     assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
-    assert!(fixture
-        .state
-        .playback
-        .session_details(&created.id)
-        .await
-        .is_none());
+    assert!(
+        fixture
+            .state
+            .playback
+            .session_details(&created.id)
+            .await
+            .is_none()
+    );
     assert_eq!(std::fs::read(&fixture.file).unwrap(), original);
 }
 #[tokio::test]
@@ -753,12 +759,14 @@ async fn compatible_original_sessions_prefer_direct_and_never_start_playback_job
         "234"
     );
     stop(State(fixture.state.clone()), Path(response.id.clone())).await;
-    assert!(fixture
-        .state
-        .playback
-        .session_details(&response.id)
-        .await
-        .is_none());
+    assert!(
+        fixture
+            .state
+            .playback
+            .session_details(&response.id)
+            .await
+            .is_none()
+    );
     assert_eq!(std::fs::read(&fixture.file).unwrap(), b"0123456789");
 }
 
@@ -908,13 +916,15 @@ async fn direct_audio_switching_requires_native_tracks_and_original_codec_suppor
         audio_index: Some(2),
         ..original_mkv_input()
     };
-    assert!(create(
-        State(fixture.state.clone()),
-        Path((fixture.library.clone(), fixture.item.clone())),
-        Json(alternate)
-    )
-    .await
-    .is_err());
+    assert!(
+        create(
+            State(fixture.state.clone()),
+            Path((fixture.library.clone(), fixture.item.clone())),
+            Json(alternate)
+        )
+        .await
+        .is_err()
+    );
     let selected = create(
         State(fixture.state.clone()),
         Path((fixture.library.clone(), fixture.item.clone())),
@@ -965,41 +975,49 @@ async fn session_ttl_stop_limit_and_changed_source_do_not_modify_original_files(
         .lock()
         .await
         .touched = Instant::now() - SESSION_IDLE - Duration::from_secs(1);
-    assert!(fixture
-        .state
-        .playback
-        .session_details(&response.id)
-        .await
-        .is_none());
+    assert!(
+        fixture
+            .state
+            .playback
+            .session_details(&response.id)
+            .await
+            .is_none()
+    );
     fixture.state.playback.maintain().await;
     assert!(fixture.state.playback.sessions.lock().await.is_empty());
     let response = direct(&fixture).await;
     std::fs::write(&fixture.file, b"source changed").unwrap();
-    assert!(fixture
-        .state
-        .playback
-        .session_details(&response.id)
+    assert!(
+        fixture
+            .state
+            .playback
+            .session_details(&response.id)
+            .await
+            .is_none()
+    );
+    assert!(
+        stream(
+            State(fixture.state.clone()),
+            Path(response.id.clone()),
+            axum::http::Request::new(axum::body::Body::empty())
+        )
         .await
-        .is_none());
-    assert!(stream(
-        State(fixture.state.clone()),
-        Path(response.id.clone()),
-        axum::http::Request::new(axum::body::Body::empty())
-    )
-    .await
-    .is_err());
-    assert!(heartbeat(
-        State(fixture.state.clone()),
-        Path(response.id.clone()),
-        HeaderMap::new(),
-        Json(Heartbeat {
-            position_seconds: 60.0,
-            paused: true,
-            ..Default::default()
-        })
-    )
-    .await
-    .is_err());
+        .is_err()
+    );
+    assert!(
+        heartbeat(
+            State(fixture.state.clone()),
+            Path(response.id.clone()),
+            HeaderMap::new(),
+            Json(Heartbeat {
+                position_seconds: 60.0,
+                paused: true,
+                ..Default::default()
+            })
+        )
+        .await
+        .is_err()
+    );
     stop(State(fixture.state.clone()), Path(response.id)).await;
     assert!(fixture.state.playback.sessions.lock().await.is_empty());
     assert_eq!(std::fs::read(&fixture.file).unwrap(), b"source changed");
@@ -1023,18 +1041,20 @@ async fn unknown_duration_heartbeats_keep_real_positions_with_bounded_validation
     .unwrap()
     .0;
     assert_eq!(response.duration_seconds, 0.0);
-    assert!(heartbeat(
-        State(fixture.state.clone()),
-        Path(response.id.clone()),
-        HeaderMap::new(),
-        Json(Heartbeat {
-            position_seconds: 600.0,
-            paused: false,
-            ..Default::default()
-        })
-    )
-    .await
-    .is_ok());
+    assert!(
+        heartbeat(
+            State(fixture.state.clone()),
+            Path(response.id.clone()),
+            HeaderMap::new(),
+            Json(Heartbeat {
+                position_seconds: 600.0,
+                paused: false,
+                ..Default::default()
+            })
+        )
+        .await
+        .is_ok()
+    );
     for position in [f64::NAN, -1.0, f64::INFINITY, MAX_PLAYBACK_SECONDS + 1.0] {
         assert_eq!(
             heartbeat(
@@ -1165,12 +1185,14 @@ async fn queued_seek_cannot_resurrect_a_stopped_session() {
     assert!(validate_session(&stopped).is_err());
     assert!(stopped.producer.is_none());
     drop(stopped);
-    assert!(fixture
-        .state
-        .playback
-        .session_details(&created.id)
-        .await
-        .is_none());
+    assert!(
+        fixture
+            .state
+            .playback
+            .session_details(&created.id)
+            .await
+            .is_none()
+    );
     assert!(fixture.state.playback.sessions.lock().await.is_empty());
     assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
     assert!(!fixture.state.playback.root.exists());
@@ -1403,10 +1425,12 @@ async fn resource_sweep_removes_abandoned_outputs_but_preserves_live_cached_and_
     assert!(unknown.exists());
     assert!(nested.is_dir());
     if linked {
-        assert!(std::fs::symlink_metadata(&link)
-            .unwrap()
-            .file_type()
-            .is_symlink());
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
     }
     assert_eq!(std::fs::read(target).unwrap(), b"original");
     assert_eq!(store.resources.lock().await.len(), 1);
@@ -1592,10 +1616,12 @@ async fn real_ffmpeg_inspection_subtitles_fonts_and_direct_delivery_preserve_vid
     );
     stop(State(fixture.state.clone()), Path(response.id)).await;
     assert_eq!(std::fs::read(&fixture.file).unwrap(), source_bytes);
-    assert!(!fixture
-        .state
-        .playback
-        .root
-        .join("posterview-playback")
-        .exists());
+    assert!(
+        !fixture
+            .state
+            .playback
+            .root
+            .join("posterview-playback")
+            .exists()
+    );
 }

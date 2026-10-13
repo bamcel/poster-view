@@ -6,50 +6,92 @@ use serde_json::{Value, json};
 fn invalid(message: &str) -> StoreError {
     StoreError::Validation(message.into())
 }
-fn animation_blocked(db: &rusqlite::Connection, item: &str, art: &NativeArtwork) -> Result<bool, StoreError> {
-    if !art.kind.ends_with("-animated") && !["gif", "webm"].contains(&art.path.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str()) {return Ok(false);}
-    Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM settings WHERE key=?1 AND value_enc='true')",[format!("removed-animation:{item}:{}",art.kind.trim_end_matches("-animated"))],|r|r.get(0))?)
+fn animation_blocked(
+    db: &rusqlite::Connection,
+    item: &str,
+    art: &NativeArtwork,
+) -> Result<bool, StoreError> {
+    if !art.kind.ends_with("-animated")
+        && !["gif", "webm"].contains(
+            &art.path
+                .rsplit('.')
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+                .as_str(),
+        )
+    {
+        return Ok(false);
+    }
+    Ok(db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM settings WHERE key=?1 AND value_enc='true')",
+        [format!(
+            "removed-animation:{item}:{}",
+            art.kind.trim_end_matches("-animated")
+        )],
+        |r| r.get(0),
+    )?)
 }
 impl ServerStore {
-    pub fn request_artwork_refresh(&self,library:&str,path:&str)->Result<(),StoreError>{
+    pub fn request_artwork_refresh(&self, library: &str, path: &str) -> Result<(), StoreError> {
         self.connection()?.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) SELECT item_id,'_identify_replace_artwork','true','manual',1 FROM native_catalog_sources WHERE library_id=?1 AND (relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/') ON CONFLICT(item_id,field) DO UPDATE SET value_json='true'",params![library,path])?;
         Ok(())
     }
-    pub fn reset_provider_checks(&self,library:&str,path:&str)->Result<(),StoreError>{
-        let mut db=self.connection()?;let tx=db.transaction()?;
+    pub fn reset_provider_checks(&self, library: &str, path: &str) -> Result<(), StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction()?;
         tx.execute("DELETE FROM catalog_metadata_fields WHERE field='_provider_check' AND item_id IN (SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND (relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/'))",params![library,path])?;
         tx.execute("UPDATE native_catalog_sources SET snapshot_json=json_remove(snapshot_json,'$.metadata._provider_check') WHERE library_id=?1 AND (relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/')",params![library,path])?;
         tx.commit()?;
         Ok(())
     }
-    pub fn native_item_is_missing(&self,library:&str,item:&str)->Result<bool,StoreError> {
+    pub fn native_item_is_missing(&self, library: &str, item: &str) -> Result<bool, StoreError> {
         Ok(self.connection()?.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources s WHERE s.library_id=?1 AND s.item_id=?2 AND json_extract(s.snapshot_json,'$.metadata.missing')=1)",params![library,item],|r|r.get(0))?)
     }
-    pub fn cleanup_hidden_placeholders(&self,library:&str)->Result<Vec<String>,StoreError> {
-        let mut db=self.connection()?;let tx=db.transaction()?;
+    pub fn cleanup_hidden_placeholders(&self, library: &str) -> Result<Vec<String>, StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction()?;
         let ids=tx.prepare("SELECT s.item_id FROM native_catalog_sources s WHERE s.library_id=?1 AND json_extract(s.snapshot_json,'$.metadata.missing')=1 AND instr(s.relative_path,'/@missing-')>0 AND NOT EXISTS(SELECT 1 FROM catalog_item_files f WHERE f.item_id=s.item_id)")?.query_map([library],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
-        let mut references=Vec::new();
+        let mut references = Vec::new();
         for id in ids {
             references.extend(tx.prepare("SELECT path FROM catalog_artwork WHERE item_id=?1 UNION ALL SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1")?.query_map([&id],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?);
             tx.execute("DELETE FROM catalog_items WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM native_catalog_sources WHERE item_id=?1 AND library_id<>?2)",params![id,library])?;
         }
         tx.execute("INSERT INTO settings(key,value_enc) VALUES(?1,'true') ON CONFLICT(key) DO UPDATE SET value_enc='true'",[format!("missing-cleaned:{library}")])?;
-        tx.commit()?;Ok(references)
+        tx.commit()?;
+        Ok(references)
     }
-    pub fn select_local_artwork(&self,library:&str,item:&str,art:&NativeArtwork)->Result<(),StoreError> {
-        let mut db=self.connection()?;let tx=db.transaction()?;
-        if animation_blocked(&tx,item,art)? {return Ok(());}
+    pub fn select_local_artwork(
+        &self,
+        library: &str,
+        item: &str,
+        art: &NativeArtwork,
+    ) -> Result<(), StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction()?;
+        if animation_blocked(&tx, item, art)? {
+            return Ok(());
+        }
         let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2 AND available=1)",params![library,item],|r|r.get(0))?;
-        if !exists || art.source!="local" {return Err(invalid("Invalid local artwork selection."));}
+        if !exists || art.source != "local" {
+            return Err(invalid("Invalid local artwork selection."));
+        }
         tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,'local',0) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source='local',locked=0",params![item,art.kind,art.path])?;
-        tx.commit()?;Ok(())
+        tx.commit()?;
+        Ok(())
     }
-    pub fn refresh_local_artwork(&self,library:&str,path:&str)->Result<bool,StoreError> {
-        let mut db=self.connection()?;let tx=db.transaction()?;
+    pub fn refresh_local_artwork(&self, library: &str, path: &str) -> Result<bool, StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction()?;
         let changed=tx.execute("UPDATE catalog_items SET revision=revision+1 WHERE id IN (SELECT a.item_id FROM catalog_artwork a JOIN native_catalog_sources s ON s.item_id=a.item_id WHERE s.library_id=?1 AND s.available=1 AND a.path=?2 AND a.source='local' AND a.locked=0)",params![library,path])?;
         tx.commit()?;
-        if changed>0 {self.set_setting(&format!("native-artwork-revision:{library}"),&uuid::Uuid::new_v4().to_string())?;}
-        Ok(changed>0)
+        if changed > 0 {
+            self.set_setting(
+                &format!("native-artwork-revision:{library}"),
+                &uuid::Uuid::new_v4().to_string(),
+            )?;
+        }
+        Ok(changed > 0)
     }
     pub fn native_nfo_content(&self, path: &str) -> Result<Option<String>, StoreError> {
         Ok(self
@@ -94,8 +136,10 @@ impl ServerStore {
                 ..Default::default()
             }))
     }
-    pub fn begin_native_scan(&self, library: &str) -> Result<(), StoreError> {self.request_native_scan(library,false).map(|_|())}
-    pub fn request_native_scan(&self, library: &str, manual:bool) -> Result<bool, StoreError> {
+    pub fn begin_native_scan(&self, library: &str) -> Result<(), StoreError> {
+        self.request_native_scan(library, false).map(|_| ())
+    }
+    pub fn request_native_scan(&self, library: &str, manual: bool) -> Result<bool, StoreError> {
         let mut db = self.connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let exists: bool = tx.query_row(
@@ -108,7 +152,11 @@ impl ServerStore {
         }
         let running: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_scans WHERE library_id=?1 AND json_extract(status_json,'$.status')='scanning')",[library],|r|r.get(0))?;
         if running {
-            if manual {tx.execute("UPDATE native_library_scans SET status_json=json_set(status_json,'$.manual_queued',1) WHERE library_id=?1",[library])?;tx.commit()?;return Ok(false);}
+            if manual {
+                tx.execute("UPDATE native_library_scans SET status_json=json_set(status_json,'$.manual_queued',1) WHERE library_id=?1",[library])?;
+                tx.commit()?;
+                return Ok(false);
+            }
             return Err(invalid("This library is already scanning."));
         }
         tx.execute("INSERT INTO native_library_scans VALUES(?1,?2) ON CONFLICT(library_id) DO UPDATE SET status_json=excluded.status_json",params![library,json!({"status":"scanning","count":0,"warnings":[]}).to_string()])?;
@@ -137,12 +185,28 @@ impl ServerStore {
         )?;
         Ok(())
     }
-    pub fn manual_scan_queued(&self,library:&str)->Result<bool,StoreError>{self.connection()?.query_row("SELECT COALESCE(json_extract(status_json,'$.manual_queued'),0) FROM native_library_scans WHERE library_id=?1",[library],|r|r.get(0)).optional().map(|v|v.unwrap_or(false)).map_err(Into::into)}
-    pub fn finish_or_restart_native_scan(&self,library:&str,status:&NativeScanStatus)->Result<bool,StoreError>{
-        let mut db=self.connection()?;let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    pub fn manual_scan_queued(&self, library: &str) -> Result<bool, StoreError> {
+        self.connection()?.query_row("SELECT COALESCE(json_extract(status_json,'$.manual_queued'),0) FROM native_library_scans WHERE library_id=?1",[library],|r|r.get(0)).optional().map(|v|v.unwrap_or(false)).map_err(Into::into)
+    }
+    pub fn finish_or_restart_native_scan(
+        &self,
+        library: &str,
+        status: &NativeScanStatus,
+    ) -> Result<bool, StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let queued=tx.query_row("SELECT COALESCE(json_extract(status_json,'$.manual_queued'),0) FROM native_library_scans WHERE library_id=?1",[library],|r|r.get::<_,bool>(0)).optional()?.unwrap_or(false);
-        let value=if queued {json!({"status":"scanning","count":0,"warnings":[],"manual_queued":0}).to_string()}else{serde_json::to_string(status).map_err(|_|invalid("Invalid status."))?};
-        tx.execute("UPDATE native_library_scans SET status_json=?1 WHERE library_id=?2",params![value,library])?;tx.commit()?;Ok(queued)
+        let value = if queued {
+            json!({"status":"scanning","count":0,"warnings":[],"manual_queued":0}).to_string()
+        } else {
+            serde_json::to_string(status).map_err(|_| invalid("Invalid status."))?
+        };
+        tx.execute(
+            "UPDATE native_library_scans SET status_json=?1 WHERE library_id=?2",
+            params![value, library],
+        )?;
+        tx.commit()?;
+        Ok(queued)
     }
     pub fn recover_native_scans(&self) -> Result<(), StoreError> {
         self.connection()?.execute("UPDATE native_library_scans SET status_json=?1 WHERE json_extract(status_json,'$.status')='scanning'",[json!({"status":"interrupted","count":0,"warnings":["Scan interrupted by a restart. Scan again to continue."]}).to_string()])?;
@@ -197,22 +261,60 @@ impl ServerStore {
         self.native_catalog_scoped(library, None)
     }
     pub fn native_available_count(&self, library: &str) -> Result<usize, StoreError> {
-        self.connection()?.query_row("SELECT COUNT(*) FROM native_catalog_sources WHERE library_id=?1 AND available=1", [library], |r|r.get(0)).map_err(Into::into)
+        self.connection()?
+            .query_row(
+                "SELECT COUNT(*) FROM native_catalog_sources WHERE library_id=?1 AND available=1",
+                [library],
+                |r| r.get(0),
+            )
+            .map_err(Into::into)
     }
-    pub fn native_catalog_item(&self, library: &str, item: &str) -> Result<Option<NativeCatalogEntry>, StoreError> {
-        Ok(self.native_catalog_selected(library, None, Some(item), None, false)?.into_iter().next())
+    pub fn native_catalog_item(
+        &self,
+        library: &str,
+        item: &str,
+    ) -> Result<Option<NativeCatalogEntry>, StoreError> {
+        Ok(self
+            .native_catalog_selected(library, None, Some(item), None, false)?
+            .into_iter()
+            .next())
     }
-    pub fn native_catalog_path(&self, library: &str, path: &str) -> Result<Option<NativeCatalogEntry>, StoreError> {
-        Ok(self.native_catalog_selected(library, None, None, Some(path), false)?.into_iter().next())
+    pub fn native_catalog_path(
+        &self,
+        library: &str,
+        path: &str,
+    ) -> Result<Option<NativeCatalogEntry>, StoreError> {
+        Ok(self
+            .native_catalog_selected(library, None, None, Some(path), false)?
+            .into_iter()
+            .next())
     }
-    pub fn native_catalog_scoped(&self, library: &str, scopes: Option<&[String]>) -> Result<Vec<NativeCatalogEntry>, StoreError> {
+    pub fn native_catalog_scoped(
+        &self,
+        library: &str,
+        scopes: Option<&[String]>,
+    ) -> Result<Vec<NativeCatalogEntry>, StoreError> {
         self.native_catalog_selected(library, scopes, None, None, false)
     }
-    pub fn native_catalog_children(&self, library: &str, parent: &str) -> Result<Vec<NativeCatalogEntry>, StoreError> {
+    pub fn native_catalog_children(
+        &self,
+        library: &str,
+        parent: &str,
+    ) -> Result<Vec<NativeCatalogEntry>, StoreError> {
         self.native_catalog_selected(library, None, None, Some(parent), true)
     }
-    fn native_catalog_selected(&self, library: &str, scopes: Option<&[String]>, item: Option<&str>, path: Option<&str>, children: bool) -> Result<Vec<NativeCatalogEntry>, StoreError> {
-        let scopes = scopes.map(serde_json::to_string).transpose().map_err(|_|invalid("Invalid scan scope."))?;
+    fn native_catalog_selected(
+        &self,
+        library: &str,
+        scopes: Option<&[String]>,
+        item: Option<&str>,
+        path: Option<&str>,
+        children: bool,
+    ) -> Result<Vec<NativeCatalogEntry>, StoreError> {
+        let scopes = scopes
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|_| invalid("Invalid scan scope."))?;
         let selection = if item.is_some() {
             "s.library_id=?1 AND s.item_id=?3 AND ?4 IS NULL"
         } else if children {
@@ -226,7 +328,7 @@ impl ServerStore {
         let tx = db.transaction()?;
         let mut stmt = tx.prepare(&format!("SELECT s.snapshot_json,s.item_id,s.available,i.revision FROM native_catalog_sources s JOIN catalog_items i ON i.id=s.item_id WHERE {selection} ORDER BY i.sort_title,i.title"))?;
         let rows = stmt
-            .query_map(params![library,scopes,item,path], |r| {
+            .query_map(params![library, scopes, item, path], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
@@ -240,12 +342,28 @@ impl ServerStore {
         let mut images = std::collections::HashMap::<String, Vec<NativeArtwork>>::new();
         // Read related records in batches instead of executing three queries per item.
         let mut fields = tx.prepare(&format!("SELECT f.item_id,f.field,f.value_json,f.locked FROM catalog_metadata_fields f JOIN native_catalog_sources s ON s.item_id=f.item_id WHERE {selection}"))?;
-        for row in fields.query_map(params![library,scopes,item,path], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,bool>(3)?)))? {
+        for row in fields.query_map(params![library, scopes, item, path], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, bool>(3)?,
+            ))
+        })? {
             let (id, field, value, locked) = row?;
             metadata.entry(id).or_default().push((field, value, locked));
         }
         let mut artwork = tx.prepare(&format!("SELECT a.item_id,a.kind,a.path,a.source FROM catalog_artwork a JOIN native_catalog_sources s ON s.item_id=a.item_id WHERE {selection} ORDER BY a.kind"))?;
-        for row in artwork.query_map(params![library,scopes,item,path], |r| Ok((r.get::<_,String>(0)?, NativeArtwork {kind:r.get(1)?,path:r.get(2)?,source:r.get(3)?})))? {
+        for row in artwork.query_map(params![library, scopes, item, path], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                NativeArtwork {
+                    kind: r.get(1)?,
+                    path: r.get(2)?,
+                    source: r.get(3)?,
+                },
+            ))
+        })? {
             let (id, image) = row?;
             images.entry(id).or_default().push(image);
         }
@@ -258,8 +376,11 @@ impl ServerStore {
             entry.metadata = json!({});
             entry.metadata["_title_locked"] = json!(false);
             for (field, value, locked) in metadata.remove(&id).unwrap_or_default() {
-                if field == "title" { entry.metadata["_title_locked"] = json!(locked); }
-                entry.metadata[&field] = serde_json::from_str(&value).map_err(|_| invalid("Invalid metadata value."))?;
+                if field == "title" {
+                    entry.metadata["_title_locked"] = json!(locked);
+                }
+                entry.metadata[&field] =
+                    serde_json::from_str(&value).map_err(|_| invalid("Invalid metadata value."))?;
             }
             entry.title = entry.metadata["title"]
                 .as_str()
@@ -280,10 +401,18 @@ impl ServerStore {
     }
     /// Reconcile only these media-relative subtrees; unrelated records are untouched.
     pub fn ingest_native_catalog_scoped(
-        &self, library: &str, revision: i64, entries: &[NativeCatalogEntry], scopes: Option<&[String]>,
+        &self,
+        library: &str,
+        revision: i64,
+        entries: &[NativeCatalogEntry],
+        scopes: Option<&[String]>,
     ) -> Result<(), StoreError> {
         if let Some(scopes) = scopes {
-            if entries.iter().any(|e| !scopes.iter().any(|scope| scope.is_empty() || e.path == *scope || e.path.starts_with(&format!("{scope}/")))) {
+            if entries.iter().any(|e| {
+                !scopes.iter().any(|scope| {
+                    scope.is_empty() || e.path == *scope || e.path.starts_with(&format!("{scope}/"))
+                })
+            }) {
                 return Err(invalid("Catalog entry is outside the scan scope."));
             }
         }
@@ -302,17 +431,32 @@ impl ServerStore {
                 tx.execute("UPDATE native_catalog_sources SET available=0 WHERE library_id=?1 AND (?2='' OR relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/')", params![library,scope])?;
             }
         } else {
-            tx.execute("UPDATE native_catalog_sources SET available=0 WHERE library_id=?1", [library])?;
+            tx.execute(
+                "UPDATE native_catalog_sources SET available=0 WHERE library_id=?1",
+                [library],
+            )?;
         }
         let cleared_hidden:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM settings WHERE key=?1 AND value_enc='true') AND COALESCE((SELECT json_extract(options_json,'$.show_missing_files')=0 FROM native_libraries WHERE id=?2),0)",params![format!("missing-cleaned:{library}"),library],|r|r.get(0))?;
         for entry in entries {
-            if cleared_hidden && entry.metadata["missing"]==true {continue;}
+            if cleared_hidden && entry.metadata["missing"] == true {
+                continue;
+            }
             let existing:Option<String>=tx.query_row("SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,entry.path],|r|r.get(0)).optional()?;
             // Promote a numbered placeholder into the real file while retaining its artwork and ID.
-            let existing = if existing.is_none() && entry.kind == "book" && entry.metadata["missing"] != true {
-                let key = if !entry.metadata["chapter"].is_null() && entry.metadata["volume"].is_null() {"chapter"} else {"volume"};
-                let n = entry.metadata[key].as_u64().or_else(||entry.metadata[key].as_str().and_then(|v|v.parse().ok()));
-                if let (Some(parent),Some(n)) = (&entry.parent_path,n) {
+            let existing = if existing.is_none()
+                && entry.kind == "book"
+                && entry.metadata["missing"] != true
+            {
+                let key =
+                    if !entry.metadata["chapter"].is_null() && entry.metadata["volume"].is_null() {
+                        "chapter"
+                    } else {
+                        "volume"
+                    };
+                let n = entry.metadata[key]
+                    .as_u64()
+                    .or_else(|| entry.metadata[key].as_str().and_then(|v| v.parse().ok()));
+                if let (Some(parent), Some(n)) = (&entry.parent_path, n) {
                     let path = format!("{parent}/@missing-{key}-{n}");
                     let id:Option<String> = tx.query_row("SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,path],|r|r.get(0)).optional()?;
                     if let Some(id) = &id {
@@ -320,14 +464,41 @@ impl ServerStore {
                         tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0",[id])?;
                     }
                     id
-                } else {None}
-            } else if existing.is_none() && ["season","episode"].contains(&entry.kind.as_str()) && entry.metadata["missing"]!=true {
-                let root=if entry.kind=="season" {entry.parent_path.as_deref()} else {entries.iter().filter(|e|e.kind=="series"&&entry.path.starts_with(&format!("{}/",e.path))).max_by_key(|e|e.path.len()).map(|e|e.path.as_str())};
-                let found:Option<(String,String)>=if let (Some(root),Some(season))=(root,entry.metadata["season"].as_u64()) {
+                } else {
+                    None
+                }
+            } else if existing.is_none()
+                && ["season", "episode"].contains(&entry.kind.as_str())
+                && entry.metadata["missing"] != true
+            {
+                let root = if entry.kind == "season" {
+                    entry.parent_path.as_deref()
+                } else {
+                    entries
+                        .iter()
+                        .filter(|e| {
+                            e.kind == "series" && entry.path.starts_with(&format!("{}/", e.path))
+                        })
+                        .max_by_key(|e| e.path.len())
+                        .map(|e| e.path.as_str())
+                };
+                let found: Option<(String, String)> = if let (Some(root), Some(season)) =
+                    (root, entry.metadata["season"].as_u64())
+                {
                     tx.query_row("SELECT s.item_id,s.relative_path FROM native_catalog_sources s JOIN catalog_items i ON i.id=s.item_id WHERE s.library_id=?1 AND i.kind=?2 AND substr(s.relative_path,1,length(?3)+1)=?3||'/' AND json_extract(s.snapshot_json,'$.metadata.missing')=1 AND json_extract(s.snapshot_json,'$.metadata.season')=?4 AND (?2='season' OR json_extract(s.snapshot_json,'$.metadata.episode')=?5) LIMIT 1",params![library,entry.kind,root,season,entry.metadata["episode"].as_u64()],|r|Ok((r.get(0)?,r.get(1)?))).optional()?
-                }else{None};
-                if let Some((id,path))=found {tx.execute("DELETE FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,path])?;tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0",[&id])?;Some(id)}else{None}
-            } else {existing};
+                } else {
+                    None
+                };
+                if let Some((id, path)) = found {
+                    tx.execute("DELETE FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,path])?;
+                    tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0",[&id])?;
+                    Some(id)
+                } else {
+                    None
+                }
+            } else {
+                existing
+            };
             let id = existing.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             let mut snapshot = entry.clone();
             snapshot.id = id.clone();
@@ -367,7 +538,9 @@ impl ServerStore {
             project_metadata(&tx, &id, &effective)?;
             tx.execute("DELETE FROM catalog_artwork WHERE item_id=?1 AND locked=0 AND NOT EXISTS(SELECT 1 FROM json_each(?2) a WHERE json_extract(a.value,'$.kind')=catalog_artwork.kind AND json_extract(a.value,'$.path')=catalog_artwork.path)",params![id,serde_json::to_string(&entry.artwork).map_err(|_|invalid("Invalid artwork records."))?])?;
             for art in &entry.artwork {
-                if animation_blocked(&tx,&id,art)? {continue;}
+                if animation_blocked(&tx, &id, art)? {
+                    continue;
+                }
                 tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,?4,0) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source=excluded.source,locked=CASE WHEN excluded.source='local' THEN 0 ELSE locked END WHERE excluded.source='local' OR (locked=0 AND source<>'local')",params![id,art.kind,art.path,art.source])?;
             }
             tx.execute("DELETE FROM catalog_item_files WHERE item_id=?1", [&id])?;
@@ -447,23 +620,40 @@ impl ServerStore {
                 "SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field='credits'",
                 [item], |r| r.get(0),
             ).optional()?;
-            let unchanged = previous.as_deref().and_then(|v| serde_json::from_str::<Value>(v).ok()).as_ref() == Some(credits);
-            if !unchanged && !credits.is_null() && !credits.as_array().is_some_and(|v| {
-                v.iter().all(|c| {
-                    c["name"].as_str().is_some_and(|v| !v.trim().is_empty())
-                        && ["cast", "crew", "voice", "author", "illustrator", "narrator"]
-                            .contains(&c["category"].as_str().unwrap_or("cast"))
+            let unchanged = previous
+                .as_deref()
+                .and_then(|v| serde_json::from_str::<Value>(v).ok())
+                .as_ref()
+                == Some(credits);
+            if !unchanged
+                && !credits.is_null()
+                && !credits.as_array().is_some_and(|v| {
+                    v.iter().all(|c| {
+                        c["name"].as_str().is_some_and(|v| !v.trim().is_empty())
+                            && ["cast", "crew", "voice", "author", "illustrator", "narrator"]
+                                .contains(&c["category"].as_str().unwrap_or("cast"))
+                    })
                 })
-            }) {
+            {
                 return Err(invalid(
                     "Each credit needs a name and a supported category.",
                 ));
             }
         }
-        let title_lock=fields.get("_title_locked").map(|v|v.as_bool().ok_or_else(||invalid("Title lock must be true or false."))).transpose()?;
-        if let Some(locked)=title_lock {tx.execute("UPDATE catalog_metadata_fields SET locked=?2,source=CASE WHEN ?2=1 THEN 'manual' WHEN source='manual' THEN 'filename' ELSE source END WHERE item_id=?1 AND field='title'",params![item,i64::from(locked)])?;}
+        let title_lock = fields
+            .get("_title_locked")
+            .map(|v| {
+                v.as_bool()
+                    .ok_or_else(|| invalid("Title lock must be true or false."))
+            })
+            .transpose()?;
+        if let Some(locked) = title_lock {
+            tx.execute("UPDATE catalog_metadata_fields SET locked=?2,source=CASE WHEN ?2=1 THEN 'manual' WHEN source='manual' THEN 'filename' ELSE source END WHERE item_id=?1 AND field='title'",params![item,i64::from(locked)])?;
+        }
         for (field, value) in fields {
-            if field=="_title_locked" {continue;}
+            if field == "_title_locked" {
+                continue;
+            }
             let previous: Option<String> = tx
                 .query_row(
                     "SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field=?2",
@@ -479,7 +669,12 @@ impl ServerStore {
             }
             tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='manual',locked=1,revision=revision+1",params![item,field,value.to_string()])?;
         }
-        if let Some(locked)=title_lock {tx.execute("UPDATE catalog_metadata_fields SET locked=?2 WHERE item_id=?1 AND field='title'",params![item,i64::from(locked)])?;}
+        if let Some(locked) = title_lock {
+            tx.execute(
+                "UPDATE catalog_metadata_fields SET locked=?2 WHERE item_id=?1 AND field='title'",
+                params![item, i64::from(locked)],
+            )?;
+        }
         let mut effective = json!({});
         {
             let mut stmt = tx
@@ -497,17 +692,30 @@ impl ServerStore {
         tx.commit()?;
         Ok(())
     }
-    pub fn remove_native_artwork(&self, library: &str, item: &str, kind: &str) -> Result<(), StoreError> {
+    pub fn remove_native_artwork(
+        &self,
+        library: &str,
+        item: &str,
+        kind: &str,
+    ) -> Result<(), StoreError> {
         let mut db = self.connection()?;
         let tx = db.transaction()?;
         let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2)",params![library,item],|r|r.get(0))?;
-        if !exists { return Err(invalid("Catalog item not found.")); }
-        tx.execute("DELETE FROM catalog_artwork WHERE item_id=?1 AND kind=?2",params![item,kind])?;
-        if let Some(base)=kind.strip_suffix("-animated") {
+        if !exists {
+            return Err(invalid("Catalog item not found."));
+        }
+        tx.execute(
+            "DELETE FROM catalog_artwork WHERE item_id=?1 AND kind=?2",
+            params![item, kind],
+        )?;
+        if let Some(base) = kind.strip_suffix("-animated") {
             tx.execute("DELETE FROM catalog_artwork WHERE item_id=?1 AND kind=?2 AND (lower(path) LIKE '%.gif' OR lower(path) LIKE '%.webm')",params![item,base])?;
             tx.execute("INSERT INTO settings(key,value_enc) VALUES(?1,'true') ON CONFLICT(key) DO UPDATE SET value_enc='true'",[format!("removed-animation:{item}:{base}")])?;
         }
-        tx.execute("UPDATE catalog_items SET revision=revision+1 WHERE id=?1",[item])?;
+        tx.execute(
+            "UPDATE catalog_items SET revision=revision+1 WHERE id=?1",
+            [item],
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -523,13 +731,31 @@ impl ServerStore {
         if !exists {
             return Err(invalid("Catalog item not found."));
         }
-        if art.source=="manual" && (art.kind.ends_with("-animated") || ["gif","webm"].contains(&art.path.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str())) {
-            tx.execute("DELETE FROM settings WHERE key=?1",[format!("removed-animation:{item}:{}",art.kind.trim_end_matches("-animated"))])?;
+        if art.source == "manual"
+            && (art.kind.ends_with("-animated")
+                || ["gif", "webm"].contains(
+                    &art.path
+                        .rsplit('.')
+                        .next()
+                        .unwrap_or("")
+                        .to_ascii_lowercase()
+                        .as_str(),
+                ))
+        {
+            tx.execute(
+                "DELETE FROM settings WHERE key=?1",
+                [format!(
+                    "removed-animation:{item}:{}",
+                    art.kind.trim_end_matches("-animated")
+                )],
+            )?;
         }
         tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,'manual',1) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source='manual',locked=1",params![item,art.kind,art.path])?;
         // A deliberate poster/logo replacement must not inherit an old logo layer.
         // Backups and server imports leave PosterView's visual preferences intact.
-        if art.source == "manual" && ["poster", "poster-animated", "logo", "logo-animated"].contains(&art.kind.as_str()) {
+        if art.source == "manual"
+            && ["poster", "poster-animated", "logo", "logo-animated"].contains(&art.kind.as_str())
+        {
             tx.execute("UPDATE catalog_metadata_fields SET value_json='null',source='manual',locked=1,revision=revision+1 WHERE item_id=?1 AND field IN ('posteredit','poseredit')", [item])?;
         }
 
@@ -540,79 +766,224 @@ impl ServerStore {
         tx.commit()?;
         Ok(())
     }
-    pub fn finish_identification_artwork(&self,item:&str)->Result<(),StoreError>{
-        self.connection()?.execute("UPDATE catalog_metadata_fields SET value_json='false' WHERE item_id=?1 AND field='_identify_replace_artwork'",[item])?;Ok(())
+    pub fn finish_identification_artwork(&self, item: &str) -> Result<(), StoreError> {
+        self.connection()?.execute("UPDATE catalog_metadata_fields SET value_json='false' WHERE item_id=?1 AND field='_identify_replace_artwork'",[item])?;
+        Ok(())
     }
-    pub fn identification_value_hash(value:&Value)->String {
-        use std::hash::{Hash,Hasher};
-        let mut hash=std::collections::hash_map::DefaultHasher::new();value.to_string().hash(&mut hash);format!("{:016x}",hash.finish())
+    pub fn identification_value_hash(value: &Value) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        value.to_string().hash(&mut hash);
+        format!("{:016x}", hash.finish())
     }
     /// Explicit identification replaces old provider IDs and invalidates derived data atomically.
-    pub fn identify_native_entry(&self, library:&str, item:&str, revision:i64, title:&str, year:Option<i64>, identifiers:&Value) -> Result<(),StoreError> {
-        self.identify_native_entry_with_metadata(library,item,revision,title,year,identifiers,None)
+    pub fn identify_native_entry(
+        &self,
+        library: &str,
+        item: &str,
+        revision: i64,
+        title: &str,
+        year: Option<i64>,
+        identifiers: &Value,
+    ) -> Result<(), StoreError> {
+        self.identify_native_entry_with_metadata(
+            library,
+            item,
+            revision,
+            title,
+            year,
+            identifiers,
+            None,
+        )
     }
     #[allow(clippy::too_many_arguments)]
-    pub fn identify_native_entry_with_metadata(&self,library:&str,item:&str,revision:i64,title:&str,year:Option<i64>,identifiers:&Value,replacement:Option<&Value>)->Result<(),StoreError> {
-        let mut db=self.connection()?;let tx=db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    pub fn identify_native_entry_with_metadata(
+        &self,
+        library: &str,
+        item: &str,
+        revision: i64,
+        title: &str,
+        year: Option<i64>,
+        identifiers: &Value,
+        replacement: Option<&Value>,
+    ) -> Result<(), StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let current:Option<i64>=tx.query_row("SELECT i.revision FROM catalog_items i JOIN native_catalog_sources s ON s.item_id=i.id WHERE s.library_id=?1 AND i.id=?2 AND s.available=1",params![library,item],|r|r.get(0)).optional()?;
-        if current!=Some(revision){return Err(StoreError::RevisionConflict);}
+        if current != Some(revision) {
+            return Err(StoreError::RevisionConflict);
+        }
         let scanning:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_scans WHERE library_id=?1 AND json_extract(status_json,'$.status')='scanning')",[library],|r|r.get(0))?;
-        if scanning{return Err(invalid("Wait for the library scan to finish before identifying an item."));}
+        if scanning {
+            return Err(invalid(
+                "Wait for the library scan to finish before identifying an item.",
+            ));
+        }
         // A corrected root invalidates automatically identified seasons and episodes too.
         let mut stmt=tx.prepare("WITH RECURSIVE children(id) AS (SELECT ?1 UNION SELECT i.id FROM catalog_items i JOIN children c ON i.parent_id=c.id) SELECT id FROM children")?;
-        let affected=stmt.query_map([item],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;drop(stmt);
+        let affected = stmt
+            .query_map([item], |r| r.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
         let old_ids:Option<String>=tx.query_row("SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field='identifiers'",[item],|r|r.get(0)).optional()?;
-        let refresh=replacement.is_some_and(|v|v["_refresh_from_providers"]==true);
-        let changed=old_ids.as_deref().and_then(|v|serde_json::from_str::<Value>(v).ok()).as_ref()!=Some(identifiers);
+        let refresh = replacement.is_some_and(|v| v["_refresh_from_providers"] == true);
+        let changed = old_ids
+            .as_deref()
+            .and_then(|v| serde_json::from_str::<Value>(v).ok())
+            .as_ref()
+            != Some(identifiers);
         for id in &affected {
             let mut discarded:Value=tx.query_row("SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field='_identify_discarded'",[id],|r|r.get::<_,String>(0)).optional()?.and_then(|v|serde_json::from_str(&v).ok()).unwrap_or(json!({}));
             let fields=tx.prepare("SELECT field,value_json,source,locked FROM catalog_metadata_fields WHERE item_id=?1")?.query_map([id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,bool>(3)?)))?.collect::<Result<Vec<_>,_>>()?;
-            for (field,raw,source,locked) in fields {
-                if refresh && field=="identifiers" {continue;}
-                let provider=["anilist","tmdb","tvdb","mal","anidb","jikan","omdb","fanart","comicvine","mangadex"].contains(&source.as_str());
-                let descriptive=!field.starts_with('_') && !["season","episode","volume","chapter","missing","media_info","posteredit","poseredit","backdropedit","colored_edition_effect","colored_title","colored_edition"].contains(&field.as_str());
-                let derived=["anilist_data","tmdb_data","tvdb_data","mal_data","anidb_data","jikan_data","jikan_checked","jikan_retry_after","voice_cast_schema","_provider_check"].contains(&field.as_str());
-                if ((changed || replacement.is_some()) && descriptive) || (!locked && source!="manual" && provider) || derived {
-                    let value:Value=serde_json::from_str(&raw).map_err(|_|invalid("Invalid metadata."))?;
-                    let fingerprint=json!(Self::identification_value_hash(&value));
-                    if !discarded[&field].is_array(){discarded[&field]=json!([]);}
-                    let hashes=discarded[&field].as_array_mut().unwrap();if !hashes.contains(&fingerprint){hashes.push(fingerprint);}
-                    tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field=?2",params![id,field])?;
+            for (field, raw, source, locked) in fields {
+                if refresh && field == "identifiers" {
+                    continue;
+                }
+                let provider = [
+                    "anilist",
+                    "tmdb",
+                    "tvdb",
+                    "mal",
+                    "anidb",
+                    "jikan",
+                    "omdb",
+                    "fanart",
+                    "comicvine",
+                    "mangadex",
+                ]
+                .contains(&source.as_str());
+                let descriptive = !field.starts_with('_')
+                    && ![
+                        "season",
+                        "episode",
+                        "volume",
+                        "chapter",
+                        "missing",
+                        "media_info",
+                        "posteredit",
+                        "poseredit",
+                        "backdropedit",
+                        "colored_edition_effect",
+                        "colored_title",
+                        "colored_edition",
+                    ]
+                    .contains(&field.as_str());
+                let derived = [
+                    "anilist_data",
+                    "tmdb_data",
+                    "tvdb_data",
+                    "mal_data",
+                    "anidb_data",
+                    "jikan_data",
+                    "jikan_checked",
+                    "jikan_retry_after",
+                    "voice_cast_schema",
+                    "_provider_check",
+                ]
+                .contains(&field.as_str());
+                if ((changed || replacement.is_some()) && descriptive)
+                    || (!locked && source != "manual" && provider)
+                    || derived
+                {
+                    let value: Value =
+                        serde_json::from_str(&raw).map_err(|_| invalid("Invalid metadata."))?;
+                    let fingerprint = json!(Self::identification_value_hash(&value));
+                    if !discarded[&field].is_array() {
+                        discarded[&field] = json!([]);
+                    }
+                    let hashes = discarded[&field].as_array_mut().unwrap();
+                    if !hashes.contains(&fingerprint) {
+                        hashes.push(fingerprint);
+                    }
+                    tx.execute(
+                        "DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field=?2",
+                        params![id, field],
+                    )?;
                 }
             }
-            if changed || replacement.is_some(){tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_nfo_reset','true','manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json='true'",[id])?;}
+            if changed || replacement.is_some() {
+                tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_nfo_reset','true','manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json='true'",[id])?;
+            }
             tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_discarded',?2,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json",params![id,discarded.to_string()])?;
-            if changed && replacement.is_none(){tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('_identify_source','_identify_replace_artwork')",[id])?;}
-            if let Some(replacement)=replacement {
-                if refresh {tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field='_identify_source'",[id])?;} else {tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_source','\"tvdb\"','manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json",[id])?;}
-                let replace=(refresh || id!=item) && replacement["_identify_replace_artwork"]==true;
+            if changed && replacement.is_none() {
+                tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('_identify_source','_identify_replace_artwork')",[id])?;
+            }
+            if let Some(replacement) = replacement {
+                if refresh {
+                    tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field='_identify_source'",[id])?;
+                } else {
+                    tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_source','\"tvdb\"','manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json",[id])?;
+                }
+                let replace =
+                    (refresh || id != item) && replacement["_identify_replace_artwork"] == true;
                 tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_replace_artwork',?2,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json",params![id,replace.to_string()])?;
             }
         }
         tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'identifiers',?2,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='manual',locked=1,revision=revision+1",params![item,identifiers.to_string()])?;
-        for (field,value) in [("title",json!(title))].into_iter().chain(year.map(|y|("year",json!(y)))) {
+        for (field, value) in [("title", json!(title))]
+            .into_iter()
+            .chain(year.map(|y| ("year", json!(y))))
+        {
             tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'filename',0) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=CASE WHEN locked=1 THEN source ELSE 'filename' END,revision=revision+1",params![item,field,value.to_string()])?;
         }
-        if let Some(fields)=replacement.and_then(Value::as_object){for (field,value) in fields {
-            if field=="identifiers" || field.starts_with('_') || value.is_null(){continue;}
-            tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'tvdb',0) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='tvdb',locked=0,revision=revision+1",params![item,field,value.to_string()])?;
-        }}
-        tx.execute("UPDATE catalog_items SET title=?2,sort_title=lower(?2) WHERE id=?1",params![item,title])?;
+        if let Some(fields) = replacement.and_then(Value::as_object) {
+            for (field, value) in fields {
+                if field == "identifiers" || field.starts_with('_') || value.is_null() {
+                    continue;
+                }
+                tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'tvdb',0) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='tvdb',locked=0,revision=revision+1",params![item,field,value.to_string()])?;
+            }
+        }
+        tx.execute(
+            "UPDATE catalog_items SET title=?2,sort_title=lower(?2) WHERE id=?1",
+            params![item, title],
+        )?;
         for id in affected {
-            let mut effective=json!({});let mut fields=tx.prepare("SELECT field,value_json FROM catalog_metadata_fields WHERE item_id=?1")?;
-            for row in fields.query_map([&id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))? {let(field,value)=row?;effective[field]=serde_json::from_str(&value).map_err(|_|invalid("Invalid metadata."))?;}
-            drop(fields);project_metadata(&tx,&id,&effective)?;
+            let mut effective = json!({});
+            let mut fields = tx
+                .prepare("SELECT field,value_json FROM catalog_metadata_fields WHERE item_id=?1")?;
+            for row in fields.query_map([&id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })? {
+                let (field, value) = row?;
+                effective[field] =
+                    serde_json::from_str(&value).map_err(|_| invalid("Invalid metadata."))?;
+            }
+            drop(fields);
+            project_metadata(&tx, &id, &effective)?;
             if effective["title"].is_null() {
-                let kind:String=tx.query_row("SELECT kind FROM catalog_items WHERE id=?1",[&id],|r|r.get(0))?;
-                let fallback=match kind.as_str(){"episode"=>format!("Episode {}",effective["episode"].as_i64().unwrap_or(0)),"season"=>format!("Season {}",effective["season"].as_i64().unwrap_or(0)),"book"=>format!("{} {}",if effective["chapter"].is_number(){"Chapter"}else{"Volume"},effective["chapter"].as_i64().or(effective["volume"].as_i64()).unwrap_or(0)),_=>title.to_string()};
-                tx.execute("UPDATE catalog_items SET title=?2 WHERE id=?1",params![id,fallback])?;
+                let kind: String =
+                    tx.query_row("SELECT kind FROM catalog_items WHERE id=?1", [&id], |r| {
+                        r.get(0)
+                    })?;
+                let fallback = match kind.as_str() {
+                    "episode" => format!("Episode {}", effective["episode"].as_i64().unwrap_or(0)),
+                    "season" => format!("Season {}", effective["season"].as_i64().unwrap_or(0)),
+                    "book" => format!(
+                        "{} {}",
+                        if effective["chapter"].is_number() {
+                            "Chapter"
+                        } else {
+                            "Volume"
+                        },
+                        effective["chapter"]
+                            .as_i64()
+                            .or(effective["volume"].as_i64())
+                            .unwrap_or(0)
+                    ),
+                    _ => title.to_string(),
+                };
+                tx.execute(
+                    "UPDATE catalog_items SET title=?2 WHERE id=?1",
+                    params![id, fallback],
+                )?;
                 tx.execute("UPDATE native_catalog_sources SET snapshot_json=json_set(snapshot_json,'$.title',?2) WHERE item_id=?1",params![id,fallback])?;
             }
             tx.execute("UPDATE catalog_items SET original_title=?2,sort_title=COALESCE(?3,lower(title)),synopsis=?4,year=?5,revision=revision+1 WHERE id=?1",params![id,effective["originaltitle"].as_str(),effective["sorttitle"].as_str(),effective["plot"].as_str(),effective["year"].as_i64()])?;
         }
-        tx.commit()?;Ok(())
+        tx.commit()?;
+        Ok(())
     }
-
 }
 fn project_metadata(
     tx: &rusqlite::Transaction<'_>,
@@ -684,7 +1055,16 @@ fn project_metadata(
             };
             let char_id = character["id"]
                 .as_str()
-                .map(|v| format!("{}:{v}", if character["provider"] == "jikan" { "mal" } else { "anilist" }))
+                .map(|v| {
+                    format!(
+                        "{}:{v}",
+                        if character["provider"] == "jikan" {
+                            "mal"
+                        } else {
+                            "anilist"
+                        }
+                    )
+                })
                 .unwrap_or_else(|| format!("name:{name}"));
             tx.execute("INSERT INTO catalog_characters VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET name=excluded.name,biography=excluded.biography,image_path=excluded.image_path",params![char_id,name,character["biography"].as_str(),character["image"].as_str()])?;
             tx.execute("INSERT OR IGNORE INTO catalog_character_appearances(item_id,character_id,role) VALUES(?1,?2,?3)",params![id,char_id,character["role"].as_str().unwrap_or("")])?;
@@ -698,144 +1078,623 @@ fn project_metadata(
 }
 
 #[cfg(test)]
-mod tests{
+mod tests {
     use super::*;
-    use posterview_contracts::native::{NativeLibraryInput,NativeLibraryType,AnimeContent};
+    use posterview_contracts::native::{AnimeContent, NativeLibraryInput, NativeLibraryType};
     #[test]
     fn title_edits_preserve_unchanged_legacy_credit_shapes() {
         let temp = tempfile::tempdir().unwrap();
-        let db = ServerStore::new(temp.path()); db.initialize().unwrap();
-        let library = db.save_native_library(None, &NativeLibraryInput{name:"TV".into(),library_type:NativeLibraryType::Anime,anime_content:AnimeContent::Both,paths:vec!["TV".into()],revision:None,options:Default::default()}).unwrap();
-        for (index, credits) in [Value::Null, json!("Legacy writing credit"), json!({"cast":[]}), json!([{"name":"","category":"cast"}])].into_iter().enumerate() {
-            let entry = NativeCatalogEntry{id:String::new(),path:format!("TV/Show{index}"),kind:"series".into(),parent_path:None,title:"Old title".into(),metadata:json!({"title":"Old title","credits":credits}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
-            db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();
-            let before=db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.path==format!("TV/Show{index}")).unwrap();
-            db.edit_native_entry(&library.id,&before.id,before.revision,&json!({"title":"New title","credits":credits})).unwrap();
-            let after=db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.id==before.id).unwrap();
-            assert_eq!(after.title,"New title"); assert_eq!(after.metadata["credits"],credits);
-            assert!(db.edit_native_entry(&library.id,&after.id,after.revision,&json!({"credits":[{"name":"Changed","category":"unsupported"}]})).is_err());
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "TV".into(),
+                    library_type: NativeLibraryType::Anime,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["TV".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        for (index, credits) in [
+            Value::Null,
+            json!("Legacy writing credit"),
+            json!({"cast":[]}),
+            json!([{"name":"","category":"cast"}]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let entry = NativeCatalogEntry {
+                id: String::new(),
+                path: format!("TV/Show{index}"),
+                kind: "series".into(),
+                parent_path: None,
+                title: "Old title".into(),
+                metadata: json!({"title":"Old title","credits":credits}),
+                artwork: vec![],
+                files: vec![],
+                nfo_path: None,
+                nfo_xml: None,
+                available: true,
+                revision: 1,
+            };
+            db.ingest_native_catalog(&library.id, library.revision, &[entry])
+                .unwrap();
+            let before = db
+                .native_catalog(&library.id)
+                .unwrap()
+                .into_iter()
+                .find(|e| e.path == format!("TV/Show{index}"))
+                .unwrap();
+            db.edit_native_entry(
+                &library.id,
+                &before.id,
+                before.revision,
+                &json!({"title":"New title","credits":credits}),
+            )
+            .unwrap();
+            let after = db
+                .native_catalog(&library.id)
+                .unwrap()
+                .into_iter()
+                .find(|e| e.id == before.id)
+                .unwrap();
+            assert_eq!(after.title, "New title");
+            assert_eq!(after.metadata["credits"], credits);
+            assert!(
+                db.edit_native_entry(
+                    &library.id,
+                    &after.id,
+                    after.revision,
+                    &json!({"credits":[{"name":"Changed","category":"unsupported"}]})
+                )
+                .is_err()
+            );
         }
     }
     #[test]
     fn manual_scan_requests_queue_once_and_survive_progress_updates() {
-        let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
-        let library=db.save_native_library(None,&NativeLibraryInput{name:"Anime".into(),library_type:NativeLibraryType::Anime,anime_content:AnimeContent::Both,paths:vec!["Anime".into()],revision:None,options:Default::default()}).unwrap();
-        assert!(db.request_native_scan(&library.id,false).unwrap());
-        assert!(!db.request_native_scan(&library.id,true).unwrap());assert!(!db.request_native_scan(&library.id,true).unwrap());
-        let progress=NativeScanStatus{status:"scanning".into(),count:12,warnings:vec![],progress:None};db.update_native_scan_progress(&library.id,&progress).unwrap();db.finish_native_scan(&library.id,&progress).unwrap();assert!(db.manual_scan_queued(&library.id).unwrap());
-        let complete=NativeScanStatus{status:"complete".into(),..progress};assert!(db.finish_or_restart_native_scan(&library.id,&complete).unwrap());assert!(!db.manual_scan_queued(&library.id).unwrap());assert_eq!(db.native_scan_status(&library.id).unwrap().status,"scanning");
-        assert!(!db.finish_or_restart_native_scan(&library.id,&complete).unwrap());assert_eq!(db.native_scan_status(&library.id).unwrap().status,"complete");
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Anime".into(),
+                    library_type: NativeLibraryType::Anime,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Anime".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        assert!(db.request_native_scan(&library.id, false).unwrap());
+        assert!(!db.request_native_scan(&library.id, true).unwrap());
+        assert!(!db.request_native_scan(&library.id, true).unwrap());
+        let progress = NativeScanStatus {
+            status: "scanning".into(),
+            count: 12,
+            warnings: vec![],
+            progress: None,
+        };
+        db.update_native_scan_progress(&library.id, &progress)
+            .unwrap();
+        db.finish_native_scan(&library.id, &progress).unwrap();
+        assert!(db.manual_scan_queued(&library.id).unwrap());
+        let complete = NativeScanStatus {
+            status: "complete".into(),
+            ..progress
+        };
+        assert!(
+            db.finish_or_restart_native_scan(&library.id, &complete)
+                .unwrap()
+        );
+        assert!(!db.manual_scan_queued(&library.id).unwrap());
+        assert_eq!(
+            db.native_scan_status(&library.id).unwrap().status,
+            "scanning"
+        );
+        assert!(
+            !db.finish_or_restart_native_scan(&library.id, &complete)
+                .unwrap()
+        );
+        assert_eq!(
+            db.native_scan_status(&library.id).unwrap().status,
+            "complete"
+        );
     }
     #[test]
     fn replacing_poster_artwork_clears_overlays_but_backups_and_server_imports_preserve_them() {
-        let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
-        let library=db.save_native_library(None,&NativeLibraryInput{name:"Anime".into(),library_type:NativeLibraryType::Anime,anime_content:AnimeContent::Both,paths:vec!["Anime".into()],revision:None,options:Default::default()}).unwrap();
-        let entry=NativeCatalogEntry{id:String::new(),path:"Anime/Test".into(),kind:"series".into(),parent_path:None,title:"Test".into(),metadata:json!({"title":"Test","plot":"Keep this"}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
-        db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();
-        for (kind,source,cleared) in [("poster-edit-original","manual",false),("backdrop","manual",false),("poster","server",false),("poster","manual",true),("poster-animated","manual",true),("logo","manual",true)] {
-            let entry=db.native_catalog(&library.id).unwrap().remove(0);
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Anime".into(),
+                    library_type: NativeLibraryType::Anime,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Anime".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let entry = NativeCatalogEntry {
+            id: String::new(),
+            path: "Anime/Test".into(),
+            kind: "series".into(),
+            parent_path: None,
+            title: "Test".into(),
+            metadata: json!({"title":"Test","plot":"Keep this"}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
+        for (kind, source, cleared) in [
+            ("poster-edit-original", "manual", false),
+            ("backdrop", "manual", false),
+            ("poster", "server", false),
+            ("poster", "manual", true),
+            ("poster-animated", "manual", true),
+            ("logo", "manual", true),
+        ] {
+            let entry = db.native_catalog(&library.id).unwrap().remove(0);
             db.edit_native_entry(&library.id,&entry.id,entry.revision,&json!({"posteredit":{"enabled":true,"mode":"overlay"},"poseredit":{"enabled":true}})).unwrap();
-            db.save_native_artwork(&library.id,&entry.id,&NativeArtwork{kind:kind.into(),path:format!("{kind}.png"),source:source.into()}).unwrap();
-            let after=db.native_catalog(&library.id).unwrap().remove(0);
-            assert_eq!(after.metadata["posteredit"].is_null(),cleared,"{kind}/{source}");
-            assert_eq!(after.metadata["poseredit"].is_null(),cleared);
-            assert_eq!(after.metadata["plot"],"Keep this");
+            db.save_native_artwork(
+                &library.id,
+                &entry.id,
+                &NativeArtwork {
+                    kind: kind.into(),
+                    path: format!("{kind}.png"),
+                    source: source.into(),
+                },
+            )
+            .unwrap();
+            let after = db.native_catalog(&library.id).unwrap().remove(0);
+            assert_eq!(
+                after.metadata["posteredit"].is_null(),
+                cleared,
+                "{kind}/{source}"
+            );
+            assert_eq!(after.metadata["poseredit"].is_null(), cleared);
+            assert_eq!(after.metadata["plot"], "Keep this");
         }
     }
     #[test]
-    fn identify_clears_previous_metadata_and_preserves_artwork_atomically(){
-        let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
-        let library=db.save_native_library(None,&NativeLibraryInput{name:"Anime".into(),library_type:NativeLibraryType::Anime,anime_content:AnimeContent::Both,paths:vec!["Anime".into()],revision:None,options:Default::default()}).unwrap();
-        let entry=NativeCatalogEntry{id:String::new(),path:"Anime/Test".into(),kind:"series".into(),parent_path:None,title:"Wrong".into(),metadata:json!({"title":"Wrong","plot":"Local synopsis","year":2024,"identifiers":{"tvdb":"99"},"credits":[{"name":"Wrong actor","category":"cast"}],"_sources":{"title":"tvdb","plot":"nfo","year":"tvdb","identifiers":"tvdb","credits":"tvdb"}}),artwork:vec![NativeArtwork{kind:"poster".into(),path:"Anime/Test/poster.jpg".into(),source:"local".into()},NativeArtwork{kind:"banner".into(),path:"wrong.jpg".into(),source:"tvdb".into()}],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
-        db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();let before=db.native_catalog(&library.id).unwrap().remove(0);db.edit_native_entry(&library.id,&before.id,before.revision,&json!({"plot":"Manual synopsis"})).unwrap();let before=db.native_catalog(&library.id).unwrap().remove(0);
-        assert!(db.identify_native_entry(&library.id,&before.id,before.revision+1,"Correct",Some(2014),&json!({"anilist":"20464"})).is_err());
-        assert_eq!(db.native_catalog(&library.id).unwrap()[0].title,"Wrong");
-        db.identify_native_entry(&library.id,&before.id,before.revision,"Correct",Some(2014),&json!({"anilist":"20464"})).unwrap();
-        let after=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(after.title,"Correct");assert_eq!(after.metadata["_title_locked"],false);db.edit_native_entry(&library.id,&after.id,after.revision,&json!({"_title_locked":true})).unwrap();let locked=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(locked.metadata["_title_locked"],true);db.edit_native_entry(&library.id,&locked.id,locked.revision,&json!({"_title_locked":false})).unwrap();assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["_title_locked"],false);assert!(after.metadata["plot"].is_null());assert_eq!(after.metadata["identifiers"],json!({"anilist":"20464"}));assert!(after.metadata["credits"].is_null());assert_eq!(after.artwork.len(),2);assert!(after.artwork.iter().any(|a|a.source=="local"));assert!(after.revision>before.revision);
-        let fresh=db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.id==before.id).unwrap();
-        db.identify_native_entry_with_metadata(&library.id,&fresh.id,fresh.revision,&fresh.title,None,&fresh.metadata["identifiers"],Some(&json!({"_refresh_from_providers":true,"_identify_replace_artwork":true}))).unwrap();
-        let refreshed=db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.id==fresh.id).unwrap();
-        assert_eq!(refreshed.metadata["identifiers"],fresh.metadata["identifiers"]);
+    fn identify_clears_previous_metadata_and_preserves_artwork_atomically() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Anime".into(),
+                    library_type: NativeLibraryType::Anime,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Anime".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let entry = NativeCatalogEntry {
+            id: String::new(),
+            path: "Anime/Test".into(),
+            kind: "series".into(),
+            parent_path: None,
+            title: "Wrong".into(),
+            metadata: json!({"title":"Wrong","plot":"Local synopsis","year":2024,"identifiers":{"tvdb":"99"},"credits":[{"name":"Wrong actor","category":"cast"}],"_sources":{"title":"tvdb","plot":"nfo","year":"tvdb","identifiers":"tvdb","credits":"tvdb"}}),
+            artwork: vec![
+                NativeArtwork {
+                    kind: "poster".into(),
+                    path: "Anime/Test/poster.jpg".into(),
+                    source: "local".into(),
+                },
+                NativeArtwork {
+                    kind: "banner".into(),
+                    path: "wrong.jpg".into(),
+                    source: "tvdb".into(),
+                },
+            ],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
+        let before = db.native_catalog(&library.id).unwrap().remove(0);
+        db.edit_native_entry(
+            &library.id,
+            &before.id,
+            before.revision,
+            &json!({"plot":"Manual synopsis"}),
+        )
+        .unwrap();
+        let before = db.native_catalog(&library.id).unwrap().remove(0);
+        assert!(
+            db.identify_native_entry(
+                &library.id,
+                &before.id,
+                before.revision + 1,
+                "Correct",
+                Some(2014),
+                &json!({"anilist":"20464"})
+            )
+            .is_err()
+        );
+        assert_eq!(db.native_catalog(&library.id).unwrap()[0].title, "Wrong");
+        db.identify_native_entry(
+            &library.id,
+            &before.id,
+            before.revision,
+            "Correct",
+            Some(2014),
+            &json!({"anilist":"20464"}),
+        )
+        .unwrap();
+        let after = db.native_catalog(&library.id).unwrap().remove(0);
+        assert_eq!(after.title, "Correct");
+        assert_eq!(after.metadata["_title_locked"], false);
+        db.edit_native_entry(
+            &library.id,
+            &after.id,
+            after.revision,
+            &json!({"_title_locked":true}),
+        )
+        .unwrap();
+        let locked = db.native_catalog(&library.id).unwrap().remove(0);
+        assert_eq!(locked.metadata["_title_locked"], true);
+        db.edit_native_entry(
+            &library.id,
+            &locked.id,
+            locked.revision,
+            &json!({"_title_locked":false}),
+        )
+        .unwrap();
+        assert_eq!(
+            db.native_catalog(&library.id).unwrap()[0].metadata["_title_locked"],
+            false
+        );
+        assert!(after.metadata["plot"].is_null());
+        assert_eq!(after.metadata["identifiers"], json!({"anilist":"20464"}));
+        assert!(after.metadata["credits"].is_null());
+        assert_eq!(after.artwork.len(), 2);
+        assert!(after.artwork.iter().any(|a| a.source == "local"));
+        assert!(after.revision > before.revision);
+        let fresh = db
+            .native_catalog(&library.id)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.id == before.id)
+            .unwrap();
+        db.identify_native_entry_with_metadata(
+            &library.id,
+            &fresh.id,
+            fresh.revision,
+            &fresh.title,
+            None,
+            &fresh.metadata["identifiers"],
+            Some(&json!({"_refresh_from_providers":true,"_identify_replace_artwork":true})),
+        )
+        .unwrap();
+        let refreshed = db
+            .native_catalog(&library.id)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.id == fresh.id)
+            .unwrap();
+        assert_eq!(
+            refreshed.metadata["identifiers"],
+            fresh.metadata["identifiers"]
+        );
         assert!(refreshed.metadata["_identify_source"].is_null());
-        assert_eq!(refreshed.metadata["_identify_replace_artwork"],true);
-        assert_eq!(refreshed.artwork.len(),fresh.artwork.len());
-
+        assert_eq!(refreshed.metadata["_identify_replace_artwork"], true);
+        assert_eq!(refreshed.artwork.len(), fresh.artwork.len());
     }
     #[test]
-    fn tvdb_rewrite_clears_all_old_descriptions_and_refreshes_projected_data(){
-        let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
-        let library=db.save_native_library(None,&NativeLibraryInput{name:"Shows".into(),library_type:NativeLibraryType::Shows,anime_content:AnimeContent::Both,paths:vec!["Shows".into()],revision:None,options:Default::default()}).unwrap();
-        let root=NativeCatalogEntry{id:String::new(),path:"Shows/Kingdom".into(),kind:"series".into(),parent_path:None,title:"Wrong".into(),metadata:json!({"title":"Wrong","plot":"Old description","publisher":"Old publisher","year":1999,"identifiers":{"tvdb":"99"},"genres":["Old genre"],"_sources":{"title":"nfo","plot":"nfo","publisher":"server","year":"database","identifiers":"nfo","genres":"manual"}}),artwork:vec![NativeArtwork{kind:"poster".into(),path:"Shows/Kingdom/poster.jpg".into(),source:"local".into()}],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
-        let mut child=root.clone();child.kind="episode".into();child.path="Shows/Kingdom/Episode.mkv".into();child.parent_path=Some(root.path.clone());child.metadata["season"]=json!(1);child.metadata["episode"]=json!(1);child.artwork.clear();
-        db.ingest_native_catalog(&library.id,library.revision,&[root,child]).unwrap();let before=db.native_catalog(&library.id).unwrap().into_iter().find(|e|e.kind=="series").unwrap();
-        db.identify_native_entry_with_metadata(&library.id,&before.id,before.revision,"Kingdom",Some(2019),&json!({"tvdb":"123"}),Some(&json!({"title":"Kingdom","plot":"Correct description","year":2019}))).unwrap();
-        let catalog=db.native_catalog(&library.id).unwrap();let after=catalog.iter().find(|e|e.kind=="series").unwrap();assert_eq!(after.metadata["plot"],"Correct description");assert!(after.metadata["publisher"].is_null());assert!(after.metadata["genres"].is_null());assert_eq!(after.artwork.len(),1);
-        let episode=catalog.iter().find(|e|e.kind=="episode").unwrap();assert!(episode.metadata["plot"].is_null());assert!(episode.metadata["identifiers"].is_null());assert_eq!(episode.metadata["episode"],1);assert_eq!(episode.title,"Episode 1");
-        let connection=db.connection().unwrap();let plot:Option<String>=connection.query_row("SELECT synopsis FROM catalog_items WHERE id=?1",[&after.id],|r|r.get(0)).unwrap();assert_eq!(plot.as_deref(),Some("Correct description"));
+    fn tvdb_rewrite_clears_all_old_descriptions_and_refreshes_projected_data() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Shows".into(),
+                    library_type: NativeLibraryType::Shows,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Shows".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let root = NativeCatalogEntry {
+            id: String::new(),
+            path: "Shows/Kingdom".into(),
+            kind: "series".into(),
+            parent_path: None,
+            title: "Wrong".into(),
+            metadata: json!({"title":"Wrong","plot":"Old description","publisher":"Old publisher","year":1999,"identifiers":{"tvdb":"99"},"genres":["Old genre"],"_sources":{"title":"nfo","plot":"nfo","publisher":"server","year":"database","identifiers":"nfo","genres":"manual"}}),
+            artwork: vec![NativeArtwork {
+                kind: "poster".into(),
+                path: "Shows/Kingdom/poster.jpg".into(),
+                source: "local".into(),
+            }],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        let mut child = root.clone();
+        child.kind = "episode".into();
+        child.path = "Shows/Kingdom/Episode.mkv".into();
+        child.parent_path = Some(root.path.clone());
+        child.metadata["season"] = json!(1);
+        child.metadata["episode"] = json!(1);
+        child.artwork.clear();
+        db.ingest_native_catalog(&library.id, library.revision, &[root, child])
+            .unwrap();
+        let before = db
+            .native_catalog(&library.id)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.kind == "series")
+            .unwrap();
+        db.identify_native_entry_with_metadata(
+            &library.id,
+            &before.id,
+            before.revision,
+            "Kingdom",
+            Some(2019),
+            &json!({"tvdb":"123"}),
+            Some(&json!({"title":"Kingdom","plot":"Correct description","year":2019})),
+        )
+        .unwrap();
+        let catalog = db.native_catalog(&library.id).unwrap();
+        let after = catalog.iter().find(|e| e.kind == "series").unwrap();
+        assert_eq!(after.metadata["plot"], "Correct description");
+        assert!(after.metadata["publisher"].is_null());
+        assert!(after.metadata["genres"].is_null());
+        assert_eq!(after.artwork.len(), 1);
+        let episode = catalog.iter().find(|e| e.kind == "episode").unwrap();
+        assert!(episode.metadata["plot"].is_null());
+        assert!(episode.metadata["identifiers"].is_null());
+        assert_eq!(episode.metadata["episode"], 1);
+        assert_eq!(episode.title, "Episode 1");
+        let connection = db.connection().unwrap();
+        let plot: Option<String> = connection
+            .query_row(
+                "SELECT synopsis FROM catalog_items WHERE id=?1",
+                [&after.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(plot.as_deref(), Some("Correct description"));
     }
     #[test]
-    fn fills_empty_local_values_without_overwriting_populated_or_manual_fields(){
-        let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
-        let library=db.save_native_library(None,&NativeLibraryInput{name:"Movies".into(),library_type:NativeLibraryType::Movies,anime_content:AnimeContent::Both,paths:vec!["Movies".into()],revision:None,options:Default::default()}).unwrap();
-        let mut entry=NativeCatalogEntry{id:String::new(),path:"Movies/Test.mp4".into(),kind:"movie".into(),parent_path:None,title:"Test".into(),metadata:json!({"title":"Test","plot":"","_sources":{"title":"nfo","plot":"nfo"}}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
-        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
-        entry.metadata["plot"]=json!("Provider filled the gap");entry.metadata["_sources"]["plot"]=json!("tmdb");
-        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
-        let first=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(first.metadata["plot"],"Provider filled the gap");
-        entry.metadata["plot"]=json!("Local plot");entry.metadata["_sources"]["plot"]=json!("nfo");db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
-        entry.metadata["plot"]=json!("Provider replacement");entry.metadata["_sources"]["plot"]=json!("tmdb");db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
-        let current=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(current.id,first.id);assert_eq!(current.metadata["plot"],"Local plot");
-        db.edit_native_entry(&library.id,&current.id,current.revision,&json!({"plot":"Manual plot"})).unwrap();
-        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["plot"],"Manual plot");
-        entry.metadata["voice_cast"]=json!([{"name":"Actor","language":"English"}]);entry.metadata["_sources"]["voice_cast"]=json!("nfo");
-        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
-        entry.metadata["voice_cast"][0]["dub_group"]=json!("Animax");entry.metadata["_sources"]["voice_cast"]=json!("anilist");
-        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
-        let current=db.native_catalog(&library.id).unwrap().remove(0);assert_eq!(current.metadata["voice_cast"][0]["dub_group"],"Animax");
-        let manual=json!([{"name":"Actor","language":"English","dub_group":"User edition"}]);
-        db.edit_native_entry(&library.id,&current.id,current.revision,&json!({"voice_cast":manual})).unwrap();
-        db.ingest_native_catalog(&library.id,library.revision,std::slice::from_ref(&entry)).unwrap();
-        assert_eq!(db.native_catalog(&library.id).unwrap()[0].metadata["voice_cast"],manual);
-        assert!(db.ingest_native_catalog(&library.id,library.revision+1,&[]).is_err());assert!(db.native_catalog(&library.id).unwrap()[0].available);
+    fn fills_empty_local_values_without_overwriting_populated_or_manual_fields() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let mut entry = NativeCatalogEntry {
+            id: String::new(),
+            path: "Movies/Test.mp4".into(),
+            kind: "movie".into(),
+            parent_path: None,
+            title: "Test".into(),
+            metadata: json!({"title":"Test","plot":"","_sources":{"title":"nfo","plot":"nfo"}}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
+            .unwrap();
+        entry.metadata["plot"] = json!("Provider filled the gap");
+        entry.metadata["_sources"]["plot"] = json!("tmdb");
+        db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
+            .unwrap();
+        let first = db.native_catalog(&library.id).unwrap().remove(0);
+        assert_eq!(first.metadata["plot"], "Provider filled the gap");
+        entry.metadata["plot"] = json!("Local plot");
+        entry.metadata["_sources"]["plot"] = json!("nfo");
+        db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
+            .unwrap();
+        entry.metadata["plot"] = json!("Provider replacement");
+        entry.metadata["_sources"]["plot"] = json!("tmdb");
+        db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
+            .unwrap();
+        let current = db.native_catalog(&library.id).unwrap().remove(0);
+        assert_eq!(current.id, first.id);
+        assert_eq!(current.metadata["plot"], "Local plot");
+        db.edit_native_entry(
+            &library.id,
+            &current.id,
+            current.revision,
+            &json!({"plot":"Manual plot"}),
+        )
+        .unwrap();
+        db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
+            .unwrap();
+        assert_eq!(
+            db.native_catalog(&library.id).unwrap()[0].metadata["plot"],
+            "Manual plot"
+        );
+        entry.metadata["voice_cast"] = json!([{"name":"Actor","language":"English"}]);
+        entry.metadata["_sources"]["voice_cast"] = json!("nfo");
+        db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
+            .unwrap();
+        entry.metadata["voice_cast"][0]["dub_group"] = json!("Animax");
+        entry.metadata["_sources"]["voice_cast"] = json!("anilist");
+        db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
+            .unwrap();
+        let current = db.native_catalog(&library.id).unwrap().remove(0);
+        assert_eq!(current.metadata["voice_cast"][0]["dub_group"], "Animax");
+        let manual = json!([{"name":"Actor","language":"English","dub_group":"User edition"}]);
+        db.edit_native_entry(
+            &library.id,
+            &current.id,
+            current.revision,
+            &json!({"voice_cast":manual}),
+        )
+        .unwrap();
+        db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
+            .unwrap();
+        assert_eq!(
+            db.native_catalog(&library.id).unwrap()[0].metadata["voice_cast"],
+            manual
+        );
+        assert!(
+            db.ingest_native_catalog(&library.id, library.revision + 1, &[])
+                .is_err()
+        );
+        assert!(db.native_catalog(&library.id).unwrap()[0].available);
     }
     #[test]
     fn targeted_catalog_reads_preserve_metadata_and_ignore_unrelated_snapshots() {
         let temp = tempfile::tempdir().unwrap();
         let db = ServerStore::new(temp.path());
         db.initialize().unwrap();
-        let make_library = |name: &str| db.save_native_library(None, &NativeLibraryInput {
-            name: name.into(), library_type: NativeLibraryType::Shows, anime_content: AnimeContent::Both,
-            paths: vec![name.into()], revision: None, options: Default::default(),
-        }).unwrap();
+        let make_library = |name: &str| {
+            db.save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: name.into(),
+                    library_type: NativeLibraryType::Shows,
+                    anime_content: AnimeContent::Both,
+                    paths: vec![name.into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap()
+        };
         let library = make_library("TV");
         let other_library = make_library("Other");
         let make_entry = |path: &str, kind: &str, parent: Option<&str>| NativeCatalogEntry {
-            id: String::new(), path: path.into(), kind: kind.into(), parent_path: parent.map(str::to_owned),
-            title: path.into(), metadata: json!({"title":path,"plot":"Original"}), artwork: vec![], files: vec![],
-            nfo_path: None, nfo_xml: None, available: true, revision: 1,
+            id: String::new(),
+            path: path.into(),
+            kind: kind.into(),
+            parent_path: parent.map(str::to_owned),
+            title: path.into(),
+            metadata: json!({"title":path,"plot":"Original"}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
         };
         let mut root = make_entry("TV/Series", "series", None);
         root.nfo_path = Some("TV/Series/tvshow.nfo".into());
         root.nfo_xml = Some("<tvshow><title>Series</title></tvshow>".into());
-        let entries = [root, make_entry("TV/Series/Season 1", "season", Some("TV/Series")),
-            make_entry("TV/Series/Season 1/Episode.mkv", "episode", Some("TV/Series/Season 1")),
-            make_entry("TV/Unrelated", "series", None)];
-        db.ingest_native_catalog(&library.id, library.revision, &entries).unwrap();
-        let root = db.native_catalog_path(&library.id, "TV/Series").unwrap().unwrap();
-        db.edit_native_entry(&library.id, &root.id, root.revision, &json!({"title":"Manual title","plot":"Manual plot"})).unwrap();
-        db.save_native_artwork(&library.id, &root.id, &NativeArtwork {kind:"poster".into(),path:"@managed/cover.jpg".into(),source:"manual".into()}).unwrap();
-        let expected = db.native_catalog(&library.id).unwrap().into_iter().find(|entry| entry.id == root.id).unwrap();
+        let entries = [
+            root,
+            make_entry("TV/Series/Season 1", "season", Some("TV/Series")),
+            make_entry(
+                "TV/Series/Season 1/Episode.mkv",
+                "episode",
+                Some("TV/Series/Season 1"),
+            ),
+            make_entry("TV/Unrelated", "series", None),
+        ];
+        db.ingest_native_catalog(&library.id, library.revision, &entries)
+            .unwrap();
+        let root = db
+            .native_catalog_path(&library.id, "TV/Series")
+            .unwrap()
+            .unwrap();
+        db.edit_native_entry(
+            &library.id,
+            &root.id,
+            root.revision,
+            &json!({"title":"Manual title","plot":"Manual plot"}),
+        )
+        .unwrap();
+        db.save_native_artwork(
+            &library.id,
+            &root.id,
+            &NativeArtwork {
+                kind: "poster".into(),
+                path: "@managed/cover.jpg".into(),
+                source: "manual".into(),
+            },
+        )
+        .unwrap();
+        let expected = db
+            .native_catalog(&library.id)
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.id == root.id)
+            .unwrap();
         db.connection().unwrap().execute("UPDATE native_catalog_sources SET snapshot_json='{}' WHERE library_id=?1 AND relative_path='TV/Unrelated'", [&library.id]).unwrap();
         assert!(db.native_catalog(&library.id).is_err());
-        let actual = db.native_catalog_item(&library.id, &root.id).unwrap().unwrap();
-        assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(&expected).unwrap());
-        assert_eq!(db.native_catalog_path(&library.id, "TV/Series").unwrap().unwrap().title, "Manual title");
-        assert!(db.native_catalog_item(&other_library.id, &root.id).unwrap().is_none());
-        assert!(db.native_catalog_item(&library.id, "missing").unwrap().is_none());
-        let seasons = db.native_catalog_children(&library.id,"TV/Series").unwrap();
+        let actual = db
+            .native_catalog_item(&library.id, &root.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(actual).unwrap(),
+            serde_json::to_value(&expected).unwrap()
+        );
+        assert_eq!(
+            db.native_catalog_path(&library.id, "TV/Series")
+                .unwrap()
+                .unwrap()
+                .title,
+            "Manual title"
+        );
+        assert!(
+            db.native_catalog_item(&other_library.id, &root.id)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            db.native_catalog_item(&library.id, "missing")
+                .unwrap()
+                .is_none()
+        );
+        let seasons = db
+            .native_catalog_children(&library.id, "TV/Series")
+            .unwrap();
         assert_eq!(seasons.len(), 1);
         assert_eq!(seasons[0].kind, "season");
-        let episodes = db.native_catalog_children(&library.id, &seasons[0].path).unwrap();
+        let episodes = db
+            .native_catalog_children(&library.id, &seasons[0].path)
+            .unwrap();
         assert_eq!(episodes.len(), 1);
         assert_eq!(episodes[0].kind, "episode");
     }
@@ -878,28 +1737,109 @@ mod tests{
         db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
             .unwrap();
         let item = db.native_catalog(&library.id).unwrap().remove(0).id;
-        db.save_native_artwork(&library.id,&item,&NativeArtwork{kind:"poster".into(),path:"@managed/chosen.jpg".into(),source:"manual".into()}).unwrap();
-        db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();
-        let art=db.native_artwork(&library.id,&item,"poster").unwrap().unwrap();
-        assert_eq!(art.path,"Movies/poster.jpg");assert_eq!(art.source,"local");
-        let animation=NativeArtwork{kind:"poster-animated".into(),path:"@managed/animation.gif".into(),source:"manual".into()};
-        db.save_native_artwork(&library.id,&item,&animation).unwrap();
-        db.remove_native_artwork(&library.id,&item,"poster-animated").unwrap();
-        assert_eq!(db.native_artwork(&library.id,&item,"poster").unwrap().unwrap().path,"Movies/poster.jpg");
-        let legacy=NativeArtwork{kind:"poster".into(),path:"Movies/poster.gif".into(),source:"local".into()};
-        db.select_local_artwork(&library.id,&item,&legacy).unwrap();
-        assert_eq!(db.native_artwork(&library.id,&item,"poster").unwrap().unwrap().path,"Movies/poster.jpg");
-        let mut rediscovered=db.native_catalog(&library.id).unwrap().remove(0);
-        rediscovered.artwork.push(NativeArtwork{source:"local".into(),..animation.clone()});
-        db.ingest_native_catalog(&library.id,library.revision,&[rediscovered]).unwrap();
-        assert!(db.native_artwork(&library.id,&item,"poster-animated").unwrap().is_none());
-        db.save_native_artwork(&library.id,&item,&animation).unwrap();
-        assert!(db.native_artwork(&library.id,&item,"poster-animated").unwrap().is_some());
-        db.save_native_artwork(&library.id,&item,&NativeArtwork{kind:"poster".into(),..animation}).unwrap();
-        db.remove_native_artwork(&library.id,&item,"poster-animated").unwrap();
-        assert!(db.native_artwork(&library.id,&item,"poster").unwrap().is_none());
-        db.select_local_artwork(&library.id,&item,&NativeArtwork{kind:"poster".into(),path:"Movies/poster.jpg".into(),source:"local".into()}).unwrap();
-        let locked:bool=db.connection().unwrap().query_row("SELECT locked FROM catalog_artwork WHERE item_id=?1 AND kind='poster'",[&item],|r|r.get(0)).unwrap();assert!(!locked);
+        db.save_native_artwork(
+            &library.id,
+            &item,
+            &NativeArtwork {
+                kind: "poster".into(),
+                path: "@managed/chosen.jpg".into(),
+                source: "manual".into(),
+            },
+        )
+        .unwrap();
+        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
+        let art = db
+            .native_artwork(&library.id, &item, "poster")
+            .unwrap()
+            .unwrap();
+        assert_eq!(art.path, "Movies/poster.jpg");
+        assert_eq!(art.source, "local");
+        let animation = NativeArtwork {
+            kind: "poster-animated".into(),
+            path: "@managed/animation.gif".into(),
+            source: "manual".into(),
+        };
+        db.save_native_artwork(&library.id, &item, &animation)
+            .unwrap();
+        db.remove_native_artwork(&library.id, &item, "poster-animated")
+            .unwrap();
+        assert_eq!(
+            db.native_artwork(&library.id, &item, "poster")
+                .unwrap()
+                .unwrap()
+                .path,
+            "Movies/poster.jpg"
+        );
+        let legacy = NativeArtwork {
+            kind: "poster".into(),
+            path: "Movies/poster.gif".into(),
+            source: "local".into(),
+        };
+        db.select_local_artwork(&library.id, &item, &legacy)
+            .unwrap();
+        assert_eq!(
+            db.native_artwork(&library.id, &item, "poster")
+                .unwrap()
+                .unwrap()
+                .path,
+            "Movies/poster.jpg"
+        );
+        let mut rediscovered = db.native_catalog(&library.id).unwrap().remove(0);
+        rediscovered.artwork.push(NativeArtwork {
+            source: "local".into(),
+            ..animation.clone()
+        });
+        db.ingest_native_catalog(&library.id, library.revision, &[rediscovered])
+            .unwrap();
+        assert!(
+            db.native_artwork(&library.id, &item, "poster-animated")
+                .unwrap()
+                .is_none()
+        );
+        db.save_native_artwork(&library.id, &item, &animation)
+            .unwrap();
+        assert!(
+            db.native_artwork(&library.id, &item, "poster-animated")
+                .unwrap()
+                .is_some()
+        );
+        db.save_native_artwork(
+            &library.id,
+            &item,
+            &NativeArtwork {
+                kind: "poster".into(),
+                ..animation
+            },
+        )
+        .unwrap();
+        db.remove_native_artwork(&library.id, &item, "poster-animated")
+            .unwrap();
+        assert!(
+            db.native_artwork(&library.id, &item, "poster")
+                .unwrap()
+                .is_none()
+        );
+        db.select_local_artwork(
+            &library.id,
+            &item,
+            &NativeArtwork {
+                kind: "poster".into(),
+                path: "Movies/poster.jpg".into(),
+                source: "local".into(),
+            },
+        )
+        .unwrap();
+        let locked: bool = db
+            .connection()
+            .unwrap()
+            .query_row(
+                "SELECT locked FROM catalog_artwork WHERE item_id=?1 AND kind='poster'",
+                [&item],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(!locked);
 
         db.connection()
             .unwrap()

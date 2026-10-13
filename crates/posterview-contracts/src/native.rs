@@ -159,7 +159,6 @@ pub struct NativeScanProgress {
     pub current: String,
 }
 
-
 #[cfg(test)]
 mod compatibility_tests {
     #[test]
@@ -167,9 +166,20 @@ mod compatibility_tests {
         let options: super::NativeLibraryOptions = serde_json::from_value(serde_json::json!({
             "server_sync":{"enabled":true,"mode":"two_way","server_id":1},
             "save_nfo":true,
-        })).unwrap();
+        }))
+        .unwrap();
         assert!(options.save_nfo);
-        assert!(serde_json::to_value(&options).unwrap().get("server_sync").is_none());
-        assert!(serde_json::from_value::<super::NativeLibraryOptions>(serde_json::json!({"unexpected_option":true})).is_err());
+        assert!(
+            serde_json::to_value(&options)
+                .unwrap()
+                .get("server_sync")
+                .is_none()
+        );
+        assert!(
+            serde_json::from_value::<super::NativeLibraryOptions>(
+                serde_json::json!({"unexpected_option":true})
+            )
+            .is_err()
+        );
     }
 }

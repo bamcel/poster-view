@@ -142,10 +142,12 @@ INSERT INTO schema_migrations(version,name) VALUES(2,'native_scan_options_and_ar
         )?;
     }
     // Reverse foreign-key lookups must not scan whole tables during library deletion.
-    tx.execute_batch("CREATE INDEX IF NOT EXISTS native_library_item_reverse ON native_library_items(item_id);
+    tx.execute_batch(
+        "CREATE INDEX IF NOT EXISTS native_library_item_reverse ON native_library_items(item_id);
         CREATE INDEX IF NOT EXISTS native_source_item_reverse ON native_catalog_sources(item_id);
         CREATE INDEX IF NOT EXISTS catalog_item_file_reverse ON catalog_item_files(file_id);
-        CREATE INDEX IF NOT EXISTS catalog_item_nfo_reverse ON catalog_item_nfo(document_id);")?;
+        CREATE INDEX IF NOT EXISTS catalog_item_nfo_reverse ON catalog_item_nfo(document_id);",
+    )?;
     tx.commit()?;
     Ok(())
 }
@@ -169,7 +171,9 @@ fn provider_supported(
         }
         "tmdb" | "tvdb" => kind != "book_series",
         "omdb" => ["movie", "series", "episode"].contains(&kind),
-        "capture" => images && library != NativeLibraryType::Books && ["movie", "episode"].contains(&kind),
+        "capture" => {
+            images && library != NativeLibraryType::Books && ["movie", "episode"].contains(&kind)
+        }
         "fanart" => images && ["movie", "series", "season"].contains(&kind),
         _ => false,
     }
@@ -461,46 +465,120 @@ mod tests {
     use posterview_contracts::native::{AnimeContent, NativeLibraryType};
     #[test]
     fn catalog_reads_remain_available_during_library_deletion() {
-        let dir=tempfile::tempdir().unwrap();let store=ServerStore::new(dir.path());store.initialize().unwrap();
-        let input=NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:Default::default()};
-        let saved=store.save_native_library(None,&input).unwrap();
-        let mut writer=store.connection().unwrap();let tx=writer.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
-        tx.execute("DELETE FROM native_libraries WHERE id=?1",[&saved.id]).unwrap();
-        assert_eq!(store.native_libraries().unwrap().len(),1);
-        tx.commit().unwrap();assert!(store.native_libraries().unwrap().is_empty());
+        let dir = tempfile::tempdir().unwrap();
+        let store = ServerStore::new(dir.path());
+        store.initialize().unwrap();
+        let input = NativeLibraryInput {
+            name: "Books".into(),
+            library_type: NativeLibraryType::Books,
+            anime_content: AnimeContent::Both,
+            paths: vec!["Books".into()],
+            revision: None,
+            options: Default::default(),
+        };
+        let saved = store.save_native_library(None, &input).unwrap();
+        let mut writer = store.connection().unwrap();
+        let tx = writer
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .unwrap();
+        tx.execute("DELETE FROM native_libraries WHERE id=?1", [&saved.id])
+            .unwrap();
+        assert_eq!(store.native_libraries().unwrap().len(), 1);
+        tx.commit().unwrap();
+        assert!(store.native_libraries().unwrap().is_empty());
     }
     #[test]
     fn image_capture_is_valid_only_for_video_image_providers() {
-        let temp=tempfile::tempdir().unwrap();let db=ServerStore::new(temp.path());db.initialize().unwrap();
-        let mut input=NativeLibraryInput {name:"Shows".into(),library_type:NativeLibraryType::Shows,anime_content:AnimeContent::Both,paths:vec!["Shows".into()],revision:None,options:Default::default()};
-        input.options.image_providers.insert("episode".into(),vec!["tvdb".into(),"capture".into()]);
-        input.options.image_providers.insert("movie".into(),vec!["capture".into()]);
-        let saved=db.save_native_library(None,&input).unwrap();
-        assert_eq!(saved.options.image_providers,input.options.image_providers);
-        input.name="Anime".into();input.library_type=NativeLibraryType::Anime;
-        input.options.image_providers.insert("movie".into(),["anilist","mal","anidb","tmdb","tvdb","omdb","fanart","capture"].into_iter().map(str::to_owned).collect());
-        assert!(db.save_native_library(None,&input).is_ok());
-        input.name="Invalid".into();
-        input.options.metadata_providers.insert("episode".into(),vec!["capture".into()]);assert!(db.save_native_library(None,&input).is_err());
-        input.options.metadata_providers.clear();input.options.image_providers.insert("season".into(),vec!["capture".into()]);assert!(db.save_native_library(None,&input).is_err());
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let mut input = NativeLibraryInput {
+            name: "Shows".into(),
+            library_type: NativeLibraryType::Shows,
+            anime_content: AnimeContent::Both,
+            paths: vec!["Shows".into()],
+            revision: None,
+            options: Default::default(),
+        };
+        input
+            .options
+            .image_providers
+            .insert("episode".into(), vec!["tvdb".into(), "capture".into()]);
+        input
+            .options
+            .image_providers
+            .insert("movie".into(), vec!["capture".into()]);
+        let saved = db.save_native_library(None, &input).unwrap();
+        assert_eq!(saved.options.image_providers, input.options.image_providers);
+        input.name = "Anime".into();
+        input.library_type = NativeLibraryType::Anime;
+        input.options.image_providers.insert(
+            "movie".into(),
+            [
+                "anilist", "mal", "anidb", "tmdb", "tvdb", "omdb", "fanart", "capture",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+        );
+        assert!(db.save_native_library(None, &input).is_ok());
+        input.name = "Invalid".into();
+        input
+            .options
+            .metadata_providers
+            .insert("episode".into(), vec!["capture".into()]);
+        assert!(db.save_native_library(None, &input).is_err());
+        input.options.metadata_providers.clear();
+        input
+            .options
+            .image_providers
+            .insert("season".into(), vec!["capture".into()]);
+        assert!(db.save_native_library(None, &input).is_err());
     }
     #[test]
     fn book_libraries_accept_comicvine_metadata_and_image_orders() {
         let dir = tempfile::tempdir().unwrap();
         let store = ServerStore::new(dir.path());
         store.initialize().unwrap();
-        let mut input = NativeLibraryInput {name:"Books".into(),library_type:NativeLibraryType::Books,anime_content:AnimeContent::Both,paths:vec!["Books".into()],revision:None,options:Default::default()};
-        input.options.metadata_providers.insert("book_series".into(),vec!["comicvine".into(),"anilist".into(),"mal".into(),"mangadex".into()]);
-        input.options.image_providers.insert("book_series".into(),vec!["comicvine".into(),"mal".into()]);
-        let saved = store.save_native_library(None,&input).unwrap();
-        assert_eq!(saved.options,input.options);
+        let mut input = NativeLibraryInput {
+            name: "Books".into(),
+            library_type: NativeLibraryType::Books,
+            anime_content: AnimeContent::Both,
+            paths: vec!["Books".into()],
+            revision: None,
+            options: Default::default(),
+        };
+        input.options.metadata_providers.insert(
+            "book_series".into(),
+            vec![
+                "comicvine".into(),
+                "anilist".into(),
+                "mal".into(),
+                "mangadex".into(),
+            ],
+        );
+        input
+            .options
+            .image_providers
+            .insert("book_series".into(), vec!["comicvine".into(), "mal".into()]);
+        let saved = store.save_native_library(None, &input).unwrap();
+        assert_eq!(saved.options, input.options);
         input.revision = Some(saved.revision);
-        input.options.metadata_providers.insert("book_series".into(),vec!["comicvine".into()]);
-        let updated = store.save_native_library(Some(&saved.id),&input).unwrap();
-        assert_eq!(updated.options.metadata_providers["book_series"],vec!["comicvine"]);
+        input
+            .options
+            .metadata_providers
+            .insert("book_series".into(), vec!["comicvine".into()]);
+        let updated = store.save_native_library(Some(&saved.id), &input).unwrap();
+        assert_eq!(
+            updated.options.metadata_providers["book_series"],
+            vec!["comicvine"]
+        );
         input.revision = Some(updated.revision);
-        input.options.image_providers.insert("book_series".into(),vec!["comicvine".into(),"comicvine".into()]);
-        assert!(store.save_native_library(Some(&saved.id),&input).is_err());
+        input.options.image_providers.insert(
+            "book_series".into(),
+            vec!["comicvine".into(), "comicvine".into()],
+        );
+        assert!(store.save_native_library(Some(&saved.id), &input).is_err());
     }
     #[test]
     fn library_options_roundtrip_and_reject_invalid_provider_orders() {

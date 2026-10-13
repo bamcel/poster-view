@@ -79,13 +79,13 @@ pub(crate) fn reconcile(
         !(e.path.starts_with(&format!("{}/", series.path)) && e.metadata["missing"] == true)
     });
     let today = chrono::Utc::now().date_naive();
-    let mut seen=std::collections::BTreeSet::new();
+    let mut seen = std::collections::BTreeSet::new();
     for episode in expected {
         let (Some(season), Some(n)) = (number(&episode["season"]), number(&episode["episode"]))
         else {
             continue;
         };
-        if n == 0 || n > 10000 || season > 1000 || !seen.insert((season,n)) {
+        if n == 0 || n > 10000 || season > 1000 || !seen.insert((season, n)) {
             continue;
         }
         let date = episode["aired"]
@@ -164,7 +164,10 @@ pub(crate) fn reconcile(
     }
 }
 fn tvdb_episode_path(id: &str, language: &str) -> String {
-    format!("/series/{id}/episodes/official/{}", crate::native_provider_extra::lang(language))
+    format!(
+        "/series/{id}/episodes/official/{}",
+        crate::native_provider_extra::lang(language)
+    )
 }
 fn cache_identity(provider: &str, id: &str, language: &str) -> String {
     format!("{provider}:{id}:{language}:translated-v1")
@@ -184,8 +187,12 @@ async fn fetch(
     let mut episodes = Vec::new();
     if provider == "tvdb" {
         let service = posterview_infra_artwork::ArtworkService::default();
-        let key = store.get_setting("tvdb_api_key").map_err(|error| error.to_string())?;
-        let pin = store.get_setting("tvdb_pin").map_err(|error| error.to_string())?;
+        let key = store
+            .get_setting("tvdb_api_key")
+            .map_err(|error| error.to_string())?;
+        let pin = store
+            .get_setting("tvdb_pin")
+            .map_err(|error| error.to_string())?;
         if key.is_empty() {
             return Err("Configure TheTVDB credentials to discover missing episodes.".into());
         }
@@ -216,7 +223,9 @@ async fn fetch(
             }
         }
     } else {
-        let token = store.get_setting("tmdb_access_token").map_err(|error| error.to_string())?;
+        let token = store
+            .get_setting("tmdb_access_token")
+            .map_err(|error| error.to_string())?;
         if token.is_empty() {
             return Err("Configure TMDB credentials to discover missing episodes.".into());
         }
@@ -299,7 +308,11 @@ pub(crate) async fn reconcile_library(
             if !["tvdb", "tmdb"].contains(&provider.as_str()) {
                 return false;
             }
-            let key = if provider == "tvdb" { "tvdb_api_key" } else { "tmdb_access_token" };
+            let key = if provider == "tvdb" {
+                "tvdb_api_key"
+            } else {
+                "tmdb_access_token"
+            };
             match store.get_setting(key) {
                 Ok(value) => {
                     credential_missing.insert(provider.clone(), value.is_empty());
@@ -372,35 +385,62 @@ mod tests {
             show_missing_files: true,
             ..Default::default()
         };
-        options.metadata_providers.insert("series".into(), vec!["tvdb".into()]);
-        let library = store.save_native_library(None, &posterview_contracts::native::NativeLibraryInput {
-            name: "Shows".into(),
-            library_type: posterview_contracts::native::NativeLibraryType::Shows,
-            anime_content: posterview_contracts::native::AnimeContent::Both,
-            paths: vec!["Shows".into()],
-            revision: None,
-            options,
-        }).unwrap();
-        let connection = rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).unwrap();
+        options
+            .metadata_providers
+            .insert("series".into(), vec!["tvdb".into()]);
+        let library = store
+            .save_native_library(
+                None,
+                &posterview_contracts::native::NativeLibraryInput {
+                    name: "Shows".into(),
+                    library_type: posterview_contracts::native::NativeLibraryType::Shows,
+                    anime_content: posterview_contracts::native::AnimeContent::Both,
+                    paths: vec!["Shows".into()],
+                    revision: None,
+                    options,
+                },
+            )
+            .unwrap();
+        let connection =
+            rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).unwrap();
         connection.execute("INSERT INTO settings (key, value_enc) VALUES ('tvdb_api_key', 'corrupt-secret-fixture')", []).unwrap();
         let mut entry = series();
         entry.metadata["identifiers"] = json!({"tvdb": "123"});
-        let error = fetch(&state, &library, &entry, "tvdb", "123").await.unwrap_err();
+        let error = fetch(&state, &library, &entry, "tvdb", "123")
+            .await
+            .unwrap_err();
         assert!(error.contains("Stored credential could not be decrypted"));
         assert!(!error.contains("corrupt-secret-fixture"));
         let mut entries = vec![entry];
         let mut warnings = Vec::new();
         reconcile_library(&state, &library, &mut entries, false, &mut warnings).await;
-        assert!(warnings.iter().any(|warning| warning.contains("Stored credential could not be decrypted")));
-        assert!(!warnings.iter().any(|warning| warning.contains("Configure TheTVDB")));
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("Stored credential could not be decrypted"))
+        );
+        assert!(
+            !warnings
+                .iter()
+                .any(|warning| warning.contains("Configure TheTVDB"))
+        );
     }
 
     #[test]
     fn episode_discovery_uses_preferred_language_and_invalidates_untranslated_cache() {
-        assert_eq!(tvdb_episode_path("123", "en"), "/series/123/episodes/official/eng");
-        assert_eq!(tvdb_episode_path("123", "ja"), "/series/123/episodes/official/jpn");
+        assert_eq!(
+            tvdb_episode_path("123", "en"),
+            "/series/123/episodes/official/eng"
+        );
+        assert_eq!(
+            tvdb_episode_path("123", "ja"),
+            "/series/123/episodes/official/jpn"
+        );
         assert_ne!(cache_identity("tvdb", "123", "en"), "tvdb:123");
-        assert_ne!(cache_identity("tvdb", "123", "en"), cache_identity("tvdb", "123", "ja"));
+        assert_ne!(
+            cache_identity("tvdb", "123", "en"),
+            cache_identity("tvdb", "123", "ja")
+        );
     }
     fn series() -> NativeCatalogEntry {
         blank(
@@ -491,7 +531,8 @@ mod tests {
             .into_iter()
             .find(|e| e.title == "Two")
             .unwrap();
-        db.save_native_artwork(&lib.id,&before.id,&before.artwork[0]).unwrap();
+        db.save_native_artwork(&lib.id, &before.id, &before.artwork[0])
+            .unwrap();
         let arriving = blank(
             "Shows/Test/Season 1/S01E02.mkv".into(),
             "episode",

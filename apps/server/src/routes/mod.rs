@@ -20,11 +20,17 @@ pub(crate) fn protected(auth: AuthState) -> Router<AppState> {
     Router::new()
         .merge(playback::routes())
         .merge(watch::routes())
-        .route("/api/transcoding/settings", get(transcoding::get).put(transcoding::save))
+        .route(
+            "/api/transcoding/settings",
+            get(transcoding::get).put(transcoding::save),
+        )
         .merge(system::protected())
         .merge(media_servers::routes())
         .merge(artwork::routes())
-        .route("/api/plugins/artwork", get(plugins::artwork_get).put(plugins::artwork_save))
+        .route(
+            "/api/plugins/artwork",
+            get(plugins::artwork_get).put(plugins::artwork_save),
+        )
         .route(
             "/api/native/libraries/{id}/scan",
             get(native::status).post(native::scan),

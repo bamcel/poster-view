@@ -90,31 +90,48 @@ async fn native_playback_and_watch_routes_require_authentication() {
     let directory = tempdir().unwrap();
     let runtime = Arc::new(Runtime::new(directory.path()));
     runtime.initialize().unwrap();
-    let app = super::router(runtime, PathBuf::from("missing-ui"), super::AuthState::for_tests("test-password"));
-    for (method,path) in [
-        ("GET","/api/playback/native/library/item"),
-        ("POST","/api/playback/native/library/item/sessions"),
-        ("GET","/api/playback/sessions/session/stream"),
-        ("GET","/api/playback/native/library/item/subtitles/1"),
-        ("GET","/api/playback/native/library/item/fonts/2"),
-        ("POST","/api/playback/sessions/session/heartbeat"),
-        ("DELETE","/api/playback/sessions/session"),
-        ("GET","/api/watch/continue"),
-        ("GET","/api/watch/libraries/library/states"),
-        ("PUT","/api/watch/native/library/item/progress"),
-        ("POST","/api/watch/native/library/item/begin"),
-        ("PUT","/api/watch/native/library/item"),
-        ("GET","/api/playback/preferences"),
-        ("GET","/api/transcoding/settings"),
-        ("PUT","/api/transcoding/settings"),
-        ("GET","/api/playback/capabilities"),
-        ("POST","/api/playback/sessions/session/seek"),
-        ("GET","/api/playback/sessions/session/hls/1/index.m3u8"),
+    let app = super::router(
+        runtime,
+        PathBuf::from("missing-ui"),
+        super::AuthState::for_tests("test-password"),
+    );
+    for (method, path) in [
+        ("GET", "/api/playback/native/library/item"),
+        ("POST", "/api/playback/native/library/item/sessions"),
+        ("GET", "/api/playback/sessions/session/stream"),
+        ("GET", "/api/playback/native/library/item/subtitles/1"),
+        ("GET", "/api/playback/native/library/item/fonts/2"),
+        ("POST", "/api/playback/sessions/session/heartbeat"),
+        ("DELETE", "/api/playback/sessions/session"),
+        ("GET", "/api/watch/continue"),
+        ("GET", "/api/watch/libraries/library/states"),
+        ("PUT", "/api/watch/native/library/item/progress"),
+        ("POST", "/api/watch/native/library/item/begin"),
+        ("PUT", "/api/watch/native/library/item"),
+        ("GET", "/api/playback/preferences"),
+        ("GET", "/api/transcoding/settings"),
+        ("PUT", "/api/transcoding/settings"),
+        ("GET", "/api/playback/capabilities"),
+        ("POST", "/api/playback/sessions/session/seek"),
+        ("GET", "/api/playback/sessions/session/hls/1/index.m3u8"),
     ] {
-        let response=app.clone().oneshot(Request::builder().method(method).uri(path)
-            .header("content-type","application/json").body(Body::from("{}"))
-            .unwrap()).await.unwrap();
-        assert_eq!(response.status(),StatusCode::UNAUTHORIZED,"{method} {path}");
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "{method} {path}"
+        );
     }
 }
 
@@ -123,15 +140,19 @@ async fn legacy_unversioned_segment_urls_are_unavailable() {
     let directory = tempdir().unwrap();
     let state = crate::test_support::state(directory.path());
     let app = crate::routes::protected(state.auth.clone()).with_state(state);
-    for (method, path) in [
-        ("GET", "/api/playback/sessions/session/hls/index.m3u8"),
-    ] {
-        let response = app.clone().oneshot(
-            Request::builder().method(method).uri(path)
-                .header("content-type", "application/json")
-                .body(Body::from("{}"))
-                .unwrap(),
-        ).await.unwrap();
+    for (method, path) in [("GET", "/api/playback/sessions/session/hls/index.m3u8")] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
     }
 }
@@ -330,7 +351,7 @@ async fn live_mangadex_food_wars_search_cover_apply_and_history() {
         .oneshot(Request::get("/api/history").body(Body::empty()).unwrap())
         .await
         .unwrap();
-    assert_eq!(response.status(),StatusCode::NOT_FOUND);
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
     println!(
         "Food Wars: {} search results, {} covers, volume 14 image decoded and applied without history",
         results.results.len(),
@@ -388,9 +409,15 @@ async fn security_routes_require_auth_and_local_bypass_uses_connection_info() {
         .await
         .unwrap();
     assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
-    let season_denied = app.clone().oneshot(
-        Request::get("/api/servers/1/shows/show/seasons/season").body(Body::empty()).unwrap()
-    ).await.unwrap();
+    let season_denied = app
+        .clone()
+        .oneshot(
+            Request::get("/api/servers/1/shows/show/seasons/season")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(season_denied.status(), StatusCode::UNAUTHORIZED);
     let rejected = app
         .clone()
@@ -503,8 +530,39 @@ async fn administrator_session_protects_api_routes() {
         .unwrap();
     assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
 
-    for (method, path) in [("GET", "/api/native/providers/settings"), ("PUT", "/api/native/providers/settings"), ("POST", "/api/native/providers/test/mal"), ("GET", "/api/native/libraries"), ("POST", "/api/native/libraries"), ("PUT", "/api/native/libraries/example"), ("DELETE", "/api/native/libraries/example"), ("GET", "/api/native/libraries/example/scan"), ("POST", "/api/native/libraries/example/scan"), ("GET", "/api/native/libraries/example/items"), ("PUT", "/api/native/libraries/example/items/item"), ("GET", "/api/native/libraries/example/items/item/artwork/poster"), ("POST", "/api/native/libraries/example/items/item/artwork/poster")] {
-        let denied = app.clone().oneshot(Request::builder().method(method).uri(path).header("content-type", "application/json").body(Body::from("{}")).unwrap()).await.unwrap();
+    for (method, path) in [
+        ("GET", "/api/native/providers/settings"),
+        ("PUT", "/api/native/providers/settings"),
+        ("POST", "/api/native/providers/test/mal"),
+        ("GET", "/api/native/libraries"),
+        ("POST", "/api/native/libraries"),
+        ("PUT", "/api/native/libraries/example"),
+        ("DELETE", "/api/native/libraries/example"),
+        ("GET", "/api/native/libraries/example/scan"),
+        ("POST", "/api/native/libraries/example/scan"),
+        ("GET", "/api/native/libraries/example/items"),
+        ("PUT", "/api/native/libraries/example/items/item"),
+        (
+            "GET",
+            "/api/native/libraries/example/items/item/artwork/poster",
+        ),
+        (
+            "POST",
+            "/api/native/libraries/example/items/item/artwork/poster",
+        ),
+    ] {
+        let denied = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
     }
 
@@ -1031,8 +1089,11 @@ async fn large_png_manual_upload_is_applied_without_artwork_history() {
         .await
         .unwrap();
     assert_eq!(applied.status(), StatusCode::OK);
-    let history = app.oneshot(Request::get("/api/history").body(Body::empty()).unwrap()).await.unwrap();
-    assert_eq!(history.status(),StatusCode::NOT_FOUND);
+    let history = app
+        .oneshot(Request::get("/api/history").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(history.status(), StatusCode::NOT_FOUND);
     assert!(!directory.path().join("history").exists());
     media_server.abort();
 }
@@ -1055,11 +1116,27 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
         .unwrap();
     let providers: serde_json::Value =
         serde_json::from_slice(&providers.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert!(providers.as_array().unwrap().iter().all(|provider| provider["name"] != "omdb"));
-    assert!(providers.as_array().unwrap().iter().any(|provider| provider["name"] == "tvdb"));
-    assert!(providers.as_array().unwrap().iter().any(|provider|
-        provider["name"] == "anilist-manga" && provider["configured"] == true
-    ));
+    assert!(
+        providers
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|provider| provider["name"] != "omdb")
+    );
+    assert!(
+        providers
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|provider| provider["name"] == "tvdb")
+    );
+    assert!(
+        providers
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|provider| provider["name"] == "anilist-manga" && provider["configured"] == true)
+    );
     assert!(
         providers
             .as_array()
@@ -1145,7 +1222,19 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
     assert_eq!(preferences["ereader_default_provider"], "comicvine");
     assert_eq!(
         preferences["enabled_providers"],
-        serde_json::json!(["posterdb", "fanart", "tvdb", "anilist", "anilist-manga", "myanimelist", "myanimelist-manga", "mediux", "mangadex", "viz", "comicvine"])
+        serde_json::json!([
+            "posterdb",
+            "fanart",
+            "tvdb",
+            "anilist",
+            "anilist-manga",
+            "myanimelist",
+            "myanimelist-manga",
+            "mediux",
+            "mangadex",
+            "viz",
+            "comicvine"
+        ])
     );
 
     let credentials = app
@@ -1169,47 +1258,104 @@ async fn provider_settings_and_posterdb_credentials_match_frontend_contracts() {
 
 #[tokio::test]
 async fn automatic_cache_controls_are_removed_and_global_clear_is_available() {
-    let directory=tempdir().unwrap();let runtime=Arc::new(Runtime::new(directory.path()));runtime.initialize().unwrap();
-    let settings=runtime.artwork_cache_settings(0).unwrap();assert_eq!(settings.max_mb,250);assert_eq!(settings.ttl_days,30);
-    let app=router(runtime,PathBuf::from("missing-ui"));
-    let old=app.clone().oneshot(Request::get("/api/artwork/cache/1").body(Body::empty()).unwrap()).await.unwrap();assert_eq!(old.status(),StatusCode::NOT_FOUND);
-    let result=app.oneshot(Request::delete("/api/tasks/provider-cache").body(Body::empty()).unwrap()).await.unwrap();assert_eq!(result.status(),StatusCode::OK);
+    let directory = tempdir().unwrap();
+    let runtime = Arc::new(Runtime::new(directory.path()));
+    runtime.initialize().unwrap();
+    let settings = runtime.artwork_cache_settings(0).unwrap();
+    assert_eq!(settings.max_mb, 250);
+    assert_eq!(settings.ttl_days, 30);
+    let app = router(runtime, PathBuf::from("missing-ui"));
+    let old = app
+        .clone()
+        .oneshot(
+            Request::get("/api/artwork/cache/1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(old.status(), StatusCode::NOT_FOUND);
+    let result = app
+        .oneshot(
+            Request::delete("/api/tasks/provider-cache")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.status(), StatusCode::OK);
 }
 
 #[tokio::test]
 async fn saved_connection_tests_use_unsaved_settings_without_changing_the_server() {
     use posterview_contracts::{ServerCreate, ServerType};
-    let media = axum::Router::new()
-        .route("/System/Info", axum::routing::get(|headers: axum::http::HeaderMap| async move {
-            let accepted = headers.get("X-Emby-Token").and_then(|v| v.to_str().ok()) == Some("saved-key");
+    let media = axum::Router::new().route(
+        "/System/Info",
+        axum::routing::get(|headers: axum::http::HeaderMap| async move {
+            let accepted =
+                headers.get("X-Emby-Token").and_then(|v| v.to_str().ok()) == Some("saved-key");
             if accepted {
-                (StatusCode::OK, axum::Json(serde_json::json!({"ServerName":"Emby", "Version":"4"})))
+                (
+                    StatusCode::OK,
+                    axum::Json(serde_json::json!({"ServerName":"Emby", "Version":"4"})),
+                )
             } else {
                 (StatusCode::UNAUTHORIZED, axum::Json(serde_json::json!({})))
             }
-        }));
+        }),
+    );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
-    let task = tokio::spawn(async move { axum::serve(listener, media).await.unwrap(); });
+    let task = tokio::spawn(async move {
+        axum::serve(listener, media).await.unwrap();
+    });
     let directory = tempdir().unwrap();
     let runtime = Arc::new(Runtime::new(directory.path()));
     runtime.initialize().unwrap();
-    let original = runtime.create_server(&ServerCreate {
-        name: "Original".into(), server_type: ServerType::Jellyfin,
-        base_url: url.clone(), token: "saved-key".into(), is_default: true, nfo_metadata_enabled: false,
-        allow_invalid_certificates: false,
-    }).unwrap();
+    let original = runtime
+        .create_server(&ServerCreate {
+            name: "Original".into(),
+            server_type: ServerType::Jellyfin,
+            base_url: url.clone(),
+            token: "saved-key".into(),
+            is_default: true,
+            nfo_metadata_enabled: false,
+            allow_invalid_certificates: false,
+        })
+        .unwrap();
     let app = router(runtime.clone(), PathBuf::from("missing-ui"));
     // A request with no body keeps the existing API behavior (Jellyfin's header is rejected here).
     for (body, expected) in [
         (String::new(), false),
-        (serde_json::json!({"type":"emby", "base_url": format!("{url}/"), "token":""}).to_string(), true),
-        (serde_json::json!({"type":"emby", "token":"wrong-key"}).to_string(), false),
-        (serde_json::json!({"type":"emby", "token":"  saved-key\n"}).to_string(), true),
-        (serde_json::json!({"type":"emby", "base_url": format!("{url}/missing"), "token":""}).to_string(), false),
+        (
+            serde_json::json!({"type":"emby", "base_url": format!("{url}/"), "token":""})
+                .to_string(),
+            true,
+        ),
+        (
+            serde_json::json!({"type":"emby", "token":"wrong-key"}).to_string(),
+            false,
+        ),
+        (
+            serde_json::json!({"type":"emby", "token":"  saved-key\n"}).to_string(),
+            true,
+        ),
+        (
+            serde_json::json!({"type":"emby", "base_url": format!("{url}/missing"), "token":""})
+                .to_string(),
+            false,
+        ),
     ] {
-        let response = app.clone().oneshot(Request::post(format!("/api/servers/{}/test", original.id))
-            .header("content-type", "application/json").body(Body::from(body)).unwrap()).await.unwrap();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(format!("/api/servers/{}/test", original.id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let result: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
@@ -1222,55 +1368,164 @@ async fn saved_connection_tests_use_unsaved_settings_without_changing_the_server
 
 #[tokio::test]
 async fn native_provider_credentials_are_encrypted_and_not_returned() {
-    let dir=tempdir().unwrap(); let runtime=Arc::new(Runtime::new(dir.path()));runtime.initialize().unwrap();
-    let app=router(runtime,PathBuf::from("missing-ui"));
+    let dir = tempdir().unwrap();
+    let runtime = Arc::new(Runtime::new(dir.path()));
+    runtime.initialize().unwrap();
+    let app = router(runtime, PathBuf::from("missing-ui"));
     let response=app.clone().oneshot(Request::put("/api/native/providers/settings").header("content-type","application/json").body(Body::from(r#"{"mal_client_id":"mal-secret-fixture","omdb_api_key":"omdb-secret-fixture","anidb_client":"fixture","anidb_client_version":"1"}"#)).unwrap()).await.unwrap();
-    assert_eq!(response.status(),StatusCode::OK);
-    let bytes=response.into_body().collect().await.unwrap().to_bytes();let body:serde_json::Value=serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(body["mal_configured"],true);assert!(!String::from_utf8_lossy(&bytes).contains("secret-fixture"));
-    assert_eq!(body["omdb_enabled"],false);
-    let disabled=app.clone().oneshot(Request::post("/api/native/providers/test/omdb").body(Body::empty()).unwrap()).await.unwrap();
-    let disabled:serde_json::Value=serde_json::from_slice(&disabled.into_body().collect().await.unwrap().to_bytes()).unwrap();
-    assert_eq!(disabled["ok"],false);assert!(disabled["message"].as_str().unwrap().contains("Enable"));
-    for enabled in [true,false] {
-        let response=app.clone().oneshot(Request::put("/api/native/providers/settings").header("content-type","application/json").body(Body::from(serde_json::json!({"omdb_enabled":enabled}).to_string())).unwrap()).await.unwrap();
-        assert_eq!(response.status(),StatusCode::OK);
-        let body:serde_json::Value=serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
-        assert_eq!(body["omdb_enabled"],enabled);assert_eq!(body["omdb_configured"],true);
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["mal_configured"], true);
+    assert!(!String::from_utf8_lossy(&bytes).contains("secret-fixture"));
+    assert_eq!(body["omdb_enabled"], false);
+    let disabled = app
+        .clone()
+        .oneshot(
+            Request::post("/api/native/providers/test/omdb")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let disabled: serde_json::Value =
+        serde_json::from_slice(&disabled.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(disabled["ok"], false);
+    assert!(disabled["message"].as_str().unwrap().contains("Enable"));
+    for enabled in [true, false] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::put("/api/native/providers/settings")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"omdb_enabled":enabled}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(body["omdb_enabled"], enabled);
+        assert_eq!(body["omdb_configured"], true);
     }
     // Read the store's actual connection separately through its public settings API.
-    let store=posterview_infra_sqlite::ServerStore::new(dir.path());
-    assert_eq!(store.get_setting("mal_client_id").unwrap(),"mal-secret-fixture");
-    let response=app.oneshot(Request::put("/api/native/providers/settings").header("content-type","application/json").body(Body::from(r#"{"anidb_client":"INVALID CLIENT"}"#)).unwrap()).await.unwrap();
-    assert_eq!(response.status(),StatusCode::BAD_REQUEST);
+    let store = posterview_infra_sqlite::ServerStore::new(dir.path());
+    assert_eq!(
+        store.get_setting("mal_client_id").unwrap(),
+        "mal-secret-fixture"
+    );
+    let response = app
+        .oneshot(
+            Request::put("/api/native/providers/settings")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"anidb_client":"INVALID CLIENT"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
 async fn native_artwork_shared_upload_and_remove_routes_work_without_a_media_server() {
     use posterview_contracts::native::*;
     let directory = tempdir().unwrap();
-    let runtime = Arc::new(Runtime::new(directory.path())); runtime.initialize().unwrap();
+    let runtime = Arc::new(Runtime::new(directory.path()));
+    runtime.initialize().unwrap();
     let db = posterview_infra_sqlite::ServerStore::new(directory.path());
-    let library = db.save_native_library(None, &NativeLibraryInput {name:"Movies".into(),library_type:NativeLibraryType::Movies,anime_content:AnimeContent::Both,paths:vec!["Movies".into()],revision:None,options:Default::default()}).unwrap();
-    let entry = NativeCatalogEntry {id:String::new(),path:"Movies/Example.mkv".into(),kind:"movie".into(),parent_path:None,title:"Example".into(),metadata:serde_json::json!({"identifiers":{"tmdb":123}}),artwork:vec![],files:vec![],nfo_path:None,nfo_xml:None,available:true,revision:1};
-    db.ingest_native_catalog(&library.id,library.revision,&[entry]).unwrap();
+    let library = db
+        .save_native_library(
+            None,
+            &NativeLibraryInput {
+                name: "Movies".into(),
+                library_type: NativeLibraryType::Movies,
+                anime_content: AnimeContent::Both,
+                paths: vec!["Movies".into()],
+                revision: None,
+                options: Default::default(),
+            },
+        )
+        .unwrap();
+    let entry = NativeCatalogEntry {
+        id: String::new(),
+        path: "Movies/Example.mkv".into(),
+        kind: "movie".into(),
+        parent_path: None,
+        title: "Example".into(),
+        metadata: serde_json::json!({"identifiers":{"tmdb":123}}),
+        artwork: vec![],
+        files: vec![],
+        nfo_path: None,
+        nfo_xml: None,
+        available: true,
+        revision: 1,
+    };
+    db.ingest_native_catalog(&library.id, library.revision, &[entry])
+        .unwrap();
     let entry = db.native_catalog(&library.id).unwrap().remove(0);
-    let target = format!("native:{}:{}",library.id,entry.id);
-    let app = router(runtime,PathBuf::from("missing-ui"));
+    let target = format!("native:{}:{}", library.id, entry.id);
+    let app = router(runtime, PathBuf::from("missing-ui"));
     let mut image = std::io::Cursor::new(Vec::new());
-    image::DynamicImage::new_rgba8(2,2).write_to(&mut image,image::ImageFormat::Png).unwrap();
+    image::DynamicImage::new_rgba8(2, 2)
+        .write_to(&mut image, image::ImageFormat::Png)
+        .unwrap();
     let mut body = format!("--boundary\r\nContent-Disposition: form-data; name=\"server_id\"\r\n\r\n0\r\n--boundary\r\nContent-Disposition: form-data; name=\"item_id\"\r\n\r\n{target}\r\n--boundary\r\nContent-Disposition: form-data; name=\"target\"\r\n\r\nbackground\r\n--boundary\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.png\"\r\nContent-Type: image/png\r\n\r\n").into_bytes();
-    body.extend(image.into_inner()); body.extend(b"\r\n--boundary--\r\n");
-    let response = app.clone().oneshot(Request::post("/api/artwork/upload").header("content-type","multipart/form-data; boundary=boundary").body(Body::from(body)).unwrap()).await.unwrap();
-    assert_eq!(response.status(),StatusCode::OK);
-    assert!(db.native_artwork(&library.id,&entry.id,"backdrop").unwrap().is_some());
-    let response = app.clone().oneshot(Request::get(format!("/api/native/libraries/{}/items/{}/artwork/backdrop",library.id,entry.id)).body(Body::empty()).unwrap()).await.unwrap();
-    assert_eq!(response.status(),StatusCode::OK);
-    let response = app.clone().oneshot(Request::post("/api/artwork/remove").header("content-type","application/json").body(Body::from(serde_json::json!({"server_id":0,"item_id":target,"target":"background"}).to_string())).unwrap()).await.unwrap();
-    assert_eq!(response.status(),StatusCode::OK);
-    assert!(db.native_artwork(&library.id,&entry.id,"backdrop").unwrap().is_none());
+    body.extend(image.into_inner());
+    body.extend(b"\r\n--boundary--\r\n");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/artwork/upload")
+                .header("content-type", "multipart/form-data; boundary=boundary")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        db.native_artwork(&library.id, &entry.id, "backdrop")
+            .unwrap()
+            .is_some()
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/api/native/libraries/{}/items/{}/artwork/backdrop",
+                library.id, entry.id
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/api/artwork/remove")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"server_id":0,"item_id":target,"target":"background"})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        db.native_artwork(&library.id, &entry.id, "backdrop")
+            .unwrap()
+            .is_none()
+    );
     let response = app.oneshot(Request::post("/api/posterdb/apply").header("content-type","application/json").body(Body::from(serde_json::json!({"server_id":0,"item_id":format!("native:wrong:{}",entry.id),"download_url":"http://127.0.0.1/private.png"}).to_string())).unwrap()).await.unwrap();
-    assert_eq!(response.status(),StatusCode::NOT_FOUND);
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -1279,10 +1534,28 @@ async fn retired_sync_endpoints_cannot_start_background_work() {
     let runtime = Arc::new(Runtime::new(directory.path()));
     runtime.initialize().unwrap();
     let app = router(runtime.clone(), directory.path().join("ui"));
-    for (method, path) in [("POST", "/api/native/libraries/old-library/sync"), ("PUT", "/api/plugins/server-connect")] {
-        let response = app.clone().oneshot(Request::builder().method(method).uri(path)
-            .header("content-type", "application/json").body(Body::from("{\"enabled\":true}")).unwrap()).await.unwrap();
+    for (method, path) in [
+        ("POST", "/api/native/libraries/old-library/sync"),
+        ("PUT", "/api/plugins/server-connect"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("content-type", "application/json")
+                    .body(Body::from("{\"enabled\":true}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert!(response.status().is_client_error());
     }
-    assert!(posterview_infra_sqlite::ServerStore::new(runtime.data_dir()).native_libraries().unwrap().is_empty());
+    assert!(
+        posterview_infra_sqlite::ServerStore::new(runtime.data_dir())
+            .native_libraries()
+            .unwrap()
+            .is_empty()
+    );
 }

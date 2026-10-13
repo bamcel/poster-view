@@ -26,7 +26,6 @@ mod native_provider;
 mod native_provider_extra;
 mod native_scan;
 mod playback;
-mod transcoding;
 mod plugins;
 mod reader;
 mod routes;
@@ -34,6 +33,7 @@ mod scheduled_tasks;
 mod state;
 #[cfg(test)]
 mod test_support;
+mod transcoding;
 mod watch;
 mod workers;
 pub use auth::AuthState;
@@ -41,9 +41,8 @@ pub use config::ServerConfig;
 use error::HttpError;
 use state::{AppState, spawn_backdrop_refresh};
 
-pub(crate) fn media_compression_layer() -> tower_http::compression::CompressionLayer<
-    impl tower_http::compression::predicate::Predicate,
-> {
+pub(crate) fn media_compression_layer()
+-> tower_http::compression::CompressionLayer<impl tower_http::compression::predicate::Predicate> {
     use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
     // Original media keeps its byte offsets, length, and range headers even
     // when a browser requests the entire file and advertises gzip support.

@@ -1,4 +1,9 @@
-use axum::{Json, Router, http::StatusCode, response::IntoResponse, routing::{delete, get}};
+use axum::{
+    Json, Router,
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{delete, get},
+};
 use serde_json::json;
 use tokio::net::TcpListener;
 
@@ -96,18 +101,27 @@ async fn self_signed_tls_requires_an_explicit_exception_for_each_server() {
 
 #[tokio::test]
 async fn emby_connection_trims_pasted_api_key_before_authenticating() {
-    let app = Router::new().route("/System/Info", get(|headers: axum::http::HeaderMap| async move {
-        if headers.get("X-Emby-Token").and_then(|value| value.to_str().ok()) != Some("emby-key") {
-            return StatusCode::UNAUTHORIZED.into_response();
-        }
-        Json(json!({"ServerName":"Emby fixture","Version":"4"})).into_response()
-    }));
+    let app = Router::new().route(
+        "/System/Info",
+        get(|headers: axum::http::HeaderMap| async move {
+            if headers
+                .get("X-Emby-Token")
+                .and_then(|value| value.to_str().ok())
+                != Some("emby-key")
+            {
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+            Json(json!({"ServerName":"Emby fixture","Version":"4"})).into_response()
+        }),
+    );
     let (base_url, task) = serve(app).await;
-    let result = test_connection(ConnectionConfig { allow_invalid_certificates: false,
+    let result = test_connection(ConnectionConfig {
+        allow_invalid_certificates: false,
         server_type: ServerType::Emby,
         base_url: &base_url,
         token: " \temby-key\r\n",
-    }).await;
+    })
+    .await;
     task.abort();
     assert_eq!(result.unwrap(), ("Emby fixture".to_owned(), "4".to_owned()));
 }
@@ -121,15 +135,24 @@ async fn book_folder_detail_falls_back_to_user_scoped_item_endpoint() {
             Json(json!({"Id":"book-series","Name":"Book Series","Type":"Folder","IsFolder":true,"Path":"/media/Books/Book Series"}))
         }));
     let (base_url, task) = serve(app).await;
-    let detail = get_item_detail(ConnectionConfig { allow_invalid_certificates: false,
-        server_type: ServerType::Emby,
-        base_url: &base_url,
-        token: "test",
-    }, "book-series").await.unwrap();
+    let detail = get_item_detail(
+        ConnectionConfig {
+            allow_invalid_certificates: false,
+            server_type: ServerType::Emby,
+            base_url: &base_url,
+            token: "test",
+        },
+        "book-series",
+    )
+    .await
+    .unwrap();
     task.abort();
     assert_eq!(detail.id, "book-series");
     assert_eq!(detail.item_type, ItemType::Folder);
-    assert_eq!(detail.source_path.as_deref(), Some("/media/Books/Book Series"));
+    assert_eq!(
+        detail.source_path.as_deref(),
+        Some("/media/Books/Book Series")
+    );
 }
 
 #[tokio::test]
@@ -142,7 +165,8 @@ async fn failure_messages_distinguish_credentials_rate_limits_outages_and_unreac
     ] {
         let app = Router::new().route("/System/Info", get(move || async move { status }));
         let (base_url, task) = serve(app).await;
-        let result = test_connection(ConnectionConfig { allow_invalid_certificates: false,
+        let result = test_connection(ConnectionConfig {
+            allow_invalid_certificates: false,
             server_type: ServerType::Jellyfin,
             base_url: &base_url,
             token: "secret",
@@ -156,7 +180,8 @@ async fn failure_messages_distinguish_credentials_rate_limits_outages_and_unreac
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base_url = format!("http://{}", listener.local_addr().unwrap());
     drop(listener);
-    let message = test_connection(ConnectionConfig { allow_invalid_certificates: false,
+    let message = test_connection(ConnectionConfig {
+        allow_invalid_certificates: false,
         server_type: ServerType::Jellyfin,
         base_url: &base_url,
         token: "secret",
@@ -169,7 +194,8 @@ async fn failure_messages_distinguish_credentials_rate_limits_outages_and_unreac
 #[test]
 fn jellyfin_uses_current_auth_scheme_while_emby_keeps_its_token_header() {
     let client = Client::new();
-    let jellyfin = ConnectionConfig { allow_invalid_certificates: false,
+    let jellyfin = ConnectionConfig {
+        allow_invalid_certificates: false,
         server_type: ServerType::Jellyfin,
         base_url: "http://localhost",
         token: "jellyfin-key",
@@ -186,7 +212,8 @@ fn jellyfin_uses_current_auth_scheme_while_emby_keeps_its_token_header() {
     );
     assert!(!request.headers().contains_key("X-Emby-Token"));
 
-    let emby = ConnectionConfig { allow_invalid_certificates: false,
+    let emby = ConnectionConfig {
+        allow_invalid_certificates: false,
         server_type: ServerType::Emby,
         base_url: "http://localhost",
         token: "emby-key",
@@ -218,7 +245,8 @@ async fn book_libraries_and_items_are_browseable_in_emby_family_servers() {
         }));
     let (base_url, task) = serve(app).await;
     for server_type in [ServerType::Jellyfin, ServerType::Emby] {
-        let config = ConnectionConfig { allow_invalid_certificates: false,
+        let config = ConnectionConfig {
+            allow_invalid_certificates: false,
             server_type,
             base_url: &base_url,
             token: "test",
@@ -260,7 +288,8 @@ async fn emby_family_library_items_include_backdrops() {
         );
     let (base_url, task) = serve(app).await;
     let items = get_items(
-        ConnectionConfig { allow_invalid_certificates: false,
+        ConnectionConfig {
+            allow_invalid_certificates: false,
             server_type: ServerType::Emby,
             base_url: &base_url,
             token: "test",
@@ -327,7 +356,8 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
         }));
     let (base_url, task) = serve(app).await;
     let items = get_folder_items(
-        ConnectionConfig { allow_invalid_certificates: false,
+        ConnectionConfig {
+            allow_invalid_certificates: false,
             server_type: ServerType::Emby,
             base_url: &base_url,
             token: "test",
@@ -348,7 +378,8 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
         Some("Items/food-wars/Images/Backdrop?tag=series-backdrop")
     );
     let detail = get_item_detail(
-        ConnectionConfig { allow_invalid_certificates: false,
+        ConnectionConfig {
+            allow_invalid_certificates: false,
             server_type: ServerType::Emby,
             base_url: &base_url,
             token: "test",
@@ -406,7 +437,8 @@ async fn jellyfin_connection_contract_is_parsed_directly() {
         get(|| async { Json(json!({ "ServerName": "Living Room", "Version": "10.10.7" })) }),
     );
     let (base_url, task) = serve(app).await;
-    let result = test_connection(ConnectionConfig { allow_invalid_certificates: false,
+    let result = test_connection(ConnectionConfig {
+        allow_invalid_certificates: false,
         server_type: ServerType::Jellyfin,
         base_url: &base_url,
         token: "test-token",
@@ -432,7 +464,8 @@ async fn cross_origin_redirects_are_not_followed() {
         }),
     );
     let (base_url, task) = serve(app).await;
-    let result = test_connection(ConnectionConfig { allow_invalid_certificates: false,
+    let result = test_connection(ConnectionConfig {
+        allow_invalid_certificates: false,
         server_type: ServerType::Jellyfin,
         base_url: &base_url,
         token: "test-token",
@@ -444,7 +477,8 @@ async fn cross_origin_redirects_are_not_followed() {
 
 #[tokio::test]
 async fn unsafe_server_url_is_rejected_before_network_access() {
-    let result = test_connection(ConnectionConfig { allow_invalid_certificates: false,
+    let result = test_connection(ConnectionConfig {
+        allow_invalid_certificates: false,
         server_type: ServerType::Plex,
         base_url: "file:///etc/passwd",
         token: "token",
@@ -465,7 +499,8 @@ async fn emby_family_artwork_can_be_removed() {
     let (base_url, task) = serve(app).await;
     for server_type in [ServerType::Emby, ServerType::Jellyfin] {
         remove_image(
-            ConnectionConfig { allow_invalid_certificates: false,
+            ConnectionConfig {
+                allow_invalid_certificates: false,
                 server_type,
                 base_url: &base_url,
                 token: "test-token",
@@ -482,7 +517,8 @@ async fn emby_family_artwork_can_be_removed() {
 #[tokio::test]
 async fn plex_artwork_removal_fails_safely() {
     let message = remove_image(
-        ConnectionConfig { allow_invalid_certificates: false,
+        ConnectionConfig {
+            allow_invalid_certificates: false,
             server_type: ServerType::Plex,
             base_url: "http://127.0.0.1:9",
             token: "test-token",
@@ -498,25 +534,56 @@ async fn plex_artwork_removal_fails_safely() {
 #[tokio::test]
 async fn emby_family_item_details_read_tag_items_and_legacy_tags() {
     for (server_type, tags, expected) in [
-        (ServerType::Emby, json!({"TagItems":[{"Name":" Favorite ","Id":1},{"Name":"favorite","Id":2},{"Name":" ","Id":3},{"Id":4}],"Tags":[]}), vec!["Favorite"]),
-        (ServerType::Emby, json!({"TagItems":[{"Name":"Favorite","Id":1}],"Tags":["favorite"," Classic "]}), vec!["Favorite", "Classic"]),
+        (
+            ServerType::Emby,
+            json!({"TagItems":[{"Name":" Favorite ","Id":1},{"Name":"favorite","Id":2},{"Name":" ","Id":3},{"Id":4}],"Tags":[]}),
+            vec!["Favorite"],
+        ),
+        (
+            ServerType::Emby,
+            json!({"TagItems":[{"Name":"Favorite","Id":1}],"Tags":["favorite"," Classic "]}),
+            vec!["Favorite", "Classic"],
+        ),
         (ServerType::Emby, json!({"Tags":["Legacy"]}), vec!["Legacy"]),
-        (ServerType::Jellyfin, json!({"Tags":[" Favorite ","favorite","Classic"]}), vec!["Favorite", "Classic"]),
+        (
+            ServerType::Jellyfin,
+            json!({"Tags":[" Favorite ","favorite","Classic"]}),
+            vec!["Favorite", "Classic"],
+        ),
         (ServerType::Emby, json!({}), vec![]),
     ] {
         let mut item = json!({"Id":"movie","Name":"Movie","Type":"Movie"});
-        item.as_object_mut().unwrap().extend(tags.as_object().unwrap().clone());
+        item.as_object_mut()
+            .unwrap()
+            .extend(tags.as_object().unwrap().clone());
         let app = Router::new()
             .route("/Users", get(|| async { Json(json!([{"Id":"user"}])) }))
-            .route("/Items", get(move |axum::extract::Query(query): axum::extract::Query<HashMap<String,String>>| {
-                let item = item.clone();
-                async move {
-                    assert!(query["Fields"].split(',').any(|field| field == "Tags"));
-                    Json(json!({"Items":[item]}))
-                }
-            }));
+            .route(
+                "/Items",
+                get(
+                    move |axum::extract::Query(query): axum::extract::Query<
+                        HashMap<String, String>,
+                    >| {
+                        let item = item.clone();
+                        async move {
+                            assert!(query["Fields"].split(',').any(|field| field == "Tags"));
+                            Json(json!({"Items":[item]}))
+                        }
+                    },
+                ),
+            );
         let (base_url, task) = serve(app).await;
-        let detail = get_item_detail(ConnectionConfig { allow_invalid_certificates: false, server_type, base_url: &base_url, token: "fixture" }, "movie").await.unwrap();
+        let detail = get_item_detail(
+            ConnectionConfig {
+                allow_invalid_certificates: false,
+                server_type,
+                base_url: &base_url,
+                token: "fixture",
+            },
+            "movie",
+        )
+        .await
+        .unwrap();
         task.abort();
         assert_eq!(detail.tags, expected);
     }

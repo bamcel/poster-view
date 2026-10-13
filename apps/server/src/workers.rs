@@ -21,7 +21,9 @@ static CPU: LazyLock<(Mutex<usize>, Condvar, usize)> = LazyLock::new(|| {
 static NETWORK_LIMIT: LazyLock<usize> = LazyLock::new(|| limit("POSTERVIEW_NETWORK_WORKERS", 4));
 static NETWORK: LazyLock<Arc<tokio::sync::Semaphore>> =
     LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(*NETWORK_LIMIT)));
-pub(crate) fn media_limit() -> usize {CPU.2}
+pub(crate) fn media_limit() -> usize {
+    CPU.2
+}
 pub(crate) fn network_limit() -> usize {
     *NETWORK_LIMIT
 }
@@ -90,7 +92,12 @@ pub(crate) async fn provider(name: &str) -> tokio::sync::OwnedMutexGuard<Instant
         .clone();
     let mut guard = gate.lock_owned().await;
     tokio::time::sleep(guard.saturating_duration_since(Instant::now())).await;
-    *guard = Instant::now() + Duration::from_millis(match name { "anilist" => 1500, "jikan" => 1100, _ => 250 });
+    *guard = Instant::now()
+        + Duration::from_millis(match name {
+            "anilist" => 1500,
+            "jikan" => 1100,
+            _ => 250,
+        });
     guard
 }
 

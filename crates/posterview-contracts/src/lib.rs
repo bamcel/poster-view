@@ -306,7 +306,6 @@ const fn default_history_max_entries() -> i64 {
     50
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HistoryPurgeResult {
     pub purged: usize,

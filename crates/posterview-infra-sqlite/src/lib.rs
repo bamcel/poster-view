@@ -50,7 +50,9 @@ pub enum StoreError {
     SecretKey(#[from] std::io::Error),
     #[error("invalid secret key")]
     InvalidSecretKey,
-    #[error("Stored credential could not be decrypted. Restore the original secret key or reconfigure the credential.")]
+    #[error(
+        "Stored credential could not be decrypted. Restore the original secret key or reconfigure the credential."
+    )]
     CredentialDecryption,
     #[error("invalid server type stored in database: {0}")]
     InvalidServerType(String),
@@ -94,7 +96,7 @@ impl ServerStore {
         }
         self.cipher()?;
         let connection = self.connection()?;
-        connection.pragma_update(None,"journal_mode","WAL")?;
+        connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.execute_batch(SCHEMA)?;
         migrate(&connection)?;
         native::migrate(&connection)?;
@@ -410,7 +412,15 @@ impl ServerStore {
 fn is_secret_setting(key: &str) -> bool {
     matches!(
         key,
-        "deviantart_client_id" | "deviantart_client_secret" | "mal_client_id" | "omdb_api_key" | "posterdb_password" | "fanart_api_key" | "tvdb_api_key" | "tvdb_pin" | "comicvine_api_key"
+        "deviantart_client_id"
+            | "deviantart_client_secret"
+            | "mal_client_id"
+            | "omdb_api_key"
+            | "posterdb_password"
+            | "fanart_api_key"
+            | "tvdb_api_key"
+            | "tvdb_pin"
+            | "comicvine_api_key"
     )
 }
 
@@ -443,13 +453,19 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
     let columns = statement
         .query_map([], |row| row.get::<_, String>(1))?
         .collect::<Result<Vec<_>, _>>()?;
-    if !columns.iter().any(|column| column == "nfo_metadata_enabled") {
+    if !columns
+        .iter()
+        .any(|column| column == "nfo_metadata_enabled")
+    {
         connection.execute(
             "ALTER TABLE media_servers ADD COLUMN nfo_metadata_enabled INTEGER NOT NULL DEFAULT 0",
             [],
         )?;
     }
-    if !columns.iter().any(|column| column == "allow_invalid_certificates") {
+    if !columns
+        .iter()
+        .any(|column| column == "allow_invalid_certificates")
+    {
         connection.execute(
             "ALTER TABLE media_servers ADD COLUMN allow_invalid_certificates INTEGER NOT NULL DEFAULT 0",
             [],
@@ -519,7 +535,9 @@ mod tests {
         store.initialize().unwrap();
         let connection = store.connection().unwrap();
         connection.execute("INSERT INTO media_servers (name, type, base_url, token_enc) VALUES ('Broken', 'plex', 'http://localhost', 'secret-corrupt-fixture')", []).unwrap();
-        let error = store.decrypted_token(connection.last_insert_rowid()).unwrap_err();
+        let error = store
+            .decrypted_token(connection.last_insert_rowid())
+            .unwrap_err();
         assert!(matches!(error, super::StoreError::CredentialDecryption));
         assert!(!error.to_string().contains("secret-corrupt-fixture"));
         connection.execute("INSERT INTO settings (key, value_enc) VALUES ('omdb_api_key', 'secret-corrupt-fixture')", []).unwrap();
@@ -528,9 +546,19 @@ mod tests {
         assert!(!error.to_string().contains("secret-corrupt-fixture"));
         assert_eq!(store.get_setting("missing-setting").unwrap(), "");
         let invalid_utf8 = store.cipher().unwrap().encrypt(&[0xff]);
-        connection.execute("UPDATE settings SET value_enc = ?1 WHERE key = 'omdb_api_key'", [invalid_utf8]).unwrap();
-        assert!(matches!(store.get_setting("omdb_api_key"), Err(super::StoreError::CredentialDecryption)));
-        connection.execute("UPDATE media_servers SET token_enc = ''", []).unwrap();
+        connection
+            .execute(
+                "UPDATE settings SET value_enc = ?1 WHERE key = 'omdb_api_key'",
+                [invalid_utf8],
+            )
+            .unwrap();
+        assert!(matches!(
+            store.get_setting("omdb_api_key"),
+            Err(super::StoreError::CredentialDecryption)
+        ));
+        connection
+            .execute("UPDATE media_servers SET token_enc = ''", [])
+            .unwrap();
         assert_eq!(store.decrypted_token(1).unwrap(), Some(String::new()));
     }
 
@@ -542,15 +570,45 @@ mod tests {
         connection.execute_batch("CREATE TABLE media_servers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, base_url TEXT NOT NULL, token_enc TEXT NOT NULL DEFAULT '', is_default INTEGER NOT NULL DEFAULT 0, nfo_metadata_enabled INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''); INSERT INTO media_servers (id, name, type, base_url) VALUES (1, 'Existing', 'plex', 'https://localhost');").unwrap();
         drop(connection);
         store.initialize().unwrap();
-        assert!(!store.get_server(1).unwrap().unwrap().allow_invalid_certificates);
+        assert!(
+            !store
+                .get_server(1)
+                .unwrap()
+                .unwrap()
+                .allow_invalid_certificates
+        );
         store.initialize().unwrap();
-        assert!(!store.get_server(1).unwrap().unwrap().allow_invalid_certificates);
+        assert!(
+            !store
+                .get_server(1)
+                .unwrap()
+                .unwrap()
+                .allow_invalid_certificates
+        );
     }
 
     #[test]
     fn native_provider_keys_are_encrypted_at_rest() {
-        let dir=tempfile::tempdir().unwrap();let store=ServerStore::new(dir.path());store.initialize().unwrap();
-        for key in ["mal_client_id","omdb_api_key","deviantart_client_id","deviantart_client_secret"] {store.set_setting(key,"secret-fixture").unwrap();assert_eq!(store.get_setting(key).unwrap(),"secret-fixture");let saved:String=store.connection().unwrap().query_row("SELECT value_enc FROM settings WHERE key=?1",[key],|r|r.get(0)).unwrap();assert!(!saved.contains("secret-fixture"));}
+        let dir = tempfile::tempdir().unwrap();
+        let store = ServerStore::new(dir.path());
+        store.initialize().unwrap();
+        for key in [
+            "mal_client_id",
+            "omdb_api_key",
+            "deviantart_client_id",
+            "deviantart_client_secret",
+        ] {
+            store.set_setting(key, "secret-fixture").unwrap();
+            assert_eq!(store.get_setting(key).unwrap(), "secret-fixture");
+            let saved: String = store
+                .connection()
+                .unwrap()
+                .query_row("SELECT value_enc FROM settings WHERE key=?1", [key], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert!(!saved.contains("secret-fixture"));
+        }
     }
     #[test]
     fn crud_matches_existing_default_and_token_rules() {
@@ -593,14 +651,23 @@ mod tests {
         assert!(!first.allow_invalid_certificates);
         assert!(second.allow_invalid_certificates);
         let updated = store
-            .update_server(second.id, &ServerUpdate {
-                allow_invalid_certificates: Some(false),
-                ..ServerUpdate::default()
-            })
+            .update_server(
+                second.id,
+                &ServerUpdate {
+                    allow_invalid_certificates: Some(false),
+                    ..ServerUpdate::default()
+                },
+            )
             .unwrap()
             .unwrap();
         assert!(!updated.allow_invalid_certificates);
-        assert!(!store.get_server(second.id).unwrap().unwrap().allow_invalid_certificates);
+        assert!(
+            !store
+                .get_server(second.id)
+                .unwrap()
+                .unwrap()
+                .allow_invalid_certificates
+        );
         assert!(!store.get_server(first.id).unwrap().unwrap().is_default);
 
         let updated = store

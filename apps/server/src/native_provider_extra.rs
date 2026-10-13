@@ -40,16 +40,26 @@ fn setting(state: &AppState, name: &str) -> String {
     store(state).get_setting(name).unwrap_or_default()
 }
 fn credential(state: &AppState, name: &str) -> Result<String, String> {
-    store(state).get_setting(name).map_err(|error| error.to_string())
+    store(state)
+        .get_setting(name)
+        .map_err(|error| error.to_string())
 }
-pub(crate) fn anidb_enabled(state:&AppState)->bool {setting(state,"plugin-anidb-enabled")!="false"}
-pub(crate) fn omdb_enabled(state:&AppState)->bool {setting(state,"plugin-omdb-enabled")=="true"}
+pub(crate) fn anidb_enabled(state: &AppState) -> bool {
+    setting(state, "plugin-anidb-enabled") != "false"
+}
+pub(crate) fn omdb_enabled(state: &AppState) -> bool {
+    setting(state, "plugin-omdb-enabled") == "true"
+}
 fn settings_value(state: &AppState) -> Result<Settings, HttpError> {
     Ok(Settings {
         anidb_enabled: anidb_enabled(state),
         omdb_enabled: omdb_enabled(state),
-        mal_configured: !credential(state, "mal_client_id").map_err(HttpError::bad_gateway)?.is_empty(),
-        omdb_configured: !credential(state, "omdb_api_key").map_err(HttpError::bad_gateway)?.is_empty(),
+        mal_configured: !credential(state, "mal_client_id")
+            .map_err(HttpError::bad_gateway)?
+            .is_empty(),
+        omdb_configured: !credential(state, "omdb_api_key")
+            .map_err(HttpError::bad_gateway)?
+            .is_empty(),
         anidb_client: setting(state, "anidb_client"),
         anidb_client_version: setting(state, "anidb_client_version"),
     })
@@ -91,8 +101,22 @@ pub(crate) async fn save_settings(
                 .map_err(|_| HttpError::bad_request("Unable to save provider settings."))?;
         }
     }
-    if let Some(enabled)=input.anidb_enabled {store(&state).set_setting("plugin-anidb-enabled",if enabled {"true"} else {"false"}).map_err(|_|HttpError::bad_request("Unable to save AniDB plugin settings."))?;}
-    if let Some(enabled)=input.omdb_enabled {store(&state).set_setting("plugin-omdb-enabled",if enabled {"true"} else {"false"}).map_err(|_|HttpError::bad_request("Unable to save OMDb plugin settings."))?;}
+    if let Some(enabled) = input.anidb_enabled {
+        store(&state)
+            .set_setting(
+                "plugin-anidb-enabled",
+                if enabled { "true" } else { "false" },
+            )
+            .map_err(|_| HttpError::bad_request("Unable to save AniDB plugin settings."))?;
+    }
+    if let Some(enabled) = input.omdb_enabled {
+        store(&state)
+            .set_setting(
+                "plugin-omdb-enabled",
+                if enabled { "true" } else { "false" },
+            )
+            .map_err(|_| HttpError::bad_request("Unable to save OMDb plugin settings."))?;
+    }
     Ok(Json(settings_value(&state)?))
 }
 pub(crate) async fn test_provider(
@@ -226,19 +250,55 @@ pub(crate) async fn fetch(
 ) -> Result<Data, String> {
     match provider {
         "mangadex" if entry.kind == "book_series" => {
-            let selected = id(&entry.metadata,"mangadex").ok_or("Identify this series with MangaDex first.")?;
-            if !posterview_infra_artwork::valid_manga_id(&selected) { return Err("Invalid MangaDex series ID.".into()); }
-            let raw = super::native_provider::response(client.get(format!("https://api.mangadex.org/manga/{selected}")).send().await.map_err(|_|"MangaDex connection failed.")?).await?;
+            let selected = id(&entry.metadata, "mangadex")
+                .ok_or("Identify this series with MangaDex first.")?;
+            if !posterview_infra_artwork::valid_manga_id(&selected) {
+                return Err("Invalid MangaDex series ID.".into());
+            }
+            let raw = super::native_provider::response(
+                client
+                    .get(format!("https://api.mangadex.org/manga/{selected}"))
+                    .send()
+                    .await
+                    .map_err(|_| "MangaDex connection failed.")?,
+            )
+            .await?;
             let data = &raw["data"];
-            if !library.allows_adult_metadata() && ["erotica","pornographic"].contains(&data["attributes"]["contentRating"].as_str().unwrap_or("")) { return Err("Adult metadata is disabled for this library.".into()); }
-            Ok(Data {id:Some(selected),fields:mangadex_fields(data,&library.options.metadata_language),artwork:vec![],raw:data.clone()})
+            if !library.allows_adult_metadata()
+                && ["erotica", "pornographic"]
+                    .contains(&data["attributes"]["contentRating"].as_str().unwrap_or(""))
+            {
+                return Err("Adult metadata is disabled for this library.".into());
+            }
+            Ok(Data {
+                id: Some(selected),
+                fields: mangadex_fields(data, &library.options.metadata_language),
+                artwork: vec![],
+                raw: data.clone(),
+            })
         }
         "comicvine" if entry.kind == "book_series" => {
-            let selected = numeric(id(&entry.metadata, "comicvine").ok_or("Select a ComicVine series with Identify first.")?)?;
-            let data = state.runtime.comicvine_metadata(&selected).await.map_err(|e| e.to_string())?;
-            let artwork = data.cover_url.clone().map(|url| vec![("poster".to_owned(), url)]).unwrap_or_default();
+            let selected = numeric(
+                id(&entry.metadata, "comicvine")
+                    .ok_or("Select a ComicVine series with Identify first.")?,
+            )?;
+            let data = state
+                .runtime
+                .comicvine_metadata(&selected)
+                .await
+                .map_err(|e| e.to_string())?;
+            let artwork = data
+                .cover_url
+                .clone()
+                .map(|url| vec![("poster".to_owned(), url)])
+                .unwrap_or_default();
             let fields = json!({"plot":data.plot,"year":data.year.parse::<i64>().ok(),"publisher":data.publisher,"volumes":data.volumes,"source_url":data.source_url});
-            Ok(Data { id: Some(selected), raw: fields.clone(), fields, artwork })
+            Ok(Data {
+                id: Some(selected),
+                raw: fields.clone(),
+                fields,
+                artwork,
+            })
         }
 
         "mal" => mal(state, client, library, entry).await,
@@ -255,7 +315,13 @@ pub(crate) async fn fetch(
             )
             .await
         }
-        "anidb" => if anidb_enabled(state) {anidb(state, client, library, entry, parent).await} else {Err("AniDB plugin is disabled.".into())},
+        "anidb" => {
+            if anidb_enabled(state) {
+                anidb(state, client, library, entry, parent).await
+            } else {
+                Err("AniDB plugin is disabled.".into())
+            }
+        }
         _ => Err("Unsupported native provider.".into()),
     }
 }
@@ -746,8 +812,18 @@ fn map_tvdb(
     }
 }
 fn tvdb_credit_image(credit: &Value, role_portraits: bool) -> Option<String> {
- let fields=if role_portraits {["image","personImgURL"]}else{["personImgURL","image"]};
- fields.into_iter().find_map(|field|credit[field].as_str().map(str::trim).filter(|v|!v.is_empty()).map(tvdb_image))
+    let fields = if role_portraits {
+        ["image", "personImgURL"]
+    } else {
+        ["personImgURL", "image"]
+    };
+    fields.into_iter().find_map(|field| {
+        credit[field]
+            .as_str()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(tvdb_image)
+    })
 }
 fn tvdb_image(v: &str) -> String {
     if v.starts_with("/") {
@@ -930,9 +1006,18 @@ fn parse_anidb(xml: &str) -> Result<xmltree::Element, String> {
     }
     let root = xmltree::Element::parse(xml.as_bytes()).map_err(|_| "Invalid AniDB XML.")?;
     if root.name == "error" {
-        let code = root.attributes.get("code").map(String::as_str).unwrap_or("unknown");
-        let message = root.get_text().map(|text| text.chars().take(200).collect::<String>()).unwrap_or_else(|| "Request rejected".into());
-        return Err(format!("AniDB error {code}: {message}. Check the registered HTTP client name/version in Search Providers; if rate-limited or banned, wait before retrying."));
+        let code = root
+            .attributes
+            .get("code")
+            .map(String::as_str)
+            .unwrap_or("unknown");
+        let message = root
+            .get_text()
+            .map(|text| text.chars().take(200).collect::<String>())
+            .unwrap_or_else(|| "Request rejected".into());
+        return Err(format!(
+            "AniDB error {code}: {message}. Check the registered HTTP client name/version in Search Providers; if rate-limited or banned, wait before retrying."
+        ));
     }
     if root.name != "anime" {
         return Err("AniDB returned no anime record.".into());
@@ -952,18 +1037,42 @@ async fn anidb(
     entry: &NativeCatalogEntry,
     parent: &Value,
 ) -> Result<Data, String> {
-    let known=if entry.kind=="episode" {id(parent,"anidb")} else {id(&entry.metadata,"anidb")};
-    let automatic=known.is_none();
-    let aid=if let Some(aid)=known {aid} else if ["series","movie"].contains(&entry.kind.as_str()) {
-        if setting(state,"anidb_client").is_empty() || setting(state,"anidb_client_version").is_empty() {return Err("Configure your registered AniDB HTTP client name and version in Settings → Plugins → AniDB.".into());}
-        crate::native_identify::anidb_scan_id(state,client,&super::native_provider::search_title(entry),&library.options.metadata_language).await?
-    } else {return Err("AniDB requires the parent anime ID; identify the series first.".into());};
+    let known = if entry.kind == "episode" {
+        id(parent, "anidb")
+    } else {
+        id(&entry.metadata, "anidb")
+    };
+    let automatic = known.is_none();
+    let aid = if let Some(aid) = known {
+        aid
+    } else if ["series", "movie"].contains(&entry.kind.as_str()) {
+        if setting(state, "anidb_client").is_empty()
+            || setting(state, "anidb_client_version").is_empty()
+        {
+            return Err("Configure your registered AniDB HTTP client name and version in Settings → Plugins → AniDB.".into());
+        }
+        crate::native_identify::anidb_scan_id(
+            state,
+            client,
+            &super::native_provider::search_title(entry),
+            &library.options.metadata_language,
+        )
+        .await?
+    } else {
+        return Err("AniDB requires the parent anime ID; identify the series first.".into());
+    };
     let xml = anidb_document(state, client, &aid).await?;
     let root = parse_anidb(&xml)?;
     if automatic {
-        let movie=text(&root,"type").as_str().is_some_and(|v|v.eq_ignore_ascii_case("movie"));
-        let matched_year=year(&text(&root,"startdate"));
-        if movie!=(entry.kind=="movie") || entry.metadata["year"].as_i64().is_some_and(|y|matched_year!=Some(y)) {
+        let movie = text(&root, "type")
+            .as_str()
+            .is_some_and(|v| v.eq_ignore_ascii_case("movie"));
+        let matched_year = year(&text(&root, "startdate"));
+        if movie != (entry.kind == "movie")
+            || entry.metadata["year"]
+                .as_i64()
+                .is_some_and(|y| matched_year != Some(y))
+        {
             return Err("AniDB title match has a different year or media type; select the correct result in Identify.".into());
         }
     }
@@ -1072,12 +1181,38 @@ async fn anidb(
 }
 
 pub(super) fn mangadex_fields(data: &Value, language: &str) -> Value {
-    let attributes=&data["attributes"];
-    let title=attributes["title"][language].as_str().or(attributes["title"]["en"].as_str()).or_else(||attributes["title"].as_object()?.values().find_map(Value::as_str));
-    let plot=attributes["description"][language].as_str().or(attributes["description"]["en"].as_str());
-    let genres=attributes["tags"].as_array().into_iter().flatten().filter_map(|tag|tag["attributes"]["name"][language].as_str().or(tag["attributes"]["name"]["en"].as_str())).collect::<Vec<_>>();
-    let mut ids=json!({"mangadex":data["id"]});
-    for (link,key) in [("al","anilist"),("mal","mal")] {if let Some(value)=attributes["links"][link].as_str().filter(|id|id.parse::<u64>().is_ok_and(|n|n>0)) {ids[key]=json!(value);}}
+    let attributes = &data["attributes"];
+    let title = attributes["title"][language]
+        .as_str()
+        .or(attributes["title"]["en"].as_str())
+        .or_else(|| {
+            attributes["title"]
+                .as_object()?
+                .values()
+                .find_map(Value::as_str)
+        });
+    let plot = attributes["description"][language]
+        .as_str()
+        .or(attributes["description"]["en"].as_str());
+    let genres = attributes["tags"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tag| {
+            tag["attributes"]["name"][language]
+                .as_str()
+                .or(tag["attributes"]["name"]["en"].as_str())
+        })
+        .collect::<Vec<_>>();
+    let mut ids = json!({"mangadex":data["id"]});
+    for (link, key) in [("al", "anilist"), ("mal", "mal")] {
+        if let Some(value) = attributes["links"][link]
+            .as_str()
+            .filter(|id| id.parse::<u64>().is_ok_and(|n| n > 0))
+        {
+            ids[key] = json!(value);
+        }
+    }
     json!({"title":title,"plot":plot,"year":attributes["year"],"status":attributes["status"],"genres":genres,"identifiers":ids})
 }
 
@@ -1087,31 +1222,73 @@ mod tests {
     async fn corrupt_credentials_are_reported_by_settings_and_connection_tests() {
         let temp = tempfile::tempdir().unwrap();
         let state = crate::test_support::state(temp.path());
-        let connection = rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).unwrap();
+        let connection =
+            rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).unwrap();
         connection.execute("INSERT INTO settings (key, value_enc) VALUES ('mal_client_id', 'corrupt-secret-fixture')", []).unwrap();
         let error = settings(State(state.clone())).await.err().unwrap();
-        assert!(error.detail.contains("Stored credential could not be decrypted"));
+        assert!(
+            error
+                .detail
+                .contains("Stored credential could not be decrypted")
+        );
         assert!(!error.detail.contains("corrupt-secret-fixture"));
         let response = test_provider(State(state), Path("mal".into())).await.0;
         assert_eq!(response["ok"], false);
-        assert!(response["message"].as_str().unwrap().contains("Stored credential could not be decrypted"));
+        assert!(
+            response["message"]
+                .as_str()
+                .unwrap()
+                .contains("Stored credential could not be decrypted")
+        );
     }
 
     #[tokio::test]
     async fn disabling_anidb_preserves_saved_credentials() {
-        let temp=tempfile::tempdir().unwrap();let state=crate::test_support::state(temp.path());
-        store(&state).set_setting("anidb_client","saved_client").unwrap();store(&state).set_setting("anidb_client_version","2").unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        store(&state)
+            .set_setting("anidb_client", "saved_client")
+            .unwrap();
+        store(&state)
+            .set_setting("anidb_client_version", "2")
+            .unwrap();
         assert!(anidb_enabled(&state));
-        let _ = save_settings(State(state.clone()),Json(SettingsInput{anidb_enabled:Some(false),..Default::default()})).await.unwrap();
-        assert!(!anidb_enabled(&state));assert_eq!(setting(&state,"anidb_client"),"saved_client");assert_eq!(setting(&state,"anidb_client_version"),"2");
-        let _ = save_settings(State(state.clone()),Json(SettingsInput{anidb_enabled:Some(true),..Default::default()})).await.unwrap();assert!(anidb_enabled(&state));
+        let _ = save_settings(
+            State(state.clone()),
+            Json(SettingsInput {
+                anidb_enabled: Some(false),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(!anidb_enabled(&state));
+        assert_eq!(setting(&state, "anidb_client"), "saved_client");
+        assert_eq!(setting(&state, "anidb_client_version"), "2");
+        let _ = save_settings(
+            State(state.clone()),
+            Json(SettingsInput {
+                anidb_enabled: Some(true),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(anidb_enabled(&state));
     }
 
     use super::*;
     #[test]
     fn mangadex_metadata_uses_localized_fields_and_declared_links_without_credits() {
-        let fields=mangadex_fields(&json!({"id":"11111111-1111-1111-1111-111111111111","attributes":{"title":{"en":"Example","ja":"Original"},"description":{"en":"Description"},"year":2020,"status":"completed","links":{"al":"123","mal":"456"},"tags":[{"attributes":{"name":{"en":"Drama"}}}]}}),"en");
-        assert_eq!(fields["title"],"Example");assert_eq!(fields["year"],2020);assert_eq!(fields["genres"],json!(["Drama"]));assert_eq!(fields["identifiers"]["anilist"],"123");assert!(fields["credits"].is_null());
+        let fields = mangadex_fields(
+            &json!({"id":"11111111-1111-1111-1111-111111111111","attributes":{"title":{"en":"Example","ja":"Original"},"description":{"en":"Description"},"year":2020,"status":"completed","links":{"al":"123","mal":"456"},"tags":[{"attributes":{"name":{"en":"Drama"}}}]}}),
+            "en",
+        );
+        assert_eq!(fields["title"], "Example");
+        assert_eq!(fields["year"], 2020);
+        assert_eq!(fields["genres"], json!(["Drama"]));
+        assert_eq!(fields["identifiers"]["anilist"], "123");
+        assert!(fields["credits"].is_null());
     }
     #[test]
     fn maps_omdb_metadata_and_ignores_missing_artwork() {
@@ -1135,11 +1312,25 @@ mod tests {
     }
     #[test]
     fn tvdb_cast_portraits_prefer_roles_and_normalize_relative_urls() {
-        let credit=json!({"image":"/banners/role.jpg","personImgURL":"https://example.com/person.jpg"});
-        assert_eq!(tvdb_credit_image(&credit,true).unwrap(),"https://artworks.thetvdb.com/banners/role.jpg");
-        assert_eq!(tvdb_credit_image(&credit,false).unwrap(),"https://example.com/person.jpg");
-        assert_eq!(tvdb_credit_image(&json!({"image":" ","personImgURL":"/banners/person.jpg"}),true).unwrap(),"https://artworks.thetvdb.com/banners/person.jpg");
-        assert!(tvdb_credit_image(&json!({}),true).is_none());
+        let credit =
+            json!({"image":"/banners/role.jpg","personImgURL":"https://example.com/person.jpg"});
+        assert_eq!(
+            tvdb_credit_image(&credit, true).unwrap(),
+            "https://artworks.thetvdb.com/banners/role.jpg"
+        );
+        assert_eq!(
+            tvdb_credit_image(&credit, false).unwrap(),
+            "https://example.com/person.jpg"
+        );
+        assert_eq!(
+            tvdb_credit_image(
+                &json!({"image":" ","personImgURL":"/banners/person.jpg"}),
+                true
+            )
+            .unwrap(),
+            "https://artworks.thetvdb.com/banners/person.jpg"
+        );
+        assert!(tvdb_credit_image(&json!({}), true).is_none());
     }
     #[test]
     fn maps_tvdb_identity_rating_and_preferred_artwork() {

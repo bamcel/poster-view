@@ -1,5 +1,5 @@
 //! Playback-only capability and authorization decisions; originals are never replaced.
-use super::{bad, duration, source_bitrate, HttpError, SessionInput, MAX_PLAYBACK_SECONDS};
+use super::{HttpError, MAX_PLAYBACK_SECONDS, SessionInput, bad, duration, source_bitrate};
 use crate::transcoding::Settings;
 use serde_json::Value;
 
@@ -192,7 +192,9 @@ pub(super) fn plan_for_delivery(
             || !(500_000..=500_000_000).contains(&input.bandwidth_limit_bps)
             || rate.is_none_or(|rate| input.bandwidth_limit_bps >= rate))
     {
-        return Err(bad("Automatic bandwidth adaptation requires its server permission and a valid budget below the known source bitrate."));
+        return Err(bad(
+            "Automatic bandwidth adaptation requires its server permission and a valid budget below the known source bitrate.",
+        ));
     }
     if bandwidth
         && (input.force_remux
@@ -204,7 +206,9 @@ pub(super) fn plan_for_delivery(
                     || !source_video_ok
                     || input.source_video_supported != Some(true)))
     {
-        return Err(bad("Automatic bandwidth permission only adapts an otherwise compatible source at Original quality."));
+        return Err(bad(
+            "Automatic bandwidth permission only adapts an otherwise compatible source at Original quality.",
+        ));
     }
     let hdr = matches!(
         video["color_transfer"].as_str(),
@@ -240,7 +244,9 @@ pub(super) fn plan_for_delivery(
         ));
     }
     if !input.hls_supported {
-        return Err(bad("This browser has no supported segmented-playback delivery. Use a compatible browser or original track."));
+        return Err(bad(
+            "This browser has no supported segmented-playback delivery. Use a compatible browser or original track.",
+        ));
     }
     let copy_video = matches!(v, "h264" | "hevc" | "av1")
         && input
@@ -274,7 +280,9 @@ pub(super) fn plan_for_delivery(
     let copy_allowed = settings.allow_remux;
     if input.force_remux {
         if !copy_allowed || !copy_video || !copy_audio || encode_video {
-            return Err(bad("Forced stream copying requires supported original codecs and remux permission; it cannot encode audio or video."));
+            return Err(bad(
+                "Forced stream copying requires supported original codecs and remux permission; it cannot encode audio or video.",
+            ));
         }
         return Ok(Plan {
             method: "remux",
@@ -379,7 +387,9 @@ pub(super) fn plan_for_delivery(
         && bitrate_limit > 0
         && copied_audio_rate.saturating_add(300_000) > bitrate_limit
     {
-        return Err(bad("The requested bitrate cannot fit the selected copied audio and a usable video stream. Choose a larger bitrate or a lower-rate audio track."));
+        return Err(bad(
+            "The requested bitrate cannot fit the selected copied audio and a usable video stream. Choose a larger bitrate or a lower-rate audio track.",
+        ));
     }
     Ok(Plan {
         method: if encode_video {
@@ -473,19 +483,21 @@ mod tests {
             plan(&data, "mkv", &request, &audio).unwrap().method,
             "audio_transcode"
         );
-        assert!(plan(
-            &data,
-            "mkv",
-            &SessionInput {
-                force_remux: true,
-                ..request.clone()
-            },
-            &Settings {
-                allow_conversion: true,
-                ..audio
-            }
-        )
-        .is_err());
+        assert!(
+            plan(
+                &data,
+                "mkv",
+                &SessionInput {
+                    force_remux: true,
+                    ..request.clone()
+                },
+                &Settings {
+                    allow_conversion: true,
+                    ..audio
+                }
+            )
+            .is_err()
+        );
         let invalid = SessionInput {
             hls_audio_track_indexes: Some(vec![999]),
             ..request
@@ -506,16 +518,18 @@ mod tests {
         assert_eq!(planned.method, "transcode");
         assert!(!planned.convert_audio);
         assert_eq!(planned.height, 720);
-        assert!(plan(
-            &probe(),
-            "mkv",
-            &request,
-            &Settings {
-                allow_audio_transcoding: true,
-                ..Default::default()
-            }
-        )
-        .is_err());
+        assert!(
+            plan(
+                &probe(),
+                "mkv",
+                &request,
+                &Settings {
+                    allow_audio_transcoding: true,
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
         let incompatible = SessionInput {
             hls_video_codecs: vec!["hevc".into()],
             ..request
@@ -532,16 +546,18 @@ mod tests {
             source_hls_video_supported: Some(false),
             ..input()
         };
-        assert!(plan(
-            &source,
-            "mkv",
-            &request,
-            &Settings {
-                allow_audio_transcoding: true,
-                ..Default::default()
-            }
-        )
-        .is_err());
+        assert!(
+            plan(
+                &source,
+                "mkv",
+                &request,
+                &Settings {
+                    allow_audio_transcoding: true,
+                    ..Default::default()
+                }
+            )
+            .is_err()
+        );
         let planned = plan(
             &source,
             "mkv",

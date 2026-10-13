@@ -1,7 +1,7 @@
 //! Temporary segmented delivery. Every generation owns one bounded producer.
 use super::{
-    bad, command, container, failure, manifest, number, planner, run, HttpError, PlaybackStore,
-    SessionInput, Source, VIDEO_DEMUXERS,
+    HttpError, PlaybackStore, SessionInput, Source, VIDEO_DEMUXERS, bad, command, container,
+    failure, manifest, number, planner, run,
 };
 use crate::transcoding::Settings;
 use serde::{Deserialize, Serialize};
@@ -9,8 +9,8 @@ use serde_json::Value;
 use std::{
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU32, Ordering},
         Arc,
+        atomic::{AtomicU32, Ordering},
     },
     time::Duration,
 };
@@ -45,7 +45,7 @@ impl Producer {
         #[cfg(unix)]
         if let Some(pid) = self.child.id() {
             use nix::{
-                sys::signal::{kill, Signal},
+                sys::signal::{Signal, kill},
                 unistd::Pid,
             };
             if kill(
@@ -718,12 +718,16 @@ async fn start_process(
             .is_some()
         {
             let _ = child.wait().await;
-            return Err(failure("FFmpeg could not start this playback stream. Check codecs, hardware and HDR tone-mapping support."));
+            return Err(failure(
+                "FFmpeg could not start this playback stream. Check codecs, hardware and HDR tone-mapping support.",
+            ));
         }
         if tokio::time::Instant::now() >= deadline {
             let _ = child.kill().await;
             let _ = child.wait().await;
-            return Err(failure("Playback preparation timed out. Check encoder performance and the source video GOP."));
+            return Err(failure(
+                "Playback preparation timed out. Check encoder performance and the source video GOP.",
+            ));
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }

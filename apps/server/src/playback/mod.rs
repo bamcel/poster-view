@@ -11,21 +11,21 @@ use planner::{plan, plan_for_delivery, selected_stream, validate_request};
 
 use crate::{AppState, HttpError};
 use axum::{
-    extract::{Path, Request, State},
-    http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
     Json,
+    extract::{Path, Request, State},
+    http::{HeaderMap, StatusCode, header},
+    response::{IntoResponse, Response},
 };
 use posterview_contracts::native::NativeCatalogEntry;
 use posterview_infra_sqlite::ServerStore;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
     path::{Component, Path as FsPath, PathBuf},
     sync::{
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc, Mutex as StdMutex,
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -1459,7 +1459,7 @@ pub(crate) async fn subtitle(
         _ => {
             return Err(bad(
                 "This subtitle format has no supported client renderer.",
-            ))
+            ));
         }
     };
     let path = extracted_resource(&state.playback, &source, index, format).await?;

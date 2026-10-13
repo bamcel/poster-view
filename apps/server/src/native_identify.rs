@@ -12,11 +12,16 @@ use serde_json::{Value, json};
 pub(crate) struct Search {
     title: String,
     year: Option<i64>,
-    #[serde(default)] providers: Option<Vec<String>>,
-    #[serde(default)] provider: Option<String>,
-    #[serde(default)] tvdb_id: Option<String>,
-    #[serde(default)] imdb_id: Option<String>,
-    #[serde(default)] tmdb_id: Option<String>,
+    #[serde(default)]
+    providers: Option<Vec<String>>,
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    tvdb_id: Option<String>,
+    #[serde(default)]
+    imdb_id: Option<String>,
+    #[serde(default)]
+    tmdb_id: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -25,18 +30,30 @@ pub(crate) struct Apply {
     title: String,
     year: Option<i64>,
     identifiers: std::collections::BTreeMap<String, String>,
-    #[serde(default)] rewrite_metadata: bool,
-    #[serde(default)] replace_artwork: bool,
+    #[serde(default)]
+    rewrite_metadata: bool,
+    #[serde(default)]
+    replace_artwork: bool,
 }
 fn db(state: &AppState) -> ServerStore {
     ServerStore::new(state.runtime.data_dir())
 }
 fn key(state: &AppState, name: &str) -> Result<String, String> {
-    db(state).get_setting(name).map_err(|error| error.to_string())
+    db(state)
+        .get_setting(name)
+        .map_err(|error| error.to_string())
 }
 fn book_providers(lib: &posterview_contracts::native::NativeLibrary) -> Vec<&str> {
-    lib.options.metadata_providers.get("book_series")
-        .map(|providers| providers.iter().map(String::as_str).filter(|p| ["comicvine", "anilist", "mal", "mangadex"].contains(p)).collect())
+    lib.options
+        .metadata_providers
+        .get("book_series")
+        .map(|providers| {
+            providers
+                .iter()
+                .map(String::as_str)
+                .filter(|p| ["comicvine", "anilist", "mal", "mangadex"].contains(p))
+                .collect()
+        })
         .unwrap_or_else(|| vec!["comicvine", "anilist", "mal"])
 }
 fn numeric(v: &Value) -> Option<String> {
@@ -47,14 +64,31 @@ fn numeric(v: &Value) -> Option<String> {
 }
 fn comicvine_id(value: &str) -> Option<String> {
     let value = value.trim();
-    if let Some(id) = numeric(&json!(value)) { return Some(id); }
-    if let Some(id) = value.strip_prefix("4050-") { return numeric(&json!(id)); }
+    if let Some(id) = numeric(&json!(value)) {
+        return Some(id);
+    }
+    if let Some(id) = value.strip_prefix("4050-") {
+        return numeric(&json!(id));
+    }
     let url = reqwest::Url::parse(value).ok()?;
-    if !["https", "http"].contains(&url.scheme()) || !["comicvine.gamespot.com", "www.comicvine.gamespot.com"].contains(&url.host_str()?) { return None; }
-    url.path_segments()?.find_map(|part| part.strip_prefix("4050-").and_then(|id| numeric(&json!(id))))
+    if !["https", "http"].contains(&url.scheme())
+        || !["comicvine.gamespot.com", "www.comicvine.gamespot.com"].contains(&url.host_str()?)
+    {
+        return None;
+    }
+    url.path_segments()?.find_map(|part| {
+        part.strip_prefix("4050-")
+            .and_then(|id| numeric(&json!(id)))
+    })
 }
 fn identification_id(provider: &str, value: &Value) -> bool {
-    if provider=="mangadex" { value.as_str().is_some_and(posterview_infra_artwork::valid_manga_id) } else { numeric(value).is_some() }
+    if provider == "mangadex" {
+        value
+            .as_str()
+            .is_some_and(posterview_infra_artwork::valid_manga_id)
+    } else {
+        numeric(value).is_some()
+    }
 }
 fn year(v: &Value) -> Value {
     v.as_i64()
@@ -96,7 +130,13 @@ fn candidate(provider: &str, v: &Value, movie: bool) -> Option<Value> {
             v["overview"].clone(),
             json!(if movie { "Movie" } else { "Series" }),
         ),
-        "comicvine" => (numeric(&v["id"]), v["name"].as_str(), v["start_year"].clone(), v["description"].clone(), json!("Book series")),
+        "comicvine" => (
+            numeric(&v["id"]),
+            v["name"].as_str(),
+            v["start_year"].clone(),
+            v["description"].clone(),
+            json!("Book series"),
+        ),
         "mal" => (
             numeric(&v["id"]),
             v["title"].as_str(),
@@ -179,7 +219,10 @@ fn candidate(provider: &str, v: &Value, movie: bool) -> Option<Value> {
             .as_str()
             .or(v["image"].as_str())
             .map(str::to_owned),
-        "comicvine" => v["image"]["small_url"].as_str().or(v["image"]["original_url"].as_str()).map(str::to_owned),
+        "comicvine" => v["image"]["small_url"]
+            .as_str()
+            .or(v["image"]["original_url"].as_str())
+            .map(str::to_owned),
         "mal" => v["main_picture"]["large"]
             .as_str()
             .or(v["main_picture"]["medium"].as_str())
@@ -254,7 +297,10 @@ async fn lookup(
             } else {
                 "query($search:String,$adult:Boolean){Page(perPage:15){media(search:$search,type:ANIME,isAdult:$adult){id idMal format coverImage{large} title{english romaji native} startDate{year} description(asHtml:false)}}}"
             };
-            let query = query.replace("type:ANIME", if books { "type:MANGA" } else { "type:ANIME" });
+            let query = query.replace(
+                "type:ANIME",
+                if books { "type:MANGA" } else { "type:ANIME" },
+            );
             let body=response(client.post("https://graphql.anilist.co").json(&json!({"query":query,"variables":{"search":title,"id":id.and_then(|s|s.parse::<u64>().ok()),"adult":if adult {Value::Null}else{json!(false)}}})).send().await.map_err(|_|"AniList connection failed.")?).await?;
             if id.is_some() {
                 vec![body["data"]["Media"].clone()]
@@ -411,11 +457,45 @@ async fn lookup(
             }
         }
         "mangadex" if books => {
-            let request=client.get(id.map(|id|format!("https://api.mangadex.org/manga/{id}")).unwrap_or_else(||"https://api.mangadex.org/manga".into())).query(&[("includes[]","cover_art")]);
-            let request=if id.is_some(){request}else{request.query(&[("title",title),("limit","15")])};
-            let request=if adult{request.query(&[("contentRating[]","safe"),("contentRating[]","suggestive"),("contentRating[]","erotica"),("contentRating[]","pornographic")])}else{request.query(&[("contentRating[]","safe"),("contentRating[]","suggestive")])};
-            let body=response(request.send().await.map_err(|_|"MangaDex connection failed.")?).await?;
-            let records=if id.is_some(){vec![body["data"].clone()]}else{body["data"].as_array().cloned().ok_or("MangaDex search failed.")?};
+            let request = client
+                .get(
+                    id.map(|id| format!("https://api.mangadex.org/manga/{id}"))
+                        .unwrap_or_else(|| "https://api.mangadex.org/manga".into()),
+                )
+                .query(&[("includes[]", "cover_art")]);
+            let request = if id.is_some() {
+                request
+            } else {
+                request.query(&[("title", title), ("limit", "15")])
+            };
+            let request = if adult {
+                request.query(&[
+                    ("contentRating[]", "safe"),
+                    ("contentRating[]", "suggestive"),
+                    ("contentRating[]", "erotica"),
+                    ("contentRating[]", "pornographic"),
+                ])
+            } else {
+                request.query(&[
+                    ("contentRating[]", "safe"),
+                    ("contentRating[]", "suggestive"),
+                ])
+            };
+            let body = response(
+                request
+                    .send()
+                    .await
+                    .map_err(|_| "MangaDex connection failed.")?,
+            )
+            .await?;
+            let records = if id.is_some() {
+                vec![body["data"].clone()]
+            } else {
+                body["data"]
+                    .as_array()
+                    .cloned()
+                    .ok_or("MangaDex search failed.")?
+            };
             return Ok(records.iter().filter(|data| adult || !["erotica","pornographic"].contains(&data["attributes"]["contentRating"].as_str().unwrap_or(""))).filter_map(|data|{
                 let id=data["id"].as_str().filter(|id|posterview_infra_artwork::valid_manga_id(id))?;
                 let fields=crate::native_provider_extra::mangadex_fields(data,language);
@@ -425,20 +505,55 @@ async fn lookup(
         }
         "comicvine" if books => {
             let token = key(state, "comicvine_api_key")?;
-            if token.is_empty() { return Err("Configure a ComicVine API key in Search Providers.".into()); }
+            if token.is_empty() {
+                return Err("Configure a ComicVine API key in Search Providers.".into());
+            }
             if id.is_none() {
                 // The search endpoint sometimes omits these fields; shared search fills them from volume details.
                 let service = posterview_infra_artwork::ArtworkService::default();
-                let results = service.search("comicvine", title, "book", "", "", &token).await?;
+                let results = service
+                    .search("comicvine", title, "book", "", "", &token)
+                    .await?;
                 return Ok(results.into_iter().take(15).filter_map(|record| candidate("comicvine", &json!({"id":record.id,"name":record.name,"start_year":record.year,"publisher":{"name":record.publisher},"count_of_issues":record.volume_count,"image":{"small_url":record.thumb_url}}), false)).collect());
             }
-            let path = id.map(|id| format!("volume/4050-{id}/")).unwrap_or_else(|| "search/".into());
-            let request = client.get(format!("https://comicvine.gamespot.com/api/{path}"))
-                .query(&[("api_key", token.as_str()), ("format", "json"), ("field_list", "id,name,start_year,description,image,publisher,count_of_issues")]);
-            let request = if id.is_some() { request } else { request.query(&[("query", title), ("resources", "volume"), ("limit", "15")]) };
-            let body = response(request.send().await.map_err(|_| "ComicVine connection failed.")?).await?;
-            if body["status_code"].as_i64() != Some(1) { return Err("ComicVine could not retrieve volume records. Check your API key.".into()); }
-            if id.is_some() { vec![body["results"].clone()] } else { body["results"].as_array().cloned().ok_or("ComicVine search failed.")? }
+            let path = id
+                .map(|id| format!("volume/4050-{id}/"))
+                .unwrap_or_else(|| "search/".into());
+            let request = client
+                .get(format!("https://comicvine.gamespot.com/api/{path}"))
+                .query(&[
+                    ("api_key", token.as_str()),
+                    ("format", "json"),
+                    (
+                        "field_list",
+                        "id,name,start_year,description,image,publisher,count_of_issues",
+                    ),
+                ]);
+            let request = if id.is_some() {
+                request
+            } else {
+                request.query(&[("query", title), ("resources", "volume"), ("limit", "15")])
+            };
+            let body = response(
+                request
+                    .send()
+                    .await
+                    .map_err(|_| "ComicVine connection failed.")?,
+            )
+            .await?;
+            if body["status_code"].as_i64() != Some(1) {
+                return Err(
+                    "ComicVine could not retrieve volume records. Check your API key.".into(),
+                );
+            }
+            if id.is_some() {
+                vec![body["results"].clone()]
+            } else {
+                body["results"]
+                    .as_array()
+                    .cloned()
+                    .ok_or("ComicVine search failed.")?
+            }
         }
         _ => return Err("Unsupported identification provider.".into()),
     };
@@ -507,17 +622,53 @@ fn client() -> Result<reqwest::Client, HttpError> {
         .build()
         .map_err(|_| HttpError::bad_gateway("Unable to start identification."))
 }
-fn remote_tvdb_ids(raw:&Value,movie:bool)->Vec<String> {
-    raw["data"].as_array().into_iter().flatten().filter_map(|record|numeric(&record[if movie {"movie"} else {"series"}]["id"])).collect()
+fn remote_tvdb_ids(raw: &Value, movie: bool) -> Vec<String> {
+    raw["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|record| numeric(&record[if movie { "movie" } else { "series" }]["id"]))
+        .collect()
 }
-async fn imdb_matches(state:&AppState,client:&reqwest::Client,id:&str,movie:bool,language:&str)->Result<Vec<Value>,String> {
-    if !id.starts_with("tt") || numeric(&json!(&id[2..])).is_none(){return Err("Enter a valid IMDb ID.".into());}
-    let token=key(state, "tvdb_api_key")?;if token.is_empty(){return Err("Configure TheTVDB credentials in Search Providers.".into());}
-    let raw=crate::native_provider::response(posterview_infra_artwork::ArtworkService::default().native_tvdb_get(&format!("/search/remoteid/{id}"),&[],&token,&key(state, "tvdb_pin")?).await?).await?;
-    let mut results=Vec::new();
-    for tvdb in remote_tvdb_ids(&raw,movie) {
-        for mut candidate in lookup(state,client,"tvdb","",Some(&tvdb),movie,(false,language,false)).await? {
-            candidate["identifiers"]["imdb"]=json!(id);
+async fn imdb_matches(
+    state: &AppState,
+    client: &reqwest::Client,
+    id: &str,
+    movie: bool,
+    language: &str,
+) -> Result<Vec<Value>, String> {
+    if !id.starts_with("tt") || numeric(&json!(&id[2..])).is_none() {
+        return Err("Enter a valid IMDb ID.".into());
+    }
+    let token = key(state, "tvdb_api_key")?;
+    if token.is_empty() {
+        return Err("Configure TheTVDB credentials in Search Providers.".into());
+    }
+    let raw = crate::native_provider::response(
+        posterview_infra_artwork::ArtworkService::default()
+            .native_tvdb_get(
+                &format!("/search/remoteid/{id}"),
+                &[],
+                &token,
+                &key(state, "tvdb_pin")?,
+            )
+            .await?,
+    )
+    .await?;
+    let mut results = Vec::new();
+    for tvdb in remote_tvdb_ids(&raw, movie) {
+        for mut candidate in lookup(
+            state,
+            client,
+            "tvdb",
+            "",
+            Some(&tvdb),
+            movie,
+            (false, language, false),
+        )
+        .await?
+        {
+            candidate["identifiers"]["imdb"] = json!(id);
             results.push(candidate);
         }
     }
@@ -529,27 +680,82 @@ pub(crate) async fn search(
     Json(input): Json<Search>,
 ) -> Result<Json<Value>, HttpError> {
     let (lib, entry) = context(&state, &library, &item).await?;
-    if input.provider.as_deref()==Some("tvdb") {
-        if entry.kind!="series" {return Err(HttpError::bad_request("TVDB identification requires a series."));}
-        if input.title.len()>200 || input.year.is_some_and(|y|!(1800..=2200).contains(&y)){return Err(HttpError::bad_request("Enter valid search criteria."));}
-        let client=client()?;
-        let explicit=input.tvdb_id.as_deref().filter(|v|!v.trim().is_empty());
-        if explicit.is_some_and(|v|numeric(&json!(v)).is_none()){return Err(HttpError::bad_request("Enter a numeric TVDB ID."));}
-        let mut remote=input.imdb_id.clone().filter(|v|!v.trim().is_empty());
-        if remote.as_ref().is_some_and(|v|!v.starts_with("tt")||numeric(&json!(&v[2..])).is_none()){return Err(HttpError::bad_request("Enter a valid IMDb ID."));}
-        if let Some(id)=input.tmdb_id.as_deref().filter(|v|!v.trim().is_empty()) {
-            if numeric(&json!(id)).is_none(){return Err(HttpError::bad_request("Enter a numeric TMDB ID."));}
-            let records=lookup(&state,&client,"tmdb",&input.title,Some(id),false,(false,&lib.options.metadata_language,false)).await.map_err(HttpError::bad_gateway)?;
-            remote=records.first().and_then(|v|v["identifiers"]["imdb"].as_str()).map(str::to_string).or(remote);
-            if explicit.is_none() && remote.is_none(){return Err(HttpError::bad_request("That TMDB record has no linked IMDb ID. Search by title or TVDB ID instead."));}
+    if input.provider.as_deref() == Some("tvdb") {
+        if entry.kind != "series" {
+            return Err(HttpError::bad_request(
+                "TVDB identification requires a series.",
+            ));
         }
-        let results=if explicit.is_some() || remote.is_none() {
-            if explicit.is_none()&&input.title.trim().len()<2 {return Err(HttpError::bad_request("Enter a title or provider ID."));}
-            lookup(&state,&client,"tvdb",&input.title,explicit,false,(false,&lib.options.metadata_language,false)).await.map_err(HttpError::bad_gateway)?
-        }else{
-            imdb_matches(&state,&client,&remote.unwrap(),false,&lib.options.metadata_language).await.map_err(HttpError::bad_gateway)?
+        if input.title.len() > 200 || input.year.is_some_and(|y| !(1800..=2200).contains(&y)) {
+            return Err(HttpError::bad_request("Enter valid search criteria."));
+        }
+        let client = client()?;
+        let explicit = input.tvdb_id.as_deref().filter(|v| !v.trim().is_empty());
+        if explicit.is_some_and(|v| numeric(&json!(v)).is_none()) {
+            return Err(HttpError::bad_request("Enter a numeric TVDB ID."));
+        }
+        let mut remote = input.imdb_id.clone().filter(|v| !v.trim().is_empty());
+        if remote
+            .as_ref()
+            .is_some_and(|v| !v.starts_with("tt") || numeric(&json!(&v[2..])).is_none())
+        {
+            return Err(HttpError::bad_request("Enter a valid IMDb ID."));
+        }
+        if let Some(id) = input.tmdb_id.as_deref().filter(|v| !v.trim().is_empty()) {
+            if numeric(&json!(id)).is_none() {
+                return Err(HttpError::bad_request("Enter a numeric TMDB ID."));
+            }
+            let records = lookup(
+                &state,
+                &client,
+                "tmdb",
+                &input.title,
+                Some(id),
+                false,
+                (false, &lib.options.metadata_language, false),
+            )
+            .await
+            .map_err(HttpError::bad_gateway)?;
+            remote = records
+                .first()
+                .and_then(|v| v["identifiers"]["imdb"].as_str())
+                .map(str::to_string)
+                .or(remote);
+            if explicit.is_none() && remote.is_none() {
+                return Err(HttpError::bad_request(
+                    "That TMDB record has no linked IMDb ID. Search by title or TVDB ID instead.",
+                ));
+            }
+        }
+        let results = if explicit.is_some() || remote.is_none() {
+            if explicit.is_none() && input.title.trim().len() < 2 {
+                return Err(HttpError::bad_request("Enter a title or provider ID."));
+            }
+            lookup(
+                &state,
+                &client,
+                "tvdb",
+                &input.title,
+                explicit,
+                false,
+                (false, &lib.options.metadata_language, false),
+            )
+            .await
+            .map_err(HttpError::bad_gateway)?
+        } else {
+            imdb_matches(
+                &state,
+                &client,
+                &remote.unwrap(),
+                false,
+                &lib.options.metadata_language,
+            )
+            .await
+            .map_err(HttpError::bad_gateway)?
         };
-        return Ok(Json(json!({"groups":[{"provider":"tvdb","results":results.into_iter().filter(|v|input.year.is_none_or(|y|v["year"].is_null()||v["year"]==y)).collect::<Vec<_>>()}]})));
+        return Ok(Json(
+            json!({"groups":[{"provider":"tvdb","results":results.into_iter().filter(|v|input.year.is_none_or(|y|v["year"].is_null()||v["year"]==y)).collect::<Vec<_>>()}]}),
+        ));
     }
     if input.title.trim().len() < 2
         || input.title.len() > 200
@@ -567,10 +773,29 @@ pub(crate) async fn search(
     } else {
         vec!["tmdb", "tvdb"]
     };
-    let providers=providers.into_iter().filter(|provider|*provider!="anidb"||crate::native_provider_extra::anidb_enabled(&state)).filter(|provider|input.providers.as_ref().is_none_or(|requested|requested.iter().any(|p|p==provider))).collect::<Vec<_>>();
+    let providers = providers
+        .into_iter()
+        .filter(|provider| {
+            *provider != "anidb" || crate::native_provider_extra::anidb_enabled(&state)
+        })
+        .filter(|provider| {
+            input
+                .providers
+                .as_ref()
+                .is_none_or(|requested| requested.iter().any(|p| p == provider))
+        })
+        .collect::<Vec<_>>();
     let mut jobs = tokio::task::JoinSet::new();
     for selected_provider in providers.iter().copied() {
-        let provider = match selected_provider {"comicvine"=>"comicvine", "anilist"=>"anilist", "mal"=>"mal", "mangadex"=>"mangadex", "tmdb"=>"tmdb", "tvdb"=>"tvdb", _=>"anidb"};
+        let provider = match selected_provider {
+            "comicvine" => "comicvine",
+            "anilist" => "anilist",
+            "mal" => "mal",
+            "mangadex" => "mangadex",
+            "tmdb" => "tmdb",
+            "tvdb" => "tvdb",
+            _ => "anidb",
+        };
         let state = state.clone();
         let client = client.clone();
         let title = input.title.clone();
@@ -600,7 +825,12 @@ pub(crate) async fn search(
             result.map_err(|_| HttpError::bad_gateway("Identification provider interrupted."))?;
         groups.push(match result {Ok(results)=>json!({"provider":provider,"results":results.into_iter().filter(|v|input.year.is_none_or(|y|v["year"].is_null() || v["year"]==y)).collect::<Vec<_>>()}),Err(error)=>json!({"provider":provider,"results":[],"error":error})});
     }
-    groups.sort_by_key(|g| providers.iter().position(|p| Some(*p) == g["provider"].as_str()).unwrap_or(usize::MAX));
+    groups.sort_by_key(|g| {
+        providers
+            .iter()
+            .position(|p| Some(*p) == g["provider"].as_str())
+            .unwrap_or(usize::MAX)
+    });
     Ok(Json(json!({"groups":groups})))
 }
 pub(crate) async fn apply(
@@ -609,12 +839,26 @@ pub(crate) async fn apply(
     Json(mut input): Json<Apply>,
 ) -> Result<Json<Value>, HttpError> {
     let (lib, entry) = context(&state, &library, &item).await?;
-    let _operation=crate::native_operations::acquire(format!("{}:{}",state.runtime.data_dir().display(),library),Some(&[entry.path.clone()])).await;
-    let (_,fresh)=context(&state,&library,&item).await?;
-    if entry.revision!=input.revision || !crate::native_operations::same_manual_fields(&entry.metadata,&fresh.metadata) {return Err(HttpError::bad_request("This item's manual metadata changed. Reopen Identify before saving."));}
-    input.revision=fresh.revision;
-    let entry=fresh;
-    if input.replace_artwork&&!input.rewrite_metadata{return Err(HttpError::bad_request("Artwork replacement requires metadata rewrite confirmation."));}
+    let _operation = crate::native_operations::acquire(
+        format!("{}:{}", state.runtime.data_dir().display(), library),
+        Some(&[entry.path.clone()]),
+    )
+    .await;
+    let (_, fresh) = context(&state, &library, &item).await?;
+    if entry.revision != input.revision
+        || !crate::native_operations::same_manual_fields(&entry.metadata, &fresh.metadata)
+    {
+        return Err(HttpError::bad_request(
+            "This item's manual metadata changed. Reopen Identify before saving.",
+        ));
+    }
+    input.revision = fresh.revision;
+    let entry = fresh;
+    if input.replace_artwork && !input.rewrite_metadata {
+        return Err(HttpError::bad_request(
+            "Artwork replacement requires metadata rewrite confirmation.",
+        ));
+    }
     if input.title.trim().is_empty()
         || input.title.len() > 512
         || input.year.is_some_and(|y| !(1800..=2200).contains(&y))
@@ -625,12 +869,29 @@ pub(crate) async fn apply(
         ));
     }
     if let Some(id) = input.identifiers.get_mut("comicvine") {
-        *id = comicvine_id(id).ok_or_else(|| HttpError::bad_request("Enter a ComicVine volume ID or series URL (4050), not an issue URL."))?;
+        *id = comicvine_id(id).ok_or_else(|| {
+            HttpError::bad_request(
+                "Enter a ComicVine volume ID or series URL (4050), not an issue URL.",
+            )
+        })?;
     }
     for (provider, id) in &input.identifiers {
-        if (lib.library_type!=posterview_contracts::native::NativeLibraryType::Anime && !entry.kind.starts_with("book") && !["tmdb","tvdb","imdb"].contains(&provider.as_str()))
-            || (entry.kind.starts_with("book") && !book_providers(&lib).contains(&provider.as_str()))
-            || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "imdb", "anidb", "mangadex"].contains(&provider.as_str())
+        if (lib.library_type != posterview_contracts::native::NativeLibraryType::Anime
+            && !entry.kind.starts_with("book")
+            && !["tmdb", "tvdb", "imdb"].contains(&provider.as_str()))
+            || (entry.kind.starts_with("book")
+                && !book_providers(&lib).contains(&provider.as_str()))
+            || ![
+                "comicvine",
+                "anilist",
+                "tmdb",
+                "tvdb",
+                "mal",
+                "imdb",
+                "anidb",
+                "mangadex",
+            ]
+            .contains(&provider.as_str())
             || if provider == "imdb" {
                 !id.starts_with("tt") || numeric(&json!(&id[2..])).is_none()
             } else {
@@ -644,8 +905,10 @@ pub(crate) async fn apply(
     let mut ids = input.identifiers.clone();
     // Fetch explicit selections by ID and use only provider-declared cross references.
     for (provider, id) in &input.identifiers {
-        if provider=="anidb"&&!crate::native_provider_extra::anidb_enabled(&state) {
-            if entry.metadata["identifiers"]["anidb"]!=json!(id) {return Err(HttpError::bad_request("AniDB plugin is disabled."));}
+        if provider == "anidb" && !crate::native_provider_extra::anidb_enabled(&state) {
+            if entry.metadata["identifiers"]["anidb"] != json!(id) {
+                return Err(HttpError::bad_request("AniDB plugin is disabled."));
+            }
             continue;
         }
         if ["imdb"].contains(&provider.as_str()) {
@@ -670,7 +933,9 @@ pub(crate) async fn apply(
             HttpError::bad_request("That provider ID does not match the library's media type.")
         })?;
         for (name, value) in record["identifiers"].as_object().into_iter().flatten() {
-            if entry.kind.starts_with("book") && !book_providers(&lib).contains(&name.as_str()) { continue; }
+            if entry.kind.starts_with("book") && !book_providers(&lib).contains(&name.as_str()) {
+                continue;
+            }
             let Some(value) = value.as_str() else {
                 continue;
             };
@@ -694,27 +959,116 @@ pub(crate) async fn apply(
             return Err(HttpError::bad_request("Invalid linked provider ID."));
         }
     }
-    if lib.library_type!=posterview_contracts::native::NativeLibraryType::Anime && !entry.kind.starts_with("book") {ids.retain(|name,_|["tvdb","tmdb","imdb"].contains(&name.as_str()));}
-    let mut replacement=None;let mut images=Vec::new();let mut warnings=Vec::<String>::new();
-    if input.rewrite_metadata {
-        if entry.kind!="series" || !ids.contains_key("tvdb") {return Err(HttpError::bad_request("Select a TVDB series before rewriting metadata."));}
-        let mut selected=entry.clone();selected.metadata=json!({"identifiers":{"tvdb":ids["tvdb"]}});
-        let mut data=crate::native_provider_extra::fetch(&state,&client,&posterview_infra_artwork::ArtworkService::default(),"tvdb",&lib,&selected,&Value::Null).await.map_err(HttpError::bad_gateway)?;
-        if let Some(credits)=data.fields["credits"].as_array_mut(){for credit in credits {credit["provider"]=json!("tvdb");}}
-        for (provider,id) in data.fields["identifiers"].as_object().into_iter().flatten(){if ["tvdb","tmdb","imdb"].contains(&provider.as_str()){if let Some(id)=id.as_str().map(str::to_string).or_else(||numeric(id)){ids.insert(provider.clone(),id);}}}
-        if input.replace_artwork {let mut seen=std::collections::HashSet::new();for (kind,url) in data.artwork {if !lib.options.image_types.contains(&kind)||seen.contains(&kind){continue;}match crate::native_provider::download(&state,&client,&url).await {Ok(path)=>{seen.insert(kind.clone());images.push(posterview_contracts::native::NativeArtwork{kind,path,source:"manual".into()});},Err(e)=>warnings.push(format!("Artwork not replaced: {e}"))}}}
-        data.fields["_identify_replace_artwork"]=json!(input.replace_artwork);
-        replacement=Some(data.fields);
+    if lib.library_type != posterview_contracts::native::NativeLibraryType::Anime
+        && !entry.kind.starts_with("book")
+    {
+        ids.retain(|name, _| ["tvdb", "tmdb", "imdb"].contains(&name.as_str()));
     }
-    if !crate::native_provider_extra::anidb_enabled(&state) {if let Some(saved)=entry.metadata["identifiers"]["anidb"].as_str(){ids.insert("anidb".into(),saved.into());}}
-    let store = db(&state);let id = library.clone();let item_id = item.clone();
-    let title = replacement.as_ref().and_then(|v|v["title"].as_str()).unwrap_or(input.title.trim()).to_string();
-    let year = replacement.as_ref().and_then(|v|v["year"].as_i64()).or(input.year);
-    tokio::task::spawn_blocking(move || {store.identify_native_entry_with_metadata(&id,&item_id,input.revision,&title,year,&json!(ids),replacement.as_ref())})
-        .await.map_err(|_| HttpError::bad_request("Identification save interrupted."))?.map_err(|e| HttpError::bad_request(e.to_string()))?;
-    for art in images {db(&state).save_native_artwork(&library,&item,&art).map_err(|e|HttpError::bad_request(e.to_string()))?;if lib.options.save_artwork || crate::native_artwork::replacement_writes_local(&state,&entry,&art.kind) {if let Err(e)=crate::native_artwork::write(&state,&entry,&art,true){warnings.push(format!("Artwork saved; media-folder write failed: {e}"));}}}
+    let mut replacement = None;
+    let mut images = Vec::new();
+    let mut warnings = Vec::<String>::new();
+    if input.rewrite_metadata {
+        if entry.kind != "series" || !ids.contains_key("tvdb") {
+            return Err(HttpError::bad_request(
+                "Select a TVDB series before rewriting metadata.",
+            ));
+        }
+        let mut selected = entry.clone();
+        selected.metadata = json!({"identifiers":{"tvdb":ids["tvdb"]}});
+        let mut data = crate::native_provider_extra::fetch(
+            &state,
+            &client,
+            &posterview_infra_artwork::ArtworkService::default(),
+            "tvdb",
+            &lib,
+            &selected,
+            &Value::Null,
+        )
+        .await
+        .map_err(HttpError::bad_gateway)?;
+        if let Some(credits) = data.fields["credits"].as_array_mut() {
+            for credit in credits {
+                credit["provider"] = json!("tvdb");
+            }
+        }
+        for (provider, id) in data.fields["identifiers"].as_object().into_iter().flatten() {
+            if ["tvdb", "tmdb", "imdb"].contains(&provider.as_str()) {
+                if let Some(id) = id.as_str().map(str::to_string).or_else(|| numeric(id)) {
+                    ids.insert(provider.clone(), id);
+                }
+            }
+        }
+        if input.replace_artwork {
+            let mut seen = std::collections::HashSet::new();
+            for (kind, url) in data.artwork {
+                if !lib.options.image_types.contains(&kind) || seen.contains(&kind) {
+                    continue;
+                }
+                match crate::native_provider::download(&state, &client, &url).await {
+                    Ok(path) => {
+                        seen.insert(kind.clone());
+                        images.push(posterview_contracts::native::NativeArtwork {
+                            kind,
+                            path,
+                            source: "manual".into(),
+                        });
+                    }
+                    Err(e) => warnings.push(format!("Artwork not replaced: {e}")),
+                }
+            }
+        }
+        data.fields["_identify_replace_artwork"] = json!(input.replace_artwork);
+        replacement = Some(data.fields);
+    }
+    if !crate::native_provider_extra::anidb_enabled(&state) {
+        if let Some(saved) = entry.metadata["identifiers"]["anidb"].as_str() {
+            ids.insert("anidb".into(), saved.into());
+        }
+    }
+    let store = db(&state);
+    let id = library.clone();
+    let item_id = item.clone();
+    let title = replacement
+        .as_ref()
+        .and_then(|v| v["title"].as_str())
+        .unwrap_or(input.title.trim())
+        .to_string();
+    let year = replacement
+        .as_ref()
+        .and_then(|v| v["year"].as_i64())
+        .or(input.year);
+    tokio::task::spawn_blocking(move || {
+        store.identify_native_entry_with_metadata(
+            &id,
+            &item_id,
+            input.revision,
+            &title,
+            year,
+            &json!(ids),
+            replacement.as_ref(),
+        )
+    })
+    .await
+    .map_err(|_| HttpError::bad_request("Identification save interrupted."))?
+    .map_err(|e| HttpError::bad_request(e.to_string()))?;
+    for art in images {
+        db(&state)
+            .save_native_artwork(&library, &item, &art)
+            .map_err(|e| HttpError::bad_request(e.to_string()))?;
+        if lib.options.save_artwork
+            || crate::native_artwork::replacement_writes_local(&state, &entry, &art.kind)
+        {
+            if let Err(e) = crate::native_artwork::write(&state, &entry, &art, true) {
+                warnings.push(format!("Artwork saved; media-folder write failed: {e}"));
+            }
+        }
+    }
     let (_, updated) = context(&state, &library, &item).await?;
-    if updated.kind=="series" {db(&state).set_setting(&format!("expected-episodes:{library}:{}",updated.path),"").map_err(|e|HttpError::bad_request(e.to_string()))?;}
+    if updated.kind == "series" {
+        db(&state)
+            .set_setting(&format!("expected-episodes:{library}:{}", updated.path), "")
+            .map_err(|e| HttpError::bad_request(e.to_string()))?;
+    }
     if lib.options.save_nfo {
         let state = state.clone();
         let entry = updated.clone();
@@ -732,23 +1086,72 @@ pub(crate) async fn apply(
             ));
         }
     }
-    if input.rewrite_metadata {if let Err(e)=crate::native::start_identification_scan(state.clone(),library.clone(),updated.path.clone()).await {warnings.push(format!("Metadata saved; season/episode refresh could not start: {}",e.detail));}}
+    if input.rewrite_metadata {
+        if let Err(e) = crate::native::start_identification_scan(
+            state.clone(),
+            library.clone(),
+            updated.path.clone(),
+        )
+        .await
+        {
+            warnings.push(format!(
+                "Metadata saved; season/episode refresh could not start: {}",
+                e.detail
+            ));
+        }
+    }
     Ok(Json(
         json!({"entry":updated,"warnings":warnings,"message":if input.rewrite_metadata {"TVDB identification and metadata saved. Season and episode refresh started."} else {"Identification saved. Scan files to fetch missing metadata using the corrected IDs."}}),
     ))
 }
 
-fn anidb_display_title(titles:&[&xmltree::Element],language:&str)->String {
-    let code=language.split(['-','_']).next().unwrap_or(language).to_lowercase();
-    let code=match code.as_str(){"eng"=>"en","jpn"=>"ja","deu"=>"de","fra"=>"fr",other=>other};
-    fn lang(e:&xmltree::Element)->Option<&str>{e.attributes.get("lang").or_else(||e.attributes.get("xml:lang")).map(String::as_str)}
-    let rank=|e:&&xmltree::Element|match e.attributes.get("type").map(String::as_str){Some("official"|"main")=>0,Some("syn")=>1,_=>2};
-    titles.iter().filter(|e|lang(e).is_some_and(|v|v.eq_ignore_ascii_case(code))&&!e.get_text().unwrap_or_default().trim().is_empty()).min_by_key(|e|rank(e))
-        .or_else(||titles.iter().filter(|e|lang(e)==Some("ja")).min_by_key(|e|rank(e)))
-        .or_else(||titles.iter().find(|e|e.attributes.get("type").is_some_and(|v|v=="main")))
-        .and_then(|e|e.get_text()).map(|s|s.into_owned()).unwrap_or_default()
+fn anidb_display_title(titles: &[&xmltree::Element], language: &str) -> String {
+    let code = language
+        .split(['-', '_'])
+        .next()
+        .unwrap_or(language)
+        .to_lowercase();
+    let code = match code.as_str() {
+        "eng" => "en",
+        "jpn" => "ja",
+        "deu" => "de",
+        "fra" => "fr",
+        other => other,
+    };
+    fn lang(e: &xmltree::Element) -> Option<&str> {
+        e.attributes
+            .get("lang")
+            .or_else(|| e.attributes.get("xml:lang"))
+            .map(String::as_str)
+    }
+    let rank = |e: &&xmltree::Element| match e.attributes.get("type").map(String::as_str) {
+        Some("official" | "main") => 0,
+        Some("syn") => 1,
+        _ => 2,
+    };
+    titles
+        .iter()
+        .filter(|e| {
+            lang(e).is_some_and(|v| v.eq_ignore_ascii_case(code))
+                && !e.get_text().unwrap_or_default().trim().is_empty()
+        })
+        .min_by_key(|e| rank(e))
+        .or_else(|| {
+            titles
+                .iter()
+                .filter(|e| lang(e) == Some("ja"))
+                .min_by_key(|e| rank(e))
+        })
+        .or_else(|| {
+            titles
+                .iter()
+                .find(|e| e.attributes.get("type").is_some_and(|v| v == "main"))
+        })
+        .and_then(|e| e.get_text())
+        .map(|s| s.into_owned())
+        .unwrap_or_default()
 }
-fn anidb_titles(xml: &str, title: &str, language:&str) -> Result<Vec<Value>, String> {
+fn anidb_titles(xml: &str, title: &str, language: &str) -> Result<Vec<Value>, String> {
     if xml.to_ascii_uppercase().contains("<!DOCTYPE")
         || xml.to_ascii_uppercase().contains("<!ENTITY")
     {
@@ -789,31 +1192,70 @@ fn anidb_titles(xml: &str, title: &str, language:&str) -> Result<Vec<Value>, Str
         let Some(score) = score else {
             continue;
         };
-        let name = anidb_display_title(&titles,language);
+        let name = anidb_display_title(&titles, language);
         matches.push((score,json!({"provider":"anidb","id":id,"title":name,"exact_title_match":score==0,"year":null,"format":"Anime - verify type","overview":"AniDB uses separate records for many sequel seasons. Verify the record before saving.","identifiers":{"anidb":id}})));
     }
     matches.sort_by_key(|(score, v)| (*score, v["title"].as_str().unwrap_or("").to_owned()));
     Ok(matches.into_iter().take(15).map(|(_, v)| v).collect())
 }
-pub(crate) async fn anidb_scan_id(state:&AppState,client:&reqwest::Client,title:&str,language:&str)->Result<String,String> {
-    let matches=anidb_lookup(state,client,title,None,false,language).await?;
+pub(crate) async fn anidb_scan_id(
+    state: &AppState,
+    client: &reqwest::Client,
+    title: &str,
+    language: &str,
+) -> Result<String, String> {
+    let matches = anidb_lookup(state, client, title, None, false, language).await?;
     anidb_unique_title_id(&matches)
 }
-fn anidb_unique_title_id(matches:&[Value])->Result<String,String> {
-    let exact=matches.iter().filter(|v|v["exact_title_match"]==true).collect::<Vec<_>>();
-    if exact.len()!=1 {return Err("AniDB title match is unavailable or ambiguous; select the correct result in Identify.".into());}
-    exact[0]["id"].as_str().map(str::to_string).ok_or_else(||"Invalid AniDB match ID.".into())
+fn anidb_unique_title_id(matches: &[Value]) -> Result<String, String> {
+    let exact = matches
+        .iter()
+        .filter(|v| v["exact_title_match"] == true)
+        .collect::<Vec<_>>();
+    if exact.len() != 1 {
+        return Err(
+            "AniDB title match is unavailable or ambiguous; select the correct result in Identify."
+                .into(),
+        );
+    }
+    exact[0]["id"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "Invalid AniDB match ID.".into())
 }
-fn anidb_poster(xml:&str)->Result<Option<String>,String> {
-    let root=xmltree::Element::parse(xml.as_bytes()).map_err(|_|"Invalid AniDB record.")?;
-    Ok(root.get_child("picture").and_then(|e|e.get_text()).filter(|s|!s.is_empty() && s.chars().all(|c|c.is_ascii_alphanumeric()||"._-".contains(c))).map(|s|format!("https://cdn-eu.anidb.net/images/main/{s}")))
+fn anidb_poster(xml: &str) -> Result<Option<String>, String> {
+    let root = xmltree::Element::parse(xml.as_bytes()).map_err(|_| "Invalid AniDB record.")?;
+    Ok(root
+        .get_child("picture")
+        .and_then(|e| e.get_text())
+        .filter(|s| {
+            !s.is_empty()
+                && s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+        })
+        .map(|s| format!("https://cdn-eu.anidb.net/images/main/{s}")))
 }
-pub(crate) async fn anidb_preview(State(state):State<AppState>,Path(id):Path<String>)->Result<Json<Value>,HttpError> {
-    if !crate::native_provider_extra::anidb_enabled(&state) {return Err(HttpError::bad_request("AniDB plugin is disabled."));}
-    if id.is_empty() || !id.bytes().all(|c|c.is_ascii_digit()) {return Err(HttpError::bad_request("Invalid AniDB ID."));}
-    let client=reqwest::Client::builder().timeout(std::time::Duration::from_secs(20)).user_agent("PosterView/0.1 (+https://github.com/bamcel/poster-view)").build().map_err(|_|HttpError::bad_gateway("Could not initialize AniDB client."))?;
-    let xml=crate::native_provider_extra::anidb_document(&state,&client,&id).await.map_err(HttpError::bad_request)?;
-    Ok(Json(json!({"poster":anidb_poster(&xml).map_err(HttpError::bad_request)?})))
+pub(crate) async fn anidb_preview(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, HttpError> {
+    if !crate::native_provider_extra::anidb_enabled(&state) {
+        return Err(HttpError::bad_request("AniDB plugin is disabled."));
+    }
+    if id.is_empty() || !id.bytes().all(|c| c.is_ascii_digit()) {
+        return Err(HttpError::bad_request("Invalid AniDB ID."));
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .user_agent("PosterView/0.1 (+https://github.com/bamcel/poster-view)")
+        .build()
+        .map_err(|_| HttpError::bad_gateway("Could not initialize AniDB client."))?;
+    let xml = crate::native_provider_extra::anidb_document(&state, &client, &id)
+        .await
+        .map_err(HttpError::bad_request)?;
+    Ok(Json(
+        json!({"poster":anidb_poster(&xml).map_err(HttpError::bad_request)?}),
+    ))
 }
 async fn anidb_lookup(
     state: &AppState,
@@ -821,9 +1263,11 @@ async fn anidb_lookup(
     title: &str,
     id: Option<&str>,
     movie: bool,
-    language:&str,
+    language: &str,
 ) -> Result<Vec<Value>, String> {
-    if !crate::native_provider_extra::anidb_enabled(state) {return Err("AniDB plugin is disabled.".into());}
+    if !crate::native_provider_extra::anidb_enabled(state) {
+        return Err("AniDB plugin is disabled.".into());
+    }
     if let Some(id) = id {
         let _network = crate::workers::network().await;
         let xml = crate::native_provider_extra::anidb_document(state, client, id).await?;
@@ -836,8 +1280,17 @@ async fn anidb_lookup(
         if (kind.eq_ignore_ascii_case("movie")) != movie {
             return Err("AniDB record does not match the item's media type.".into());
         }
-        let titles=root.get_child("titles").map(|e|e.children.iter().filter_map(|n|n.as_element()).filter(|e|e.name=="title").collect::<Vec<_>>()).unwrap_or_default();
-        let name=anidb_display_title(&titles,language);
+        let titles = root
+            .get_child("titles")
+            .map(|e| {
+                e.children
+                    .iter()
+                    .filter_map(|n| n.as_element())
+                    .filter(|e| e.name == "title")
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let name = anidb_display_title(&titles, language);
         let poster = root
             .get_child("picture")
             .and_then(|e| e.get_text())
@@ -924,7 +1377,7 @@ async fn anidb_lookup(
         xml
     };
     let title = title.to_owned();
-    let language=language.to_owned();
+    let language = language.to_owned();
     tokio::task::spawn_blocking(move || anidb_titles(&xml, &title, &language))
         .await
         .map_err(|_| "AniDB title search interrupted.")?
@@ -934,35 +1387,68 @@ async fn anidb_lookup(
 mod tests {
     #[test]
     fn anidb_scan_selects_only_unique_exact_alias_matches() {
-        let xml=r#"<animetitles><anime aid="1"><title type="main" xml:lang="x-jat">Dragon Ball</title><title type="official" xml:lang="en">Dragon Ball</title></anime><anime aid="2"><title type="main" xml:lang="en">Dragon Ball Z</title></anime></animetitles>"#;
-        let matches=anidb_titles(xml,"Dragon Ball","en").unwrap();
-        assert_eq!(anidb_unique_title_id(&matches).unwrap(),"1");
-        assert!(anidb_unique_title_id(&anidb_titles(xml,"Dragon","en").unwrap()).is_err());
-        assert!(anidb_unique_title_id(&[json!({"id":"1","exact_title_match":true}),json!({"id":"2","exact_title_match":true})]).is_err());
+        let xml = r#"<animetitles><anime aid="1"><title type="main" xml:lang="x-jat">Dragon Ball</title><title type="official" xml:lang="en">Dragon Ball</title></anime><anime aid="2"><title type="main" xml:lang="en">Dragon Ball Z</title></anime></animetitles>"#;
+        let matches = anidb_titles(xml, "Dragon Ball", "en").unwrap();
+        assert_eq!(anidb_unique_title_id(&matches).unwrap(), "1");
+        assert!(anidb_unique_title_id(&anidb_titles(xml, "Dragon", "en").unwrap()).is_err());
+        assert!(
+            anidb_unique_title_id(&[
+                json!({"id":"1","exact_title_match":true}),
+                json!({"id":"2","exact_title_match":true})
+            ])
+            .is_err()
+        );
     }
     #[test]
     fn anidb_preview_extracts_only_a_safe_poster_filename() {
-        assert_eq!(super::anidb_poster("<anime><picture>123.jpg</picture></anime>").unwrap().as_deref(),Some("https://cdn-eu.anidb.net/images/main/123.jpg"));
-        assert!(super::anidb_poster("<anime><picture>../bad.jpg</picture></anime>").unwrap().is_none());
+        assert_eq!(
+            super::anidb_poster("<anime><picture>123.jpg</picture></anime>")
+                .unwrap()
+                .as_deref(),
+            Some("https://cdn-eu.anidb.net/images/main/123.jpg")
+        );
+        assert!(
+            super::anidb_poster("<anime><picture>../bad.jpg</picture></anime>")
+                .unwrap()
+                .is_none()
+        );
         assert!(super::anidb_poster("<anime/>").unwrap().is_none());
     }
     use super::*;
     #[test]
     fn mangadex_identification_accepts_uuid_instead_of_numeric_ids() {
-        assert!(identification_id("mangadex",&json!("11111111-1111-1111-1111-111111111111")));
-        assert!(!identification_id("mangadex",&json!("123")));
-        assert!(!identification_id("anilist",&json!("11111111-1111-1111-1111-111111111111")));
+        assert!(identification_id(
+            "mangadex",
+            &json!("11111111-1111-1111-1111-111111111111")
+        ));
+        assert!(!identification_id("mangadex", &json!("123")));
+        assert!(!identification_id(
+            "anilist",
+            &json!("11111111-1111-1111-1111-111111111111")
+        ));
     }
     #[test]
-    fn anidb_titles_use_requested_translation_then_original_only(){
-        let xml=r#"<animetitles><anime aid="1"><title type="main" xml:lang="x-jat">Romaji title</title><title type="official" xml:lang="ja">原題</title><title type="official" xml:lang="en">English title</title><title type="syn" xml:lang="en">Alternate title</title></anime></animetitles>"#;
-        assert_eq!(anidb_titles(xml,"Romaji","en-US").unwrap()[0]["title"],"English title");
-        assert_eq!(anidb_titles(xml,"English","fr").unwrap()[0]["title"],"原題");
-        assert_eq!(anidb_titles(xml,"Romaji","ja").unwrap()[0]["title"],"原題");
+    fn anidb_titles_use_requested_translation_then_original_only() {
+        let xml = r#"<animetitles><anime aid="1"><title type="main" xml:lang="x-jat">Romaji title</title><title type="official" xml:lang="ja">原題</title><title type="official" xml:lang="en">English title</title><title type="syn" xml:lang="en">Alternate title</title></anime></animetitles>"#;
+        assert_eq!(
+            anidb_titles(xml, "Romaji", "en-US").unwrap()[0]["title"],
+            "English title"
+        );
+        assert_eq!(
+            anidb_titles(xml, "English", "fr").unwrap()[0]["title"],
+            "原題"
+        );
+        assert_eq!(
+            anidb_titles(xml, "Romaji", "ja").unwrap()[0]["title"],
+            "原題"
+        );
     }
     #[test]
     fn comicvine_urls_resolve_to_volume_ids_only() {
-        assert_eq!(comicvine_id("https://comicvine.gamespot.com/food-wars/4050-72430/"), Some("72430".into()));
+        assert_eq!(
+            comicvine_id("https://comicvine.gamespot.com/food-wars/4050-72430/"),
+            Some("72430".into())
+        );
         assert_eq!(comicvine_id("4050-72430"), Some("72430".into()));
         assert_eq!(comicvine_id("72430"), Some("72430".into()));
         assert!(comicvine_id("https://comicvine.gamespot.com/issue/4000-72430/").is_none());
@@ -976,9 +1462,13 @@ mod tests {
         lib.library_type = posterview_contracts::native::NativeLibraryType::Shows;
         assert!(!lib.allows_adult_metadata());
         lib.library_type = posterview_contracts::native::NativeLibraryType::Books;
-        lib.options.metadata_providers.insert("book_series".into(), vec!["comicvine".into()]);
+        lib.options
+            .metadata_providers
+            .insert("book_series".into(), vec!["comicvine".into()]);
         assert_eq!(book_providers(&lib), vec!["comicvine"]);
-        lib.options.metadata_providers.insert("book_series".into(), vec![]);
+        lib.options
+            .metadata_providers
+            .insert("book_series".into(), vec![]);
         assert!(book_providers(&lib).is_empty());
     }
     #[test]
@@ -1055,16 +1545,43 @@ pub(crate) async fn resolve(
     Json(mut input): Json<Resolve>,
 ) -> Result<Json<Value>, HttpError> {
     let (lib, entry) = context(&state, &library, &item).await?;
-    if input.provider=="imdb" {
-        if !["series","movie"].contains(&entry.kind.as_str()) {return Err(HttpError::bad_request("IMDb identification requires a series or movie."));}
-        let records=imdb_matches(&state,&client()?,&input.id,entry.kind=="movie",&lib.options.metadata_language).await.map_err(HttpError::bad_gateway)?;
-        return Ok(Json(json!({"identifiers":{"imdb":input.id},"candidates":records,"warnings":[]})));
+    if input.provider == "imdb" {
+        if !["series", "movie"].contains(&entry.kind.as_str()) {
+            return Err(HttpError::bad_request(
+                "IMDb identification requires a series or movie.",
+            ));
+        }
+        let records = imdb_matches(
+            &state,
+            &client()?,
+            &input.id,
+            entry.kind == "movie",
+            &lib.options.metadata_language,
+        )
+        .await
+        .map_err(HttpError::bad_gateway)?;
+        return Ok(Json(
+            json!({"identifiers":{"imdb":input.id},"candidates":records,"warnings":[]}),
+        ));
     }
     if input.provider == "comicvine" {
-        input.id = comicvine_id(&input.id).ok_or_else(|| HttpError::bad_request("Enter a ComicVine volume ID or series URL (4050), not an issue URL."))?;
+        input.id = comicvine_id(&input.id).ok_or_else(|| {
+            HttpError::bad_request(
+                "Enter a ComicVine volume ID or series URL (4050), not an issue URL.",
+            )
+        })?;
     }
     if (entry.kind.starts_with("book") && !book_providers(&lib).contains(&input.provider.as_str()))
-        || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "anidb", "mangadex"].contains(&input.provider.as_str())
+        || ![
+            "comicvine",
+            "anilist",
+            "tmdb",
+            "tvdb",
+            "mal",
+            "anidb",
+            "mangadex",
+        ]
+        .contains(&input.provider.as_str())
         || !identification_id(&input.provider, &json!(input.id))
     {
         return Err(HttpError::bad_request("Choose a valid provider record."));
@@ -1098,7 +1615,11 @@ pub(crate) async fn resolve(
             Ok(values) => {
                 if let Some(record) = values.first() {
                     for (name, value) in record["identifiers"].as_object().into_iter().flatten() {
-                        if entry.kind.starts_with("book") && !book_providers(&lib).contains(&name.as_str()) { continue; }
+                        if entry.kind.starts_with("book")
+                            && !book_providers(&lib).contains(&name.as_str())
+                        {
+                            continue;
+                        }
                         let Some(value) = value.as_str() else {
                             continue;
                         };
@@ -1112,7 +1633,11 @@ pub(crate) async fn resolve(
                         }
                     }
                     let mut record = record.clone();
-                    if entry.kind.starts_with("book") { if let Some(values) = record["identifiers"].as_object_mut() { values.retain(|name, _| book_providers(&lib).contains(&name.as_str())); } }
+                    if entry.kind.starts_with("book") {
+                        if let Some(values) = record["identifiers"].as_object_mut() {
+                            values.retain(|name, _| book_providers(&lib).contains(&name.as_str()));
+                        }
+                    }
                     records.push(record);
                 } else {
                     warnings.push(format!("{provider}: no record for the item's media type."));
@@ -1128,22 +1653,90 @@ pub(crate) async fn resolve(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct MetadataPreview { provider: String }
-pub(crate) async fn metadata_preview(State(state): State<AppState>, Path((library,item)): Path<(String,String)>, Json(input): Json<MetadataPreview>) -> Result<Json<Value>,HttpError> {
-    let (lib,entry)=context(&state,&library,&item).await?;
-    if !entry.kind.starts_with("book") || !book_providers(&lib).contains(&input.provider.as_str()) {return Err(HttpError::bad_request("Select an enabled book metadata provider."));}
-    if !identification_id(&input.provider, &entry.metadata["identifiers"][&input.provider]) {return Err(HttpError::bad_request("Identify this series with the selected provider first."));}
-    let client=client()?;
-    let fields=if input.provider == "anilist" {
-        let raw=crate::native_provider::anilist(&client,&entry,true,lib.allows_adult_metadata()).await.map_err(HttpError::bad_gateway)?;
+pub(crate) struct MetadataPreview {
+    provider: String,
+}
+pub(crate) async fn metadata_preview(
+    State(state): State<AppState>,
+    Path((library, item)): Path<(String, String)>,
+    Json(input): Json<MetadataPreview>,
+) -> Result<Json<Value>, HttpError> {
+    let (lib, entry) = context(&state, &library, &item).await?;
+    if !entry.kind.starts_with("book") || !book_providers(&lib).contains(&input.provider.as_str()) {
+        return Err(HttpError::bad_request(
+            "Select an enabled book metadata provider.",
+        ));
+    }
+    if !identification_id(
+        &input.provider,
+        &entry.metadata["identifiers"][&input.provider],
+    ) {
+        return Err(HttpError::bad_request(
+            "Identify this series with the selected provider first.",
+        ));
+    }
+    let client = client()?;
+    let fields = if input.provider == "anilist" {
+        let raw =
+            crate::native_provider::anilist(&client, &entry, true, lib.allows_adult_metadata())
+                .await
+                .map_err(HttpError::bad_gateway)?;
         json!({"title":raw["title"][if lib.options.metadata_language=="ja" {"native"} else {"english"}].as_str().or(raw["title"]["romaji"].as_str()),"originaltitle":raw["title"]["native"],"plot":raw["description"],"year":raw["startDate"]["year"],"volumes":raw["volumes"],"chapters":raw["chapters"],"status":raw["status"],"characters":raw["characters"]["edges"].as_array().into_iter().flatten().map(|edge|json!({"id":edge["node"]["id"].to_string(),"name":edge["node"]["name"]["full"],"biography":edge["node"]["description"],"image":edge["node"]["image"]["large"],"role":edge["role"]})).collect::<Vec<_>>(),"country":raw["countryOfOrigin"],"genres":raw["genres"],"tags":raw["tags"].as_array().into_iter().flatten().filter_map(|v|v["name"].as_str()).collect::<Vec<_>>()})
     } else {
-        crate::native_provider_extra::fetch(&state,&client,&posterview_infra_artwork::ArtworkService::default(),&input.provider,&lib,&entry,&Value::Null).await.map_err(HttpError::bad_gateway)?.fields
+        crate::native_provider_extra::fetch(
+            &state,
+            &client,
+            &posterview_infra_artwork::ArtworkService::default(),
+            &input.provider,
+            &lib,
+            &entry,
+            &Value::Null,
+        )
+        .await
+        .map_err(HttpError::bad_gateway)?
+        .fields
     };
-    let mut fields=fields.as_object().cloned().unwrap_or_default();
-    fields.retain(|key,value| ["title","originaltitle","subtitle","plot","year","volumes","chapters","publisher","publishers","status","country","genres","tags","characters","credits","pages","language","published_date","isbn_10","isbn_13","rating","ratings_count","source_url"].contains(&key.as_str()) && !value.is_null() && value.as_str().is_none_or(|text|!text.trim().is_empty()));
-    let prefix=if input.provider == "comicvine" {"edition"} else {"original"};
-    for name in ["year","volumes"] {if let Some(value)=fields.get(name).cloned() {fields.insert(format!("{prefix}_{name}"),value);}}
+    let mut fields = fields.as_object().cloned().unwrap_or_default();
+    fields.retain(|key, value| {
+        [
+            "title",
+            "originaltitle",
+            "subtitle",
+            "plot",
+            "year",
+            "volumes",
+            "chapters",
+            "publisher",
+            "publishers",
+            "status",
+            "country",
+            "genres",
+            "tags",
+            "characters",
+            "credits",
+            "pages",
+            "language",
+            "published_date",
+            "isbn_10",
+            "isbn_13",
+            "rating",
+            "ratings_count",
+            "source_url",
+        ]
+        .contains(&key.as_str())
+            && !value.is_null()
+            && value.as_str().is_none_or(|text| !text.trim().is_empty())
+    });
+    let prefix = if input.provider == "comicvine" {
+        "edition"
+    } else {
+        "original"
+    };
+    for name in ["year", "volumes"] {
+        if let Some(value) = fields.get(name).cloned() {
+            fields.insert(format!("{prefix}_{name}"), value);
+        }
+    }
     Ok(Json(json!({"provider":input.provider,"fields":fields})))
 }
 
@@ -1152,8 +1745,9 @@ mod remote_lookup_tests {
     use super::*;
     #[test]
     fn exact_remote_lookup_selects_only_matching_media_type() {
-        let raw=json!({"data":[{"series":{"id":267440}},{"movie":{"id":123}},{"people":{"id":456}}]});
-        assert_eq!(remote_tvdb_ids(&raw,false),vec!["267440"]);
-        assert_eq!(remote_tvdb_ids(&raw,true),vec!["123"]);
+        let raw =
+            json!({"data":[{"series":{"id":267440}},{"movie":{"id":123}},{"people":{"id":456}}]});
+        assert_eq!(remote_tvdb_ids(&raw, false), vec!["267440"]);
+        assert_eq!(remote_tvdb_ids(&raw, true), vec!["123"]);
     }
 }

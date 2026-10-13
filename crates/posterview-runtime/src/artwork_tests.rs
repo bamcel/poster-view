@@ -6,13 +6,28 @@ fn removed_artwork_provider_defaults_fall_back_to_supported_sources() {
     let runtime = Runtime::new(dir.path());
     runtime.initialize().unwrap();
     let store = runtime.server_store().unwrap();
-    store.set_setting("artwork_default_provider", "deviantart").unwrap();
-    store.set_setting("artwork_ereader_default_provider", "deviantart").unwrap();
+    store
+        .set_setting("artwork_default_provider", "deviantart")
+        .unwrap();
+    store
+        .set_setting("artwork_ereader_default_provider", "deviantart")
+        .unwrap();
     let settings = runtime.artwork_settings().unwrap();
     assert_eq!(settings.default_provider, "posterdb");
     assert_eq!(settings.ereader_default_provider, "anilist-manga");
-    assert!(!settings.enabled_providers.iter().any(|provider| provider == "deviantart"));
-    assert!(!runtime.artwork_providers().unwrap().iter().any(|provider| provider.name == "deviantart"));
+    assert!(
+        !settings
+            .enabled_providers
+            .iter()
+            .any(|provider| provider == "deviantart")
+    );
+    assert!(
+        !runtime
+            .artwork_providers()
+            .unwrap()
+            .iter()
+            .any(|provider| provider.name == "deviantart")
+    );
 }
 
 #[tokio::test]
@@ -21,14 +36,40 @@ async fn tmdb_settings_preserve_saved_secret_and_return_only_configuration_statu
     let runtime = Runtime::new(directory.path());
     runtime.initialize().unwrap();
     assert!(!runtime.artwork_settings().unwrap().tmdb_configured);
-    let empty = runtime.test_artwork_provider(&ArtworkProviderTestRequest { provider: "tmdb".into(), ..Default::default() }).await.unwrap();
+    let empty = runtime
+        .test_artwork_provider(&ArtworkProviderTestRequest {
+            provider: "tmdb".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
     assert!(!empty.ok);
-    let input = ArtworkSettingsUpdate { tmdb_access_token: Some("  private-token  ".into()), ..Default::default() };
+    let input = ArtworkSettingsUpdate {
+        tmdb_access_token: Some("  private-token  ".into()),
+        ..Default::default()
+    };
     let settings = runtime.set_artwork_settings(&input).await.unwrap();
     assert!(settings.tmdb_configured);
-    assert!(!serde_json::to_string(&settings).unwrap().contains("private-token"));
-    runtime.set_artwork_settings(&ArtworkSettingsUpdate { tmdb_access_token: Some("  ".into()), ..Default::default() }).await.unwrap();
-    assert_eq!(runtime.server_store().unwrap().get_setting("tmdb_access_token").unwrap(), "private-token");
+    assert!(
+        !serde_json::to_string(&settings)
+            .unwrap()
+            .contains("private-token")
+    );
+    runtime
+        .set_artwork_settings(&ArtworkSettingsUpdate {
+            tmdb_access_token: Some("  ".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        runtime
+            .server_store()
+            .unwrap()
+            .get_setting("tmdb_access_token")
+            .unwrap(),
+        "private-token"
+    );
 }
 
 #[test]
@@ -37,10 +78,18 @@ fn legacy_disabled_sources_remain_available_without_disable_controls() {
     let runtime = Runtime::new(directory.path());
     runtime.initialize().unwrap();
     for saved in ["-", "tvdb", "posterdb,fanart"] {
-        runtime.server_store().unwrap().set_setting("artwork_enabled_providers", saved).unwrap();
+        runtime
+            .server_store()
+            .unwrap()
+            .set_setting("artwork_enabled_providers", saved)
+            .unwrap();
         let enabled = runtime.enabled_artwork_providers().unwrap();
         assert_eq!(enabled.len(), ARTWORK_PROVIDERS.len());
-        assert!(ARTWORK_PROVIDERS.iter().all(|provider| enabled.contains(*provider)));
+        assert!(
+            ARTWORK_PROVIDERS
+                .iter()
+                .all(|provider| enabled.contains(*provider))
+        );
     }
 }
 use posterview_contracts::{ItemDetail, ItemType, Server, ServerCreate, ServerType};
@@ -49,7 +98,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn provider_test_item(item_type: ItemType, external_ids: &[(&str, &str)]) -> ItemDetail {
     ItemDetail {
-        rating: None, content_rating: None, genres: vec![], tags: vec![], studios: vec![], external_urls: vec![],
+        rating: None,
+        content_rating: None,
+        genres: vec![],
+        tags: vec![],
+        studios: vec![],
+        external_urls: vec![],
         source_path: None,
         file_name: None,
         volume: None,
@@ -106,8 +160,7 @@ fn search_thumbnails_receive_the_server_scope_required_by_image_proxies() {
                 name: "Manga".into(),
                 year: None,
                 thumb_url: Some(
-                    "/api/artwork/mangadex/image?url=https://uploads.mangadex.org/cover.jpg"
-                        .into(),
+                    "/api/artwork/mangadex/image?url=https://uploads.mangadex.org/cover.jpg".into(),
                 ),
                 volume_count: None,
                 publisher: None,
@@ -348,14 +401,34 @@ async fn stalled_provider_has_a_bounded_retry_budget() {
 #[test]
 fn myanimelist_artwork_reuses_the_saved_client_id_without_exposing_it() {
     let dir = tempfile::tempdir().unwrap();
-    let runtime = Runtime::new(dir.path()); runtime.initialize().unwrap();
+    let runtime = Runtime::new(dir.path());
+    runtime.initialize().unwrap();
     let sources = runtime.artwork_providers().unwrap();
-    assert!(!sources.iter().find(|p|p.name=="myanimelist").unwrap().configured);
-    runtime.server_store().unwrap().set_setting("mal_client_id","test-client-id").unwrap();
-    for name in ["myanimelist","myanimelist-manga"] {
-        let info = runtime.artwork_providers().unwrap().into_iter().find(|p|p.name==name).unwrap();
+    assert!(
+        !sources
+            .iter()
+            .find(|p| p.name == "myanimelist")
+            .unwrap()
+            .configured
+    );
+    runtime
+        .server_store()
+        .unwrap()
+        .set_setting("mal_client_id", "test-client-id")
+        .unwrap();
+    for name in ["myanimelist", "myanimelist-manga"] {
+        let info = runtime
+            .artwork_providers()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.name == name)
+            .unwrap();
         assert!(info.configured && info.needs_key && info.enabled);
-        assert!(!serde_json::to_string(&info).unwrap().contains("test-client-id"));
+        assert!(
+            !serde_json::to_string(&info)
+                .unwrap()
+                .contains("test-client-id")
+        );
         assert!(runtime.enabled_artwork_providers().unwrap().contains(name));
     }
 }

@@ -283,11 +283,17 @@ impl MetadataStore {
     }
 
     fn relative_directory_for_source(&self, source: &str) -> Result<String, HttpError> {
-        let root = self.root.canonicalize().map_err(|_| invalid(format!(
-            "Media path is not available: {}.", self.root.display())))?;
+        let root = self.root.canonicalize().map_err(|_| {
+            invalid(format!(
+                "Media path is not available: {}.",
+                self.root.display()
+            ))
+        })?;
         let normalized = source.replace('\\', "/");
         let source_path = PathBuf::from(&normalized);
-        let canonical_source = source_path.canonicalize().unwrap_or_else(|_| source_path.clone());
+        let canonical_source = source_path
+            .canonicalize()
+            .unwrap_or_else(|_| source_path.clone());
         let mapped = if canonical_source.starts_with(&root) {
             canonical_source
         } else if let Some(relative) = normalized.strip_prefix("/mnt/user/") {
@@ -295,10 +301,18 @@ impl MetadataStore {
         } else if let Some(relative) = normalized.strip_prefix("/media/") {
             root.join(relative)
         } else {
-            return Err(invalid("The media server path is outside the configured Media Path."));
+            return Err(invalid(
+                "The media server path is outside the configured Media Path.",
+            ));
         };
-        let directory = if mapped.is_dir() { mapped } else { mapped.parent().unwrap_or(Path::new("")).to_path_buf() };
-        let relative = directory.strip_prefix(&root).map_err(|_| invalid("The media item is outside the configured Media Path."))?;
+        let directory = if mapped.is_dir() {
+            mapped
+        } else {
+            mapped.parent().unwrap_or(Path::new("")).to_path_buf()
+        };
+        let relative = directory
+            .strip_prefix(&root)
+            .map_err(|_| invalid("The media item is outside the configured Media Path."))?;
         Ok(relative.to_string_lossy().replace('\\', "/"))
     }
 
@@ -327,10 +341,18 @@ impl MetadataStore {
     fn save_edition_for_source(&self, source: &str, edition: String) -> Result<Fields, HttpError> {
         let relative = self.relative_directory_for_source(source)?;
         let document = self.read(&relative)?;
-        if document.revision.is_none() { return Err(invalid("No existing NFO was found for this series.")); }
+        if document.revision.is_none() {
+            return Err(invalid("No existing NFO was found for this series."));
+        }
         let mut fields = document.fields;
         fields.edition = edition;
-        Ok(self.save(&SaveRequest { path: relative, fields, revision: document.revision })?.fields)
+        Ok(self
+            .save(&SaveRequest {
+                path: relative,
+                fields,
+                revision: document.revision,
+            })?
+            .fields)
     }
 
     pub(crate) fn save_comicvine_for_source(
@@ -348,7 +370,13 @@ impl MetadataStore {
         fields.plot = incoming.plot.clone();
         fields.comicvine_id = incoming.comicvine_id.clone();
         fields.source_url = merge_source_urls(&fields.source_url, &incoming.source_url);
-        Ok(self.save(&SaveRequest { path: relative, fields, revision: document.revision })?.fields)
+        Ok(self
+            .save(&SaveRequest {
+                path: relative,
+                fields,
+                revision: document.revision,
+            })?
+            .fields)
     }
 
     pub(crate) fn save_anilist_manga_for_source(
@@ -371,12 +399,23 @@ impl MetadataStore {
             (&mut fields.tags, incoming.tags.as_str()),
             (&mut fields.creators, incoming.creators.as_str()),
             (&mut fields.country, incoming.country.as_str()),
-            (&mut fields.source_material, incoming.source_material.as_str()),
+            (
+                &mut fields.source_material,
+                incoming.source_material.as_str(),
+            ),
         ] {
-            if !incoming.trim().is_empty() { *target = incoming.to_owned(); }
+            if !incoming.trim().is_empty() {
+                *target = incoming.to_owned();
+            }
         }
         fields.source_url = merge_source_urls(&fields.source_url, &incoming.source_url);
-        Ok(self.save(&SaveRequest { path: relative, fields, revision: document.revision })?.fields)
+        Ok(self
+            .save(&SaveRequest {
+                path: relative,
+                fields,
+                revision: document.revision,
+            })?
+            .fields)
     }
 
     fn preview(&self, request: &SaveRequest) -> Result<Document, HttpError> {
@@ -587,9 +626,7 @@ fn render(fields: &Fields, original: Option<&str>) -> Result<String, HttpError> 
         .filter(|url| !url.is_empty())
     {
         let mut element = Element::new("source");
-        element
-            .children
-            .push(XMLNode::Text(source_url.to_owned()));
+        element.children.push(XMLNode::Text(source_url.to_owned()));
         root.children.push(XMLNode::Element(element));
     }
     let mut output = Vec::new();
@@ -684,14 +721,23 @@ pub(crate) struct AniListMangaRequest {
     anilist_id: String,
 }
 
-pub(crate) async fn item_source(state: &AppState, server_id: i64, item_id: &str) -> Result<String, HttpError> {
+pub(crate) async fn item_source(
+    state: &AppState,
+    server_id: i64,
+    item_id: &str,
+) -> Result<String, HttpError> {
     if let Some(source) = state.metadata.cached_source(server_id, item_id) {
         return Ok(source);
     }
-    let item = state.runtime.get_item_detail(server_id, item_id).await?
+    let item = state
+        .runtime
+        .get_item_detail(server_id, item_id)
+        .await?
         .ok_or_else(HttpError::not_found)?
         .map_err(HttpError::bad_gateway)?;
-    let source = item.source_path.ok_or_else(|| invalid("The media server did not provide a filesystem path for this item."))?;
+    let source = item.source_path.ok_or_else(|| {
+        invalid("The media server did not provide a filesystem path for this item.")
+    })?;
     state.metadata.remember_source(server_id, item_id, &source);
     Ok(source)
 }
@@ -727,43 +773,93 @@ pub(crate) async fn update_item(
 }
 
 #[derive(Deserialize)]
-pub(crate) struct EditionUpdate { server_id: i64, item_id: String, edition: String, #[serde(default)] clear: bool }
-pub(crate) async fn update_edition(State(state): State<AppState>, Json(request): Json<EditionUpdate>) -> Result<Json<Fields>, HttpError> {
+pub(crate) struct EditionUpdate {
+    server_id: i64,
+    item_id: String,
+    edition: String,
+    #[serde(default)]
+    clear: bool,
+}
+pub(crate) async fn update_edition(
+    State(state): State<AppState>,
+    Json(request): Json<EditionUpdate>,
+) -> Result<Json<Fields>, HttpError> {
     let edition = request.edition.trim().to_owned();
-    if (request.clear && !edition.is_empty()) || (!request.clear && edition.is_empty()) || edition.len() > 200 { return Err(invalid("Choose an edition of 1–200 characters, or explicitly request removal.")); }
-    let server = state.runtime.list_servers()?.into_iter().find(|server| server.id == request.server_id).ok_or_else(HttpError::not_found)?;
-    if !server.nfo_metadata_enabled { return Err(invalid("Enable NFO metadata for this server first.")); }
+    if (request.clear && !edition.is_empty())
+        || (!request.clear && edition.is_empty())
+        || edition.len() > 200
+    {
+        return Err(invalid(
+            "Choose an edition of 1–200 characters, or explicitly request removal.",
+        ));
+    }
+    let server = state
+        .runtime
+        .list_servers()?
+        .into_iter()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(HttpError::not_found)?;
+    if !server.nfo_metadata_enabled {
+        return Err(invalid("Enable NFO metadata for this server first."));
+    }
     let _slot = crate::workers::network().await;
-    let detail = state.runtime.get_item_detail(request.server_id, &request.item_id).await?.ok_or_else(HttpError::not_found)?.map_err(HttpError::bad_gateway)?;
-    if detail.item_type != posterview_contracts::ItemType::Folder { return Err(invalid("Select book series folders, not individual volumes.")); }
+    let detail = state
+        .runtime
+        .get_item_detail(request.server_id, &request.item_id)
+        .await?
+        .ok_or_else(HttpError::not_found)?
+        .map_err(HttpError::bad_gateway)?;
+    if detail.item_type != posterview_contracts::ItemType::Folder {
+        return Err(invalid(
+            "Select book series folders, not individual volumes.",
+        ));
+    }
     let source = item_source(&state, request.server_id, &request.item_id).await?;
     let store = state.metadata.clone();
-    tokio::task::spawn_blocking(move || crate::workers::blocking(|| store.save_edition_for_source(&source, edition).map(Json))).await.map_err(|_| invalid("Edition update failed."))?
+    tokio::task::spawn_blocking(move || {
+        crate::workers::blocking(|| store.save_edition_for_source(&source, edition).map(Json))
+    })
+    .await
+    .map_err(|_| invalid("Edition update failed."))?
 }
 
 pub(crate) async fn use_comicvine(
     State(state): State<AppState>,
     Json(request): Json<ComicVineRequest>,
 ) -> Result<Json<Fields>, HttpError> {
-    let server = state.runtime.list_servers()?.into_iter()
+    let server = state
+        .runtime
+        .list_servers()?
+        .into_iter()
         .find(|server| server.id == request.server_id)
         .ok_or_else(HttpError::not_found)?;
     if !server.nfo_metadata_enabled {
-        return Err(invalid("Enable NFO metadata for this server in Settings → Server Setup first."));
+        return Err(invalid(
+            "Enable NFO metadata for this server in Settings → Server Setup first.",
+        ));
     }
     let source = item_source(&state, request.server_id, &request.item_id).await?;
-    let metadata = state.runtime.comicvine_metadata(&request.volume_id).await
+    let metadata = state
+        .runtime
+        .comicvine_metadata(&request.volume_id)
+        .await
         .map_err(|error| HttpError::bad_gateway(error.to_string()))?;
-    state.metadata.save_comicvine_for_source(&source, &Fields {
-        title: metadata.title,
-        year: metadata.year,
-        publisher: metadata.publisher,
-        volumes: metadata.volumes,
-        plot: metadata.plot,
-        comicvine_id: metadata.id,
-        source_url: metadata.source_url,
-        ..Fields::default()
-    }).map(Json)
+    state
+        .metadata
+        .save_comicvine_for_source(
+            &source,
+            &Fields {
+                title: metadata.title,
+                year: metadata.year,
+                publisher: metadata.publisher,
+                volumes: metadata.volumes,
+                plot: metadata.plot,
+                comicvine_id: metadata.id,
+                source_url: metadata.source_url,
+                ..Fields::default()
+            },
+        )
+        .map(Json)
 }
 
 pub(crate) async fn preview_comicvine(
@@ -802,32 +898,47 @@ pub(crate) async fn use_anilist_manga(
     State(state): State<AppState>,
     Json(request): Json<AniListMangaRequest>,
 ) -> Result<Json<Fields>, HttpError> {
-    let server = state.runtime.list_servers()?.into_iter()
-        .find(|server| server.id == request.server_id).ok_or_else(HttpError::not_found)?;
+    let server = state
+        .runtime
+        .list_servers()?
+        .into_iter()
+        .find(|server| server.id == request.server_id)
+        .ok_or_else(HttpError::not_found)?;
     if !server.nfo_metadata_enabled {
-        return Err(invalid("Enable NFO metadata for this server in Settings → Server Setup first."));
+        return Err(invalid(
+            "Enable NFO metadata for this server in Settings → Server Setup first.",
+        ));
     }
     let source_path = item_source(&state, request.server_id, &request.item_id).await?;
-    let metadata = state.runtime.anilist_manga_metadata(&request.anilist_id).await
+    let metadata = state
+        .runtime
+        .anilist_manga_metadata(&request.anilist_id)
+        .await
         .map_err(|error| HttpError::bad_gateway(error.to_string()))?;
     let status = sentence_case(&metadata.status);
     let source_material = sentence_case(&metadata.source);
-    state.metadata.save_anilist_manga_for_source(&source_path, &Fields {
-        title: metadata.title,
-        native_title: metadata.native_title,
-        year: metadata.year,
-        status,
-        plot: metadata.plot,
-        anilist_id: metadata.id,
-        mal_id: metadata.mal_id,
-        genres: metadata.genres,
-        tags: metadata.tags,
-        creators: metadata.creators,
-        country: metadata.country,
-        source_material,
-        source_url: metadata.source_url,
-        ..Fields::default()
-    }).map(Json)
+    state
+        .metadata
+        .save_anilist_manga_for_source(
+            &source_path,
+            &Fields {
+                title: metadata.title,
+                native_title: metadata.native_title,
+                year: metadata.year,
+                status,
+                plot: metadata.plot,
+                anilist_id: metadata.id,
+                mal_id: metadata.mal_id,
+                genres: metadata.genres,
+                tags: metadata.tags,
+                creators: metadata.creators,
+                country: metadata.country,
+                source_material,
+                source_url: metadata.source_url,
+                ..Fields::default()
+            },
+        )
+        .map(Json)
 }
 
 pub(crate) async fn preview_anilist_manga(
@@ -1026,18 +1137,49 @@ mod tests {
             let series = media.join("Manga");
             fs::create_dir_all(&series).unwrap();
             let nfo = series.join("Manga.nfo");
-            fs::write(&nfo, "<series><title>Local Manga</title><edition>Colored</edition></series>").unwrap();
+            fs::write(
+                &nfo,
+                "<series><title>Local Manga</title><edition>Colored</edition></series>",
+            )
+            .unwrap();
             let metadata = std::sync::Arc::new(crate::metadata::MetadataStore::new(media.clone()));
             metadata.remember_source(1, "manga", series.to_str().unwrap());
-            let mut state = AppState::new(runtime.clone(), crate::AuthState::for_tests(""), media.clone());
+            let mut state = AppState::new(
+                runtime.clone(),
+                crate::AuthState::for_tests(""),
+                media.clone(),
+            );
             state.metadata = metadata;
-            let fields = state.metadata.read_for_source(series.to_str().unwrap()).unwrap().unwrap();
+            let fields = state
+                .metadata
+                .read_for_source(series.to_str().unwrap())
+                .unwrap()
+                .unwrap();
             assert_eq!(fields.edition, "Colored");
-            let book = serde_json::to_value(crate::reader::info(State(state.clone()), axum::extract::Path((1, "manga".into()))).await.unwrap().0).unwrap();
+            let book = serde_json::to_value(
+                crate::reader::info(
+                    State(state.clone()),
+                    axum::extract::Path((1, "manga".into())),
+                )
+                .await
+                .unwrap()
+                .0,
+            )
+            .unwrap();
             assert!(book["colored_edition"].as_bool().unwrap(), "{root_name}");
             assert_eq!(book["title"].as_str(), Some("Local Manga"));
-            fs::write(&nfo, "<series><title>Local Manga</title><edition>Standard</edition></series>").unwrap();
-            let standard = serde_json::to_value(crate::reader::info(State(state), axum::extract::Path((1, "manga".into()))).await.unwrap().0).unwrap();
+            fs::write(
+                &nfo,
+                "<series><title>Local Manga</title><edition>Standard</edition></series>",
+            )
+            .unwrap();
+            let standard = serde_json::to_value(
+                crate::reader::info(State(state), axum::extract::Path((1, "manga".into())))
+                    .await
+                    .unwrap()
+                    .0,
+            )
+            .unwrap();
             assert_eq!(standard["colored_edition"], false);
             assert!(config.join("reader.sqlite").is_file());
             assert!(!media.join("reader.sqlite").exists());
@@ -1063,15 +1205,27 @@ mod tests {
         let (dir, store) = setup();
         let folder = dir.path().join("Manga & Color");
         let source = folder.to_str().unwrap();
-        assert!(store.save_edition_for_source(source, "Standard".into()).is_err());
+        assert!(
+            store
+                .save_edition_for_source(source, "Standard".into())
+                .is_err()
+        );
         let nfo = folder.join("Manga & Color.nfo");
         fs::write(&nfo, "<series><title>My Series</title><edition>Colored</edition><plot>Keep this</plot><custom>Unchanged</custom></series>").unwrap();
-        let fields = store.save_edition_for_source(source, "Standard".into()).unwrap();
+        let fields = store
+            .save_edition_for_source(source, "Standard".into())
+            .unwrap();
         assert_eq!(fields.edition, "Standard");
         assert_eq!(fields.title, "My Series");
         assert_eq!(fields.plot, "Keep this");
-        assert!(fs::read_to_string(&nfo).unwrap().contains("<custom>Unchanged</custom>"));
-        let cleared = store.save_edition_for_source(source, String::new()).unwrap();
+        assert!(
+            fs::read_to_string(&nfo)
+                .unwrap()
+                .contains("<custom>Unchanged</custom>")
+        );
+        let cleared = store
+            .save_edition_for_source(source, String::new())
+            .unwrap();
         assert!(cleared.edition.is_empty());
         let xml = fs::read_to_string(&nfo).unwrap();
         assert!(!xml.contains("<edition>"));
@@ -1114,7 +1268,10 @@ mod tests {
             .ok()
             .unwrap();
         assert_eq!(saved.fields.title, "Different / title 日本語");
-        assert_eq!(store.read("Manga & Color").unwrap().fields.sort_title, "Different 02");
+        assert_eq!(
+            store.read("Manga & Color").unwrap().fields.sort_title,
+            "Different 02"
+        );
         assert!(folder.join("Manga & Color.nfo").is_file());
         assert!(store.list("").ok().unwrap().folders[0].has_nfo);
         assert_eq!(
@@ -1147,25 +1304,32 @@ mod tests {
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .collect::<Vec<_>>();
         assert_eq!(files, vec!["Manga & Color.nfo"]);
-        assert!(!fs::read_to_string(dir.path().join("Manga & Color/Manga & Color.nfo"))
-            .unwrap()
-            .contains("<title>Old</title>"));
+        assert!(
+            !fs::read_to_string(dir.path().join("Manga & Color/Manga & Color.nfo"))
+                .unwrap()
+                .contains("<title>Old</title>")
+        );
     }
     #[test]
     fn comicvine_metadata_creates_and_updates_the_series_nfo() {
         let (dir, store) = setup();
         let media = dir.path().join("Manga & Color/Volume 1.cbz");
         fs::write(&media, b"comic").unwrap();
-        let fields = store.save_comicvine_for_source(media.to_str().unwrap(), &Fields {
-            title: "The Apothecary Diaries".to_owned(),
-            year: "2017".to_owned(),
-            publisher: "Square Enix".to_owned(),
-            volumes: "14".to_owned(),
-            plot: "A palace mystery.".to_owned(),
-            comicvine_id: "132428".to_owned(),
-            source_url: "https://comicvine.gamespot.com/example/".to_owned(),
-            ..Fields::default()
-        }).unwrap_or_else(|error| panic!("{}", error.detail));
+        let fields = store
+            .save_comicvine_for_source(
+                media.to_str().unwrap(),
+                &Fields {
+                    title: "The Apothecary Diaries".to_owned(),
+                    year: "2017".to_owned(),
+                    publisher: "Square Enix".to_owned(),
+                    volumes: "14".to_owned(),
+                    plot: "A palace mystery.".to_owned(),
+                    comicvine_id: "132428".to_owned(),
+                    source_url: "https://comicvine.gamespot.com/example/".to_owned(),
+                    ..Fields::default()
+                },
+            )
+            .unwrap_or_else(|error| panic!("{}", error.detail));
         assert_eq!(fields.comicvine_id, "132428");
         assert_eq!(fields.volumes, "14");
         let xml = fs::read_to_string(dir.path().join("Manga & Color/Manga & Color.nfo")).unwrap();
