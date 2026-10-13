@@ -88,3 +88,15 @@ it("makes both PosterView logos link to the Dashboard root", async () => {
   expect(await screen.findByText("/")).toBeTruthy();
   expect(screen.queryByLabelText("Active server")).toBeNull();
 });
+
+it("shows user navigation without administrator controls",async()=>{
+  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,user:{id:"viewer",username:"viewer",display_name:"Viewer",role:"user",enabled:true,revision:1,created_at:"",permissions:{all_libraries:true,library_ids:[],max_movie_rating:null,max_tv_rating:null,allow_unrated:false}}});
+  render(<MemoryRouter initialEntries={["/settings/playback"]}><AuthGate><Layout/></AuthGate></MemoryRouter>);
+  expect(await screen.findByRole("link",{name:"Playback"})).toBeTruthy();
+  expect(screen.getByRole("link",{name:"Reading"})).toBeTruthy();
+  expect(screen.queryByRole("link",{name:"Users"})).toBeNull();
+  expect(screen.queryByRole("link",{name:"Transcoding"})).toBeNull();
+  expect(screen.queryByRole("link",{name:"Libraries"})).toBeNull();
+  expect(screen.getAllByRole("link",{name:"Watch history"})).toHaveLength(2);
+  expect(screen.getByText("Viewer")).toBeTruthy();
+});

@@ -1,3 +1,5 @@
+import {useIsAdmin} from "../lib/authContext";
+import AdminOnly from "../components/AdminOnly";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
 import AnimatedArtwork from "../components/AnimatedArtwork";
 import {connectedBackdropUrl} from "../lib/backdropFraming";
@@ -30,6 +32,7 @@ function sentenceCaseMetadata(value: string): string {
 }
 
 export default function ItemDetailPage() {
+  const isAdmin=useIsAdmin();
   const artworkPlugin=useArtworkPlugin();
   const navigate = useNavigate();
   const { serverId: serverIdParam, itemId } = useParams();
@@ -228,7 +231,7 @@ export default function ItemDetailPage() {
                       </div>
                       <div data-testid="detail-actions" className="flex flex-wrap items-center gap-2">
                         {metadataQ.data && (
-                          <button
+                          <AdminOnly><button
                             type="button"
                             onClick={() => { setMetadataImport(null); setMetadataEditorOpen(true); }}
                             className={detailActionClass}
@@ -236,7 +239,7 @@ export default function ItemDetailPage() {
                             title="Edit Metadata"
                            data-icon-button="true">
                             <Pencil className="size-4" aria-hidden="true" />
-                          </button>
+                          </button></AdminOnly>
                         )}
                       <button
                         onClick={() => { void detailQ.refetch(); if (item.type !== "show" && item.type !== "movie") void metadataQ.refetch(); }}
@@ -249,9 +252,9 @@ export default function ItemDetailPage() {
                         />
 
                       </button>
-                      {artworkPlugin.data?.enabled !== false && <button type="button" onClick={() => setArtworkOpen(true)} aria-label="Edit Artwork" title="Edit Artwork" aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className={detailActionClass} data-icon-button="true">
+                      {artworkPlugin.data?.enabled !== false && <AdminOnly><button type="button" onClick={() => setArtworkOpen(true)} aria-label="Edit Artwork" title="Edit Artwork" aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className={detailActionClass} data-icon-button="true">
                         <Images className="size-4" aria-hidden="true" />
-                      </button>}
+                      </button></AdminOnly>}
                       </div>
                     </div>
 
@@ -276,7 +279,7 @@ export default function ItemDetailPage() {
                           ].filter(Boolean).map((entry) => {
                             const [label, value] = entry as string[];
                             const displayValue = label === "Status" || label === "Source" ? sentenceCaseMetadata(value) : value;
-                            return <span key={label} className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span className="min-w-0 truncate"><span className="text-white/50">{label}</span> · {displayValue}</span>{label === "Publisher" && publisherArtworkTarget && <button type="button" onClick={() => { setArtworkTarget({ ...publisherArtworkTarget, nonce: Date.now() }); setArtworkOpen(true); }} aria-label={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} title={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} className="ml-1 shrink-0 rounded-full p-0.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white" data-icon-button="true"><ExternalLink className="size-3.5" /></button>}</span>;
+                            return <span key={label} className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-xs text-white/80"><span className="min-w-0 truncate"><span className="text-white/50">{label}</span> · {displayValue}</span>{label === "Publisher" && publisherArtworkTarget && <AdminOnly><button type="button" onClick={() => { setArtworkTarget({ ...publisherArtworkTarget, nonce: Date.now() }); setArtworkOpen(true); }} aria-label={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} title={`Open ${publisherArtworkTarget.provider === "comicvine" ? "ComicVine" : "AniList Manga"} artwork`} className="ml-1 shrink-0 rounded-full p-0.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white" data-icon-button="true"><ExternalLink className="size-3.5" /></button></AdminOnly>}</span>;
                           })}
                           {missingInstallments > 0 && installmentInfo && (
                             <span className="rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 text-xs font-medium text-amber-200">
@@ -357,14 +360,14 @@ export default function ItemDetailPage() {
         </div>
       </div>
 
-      {artworkOpen && item && (
+      {isAdmin && artworkOpen && item && (
         <div className="item-artwork-overlay pointer-events-none fixed inset-0 z-50 bg-transparent xl:relative xl:inset-auto xl:z-[1] xl:h-full xl:w-[clamp(20rem,25vw,23.75rem)] xl:shrink-0 xl:bg-transparent">
           <section id="item-artwork-panel" aria-label={`Artwork for ${item.title}`} className="pointer-events-auto ml-auto h-full w-full max-w-md shadow-2xl xl:max-w-none" onClick={event => event.stopPropagation()}>
             <ArtworkPanel serverId={serverId} item={item} prefill={prefill} navigationTarget={artworkTarget} anilistMangaId={metadataQ.data?.anilist_id} libraryType={libraryType ?? undefined} libraryTitle={libraryTitle} onClose={() => setArtworkOpen(false)} onReviewMetadata={(fields, sourceLabel) => { setArtworkOpen(false); setMetadataImport({ fields, sourceLabel }); setMetadataEditorOpen(true); }} />
           </section>
         </div>
       )}
-      {metadataEditorOpen && item?.type !== "movie" && item?.type !== "show" && (metadataQ.data || metadataImport) && (
+      {isAdmin && metadataEditorOpen && item?.type !== "movie" && item?.type !== "show" && (metadataQ.data || metadataImport) && (
         <MetadataEditorModal
           metadata={metadataQ.data ?? {
             title: "", year: "", publisher: "", edition: "", volumes: "", status: "", plot: "",

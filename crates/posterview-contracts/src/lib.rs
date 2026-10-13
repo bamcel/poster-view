@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 mod seasons;
+pub mod users;
 pub use seasons::{EpisodeDetail, SeasonDetail};
+pub use users::{UserAccount, UserCreate, UserPermissions, UserRole, UserUpdate};
 
 /// Stable response returned by the public health endpoint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

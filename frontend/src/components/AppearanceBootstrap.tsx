@@ -1,3 +1,4 @@
+import {useIsAdmin} from "../lib/authContext";
 import { useEffect, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
@@ -5,6 +6,7 @@ import { applyDashboardAppearance, dashboardAppearance } from "../lib/dashboardS
 import { applyThemePreferences, exportThemePreferences } from "../lib/theme";
 
 export default function AppearanceBootstrap({ children }: { children: ReactNode }) {
+  const isAdmin=useIsAdmin();
   const queryClient = useQueryClient();
   const settingsQ = useQuery({ queryKey: ["appearance-settings"], queryFn: api.appearanceSettings });
 
@@ -12,6 +14,7 @@ export default function AppearanceBootstrap({ children }: { children: ReactNode 
     const settings = settingsQ.data;
     if (!settings) return;
     if (!settings.configured) {
+      if(!isAdmin)return;
       const local = { ...dashboardAppearance(), ...exportThemePreferences(), configured: true };
       void api.saveAppearanceSettings(local).then((saved) => {
         queryClient.setQueryData(["appearance-settings"], saved);
@@ -20,7 +23,7 @@ export default function AppearanceBootstrap({ children }: { children: ReactNode 
     }
     applyDashboardAppearance(settings);
     applyThemePreferences(settings.theme_name, settings.custom_themes_json);
-  }, [queryClient, settingsQ.data]);
+  }, [queryClient, settingsQ.data,isAdmin]);
 
   return children;
 }

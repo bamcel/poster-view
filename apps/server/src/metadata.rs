@@ -1159,6 +1159,7 @@ mod tests {
             let book = serde_json::to_value(
                 crate::reader::info(
                     State(state.clone()),
+                    axum::http::HeaderMap::new(),
                     axum::extract::Path((1, "manga".into())),
                 )
                 .await
@@ -1174,10 +1175,14 @@ mod tests {
             )
             .unwrap();
             let standard = serde_json::to_value(
-                crate::reader::info(State(state), axum::extract::Path((1, "manga".into())))
-                    .await
-                    .unwrap()
-                    .0,
+                crate::reader::info(
+                    State(state),
+                    axum::http::HeaderMap::new(),
+                    axum::extract::Path((1, "manga".into())),
+                )
+                .await
+                .unwrap()
+                .0,
             )
             .unwrap();
             assert_eq!(standard["colored_edition"], false);

@@ -72,8 +72,8 @@ out and reports that failure.
 ## Watch tracking
 
 Watch state is stored in `watch.sqlite` under application data, separately from NFOs
-and catalog metadata, and scoped to the configured administrator identity. This
-does not add multiple accounts. Active sessions use monotonic report sequences;
+and catalog metadata, and scoped to each immutable account identity. History and
+resume progress are private to that account. Active sessions use monotonic report sequences;
 newer sessions and manual watched changes supersede older reports. Metadata scans
 preserve watch state.
 

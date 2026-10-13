@@ -1,5 +1,5 @@
 import HomePage from "./pages/HomePage";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
 import DashboardPage from "./pages/DashboardPage";
 import { ToastProvider } from "./lib/toast";
@@ -7,6 +7,7 @@ import AuthGate from "./components/AuthGate";
 import { ServerProvider } from "./lib/serverContext";
 import AppearanceBootstrap from "./components/AppearanceBootstrap";
 import { lazy, Suspense } from "react";
+const WatchHistoryPage = lazy(() => import("./pages/WatchHistoryPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ItemDetailPage = lazy(() => import("./pages/ItemDetailPage"));
 const SeasonDetailPage = lazy(() => import("./pages/SeasonDetailPage"));
@@ -31,7 +32,7 @@ export default function App() {
               <Route path="/media/:libraryId/:itemSlug/:seasonSlug/:episodeSlug" element={<DashboardPage />} />
               <Route path="/media/:libraryId/:itemSlug/:seasonSlug" element={<DashboardPage />} />
               <Route path="/server/:serverId/series/:seriesId/season/:seasonId" element={<Suspense fallback={<p role="status" className="p-8">Loading page…</p>}><SeasonDetailPage /></Suspense>} />
-              <Route path="/history" element={<Navigate to="/" replace />} />
+              <Route path="/history" element={<Suspense fallback={<p className="p-8">Loading history…</p>}><WatchHistoryPage /></Suspense>} />
               <Route path="/settings/*" element={<Suspense fallback={<p role="status" className="p-8">Loading page…</p>}><SettingsPage /></Suspense>} />
               <Route path="/server/:serverId/item/:itemId" element={<Suspense fallback={<p role="status" className="p-8">Loading page…</p>}><ItemDetailPage /></Suspense>} />
             </Route>

@@ -87,6 +87,7 @@ async fn video_fixture(bytes: &[u8], data: Value) -> VideoFixture {
 async fn direct(fixture: &VideoFixture) -> SessionResponse {
     create(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone())),
         Json(original_mkv_input()),
     )
@@ -116,6 +117,7 @@ async fn independent_audio_permission_is_reported_without_enabling_video() {
     );
     let metadata = info(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone())),
     )
     .await
@@ -323,6 +325,7 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
     let original = std::fs::read(&fixture.file).unwrap();
     let created = create(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone())),
         Json(SessionInput {
             containers: vec!["mkv".into()],
@@ -338,6 +341,7 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
     assert_eq!(created.generation, 0);
     let promoted = seek(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path(created.id.clone()),
         Json(SeekInput {
             position_seconds: 1.0,
@@ -388,6 +392,7 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
     assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
     let retained = seek(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path(created.id.clone()),
         Json(SeekInput {
             position_seconds: 6.0,
@@ -404,6 +409,7 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
     assert_eq!(
         seek(
             State(fixture.state.clone()),
+            HeaderMap::new(),
             Path(created.id.clone()),
             Json(SeekInput {
                 position_seconds: 2.0,
@@ -420,6 +426,7 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
     std::fs::remove_file(dir.join("segment-000000.m4s")).unwrap();
     let restarted = seek(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path(created.id.clone()),
         Json(SeekInput {
             position_seconds: 0.0,
@@ -449,6 +456,7 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
     );
     let a = seek(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path(created.id.clone()),
         Json(SeekInput {
             position_seconds: 2.0,
@@ -458,6 +466,7 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
     );
     let b = seek(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path(created.id.clone()),
         Json(SeekInput {
             position_seconds: 3.0,
@@ -471,7 +480,13 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
         a.err().or_else(|| b.err()).unwrap().status,
         StatusCode::CONFLICT
     );
-    stop(State(fixture.state.clone()), Path(created.id.clone())).await;
+    stop(
+        State(fixture.state.clone()),
+        Path(created.id.clone()),
+        HeaderMap::new(),
+    )
+    .await
+    .unwrap();
     assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
     assert!(
         fixture
@@ -695,6 +710,7 @@ async fn compatible_original_sessions_prefer_direct_and_never_start_playback_job
     let fixture = video_fixture(b"0123456789", data).await;
     let metadata = info(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone())),
     )
     .await
@@ -714,6 +730,7 @@ async fn compatible_original_sessions_prefer_direct_and_never_start_playback_job
         Duration::from_secs(5),
         create(
             State(fixture.state.clone()),
+            HeaderMap::new(),
             Path((fixture.library.clone(), fixture.item.clone())),
             Json(SessionInput {
                 position_seconds: 50.0,
@@ -758,7 +775,13 @@ async fn compatible_original_sessions_prefer_direct_and_never_start_playback_job
         delivery.into_body().collect().await.unwrap().to_bytes(),
         "234"
     );
-    stop(State(fixture.state.clone()), Path(response.id.clone())).await;
+    stop(
+        State(fixture.state.clone()),
+        Path(response.id.clone()),
+        HeaderMap::new(),
+    )
+    .await
+    .unwrap();
     assert!(
         fixture
             .state
@@ -806,6 +829,7 @@ async fn direct_only_conversion_requests_fail_before_inspection_or_allocation() 
     ] {
         let error = create(
             State(fixture.state.clone()),
+            HeaderMap::new(),
             Path((fixture.library.clone(), "unavailable-item".into())),
             Json(SessionInput {
                 direct_only: true,
@@ -919,6 +943,7 @@ async fn direct_audio_switching_requires_native_tracks_and_original_codec_suppor
     assert!(
         create(
             State(fixture.state.clone()),
+            HeaderMap::new(),
             Path((fixture.library.clone(), fixture.item.clone())),
             Json(alternate)
         )
@@ -927,6 +952,7 @@ async fn direct_audio_switching_requires_native_tracks_and_original_codec_suppor
     );
     let selected = create(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone())),
         Json(SessionInput {
             audio_index: Some(2),
@@ -1018,7 +1044,13 @@ async fn session_ttl_stop_limit_and_changed_source_do_not_modify_original_files(
         .await
         .is_err()
     );
-    stop(State(fixture.state.clone()), Path(response.id)).await;
+    stop(
+        State(fixture.state.clone()),
+        Path(response.id),
+        HeaderMap::new(),
+    )
+    .await
+    .unwrap();
     assert!(fixture.state.playback.sessions.lock().await.is_empty());
     assert_eq!(std::fs::read(&fixture.file).unwrap(), b"source changed");
     assert!(!fixture.state.playback.root.exists());
@@ -1031,6 +1063,7 @@ async fn unknown_duration_heartbeats_keep_real_positions_with_bounded_validation
     let fixture = video_fixture(b"0123456789", data).await;
     let response = create(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone())),
         Json(SessionInput {
             position_seconds: 600.0,
@@ -1092,6 +1125,12 @@ async fn session_limit_is_bounded_and_expired_entries_release_slots() {
         sessions.insert(
             number.to_string(),
             Arc::new(Mutex::new(Session {
+                owner: fixture
+                    .state
+                    .auth
+                    .request_user(&HeaderMap::new())
+                    .unwrap()
+                    .id,
                 source: resolved.clone(),
                 probe: original_mkv_probe(),
                 input: original_mkv_input(),
@@ -1109,6 +1148,7 @@ async fn session_limit_is_bounded_and_expired_entries_release_slots() {
     assert_eq!(
         create(
             State(fixture.state.clone()),
+            HeaderMap::new(),
             Path((fixture.library.clone(), fixture.item.clone())),
             Json(original_mkv_input())
         )
@@ -1129,57 +1169,47 @@ async fn session_limit_is_bounded_and_expired_entries_release_slots() {
 async fn queued_seek_cannot_resurrect_a_stopped_session() {
     let fixture = video_fixture(b"unchanged original", original_mkv_probe()).await;
     let created = direct(&fixture).await;
-    // Retain the handle exactly as a request does between lookup and acquisition
-    // of its session mutex. Queue DELETE first while another operation owns it.
+    // A request may retain its lookup handle while DELETE waits to authorize ownership.
+    // DELETE must keep the session registered until it can check the owner under this lock.
     let pending = handle(&fixture.state.playback, &created.id).await.unwrap();
     let guard = pending.lock().await;
     let stop_state = fixture.state.clone();
     let stop_id = created.id.clone();
-    let stopping = tokio::spawn(async move { stop(State(stop_state), Path(stop_id)).await });
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-    while fixture
-        .state
-        .playback
-        .sessions
-        .lock()
-        .await
-        .contains_key(&created.id)
-    {
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::task::yield_now().await;
-    }
-    assert!(!guard.closed);
-    assert_eq!(
-        validate_active(&fixture.state.playback, &created.id, &guard)
-            .await
-            .err()
-            .unwrap()
-            .status,
-        StatusCode::BAD_REQUEST
-    );
-    let seek_state = fixture.state.clone();
-    let seek_id = created.id.clone();
-    let stale_handle = pending.clone();
-    let queued = tokio::spawn(async move {
-        seek_session(
-            seek_state,
-            seek_id,
-            stale_handle,
-            SeekInput {
-                position_seconds: 10.0,
-                generation: 0,
-                audio_index: None,
-            },
-        )
-        .await
+    let (started, ready) = tokio::sync::oneshot::channel();
+    let stopping = tokio::spawn(async move {
+        started.send(()).unwrap();
+        stop(State(stop_state), Path(stop_id), HeaderMap::new()).await
     });
+    ready.await.unwrap();
     tokio::task::yield_now().await;
-    drop(guard);
-    assert_eq!(stopping.await.unwrap(), StatusCode::NO_CONTENT);
-    assert_eq!(
-        queued.await.unwrap().err().unwrap().status,
-        StatusCode::BAD_REQUEST
+    assert!(!stopping.is_finished());
+    assert!(!guard.closed);
+    assert!(
+        fixture
+            .state
+            .playback
+            .sessions
+            .lock()
+            .await
+            .contains_key(&created.id)
     );
+    drop(guard);
+    assert_eq!(stopping.await.unwrap().unwrap(), StatusCode::NO_CONTENT);
+    // A stale lookup resumed after deletion cannot prepare or register a new generation.
+    let error = seek_session(
+        fixture.state.clone(),
+        created.id.clone(),
+        pending.clone(),
+        SeekInput {
+            position_seconds: 10.0,
+            generation: 0,
+            audio_index: None,
+        },
+    )
+    .await
+    .err()
+    .unwrap();
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
     let stopped = pending.lock().await;
     assert!(stopped.closed);
     assert!(validate_session(&stopped).is_err());
@@ -1245,10 +1275,15 @@ async fn canceled_preparation_is_swept_after_session_expiry_without_touching_unr
     let state = fixture.state.clone();
     let library = fixture.library.clone();
     let item = fixture.item.clone();
-    let creating =
-        tokio::spawn(
-            async move { create(State(state), Path((library, item)), Json(input())).await },
-        );
+    let creating = tokio::spawn(async move {
+        create(
+            State(state),
+            HeaderMap::new(),
+            Path((library, item)),
+            Json(input()),
+        )
+        .await
+    });
     let root = fixture.state.playback.root.join("posterview-playback");
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     let abandoned = loop {
@@ -1347,7 +1382,13 @@ async fn sweep_rechecks_new_sessions_and_retries_locked_files_without_losing_mar
             .open(dir.join("init.mp4"))
             .unwrap()
     };
-    stop(State(fixture.state.clone()), Path(created.id)).await;
+    stop(
+        State(fixture.state.clone()),
+        Path(created.id),
+        HeaderMap::new(),
+    )
+    .await
+    .unwrap();
     fixture.state.playback.maintain().await;
     #[cfg(windows)]
     {
@@ -1532,6 +1573,7 @@ async fn real_ffmpeg_inspection_subtitles_fonts_and_direct_delivery_preserve_vid
     let source_bytes = std::fs::read(&fixture.file).unwrap();
     let metadata = info(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone())),
     )
     .await
@@ -1573,6 +1615,7 @@ async fn real_ffmpeg_inspection_subtitles_fonts_and_direct_delivery_preserve_vid
     }
     let font = font(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone(), 4)),
     )
     .await
@@ -1581,6 +1624,7 @@ async fn real_ffmpeg_inspection_subtitles_fonts_and_direct_delivery_preserve_vid
     assert_eq!(fixture.state.playback.resources.lock().await.len(), 3);
     let response = create(
         State(fixture.state.clone()),
+        HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone())),
         Json(SessionInput {
             position_seconds: 3.1,
@@ -1614,7 +1658,13 @@ async fn real_ffmpeg_inspection_subtitles_fonts_and_direct_delivery_preserve_vid
             .as_ref(),
         &source_bytes[100..131]
     );
-    stop(State(fixture.state.clone()), Path(response.id)).await;
+    stop(
+        State(fixture.state.clone()),
+        Path(response.id),
+        HeaderMap::new(),
+    )
+    .await
+    .unwrap();
     assert_eq!(std::fs::read(&fixture.file).unwrap(), source_bytes);
     assert!(
         !fixture
@@ -1623,5 +1673,43 @@ async fn real_ffmpeg_inspection_subtitles_fonts_and_direct_delivery_preserve_vid
             .root
             .join("posterview-playback")
             .exists()
+    );
+}
+
+#[tokio::test]
+async fn session_resources_reject_another_account_even_an_administrator() {
+    let fixture = video_fixture(b"0123456789", original_mkv_probe()).await;
+    let response = direct(&fixture).await;
+    let owner = fixture.state.auth.request_user(&HeaderMap::new()).unwrap();
+    let mut other = owner.clone();
+    other.id = "other-admin".into();
+    assert!(
+        authorize_session(&fixture.state, &response.id, &owner)
+            .await
+            .is_ok()
+    );
+    assert_eq!(
+        authorize_session(&fixture.state, &response.id, &other)
+            .await
+            .unwrap_err()
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    assert!(
+        fixture
+            .state
+            .playback
+            .session_details_for(&response.id, &other.id)
+            .await
+            .is_err()
+    );
+    assert!(
+        fixture
+            .state
+            .playback
+            .session_details_for(&response.id, &owner.id)
+            .await
+            .unwrap()
+            .is_some()
     );
 }

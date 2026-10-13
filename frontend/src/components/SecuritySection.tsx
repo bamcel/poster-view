@@ -59,7 +59,7 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
 
   return <div className="max-w-3xl space-y-5">
     <div>
-      <p className="mt-0.5 text-xs leading-5 text-faint">Session and network settings apply to all users and persist after container restarts. The container’s Require Login option overrides these controls: when false, all connections have password-free access and auto sign-out cannot lock the application.</p></div>
+      <p className="mt-0.5 text-xs leading-5 text-faint">Session and network settings apply to all users and persist after container restarts. Individual sign-in is always required while ordinary user accounts are enabled. Otherwise, the container’s Require Login option can allow password-free administrator access.</p></div>
     <div className="space-y-5">
     <fieldset className="space-y-3 rounded-xl border border-border bg-window p-5"><legend className="px-2 text-sm font-semibold">Sign-in · This browser</legend>
       <label className="flex items-center gap-2 text-sm font-medium"><input className="accent-accent" type="checkbox" checked={remember} onChange={(event) => {
@@ -86,7 +86,7 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
       </div>
       {!warningHidden && (
         <div id="local-bypass-warning" className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-xs leading-5 text-amber-200">
-          <p className="min-w-0 flex-1">Warning: Anyone whose connection appears local gets full access without a password. A reverse proxy or Docker networking can make remote visitors appear local too, including visitors using your public domain. Enable only if you accept this risk.</p>
+          <p className="min-w-0 flex-1">Warning: Anyone whose connection appears local gets full access without a password. A reverse proxy or Docker networking can make remote visitors appear local too, including visitors using your public domain. Enable only if you accept this risk. This bypass is ignored while ordinary user accounts are enabled.</p>
           <button type="button" onClick={hideWarning} className="shrink-0 text-amber-100 underline decoration-amber-300/50 underline-offset-2 hover:text-white">Hide warning</button>
         </div>
       )}

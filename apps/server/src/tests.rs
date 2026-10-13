@@ -702,8 +702,86 @@ async fn login_status_exposes_configured_username_but_never_password() {
     let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(status["username"], "curator");
     assert_eq!(status["authenticated"], false);
+    assert_eq!(status["setup_required"], true);
     assert!(status.get("password").is_none());
     assert!(!String::from_utf8_lossy(&body).contains("test-secret"));
+}
+
+#[tokio::test]
+async fn first_run_requires_admin_creation_and_preserves_it_after_restart() {
+    let directory = tempdir().unwrap();
+    let mut state = crate::test_support::state(directory.path());
+    let data = state.runtime.data_dir().to_owned();
+    state.auth = super::AuthState::load(&data, Some("old-environment-password"), "admin", false)
+        .unwrap()
+        .with_authentication(false);
+    let app = crate::routes::system::public()
+        .merge(crate::routes::protected(state.auth.clone()))
+        .with_state(state);
+    let response = app
+        .clone()
+        .oneshot(Request::get("/api/users").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/api/auth/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status: serde_json::Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(status["setup_required"], true);
+    assert_eq!(status["authenticated"], false);
+    let input = serde_json::json!({"username":"owner","display_name":"Owner","password":"new-owner-password"});
+    let request = || {
+        Request::post("/api/auth/setup")
+            .header("content-type", "application/json")
+            .body(Body::from(input.to_string()))
+            .unwrap()
+    };
+    let response = app.clone().oneshot(request()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let cookie = response.headers()["set-cookie"].clone();
+    let status: serde_json::Value =
+        serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes()).unwrap();
+    assert_eq!(status["setup_required"], false);
+    assert_eq!(status["authenticated"], true);
+    assert_eq!(status["user"]["role"], "admin");
+    assert_eq!(status["user"]["id"], "admin");
+    assert_eq!(
+        app.clone().oneshot(request()).await.unwrap().status(),
+        StatusCode::CONFLICT
+    );
+    let response = app
+        .oneshot(
+            Request::get("/api/users")
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let restarted =
+        super::AuthState::load(&data, Some("old-environment-password"), "admin", false).unwrap();
+    assert!(restarted.login("owner", "new-owner-password").is_some());
+    assert!(
+        restarted
+            .login("admin", "old-environment-password")
+            .is_none()
+    );
+    assert_eq!(
+        posterview_infra_sqlite::ServerStore::new(&data)
+            .users()
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]

@@ -274,6 +274,7 @@ fn generated_resource(entry: &std::fs::DirEntry) -> bool {
             .is_ok_and(|kind| kind.is_file() && !kind.is_symlink())
 }
 struct Session {
+    owner: String,
     source: Source,
     probe: Value,
     input: SessionInput,
@@ -341,6 +342,7 @@ impl PlaybackStore {
             }
         });
     }
+    #[cfg(test)]
     pub(crate) async fn session_details(&self, id: &str) -> Option<(String, String, f64)> {
         let handle = self.sessions.lock().await.get(id)?.clone();
         let session = handle.lock().await;
@@ -356,6 +358,27 @@ impl PlaybackStore {
             session.source.item.id.clone(),
             session.response.duration_seconds,
         ))
+    }
+    pub(crate) async fn session_details_for(
+        &self,
+        id: &str,
+        user: &str,
+    ) -> Result<Option<(String, String, f64)>, HttpError> {
+        let Some(session) = self.sessions.lock().await.get(id).cloned() else {
+            return Ok(None);
+        };
+        let session = session.lock().await;
+        if session.owner != user {
+            return Err(HttpError::not_found());
+        }
+        if validate_session(&session).is_err() {
+            return Ok(None);
+        }
+        Ok(Some((
+            session.source.library_id.clone(),
+            session.source.item.id.clone(),
+            session.response.duration_seconds,
+        )))
     }
     async fn stop_id(&self, id: &str) {
         let handle = self.sessions.lock().await.remove(id);
@@ -695,10 +718,18 @@ fn font_stream(s: &Value) -> bool {
 }
 pub(crate) async fn info(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((library, item)): Path<(String, String)>,
 ) -> Result<Json<Info>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     let settings = crate::transcoding::load(&state)?;
-    let source = source(&state, library, item).await?;
+    crate::access::require_item(&state, &user, &library, &item)?;
+    let mut source = source(&state, library, item).await?;
+    if source.next.as_ref().is_some_and(|next| {
+        !crate::access::allows_item(&state, &user, &source.library_id, &next.item_id)
+    }) {
+        source.next = None;
+    }
     let probe = state.playback.probe(&source).await?;
     let chapters = probe["chapters"]
         .as_array()
@@ -930,18 +961,27 @@ async fn prepare(
 }
 pub(crate) async fn create(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((library, item)): Path<(String, String)>,
     Json(input): Json<SessionInput>,
 ) -> Result<Json<SessionResponse>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     validate_request(&input)?;
     state.playback.maintain().await;
-    let source = source(&state, library, item).await?;
+    crate::access::require_item(&state, &user, &library, &item)?;
+    let mut source = source(&state, library, item).await?;
+    if source.next.as_ref().is_some_and(|next| {
+        !crate::access::allows_item(&state, &user, &source.library_id, &next.item_id)
+    }) {
+        source.next = None;
+    }
     let probe = state.playback.probe(&source).await?;
     let settings = crate::transcoding::load(&state)?;
     let planned = plan(&probe, &container(&source.path), &input, &settings)?;
     let id = uuid::Uuid::new_v4().to_string();
     let initial = response(&id, &source, &probe, &planned, 0, 0.0, None);
     let session = Arc::new(Mutex::new(Session {
+        owner: user.id.clone(),
         source,
         probe,
         input: input.clone(),
@@ -991,6 +1031,23 @@ pub(crate) async fn create(
         }
     }
 }
+async fn authorize_session(
+    state: &AppState,
+    id: &str,
+    user: &posterview_contracts::users::UserAccount,
+) -> Result<(), HttpError> {
+    let session = handle(&state.playback, id).await?;
+    let session = session.lock().await;
+    if session.owner != user.id {
+        return Err(HttpError::not_found());
+    }
+    crate::access::require_item(
+        state,
+        user,
+        &session.source.library_id,
+        &session.source.item.id,
+    )
+}
 async fn handle(store: &PlaybackStore, id: &str) -> Result<Arc<Mutex<Session>>, HttpError> {
     store
         .sessions
@@ -1027,9 +1084,12 @@ fn conflict() -> HttpError {
 }
 pub(crate) async fn seek(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(request): Json<SeekInput>,
 ) -> Result<Json<SessionResponse>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
+    authorize_session(&state, &id, &user).await?;
     let handle = handle(&state.playback, &id).await?;
     seek_session(state, id, handle, request).await
 }
@@ -1175,6 +1235,8 @@ pub(crate) async fn stream(
     Path(id): Path<String>,
     request: Request,
 ) -> Result<Response, HttpError> {
+    let user = state.auth.request_user(request.headers())?;
+    authorize_session(&state, &id, &user).await?;
     let (path, mime) = session_path(&state, &id).await?;
     serve(path, &mime, request).await
 }
@@ -1183,6 +1245,8 @@ pub(crate) async fn segment(
     Path((id, generation, name)): Path<(String, u64, String)>,
     request: Request,
 ) -> Result<Response, HttpError> {
+    let user = state.auth.request_user(request.headers())?;
+    authorize_session(&state, &id, &user).await?;
     if !manifest::safe_segment(&name) {
         return Err(bad("Invalid playback resource name."));
     }
@@ -1241,6 +1305,8 @@ pub(crate) async fn heartbeat(
     headers: HeaderMap,
     Json(input): Json<Heartbeat>,
 ) -> Result<Json<Value>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
+    authorize_session(&state, &id, &user).await?;
     let handle = handle(&state.playback, &id).await?;
     let mut session = handle.lock().await;
     validate_active(&state.playback, &id, &session).await?;
@@ -1291,9 +1357,15 @@ pub(crate) async fn heartbeat(
         json!({"ok":true,"method":session.response.method,"encoder":session.response.encoder,"generation":session.response.generation,"transcoding":session.response.method=="transcode"||session.response.method=="audio_transcode","throttled":session.producer.as_ref().is_some_and(|producer|producer.suspended),"fps":fps,"speed":encoding_speed}),
     ))
 }
-pub(crate) async fn stop(State(state): State<AppState>, Path(id): Path<String>) -> StatusCode {
+pub(crate) async fn stop(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, HttpError> {
+    let user = state.auth.request_user(&headers)?;
+    authorize_session(&state, &id, &user).await?;
     state.playback.stop_id(&id).await;
-    StatusCode::NO_CONTENT
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn extracted_resource(
@@ -1440,12 +1512,19 @@ pub(crate) async fn subtitle(
     Path((library, item, index)): Path<(String, String, u32)>,
     request: Request,
 ) -> Result<Response, HttpError> {
+    let user = state.auth.request_user(request.headers())?;
     if !crate::transcoding::load(&state)?.subtitle_extraction {
         return Err(bad(
             "Subtitle extraction is disabled in Transcoding settings.",
         ));
     }
-    let source = source(&state, library, item).await?;
+    crate::access::require_item(&state, &user, &library, &item)?;
+    let mut source = source(&state, library, item).await?;
+    if source.next.as_ref().is_some_and(|next| {
+        !crate::access::allows_item(&state, &user, &source.library_id, &next.item_id)
+    }) {
+        source.next = None;
+    }
     let probe = state.playback.probe(&source).await?;
     let track = selected_stream(&probe, "subtitle", Some(index))?
         .ok_or_else(|| bad("Subtitle track not found."))?;
@@ -1472,14 +1551,22 @@ pub(crate) async fn subtitle(
 }
 pub(crate) async fn font(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((library, item, index)): Path<(String, String, u32)>,
 ) -> Result<Response, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     if !crate::transcoding::load(&state)?.font_extraction {
         return Err(bad(
             "Embedded font extraction is disabled in Transcoding settings.",
         ));
     }
-    let source = source(&state, library, item).await?;
+    crate::access::require_item(&state, &user, &library, &item)?;
+    let mut source = source(&state, library, item).await?;
+    if source.next.as_ref().is_some_and(|next| {
+        !crate::access::allows_item(&state, &user, &source.library_id, &next.item_id)
+    }) {
+        source.next = None;
+    }
     let probe = state.playback.probe(&source).await?;
     if !probe["streams"]
         .as_array()

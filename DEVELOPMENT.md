@@ -220,12 +220,29 @@ application data. Authentication/security configuration and the Fernet key stay
 in their established locations. SQL changes anywhere require migration ownership;
 moving a module does not authorize changing its schema or data location.
 
-Protected routes require administrator authentication by default. Configuration
+Accounts and salted Argon2id password hashes live in `posterview.db`. The first
+visitor must create an administrator through the atomic first-run setup endpoint
+when the account table is empty; subsequent starts preserve account
+edits and password resets. Account IDs remain stable across username changes.
+Watch, reader and playback preferences use those IDs, and playback sessions and
+reader resources belong to the account that created them.
+
+Protected routes authenticate the current account and enforce its role. Configuration
 still controls disabled authentication, TCP-peer LAN bypass, idle timeout and
 secure cookies. Health/auth/backdrop routes are public; plugin configuration
 requires authentication. Forwarded headers do not define trusted peers.
 Playing heartbeats refresh authenticated activity; ordinary polling/image loads
 do not. Credential handling and URL validation remain server-side.
+
+Administrators manage accounts in Settings → Users. Ordinary users can browse,
+play and track permitted native libraries, with separate movie and TV rating
+ceilings and an explicit choice for unrated content. Ratings come from catalog
+metadata and inherit parent restrictions; numerical review scores are not parental
+ratings. Connected-server configuration, metadata/artwork editing and server
+operations require administrator access. Account edits revoke existing sessions.
+While any ordinary user account is enabled, individual sign-in is required;
+LAN authentication bypass and disabled-login configuration cannot override account
+restrictions. Administrator-only installations retain their configured bypass.
 
 Artwork applies retain runtime/provider behavior. Legacy artwork history has
 been retired; older Python-era instructions requiring history recording on every

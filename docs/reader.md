@@ -44,8 +44,8 @@ remain in `/config/reader.sqlite`. A single detected media mount overrides old `
 
 Reading position, bookmarks (up to 100) and per-book preferences are stored in
 `/config/reader.sqlite`, separately from the existing database. They are scoped to the
-configured PosterView administrator identity; this baseline does not have separate household
-user accounts. Devices using the same identity share progress. Concurrent readers use the
+immutable PosterView account identity. Reader resources also enforce account ownership
+and current library/rating permissions. Devices using the same account share progress. Concurrent readers use the
 last successfully saved state. A detected size/modification-time change resets incompatible
 positions and bookmarks with a notice. Renaming a source file creates a new reader identity.
 

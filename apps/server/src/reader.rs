@@ -3,7 +3,7 @@ use crate::{AppState, HttpError};
 use axum::{
     Json,
     extract::{Path, Query, Request, State},
-    http::{HeaderValue, header},
+    http::{HeaderMap, HeaderValue, header},
     response::{IntoResponse, Response},
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -46,16 +46,42 @@ impl ReaderStore {
         }
     }
     fn db(&self) -> Result<Connection, HttpError> {
-        let db = Connection::open(&self.db).map_err(failure)?;
+        let mut db = Connection::open(&self.db).map_err(failure)?;
         db.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(failure)?;
-        db.execute_batch("CREATE TABLE IF NOT EXISTS reader_books (id TEXT PRIMARY KEY, path TEXT UNIQUE NOT NULL);
+        db.execute_batch("CREATE TABLE IF NOT EXISTS reader_books (id TEXT PRIMARY KEY, path TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS reader_access (book TEXT PRIMARY KEY, user TEXT NOT NULL, library TEXT NOT NULL, item TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS reader_states (user TEXT NOT NULL, book TEXT NOT NULL, revision TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(user,book));
             CREATE TABLE IF NOT EXISTS library_display_preferences (user TEXT PRIMARY KEY, tracking_overlays INTEGER NOT NULL DEFAULT 1);
             CREATE TABLE IF NOT EXISTS reading_thresholds (user TEXT PRIMARY KEY, reading REAL NOT NULL, finished REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS colored_edition_preferences (user TEXT PRIMARY KEY, effect TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS colored_title_preferences (user TEXT PRIMARY KEY, enabled INTEGER NOT NULL);
             INSERT OR IGNORE INTO colored_title_preferences SELECT user, effect IN ('badge','both') FROM colored_edition_preferences;").map_err(failure)?;
+        // Older databases shared one resource ID per filesystem path. Owned resources require
+        // multiple IDs for the same path; retain every original ID so saved states remain intact.
+        const HAS_PATH_UNIQUE: &str = "SELECT EXISTS(SELECT 1 FROM pragma_index_list('reader_books') i JOIN pragma_index_info(i.name) c WHERE i.[unique]=1 AND c.name='path')";
+        if db
+            .query_row(HAS_PATH_UNIQUE, [], |r| r.get::<_, bool>(0))
+            .map_err(failure)?
+        {
+            let tx = db
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(failure)?;
+            // Another connection may have completed the migration while we waited for the lock.
+            if tx
+                .query_row(HAS_PATH_UNIQUE, [], |r| r.get::<_, bool>(0))
+                .map_err(failure)?
+            {
+                tx.execute_batch(
+                    "CREATE TABLE reader_books_owned (id TEXT PRIMARY KEY, path TEXT NOT NULL);
+                    INSERT INTO reader_books_owned(id,path) SELECT id,path FROM reader_books;
+                    DROP TABLE reader_books;
+                    ALTER TABLE reader_books_owned RENAME TO reader_books;",
+                )
+                .map_err(failure)?;
+            }
+            tx.commit().map_err(failure)?;
+        }
         Ok(db)
     }
     pub(crate) fn cleanup_orphans(&self, apply: bool) -> Result<usize, HttpError> {
@@ -172,6 +198,53 @@ impl ReaderStore {
         )
         .map_err(failure)
     }
+    fn register_owned(
+        &self,
+        path: &FsPath,
+        user: &str,
+        library: &str,
+        item: &str,
+    ) -> Result<String, HttpError> {
+        let path = self.checked(path)?;
+        let mut db = self.db()?;
+        let tx = db.transaction().map_err(failure)?;
+        let existing: Option<String> = tx.query_row("SELECT a.book FROM reader_access a JOIN reader_books b ON b.id=a.book WHERE a.user=?1 AND a.library=?2 AND a.item=?3 AND b.path=?4", params![user,library,item,path.to_string_lossy()], |r|r.get(0)).optional().map_err(failure)?;
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        tx.execute(
+            "INSERT INTO reader_books(id,path) VALUES(?1,?2)",
+            params![id, path.to_string_lossy()],
+        )
+        .map_err(failure)?;
+        tx.execute(
+            "INSERT INTO reader_access(book,user,library,item) VALUES(?1,?2,?3,?4)",
+            params![id, user, library, item],
+        )
+        .map_err(failure)?;
+        // Carry the same account's legacy progress into its new private resource.
+        // Never copy another account's state or expose the old shared resource ID.
+        tx.execute(
+            "INSERT INTO reader_states(user,book,revision,state)
+             SELECT s.user,?1,s.revision,s.state FROM reader_states s
+             JOIN reader_books b ON b.id=s.book
+             WHERE s.user=?2 AND b.path=?3
+             AND NOT EXISTS(SELECT 1 FROM reader_access a WHERE a.book=b.id)
+             LIMIT 1",
+            params![id, user, path.to_string_lossy()],
+        )
+        .map_err(failure)?;
+        tx.execute(
+            "DELETE FROM reader_states WHERE user=?1
+             AND book IN(SELECT b.id FROM reader_books b WHERE b.path=?2
+                 AND NOT EXISTS(SELECT 1 FROM reader_access a WHERE a.book=b.id))
+             AND EXISTS(SELECT 1 FROM reader_states current WHERE current.user=?1 AND current.book=?3)",
+            params![user, path.to_string_lossy(), id],
+        ).map_err(failure)?;
+        tx.commit().map_err(failure)?;
+        Ok(id)
+    }
     fn path(&self, id: &str) -> Result<PathBuf, HttpError> {
         let value: Option<String> = self
             .db()?
@@ -270,17 +343,19 @@ impl ReaderStore {
 
 pub(crate) async fn info(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((server, item)): Path<(i64, String)>,
 ) -> Result<Json<BookInfo>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     let _slot = state.reader.info_slots.acquire().await.map_err(failure)?;
     let source = crate::metadata::item_source(&state, server, &item).await?;
     let reader = state.reader.clone();
     let metadata = state.metadata.clone();
-    let user = state.auth.username().to_owned();
+
     tokio::task::spawn_blocking(move || {
         let path = reader.checked_location(FsPath::new(&source))?;
         let mut info = BookInfo {
-            status: reader.reading_status(&path, &user)?,
+            status: reader.reading_status(&path, &user.id)?,
             ..BookInfo::default()
         };
         // Folder NFO describes the series, not each individual volume.
@@ -846,10 +921,87 @@ fn make_manifest(store: &ReaderStore, id: &str) -> Result<Manifest, HttpError> {
         next: index.and_then(|i| siblings.get(i + 1)).and_then(neighbor),
     })
 }
+fn authorize_book(
+    state: &AppState,
+    user: &posterview_contracts::users::UserAccount,
+    id: &str,
+) -> Result<(), HttpError> {
+    let origin: Option<(String, String)> = state
+        .reader
+        .db()?
+        .query_row(
+            "SELECT library,item FROM reader_access WHERE book=?1 AND user=?2",
+            params![id, user.id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(failure)?;
+    let (library, item) = origin.ok_or_else(HttpError::not_found)?;
+    if !library.is_empty() {
+        crate::access::require_item(state, user, &library, &item)?;
+    } else if user.role != posterview_contracts::users::UserRole::Admin {
+        return Err(HttpError::not_found());
+    }
+    Ok(())
+}
+fn personal_manifest(
+    state: &AppState,
+    user: &posterview_contracts::users::UserAccount,
+    id: &str,
+) -> Result<Manifest, HttpError> {
+    let store = &state.reader;
+    let mut manifest = make_manifest(store, id)?;
+    let library: String = store
+        .db()?
+        .query_row(
+            "SELECT library FROM reader_access WHERE book=?1 AND user=?2",
+            params![id, user.id],
+            |r| r.get(0),
+        )
+        .map_err(failure)?;
+    if library.is_empty() {
+        // Connected-server siblings have no independently verifiable native catalog origin.
+        manifest.previous = None;
+        manifest.next = None;
+        return Ok(manifest);
+    }
+    let catalog = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir())
+        .native_catalog(&library)
+        .map_err(failure)?;
+    let root = state.metadata.directory("", true)?;
+    let neighbor = |candidate: Option<Neighbor>| -> Option<Neighbor> {
+        let candidate = candidate?;
+        let path = store.path(&candidate.id).ok()?;
+        let entry = catalog.iter().find(|entry| {
+            entry.available
+                && entry.kind == "book"
+                && entry.metadata["missing"] != true
+                && store
+                    .checked(&root.join(&entry.path))
+                    .is_ok_and(|p| p == path)
+        })?;
+        if !crate::access::allows_item(state, user, &library, &entry.id) {
+            return None;
+        }
+        let id = store
+            .register_owned(&path, &user.id, &library, &entry.id)
+            .ok()?;
+        Some(Neighbor {
+            id,
+            title: entry.title.clone(),
+        })
+    };
+    manifest.previous = neighbor(manifest.previous);
+    manifest.next = neighbor(manifest.next);
+    Ok(manifest)
+}
+
 pub(crate) async fn open(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((server, item)): Path<(i64, String)>,
 ) -> Result<Json<Manifest>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     let detail = state
         .runtime
         .get_item_detail(server, &item)
@@ -860,17 +1012,25 @@ pub(crate) async fn open(
         .source_path
         .ok_or_else(|| bad("This server did not provide a mounted file path for the book."))?;
     tokio::task::spawn_blocking(move || {
-        let id = state.reader.register(FsPath::new(&source))?;
-        make_manifest(&state.reader, &id).map(Json)
+        let id = state.reader.register_owned(
+            FsPath::new(&source),
+            &user.id,
+            "",
+            &format!("{server}:{item}"),
+        )?;
+        personal_manifest(&state, &user, &id).map(Json)
     })
     .await
     .map_err(failure)?
 }
 pub(crate) async fn open_native(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((library, item)): Path<(String, String)>,
 ) -> Result<Json<Manifest>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     tokio::task::spawn_blocking(move || {
+        crate::access::require_item(&state, &user, &library, &item)?;
         let db = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
         let library = db
             .native_libraries()
@@ -887,17 +1047,22 @@ pub(crate) async fn open_native(
             .filter(|e| e.available && e.kind == "book" && e.metadata["missing"] != true)
             .ok_or_else(|| bad("Book file is not available."))?;
         let path = state.metadata.directory("", true)?.join(&entry.path);
-        let id = state.reader.register(&path)?;
-        make_manifest(&state.reader, &id).map(Json)
+        let id = state
+            .reader
+            .register_owned(&path, &user.id, &library.id, &item)?;
+        personal_manifest(&state, &user, &id).map(Json)
     })
     .await
     .map_err(failure)?
 }
 pub(crate) async fn manifest(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Manifest>, HttpError> {
-    tokio::task::spawn_blocking(move || make_manifest(&state.reader, &id).map(Json))
+    let user = state.auth.request_user(&headers)?;
+    authorize_book(&state, &user, &id)?;
+    tokio::task::spawn_blocking(move || personal_manifest(&state, &user, &id).map(Json))
         .await
         .map_err(failure)?
 }
@@ -921,6 +1086,8 @@ pub(crate) async fn file(
     Query(query): Query<ResourceQuery>,
     request: Request,
 ) -> Result<Response, HttpError> {
+    let user = state.auth.request_user(request.headers())?;
+    authorize_book(&state, &user, &id)?;
     let path = current(&state.reader, &id, &query.revision)?;
     if format(&path) != Some("pdf") {
         return Err(bad("Only PDF files are served directly."));
@@ -950,9 +1117,12 @@ pub(crate) async fn file(
 }
 pub(crate) async fn entry(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Query(query): Query<ResourceQuery>,
 ) -> Result<Response, HttpError> {
+    let user = state.auth.request_user(&headers)?;
+    authorize_book(&state, &user, &id)?;
     tokio::task::spawn_blocking(move || {
         let path = current(&state.reader, &id, &query.revision)?;
         let name = query.name.ok_or_else(|| bad("Missing entry name."))?;
@@ -1038,28 +1208,29 @@ fn thresholds(db: &Connection, user: &str) -> Result<(f64, f64), HttpError> {
 }
 pub(crate) async fn load_display_preferences(
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<DisplayPreferences>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     tokio::task::spawn_blocking(move || {
         let tracking_overlays = state
             .reader
             .db()?
             .query_row(
                 "SELECT tracking_overlays FROM library_display_preferences WHERE user=?1",
-                [state.auth.username()],
+                [&user.id],
                 |r| r.get::<_, bool>(0),
             )
             .optional()
             .map_err(failure)?
             .unwrap_or(true);
-        let (reading_threshold, finished_threshold) =
-            thresholds(&state.reader.db()?, state.auth.username())?;
+        let (reading_threshold, finished_threshold) = thresholds(&state.reader.db()?, &user.id)?;
         Ok(Json(DisplayPreferences {
             colored_title: state
                 .reader
                 .db()?
                 .query_row(
                     "SELECT enabled FROM colored_title_preferences WHERE user=?1",
-                    [state.auth.username()],
+                    [&user.id],
                     |r| r.get::<_, bool>(0),
                 )
                 .optional()
@@ -1070,7 +1241,7 @@ pub(crate) async fn load_display_preferences(
                 .db()?
                 .query_row(
                     "SELECT effect FROM colored_edition_preferences WHERE user=?1",
-                    [state.auth.username()],
+                    [&user.id],
                     |r| r.get::<_, String>(0),
                 )
                 .optional()
@@ -1086,8 +1257,10 @@ pub(crate) async fn load_display_preferences(
 }
 pub(crate) async fn save_display_preferences(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(settings): Json<DisplayPreferences>,
 ) -> Result<Json<DisplayPreferences>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     if !["off", "shimmer", "badge", "both"].contains(&settings.colored_effect.as_str()) {
         return Err(bad("Unknown colored edition effect."));
     }
@@ -1104,18 +1277,21 @@ pub(crate) async fn save_display_preferences(
     tokio::task::spawn_blocking(move || {
         let mut db = state.reader.db()?;
         let tx = db.transaction().map_err(failure)?;
-        tx.execute("INSERT INTO library_display_preferences(user,tracking_overlays) VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET tracking_overlays=excluded.tracking_overlays", params![state.auth.username(), settings.tracking_overlays]).map_err(failure)?;
-        tx.execute("INSERT INTO reading_thresholds VALUES (?1,?2,?3) ON CONFLICT(user) DO UPDATE SET reading=excluded.reading,finished=excluded.finished", params![state.auth.username(), settings.reading_threshold, settings.finished_threshold]).map_err(failure)?;
-        tx.execute("INSERT INTO colored_edition_preferences VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET effect=excluded.effect", params![state.auth.username(), settings.colored_effect]).map_err(failure)?;
-        tx.execute("INSERT INTO colored_title_preferences VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET enabled=excluded.enabled", params![state.auth.username(), settings.colored_title]).map_err(failure)?;
+        tx.execute("INSERT INTO library_display_preferences(user,tracking_overlays) VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET tracking_overlays=excluded.tracking_overlays", params![&user.id, settings.tracking_overlays]).map_err(failure)?;
+        tx.execute("INSERT INTO reading_thresholds VALUES (?1,?2,?3) ON CONFLICT(user) DO UPDATE SET reading=excluded.reading,finished=excluded.finished", params![&user.id, settings.reading_threshold, settings.finished_threshold]).map_err(failure)?;
+        tx.execute("INSERT INTO colored_edition_preferences VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET effect=excluded.effect", params![&user.id, settings.colored_effect]).map_err(failure)?;
+        tx.execute("INSERT INTO colored_title_preferences VALUES (?1,?2) ON CONFLICT(user) DO UPDATE SET enabled=excluded.enabled", params![&user.id, settings.colored_title]).map_err(failure)?;
         tx.commit().map_err(failure)?;
         Ok(Json(settings))
     }).await.map_err(failure)?
 }
 pub(crate) async fn load_state(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Option<SavedState>>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
+    authorize_book(&state, &user, &id)?;
     tokio::task::spawn_blocking(move || {
         state.reader.path(&id)?;
         let saved: Option<(String, String)> = state
@@ -1123,7 +1299,7 @@ pub(crate) async fn load_state(
             .db()?
             .query_row(
                 "SELECT revision,state FROM reader_states WHERE user=?1 AND book=?2",
-                params![state.auth.username(), id],
+                params![&user.id, id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
@@ -1142,9 +1318,12 @@ pub(crate) async fn load_state(
 }
 pub(crate) async fn save_state(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(saved): Json<SavedState>,
 ) -> Result<Json<bool>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
+    authorize_book(&state, &user, &id)?;
     let data = serde_json::to_string(&saved.data).map_err(failure)?;
     if data.len() > 64 * 1024 {
         return Err(bad("Reader settings and bookmarks exceed 64 KB."));
@@ -1152,7 +1331,7 @@ pub(crate) async fn save_state(
     tokio::task::spawn_blocking(move || {
         let _guard = state.reader.writes.lock().map_err(failure)?;
         current(&state.reader,&id,&saved.revision)?;
-        state.reader.db()?.execute("INSERT INTO reader_states(user,book,revision,state) VALUES (?1,?2,?3,?4) ON CONFLICT(user,book) DO UPDATE SET revision=excluded.revision,state=excluded.state",params![state.auth.username(),id,saved.revision,data]).map_err(failure)?;
+        state.reader.db()?.execute("INSERT INTO reader_states(user,book,revision,state) VALUES (?1,?2,?3,?4) ON CONFLICT(user,book) DO UPDATE SET revision=excluded.revision,state=excluded.state",params![&user.id,id,saved.revision,data]).map_err(failure)?;
         Ok(Json(true))
     }).await.map_err(failure)?
 }
@@ -1207,6 +1386,137 @@ mod tests {
         assert!(xml(b"<!DOCTYPE html SYSTEM 'https://example.test/dtd'><html/>").is_err());
         assert!(xml(b"<!DOCTYPE html [<!ENTITY x 'text'>]><html/>").is_err());
     }
+    #[test]
+    fn legacy_reader_books_migration_preserves_ids_and_progress() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("book.pdf");
+        fs::write(&path, b"%PDF-1.7 test").unwrap();
+        let path = fs::canonicalize(path).unwrap();
+        let db_path = temp.path().join("reader.sqlite");
+        let db = Connection::open(&db_path).unwrap();
+        db.execute_batch("CREATE TABLE reader_books(id TEXT PRIMARY KEY,path TEXT UNIQUE NOT NULL);
+            CREATE TABLE reader_states(user TEXT NOT NULL,book TEXT NOT NULL,revision TEXT NOT NULL,state TEXT NOT NULL,PRIMARY KEY(user,book));").unwrap();
+        db.execute(
+            "INSERT INTO reader_books VALUES('legacy-book',?1)",
+            [path.to_string_lossy()],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO reader_states VALUES('legacy-user','legacy-book','revision',?1)",
+            [r#"{"page":7}"#],
+        )
+        .unwrap();
+        drop(db);
+        let store = ReaderStore::new(temp.path().into(), db_path);
+        let db = store.db().unwrap();
+        let saved: String = db
+            .query_row(
+                "SELECT state FROM reader_states WHERE user='legacy-user'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(saved, r#"{"page":7}"#);
+        let old_path: String = db
+            .query_row(
+                "SELECT path FROM reader_books WHERE id='legacy-book'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(old_path, path.to_string_lossy());
+        drop(db);
+        let resumed = store
+            .register_owned(&path, "legacy-user", "library", "item")
+            .unwrap();
+        let resumed_state: String = store
+            .db()
+            .unwrap()
+            .query_row(
+                "SELECT state FROM reader_states WHERE user='legacy-user' AND book=?1",
+                [&resumed],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(resumed_state, r#"{"page":7}"#);
+        assert_eq!(
+            store
+                .db()
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM reader_states WHERE user='legacy-user'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        let one = store
+            .register_owned(&path, "one", "library", "item")
+            .unwrap();
+        let two = store
+            .register_owned(&path, "two", "library", "item")
+            .unwrap();
+        assert_ne!(one, two);
+        assert_eq!(
+            store
+                .register_owned(&path, "one", "library", "item")
+                .unwrap(),
+            one
+        );
+        // Reopening the connection reruns schema setup without changing resource IDs or state.
+        assert_eq!(
+            store
+                .db()
+                .unwrap()
+                .query_row("SELECT count(*) FROM reader_books", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            4
+        );
+    }
+    #[test]
+    fn reader_resources_are_owned_and_progress_isolated() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("book.pdf");
+        fs::write(&path, b"%PDF-1.7 test").unwrap();
+        let runtime = std::sync::Arc::new(posterview_runtime::Runtime::new(temp.path()));
+        runtime.initialize().unwrap();
+        let mut state = AppState::new(runtime, crate::AuthState::for_tests(""), temp.path().into());
+        state.reader = std::sync::Arc::new(ReaderStore::new(
+            temp.path().into(),
+            temp.path().join("reader.sqlite"),
+        ));
+        let first = state.auth.request_user(&HeaderMap::new()).unwrap();
+        let mut second = first.clone();
+        second.id = "second-account".into();
+        let one = state
+            .reader
+            .register_owned(&path, &first.id, "", "book")
+            .unwrap();
+        let two = state
+            .reader
+            .register_owned(&path, &second.id, "", "book")
+            .unwrap();
+        assert_ne!(one, two);
+        assert!(authorize_book(&state, &first, &one).is_ok());
+        assert!(authorize_book(&state, &second, &one).is_err());
+        assert!(authorize_book(&state, &first, &two).is_err());
+        let db = state.reader.db().unwrap();
+        db.execute(
+            "INSERT INTO reader_states VALUES(?1,?2,'revision','{}')",
+            params![first.id, one],
+        )
+        .unwrap();
+        let count: i64 = db
+            .query_row(
+                "SELECT count(*) FROM reader_states WHERE user=?1",
+                [second.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+    }
     #[tokio::test]
     async fn authenticated_ranges_and_durable_progress() {
         use axum::{
@@ -1226,7 +1536,6 @@ mod tests {
             temp.path().into(),
             temp.path().join("reader.db"),
         ));
-        let id = reader.register(&path).unwrap();
         let version = revision(&path).unwrap();
         let auth = crate::AuthState::for_tests("secret");
         let (_, cookie) = auth.login("admin", "secret").unwrap();
@@ -1237,6 +1546,12 @@ mod tests {
             .next()
             .unwrap()
             .to_owned();
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, cookie.parse().unwrap());
+        let user = auth.request_user(&headers).unwrap();
+        let id = reader
+            .register_owned(&path, &user.id, "", "test-book")
+            .unwrap();
         let mut state = AppState::new(runtime, auth.clone(), temp.path().into());
         state.reader = reader;
         let app = Router::new()
@@ -1379,6 +1694,7 @@ mod tests {
         let saved = db.native_catalog(&library.id).unwrap().remove(0);
         let manifest = open_native(
             State(state.clone()),
+            HeaderMap::new(),
             Path((library.id.clone(), saved.id.clone())),
         )
         .await
@@ -1391,7 +1707,7 @@ mod tests {
         db.ingest_native_catalog(&library.id, library.revision, &[missing])
             .unwrap();
         assert!(
-            open_native(State(state), Path((library.id, saved.id)))
+            open_native(State(state), HeaderMap::new(), Path((library.id, saved.id)))
                 .await
                 .is_err()
         );

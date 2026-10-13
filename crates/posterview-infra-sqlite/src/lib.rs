@@ -100,6 +100,7 @@ impl ServerStore {
         connection.execute_batch(SCHEMA)?;
         migrate(&connection)?;
         native::migrate(&connection)?;
+        users::migrate(&connection)?;
         Ok(())
     }
 
@@ -758,5 +759,6 @@ mod tests {
     }
 }
 mod native;
+mod users;
 
 mod native_catalog;

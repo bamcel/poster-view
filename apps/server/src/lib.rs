@@ -7,6 +7,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+mod access;
 mod auth;
 mod config;
 mod error;
@@ -34,6 +35,7 @@ mod state;
 #[cfg(test)]
 mod test_support;
 mod transcoding;
+mod users;
 mod watch;
 mod workers;
 pub use auth::AuthState;

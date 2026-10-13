@@ -1,3 +1,5 @@
+import AdminOnly from "./AdminOnly";
+import {useIsAdmin} from "../lib/authContext";
 import NativeSeriesPlay from "../features/playback/components/NativeSeriesPlay";
 import {titleSortKey} from "../lib/titleSort";
 import NativePlaybackActions from "../features/playback/components/NativePlaybackActions";
@@ -234,15 +236,17 @@ export default function NativeLibraryBrowser({
 }: {
   library: NativeLibrary;
 }) {
+  const isAdmin=useIsAdmin();
   const { enabled: backdropView } = useBackdropView(library.id);
   const [, , bookDisplay] = useTrackingOverlays(library.library_type === "books");
   const {hoverOnly}=useAnimatedArtworkPreference(library.id);
   const artworkPlugin=useArtworkPlugin();
-  const artworkEnabled=artworkPlugin.data?.enabled!==false;
+  const artworkEnabled=isAdmin&&artworkPlugin.data?.enabled!==false;
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
   const navigate=useNavigate();
   const status = useQuery({
+    enabled:isAdmin,
     queryKey: ["native-scan", library.id],
     queryFn: () => nativeLibraries.status(library.id),
     refetchInterval: (q) =>
@@ -438,7 +442,7 @@ export default function NativeLibraryBrowser({
       )}
       {catalog.error && (
         <p role="alert" className="p-8 text-danger">
-          {catalog.error.message} <button onClick={refresh}>Retry</button>
+          {catalog.error.message} <button onClick={()=>void catalog.refetch()}>Retry</button>
         </p>
       )}
       {refreshError && <p role="alert" className="relative z-10 px-6 py-2 text-sm text-danger">{refreshError}</p>}
@@ -540,18 +544,16 @@ export default function NativeLibraryBrowser({
                         : "movie"
                   }
                   onOpen={() => open(entry)}
-                  onEditMetadata={() =>
-                    setEditor({ id: entry.id, kind: "metadata" })
-                  }
-                  onRefresh={refresh}
-                  actions={["series","book_series","movie"].includes(entry.kind)?[
+                  onEditMetadata={isAdmin ? () => setEditor({ id: entry.id, kind: "metadata" }) : undefined}
+                  onRefresh={isAdmin?refresh:undefined}
+                  actions={isAdmin&&["series","book_series","movie"].includes(entry.kind)?[
                     ...(artworkEnabled?[{label:"Edit Images",icon:<Images className="size-4 shrink-0"/>,onClick:()=>{pendingArtworkPage.current=entry.id;open(entry);}}]:[]),
                     {label:"Identify",icon:<Fingerprint className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"identify"})},
                     {label:"Remove Identification",icon:<ListFilter className="size-4 shrink-0"/>,disabled:status.data?.status==="scanning",onClick:()=>setEditor({id:entry.id,kind:"remove-identification"})},
                     {label:"Refresh Metadata",icon:<RefreshCw className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"refresh-metadata"})},
                     ...(entry.kind==="series"||entry.kind==="book_series"?[{label:entry.kind==="series"?"View Missing Episodes":"View Missing Files",icon:<ListFilter className="size-4 shrink-0"/>,onClick:()=>setEditor({id:entry.id,kind:"missing-files"})}]:[])
                   ]:[]}
-                  onScan={["series","book_series","season"].includes(entry.kind)&&entry.metadata.missing!==true?()=>void scanFolder(entry):undefined}
+                  onScan={isAdmin&&["series","book_series","season"].includes(entry.kind)&&entry.metadata.missing!==true?()=>void scanFolder(entry):undefined}
                   scanning={scanningFolder||status.data?.status==="scanning"}
                 />
               ))}
@@ -564,7 +566,7 @@ export default function NativeLibraryBrowser({
           </div>
         </>
       )}
-      {editEntry && (editor?.kind === "artwork" ? (
+      {isAdmin && editEntry && (editor?.kind === "artwork" ? (
         artworkEnabled && <div className="pointer-events-none fixed inset-0 z-50 bg-transparent">
           <section aria-label={`Artwork for ${editEntry.title}`} className="pointer-events-auto ml-auto h-full w-full max-w-md shadow-2xl" onClick={event => event.stopPropagation()}>
             <ArtworkPanel serverId={0} item={nativeArtworkItem(library, editEntry, entries)} libraryTitle={library.name} libraryType={library.library_type === "books" ? "book" : library.library_type === "movies" ? "movie" : "show"} onClose={() => setEditor(null)} />
@@ -611,6 +613,7 @@ function NativeDetail({
   showBackdrop: boolean;
   overlay: number;
 }) {
+  const isAdmin=useIsAdmin();
   const [editingDubs,setEditingDubs]=useState(false);
   const dubClient=useQueryClient();
   const {hoverOnly}=useAnimatedArtworkPreference(library.id);
@@ -777,7 +780,7 @@ function NativeDetail({
                 className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries || isBookSeries || isEpisode ? "text-left" : "text-center sm:text-left"}`}
               >
                 <div className="flex flex-wrap items-center gap-3">
-                {isEpisode ? (<><button onClick={()=>series&&open(series)} disabled={!series} className="block text-left" aria-label={series?`Open ${series.title}`:undefined}>{logo?<AnimatedArtwork src={logo} alt={series?.title??entry.title} className="max-h-20 max-w-[240px] object-contain object-left"/>:<span className="text-2xl font-semibold">{series?.title??"Episode"}</span>}</button><div className="mt-4 flex flex-wrap items-center gap-3"><h1 className="text-[17px] font-medium leading-snug">S{String(entry.metadata.season??parent?.metadata.season??1)}:E{String(entry.metadata.episode??"")} - {entry.title}</h1><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button>{artworkPlugin.data?.enabled!==false&&<button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button>}<button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching ? "animate-spin" : ""}`} /></button></div></>) : logo ? (
+                {isEpisode ? (<><button onClick={()=>series&&open(series)} disabled={!series} className="block text-left" aria-label={series?`Open ${series.title}`:undefined}>{logo?<AnimatedArtwork src={logo} alt={series?.title??entry.title} className="max-h-20 max-w-[240px] object-contain object-left"/>:<span className="text-2xl font-semibold">{series?.title??"Episode"}</span>}</button><div className="mt-4 flex flex-wrap items-center gap-3"><h1 className="text-[17px] font-medium leading-snug">S{String(entry.metadata.season??parent?.metadata.season??1)}:E{String(entry.metadata.episode??"")} - {entry.title}</h1><AdminOnly><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button></AdminOnly>{artworkPlugin.data?.enabled!==false&&<AdminOnly><button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button></AdminOnly>}<AdminOnly><button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching ? "animate-spin" : ""}`} /></button></AdminOnly></div></>) : logo ? (
                   <AnimatedArtwork
                     src={logo}
                     alt={entry.title}
@@ -790,11 +793,11 @@ function NativeDetail({
                   </h1>
                 )}
                 {(isSeries || isBookSeries || entry.kind==="season")&&<div data-testid="detail-actions" className="flex flex-wrap items-center gap-3">
-                  <button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button>
-                  {artworkPlugin.data?.enabled!==false&&<button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button>}
-                  <button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching?"animate-spin":""}`}/></button>
-                  {isBookSeries&&<button aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")} className="episode-inline-action"><Database className="size-4"/></button>}
-                  {(isSeries||isBookSeries)&&<button aria-label="Identify" title="Identify" onClick={()=>edit("identify")} className="episode-inline-action"><Fingerprint className="size-4"/></button>}
+                  <AdminOnly><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button></AdminOnly>
+                  {artworkPlugin.data?.enabled!==false&&<AdminOnly><button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button></AdminOnly>}
+                  <AdminOnly><button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching?"animate-spin":""}`}/></button></AdminOnly>
+                  {isBookSeries&&<AdminOnly><button aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")} className="episode-inline-action"><Database className="size-4"/></button></AdminOnly>}
+                  {(isSeries||isBookSeries)&&<AdminOnly><button aria-label="Identify" title="Identify" onClick={()=>edit("identify")} className="episode-inline-action"><Fingerprint className="size-4"/></button></AdminOnly>}
                 </div>}
                 </div>
                 {entry.kind === "season" && series && (
@@ -812,15 +815,15 @@ function NativeDetail({
                   data-testid="detail-actions"
                   className="mt-4 flex flex-wrap items-center gap-2"
                 >
-                  {!isEpisode&&<button
+                  {!isEpisode&&<AdminOnly><button
                     className={detailActionClass}
                     aria-label="Edit Metadata"
                     title="Edit Metadata"
                     onClick={() => edit("metadata")}
                    data-icon-button="true">
                     <Pencil className="size-4" />
-                  </button>}
-                  <button
+                  </button></AdminOnly>}
+                  <AdminOnly><button
                     className={detailActionClass}
                     aria-label="Refresh"
                     title="Refresh"
@@ -830,17 +833,17 @@ function NativeDetail({
                     <RefreshCw
                       className={`size-4 ${fetching ? "animate-spin" : ""}`}
                     />
-                  </button>
-                  {!isEpisode&&artworkPlugin.data?.enabled !== false && <button
+                  </button></AdminOnly>
+                  {!isEpisode&&artworkPlugin.data?.enabled !== false && <AdminOnly><button
                     className={detailActionClass}
                     aria-label="Edit Images"
                     title="Edit Images"
                     onClick={() => edit("artwork")}
                    data-icon-button="true">
                     <Images className="size-4" />
-                  </button>}
-                  {entry.kind.startsWith("book") && <button className={detailActionClass} aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")} data-icon-button="true"><Database className="size-4"/></button>}
-                  {["series","movie","book_series","book"].includes(entry.kind) && <button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")} data-icon-button="true"><Fingerprint className="size-4"/></button>}
+                  </button></AdminOnly>}
+                  {entry.kind.startsWith("book") && <AdminOnly><button className={detailActionClass} aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")} data-icon-button="true"><Database className="size-4"/></button></AdminOnly>}
+                  {["series","movie","book_series","book"].includes(entry.kind) && <AdminOnly><button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")} data-icon-button="true"><Fingerprint className="size-4"/></button></AdminOnly>}
                 </div>}
                 {playable&&<NativePlaybackActions library={library.id} item={entry.id}/>}
                 {(isSeries||entry.kind==="season")&&<NativeSeriesPlay library={library.id} path={entry.path} entries={entries}/>}
@@ -956,9 +959,9 @@ function NativeDetail({
                 </section>
               )}
 
-            {editingDubs && library.library_type==="anime" && <Modal backdrop={picture(library,entry,"backdrop")} title="Edit Dub Credits" onClose={()=>setEditingDubs(false)}><AnimeDubEditor library={library} entry={entry} onSaved={()=>{setEditingDubs(false);void dubClient.invalidateQueries({queryKey:["native-catalog",library.id]});}}/></Modal>}
+            {isAdmin && editingDubs && library.library_type==="anime" && <Modal backdrop={picture(library,entry,"backdrop")} title="Edit Dub Credits" onClose={()=>setEditingDubs(false)}><AnimeDubEditor library={library} entry={entry} onSaved={()=>{setEditingDubs(false);void dubClient.invalidateQueries({queryKey:["native-catalog",library.id]});}}/></Modal>}
             {animePreferences.casts && voiceCast?.groups.filter((_,index)=> index===0 ? animePreferences.original || (voiceCast.groups.length===1 && animePreferences.dub) : animePreferences.dub).map(group => <section key={group.title} className="mt-8">
-              <div className="mb-4 flex items-center gap-3"><h2 className="text-xl font-semibold">{group.title}</h2><button aria-label={`Edit dub credits for ${group.title}`} title="Edit dub credits" className="rounded-full border border-border p-2 text-muted hover:text-white" onClick={()=>setEditingDubs(true)} data-icon-button="true"><Pencil className="size-4"/></button></div>
+              <div className="mb-4 flex items-center gap-3"><h2 className="text-xl font-semibold">{group.title}</h2><AdminOnly><button aria-label={`Edit dub credits for ${group.title}`} title="Edit dub credits" className="rounded-full border border-border p-2 text-muted hover:text-white" onClick={()=>setEditingDubs(true)} data-icon-button="true"><Pencil className="size-4"/></button></AdminOnly></div>
               {group.cast.length ? <PeopleRow label={group.title}>{group.cast.map((person, i) => <div key={i} className="w-48 shrink-0 rounded-xl p-4">
                 <PersonPortrait person={person} images={portraitImages} />
                 <p className="text-sm font-medium">{String(person.name ?? "")}</p>

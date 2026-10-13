@@ -217,25 +217,33 @@ A single detected media mount overrides any old `POSTERVIEW_MEDIA_DIR` value aut
 Without a detected mount, that variable remains available for advanced setups.
 Without a media mount, the media root falls back to `/media`.
 
-PosterView's administrator username defaults to `admin`. Change it with `POSTERVIEW_USERNAME`
-in your `.env` file or the **Administrator Username** field in the Unraid XML template, then
-recreate the container. Usernames are case-sensitive.
+When no accounts exist, PosterView opens **Create administrator** before granting access.
+Choose the first administrator's username, display name and password there. This also
+applies to existing data directories with no profiles. After setup, manage names and passwords in **Settings → Users**.
+Usernames are case-insensitive; account edits survive container restarts.
 
 The Unraid XML template includes **Require Login**, a `false`/`true` option defaulting to `false`.
-It sets `POSTERVIEW_AUTH_ENABLED`: `false` disables login for **all connections**, including
+For administrator-only installations, it sets `POSTERVIEW_AUTH_ENABLED`: `false` disables login for all connections, including
 reverse proxies and remote visitors; `true` enables login (subject to the optional LAN bypass).
 With login disabled, inactivity sign-out cannot lock access. Use disabled login only on a
 trusted network. Username/password settings are retained for when login is enabled again.
 Outside the Unraid template, omitting this variable keeps authentication enabled. Recreate the
 container after changing the variable.
 
-PosterView requires an administrator password. Set `POSTERVIEW_PASSWORD` in a local `.env`
-file before starting Compose, or let PosterView generate a strong password on first launch and
-retrieve it with:
+While any ordinary user account is enabled, individual sign-in is required regardless of
+**Require Login** or LAN bypass settings. This prevents anonymous access from bypassing
+library and rating restrictions.
 
-```bash
-docker compose exec posterview cat /config/admin-password.txt
-```
+In **Settings → Users**, administrators can create, edit, disable and delete accounts,
+reset passwords, choose accessible native libraries, and set separate movie and TV rating
+limits. Unrated content can be allowed explicitly. Users have separate watch history,
+resume progress, reading progress and preferences. Administrators retain full server access;
+connected media server configuration and artwork/metadata changes remain administrative.
+Account edits revoke existing sign-ins, and the last enabled administrator cannot be removed.
+
+First-run setup always requires creating an administrator, even when login bypass is
+configured. Existing profiles are retained on upgrades. Configuration values and old
+`admin-password.txt` files do not replace an existing account's saved password.
 
 When an HTTPS reverse proxy terminates TLS, also set `POSTERVIEW_SECURE_COOKIES=true` so the
 session cookie is sent only over HTTPS.
@@ -259,7 +267,7 @@ to reach the address itself; a URL that works only inside another device's brows
 
 PosterView is an administrative tool: it stores media-server credentials and can replace or
 revert library artwork. By default, all API routes except the health check and sign-in flow require an
-HttpOnly, same-site administrator session. Keep port `7979` on a trusted LAN or behind an HTTPS
+HttpOnly, same-site account session with server-enforced roles. Keep port `7979` on a trusted LAN or behind an HTTPS
 reverse proxy; the login is an application boundary, not a substitute for firewalling and TLS.
 
 In **Settings → Privacy / Security**, you can configure:
@@ -274,10 +282,8 @@ In **Settings → Privacy / Security**, you can configure:
   filled in after sign-out and on future visits. Turning it off immediately removes the saved
   username. This preference is local to each browser/origin and saves immediately; PosterView
   never saves your login password in browser storage.
-  With remembering enabled, the sign-in form also reads the configured username from the server,
-  so changing `POSTERVIEW_USERNAME` replaces an outdated autofill value. It does not overwrite
-  a username you are actively editing. The username is provided by the public sign-in status
-  endpoint; the password is never returned.
+  Multiple accounts can sign in without the server overwriting the remembered username.
+  Passwords are never returned by the sign-in status endpoint.
 - **Automatic sign-out:** optionally expire password-authenticated sessions after 1–1440 minutes
   of inactivity. Disabled by default. Mouse, keyboard, touch, and scrolling count as activity;
   background requests do not. Activity in another tab on the same origin keeps the shared session
@@ -364,13 +370,13 @@ cd frontend && npm run build       # outputs frontend/dist
 cd .. && cargo run --release --package posterview-server
 ```
 
-Override the bind address, data directory, built UI directory, administrator password, and secure
+Override the bind address, data directory, built UI directory, and secure
 cookie behavior with `POSTERVIEW_BIND`, `POSTERVIEW_DATA_DIR`, `POSTERVIEW_UI_DIR`,
-`POSTERVIEW_PASSWORD`, and `POSTERVIEW_SECURE_COOKIES`.
+and `POSTERVIEW_SECURE_COOKIES`. Create the administrator through first-run setup.
 
 ## First-run setup
 
-1. Open **Settings**.
+1. Create the first administrator when prompted, then open **Settings**.
 2. **Add a media server** — name, type, URL, and token:
    - **Plex token**: open Plex Web → any item → ⋯ → *Get Info* → *View XML*, copy the
      `X-Plex-Token` from the URL.

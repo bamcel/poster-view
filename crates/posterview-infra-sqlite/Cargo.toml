@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+argon2.workspace = true
 fernet.workspace = true
 posterview-contracts.workspace = true
 rusqlite.workspace = true

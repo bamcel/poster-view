@@ -1,3 +1,4 @@
+import {AuthSessionContext} from "../lib/authContext";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -548,4 +549,14 @@ it("shows episode context and navigates through the season thumbnail row",async(
  fireEvent.click(screen.getByRole("button",{name:"Open episode 2: Second Episode"}));
  expect(await screen.findByRole("heading",{name:"S1:E2 - Second Episode"})).toBeTruthy();
  expect(screen.getByRole("button",{name:"Edit Metadata"})).toBeTruthy();
+});
+
+it("allows viewer browsing without editing artwork, metadata or scan actions",async()=>{
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<QueryClientProvider client={client}><MemoryRouter><AuthSessionContext.Provider value={{authenticated:true,user:{id:"viewer",username:"viewer",display_name:"Viewer",role:"user",enabled:true,revision:1,created_at:"",permissions:{all_libraries:true,library_ids:[],max_movie_rating:null,max_tv_rating:null,allow_unrated:false}}}}><NativeLibraryBrowser library={library}/></AuthSessionContext.Provider></MemoryRouter></QueryClientProvider>);
+ fireEvent.click(await screen.findByRole("button",{name:/Open Example Series/}));
+ expect(screen.queryByRole("button",{name:"Edit Metadata"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Edit Images"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Identify"})).toBeNull();
+ expect(nativeLibraries.status).not.toHaveBeenCalled();
 });

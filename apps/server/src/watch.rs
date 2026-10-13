@@ -4,6 +4,7 @@ use crate::{AppState, HttpError};
 use axum::{
     Json,
     extract::{Path, State},
+    http::HeaderMap,
     http::StatusCode,
 };
 use posterview_contracts::native::{NativeCatalogEntry, NativeLibrary};
@@ -446,7 +447,7 @@ impl WatchStore {
             ));
         }
         let mut state = Self::state(&tx, user, library, item, duration)?;
-        let rules = Self::rules_from(&tx, library)?;
+        let rules = Self::rules_from(&tx, &format!("{user}:{library}"))?;
         let position = if duration > 0.0 {
             input.position_seconds.min(duration)
         } else {
@@ -679,7 +680,7 @@ impl WatchStore {
         for (library, item, json) in rows {
             let state: WatchState = serde_json::from_str(&json).map_err(failure)?;
             // A previously watched title can still have an interrupted rewatch to resume.
-            if state.position_seconds > 0.0 && state.last_played_at.is_some() {
+            if state.last_played_at.is_some() {
                 result.push((library, item, state));
             }
         }
@@ -770,29 +771,33 @@ fn library(state: &AppState, id: &str) -> Result<NativeLibrary, HttpError> {
 }
 pub(crate) async fn get_state(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((library, item)): Path<(String, String)>,
 ) -> Result<Json<WatchState>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     tokio::task::spawn_blocking(move || {
+        crate::access::require_item(&state, &user, &library, &item)?;
         let entry = video(&state, &library, &item)?;
         let store = store(&state);
-        let duration = resolved_duration(&store, state.auth.username(), &library, &entry)?;
-        store
-            .get(state.auth.username(), &library, &item, duration)
-            .map(Json)
+        let duration = resolved_duration(&store, &user.id, &library, &entry)?;
+        store.get(&user.id, &library, &item, duration).map(Json)
     })
     .await
     .map_err(failure)?
 }
 pub(crate) async fn begin(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((library, item)): Path<(String, String)>,
 ) -> Result<Json<BeginResult>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     tokio::task::spawn_blocking(move || {
+        crate::access::require_item(&state, &user, &library, &item)?;
         let entry = video(&state, &library, &item)?;
         let store = store(&state);
-        let duration = resolved_duration(&store, state.auth.username(), &library, &entry)?;
+        let duration = resolved_duration(&store, &user.id, &library, &entry)?;
         store
-            .begin_at(state.auth.username(), &library, &item, duration, now_ms())
+            .begin_at(&user.id, &library, &item, duration, now_ms())
             .map(Json)
     })
     .await
@@ -800,12 +805,14 @@ pub(crate) async fn begin(
 }
 pub(crate) async fn progress(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((library, item)): Path<(String, String)>,
     Json(input): Json<ProgressInput>,
 ) -> Result<Json<WatchState>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     let playback_duration = if let Some(id) = &input.playback_session_id {
         if let Some((source_library, source_item, duration)) =
-            state.playback.session_details(id).await
+            state.playback.session_details_for(id, &user.id).await?
         {
             if source_library != library || source_item != item {
                 return Err(HttpError::bad_request(
@@ -826,6 +833,7 @@ pub(crate) async fn progress(
         None
     };
     tokio::task::spawn_blocking(move || {
+        crate::access::require_item(&state, &user, &library, &item)?;
         let entry = video(&state, &library, &item)?;
         // Playback creation validates actual source tracks. Catalog stream indices can be stale
         // after a file replacement; rejecting them here would lose otherwise valid watch progress.
@@ -833,12 +841,12 @@ pub(crate) async fn progress(
         let store = store(&state);
         let duration = match playback_duration {
             Some(duration) => duration,
-            None => resolved_duration(&store, state.auth.username(), &library, &entry)?,
+            None => resolved_duration(&store, &user.id, &library, &entry)?,
         };
         let signature = playback_duration.map(|_| catalog_signature(&entry));
         store
             .report_verified_at(
-                state.auth.username(),
+                &user.id,
                 &library,
                 &item,
                 VerifiedDuration {
@@ -855,15 +863,18 @@ pub(crate) async fn progress(
 }
 pub(crate) async fn set_state(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((library, item)): Path<(String, String)>,
     Json(input): Json<ManualStateInput>,
 ) -> Result<Json<WatchState>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     tokio::task::spawn_blocking(move || {
+        crate::access::require_item(&state, &user, &library, &item)?;
         let entry = video(&state, &library, &item)?;
         let store = store(&state);
-        let duration = resolved_duration(&store, state.auth.username(), &library, &entry)?;
+        let duration = resolved_duration(&store, &user.id, &library, &entry)?;
         store
-            .manual(state.auth.username(), &library, &item, duration, input)
+            .manual(&user.id, &library, &item, duration, input)
             .map(Json)
     })
     .await
@@ -871,13 +882,18 @@ pub(crate) async fn set_state(
 }
 pub(crate) async fn continue_watching(
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<Vec<ContinueItem>>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     tokio::task::spawn_blocking(move || {
         let catalog = ServerStore::new(state.runtime.data_dir());
         let libraries = catalog.native_libraries().map_err(failure)?;
         let mut result = Vec::new();
         let watch_store = store(&state);
-        for (library_id, item_id, mut saved) in watch_store.recent(state.auth.username())? {
+        for (library_id, item_id, mut saved) in watch_store.recent(&user.id)? {
+            if !crate::access::allows_item(&state, &user, &library_id, &item_id) {
+                continue;
+            }
             let Some(lib) = libraries.iter().find(|l| l.id == library_id) else {
                 continue;
             };
@@ -893,8 +909,11 @@ pub(crate) async fn continue_watching(
                 continue;
             };
             saved.duration_seconds =
-                resolved_duration(&watch_store, state.auth.username(), &library_id, &entry)?;
-            if saved.duration_seconds > 0.0 && saved.position_seconds >= saved.duration_seconds {
+                resolved_duration(&watch_store, &user.id, &library_id, &entry)?;
+            if saved.position_seconds <= 0.0
+                || (saved.duration_seconds > 0.0
+                    && saved.position_seconds >= saved.duration_seconds)
+            {
                 continue;
             }
             // Home cards need identification/artwork, not full ffprobe dumps or NFO source XML.
@@ -918,57 +937,117 @@ pub(crate) async fn continue_watching(
     .await
     .map_err(failure)?
 }
+pub(crate) async fn history(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ContinueItem>>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
+    tokio::task::spawn_blocking(move || {
+        let catalog = ServerStore::new(state.runtime.data_dir());
+        let libraries = catalog.native_libraries().map_err(failure)?;
+        let mut result = Vec::new();
+        let watch_store = store(&state);
+        for (library_id, item_id, mut saved) in watch_store.recent(&user.id)? {
+            if !crate::access::allows_item(&state, &user, &library_id, &item_id) {
+                continue;
+            }
+            let Some(lib) = libraries.iter().find(|l| l.id == library_id) else {
+                continue;
+            };
+            let Some(mut entry) = catalog
+                .native_catalog_item(&library_id, &item_id)
+                .map_err(failure)?
+                .filter(|e| {
+                    e.available
+                        && ["movie", "episode"].contains(&e.kind.as_str())
+                        && e.metadata["missing"] != true
+                })
+            else {
+                continue;
+            };
+            saved.duration_seconds =
+                resolved_duration(&watch_store, &user.id, &library_id, &entry)?;
+
+            // Home cards need identification/artwork, not full ffprobe dumps or NFO source XML.
+            entry.files.clear();
+            entry.nfo_xml = None;
+            result.push(ContinueItem {
+                library_id,
+                library_name: lib.name.clone(),
+                item_id,
+                title: entry.title.clone(),
+                kind: entry.kind.clone(),
+                entry,
+                state: saved,
+            });
+            if result.len() == 200 {
+                break;
+            }
+        }
+        Ok(Json(result))
+    })
+    .await
+    .map_err(failure)?
+}
 pub(crate) async fn library_states(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<std::collections::BTreeMap<String, WatchState>>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     tokio::task::spawn_blocking(move || {
         library(&state, &id)?;
-        store(&state)
-            .library_states(state.auth.username(), &id)
-            .map(Json)
+        let mut saved = store(&state).library_states(&user.id, &id)?;
+        saved.retain(|item, _| crate::access::allows_item(&state, &user, &id, item));
+        Ok(Json(saved))
     })
     .await
     .map_err(failure)?
 }
 pub(crate) async fn get_preferences(
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<PlaybackPreferences>, HttpError> {
-    tokio::task::spawn_blocking(move || store(&state).preferences(state.auth.username()).map(Json))
+    let user = state.auth.request_user(&headers)?;
+    tokio::task::spawn_blocking(move || store(&state).preferences(&user.id).map(Json))
         .await
         .map_err(failure)?
 }
 pub(crate) async fn save_preferences(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(prefs): Json<PlaybackPreferences>,
 ) -> Result<Json<PlaybackPreferences>, HttpError> {
-    tokio::task::spawn_blocking(move || {
-        store(&state)
-            .save_preferences(state.auth.username(), prefs)
-            .map(Json)
-    })
-    .await
-    .map_err(failure)?
+    let user = state.auth.request_user(&headers)?;
+    tokio::task::spawn_blocking(move || store(&state).save_preferences(&user.id, prefs).map(Json))
+        .await
+        .map_err(failure)?
 }
 pub(crate) async fn get_rules(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<ResumeRules>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     tokio::task::spawn_blocking(move || {
         library(&state, &id)?;
-        store(&state).rules(&id).map(Json)
+        store(&state).rules(&format!("{}:{id}", user.id)).map(Json)
     })
     .await
     .map_err(failure)?
 }
 pub(crate) async fn save_rules(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(rules): Json<ResumeRules>,
 ) -> Result<Json<ResumeRules>, HttpError> {
+    let user = state.auth.request_user(&headers)?;
     tokio::task::spawn_blocking(move || {
         library(&state, &id)?;
-        store(&state).save_rules(&id, rules).map(Json)
+        store(&state)
+            .save_rules(&format!("{}:{id}", user.id), rules)
+            .map(Json)
     })
     .await
     .map_err(failure)?
@@ -976,6 +1055,7 @@ pub(crate) async fn save_rules(
 
 pub(crate) fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route("/api/watch/history", axum::routing::get(history))
         .route(
             "/api/watch/native/{library}/{item}",
             axum::routing::get(get_state).put(set_state),
@@ -1019,6 +1099,48 @@ mod tests {
             audio_index: None,
             subtitle_index: None,
         }
+    }
+    #[test]
+    fn personal_history_includes_completed_titles_and_isolates_accounts() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = WatchStore::new(temp.path().join("watch.sqlite"));
+        let session = store
+            .begin_at("one", "library", "item", 100.0, 0)
+            .unwrap()
+            .session_id;
+        store
+            .report_at(
+                "one",
+                "library",
+                "item",
+                100.0,
+                input(&session, 0, 10.0),
+                10_000,
+            )
+            .unwrap();
+        assert_eq!(store.recent("one").unwrap().len(), 1);
+        assert!(store.recent("two").unwrap().is_empty());
+        assert_eq!(
+            store
+                .get("two", "library", "item", 100.0)
+                .unwrap()
+                .position_seconds,
+            0.0
+        );
+        store
+            .manual(
+                "one",
+                "library",
+                "item",
+                100.0,
+                ManualStateInput {
+                    watched: true,
+                    clear_position: true,
+                    reset_play_count: false,
+                },
+            )
+            .unwrap();
+        assert_eq!(store.recent("one").unwrap().len(), 1);
     }
     #[test]
     fn subtitle_appearance_defaults_legacy_json_and_survives_restart() {
@@ -1220,7 +1342,10 @@ mod tests {
         );
         let restarted = WatchStore::new(temp.path().join("watch.sqlite"));
         assert!(restarted.get("u", "l", "i", 1_000.0).unwrap().watched);
-        assert!(restarted.recent("u").unwrap().is_empty());
+        let history = restarted.recent("u").unwrap();
+        assert_eq!(history.len(), 1);
+        assert!(history[0].2.watched);
+        assert_eq!(history[0].2.position_seconds, 0.0);
     }
     #[test]
     fn stale_sessions_and_out_of_order_reports_cannot_overwrite_progress() {
@@ -1425,7 +1550,7 @@ mod tests {
         let store = WatchStore::new(temp.path().join("watch.sqlite"));
         store
             .save_rules(
-                "l",
+                "u:l",
                 ResumeRules {
                     maximum_percentage: 100.0,
                     ..ResumeRules::default()
@@ -1461,7 +1586,7 @@ mod tests {
         let store = WatchStore::new(temp.path().join("watch.sqlite"));
         store
             .save_rules(
-                "l",
+                "u:l",
                 ResumeRules {
                     maximum_percentage: 100.0,
                     ..ResumeRules::default()
@@ -1530,6 +1655,7 @@ mod tests {
         entry = db.native_catalog(&lib.id).unwrap().pop().unwrap();
         let result = begin(
             State(state.clone()),
+            HeaderMap::new(),
             Path((lib.id.clone(), entry.id.clone())),
         )
         .await
@@ -1540,6 +1666,7 @@ mod tests {
         report.duration_seconds = Some(40.0);
         let saved = progress(
             State(state.clone()),
+            HeaderMap::new(),
             Path((lib.id.clone(), entry.id.clone())),
             Json(report),
         )
@@ -1555,6 +1682,7 @@ mod tests {
             .unwrap();
         let refreshed = get_state(
             State(state.clone()),
+            HeaderMap::new(),
             Path((lib.id.clone(), entry.id.clone())),
         )
         .await
@@ -1566,6 +1694,7 @@ mod tests {
         report.audio_index = Some(Some(99));
         let saved = progress(
             State(state.clone()),
+            HeaderMap::new(),
             Path((lib.id.clone(), entry.id.clone())),
             Json(report),
         )
@@ -1580,9 +1709,14 @@ mod tests {
         let mut invalid = input(&result.session_id, 2, 60.0);
         invalid.audio_index = Some(Some(1025));
         assert!(
-            progress(State(state), Path((lib.id, entry.id)), Json(invalid))
-                .await
-                .is_err()
+            progress(
+                State(state),
+                HeaderMap::new(),
+                Path((lib.id, entry.id)),
+                Json(invalid)
+            )
+            .await
+            .is_err()
         );
     }
     #[test]

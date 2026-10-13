@@ -1,3 +1,4 @@
+import {useIsAdmin} from "./authContext";
 // Tracks which media server is "active" across the app. The selection persists
 // to localStorage and defaults to the user's default server (or the first one).
 
@@ -18,7 +19,9 @@ const ServerContext = createContext<ServerContextValue | null>(null);
 const STORAGE_KEY = "posterview.activeServer";
 
 export function ServerProvider({ children }: { children: ReactNode }) {
+  const isAdmin=useIsAdmin();
   const { data: servers = [], isLoading } = useQuery({
+    enabled:isAdmin,
     queryKey: ["servers"],
     queryFn: api.listServers,
   });

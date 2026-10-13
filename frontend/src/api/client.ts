@@ -79,7 +79,14 @@ export interface SecuritySettings {
 
 export interface LoginBackdropManifest { rows: { posters: string[] }[]; }
 
+export type UserRole = "admin" | "user";
+export interface UserPermissions { all_libraries: boolean; library_ids: string[]; max_movie_rating: string | null; max_tv_rating: string | null; allow_unrated: boolean; }
+export interface UserAccount { id: string; username: string; display_name: string; role: UserRole; enabled: boolean; permissions: UserPermissions; revision: number; created_at: string; }
+export type UserInput = Omit<UserAccount, "id" | "revision" | "created_at"> & { password: string };
 export interface AuthSession {
+  user?: UserAccount | null;
+  accounts_enabled?: boolean;
+  setup_required?: boolean;
   username?: string;
   authenticated: boolean;
   password_required?: boolean;
@@ -87,6 +94,10 @@ export interface AuthSession {
 }
 
 export const api = {
+  users: () => request<UserAccount[]>("/users"),
+  createUser: (input: UserInput) => request<UserAccount>("/users", {method:"POST", body:JSON.stringify(input)}),
+  updateUser: (id: string, input: Omit<UserInput, "password"> & {revision:number;password:string|null}) => request<UserAccount>(`/users/${encodeURIComponent(id)}`, {method:"PUT",body:JSON.stringify(input)}),
+  deleteUser: (id: string) => request<void>(`/users/${encodeURIComponent(id)}`, {method:"DELETE"}),
   appearanceSettings: () => request<AppearanceSettings>("/appearance/settings"),
   saveAppearanceSettings: (settings: AppearanceSettings) => request<AppearanceSettings>("/appearance/settings", {
     method: "PUT", body: JSON.stringify(settings),
@@ -98,6 +109,9 @@ export const api = {
   }),
   authActivity: () => request<void>("/auth/activity", { method: "POST" }),
   authStatus: () => request<AuthSession>("/auth/status"),
+  authSetup: (username: string, displayName: string, password: string) => request<AuthSession>("/auth/setup", {
+    method: "POST", body: JSON.stringify({ username, display_name: displayName, password }),
+  }),
   authLogin: (username: string, password: string) =>
     request<AuthSession>("/auth/login", {
       method: "POST",
