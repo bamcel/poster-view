@@ -1,9 +1,10 @@
 import {act,cleanup,render,screen} from "@testing-library/react";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
-import {afterEach,expect,it,vi} from "vitest";
+import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import {nativeLibraries} from "../api/nativeLibraries";
 import LibraryPosterStrip from "./LibraryPosterStrip";
 vi.mock("../api/nativeLibraries",async original=>({...await original<typeof import("../api/nativeLibraries")>(),nativeLibraries:{...((await original<typeof import("../api/nativeLibraries")>()).nativeLibraries),previews:vi.fn()}}));
+beforeEach(()=>{vi.spyOn(HTMLElement.prototype,"getBoundingClientRect").mockReturnValue({width:400} as DOMRect);});
 afterEach(()=>{cleanup();vi.useRealTimers();vi.unstubAllGlobals();vi.clearAllMocks();vi.restoreAllMocks();});
 function mount(){const client=new QueryClient({defaultOptions:{queries:{retry:false}}});client.setQueryData(["native-previews","anime"],Array.from({length:6},(_,i)=>({id:String(i),title:`Title ${i}`,revision:1})));return render(<QueryClientProvider client={client}><LibraryPosterStrip library="anime"/></QueryClientProvider>);}
 it("slides continuously right and wraps without a waiting interval",async()=>{
@@ -15,7 +16,7 @@ it("slides continuously right and wraps without a waiting interval",async()=>{
  const images=Array.from(screen.getByLabelText("Library poster preview").querySelectorAll("img"));
  const sources=images.map(image=>image.src);
  act(()=>callback(0));act(()=>callback(100));
- expect(screen.getByLabelText("Library poster preview").firstElementChild?.getAttribute("style")).toContain("-149.5%");
+ expect(screen.getByLabelText("Library poster preview").firstElementChild?.getAttribute("style")).toContain("-598px");
  for(let time=200;time<=5100;time+=100)act(()=>callback(time));
  expect(Array.from(screen.getByLabelText("Library poster preview").querySelectorAll("img"))).toEqual(images);
  expect(images.map(image=>image.src)).toEqual(sources);
@@ -89,4 +90,19 @@ it("pauses offscreen without restarting the slide",async()=>{
  await visibility(false);
  await visibility(true);
  expect(track.getAttribute("style")).toBe(position);
+});
+
+it("moves on physical pixels at fractional display scaling",async()=>{
+ vi.stubGlobal("devicePixelRatio",1.25);
+ let callback:FrameRequestCallback=()=>{};
+ vi.stubGlobal("requestAnimationFrame",vi.fn((next:FrameRequestCallback)=>{callback=next;return 1;}));
+ vi.stubGlobal("cancelAnimationFrame",vi.fn());
+ mount();await act(async()=>{});
+ act(()=>callback(0));
+ for(let time=17;time<=5100;time+=17){
+  act(()=>callback(time));
+  const style=screen.getByLabelText("Library poster preview").firstElementChild?.getAttribute("style")??"";
+  const offset=Number(/translate3d\(([-\d.]+)px/.exec(style)?.[1]);
+  expect(Math.abs(offset*1.25-Math.round(offset*1.25))).toBeLessThan(0.00001);
+ }
 });
