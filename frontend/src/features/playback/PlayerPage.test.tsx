@@ -37,6 +37,17 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();window.dispatchEvent(new Event("posterview:account-changed"));vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();if(originalAudioProperty)Object.defineProperty(HTMLMediaElement.prototype,"audioTracks",originalAudioProperty);else Reflect.deleteProperty(HTMLMediaElement.prototype,"audioTracks");});
 describe("original-file player",()=>{
+ it("holds the previous decoded picture across source replacement without restoring the poster",async()=>{
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,poster_url:"/poster.jpg",remux_allowed:true});hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+  const draw=vi.fn();vi.spyOn(HTMLCanvasElement.prototype,"getContext").mockReturnValue({drawImage:draw} as unknown as CanvasRenderingContext2D);
+  player();const video=await ready();Object.defineProperties(video,{videoWidth:{value:1920,configurable:true},videoHeight:{value:1080,configurable:true}});
+  fireEvent.timeUpdate(video);expect(video.getAttribute("poster")).toBeNull();
+  vi.mocked(playbackApi.create).mockResolvedValue({...session,id:"copied",method:"remux",generation:1,offset_seconds:290,url:"/hls/1/index.m3u8",mime:"application/vnd.apple.mpegurl"});
+  fireEvent.click(screen.getByRole("button",{name:"Playback quality"}));fireEvent.click(screen.getByRole("button",{name:"Direct Stream · lossless"}));
+  await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));const held=document.querySelector(".pv-held-frame") as HTMLCanvasElement;
+  expect(held.hidden).toBe(false);expect(draw).toHaveBeenCalledTimes(1);expect(video.getAttribute("poster")).toBeNull();
+  loadMetadata(video);fireEvent.seeked(video);expect(held.hidden).toBe(true);
+ });
  it("keeps brief native seek waits unobtrusive and shows sustained buffering without replacing the source",async()=>{
   player();const video=await ready();const source=video.getAttribute("src");
   Object.defineProperty(video,"paused",{value:false,configurable:true});

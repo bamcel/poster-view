@@ -12,6 +12,7 @@ import {createPlaybackSeekQueue} from "./lib/seekQueue";
 import {createBandwidthDetector,createFragmentTransferSampler} from "./lib/bandwidth";
 import {createSessionHeartbeatQueue} from "./lib/sessionHeartbeat";
 import {createVideoFrameMonitor} from "./lib/videoFrames";
+import {createHeldVideoFrame} from "./lib/heldVideoFrame";
 import {defaultAudioIndex,enableNativeAudio,mapNativeAudio,nativeAudioTracks,type NativeAudioTrack} from "./lib/nativeAudio";
 import DetailSynopsis from "../../components/DetailSynopsis";
 import {applyPlainSubtitlePosition,subtitleAppearance,subtitleAppearanceVariables} from "./lib/subtitleAppearance";
@@ -33,6 +34,10 @@ export default function PlayerPage() {
   const navigate=useNavigate(), [params]=useSearchParams();
   const returnPath=safePlayerReturn(params.get("return"));
   const root=useRef<HTMLDivElement>(null), video=useRef<HTMLVideoElement>(null);
+  const heldCanvas=useRef<HTMLCanvasElement>(null);
+  const [heldFrame,setHeldFrame]=useState(false),[hasVideoFrame,setHasVideoFrame]=useState(false);
+  const heldVideo=useRef(createHeldVideoFrame(()=>heldCanvas.current,setHeldFrame));
+  useEffect(()=>{setHasVideoFrame(false);return()=>heldVideo.current.clear();},[routeKey]);
   const [info,setInfo]=useState<PlaybackInfo>(), [session,setSession]=useState<PlaybackSession>();
   const [preferences,setPreferences]=useState(defaultPlaybackPreferences);
   const [error,setError]=useState(""), [notice,setNotice]=useState(""), [loading,setLoading]=useState(true);
@@ -45,6 +50,7 @@ export default function PlayerPage() {
   const resetVideoFrames=(element:HTMLVideoElement,target:number)=>{
     const generation=requestGeneration.current,owner=current.current;
     videoFrames.current.reset(element,Math.max(0,target-(owner?.offset_seconds??0)),()=>mounted.current&&activeRoute.current===routeKey&&requestGeneration.current===generation&&current.current===owner&&mediaOwner.current?.generation===generation);
+    heldVideo.current.awaitFrame(element,Math.max(0,target-(owner?.offset_seconds??0)),()=>mounted.current&&activeRoute.current===routeKey&&requestGeneration.current===generation&&current.current===owner&&mediaOwner.current?.generation===generation);
   };
   useEffect(()=>()=>videoFrames.current.destroy(),[routeKey]);
   useEffect(()=>{
@@ -151,6 +157,7 @@ export default function PlayerPage() {
   }
   const attachSource=useCallback((created:PlaybackSession,target:number,generation:number)=>{
     const element=video.current,data=infoRef.current;if(!element||!data)return;
+    heldVideo.current.capture(element);
     metadataCleanup.current?.();metadataCleanup.current=undefined;segmented.current?.destroy();segmented.current=undefined;
     current.current=created;mediaOwner.current={generation,sessionId:created.id};setSession(created);
     if(created.method!=="direct")confirmedPosition.current=created.offset_seconds;
@@ -202,6 +209,7 @@ export default function PlayerPage() {
   const start=useCallback(async(sourceTime:number,playOverride?:boolean,losslessFallback=false)=>{
     const element=video.current,data=infoRef.current,caps=capability.current;
     if(!element||!data||!caps||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!watchSession.current)return;
+    heldVideo.current.capture(element);
     const generation=++requestGeneration.current;
     playIntent.current=playOverride??(current.current&&ready.current&&!pendingSeek.current?!element.paused:playIntent.current);
     const target=Math.max(0,Math.min(sourceTime,data.duration_seconds||sourceTime));
@@ -243,6 +251,7 @@ export default function PlayerPage() {
   },[libraryId,itemId,routeKey,report,attachSource,terminalError]);
   const reposition=useCallback(async(target:number,audioIndex?:number,playOverride?:boolean)=>{
     const element=video.current,owned=current.current;if(!element||!owned||activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
+    heldVideo.current.capture(element);
     const generation=++requestGeneration.current;
     heartbeatQueue.current?.forget(owned.id);
     playIntent.current=playOverride??(ready.current&&!pendingSeek.current?!element.paused:playIntent.current);
@@ -256,6 +265,7 @@ export default function PlayerPage() {
         current.current=updated;mediaOwner.current={generation,sessionId:updated.id};setSession(updated);ready.current=true;
         segmented.current?.refresh(Math.max(0,target-updated.offset_seconds));
         element.currentTime=Math.max(0,target-updated.offset_seconds);
+        resetVideoFrames(element,target);
         if(audioIndex!==undefined){selected.current.audio=updated.audio_index??audioIndex;setAudio(selected.current.audio);}
         report(false,false,true);if(playIntent.current)void play(false);else heartbeat(true);
       }else attachSource(updated,target,generation);
@@ -514,6 +524,7 @@ export default function PlayerPage() {
     }
     if(Math.abs(source-nativeActivity.current.position)>0.1){nativeActivity.current={position:source,at:Date.now(),seekTarget:null};setRecoveryNeeded(false);}
     sourcePosition.current=Math.max(0,source);confirmedPosition.current=sourcePosition.current;setPosition(sourcePosition.current);
+    if(element.videoWidth>0&&element.videoHeight>0){setHasVideoFrame(true);heldVideo.current.decoded(element);}
     if(pending)heartbeat(element.paused);
     const usable=element.paused?element.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA:element.readyState>=HTMLMediaElement.HAVE_FUTURE_DATA;
     if(usable){waitingDemand.current=false;setBuffering(false);setLoading(false);}
@@ -640,7 +651,7 @@ export default function PlayerPage() {
   const title=pendingInitialization?"Media player":info?.season!=null&&info?.episode!=null?`S${info.season}:E${info.episode} – ${info.title}`:info?.title??"Media player";
   const selectedSubtitle=info?.tracks.find(track=>track.index===subtitle);
   return <div className={`pv-player ${visible||menu||watchPrompt||!playing?"controls-visible":"controls-hidden"}`} ref={root} style={{"--subtitle-scale":preferences.subtitle_size/100,...subtitleAppearanceVariables(preferences)} as React.CSSProperties} onPointerMove={interact} onKeyDownCapture={interact} onPointerDown={()=>{controls.current.focus=false;interact();}} onFocusCapture={event=>{controls.current.focus=event.target instanceof HTMLElement&&event.target.matches(":focus-visible");setVisible(true);}} onBlurCapture={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))controls.current.focus=false;}}>
-    <div className="pv-video-stage" inert={watchPrompt||pendingInitialization}><video ref={video} playsInline preload="metadata" poster={info?.poster_url??undefined} onClick={toggle} onDoubleClick={()=>void toggleFullscreen()} onPlay={mediaPlay} onPause={mediaPause} onWaiting={mediaWaiting} onPlaying={mediaPlaying} onLoadedData={()=>updatePosition()} onCanPlay={()=>updatePosition()} onTimeUpdate={()=>{updatePosition();progressEvent();}} onProgress={progressEvent} onEnded={end} onError={mediaError} onSeeked={()=>{if(updatePosition())report(false,false,true);}} aria-label={title}/></div>
+    <div className="pv-video-stage" inert={watchPrompt||pendingInitialization}><video ref={video} playsInline preload="metadata" poster={hasVideoFrame?undefined:info?.poster_url??undefined} onClick={toggle} onDoubleClick={()=>void toggleFullscreen()} onPlay={mediaPlay} onPause={mediaPause} onWaiting={mediaWaiting} onPlaying={mediaPlaying} onLoadedData={()=>updatePosition()} onCanPlay={()=>updatePosition()} onTimeUpdate={()=>{updatePosition();progressEvent();}} onProgress={progressEvent} onEnded={end} onError={mediaError} onSeeked={()=>{if(updatePosition())report(false,false,true);}} aria-label={title}/><canvas ref={heldCanvas} className="pv-held-frame" hidden={!heldFrame} aria-hidden="true"/></div>
     <div className="pv-player-header pv-controls" inert={watchPrompt} aria-hidden={!visible&&playing&&!menu}>
       <button className="pv-icon" aria-label="Back to media" onClick={exit} title="Back"><ArrowLeft/></button>
       <div className="pv-header-tools" inert={pendingInitialization}><button className="pv-icon" aria-label={muted?"Unmute":"Mute"} onClick={()=>setMuted(value=>!value)}>{muted||volume===0?<VolumeX/>:<Volume2/>}</button><input className="pv-volume" aria-label="Volume" type="range" min="0" max="1" step="0.01" value={muted?0:volume} onChange={event=>{setVolume(Number(event.target.value));setMuted(false);}}/>

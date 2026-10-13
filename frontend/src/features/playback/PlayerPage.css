@@ -2,6 +2,7 @@
 .pv-video-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
 .pv-video-stage video{height:100%;width:100%;object-fit:contain;background:#000}
 .pv-video-stage canvas{pointer-events:none}
+.pv-video-stage .pv-held-frame{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:0}
 /* A rounded clip keeps hardware video in the browser's compositing path.
    Without it, the ASS OffscreenCanvas can leave the video layer black on seek. */
 .pv-video-stage:has(canvas.JASSUB) video{clip-path:inset(0 round 1px)}
