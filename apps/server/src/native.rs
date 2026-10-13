@@ -617,7 +617,14 @@ async fn run_scan_scoped_mode(
         }
     }
     if library.library_type != NativeLibraryType::Youtube {
-        crate::native_missing::reconcile_library(&state, &library, &mut entries, false, &mut warnings).await;
+        crate::native_missing::reconcile_library(
+            &state,
+            &library,
+            &mut entries,
+            false,
+            &mut warnings,
+        )
+        .await;
     }
     for entry in &mut entries {
         normalize_season_title(entry);
@@ -657,7 +664,14 @@ async fn run_scan_scoped_mode(
     }
     crate::native_capture::fill_missing(&state, &library, &mut entries, &mut warnings).await;
     if library.library_type != NativeLibraryType::Youtube {
-        crate::native_missing::reconcile_library(&state, &library, &mut entries, true, &mut warnings).await;
+        crate::native_missing::reconcile_library(
+            &state,
+            &library,
+            &mut entries,
+            true,
+            &mut warnings,
+        )
+        .await;
     }
     if library.options.show_missing_files && library.library_type == NativeLibraryType::Books {
         crate::native_scan::book_placeholders(&mut entries);
