@@ -59,11 +59,11 @@ persisted playback permissions and resource settings. Planner tests are adjacent
 
 Native CRUD/scan coordination remains in `native.rs`. Discovery/probing,
 monitoring, missing items, identification, providers and artwork already have
-separate `native_*.rs` modules. `google_books.rs`, `reader.rs`, `metadata.rs`,
+separate `native_*.rs` modules. `reader.rs`, `metadata.rs`,
 `watch.rs` and `scheduled_tasks.rs` keep their feature interfaces.
 Shared fixtures now come from `test_support.rs`, not native scan tests. Feature
 routers return `Router<AppState>`; central composition applies authentication
-once. Preserve explicit public and compatibility registrations.
+once. Keep only health, authentication and login-backdrop endpoints public.
 
 Existing crates already supply the necessary dependency boundaries. No new crate
 was added. Further extraction should identify a reusable interface or concrete
@@ -222,8 +222,8 @@ moving a module does not authorize changing its schema or data location.
 
 Protected routes require administrator authentication by default. Configuration
 still controls disabled authentication, TCP-peer LAN bypass, idle timeout and
-secure cookies. Public health/auth/backdrop and existing compatibility plugin
-registrations are unchanged. Forwarded headers do not define trusted peers.
+secure cookies. Health/auth/backdrop routes are public; plugin configuration
+requires authentication. Forwarded headers do not define trusted peers.
 Playing heartbeats refresh authenticated activity; ordinary polling/image loads
 do not. Credential handling and URL validation remain server-side.
 

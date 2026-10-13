@@ -449,17 +449,17 @@ Library catalogs load on demand and are prefetched when you hover or focus a lib
 
 Other recently visited page data is retained in browser memory for 30 minutes and revalidated according to each page’s freshness interval. Manual artwork uses private browser caching and ETags: unchanged images return a lightweight 304 response after their cache expires. Artwork edits use revisioned URLs, and scan completion invalidates library data. This cache is not persisted across browser reloads.
 
-### Google Books metadata plugin
+### Connection security and development publishing
 
-Open **Settings → Plugins → Google Books** to enable the plugin and save an API key.
-Enable the Books API in your Google Cloud project, restrict the key to that API,
-and use restrictions compatible with server requests (not browser referrers).
-The key is encrypted at rest and is never returned by the configuration endpoint.
-Use **Test connection** to check an entered or saved key, even while the plugin is disabled. Testing does not save a new key; use **Save configuration** to keep it.
+Connected Plex, Jellyfin, and Emby HTTPS endpoints verify TLS certificates by default.
+Use a hostname matching the certificate. The authenticated server create/update API
+supports `allow_invalid_certificates: true` as an explicit per-server exception for
+self-signed or otherwise untrusted certificates; this disables certificate verification
+only for that server. HTTP endpoints remain available for local connections.
 
-Enable **Google Books** in the book library's metadata provider list. Use **Identify**
-to search and select a Google Books edition, then **Fetch Metadata** to preview and
-choose fields, or **Refresh Metadata** to fetch missing values. Individual books
-and book series can use Google Books IDs. Google Books supplies edition metadata,
-not a reliable series volume count or completion status. Cover thumbnails appear
-in identification results; this plugin does not download artwork automatically.
+Artwork plugin settings require administrator authentication. Google Books is no
+longer offered as a plugin or metadata provider. Credential decryption failures
+report a recovery error rather than treating damaged credentials as unconfigured.
+
+Development pushes publish `ghcr.io/bamcel/poster-view:development` only after
+Rust, frontend, dependency-audit, and Unraid-template verification succeeds.

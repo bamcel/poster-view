@@ -5,6 +5,96 @@ use tokio::net::TcpListener;
 use super::*;
 
 #[tokio::test]
+async fn self_signed_tls_requires_an_explicit_exception_for_each_server() {
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+    use std::{
+        io::{Read, Write},
+        sync::Arc,
+        time::Duration,
+    };
+
+    let config = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_no_client_auth()
+    .with_single_cert(
+        vec![CertificateDer::from(
+            include_bytes!("../tests/fixtures/self-signed-cert.der").to_vec(),
+        )],
+        PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+            include_bytes!("../tests/fixtures/self-signed-key.der").to_vec(),
+        )),
+    )
+    .unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base_url = format!("https://{}", listener.local_addr().unwrap());
+    listener.set_nonblocking(true).unwrap();
+    let server = std::thread::spawn(move || {
+        let config = Arc::new(config);
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        let mut accepted = 0;
+        while accepted < 9 {
+            let socket = match listener.accept() {
+                Ok((socket, _)) => socket,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "TLS fixture timed out"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
+                Err(error) => panic!("TLS fixture: {error}"),
+            };
+            accepted += 1;
+            socket.set_nonblocking(false).unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            socket
+                .set_write_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            let connection = rustls::ServerConnection::new(Arc::clone(&config)).unwrap();
+            let mut stream = rustls::StreamOwned::new(connection, socket);
+            let mut request = [0; 4096];
+            if stream.read(&mut request).is_err() {
+                continue;
+            }
+            let body = r#"{"ServerName":"TLS fixture","Version":"4","MediaContainer":{"friendlyName":"TLS fixture","version":"4"}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            stream.conn.send_close_notify();
+            stream.flush().unwrap();
+        }
+    });
+    for server_type in [ServerType::Plex, ServerType::Emby, ServerType::Jellyfin] {
+        for allow_invalid_certificates in [false, true, false] {
+            let result = test_connection(ConnectionConfig {
+                server_type,
+                base_url: &base_url,
+                token: "fixture",
+                allow_invalid_certificates,
+            })
+            .await;
+            assert_eq!(
+                result.is_ok(),
+                allow_invalid_certificates,
+                "{server_type:?}: {result:?}"
+            );
+            if let Ok((name, _)) = result {
+                assert_eq!(name, "TLS fixture");
+            }
+        }
+    }
+    server.join().unwrap();
+}
+
+#[tokio::test]
 async fn emby_connection_trims_pasted_api_key_before_authenticating() {
     let app = Router::new().route("/System/Info", get(|headers: axum::http::HeaderMap| async move {
         if headers.get("X-Emby-Token").and_then(|value| value.to_str().ok()) != Some("emby-key") {
@@ -13,7 +103,7 @@ async fn emby_connection_trims_pasted_api_key_before_authenticating() {
         Json(json!({"ServerName":"Emby fixture","Version":"4"})).into_response()
     }));
     let (base_url, task) = serve(app).await;
-    let result = test_connection(ConnectionConfig {
+    let result = test_connection(ConnectionConfig { allow_invalid_certificates: false,
         server_type: ServerType::Emby,
         base_url: &base_url,
         token: " \temby-key\r\n",
@@ -31,7 +121,7 @@ async fn book_folder_detail_falls_back_to_user_scoped_item_endpoint() {
             Json(json!({"Id":"book-series","Name":"Book Series","Type":"Folder","IsFolder":true,"Path":"/media/Books/Book Series"}))
         }));
     let (base_url, task) = serve(app).await;
-    let detail = get_item_detail(ConnectionConfig {
+    let detail = get_item_detail(ConnectionConfig { allow_invalid_certificates: false,
         server_type: ServerType::Emby,
         base_url: &base_url,
         token: "test",
@@ -52,7 +142,7 @@ async fn failure_messages_distinguish_credentials_rate_limits_outages_and_unreac
     ] {
         let app = Router::new().route("/System/Info", get(move || async move { status }));
         let (base_url, task) = serve(app).await;
-        let result = test_connection(ConnectionConfig {
+        let result = test_connection(ConnectionConfig { allow_invalid_certificates: false,
             server_type: ServerType::Jellyfin,
             base_url: &base_url,
             token: "secret",
@@ -66,7 +156,7 @@ async fn failure_messages_distinguish_credentials_rate_limits_outages_and_unreac
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base_url = format!("http://{}", listener.local_addr().unwrap());
     drop(listener);
-    let message = test_connection(ConnectionConfig {
+    let message = test_connection(ConnectionConfig { allow_invalid_certificates: false,
         server_type: ServerType::Jellyfin,
         base_url: &base_url,
         token: "secret",
@@ -79,7 +169,7 @@ async fn failure_messages_distinguish_credentials_rate_limits_outages_and_unreac
 #[test]
 fn jellyfin_uses_current_auth_scheme_while_emby_keeps_its_token_header() {
     let client = Client::new();
-    let jellyfin = ConnectionConfig {
+    let jellyfin = ConnectionConfig { allow_invalid_certificates: false,
         server_type: ServerType::Jellyfin,
         base_url: "http://localhost",
         token: "jellyfin-key",
@@ -96,7 +186,7 @@ fn jellyfin_uses_current_auth_scheme_while_emby_keeps_its_token_header() {
     );
     assert!(!request.headers().contains_key("X-Emby-Token"));
 
-    let emby = ConnectionConfig {
+    let emby = ConnectionConfig { allow_invalid_certificates: false,
         server_type: ServerType::Emby,
         base_url: "http://localhost",
         token: "emby-key",
@@ -128,7 +218,7 @@ async fn book_libraries_and_items_are_browseable_in_emby_family_servers() {
         }));
     let (base_url, task) = serve(app).await;
     for server_type in [ServerType::Jellyfin, ServerType::Emby] {
-        let config = ConnectionConfig {
+        let config = ConnectionConfig { allow_invalid_certificates: false,
             server_type,
             base_url: &base_url,
             token: "test",
@@ -170,7 +260,7 @@ async fn emby_family_library_items_include_backdrops() {
         );
     let (base_url, task) = serve(app).await;
     let items = get_items(
-        ConnectionConfig {
+        ConnectionConfig { allow_invalid_certificates: false,
             server_type: ServerType::Emby,
             base_url: &base_url,
             token: "test",
@@ -237,7 +327,7 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
         }));
     let (base_url, task) = serve(app).await;
     let items = get_folder_items(
-        ConnectionConfig {
+        ConnectionConfig { allow_invalid_certificates: false,
             server_type: ServerType::Emby,
             base_url: &base_url,
             token: "test",
@@ -258,7 +348,7 @@ async fn manga_folder_browsing_returns_only_immediate_series_and_volume_children
         Some("Items/food-wars/Images/Backdrop?tag=series-backdrop")
     );
     let detail = get_item_detail(
-        ConnectionConfig {
+        ConnectionConfig { allow_invalid_certificates: false,
             server_type: ServerType::Emby,
             base_url: &base_url,
             token: "test",
@@ -316,7 +406,7 @@ async fn jellyfin_connection_contract_is_parsed_directly() {
         get(|| async { Json(json!({ "ServerName": "Living Room", "Version": "10.10.7" })) }),
     );
     let (base_url, task) = serve(app).await;
-    let result = test_connection(ConnectionConfig {
+    let result = test_connection(ConnectionConfig { allow_invalid_certificates: false,
         server_type: ServerType::Jellyfin,
         base_url: &base_url,
         token: "test-token",
@@ -342,7 +432,7 @@ async fn cross_origin_redirects_are_not_followed() {
         }),
     );
     let (base_url, task) = serve(app).await;
-    let result = test_connection(ConnectionConfig {
+    let result = test_connection(ConnectionConfig { allow_invalid_certificates: false,
         server_type: ServerType::Jellyfin,
         base_url: &base_url,
         token: "test-token",
@@ -354,7 +444,7 @@ async fn cross_origin_redirects_are_not_followed() {
 
 #[tokio::test]
 async fn unsafe_server_url_is_rejected_before_network_access() {
-    let result = test_connection(ConnectionConfig {
+    let result = test_connection(ConnectionConfig { allow_invalid_certificates: false,
         server_type: ServerType::Plex,
         base_url: "file:///etc/passwd",
         token: "token",
@@ -375,7 +465,7 @@ async fn emby_family_artwork_can_be_removed() {
     let (base_url, task) = serve(app).await;
     for server_type in [ServerType::Emby, ServerType::Jellyfin] {
         remove_image(
-            ConnectionConfig {
+            ConnectionConfig { allow_invalid_certificates: false,
                 server_type,
                 base_url: &base_url,
                 token: "test-token",
@@ -392,7 +482,7 @@ async fn emby_family_artwork_can_be_removed() {
 #[tokio::test]
 async fn plex_artwork_removal_fails_safely() {
     let message = remove_image(
-        ConnectionConfig {
+        ConnectionConfig { allow_invalid_certificates: false,
             server_type: ServerType::Plex,
             base_url: "http://127.0.0.1:9",
             token: "test-token",
@@ -426,7 +516,7 @@ async fn emby_family_item_details_read_tag_items_and_legacy_tags() {
                 }
             }));
         let (base_url, task) = serve(app).await;
-        let detail = get_item_detail(ConnectionConfig { server_type, base_url: &base_url, token: "fixture" }, "movie").await.unwrap();
+        let detail = get_item_detail(ConnectionConfig { allow_invalid_certificates: false, server_type, base_url: &base_url, token: "fixture" }, "movie").await.unwrap();
         task.abort();
         assert_eq!(detail.tags, expected);
     }

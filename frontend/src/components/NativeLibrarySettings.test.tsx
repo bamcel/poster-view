@@ -99,9 +99,10 @@ it("places missing specials under episode discovery and defaults it off",()=>{
  expect(screen.queryByRole("switch",{name:"Show Missing Specials"})).toBeNull();
 });
 
-it("offers Google Books metadata for book libraries",()=>{
+it("offers supported book providers without Google Books",()=>{
  render(<NativeLibrarySettings options={defaultNativeOptions} type="books" animeContent="both" section={3} onChange={()=>{}}/>);
- expect(screen.getByLabelText("Book metadata providers: Google Books")).toBeTruthy();
+ expect(screen.queryByLabelText("Book metadata providers: Google Books")).toBeNull();
+ expect(screen.getByLabelText("Book metadata providers: ComicVine")).toBeTruthy();
 });
 
 it("enables image capture independently for episode and movie thumbnails", () => {

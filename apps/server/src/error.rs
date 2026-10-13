@@ -45,6 +45,15 @@ impl HttpError {
 impl From<RuntimeError> for HttpError {
     fn from(error: RuntimeError) -> Self {
         tracing::error!(%error, "request failed");
+        if matches!(
+            error,
+            RuntimeError::Store(posterview_infra_sqlite::StoreError::CredentialDecryption)
+        ) {
+            return Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                detail: error.to_string(),
+            };
+        }
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             detail: "Internal server error".to_owned(),
@@ -61,5 +70,21 @@ impl IntoResponse for HttpError {
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn credential_errors_include_recovery_guidance_without_exposing_other_errors() {
+        let error = HttpError::from(RuntimeError::Store(
+            posterview_infra_sqlite::StoreError::CredentialDecryption,
+        ));
+        assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(error.detail.contains("reconfigure the credential"));
+        let unrelated = HttpError::from(RuntimeError::Artwork("private-token".into()));
+        assert_eq!(unrelated.detail, "Internal server error");
     }
 }

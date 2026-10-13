@@ -220,7 +220,7 @@ mod tests {
             }));
         let (url, task) = crate::tests::serve(app).await;
         for server_type in [ServerType::Emby, ServerType::Jellyfin] {
-            let config = ConnectionConfig {
+            let config = ConnectionConfig { allow_invalid_certificates: false,
                 server_type,
                 base_url: &url,
                 token: "fixture",
@@ -255,7 +255,7 @@ mod tests {
             .route("/library/metadata/empty", get(|| async { Json(json!({"MediaContainer":{"Metadata":[{"ratingKey":"empty","type":"season","parentRatingKey":"show"}]}})) }))
             .route("/library/metadata/empty/children", get(|| async { Json(json!({"MediaContainer":{"size":0}})) }));
         let (url, task) = crate::tests::serve(app).await;
-        let config = ConnectionConfig {
+        let config = ConnectionConfig { allow_invalid_certificates: false,
             server_type: ServerType::Plex,
             base_url: &url,
             token: "fixture",

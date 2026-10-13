@@ -159,7 +159,6 @@ fn provider_supported(
     use posterview_contracts::native::NativeLibraryType;
     let anime = library == NativeLibraryType::Anime;
     match provider {
-        "googlebooks" => library == NativeLibraryType::Books && ["book", "book_series"].contains(&kind) && !images,
         "comicvine" | "mangadex" => library == NativeLibraryType::Books && kind == "book_series",
         "anilist" => kind == "book_series" || (anime && ["movie", "series"].contains(&kind)),
         "mal" => kind == "book_series" || (anime && ["movie", "series"].contains(&kind)),
@@ -460,14 +459,6 @@ impl ServerStore {
 mod tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryType};
-    #[test]
-    fn google_books_is_only_supported_for_book_metadata() {
-        use posterview_contracts::native::NativeLibraryType;
-        assert!(super::provider_supported("googlebooks","book_series",NativeLibraryType::Books,false));
-        assert!(super::provider_supported("googlebooks","book",NativeLibraryType::Books,false));
-        assert!(!super::provider_supported("googlebooks","series",NativeLibraryType::Shows,false));
-        assert!(!super::provider_supported("googlebooks","book",NativeLibraryType::Books,true));
-    }
     #[test]
     fn catalog_reads_remain_available_during_library_deletion() {
         let dir=tempfile::tempdir().unwrap();let store=ServerStore::new(dir.path());store.initialize().unwrap();

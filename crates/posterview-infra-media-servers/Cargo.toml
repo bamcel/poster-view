@@ -19,3 +19,4 @@ workspace = true
 [dev-dependencies]
 axum.workspace = true
 tokio.workspace = true
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

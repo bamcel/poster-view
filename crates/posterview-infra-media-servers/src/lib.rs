@@ -13,6 +13,7 @@ pub struct ConnectionConfig<'a> {
     pub server_type: ServerType,
     pub base_url: &'a str,
     pub token: &'a str,
+    pub allow_invalid_certificates: bool,
 }
 
 fn media_client(config: &ConnectionConfig<'_>) -> Result<Client, String> {
@@ -34,7 +35,7 @@ fn media_client(config: &ConnectionConfig<'_>) -> Result<Client, String> {
         }
     });
     Client::builder()
-        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_certs(config.allow_invalid_certificates)
         .redirect(redirects)
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(30))
@@ -1420,7 +1421,7 @@ mod artwork_sync_http_tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let handle = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
-        let config = ConnectionConfig {server_type:ServerType::Emby, base_url:&url, token:"test-token"};
+        let config = ConnectionConfig {allow_invalid_certificates:false,server_type:ServerType::Emby, base_url:&url, token:"test-token"};
         let id = find_artwork_item(config.clone(), "/tv/show/episode.mkv", "episode", &Value::Null).await.unwrap();
         set_image(config, &id, "thumb", b"test-image", "image/png").await.unwrap();
         handle.abort();

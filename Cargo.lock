@@ -1192,6 +1192,7 @@ dependencies = [
  "posterview-contracts",
  "posterview-url-security",
  "reqwest",
+ "rustls",
  "serde_json",
  "tokio",
 ]

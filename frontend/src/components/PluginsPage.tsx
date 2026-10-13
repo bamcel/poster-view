@@ -1,7 +1,6 @@
 import OmdbPlugin from "./OmdbPlugin";
 import AniDBPlugin from "./AniDBPlugin";
 import PluginCard from "./PluginCard";
-import GoogleBooksPlugin from "./GoogleBooksPlugin";
 import {Link} from "../lib/libraryNavigation";
 import {Images} from "lucide-react";
 import {useArtworkPlugin,type ArtworkPluginSettings} from "../lib/artworkPlugin";
@@ -13,7 +12,7 @@ import {apiRequest} from "../api/client";
 import {DefaultArtworkSourcesFields} from "../features/settings/providers/ArtworkSourcesSection";
 export default function PluginsPage({onClose,artworkOpen=false,onArtworkOpen}:{onClose:()=>void;artworkOpen?:boolean;onArtworkOpen:()=>void}){
  const artwork=useArtworkPlugin();
- return <div className="grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3"><PluginCard title="Artwork" description="Browse, upload, remove, and edit artwork with PosterEdit and BackdropEdit." branding={<Images className="size-10 text-accent"/>} status={<><span>Built-in</span><span className="rounded-full border border-border px-2 py-1">{artwork.data?artwork.data.enabled?"Enabled":"Disabled":"Loading…"}</span></>} onClick={onArtworkOpen}/><GoogleBooksPlugin/><AniDBPlugin/><OmdbPlugin/>{artworkOpen&&<ArtworkPopup onClose={onClose}/>}</div>;
+ return <div className="grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3"><PluginCard title="Artwork" description="Browse, upload, remove, and edit artwork with PosterEdit and BackdropEdit." branding={<Images className="size-10 text-accent"/>} status={<><span>Built-in</span><span className="rounded-full border border-border px-2 py-1">{artwork.data?artwork.data.enabled?"Enabled":"Disabled":"Loading…"}</span></>} onClick={onArtworkOpen}/><AniDBPlugin/><OmdbPlugin/>{artworkOpen&&<ArtworkPopup onClose={onClose}/>}</div>;
 }
 
 export function ArtworkPopup({onClose}:{onClose:()=>void}){

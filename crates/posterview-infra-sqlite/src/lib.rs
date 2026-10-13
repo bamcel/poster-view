@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS media_servers (
     token_enc   TEXT    NOT NULL DEFAULT '',
     is_default  INTEGER NOT NULL DEFAULT 0,
     nfo_metadata_enabled INTEGER NOT NULL DEFAULT 0,
+    allow_invalid_certificates INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -49,6 +50,8 @@ pub enum StoreError {
     SecretKey(#[from] std::io::Error),
     #[error("invalid secret key")]
     InvalidSecretKey,
+    #[error("Stored credential could not be decrypted. Restore the original secret key or reconfigure the credential.")]
+    CredentialDecryption,
     #[error("invalid server type stored in database: {0}")]
     InvalidServerType(String),
     #[error("{0}")]
@@ -101,7 +104,7 @@ impl ServerStore {
     pub fn list_servers(&self) -> Result<Vec<Server>, StoreError> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
-            "SELECT id, name, type, base_url, is_default, token_enc, created_at, updated_at, nfo_metadata_enabled
+            "SELECT id, name, type, base_url, is_default, token_enc, created_at, updated_at, nfo_metadata_enabled, allow_invalid_certificates
              FROM media_servers ORDER BY is_default DESC, name COLLATE NOCASE",
         )?;
         statement
@@ -113,7 +116,7 @@ impl ServerStore {
     pub fn get_server(&self, id: i64) -> Result<Option<Server>, StoreError> {
         self.connection()?
             .query_row(
-                "SELECT id, name, type, base_url, is_default, token_enc, created_at, updated_at, nfo_metadata_enabled
+                "SELECT id, name, type, base_url, is_default, token_enc, created_at, updated_at, nfo_metadata_enabled, allow_invalid_certificates
                  FROM media_servers WHERE id = ?1",
                 [id],
                 server_from_row,
@@ -130,8 +133,8 @@ impl ServerStore {
             transaction.execute("UPDATE media_servers SET is_default = 0", [])?;
         }
         transaction.execute(
-            "INSERT INTO media_servers (name, type, base_url, token_enc, is_default, nfo_metadata_enabled)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO media_servers (name, type, base_url, token_enc, is_default, nfo_metadata_enabled, allow_invalid_certificates)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 input.name,
                 input.server_type.as_str(),
@@ -139,6 +142,7 @@ impl ServerStore {
                 cipher.encrypt(input.token.as_bytes()),
                 input.is_default,
                 input.nfo_metadata_enabled,
+                input.allow_invalid_certificates,
             ],
         )?;
         let id = transaction.last_insert_rowid();
@@ -180,8 +184,9 @@ impl ServerStore {
                 token_enc = COALESCE(?4, token_enc),
                 is_default = COALESCE(?5, is_default),
                 nfo_metadata_enabled = COALESCE(?6, nfo_metadata_enabled),
+                allow_invalid_certificates = COALESCE(?7, allow_invalid_certificates),
                 updated_at = datetime('now')
-             WHERE id = ?7",
+             WHERE id = ?8",
             params![
                 input.name,
                 input.server_type.map(ServerType::as_str),
@@ -193,6 +198,7 @@ impl ServerStore {
                     .map(|token| cipher.encrypt(token.as_bytes())),
                 input.is_default,
                 input.nfo_metadata_enabled,
+                input.allow_invalid_certificates,
                 id,
             ],
         )?;
@@ -222,8 +228,13 @@ impl ServerStore {
         if encrypted.is_empty() {
             return Ok(Some(String::new()));
         }
-        let plaintext = self.cipher()?.decrypt(&encrypted).unwrap_or_default();
-        Ok(Some(String::from_utf8(plaintext).unwrap_or_default()))
+        let plaintext = self
+            .cipher()?
+            .decrypt(&encrypted)
+            .map_err(|_| StoreError::CredentialDecryption)?;
+        Ok(Some(
+            String::from_utf8(plaintext).map_err(|_| StoreError::CredentialDecryption)?,
+        ))
     }
 
     pub fn get_setting(&self, key: &str) -> Result<String, StoreError> {
@@ -239,8 +250,11 @@ impl ServerStore {
         if value.is_empty() || !is_secret_setting(key) {
             return Ok(value);
         }
-        let plaintext = self.cipher()?.decrypt(&value).unwrap_or_default();
-        Ok(String::from_utf8(plaintext).unwrap_or_default())
+        let plaintext = self
+            .cipher()?
+            .decrypt(&value)
+            .map_err(|_| StoreError::CredentialDecryption)?;
+        String::from_utf8(plaintext).map_err(|_| StoreError::CredentialDecryption)
     }
 
     pub fn set_setting(&self, key: &str, value: &str) -> Result<(), StoreError> {
@@ -396,7 +410,7 @@ impl ServerStore {
 fn is_secret_setting(key: &str) -> bool {
     matches!(
         key,
-        "deviantart_client_id" | "deviantart_client_secret" | "mal_client_id" | "omdb_api_key" | "posterdb_password" | "fanart_api_key" | "tvdb_api_key" | "tvdb_pin" | "comicvine_api_key" | "google_books_api_key"
+        "deviantart_client_id" | "deviantart_client_secret" | "mal_client_id" | "omdb_api_key" | "posterdb_password" | "fanart_api_key" | "tvdb_api_key" | "tvdb_pin" | "comicvine_api_key"
     )
 }
 
@@ -435,6 +449,12 @@ fn migrate(connection: &Connection) -> Result<(), rusqlite::Error> {
             [],
         )?;
     }
+    if !columns.iter().any(|column| column == "allow_invalid_certificates") {
+        connection.execute(
+            "ALTER TABLE media_servers ADD COLUMN allow_invalid_certificates INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -467,6 +487,7 @@ fn server_from_row(row: &rusqlite::Row<'_>) -> Result<Server, rusqlite::Error> {
         created_at: row.get(6)?,
         updated_at: row.get(7)?,
         nfo_metadata_enabled: row.get(8)?,
+        allow_invalid_certificates: row.get(9)?,
     })
 }
 
@@ -492,9 +513,44 @@ mod tests {
     use super::ServerStore;
 
     #[test]
+    fn corrupt_credentials_fail_explicitly_without_exposing_secrets() {
+        let directory = tempdir().unwrap();
+        let store = ServerStore::new(directory.path());
+        store.initialize().unwrap();
+        let connection = store.connection().unwrap();
+        connection.execute("INSERT INTO media_servers (name, type, base_url, token_enc) VALUES ('Broken', 'plex', 'http://localhost', 'secret-corrupt-fixture')", []).unwrap();
+        let error = store.decrypted_token(connection.last_insert_rowid()).unwrap_err();
+        assert!(matches!(error, super::StoreError::CredentialDecryption));
+        assert!(!error.to_string().contains("secret-corrupt-fixture"));
+        connection.execute("INSERT INTO settings (key, value_enc) VALUES ('omdb_api_key', 'secret-corrupt-fixture')", []).unwrap();
+        let error = store.get_setting("omdb_api_key").unwrap_err();
+        assert!(matches!(error, super::StoreError::CredentialDecryption));
+        assert!(!error.to_string().contains("secret-corrupt-fixture"));
+        assert_eq!(store.get_setting("missing-setting").unwrap(), "");
+        let invalid_utf8 = store.cipher().unwrap().encrypt(&[0xff]);
+        connection.execute("UPDATE settings SET value_enc = ?1 WHERE key = 'omdb_api_key'", [invalid_utf8]).unwrap();
+        assert!(matches!(store.get_setting("omdb_api_key"), Err(super::StoreError::CredentialDecryption)));
+        connection.execute("UPDATE media_servers SET token_enc = ''", []).unwrap();
+        assert_eq!(store.decrypted_token(1).unwrap(), Some(String::new()));
+    }
+
+    #[test]
+    fn existing_servers_gain_verified_tls_by_default() {
+        let directory = tempdir().unwrap();
+        let store = ServerStore::new(directory.path());
+        let connection = store.connection().unwrap();
+        connection.execute_batch("CREATE TABLE media_servers (id INTEGER PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, base_url TEXT NOT NULL, token_enc TEXT NOT NULL DEFAULT '', is_default INTEGER NOT NULL DEFAULT 0, nfo_metadata_enabled INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''); INSERT INTO media_servers (id, name, type, base_url) VALUES (1, 'Existing', 'plex', 'https://localhost');").unwrap();
+        drop(connection);
+        store.initialize().unwrap();
+        assert!(!store.get_server(1).unwrap().unwrap().allow_invalid_certificates);
+        store.initialize().unwrap();
+        assert!(!store.get_server(1).unwrap().unwrap().allow_invalid_certificates);
+    }
+
+    #[test]
     fn native_provider_keys_are_encrypted_at_rest() {
         let dir=tempfile::tempdir().unwrap();let store=ServerStore::new(dir.path());store.initialize().unwrap();
-        for key in ["google_books_api_key","mal_client_id","omdb_api_key","deviantart_client_id","deviantart_client_secret"] {store.set_setting(key,"secret-fixture").unwrap();assert_eq!(store.get_setting(key).unwrap(),"secret-fixture");let saved:String=store.connection().unwrap().query_row("SELECT value_enc FROM settings WHERE key=?1",[key],|r|r.get(0)).unwrap();assert!(!saved.contains("secret-fixture"));}
+        for key in ["mal_client_id","omdb_api_key","deviantart_client_id","deviantart_client_secret"] {store.set_setting(key,"secret-fixture").unwrap();assert_eq!(store.get_setting(key).unwrap(),"secret-fixture");let saved:String=store.connection().unwrap().query_row("SELECT value_enc FROM settings WHERE key=?1",[key],|r|r.get(0)).unwrap();assert!(!saved.contains("secret-fixture"));}
     }
     #[test]
     fn crud_matches_existing_default_and_token_rules() {
@@ -510,6 +566,7 @@ mod tests {
                 token: "secret-one".into(),
                 is_default: false,
                 nfo_metadata_enabled: false,
+                allow_invalid_certificates: false,
             })
             .unwrap();
         assert!(first.is_default);
@@ -528,10 +585,22 @@ mod tests {
                 token: "secret-two".into(),
                 is_default: true,
                 nfo_metadata_enabled: true,
+                allow_invalid_certificates: true,
             })
             .unwrap();
         assert!(second.is_default);
         assert!(second.nfo_metadata_enabled);
+        assert!(!first.allow_invalid_certificates);
+        assert!(second.allow_invalid_certificates);
+        let updated = store
+            .update_server(second.id, &ServerUpdate {
+                allow_invalid_certificates: Some(false),
+                ..ServerUpdate::default()
+            })
+            .unwrap()
+            .unwrap();
+        assert!(!updated.allow_invalid_certificates);
+        assert!(!store.get_server(second.id).unwrap().unwrap().allow_invalid_certificates);
         assert!(!store.get_server(first.id).unwrap().unwrap().is_default);
 
         let updated = store

@@ -5,7 +5,7 @@ mod media_servers;
 pub(crate) mod system;
 use crate::{
     AppState, AuthState, metadata, native, native_identify, native_provider_extra, playback,
-    reader, scheduled_tasks, transcoding, watch,
+    plugins, reader, scheduled_tasks, transcoding, watch,
 };
 use axum::{
     Json, Router,
@@ -24,6 +24,7 @@ pub(crate) fn protected(auth: AuthState) -> Router<AppState> {
         .merge(system::protected())
         .merge(media_servers::routes())
         .merge(artwork::routes())
+        .route("/api/plugins/artwork", get(plugins::artwork_get).put(plugins::artwork_save))
         .route(
             "/api/native/libraries/{id}/scan",
             get(native::status).post(native::scan),

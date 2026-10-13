@@ -68,6 +68,7 @@ export interface ServerInput {
   token: string;
   is_default: boolean;
   nfo_metadata_enabled: boolean;
+  allow_invalid_certificates: boolean;
 }
 
 export interface SecuritySettings {
@@ -246,6 +247,7 @@ export const api = {
     if (data.item_title) fd.append("item_title", data.item_title);
     const res = await fetch("/api/artwork/upload", { method: "POST", body: fd });
     if (!res.ok) {
+      if (res.status === 401) window.dispatchEvent(new Event("posterview:unauthorized"));
       let detail = res.statusText;
       try {
         detail = (await res.json()).detail ?? detail;

@@ -177,21 +177,15 @@ it("deselects one provider without clearing other saved IDs",async()=>{
  expect(card.getAttribute("aria-pressed")).toBe("false");
 });
 
-it("selects a Google Books edition with an alphanumeric ID for an individual book",async()=>{
- const book={...entry,kind:"book",title:"Example",metadata:{}};
- const match={provider:"googlebooks",id:"a-B_12",title:"Example",year:2021,format:"Book edition",overview:null,identifiers:{googlebooks:"a-B_12"}};
- vi.mocked(nativeLibraries.identifySearch).mockResolvedValue({groups:[{provider:"googlebooks",results:[match]}]});
- vi.mocked(nativeLibraries.identifyResolve).mockResolvedValue({identifiers:match.identifiers,candidates:[match],warnings:[]});
+it("omits retired book providers and their saved IDs",async()=>{
+ const book={...entry,kind:"book",metadata:{identifiers:{googlebooks:"a-B_12",comicvine:"123"}}};
  vi.mocked(nativeLibraries.identify).mockResolvedValue({entry:book,warnings:[],message:"Saved"});
- render(<IdentifyPanel library={{...library,library_type:"books",options:{...defaultNativeOptions,metadata_providers:{book_series:["googlebooks"]}}}} entry={book} busy={false} onSaved={()=>{}}/>);
- fireEvent.click(screen.getByText("Search all providers"));
- expect(await screen.findByRole("region",{name:"Google Books matches"})).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:/Example.*2021/}));
- await waitFor(()=>expect(screen.queryByText("Finding linked provider IDs…")).toBeNull());
+ render(<IdentifyPanel library={{...library,library_type:"books",options:{...defaultNativeOptions,metadata_providers:{book_series:["googlebooks","comicvine"]}}}} entry={book} busy={false} onSaved={()=>{}}/>);
+ expect(screen.queryByLabelText("Google Books identification ID")).toBeNull();
+ expect(screen.getByLabelText("ComicVine identification ID")).toBeTruthy();
  fireEvent.click(screen.getByText("Save identification"));
- await waitFor(()=>expect(nativeLibraries.identify).toHaveBeenCalledWith("lib","item",expect.objectContaining({identifiers:{googlebooks:"a-B_12"}})));
+ await waitFor(()=>expect(nativeLibraries.identify).toHaveBeenCalledWith("lib","item",expect.objectContaining({identifiers:{comicvine:"123"}})));
 });
-
 it("hides disabled AniDB from Identify without submitting its saved ID",async()=>{
  vi.mocked(apiRequest).mockResolvedValueOnce({anidb_enabled:false});
  vi.mocked(nativeLibraries.identify).mockResolvedValue({entry,warnings:[],message:"Saved"});

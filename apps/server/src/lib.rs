@@ -1,5 +1,5 @@
 //! PosterView server composition: public facade, shared state, middleware, and workers.
-use axum::{Router, routing::get};
+use axum::Router;
 use posterview_runtime::Runtime;
 use std::{path::PathBuf, sync::Arc};
 use tower_http::{
@@ -10,7 +10,6 @@ use tower_http::{
 mod auth;
 mod config;
 mod error;
-mod google_books;
 mod login_backdrop;
 mod metadata;
 mod native;
@@ -85,18 +84,6 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     let protected = routes::protected(auth);
 
     routes::system::public()
-        .route(
-            "/api/plugins/google-books/test",
-            axum::routing::post(google_books::test),
-        )
-        .route(
-            "/api/plugins/google-books",
-            get(google_books::get).put(google_books::save),
-        )
-        .route(
-            "/api/plugins/artwork",
-            get(plugins::artwork_get).put(plugins::artwork_save),
-        )
         .merge(protected)
         .fallback_service(spa)
         .layer(media_compression_layer())

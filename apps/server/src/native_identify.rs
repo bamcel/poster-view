@@ -31,12 +31,12 @@ pub(crate) struct Apply {
 fn db(state: &AppState) -> ServerStore {
     ServerStore::new(state.runtime.data_dir())
 }
-fn key(state: &AppState, name: &str) -> String {
-    db(state).get_setting(name).unwrap_or_default()
+fn key(state: &AppState, name: &str) -> Result<String, String> {
+    db(state).get_setting(name).map_err(|error| error.to_string())
 }
 fn book_providers(lib: &posterview_contracts::native::NativeLibrary) -> Vec<&str> {
     lib.options.metadata_providers.get("book_series")
-        .map(|providers| providers.iter().map(String::as_str).filter(|p| ["comicvine", "anilist", "mal", "mangadex", "googlebooks"].contains(p)).collect())
+        .map(|providers| providers.iter().map(String::as_str).filter(|p| ["comicvine", "anilist", "mal", "mangadex"].contains(p)).collect())
         .unwrap_or_else(|| vec!["comicvine", "anilist", "mal"])
 }
 fn numeric(v: &Value) -> Option<String> {
@@ -54,7 +54,7 @@ fn comicvine_id(value: &str) -> Option<String> {
     url.path_segments()?.find_map(|part| part.strip_prefix("4050-").and_then(|id| numeric(&json!(id))))
 }
 fn identification_id(provider: &str, value: &Value) -> bool {
-    if provider=="googlebooks" { value.as_str().is_some_and(crate::google_books::valid_id) } else if provider=="mangadex" { value.as_str().is_some_and(posterview_infra_artwork::valid_manga_id) } else { numeric(value).is_some() }
+    if provider=="mangadex" { value.as_str().is_some_and(posterview_infra_artwork::valid_manga_id) } else { numeric(value).is_some() }
 }
 fn year(v: &Value) -> Value {
     v.as_i64()
@@ -266,7 +266,7 @@ async fn lookup(
             }
         }
         "tmdb" => {
-            let token = key(state, "tmdb_access_token");
+            let token = key(state, "tmdb_access_token")?;
             if token.is_empty() {
                 return Err("Configure TMDB credentials in Search Providers.".into());
             }
@@ -306,7 +306,7 @@ async fn lookup(
             }
         }
         "tvdb" => {
-            let token = key(state, "tvdb_api_key");
+            let token = key(state, "tvdb_api_key")?;
             if token.is_empty() {
                 return Err("Configure TheTVDB credentials in Search Providers.".into());
             }
@@ -326,7 +326,7 @@ async fn lookup(
             };
             let body = response(
                 service
-                    .native_tvdb_get(&path, &q, &token, &key(state, "tvdb_pin"))
+                    .native_tvdb_get(&path, &q, &token, &key(state, "tvdb_pin")?)
                     .await?,
             )
             .await?;
@@ -340,7 +340,7 @@ async fn lookup(
                         ),
                         &[],
                         &token,
-                        &key(state, "tvdb_pin"),
+                        &key(state, "tvdb_pin")?,
                     )
                     .await
                 {
@@ -369,7 +369,7 @@ async fn lookup(
             }
         }
         "mal" => {
-            let token = key(state, "mal_client_id");
+            let token = key(state, "mal_client_id")?;
             if token.is_empty() {
                 return Err("Configure a MyAnimeList client ID in Search Providers.".into());
             }
@@ -410,10 +410,6 @@ async fn lookup(
                     .collect()
             }
         }
-        "googlebooks" if books => {
-            let raw=crate::google_books::request(state,client,id,title).await?;
-            return Ok(if id.is_some(){crate::google_books::candidate(&raw).into_iter().collect()}else{raw["items"].as_array().into_iter().flatten().filter_map(crate::google_books::candidate).collect()});
-        }
         "mangadex" if books => {
             let request=client.get(id.map(|id|format!("https://api.mangadex.org/manga/{id}")).unwrap_or_else(||"https://api.mangadex.org/manga".into())).query(&[("includes[]","cover_art")]);
             let request=if id.is_some(){request}else{request.query(&[("title",title),("limit","15")])};
@@ -428,7 +424,7 @@ async fn lookup(
             }).collect());
         }
         "comicvine" if books => {
-            let token = key(state, "comicvine_api_key");
+            let token = key(state, "comicvine_api_key")?;
             if token.is_empty() { return Err("Configure a ComicVine API key in Search Providers.".into()); }
             if id.is_none() {
                 // The search endpoint sometimes omits these fields; shared search fills them from volume details.
@@ -516,8 +512,8 @@ fn remote_tvdb_ids(raw:&Value,movie:bool)->Vec<String> {
 }
 async fn imdb_matches(state:&AppState,client:&reqwest::Client,id:&str,movie:bool,language:&str)->Result<Vec<Value>,String> {
     if !id.starts_with("tt") || numeric(&json!(&id[2..])).is_none(){return Err("Enter a valid IMDb ID.".into());}
-    let token=key(state,"tvdb_api_key");if token.is_empty(){return Err("Configure TheTVDB credentials in Search Providers.".into());}
-    let raw=crate::native_provider::response(posterview_infra_artwork::ArtworkService::default().native_tvdb_get(&format!("/search/remoteid/{id}"),&[],&token,&key(state,"tvdb_pin")).await?).await?;
+    let token=key(state, "tvdb_api_key")?;if token.is_empty(){return Err("Configure TheTVDB credentials in Search Providers.".into());}
+    let raw=crate::native_provider::response(posterview_infra_artwork::ArtworkService::default().native_tvdb_get(&format!("/search/remoteid/{id}"),&[],&token,&key(state, "tvdb_pin")?).await?).await?;
     let mut results=Vec::new();
     for tvdb in remote_tvdb_ids(&raw,movie) {
         for mut candidate in lookup(state,client,"tvdb","",Some(&tvdb),movie,(false,language,false)).await? {
@@ -574,7 +570,7 @@ pub(crate) async fn search(
     let providers=providers.into_iter().filter(|provider|*provider!="anidb"||crate::native_provider_extra::anidb_enabled(&state)).filter(|provider|input.providers.as_ref().is_none_or(|requested|requested.iter().any(|p|p==provider))).collect::<Vec<_>>();
     let mut jobs = tokio::task::JoinSet::new();
     for selected_provider in providers.iter().copied() {
-        let provider = match selected_provider {"comicvine"=>"comicvine", "anilist"=>"anilist", "mal"=>"mal", "mangadex"=>"mangadex", "googlebooks"=>"googlebooks", "tmdb"=>"tmdb", "tvdb"=>"tvdb", _=>"anidb"};
+        let provider = match selected_provider {"comicvine"=>"comicvine", "anilist"=>"anilist", "mal"=>"mal", "mangadex"=>"mangadex", "tmdb"=>"tmdb", "tvdb"=>"tvdb", _=>"anidb"};
         let state = state.clone();
         let client = client.clone();
         let title = input.title.clone();
@@ -634,7 +630,7 @@ pub(crate) async fn apply(
     for (provider, id) in &input.identifiers {
         if (lib.library_type!=posterview_contracts::native::NativeLibraryType::Anime && !entry.kind.starts_with("book") && !["tmdb","tvdb","imdb"].contains(&provider.as_str()))
             || (entry.kind.starts_with("book") && !book_providers(&lib).contains(&provider.as_str()))
-            || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "imdb", "anidb", "mangadex", "googlebooks"].contains(&provider.as_str())
+            || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "imdb", "anidb", "mangadex"].contains(&provider.as_str())
             || if provider == "imdb" {
                 !id.starts_with("tt") || numeric(&json!(&id[2..])).is_none()
             } else {
@@ -1068,7 +1064,7 @@ pub(crate) async fn resolve(
         input.id = comicvine_id(&input.id).ok_or_else(|| HttpError::bad_request("Enter a ComicVine volume ID or series URL (4050), not an issue URL."))?;
     }
     if (entry.kind.starts_with("book") && !book_providers(&lib).contains(&input.provider.as_str()))
-        || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "anidb", "mangadex", "googlebooks"].contains(&input.provider.as_str())
+        || !["comicvine", "anilist", "tmdb", "tvdb", "mal", "anidb", "mangadex"].contains(&input.provider.as_str())
         || !identification_id(&input.provider, &json!(input.id))
     {
         return Err(HttpError::bad_request("Choose a valid provider record."));
@@ -1146,7 +1142,7 @@ pub(crate) async fn metadata_preview(State(state): State<AppState>, Path((librar
     };
     let mut fields=fields.as_object().cloned().unwrap_or_default();
     fields.retain(|key,value| ["title","originaltitle","subtitle","plot","year","volumes","chapters","publisher","publishers","status","country","genres","tags","characters","credits","pages","language","published_date","isbn_10","isbn_13","rating","ratings_count","source_url"].contains(&key.as_str()) && !value.is_null() && value.as_str().is_none_or(|text|!text.trim().is_empty()));
-    let prefix=if ["comicvine","googlebooks"].contains(&input.provider.as_str()) {"edition"} else {"original"};
+    let prefix=if input.provider == "comicvine" {"edition"} else {"original"};
     for name in ["year","volumes"] {if let Some(value)=fields.get(name).cloned() {fields.insert(format!("{prefix}_{name}"),value);}}
     Ok(Json(json!({"provider":input.provider,"fields":fields})))
 }

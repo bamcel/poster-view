@@ -603,9 +603,13 @@ pub(crate) async fn enrich(
             return;
         }
     };
-    let token = ServerStore::new(state.runtime.data_dir())
-        .get_setting("tmdb_access_token")
-        .unwrap_or_default();
+    let token = match ServerStore::new(state.runtime.data_dir()).get_setting("tmdb_access_token") {
+        Ok(token) => token,
+        Err(error) => {
+            warnings.push(error.to_string());
+            return;
+        }
+    };
     let service = std::sync::Arc::new(posterview_infra_artwork::ArtworkService::default());
     let blocked = std::sync::Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new()));
     let total = entries.iter().filter(|e| e.kind != "book").count();
@@ -727,8 +731,7 @@ async fn enrich_one(
         vec!["tmdb".to_owned()]
     };
     let book_default = vec!["comicvine".to_owned(), "anilist".to_owned(), "mal".to_owned()];
-    let edition_default=library.options.metadata_providers.get("book_series").into_iter().flatten().filter(|p|p.as_str()=="googlebooks").cloned().collect::<Vec<_>>();
-    let metadata_default = if entry.kind == "book_series" { &book_default } else if entry.kind=="book" {&edition_default} else { &default };
+    let metadata_default = if entry.kind == "book_series" { &book_default } else { &default };
     let selected_order=entry.metadata["_identify_source"].as_str().filter(|p|*p=="tvdb").map(|p|vec![p.to_string()]);
     let metadata_order = library
         .options

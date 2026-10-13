@@ -184,8 +184,8 @@ async fn fetch(
     let mut episodes = Vec::new();
     if provider == "tvdb" {
         let service = posterview_infra_artwork::ArtworkService::default();
-        let key = store.get_setting("tvdb_api_key").unwrap_or_default();
-        let pin = store.get_setting("tvdb_pin").unwrap_or_default();
+        let key = store.get_setting("tvdb_api_key").map_err(|error| error.to_string())?;
+        let pin = store.get_setting("tvdb_pin").map_err(|error| error.to_string())?;
         if key.is_empty() {
             return Err("Configure TheTVDB credentials to discover missing episodes.".into());
         }
@@ -216,7 +216,7 @@ async fn fetch(
             }
         }
     } else {
-        let token = store.get_setting("tmdb_access_token").unwrap_or_default();
+        let token = store.get_setting("tmdb_access_token").map_err(|error| error.to_string())?;
         if token.is_empty() {
             return Err("Configure TMDB credentials to discover missing episodes.".into());
         }
@@ -294,7 +294,24 @@ pub(crate) async fn reconcile_library(
             .get("series")
             .cloned()
             .unwrap_or_else(|| vec!["tvdb".into(), "tmdb".into()]);
-        providers.sort_by_key(|p|store.get_setting(if p=="tvdb" {"tvdb_api_key"}else{"tmdb_access_token"}).unwrap_or_default().is_empty());
+        let mut credential_missing = std::collections::BTreeMap::new();
+        providers.retain(|provider| {
+            if !["tvdb", "tmdb"].contains(&provider.as_str()) {
+                return false;
+            }
+            let key = if provider == "tvdb" { "tvdb_api_key" } else { "tmdb_access_token" };
+            match store.get_setting(key) {
+                Ok(value) => {
+                    credential_missing.insert(provider.clone(), value.is_empty());
+                    true
+                }
+                Err(error) => {
+                    warnings.push(format!("{} ({provider}): {error}", series.title));
+                    false
+                }
+            }
+        });
+        providers.sort_by_key(|provider| credential_missing[provider]);
         let Some((provider, id)) = providers
             .iter()
             .filter(|p| ["tvdb", "tmdb"].contains(&p.as_str()))
@@ -346,6 +363,38 @@ pub(crate) async fn reconcile_library(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn corrupt_discovery_credentials_surface_without_becoming_unconfigured() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let store = ServerStore::new(state.runtime.data_dir());
+        let mut options = posterview_contracts::native::NativeLibraryOptions {
+            show_missing_files: true,
+            ..Default::default()
+        };
+        options.metadata_providers.insert("series".into(), vec!["tvdb".into()]);
+        let library = store.save_native_library(None, &posterview_contracts::native::NativeLibraryInput {
+            name: "Shows".into(),
+            library_type: posterview_contracts::native::NativeLibraryType::Shows,
+            anime_content: posterview_contracts::native::AnimeContent::Both,
+            paths: vec!["Shows".into()],
+            revision: None,
+            options,
+        }).unwrap();
+        let connection = rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).unwrap();
+        connection.execute("INSERT INTO settings (key, value_enc) VALUES ('tvdb_api_key', 'corrupt-secret-fixture')", []).unwrap();
+        let mut entry = series();
+        entry.metadata["identifiers"] = json!({"tvdb": "123"});
+        let error = fetch(&state, &library, &entry, "tvdb", "123").await.unwrap_err();
+        assert!(error.contains("Stored credential could not be decrypted"));
+        assert!(!error.contains("corrupt-secret-fixture"));
+        let mut entries = vec![entry];
+        let mut warnings = Vec::new();
+        reconcile_library(&state, &library, &mut entries, false, &mut warnings).await;
+        assert!(warnings.iter().any(|warning| warning.contains("Stored credential could not be decrypted")));
+        assert!(!warnings.iter().any(|warning| warning.contains("Configure TheTVDB")));
+    }
+
     #[test]
     fn episode_discovery_uses_preferred_language_and_invalidates_untranslated_cache() {
         assert_eq!(tvdb_episode_path("123", "en"), "/series/123/episodes/official/eng");

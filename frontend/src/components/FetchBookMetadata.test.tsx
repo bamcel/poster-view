@@ -4,6 +4,16 @@ import FetchBookMetadata from "./FetchBookMetadata";
 import {nativeLibraries,defaultNativeOptions,type NativeLibrary,type NativeCatalogEntry} from "../api/nativeLibraries";
 vi.mock("../api/nativeLibraries",async original=>({...await original<typeof import("../api/nativeLibraries")>(),nativeLibraries:{metadataPreview:vi.fn(),editItem:vi.fn()}}));
 afterEach(()=>{cleanup();vi.clearAllMocks();});
+it("filters a retired provider from saved library settings before fetching metadata",async()=>{
+ const library={id:"lib",revision:1,created_at:"",updated_at:"",name:"Books",paths:["Books"],anime_content:"both",library_type:"books",options:{...defaultNativeOptions,metadata_providers:{book_series:["googlebooks","comicvine"]}}} as NativeLibrary;
+ const entry={id:"item",revision:1,path:"Books/Example",kind:"book",parent_path:null,title:"Example",available:true,artwork:[],files:[],nfo_path:null,metadata:{identifiers:{googlebooks:"old-id",comicvine:"1"}}} as NativeCatalogEntry;
+ vi.mocked(nativeLibraries.metadataPreview).mockResolvedValue({provider:"comicvine",fields:{}});
+ render(<FetchBookMetadata library={library} entry={entry} busy={false} onSaved={()=>{}}/>);
+ expect(screen.queryByRole("tab",{name:"Google Books"})).toBeNull();
+ expect(screen.getByRole("tab",{name:"ComicVine"})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Fetch"}));
+ await waitFor(()=>expect(nativeLibraries.metadataPreview).toHaveBeenCalledWith("lib","item","comicvine"));
+});
 it("reviews values and applies selected fields from multiple providers without changing others",async()=>{
  const library={id:"lib",options:{...defaultNativeOptions,save_nfo:true}} as NativeLibrary;
  const entry={id:"item",revision:2,path:"Books/Example",kind:"book_series",parent_path:null,title:"My title",available:true,artwork:[],files:[],nfo_path:null,metadata:{plot:"Original description",year:2018,title:"My title",identifiers:{comicvine:"1",anilist:"2"}}} as NativeCatalogEntry;

@@ -1,0 +1,1 @@
+These public, disposable TLS test credentials authenticate only a local fixture. Never use them for a real server. The certificate is self-signed and has a 127.0.0.1 SAN to isolate trust rejection from hostname mismatch.

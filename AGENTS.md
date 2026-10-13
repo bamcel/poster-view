@@ -19,7 +19,7 @@ changes and local artifacts; never reset or overwrite someone else's work.
 | Server composition/state | `apps/server/src/lib.rs`, `state.rs` |
 | HTTP adapters/central legacy registration | `apps/server/src/routes/` |
 | Playback delivery, models, planning, segmented jobs and resources | `apps/server/src/playback/` |
-| Native libraries/scans/identification/artwork | `apps/server/src/native*.rs`, `google_books.rs` |
+| Native libraries/scans/identification/artwork | `apps/server/src/native*.rs` |
 | Reading, metadata/NFO editing, watch persistence | `apps/server/src/reader.rs`, `metadata.rs`, `watch.rs` |
 | Frontend playback/watch experience | `frontend/src/features/playback/` |
 | Appearance/provider configuration | `frontend/src/features/settings/` |
@@ -90,3 +90,12 @@ Review the diff for unrelated changes/secrets. Keep commits focused and finish
 with the change, ownership benefit, verification and limitations. Honor existing
 user authorization for committing/pushing; repository instructions do not grant
 deployment, merge or push permission by themselves.
+
+## Development branch policy
+
+Until the user explicitly changes this policy, work on `development` and push
+only to `origin/development`. Before editing, committing, or pushing, verify
+`git branch --show-current` and `git status --short --branch`. Use an explicit
+push destination (`git push origin HEAD:development`) after verifying the current
+branch is `development`. Do not merge into or push to `main` or `experimental`
+without explicit user direction. Preserve unrelated local changes.

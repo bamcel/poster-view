@@ -177,6 +177,7 @@ impl Runtime {
             server_type: input.server_type,
             base_url: &input.base_url,
             token: &input.token,
+            allow_invalid_certificates: input.allow_invalid_certificates,
         })
         .await
     }
@@ -199,6 +200,7 @@ impl Runtime {
                 server_type: input.server_type.unwrap_or(server.server_type),
                 base_url: input.base_url.as_deref().unwrap_or(&server.base_url).trim(),
                 token: input.token.as_deref().map(str::trim).filter(|value| !value.is_empty()).unwrap_or(&token),
+                allow_invalid_certificates: input.allow_invalid_certificates.unwrap_or(server.allow_invalid_certificates),
             })
             .await,
         ))
@@ -220,6 +222,7 @@ impl Runtime {
                 server_type: server.server_type,
                 base_url: &server.base_url,
                 token: &token,
+                allow_invalid_certificates: server.allow_invalid_certificates,
             })
             .await,
         ))
@@ -308,6 +311,7 @@ impl Runtime {
                     server_type: server.server_type,
                     base_url: &server.base_url,
                     token: &token,
+                    allow_invalid_certificates: server.allow_invalid_certificates,
                 },
                 library_id,
                 group_collections,
@@ -334,6 +338,7 @@ impl Runtime {
                     server_type: server.server_type,
                     base_url: &server.base_url,
                     token: &token,
+                    allow_invalid_certificates: server.allow_invalid_certificates,
                 },
                 parent_id,
             )
@@ -365,6 +370,7 @@ impl Runtime {
                 server_type: server.server_type,
                 base_url: &server.base_url,
                 token: &token,
+                allow_invalid_certificates: server.allow_invalid_certificates,
             },
             reference,
         )
@@ -404,6 +410,7 @@ impl Runtime {
                     server_type: server.server_type,
                     base_url: &server.base_url,
                     token: &token,
+                    allow_invalid_certificates: server.allow_invalid_certificates,
                 },
                 item_id,
             )
@@ -416,6 +423,7 @@ impl Runtime {
         let token = self.server_store()?.decrypted_token(id)?.unwrap_or_default();
         Ok(Some(posterview_infra_media_servers::get_season_detail(ConnectionConfig {
             server_type: server.server_type, base_url: &server.base_url, token: &token,
+                allow_invalid_certificates: server.allow_invalid_certificates,
         }, series_id, season_id).await))
     }
 
@@ -441,6 +449,7 @@ impl Runtime {
             server_type: server.server_type,
             base_url: &server.base_url,
             token: &token,
+            allow_invalid_certificates: server.allow_invalid_certificates,
         };
         let detail = get_item_detail(config.clone(), item_id).await.ok();
         let current_reference = detail
@@ -536,6 +545,7 @@ impl Runtime {
             server_type: server.server_type,
             base_url: &server.base_url,
             token: &token,
+            allow_invalid_certificates: server.allow_invalid_certificates,
         };
         if let Err(message) = remove_image(config, item_id, target.as_str()).await {
             return Ok(Some(ApplyResult { ok: false, message }));
@@ -806,6 +816,7 @@ mod tests {
                 token: "test".into(),
                 is_default: true,
                 nfo_metadata_enabled: false,
+                allow_invalid_certificates: false,
             })
             .unwrap();
         let preview = PosterSearchResults {

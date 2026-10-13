@@ -4,6 +4,23 @@ import { api } from "./client";
 describe("API client authentication", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("announces an expired multipart upload session and preserves the browser boundary", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "Authentication required." }), { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const listener = vi.fn();
+    window.addEventListener("posterview:unauthorized", listener);
+    try {
+      await expect(api.applyUpload({ server_id: 7, item_id: "book", target: "poster", file: new File(["image"], "poster.png", { type: "image/png" }) })).rejects.toMatchObject({ status: 401, message: "Authentication required." });
+      expect(listener).toHaveBeenCalledOnce();
+      expect(fetchMock).toHaveBeenCalledWith("/api/artwork/upload", { method: "POST", body: expect.any(FormData) });
+      const body = fetchMock.mock.calls[0][1].body as FormData;
+      expect(body.get("server_id")).toBe("7");
+      expect(body.get("file")).toBeInstanceOf(File);
+    } finally {
+      window.removeEventListener("posterview:unauthorized", listener);
+    }
+  });
+
   it("keeps server context on every PosterDB cache request", async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(
       new Response(JSON.stringify({}), { status: 200 }),

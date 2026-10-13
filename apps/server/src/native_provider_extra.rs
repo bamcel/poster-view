@@ -39,20 +39,23 @@ fn store(state: &AppState) -> ServerStore {
 fn setting(state: &AppState, name: &str) -> String {
     store(state).get_setting(name).unwrap_or_default()
 }
+fn credential(state: &AppState, name: &str) -> Result<String, String> {
+    store(state).get_setting(name).map_err(|error| error.to_string())
+}
 pub(crate) fn anidb_enabled(state:&AppState)->bool {setting(state,"plugin-anidb-enabled")!="false"}
 pub(crate) fn omdb_enabled(state:&AppState)->bool {setting(state,"plugin-omdb-enabled")=="true"}
-fn settings_value(state: &AppState) -> Settings {
-    Settings {
+fn settings_value(state: &AppState) -> Result<Settings, HttpError> {
+    Ok(Settings {
         anidb_enabled: anidb_enabled(state),
         omdb_enabled: omdb_enabled(state),
-        mal_configured: !setting(state, "mal_client_id").is_empty(),
-        omdb_configured: !setting(state, "omdb_api_key").is_empty(),
+        mal_configured: !credential(state, "mal_client_id").map_err(HttpError::bad_gateway)?.is_empty(),
+        omdb_configured: !credential(state, "omdb_api_key").map_err(HttpError::bad_gateway)?.is_empty(),
         anidb_client: setting(state, "anidb_client"),
         anidb_client_version: setting(state, "anidb_client_version"),
-    }
+    })
 }
-pub(crate) async fn settings(State(state): State<AppState>) -> Json<Settings> {
-    Json(settings_value(&state))
+pub(crate) async fn settings(State(state): State<AppState>) -> Result<Json<Settings>, HttpError> {
+    Ok(Json(settings_value(&state)?))
 }
 pub(crate) async fn save_settings(
     State(state): State<AppState>,
@@ -90,7 +93,7 @@ pub(crate) async fn save_settings(
     }
     if let Some(enabled)=input.anidb_enabled {store(&state).set_setting("plugin-anidb-enabled",if enabled {"true"} else {"false"}).map_err(|_|HttpError::bad_request("Unable to save AniDB plugin settings."))?;}
     if let Some(enabled)=input.omdb_enabled {store(&state).set_setting("plugin-omdb-enabled",if enabled {"true"} else {"false"}).map_err(|_|HttpError::bad_request("Unable to save OMDb plugin settings."))?;}
-    Ok(Json(settings_value(&state)))
+    Ok(Json(settings_value(&state)?))
 }
 pub(crate) async fn test_provider(
     State(state): State<AppState>,
@@ -102,7 +105,10 @@ pub(crate) async fn test_provider(
     };
     let result = match provider.as_str() {
         "mal" => {
-            let key = setting(&state, "mal_client_id");
+            let key = match credential(&state, "mal_client_id") {
+                Ok(key) => key,
+                Err(error) => return Json(json!({"ok": false, "message": error})),
+            };
             if key.is_empty() {
                 Err("Configure a MyAnimeList client ID first.".into())
             } else {
@@ -119,7 +125,10 @@ pub(crate) async fn test_provider(
         }
         "omdb" if !omdb_enabled(&state) => Err("Enable the OMDb plugin first.".into()),
         "omdb" => {
-            let key = setting(&state, "omdb_api_key");
+            let key = match credential(&state, "omdb_api_key") {
+                Ok(key) => key,
+                Err(error) => return Json(json!({"ok": false, "message": error})),
+            };
             if key.is_empty() {
                 Err("Configure an OMDb API key first.".into())
             } else {
@@ -216,11 +225,6 @@ pub(crate) async fn fetch(
     parent: &Value,
 ) -> Result<Data, String> {
     match provider {
-        "googlebooks" if entry.kind.starts_with("book") => {
-            let selected=id(&entry.metadata,"googlebooks").ok_or("Identify this book with Google Books first.")?;
-            let raw=crate::google_books::request(state,client,Some(&selected),"").await?;
-            Ok(Data{id:Some(selected),fields:crate::google_books::fields(&raw),artwork:vec![],raw})
-        }
         "mangadex" if entry.kind == "book_series" => {
             let selected = id(&entry.metadata,"mangadex").ok_or("Identify this series with MangaDex first.")?;
             if !posterview_infra_artwork::valid_manga_id(&selected) { return Err("Invalid MangaDex series ID.".into()); }
@@ -261,7 +265,7 @@ async fn mal(
     library: &NativeLibrary,
     entry: &NativeCatalogEntry,
 ) -> Result<Data, String> {
-    let key = setting(state, "mal_client_id");
+    let key = credential(state, "mal_client_id")?;
     if key.is_empty() {
         return Err("Configure a MyAnimeList client ID in Search Providers.".into());
     }
@@ -368,7 +372,7 @@ async fn omdb(
     entry: &NativeCatalogEntry,
     parent: &Value,
 ) -> Result<Data, String> {
-    let key = setting(state, "omdb_api_key");
+    let key = credential(state, "omdb_api_key")?;
     if key.is_empty() {
         return Err("Configure an OMDb API key in Search Providers.".into());
     }
@@ -480,8 +484,8 @@ async fn tvdb(
     entry: &NativeCatalogEntry,
     parent: &Value,
 ) -> Result<Data, String> {
-    let key = setting(state, "tvdb_api_key");
-    let pin = setting(state, "tvdb_pin");
+    let key = credential(state, "tvdb_api_key")?;
+    let pin = credential(state, "tvdb_pin")?;
     if key.is_empty() {
         return Err("Configure TheTVDB credentials in Search Providers.".into());
     }
@@ -759,7 +763,7 @@ async fn fanart(
     parent: &Value,
     language: &str,
 ) -> Result<Data, String> {
-    let key = setting(state, "fanart_api_key");
+    let key = credential(state, "fanart_api_key")?;
     if key.is_empty() {
         return Err("Configure a FanArt API key in Search Providers.".into());
     }
@@ -1079,6 +1083,20 @@ pub(super) fn mangadex_fields(data: &Value, language: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn corrupt_credentials_are_reported_by_settings_and_connection_tests() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let connection = rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).unwrap();
+        connection.execute("INSERT INTO settings (key, value_enc) VALUES ('mal_client_id', 'corrupt-secret-fixture')", []).unwrap();
+        let error = settings(State(state.clone())).await.err().unwrap();
+        assert!(error.detail.contains("Stored credential could not be decrypted"));
+        assert!(!error.detail.contains("corrupt-secret-fixture"));
+        let response = test_provider(State(state), Path("mal".into())).await.0;
+        assert_eq!(response["ok"], false);
+        assert!(response["message"].as_str().unwrap().contains("Stored credential could not be decrypted"));
+    }
+
     #[tokio::test]
     async fn disabling_anidb_preserves_saved_credentials() {
         let temp=tempfile::tempdir().unwrap();let state=crate::test_support::state(temp.path());

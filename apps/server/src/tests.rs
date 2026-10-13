@@ -15,6 +15,77 @@ fn router(runtime: Arc<Runtime>, ui_dir: PathBuf) -> axum::Router {
 }
 
 #[tokio::test]
+async fn artwork_plugin_routes_require_authentication_and_persist_authorized_changes() {
+    let directory = tempdir().unwrap();
+    let mut state = crate::test_support::state(directory.path());
+    state.auth = super::AuthState::for_tests("test-password");
+    let (_, cookie) = state.auth.login("admin", "test-password").unwrap();
+    let app = crate::routes::system::public()
+        .merge(crate::routes::protected(state.auth.clone()))
+        .with_state(state);
+    let settings =
+        serde_json::json!({"enabled":false,"pinned":true,"poster_edit":false,"backdrop_edit":true});
+
+    for method in ["GET", "PUT"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri("/api/plugins/artwork")
+                    .header("content-type", "application/json")
+                    .body(Body::from(settings.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{method}");
+    }
+
+    for method in ["PUT", "GET"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri("/api/plugins/artwork")
+                    .header("cookie", cookie.clone())
+                    .header("content-type", "application/json")
+                    .body(Body::from(settings.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{method}");
+        let body: serde_json::Value =
+            serde_json::from_slice(&response.into_body().collect().await.unwrap().to_bytes())
+                .unwrap();
+        assert_eq!(body, settings, "{method}");
+    }
+
+    for (method, path) in [
+        ("GET", "/api/plugins/google-books"),
+        ("PUT", "/api/plugins/google-books"),
+        ("POST", "/api/plugins/google-books/test"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("cookie", cookie.clone())
+                    .header("content-type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
+    }
+}
+
+#[tokio::test]
 async fn native_playback_and_watch_routes_require_authentication() {
     let directory = tempdir().unwrap();
     let runtime = Arc::new(Runtime::new(directory.path()));
@@ -78,6 +149,7 @@ async fn manga_selection_persists_across_restart_and_is_scoped_to_the_library_it
             token: "test".to_owned(),
             is_default: true,
             nfo_metadata_enabled: false,
+            allow_invalid_certificates: false,
         })
         .unwrap();
     let app = router(runtime, PathBuf::from("missing-ui"));
@@ -172,6 +244,7 @@ async fn live_mangadex_food_wars_search_cover_apply_and_history() {
             token: "test".to_owned(),
             is_default: true,
             nfo_metadata_enabled: false,
+            allow_invalid_certificates: false,
         })
         .unwrap();
     let app = router(runtime.clone(), PathBuf::from("missing-ui"));
@@ -1124,6 +1197,7 @@ async fn saved_connection_tests_use_unsaved_settings_without_changing_the_server
     let original = runtime.create_server(&ServerCreate {
         name: "Original".into(), server_type: ServerType::Jellyfin,
         base_url: url.clone(), token: "saved-key".into(), is_default: true, nfo_metadata_enabled: false,
+        allow_invalid_certificates: false,
     }).unwrap();
     let app = router(runtime.clone(), PathBuf::from("missing-ui"));
     // A request with no body keeps the existing API behavior (Jellyfin's header is rejected here).
