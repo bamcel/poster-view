@@ -219,3 +219,31 @@ References: [Emby delivery modes](https://emby.media/support/articles/DirectPlay
 [Plex Direct Play and Direct Stream](https://support.plex.tv/articles/200250387-streaming-media-direct-play-and-direct-stream/),
 [FFmpeg HLS muxer](https://ffmpeg.org/ffmpeg-formats.html#hls-2), and
 [libbitsub renderer](https://github.com/altqx/libbitsub).
+
+## Cold resumes and copied-stream seeks
+
+Auto starts a nonzero cold resume of HEVC in Matroska with stream copying when
+the administrator permits remuxing and the browser supports copying both selected
+tracks. The response must actually be a remux. Time-zero starts, warm native
+seeks and explicit Original mode keep their existing direct delivery behavior.
+Native initialization has a bounded recovery deadline even before decoded data
+arrives.
+
+Only buffered HLS targets qualify for local seeks. Unbuffered targets go through
+the seek API, which can retain the existing producer or prepare another generation.
+For a retained source, the HLS engine reloads at the target and can reapply it when
+MSE duration grows. While a seek is pending, maintenance heartbeats use the last
+confirmed position; watch reports preserve the user's requested position. New
+generations start maintenance at their own offset, including backward seeks.
+Unfinished HLS seeks retry once after 15 seconds, then offer an explicit error
+instead of buffering indefinitely.
+
+The exact 22:50 HEVC Main 10/AAC/ASS episode used for the Unraid report was retested
+against the updated production frontend and an isolated Windows server. Auto
+resumed directly into copied delivery without native fallback. The previously
+stalled 30-second copied-stream skip completed, as did distant backward and
+forward seeks; a forward seek to 15:00 was advancing at the first 5.8-second check.
+Original forward and backward skips were ready and advancing within 234 ms and
+204 ms of the UI actions, retaining the same media URL. Browser captures showed
+picture and ASS subtitles. These local checks are not measurements of the updated
+Unraid image or proof of the physical display on every GPU.

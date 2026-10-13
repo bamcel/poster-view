@@ -84,7 +84,8 @@ export default function PlayerPage() {
   const infoRef=useRef<PlaybackInfo|undefined>(undefined), prefsRef=useRef<PlaybackPreferences>(defaultPlaybackPreferences);
   const current=useRef<PlaybackSession|undefined>(undefined), capability=useRef<Capability|undefined>(undefined);
   const watchSession=useRef(""), sequence=useRef(0), requestGeneration=useRef(0), mounted=useRef(false);
-  const sourcePosition=useRef(0),ready=useRef(false);
+  const sourcePosition=useRef(0),confirmedPosition=useRef(0),ready=useRef(false);
+  const streamSeekRecovery=useRef<{generation:number;target:number;at:number;retried:boolean}|null>(null);
   const replaying=useRef<{routeKey:string;generation:number}|null>(null);
   const completedReport=useRef<{routeKey:string;generation:number;promise:Promise<void>}|null>(null);
   const selected=useRef({audio:null as number|null,subtitle:-1});
@@ -108,7 +109,10 @@ export default function PlayerPage() {
   const heartbeat=useCallback((paused=video.current?.paused??true,position=sourcePosition.current)=>{
     const owned=current.current;
     if(!owned||!ready.current||activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
-    heartbeatQueue.current?.request(owned.id,position,paused,owned.generation??0,video.current?.playbackRate??1);
+    // A requested seek is watch intent, not evidence that the media consumed
+    // that time. Avoid pruning copied-stream fragments ahead of the decoder.
+    const consumed=owned.method!=="direct"&&pendingSeek.current?Math.max(owned.offset_seconds,confirmedPosition.current):position;
+    heartbeatQueue.current?.request(owned.id,consumed,paused,owned.generation??0,video.current?.playbackRate??1);
   },[routeKey]);
   const play=useCallback(async(userInteraction=true)=>{
     const element=video.current;if(!element||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!watchSession.current||!ready.current||!current.current)return;
@@ -149,11 +153,13 @@ export default function PlayerPage() {
     const element=video.current,data=infoRef.current;if(!element||!data)return;
     metadataCleanup.current?.();metadataCleanup.current=undefined;segmented.current?.destroy();segmented.current=undefined;
     current.current=created;mediaOwner.current={generation,sessionId:created.id};setSession(created);
+    if(created.method!=="direct")confirmedPosition.current=created.offset_seconds;
     const policy=selectedDelivery.current;
     if(created.method!=="direct"&&(policy.delivery==="original"||!capability.current?.hls_supported||created.method==="remux"&&data.remux_allowed!==true||created.method==="audio_transcode"&&data.audio_conversion_allowed!==true&&data.conversion_allowed!==true||created.method==="transcode"&&data.conversion_allowed!==true&&!(data.bandwidth_adaptation_allowed===true&&policy.budget>0)||policy.delivery==="stream"&&created.method!=="remux")){
       terminalError("The server returned a playback method that is not permitted.");return;
     }
     if(created.method==="direct"&&(created.offset_seconds!==0||/mpegurl/i.test(created.mime))){terminalError("The server did not return original-file playback.");return;}
+    if(created.method==="direct")nativeActivity.current={position:target,at:Date.now(),seekTarget:target};
     const initialize=()=>{
       if(activeRoute.current!==routeKey||generation!==requestGeneration.current||current.current?.id!==created.id)return;
       if(created.method==="direct"){
@@ -199,6 +205,7 @@ export default function PlayerPage() {
     const generation=++requestGeneration.current;
     playIntent.current=playOverride??(current.current&&ready.current&&!pendingSeek.current?!element.paused:playIntent.current);
     const target=Math.max(0,Math.min(sourceTime,data.duration_seconds||sourceTime));
+    streamSeekRecovery.current=null;
     report();sourcePosition.current=target;pendingSeek.current={generation,target};setPosition(target);setScrubbing(null);report(false,false,true);
     ready.current=false;mediaOwner.current=null;metadataCleanup.current?.();metadataCleanup.current=undefined;
     segmented.current?.destroy();segmented.current=undefined;seekQueue.current.reset();fragmentSampler.current.reset();
@@ -220,12 +227,17 @@ export default function PlayerPage() {
       const choice=selected.current,policy=selectedDelivery.current,chosenAudio=data.tracks.find(track=>track.kind==="audio"&&track.index===choice.audio);
       const audioCodecs=caps.audio_codecs.filter(codec=>!chosenAudio||codec!==chosenAudio.codec||originalAudioSupported(chosenAudio,element));
       const q=qualityChoices[policy.quality]??qualityChoices[0];
-      const creating=playbackApi.create(libraryId,itemId,{position_seconds:target,audio_index:choice.audio,subtitle_index:choice.subtitle<0?null:choice.subtitle,...caps,audio_codecs:audioCodecs,direct_only:policy.delivery==="original",force_remux:policy.delivery==="stream"||losslessFallback,max_height:q.height,max_bitrate:q.bitrate,bandwidth_limit_bps:policy.budget});
+      // Cold HEVC-in-Matroska resumes can stall while native demuxers rebuild
+      // their seek state. Start a permitted copied stream without that wait;
+      // warm native seeks and explicit original playback keep their source.
+      const copiedResume=!previous&&target>0&&policy.delivery==="auto"&&policy.quality===0&&["mkv","matroska"].includes(data.container?.toLowerCase()??"")&&data.tracks.some(track=>track.kind==="video"&&track.codec.toLowerCase()==="hevc")&&losslessAudioAllowed(data,caps,choice.audio);
+      const requireCopy=losslessFallback||copiedResume;
+      const creating=playbackApi.create(libraryId,itemId,{position_seconds:target,audio_index:choice.audio,subtitle_index:choice.subtitle<0?null:choice.subtitle,...caps,audio_codecs:audioCodecs,direct_only:policy.delivery==="original",force_remux:policy.delivery==="stream"||requireCopy,max_height:q.height,max_bitrate:q.bitrate,bandwidth_limit_bps:policy.budget});
       const allocation=creating.then(async created=>{if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)await playbackApi.stop(created.id).catch(()=>{});}).catch(()=>{});
       pendingAllocation.current=allocation;void allocation.finally(()=>{if(pendingAllocation.current===allocation)pendingAllocation.current=undefined;});
       const created=await creating;
       if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)return;
-      if(losslessFallback&&created.method!=="remux"){void playbackApi.stop(created.id).catch(()=>{});throw new Error("The server could not recover this seek with lossless stream copying.");}
+      if(requireCopy&&created.method!=="remux"){void playbackApi.stop(created.id).catch(()=>{});throw new Error("The server could not resume this video with lossless stream copying.");}
       seekQueue.current.reset(created);attachSource(created,target,generation);
     }catch(error){if(mounted.current&&activeRoute.current===routeKey&&generation===requestGeneration.current){setLoading(false);setError(errorMessage(error));}}
   },[libraryId,itemId,routeKey,report,attachSource,terminalError]);
@@ -282,7 +294,7 @@ export default function PlayerPage() {
     setInitializing(true);setLoading(true);setRecoveryNeeded(false);setError("");setNotice("");setWatchError("");
     setInfo(undefined);setSession(undefined);setPosition(0);setBuffered(0);setScrubbing(null);setPlaying(false);setBuffering(false);
     audioMapping.current.clear();setNativeAudioChoices([]);setAudioHelp("");setAudio(null);setSubtitle(-1);setMenu(null);setEnded(false);setCountdown(null);setWatchPrompt(false);setVisible(true);
-    sourcePosition.current=0;nativeFallbackAttempted.current=false;
+    sourcePosition.current=0;confirmedPosition.current=0;streamSeekRecovery.current=null;nativeFallbackAttempted.current=false;
     controls.current.playing=false;controls.current.menu=null;controls.current.dragging=false;controls.current.prompt=false;controls.current.ended=false;
       try{
         await waitForWatchReports(routeKey,controller.signal);
@@ -351,6 +363,7 @@ export default function PlayerPage() {
   const seek=useCallback((target:number)=>{
     if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!current.current||!video.current)return;
     interact();const bound=Math.max(0,Math.min(target,infoRef.current?.duration_seconds||target));if(!Number.isFinite(bound))return;
+    streamSeekRecovery.current=null;
     const element=video.current;
     if(controls.current.ended){void replayRef.current(bound,false);return;}
     if(ready.current&&!pendingSeek.current)playIntent.current=!element.paused;
@@ -500,7 +513,8 @@ export default function PlayerPage() {
       report(false,false,true);return false;
     }
     if(Math.abs(source-nativeActivity.current.position)>0.1){nativeActivity.current={position:source,at:Date.now(),seekTarget:null};setRecoveryNeeded(false);}
-    sourcePosition.current=Math.max(0,source);setPosition(sourcePosition.current);
+    sourcePosition.current=Math.max(0,source);confirmedPosition.current=sourcePosition.current;setPosition(sourcePosition.current);
+    if(pending)heartbeat(element.paused);
     const usable=element.paused?element.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA:element.readyState>=HTMLMediaElement.HAVE_FUTURE_DATA;
     if(usable){waitingDemand.current=false;setBuffering(false);setLoading(false);}
     return true;
@@ -577,9 +591,24 @@ export default function PlayerPage() {
   useEffect(()=>{
     const timer=window.setInterval(()=>{
       const element=video.current,owned=current.current;
-      if(!mounted.current||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!ready.current||owned?.method!=="direct"||!element||mediaOwner.current?.generation!==requestGeneration.current||controls.current.ended||controls.current.prompt)return;
+      if(!mounted.current||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!owned||!element||mediaOwner.current?.generation!==requestGeneration.current||controls.current.ended||controls.current.prompt)return;
+      if(owned.method!=="direct"){
+        const pending=pendingSeek.current;
+        if(!pending){streamSeekRecovery.current=null;return;}
+        let recovery=streamSeekRecovery.current;
+        if(!recovery||recovery.generation!==pending.generation||recovery.target!==pending.target){recovery={generation:pending.generation,target:pending.target,at:Date.now(),retried:false};streamSeekRecovery.current=recovery;}
+        if(document.hidden){recovery.at=Date.now();return;}
+        if(Date.now()-recovery.at<15_000)return;
+        if(!recovery.retried){
+          streamSeekRecovery.current={generation:requestGeneration.current+1,target:pending.target,at:Date.now(),retried:true};
+          setNotice("The playback stream seek stalled. Retrying the requested position.");
+          void repositionRef.current(pending.target,undefined,playIntent.current);
+        }else terminalError("The playback stream did not reach the requested position. Retry playback.");
+        return;
+      }
+      if(!ready.current&&(!playIntent.current||document.hidden)){nativeActivity.current.at=Date.now();return;}
       const activity=nativeActivity.current,target=pendingSeek.current?.target;
-      const frameStalled=videoFrames.current.stalled(element,!playIntent.current||element.paused,8);
+      const frameStalled=ready.current&&videoFrames.current.stalled(element,!playIntent.current||element.paused,8);
       if(target!==undefined&&activity.seekTarget!==target){nativeActivity.current={position:target,at:Date.now(),seekTarget:target};return;}
       if(target===undefined&&(!playIntent.current||element.paused)){nativeActivity.current.at=Date.now();return;}
       const seconds=target===undefined?30:8;
@@ -589,11 +618,11 @@ export default function PlayerPage() {
           nativeFallbackAttempted.current=true;
           setNotice("The original-file playback stalled. Recovering with a lossless stream; video and audio remain unchanged.");
           void start(target??sourcePosition.current,playIntent.current,true);
-        }else{setRecoveryNeeded(true);setVisible(true);}
+        }else{setLoading(false);setRecoveryNeeded(true);setVisible(true);}
       }
     },1000);
     return()=>window.clearInterval(timer);
-  },[routeKey,start]);
+  },[routeKey,start,terminalError]);
   const changeQuality=(mode:Delivery,value=0)=>{
     interact();
     if(selectedDelivery.current.delivery===mode&&selectedDelivery.current.quality===value){setMenu(null);return;}

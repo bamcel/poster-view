@@ -1,5 +1,5 @@
 import type Hls from "hls.js";
-import type {Fragment,FragLoadingData,FragLoadedData} from "hls.js";
+import type {FragLoadingData,FragLoadedData} from "hls.js";
 import type {PlaybackSession} from "../types";
 
 // Mirrors hls.js 1.7.3 is-supported.ts without loading the playback engine:
@@ -62,12 +62,9 @@ export function attachSegmentedPlayback(video:HTMLVideoElement,session:PlaybackS
   }).catch(error=>{if(owns())callbacks.fatal(error instanceof Error?error.message:"The playback engine could not be loaded. Retry playback.");});
   return {get hls(){return hls;},attached:()=>active&&hls?.media===video,owns:()=>owns()&&hls?.media===video,available:(time:number,confirmed=video.currentTime)=>{
     if(!owns()||!hls)return false;
-    if(inRange(video.buffered,time,confirmed-55))return true;
-    // A stale ENDLIST can still list segments removed by the server. Outside
-    // the conservative retention window, reposition instead of requesting them.
-    if(time<confirmed-55)return false;
-    const fragments=hls.latestLevelDetails?.fragments??[];
-    return fragments.some((fragment:Fragment)=>time>=fragment.start&&time<fragment.start+fragment.duration);
-  },refresh:(time:number)=>{if(owns())hls?.startLoad(time,true);},destroy:()=>{active=false;clearTimeout(recoveryTimer);hls?.destroy();hls=undefined;}};
+    // A playlist entry is not buffered media. Ask the server to retain or
+    // reposition unbuffered targets before loading them into this generation.
+    return inRange(video.buffered,time,confirmed-55);
+  },refresh:(time:number)=>{if(owns())hls?.startLoad(time);},destroy:()=>{active=false;clearTimeout(recoveryTimer);hls?.destroy();hls=undefined;}};
 }
 function inRange(ranges:TimeRanges,time:number,minimumEnd=-Infinity){for(let index=0;index<ranges.length;index++)if(time>=ranges.start(index)&&time<ranges.end(index)&&ranges.end(index)>=minimumEnd)return true;return false;}

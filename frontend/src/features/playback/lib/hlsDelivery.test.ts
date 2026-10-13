@@ -24,6 +24,24 @@ describe("lightweight HLS capability and lazy delivery",()=>{
  });
 });
 
+it("loads unbuffered seek targets explicitly and keeps buffered seeks local", async () => {
+ vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+ const video=document.createElement("video"),adapter=attachSegmentedPlayback(video,session,{fatal:vi.fn()});
+ await vi.waitFor(()=>expect(adapter.attached()).toBe(true));
+ const hls=adapter.hls!;
+ Object.defineProperty(hls,"latestLevelDetails",{value:{fragments:[{start:30,duration:10}]},configurable:true});
+ Object.defineProperty(video,"buffered",{value:{length:1,start:()=>0,end:()=>20},configurable:true});
+ expect(adapter.available(10)).toBe(true);
+ expect(adapter.available(35)).toBe(false);
+ const load=vi.spyOn(hls,"startLoad");adapter.refresh(35);
+ // Let the engine reapply the seek when the new fragment extends MSE duration.
+ expect(load).toHaveBeenCalledWith(35);
+ Object.defineProperty(video,"buffered",{value:{length:1,start:()=>30,end:()=>40},configurable:true});
+ expect(adapter.available(35)).toBe(true);
+ expect(adapter.available(35,100)).toBe(false);
+ adapter.destroy();adapter.refresh(45);expect(load).toHaveBeenCalledTimes(1);
+});
+
 it("does not retain a failed HLS engine load across a later retry", async () => {
   vi.resetModules();
   const { loadSegmentedEngine } = await import("./hlsDelivery");

@@ -187,14 +187,28 @@ describe("segmented playback and browser bitmap subtitles",()=>{
  it("serializes rapid HLS seeks, attaches only the latest generation and preserves requested position during response waits",async()=>{
   streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);let first!:(value:PlaybackSession)=>void,last!:(value:PlaybackSession)=>void;vi.mocked(playbackApi.seek).mockImplementationOnce(()=>new Promise(resolve=>{first=resolve;})).mockImplementationOnce(()=>new Promise(resolve=>{last=resolve;}));player();const video=await ready();scrubTo(800);scrubTo(900);const slider=scrubTo(1000);expect(slider.value).toBe("1000");expect(playbackApi.seek).toHaveBeenCalledTimes(1);await act(async()=>first({...remux,generation:2,offset_seconds:796,url:"/hls/2/index.m3u8"}));expect(hlsState.instances).toHaveLength(1);expect(playbackApi.seek).toHaveBeenLastCalledWith("playback-one",{position_seconds:1000,generation:2});await act(async()=>last({...remux,generation:3,offset_seconds:996,url:"/hls/3/index.m3u8"}));expect(hlsState.instances).toHaveLength(2);loadMetadata(video);fireEvent.seeked(video);expect(video.currentTime).toBe(4);expect(slider.value).toBe("1000");expect(watchApi.begin).toHaveBeenCalledTimes(1);
  });
- it("uses available HLS fragments locally but repositions for stale backward fragments beyond retention",async()=>{
-  streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);vi.mocked(playbackApi.seek).mockResolvedValue({...remux,generation:2,offset_seconds:346,url:"/hls/2/index.m3u8"});player();const video=await ready();hlsState.instances[0].latestLevelDetails={fragments:[{start:50,duration:30}]};scrubTo(350);expect(video.currentTime).toBe(60);fireEvent.seeked(video);expect(playbackApi.seek).not.toHaveBeenCalled();video.currentTime=500;fireEvent.timeUpdate(video);Object.defineProperty(video,"buffered",{value:{length:1,start:()=>50,end:()=>80},configurable:true});scrubTo(350);await waitFor(()=>expect(playbackApi.seek).toHaveBeenCalledWith("playback-one",{position_seconds:350,generation:1}));expect(playbackApi.create).toHaveBeenCalledTimes(1);
+ it("repositions manifest-only HLS targets instead of assuming their frames are buffered",async()=>{
+  streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);vi.mocked(playbackApi.seek).mockResolvedValue({...remux,generation:2,offset_seconds:346,url:"/hls/2/index.m3u8"});player();await ready();hlsState.instances[0].latestLevelDetails={fragments:[{start:50,duration:30}]};scrubTo(350);await waitFor(()=>expect(playbackApi.seek).toHaveBeenCalledWith("playback-one",{position_seconds:350,generation:1}));expect(playbackApi.create).toHaveBeenCalledTimes(1);
  });
  it("reuses a server-retained HLS generation and still handles actual fatal errors after reposition",async()=>{
-  streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);vi.mocked(playbackApi.seek).mockResolvedValue(remux);player();const video=await ready();scrubTo(400);await waitFor(()=>expect(video.currentTime).toBe(110));fireEvent.seeked(video);expect(hlsState.instances).toHaveLength(1);expect(hlsState.instances[0].startLoad).toHaveBeenCalledWith(110,true);act(()=>{for(let attempt=0;attempt<3;attempt++)hlsState.instances[0].emit("error",{fatal:true,type:"networkError"});});await screen.findByText(/playback stream could not be loaded/);expect(playbackApi.stop).toHaveBeenCalledTimes(1);expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");expect(hlsState.instances[0].destroy).toHaveBeenCalledTimes(1);
+  streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);vi.mocked(playbackApi.seek).mockResolvedValue(remux);player();const video=await ready();scrubTo(400);await waitFor(()=>expect(video.currentTime).toBe(110));fireEvent.seeked(video);expect(hlsState.instances).toHaveLength(1);expect(hlsState.instances[0].startLoad).toHaveBeenCalledWith(110);act(()=>{for(let attempt=0;attempt<3;attempt++)hlsState.instances[0].emit("error",{fatal:true,type:"networkError"});});await screen.findByText(/playback stream could not be loaded/);expect(playbackApi.stop).toHaveBeenCalledTimes(1);expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");expect(hlsState.instances[0].destroy).toHaveBeenCalledTimes(1);
+ });
+ it("keeps a clamped same-generation HLS seek bounded and heartbeats its confirmed clock",async()=>{
+  vi.useFakeTimers({shouldAdvanceTime:true});streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);vi.mocked(playbackApi.seek).mockResolvedValue(remux);
+  player();const video=await ready();Object.defineProperty(video,"readyState",{value:4,configurable:true});Object.defineProperty(video,"paused",{value:false,configurable:true});
+  video.currentTime=10;fireEvent.timeUpdate(video);
+  Object.defineProperty(video,"currentTime",{get:()=>10,set:()=>{},configurable:true});
+  scrubTo(900);await waitFor(()=>expect(playbackApi.seek).toHaveBeenCalledTimes(1));fireEvent.seeked(video);fireEvent.waiting(video);
+  await act(async()=>{await Promise.resolve();});
+  expect(playbackApi.heartbeat).toHaveBeenLastCalledWith("playback-one",300,false,1,1);
+  expect((screen.getByRole("slider",{name:"Seek"}) as HTMLInputElement).value).toBe("900");
+  await act(async()=>{await vi.advanceTimersByTimeAsync(17_000);});expect(playbackApi.seek).toHaveBeenCalledTimes(2);
+  fireEvent.seeked(video);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(16_000);});
+  expect(playbackApi.seek).toHaveBeenCalledTimes(2);expect(screen.getByText(/did not reach the requested position/)).toBeTruthy();
  });
  it("keeps an in-flight forward heartbeat on its old generation while a backward seek wakes the new generation",async()=>{
-  streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);let rejectOld!:(error:Error)=>void;vi.mocked(playbackApi.heartbeat).mockImplementationOnce(()=>new Promise<void>((_resolve,reject)=>{rejectOld=reject;})).mockResolvedValue(undefined);vi.mocked(playbackApi.seek).mockResolvedValue({...remux,generation:2,offset_seconds:346,url:"/hls/2/index.m3u8"});player();const video=await ready();expect(playbackApi.heartbeat).toHaveBeenCalledWith("playback-one",295,false,1,1);video.currentTime=500;fireEvent.timeUpdate(video);fireEvent.pause(video);scrubTo(350);await waitFor(()=>expect(hlsState.instances).toHaveLength(2));loadMetadata(video);fireEvent.seeked(video);expect(playbackApi.heartbeat).toHaveBeenLastCalledWith("playback-one",350,true,2,1);
+  streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);let rejectOld!:(error:Error)=>void;vi.mocked(playbackApi.heartbeat).mockImplementationOnce(()=>new Promise<void>((_resolve,reject)=>{rejectOld=reject;})).mockResolvedValue(undefined);vi.mocked(playbackApi.seek).mockResolvedValue({...remux,generation:2,offset_seconds:346,url:"/hls/2/index.m3u8"});player();const video=await ready();expect(playbackApi.heartbeat).toHaveBeenCalledWith("playback-one",290,false,1,1);video.currentTime=500;fireEvent.timeUpdate(video);fireEvent.pause(video);scrubTo(350);await waitFor(()=>expect(hlsState.instances).toHaveLength(2));loadMetadata(video);fireEvent.seeked(video);await waitFor(()=>expect(playbackApi.heartbeat).toHaveBeenLastCalledWith("playback-one",350,true,2,1));expect(playbackApi.heartbeat).toHaveBeenCalledWith("playback-one",346,true,2,1);expect(vi.mocked(playbackApi.heartbeat).mock.calls.some(call=>call[1]===790&&call[3]===2)).toBe(false);
   await act(async()=>rejectOld(new Error("409 stale generation")));expect(vi.mocked(playbackApi.heartbeat).mock.calls.some(call=>call[1]===790)).toBe(false);expect(screen.queryByRole("alert")).toBeNull();expect(playbackApi.stop).not.toHaveBeenCalled();expect((screen.getByRole("slider",{name:"Seek"}) as HTMLInputElement).value).toBe("350");expect(watchApi.begin).toHaveBeenCalledTimes(1);
  });
  it.each(["truehd","dts","pcm_s24le"])("promotes a direct source to permitted audio-only conversion for %s while retaining its watch/session",async codec=>{
@@ -222,6 +236,51 @@ describe("segmented playback and browser bitmap subtitles",()=>{
  });
 });
 
+
+it("starts eligible cold HEVC Matroska resumes with lossless copying immediately",async()=>{
+  hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,container:"mkv",remux_allowed:true,tracks:info.tracks.map(track=>track.kind==="video"?{...track,codec:"hevc"}:track)});
+  vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",generation:1,offset_seconds:290,url:"/hls/1/index.m3u8",mime:"application/vnd.apple.mpegurl"});
+  player();const video=await ready();
+  expect(playbackApi.create).toHaveBeenCalledTimes(1);
+  expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({force_remux:true,max_bitrate:0,max_height:0,position_seconds:295}));
+  expect(video.currentTime).toBe(5);
+  expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:295}),false);
+  vi.mocked(playbackApi.create).mockResolvedValue(session);
+  fireEvent.click(screen.getByRole("button",{name:"Playback quality"}));
+  fireEvent.click(screen.getByRole("button",{name:"Original · direct only"}));
+  await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));
+  expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({direct_only:true,force_remux:false}));
+});
+
+it("keeps warm native HEVC Matroska seeks on their original source",async()=>{
+  hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,container:"mkv",remux_allowed:true,tracks:info.tracks.map(track=>track.kind==="video"?{...track,codec:"hevc"}:track)});
+  vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state:{...state,position_seconds:0}});
+  player();const video=await ready();const source=video.getAttribute("src");scrubTo(600);fireEvent.seeked(video);
+  expect(video.currentTime).toBe(600);expect(video.getAttribute("src")).toBe(source);expect(playbackApi.create).toHaveBeenCalledTimes(1);
+});
+
+it.each(["zero","forbidden","unsupported","other codec"])("keeps the original cold source when copied resume is %s",async condition=>{
+  hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>condition!=="unsupported"});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,container:"mkv",remux_allowed:condition!=="forbidden",tracks:info.tracks.map(track=>track.kind==="video"?{...track,codec:condition==="other codec"?"h264":"hevc"}:track)});
+  if(condition==="zero")vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state:{...state,position_seconds:0}});
+  player();await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());
+  expect(playbackApi.create).toHaveBeenCalledTimes(1);
+  expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({force_remux:false,direct_only:false}));
+});
+
+it("bounds native initialization without decoded data and preserves its resume target",async()=>{
+  vi.useFakeTimers({shouldAdvanceTime:true});hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,remux_allowed:true});
+  vi.mocked(playbackApi.create).mockResolvedValueOnce(session).mockResolvedValue({...session,method:"remux",generation:1,offset_seconds:290,url:"/hls/1/index.m3u8",mime:"application/vnd.apple.mpegurl"});
+  player();await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());
+  const video=document.querySelector("video")!;Object.defineProperty(video,"readyState",{value:1,configurable:true});fireEvent.loadedMetadata(video);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(9000);});
+  expect(playbackApi.create).toHaveBeenCalledTimes(2);
+  expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({force_remux:true,position_seconds:295}));
+  expect(watchApi.progress).not.toHaveBeenCalledWith("anime","one",expect.objectContaining({position_seconds:0}),expect.anything());
+});
 
 it("primes cold resumed original media before seeking and never starts at zero", async () => {
   player();
