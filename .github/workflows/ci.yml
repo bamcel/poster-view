@@ -2,8 +2,9 @@ name: Verify
 
 on:
   pull_request:
+  workflow_call:
   push:
-    branches: [main, experimental]
+    branches: [main, experimental, development]
 
 permissions:
   contents: read
