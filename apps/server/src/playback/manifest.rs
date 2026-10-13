@@ -16,8 +16,8 @@ pub(super) fn playlist_seconds(path: &FsPath) -> f64 {
         .filter(|n| n.is_finite())
         .sum()
 }
-pub(super) fn prune_consumed(dir: &FsPath, position: f64) {
-    // Keep a one-minute safety window for seeks in the current generation
+pub(super) fn prune_consumed(dir: &FsPath, position: f64, retention_seconds: f64) {
+    // Keep the delivery method's safety window for seeks in the current generation
     // behind playback. The served rolling manifest omits retired files and keeps
     // the original segment numbers and fMP4 timestamps for the attached client.
     let Ok(playlist) = std::fs::read_to_string(dir.join("index.m3u8")) else {
@@ -35,7 +35,7 @@ pub(super) fn prune_consumed(dir: &FsPath, position: f64) {
         } else if !line.starts_with('#') && safe_segment(line) && line.ends_with(".m4s") {
             if let Some(length) = length.take() {
                 end += length;
-                if end + 60.0 < position {
+                if end + retention_seconds < position {
                     let _ = std::fs::remove_file(dir.join(line));
                 }
             }
@@ -151,6 +151,25 @@ pub(super) fn retained_range(raw: &str, directory: &FsPath) -> Option<(f64, f64)
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn longer_copy_retention_keeps_backward_skips_but_still_prunes_old_segments() {
+        for (retention, first_retained) in [(60.0, 22), (120.0, 7)] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut raw = String::from("#EXTM3U\n#EXT-X-TARGETDURATION:4\n");
+            for index in 0..40 {
+                let name = format!("segment-{index:06}.m4s");
+                raw.push_str(&format!("#EXTINF:4.0,\n{name}\n"));
+                std::fs::write(temp.path().join(name), b"segment").unwrap();
+            }
+            std::fs::write(temp.path().join("index.m3u8"), &raw).unwrap();
+            prune_consumed(temp.path(), 150.0, retention);
+            assert_eq!(
+                retained_range(&raw, temp.path()),
+                Some((f64::from(first_retained) * 4.0, 160.0))
+            );
+            assert!(!temp.path().join("segment-000000.m4s").exists());
+        }
+    }
     #[test]
     fn retained_playlist_omits_pruned_prefix_but_preserves_sequence_and_source_time() {
         let temp = tempfile::tempdir().unwrap();

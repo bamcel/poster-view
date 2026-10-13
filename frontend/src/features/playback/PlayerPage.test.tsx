@@ -202,6 +202,19 @@ describe("segmented playback and browser bitmap subtitles",()=>{
   expect(video.currentTime).toBe(35);expect((screen.getByRole("slider",{name:"Seek"}) as HTMLInputElement).value).toBe("325");
   expect(video.getAttribute("src")).toBe(source);expect(playbackApi.seek).not.toHaveBeenCalled();expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(playbackApi.stop).not.toHaveBeenCalled();
  });
+ it("keeps buffered ninety-second Direct Stream seeks local in both directions",async()=>{
+  streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);player();const video=await ready();
+  Object.defineProperty(video,"buffered",{value:{length:1,start:()=>0,end:()=>120},configurable:true});
+  const source=video.getAttribute("src");scrubTo(385);fireEvent.seeked(video);
+  expect(video.currentTime).toBe(95);
+  // A retained older range remains usable even when separated from the playhead.
+  video.currentTime=105;fireEvent.timeUpdate(video);
+  Object.defineProperty(video,"buffered",{value:{length:1,start:()=>0,end:()=>30},configurable:true});
+  scrubTo(305);fireEvent.seeked(video);expect(video.currentTime).toBe(15);
+  expect((screen.getByRole("slider",{name:"Seek"}) as HTMLInputElement).value).toBe("305");
+  expect(video.getAttribute("src")).toBe(source);expect(hlsState.instances).toHaveLength(1);
+  expect(playbackApi.seek).not.toHaveBeenCalled();expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(playbackApi.stop).not.toHaveBeenCalled();
+ });
  it("serializes rapid HLS seeks, attaches only the latest generation and preserves requested position during response waits",async()=>{
   streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);let first!:(value:PlaybackSession)=>void,last!:(value:PlaybackSession)=>void;vi.mocked(playbackApi.seek).mockImplementationOnce(()=>new Promise(resolve=>{first=resolve;})).mockImplementationOnce(()=>new Promise(resolve=>{last=resolve;}));player();const video=await ready();scrubTo(800);scrubTo(900);const slider=scrubTo(1000);expect(slider.value).toBe("1000");expect(playbackApi.seek).toHaveBeenCalledTimes(1);await act(async()=>first({...remux,generation:2,offset_seconds:796,url:"/hls/2/index.m3u8"}));expect(hlsState.instances).toHaveLength(1);expect(playbackApi.seek).toHaveBeenLastCalledWith("playback-one",{position_seconds:1000,generation:2});await act(async()=>last({...remux,generation:3,offset_seconds:996,url:"/hls/3/index.m3u8"}));expect(hlsState.instances).toHaveLength(2);loadMetadata(video);fireEvent.seeked(video);expect(video.currentTime).toBe(4);expect(slider.value).toBe("1000");expect(watchApi.begin).toHaveBeenCalledTimes(1);
  });

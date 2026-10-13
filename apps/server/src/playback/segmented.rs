@@ -111,7 +111,11 @@ impl Producer {
                 return false;
             }
         }
-        manifest::prune_consumed(&self.dir, position);
+        manifest::prune_consumed(
+            &self.dir,
+            position,
+            if self.paused_copy_buffer { 120.0 } else { 60.0 },
+        );
         let lead = manifest::playlist_seconds(&self.dir.join("index.m3u8")) - position;
         let limit = self.buffer_seconds * speed.clamp(0.25, 4.0);
         if self.throttle {
@@ -141,7 +145,7 @@ impl Producer {
 // configured lead/cache limits and leave paused encoding behavior unchanged.
 fn buffer_suspended(suspended: bool, lead: f64, limit: f64, paused: bool, copied: bool) -> bool {
     let limit = if paused && copied {
-        limit.min(60.0)
+        limit.min(120.0)
     } else {
         limit
     };
@@ -921,15 +925,17 @@ mod tests {
     fn paused_copy_buffer_prepares_skips_and_refills_without_changing_encoding_limits() {
         assert!(!buffer_suspended(false, 15.0, 120.0, true, true));
         assert!(!buffer_suspended(false, 45.0, 120.0, true, true));
-        assert!(buffer_suspended(false, 60.0, 120.0, true, true));
+        assert!(!buffer_suspended(false, 90.0, 120.0, true, true));
+        assert!(buffer_suspended(false, 120.0, 120.0, true, true));
         // A confirmed forward skip consumes the lead; refill even while paused.
         assert!(!buffer_suspended(true, 25.0, 120.0, true, true));
-        assert!(buffer_suspended(true, 35.0, 120.0, true, true));
+        assert!(!buffer_suspended(true, 55.0, 120.0, true, true));
+        assert!(buffer_suspended(true, 65.0, 120.0, true, true));
         // A smaller administrator limit still wins.
         assert!(buffer_suspended(false, 10.0, 10.0, true, true));
         assert!(!buffer_suspended(true, 4.0, 10.0, true, true));
         assert!(buffer_suspended(false, 2.5, 10.0 * 0.25, true, true));
-        assert!(buffer_suspended(false, 60.0, 120.0 * 4.0, true, true));
+        assert!(buffer_suspended(false, 120.0, 120.0 * 4.0, true, true));
         assert!(buffer_suspended(false, 13.0, 120.0, true, false));
         assert!(buffer_suspended(true, 4.0, 120.0, true, false));
         assert!(!buffer_suspended(true, 50.0, 120.0, false, false));

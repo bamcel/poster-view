@@ -38,7 +38,8 @@ it("loads unbuffered seek targets explicitly and keeps buffered seeks local", as
  expect(load).toHaveBeenCalledWith(35);
  Object.defineProperty(video,"buffered",{value:{length:1,start:()=>30,end:()=>40},configurable:true});
  expect(adapter.available(35)).toBe(true);
- expect(adapter.available(35,100)).toBe(false);
+ expect(adapter.available(35,100)).toBe(true);
+ expect(adapter.available(35,160)).toBe(false);
  adapter.destroy();adapter.refresh(45);expect(load).toHaveBeenCalledTimes(1);
 });
 
@@ -55,16 +56,35 @@ it("does not retain a failed HLS engine load across a later retry", async () => 
 });
 
 it.each([
- {method:"remux" as const,bitrate:undefined,seconds:60},
+ {method:"remux" as const,bitrate:undefined,seconds:120},
+ {method:"remux" as const,bitrate:0,seconds:120},
  {method:"audio_transcode" as const,bitrate:undefined,seconds:20},
  {method:"transcode" as const,bitrate:0,seconds:20},
- {method:"remux" as const,bitrate:4_000_000,seconds:60},
- {method:"remux" as const,bitrate:16_000_000,seconds:48*1024*1024*8/16_000_000},
- {method:"remux" as const,bitrate:100_000_000,seconds:6},
-])("buffers $method at $bitrate bitrate within the existing bounds",async({method,bitrate,seconds})=>{
+ {method:"remux" as const,bitrate:4_000_000,seconds:120},
+ {method:"remux" as const,bitrate:16_000_000,seconds:96*1024*1024*8/16_000_000},
+ {method:"remux" as const,bitrate:200_000_000,seconds:6},
+ {method:"audio_transcode" as const,bitrate:4_000_000,seconds:60},
+ {method:"transcode" as const,bitrate:16_000_000,seconds:48*1024*1024*8/16_000_000},
+ {method:"transcode" as const,bitrate:100_000_000,seconds:6},
+])("buffers $method at $bitrate bitrate within its delivery bounds",async({method,bitrate,seconds})=>{
  vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
  const adapter=attachSegmentedPlayback(document.createElement("video"),{...session,method,bitrate},{fatal:vi.fn()});
  await vi.waitFor(()=>expect(adapter.attached()).toBe(true));
- expect(moduleLoad.created).toHaveBeenLastCalledWith(expect.objectContaining({maxBufferLength:seconds,maxMaxBufferLength:seconds,maxBufferSize:48*1024*1024,backBufferLength:60}));
+ expect(moduleLoad.created).toHaveBeenLastCalledWith(expect.objectContaining({maxBufferLength:seconds,maxMaxBufferLength:seconds,maxBufferSize:(method==="remux"?96:48)*1024*1024,backBufferLength:method==="remux"?120:60}));
  adapter.destroy();
+});
+
+it.each([true,false])("uses method-specific buffered seek retention with MSE=%s",async(mse)=>{
+ vi.stubGlobal("MediaSource",mse?{isTypeSupported:()=>true}:undefined);
+ for(const method of ["remux","audio_transcode","transcode"] as const){
+  const video=document.createElement("video");vi.spyOn(video,"canPlayType").mockReturnValue("probably");
+  Object.defineProperty(video,"buffered",{value:{length:1,start:()=>10,end:()=>30},configurable:true});
+  const adapter=attachSegmentedPlayback(video,{...session,method},{fatal:vi.fn()});
+  await vi.waitFor(()=>expect(adapter.attached()).toBe(true));
+  expect(adapter.available(20,120)).toBe(method==="remux");
+  expect(adapter.available(20,146)).toBe(false);
+  expect(adapter.available(35,120)).toBe(false);
+  expect(adapter.available(20,60)).toBe(true);
+  adapter.destroy();
+ }
 });
