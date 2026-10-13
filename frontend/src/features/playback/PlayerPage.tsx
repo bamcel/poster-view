@@ -11,6 +11,7 @@ import {attachSegmentedPlayback} from "./lib/hlsDelivery";
 import {createPlaybackSeekQueue} from "./lib/seekQueue";
 import {createBandwidthDetector,createFragmentTransferSampler} from "./lib/bandwidth";
 import {createSessionHeartbeatQueue} from "./lib/sessionHeartbeat";
+import {createVideoFrameMonitor} from "./lib/videoFrames";
 import {defaultAudioIndex,enableNativeAudio,mapNativeAudio,nativeAudioTracks,type NativeAudioTrack} from "./lib/nativeAudio";
 import DetailSynopsis from "../../components/DetailSynopsis";
 import {applyPlainSubtitlePosition,subtitleAppearance,subtitleAppearanceVariables} from "./lib/subtitleAppearance";
@@ -40,6 +41,12 @@ export default function PlayerPage() {
   const [recoveryNeeded,setRecoveryNeeded]=useState(false);
   const nativeFallbackAttempted=useRef(false);
   const nativeActivity=useRef({position:0,at:Date.now(),seekTarget:null as number|null});
+  const videoFrames=useRef(createVideoFrameMonitor());
+  const resetVideoFrames=(element:HTMLVideoElement,target:number)=>{
+    const generation=requestGeneration.current,owner=current.current;
+    videoFrames.current.reset(element,Math.max(0,target-(owner?.offset_seconds??0)),()=>mounted.current&&activeRoute.current===routeKey&&requestGeneration.current===generation&&current.current===owner&&mediaOwner.current?.generation===generation);
+  };
+  useEffect(()=>()=>videoFrames.current.destroy(),[routeKey]);
   useEffect(()=>{
     setBufferingVisible(false);
     if(!buffering||loading)return;
@@ -172,7 +179,7 @@ export default function PlayerPage() {
       }
       metadataCleanup.current?.();metadataCleanup.current=undefined;
       try{element.currentTime=Math.max(0,(pendingSeek.current?.target??target)-created.offset_seconds);}catch{terminalError("The browser could not apply the requested playback position. Retry playback.");return;}
-      element.playbackRate=speedRef.current;ready.current=true;nativeActivity.current={position:target,at:Date.now(),seekTarget:target};setRecoveryNeeded(false);setLoading(false);report(false,false,true);
+      element.playbackRate=speedRef.current;ready.current=true;nativeActivity.current={position:target,at:Date.now(),seekTarget:target};resetVideoFrames(element,target);setRecoveryNeeded(false);setLoading(false);report(false,false,true);
       if(playIntent.current)void play(false);else heartbeat(true);
     };
     const events=["loadedmetadata","loadeddata","canplay"];
@@ -350,7 +357,7 @@ export default function PlayerPage() {
     if(current.current.method!=="direct"&&(!ready.current||!segmented.current?.available(bound-current.current.offset_seconds))){void reposition(bound);return;}
     const offset=current.current.offset_seconds;
     const wasReady=ready.current,actual=Number.isFinite(element.currentTime)?Math.max(0,element.currentTime+offset):sourcePosition.current;
-    nativeActivity.current={position:bound,at:Date.now(),seekTarget:bound};setRecoveryNeeded(false);
+    nativeActivity.current={position:bound,at:Date.now(),seekTarget:bound};resetVideoFrames(element,bound);setRecoveryNeeded(false);
     sourcePosition.current=bound;setPosition(bound);setScrubbing(null);pendingSeek.current={generation:requestGeneration.current,target:bound};
     fragmentSampler.current.clearWindow();bandwidthDetector.current.suppressUntil(performance.now()+8_000);bandwidthStall.current=null;
     try{element.currentTime=Math.max(0,bound-offset);waitingDemand.current=false;report(false,false,true);heartbeat(!playIntent.current);}catch{
@@ -557,7 +564,7 @@ export default function PlayerPage() {
         try{element.currentTime=Math.max(0,target-offset);}catch{
           sourcePosition.current=actual;pendingSeek.current=null;setPosition(actual);report(false,false,true);throw new Error("The browser could not seek to the requested replay position. Retry original playback.");
         }
-        sourcePosition.current=target;pendingSeek.current={generation:operation.generation,target};setPosition(target);setLoading(false);report(false,false,true);if(autoplay)void play(false);else heartbeat(true);
+        sourcePosition.current=target;pendingSeek.current={generation:operation.generation,target};resetVideoFrames(element,target);setPosition(target);setLoading(false);report(false,false,true);if(autoplay)void play(false);else heartbeat(true);
       }else await start(position,autoplay);
     }catch(error){if(isCurrent()){setLoading(false);setError(errorMessage(error));}}finally{if(replaying.current===operation)replaying.current=null;}
   };
@@ -572,14 +579,15 @@ export default function PlayerPage() {
       const element=video.current,owned=current.current;
       if(!mounted.current||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!ready.current||owned?.method!=="direct"||!element||mediaOwner.current?.generation!==requestGeneration.current||controls.current.ended||controls.current.prompt)return;
       const activity=nativeActivity.current,target=pendingSeek.current?.target;
+      const frameStalled=videoFrames.current.stalled(element,!playIntent.current||element.paused,8);
       if(target!==undefined&&activity.seekTarget!==target){nativeActivity.current={position:target,at:Date.now(),seekTarget:target};return;}
       if(target===undefined&&(!playIntent.current||element.paused)){nativeActivity.current.at=Date.now();return;}
       const seconds=target===undefined?30:8;
-      if(Date.now()-nativeActivity.current.at>=seconds*1000){
+      if(frameStalled||Date.now()-nativeActivity.current.at>=seconds*1000){
         const policy=selectedDelivery.current,data=infoRef.current;
         if(!nativeFallbackAttempted.current&&policy.delivery==="auto"&&policy.quality===0&&data&&losslessAudioAllowed(data,capability.current,selected.current.audio)){
           nativeFallbackAttempted.current=true;
-          setNotice("The original-file seek stalled. Recovering with a lossless stream; video and audio remain unchanged.");
+          setNotice("The original-file playback stalled. Recovering with a lossless stream; video and audio remain unchanged.");
           void start(target??sourcePosition.current,playIntent.current,true);
         }else{setRecoveryNeeded(true);setVisible(true);}
       }

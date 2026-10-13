@@ -50,6 +50,24 @@ their recovery deadline until a frame exists, including when early `seeked` and
 `timeupdate` events report the target. A late `loadeddata` event also settles a
 paused seek. Regression tests cover those browser states; the follow-up still
 requires deployment and another live Unraid comparison.
+
+The next live retest showed native cold resume still stalling, with authorized
+lossless recovery active and a browser-captured video frame by about 14 seconds.
+Emby resumed in approximately one second inferred from its advancing clock.
+PosterView's native forward skip was advancing at 268 ms; a distant backward
+seek was advancing by the 6.3-second observation (about 0.4 seconds of delay
+inferred from the clock). Different targets and cache histories limit comparison.
+
+The user simultaneously observed black video with visible subtitles in the app
+window and reported the same behavior in Chrome/Edge. Browser captures showed
+decoded pictures at those positions, so captures and media-clock advancement
+cannot establish that the physical display is healthy. This remains a live
+validation limitation. The player now monitors video-frame presentation separately
+from audio clock advancement, rearms it on seeks and source changes, and invokes
+the existing permitted recovery when native video frames stop for eight seconds.
+Paused, hidden and offscreen playback suspend that frame deadline. This catches
+decoder/frame stalls; it cannot establish that a GPU/compositor displaying black
+despite advancing presentation callbacks has recovered.
 Startup, storage latency, source indexes, browser decoder behavior and background
 tab scheduling can vary. Sending every compatible original through an encoder
 would not address all of these causes and would add cost and quality loss.

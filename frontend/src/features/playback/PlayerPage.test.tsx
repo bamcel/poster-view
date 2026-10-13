@@ -332,6 +332,21 @@ it("recovers an auto-mode native seek using only policy-authorized stream copyin
   expect(video.currentTime).toBe(4);
 });
 
+it("recovers missing video frames even while audio advances the native clock",async()=>{
+  vi.useFakeTimers({shouldAdvanceTime:true});hlsState.supported=true;
+  vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,remux_allowed:true});
+  vi.mocked(playbackApi.create).mockResolvedValueOnce(session).mockResolvedValue({...session,method:"remux",generation:1,offset_seconds:896,url:"/hls/1/index.m3u8",mime:"application/vnd.apple.mpegurl"});
+  player();const video=await ready();video.requestVideoFrameCallback=vi.fn(()=>1);video.cancelVideoFrameCallback=vi.fn();
+  Object.defineProperty(video,"paused",{value:false,configurable:true});scrubTo(900);fireEvent.seeked(video);
+  for(let second=1;second<=9;second++){
+    video.currentTime=900+second;fireEvent.timeUpdate(video);
+    await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+  }
+  expect(playbackApi.create).toHaveBeenCalledTimes(2);
+  expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({force_remux:true,max_bitrate:0,position_seconds:expect.any(Number)}));
+});
+
 it("retries transient HLS network errors within the same owned session and cancels retry after exit", async () => {
   hlsState.supported = true;
   vi.stubGlobal("MediaSource", { isTypeSupported: () => true });
