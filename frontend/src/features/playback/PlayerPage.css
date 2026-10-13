@@ -2,6 +2,9 @@
 .pv-video-stage{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
 .pv-video-stage video{height:100%;width:100%;object-fit:contain;background:#000}
 .pv-video-stage canvas{pointer-events:none}
+/* A rounded clip keeps hardware video in the browser's compositing path.
+   Without it, the ASS OffscreenCanvas can leave the video layer black on seek. */
+.pv-video-stage:has(canvas.JASSUB) video{clip-path:inset(0 round 1px)}
 .pv-player video::cue{font-size:calc(clamp(16px,2.3vw,34px) * var(--subtitle-scale,1));background:var(--subtitle-background,rgba(0,0,0,.65));color:var(--subtitle-color,#fff);text-shadow:var(--subtitle-shadow,none)}
 .pv-player button{font:inherit;color:inherit;cursor:pointer;transition:background .15s,opacity .15s;touch-action:manipulation}
 .pv-player button:disabled{cursor:wait;opacity:.4}

@@ -68,6 +68,26 @@ the existing permitted recovery when native video frames stop for eight seconds.
 Paused, hidden and offscreen playback suspend that frame deadline. This catches
 decoder/frame stalls; it cannot establish that a GPU/compositor displaying black
 despite advancing presentation callbacks has recovered.
+
+On October 13, the same 694 MiB HEVC Main 10/AAC episode was copied into an
+isolated local test library. A plain native viewer and a minimal Video.js 10
+player displayed the picture; lossless MP4 and fragmented-MP4 HLS baselines also
+displayed video after seeking. Video.js was installed only in the temporary
+comparison harness, not in PosterView. The full unmodified PosterView player
+reproduced black video with ASS subtitles visible at the five-minute seek.
+Disabling ASS restored the same paused frame without seeking or replacing its
+source. Native window captures, rather than browser-only screenshots, exposed
+this failure while decoding and media-clock advancement continued.
+
+Video opacity, isolated compositing layers and an identity brightness filter did
+not resolve the reproduced failure. A one-pixel rounded `clip-path` on the video
+while its ASS canvas exists did: removing it reproduced black video, and restoring
+it displayed video and subtitles at the same seek position. The rounded mask keeps
+the video in the browser compositing path alongside the OffscreenCanvas overlay.
+It does not alter delivery, decoding, stream packets or subtitle rendering; it
+clips only the outermost video-element corners, usually within the letterbox.
+This is a browser/GPU presentation workaround validated on the reproduced setup;
+other GPUs, HDR sources and native TV clients require their own validation.
 Startup, storage latency, source indexes, browser decoder behavior and background
 tab scheduling can vary. Sending every compatible original through an encoder
 would not address all of these causes and would add cost and quality loss.
