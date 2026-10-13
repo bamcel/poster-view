@@ -54,7 +54,8 @@ export async function playbackCapabilities(info:PlaybackInfo,video:HTMLVideoElem
   const exactType=source?.codec==="hevc"&&depth>8?'video/mp4; codecs="hvc1.2.4.L153.B0"':source?.codec==="av1"&&depth>8?'video/mp4; codecs="av01.0.08M.10"':source?.codec==="h264"&&depth>8?'video/mp4; codecs="avc1.6E0028"':source?.codec==="vp9"&&depth>8?'video/webm; codecs="vp09.02.41.10"':source?types[source.codec]:undefined;
   let sourceSupported=!source||!!exactType&&commonProfile&&!!video.canPlayType(exactType);
   if(source&&sourceSupported&&exactType&&navigator.mediaCapabilities?.decodingInfo){
-    try{const result=await navigator.mediaCapabilities.decodingInfo({type:"file",video:{contentType:exactType,width:source.width||1920,height:source.height||1080,bitrate:source.bitrate||8_000_000,framerate:source.frame_rate||24}});sourceSupported=result.supported;}catch{/* Runtime original-file errors remain visible. */}
+    let probeTimer:ReturnType<typeof setTimeout>|undefined;
+    try{const result=await Promise.race([navigator.mediaCapabilities.decodingInfo({type:"file",video:{contentType:exactType,width:source.width||1920,height:source.height||1080,bitrate:source.bitrate||8_000_000,framerate:source.frame_rate||24}}),new Promise<null>(resolve=>{probeTimer=setTimeout(()=>resolve(null),1500);})]);if(result)sourceSupported=result.supported;}catch{/* Runtime original-file errors remain visible. */}finally{clearTimeout(probeTimer);}
   }
   const videoCodecs=Object.keys(types).filter(codec=>!!video.canPlayType(types[codec]));
   const audioCodecs=["aac","mp3","opus","vorbis","flac","alac","ac3","eac3"].filter(codec=>originalAudioSupported({index:0,kind:"audio",codec},video));

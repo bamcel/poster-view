@@ -1,3 +1,5 @@
+import {waitForPreviousPlayback} from "./lib/previousPlayback";
+import {trackWatchReport, finishWatchReports, waitForWatchReports} from "./lib/watchReports";
 import {watchApi} from "./api/watch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -35,6 +37,9 @@ export default function PlayerPage() {
   const [error,setError]=useState(""), [notice,setNotice]=useState(""), [loading,setLoading]=useState(true);
   const [playing,setPlaying]=useState(false), [buffering,setBuffering]=useState(false), [visible,setVisible]=useState(true);
   const [bufferingVisible,setBufferingVisible]=useState(false);
+  const [recoveryNeeded,setRecoveryNeeded]=useState(false);
+  const nativeFallbackAttempted=useRef(false);
+  const nativeActivity=useRef({position:0,at:Date.now(),seekTarget:null as number|null});
   useEffect(()=>{
     setBufferingVisible(false);
     if(!buffering||loading)return;
@@ -88,7 +93,7 @@ export default function PlayerPage() {
       window.dispatchEvent(new Event("posterview-watch-updated"));
     }).catch(error=>{if(mounted.current&&activeRoute.current===routeKey&&payload.session_id===watchSession.current&&payload.sequence===sequence.current)setWatchError(`Watch progress could not be saved: ${errorMessage(error)}`);});
     if(completion)completion.promise=Promise.all([completion.promise,saving]).then(()=>{});
-    return saving;
+    return trackWatchReport(routeKey,saving);
   },[libraryId,itemId,routeKey]);
   const interact=useCallback(()=>{
     controls.current.lastActive=Date.now();controls.current.visible=true;setVisible(true);
@@ -116,14 +121,14 @@ export default function PlayerPage() {
     if(ready.current&&!pendingSeek.current&&element&&Number.isFinite(element.currentTime)){
       sourcePosition.current=Math.max(0,element.currentTime+(current.current?.offset_seconds??0));setPosition(sourcePosition.current);
     }
-    report();ready.current=false;pendingSeek.current=null;requestGeneration.current++;
+    const finalReport=report();ready.current=false;pendingSeek.current=null;requestGeneration.current++;
     mediaOwner.current=null;metadataCleanup.current?.();metadataCleanup.current=undefined;segmented.current?.destroy();segmented.current=undefined;seekQueue.current.reset();fragmentSampler.current.reset();
     element?.pause();
     const stopped=current.current;current.current=undefined;setSession(undefined);
     if(stopped)heartbeatQueue.current?.forget(stopped.id);
     if(element){element.removeAttribute("src");element.load();}
     if(stopped){
-      const stopping=playbackApi.stop(stopped.id).catch(()=>{});pendingStop.current=stopping;
+      const stopping=Promise.all([finalReport,finishWatchReports(routeKey)]).then(()=>playbackApi.stop(stopped.id)).catch(()=>{});pendingStop.current=stopping;
       void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});
     }
     setLoading(false);setBuffering(false);setPlaying(false);setVisible(true);setError(message);
@@ -146,6 +151,10 @@ export default function PlayerPage() {
       if(activeRoute.current!==routeKey||generation!==requestGeneration.current||current.current?.id!==created.id)return;
       if(created.method==="direct"){
         if(element.getAttribute("src")!==created.url||element.currentSrc&&element.currentSrc!==new URL(created.url,window.location.href).href)return;
+        const nativeTarget=pendingSeek.current?.target??target;
+        let targetSeekable=false;
+        for(let index=0;index<element.seekable.length;index++)if(nativeTarget>=element.seekable.start(index)&&nativeTarget<=element.seekable.end(index))targetSeekable=true;
+        if(nativeTarget>0&&element.readyState<HTMLMediaElement.HAVE_CURRENT_DATA&&!targetSeekable){element.preload="auto";return;}
         const list=nativeAudioTracks(element),mapping=mapNativeAudio(data,list),requested=created.audio_index??selected.current.audio??defaultAudioIndex(data);
         audioMapping.current=mapping;setNativeAudioChoices(Array.from(mapping.keys()).filter(index=>{const track=data.tracks.find(track=>track.index===index);return !!track&&originalAudioSupported(track,element);}));
         const actual=data.tracks.find(track=>track.kind==="audio"&&track.index===requested);
@@ -163,10 +172,12 @@ export default function PlayerPage() {
       }
       metadataCleanup.current?.();metadataCleanup.current=undefined;
       try{element.currentTime=Math.max(0,(pendingSeek.current?.target??target)-created.offset_seconds);}catch{terminalError("The browser could not apply the requested playback position. Retry playback.");return;}
-      element.playbackRate=speedRef.current;ready.current=true;setLoading(false);report(false,false,true);
+      element.playbackRate=speedRef.current;ready.current=true;nativeActivity.current={position:target,at:Date.now(),seekTarget:target};setRecoveryNeeded(false);setLoading(false);report(false,false,true);
       if(playIntent.current)void play(false);else heartbeat(true);
     };
-    element.addEventListener("loadedmetadata",initialize);metadataCleanup.current=()=>element.removeEventListener("loadedmetadata",initialize);
+    const events=["loadedmetadata","loadeddata","canplay"];
+    for(const event of events)element.addEventListener(event,initialize);
+    metadataCleanup.current=()=>{for(const event of events)element.removeEventListener(event,initialize);};
     if(created.method==="direct")element.src=created.url;
     else try{const owns=()=>mounted.current&&activeRoute.current===routeKey&&current.current?.id===created.id&&current.current.url===created.url&&mediaOwner.current?.generation===requestGeneration.current;segmented.current=attachSegmentedPlayback(element,created,{
       isCurrent:owns,
@@ -175,7 +186,7 @@ export default function PlayerPage() {
       fragmentLoaded:data=>{if(!owns())return;const sample=fragmentSampler.current.finish(data.frag.stats);if(sample&&bandwidthObservationAllowed())bandwidthDetector.current.observe(sample.bytes,sample.bodyMilliseconds,performance.now());},
     });}catch(error){terminalError(errorMessage(error));}
   },[routeKey,play,report,terminalError,heartbeat]);
-  const start=useCallback(async(sourceTime:number,playOverride?:boolean)=>{
+  const start=useCallback(async(sourceTime:number,playOverride?:boolean,losslessFallback=false)=>{
     const element=video.current,data=infoRef.current,caps=capability.current;
     if(!element||!data||!caps||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!watchSession.current)return;
     const generation=++requestGeneration.current;
@@ -189,22 +200,28 @@ export default function PlayerPage() {
     waitingDemand.current=false;if(previous)heartbeatQueue.current?.forget(previous.id);
     element.pause();setPlaying(false);setLoading(true);setBuffering(false);setError("");setEnded(false);setCountdown(null);
     element.removeAttribute("src");element.load();
-    if(previous){const stopping=playbackApi.stop(previous.id).catch(()=>{});pendingStop.current=stopping;void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});}
-    if(pendingStop.current)await pendingStop.current;
-    if(pendingAllocation.current)await pendingAllocation.current;
+    if(previous){const stopping=finishWatchReports(routeKey).then(()=>playbackApi.stop(previous.id)).catch(()=>{});pendingStop.current=stopping;void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});}
+    try{
+      if(pendingStop.current)await waitForPreviousPlayback(pendingStop.current,"The previous playback session");
+      if(pendingAllocation.current)await waitForPreviousPlayback(pendingAllocation.current,"The previous playback request");
+    }catch(error){
+      if(mounted.current&&activeRoute.current===routeKey&&generation===requestGeneration.current){setLoading(false);setError(errorMessage(error));}
+      return;
+    }
     if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)return;
     try{
       const choice=selected.current,policy=selectedDelivery.current,chosenAudio=data.tracks.find(track=>track.kind==="audio"&&track.index===choice.audio);
       const audioCodecs=caps.audio_codecs.filter(codec=>!chosenAudio||codec!==chosenAudio.codec||originalAudioSupported(chosenAudio,element));
       const q=qualityChoices[policy.quality]??qualityChoices[0];
-      const creating=playbackApi.create(libraryId,itemId,{position_seconds:target,audio_index:choice.audio,subtitle_index:choice.subtitle<0?null:choice.subtitle,...caps,audio_codecs:audioCodecs,direct_only:policy.delivery==="original",force_remux:policy.delivery==="stream",max_height:q.height,max_bitrate:q.bitrate,bandwidth_limit_bps:policy.budget});
+      const creating=playbackApi.create(libraryId,itemId,{position_seconds:target,audio_index:choice.audio,subtitle_index:choice.subtitle<0?null:choice.subtitle,...caps,audio_codecs:audioCodecs,direct_only:policy.delivery==="original",force_remux:policy.delivery==="stream"||losslessFallback,max_height:q.height,max_bitrate:q.bitrate,bandwidth_limit_bps:policy.budget});
       const allocation=creating.then(async created=>{if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)await playbackApi.stop(created.id).catch(()=>{});}).catch(()=>{});
       pendingAllocation.current=allocation;void allocation.finally(()=>{if(pendingAllocation.current===allocation)pendingAllocation.current=undefined;});
       const created=await creating;
       if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)return;
+      if(losslessFallback&&created.method!=="remux"){void playbackApi.stop(created.id).catch(()=>{});throw new Error("The server could not recover this seek with lossless stream copying.");}
       seekQueue.current.reset(created);attachSource(created,target,generation);
     }catch(error){if(mounted.current&&activeRoute.current===routeKey&&generation===requestGeneration.current){setLoading(false);setError(errorMessage(error));}}
-  },[libraryId,itemId,routeKey,report,attachSource]);
+  },[libraryId,itemId,routeKey,report,attachSource,terminalError]);
   const reposition=useCallback(async(target:number,audioIndex?:number,playOverride?:boolean)=>{
     const element=video.current,owned=current.current;if(!element||!owned||activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
     const generation=++requestGeneration.current;
@@ -255,12 +272,14 @@ export default function PlayerPage() {
     selectedDelivery.current={delivery:"auto",quality:0,budget:0};setDelivery("auto");setQuality(0);bandwidthDetector.current.reset(performance.now());bandwidthStarted.current=performance.now();bandwidthStall.current=null;bandwidthChanging.current=false;fragmentSampler.current.reset();
     pendingSeek.current=null;mediaOwner.current=null;playIntent.current=true;waitingDemand.current=false;
     infoRef.current=undefined;capability.current=undefined;
-    setInitializing(true);setLoading(true);setError("");setNotice("");setWatchError("");
+    setInitializing(true);setLoading(true);setRecoveryNeeded(false);setError("");setNotice("");setWatchError("");
     setInfo(undefined);setSession(undefined);setPosition(0);setBuffered(0);setScrubbing(null);setPlaying(false);setBuffering(false);
     audioMapping.current.clear();setNativeAudioChoices([]);setAudioHelp("");setAudio(null);setSubtitle(-1);setMenu(null);setEnded(false);setCountdown(null);setWatchPrompt(false);setVisible(true);
-    sourcePosition.current=0;
+    sourcePosition.current=0;nativeFallbackAttempted.current=false;
     controls.current.playing=false;controls.current.menu=null;controls.current.dragging=false;controls.current.prompt=false;controls.current.ended=false;
       try{
+        await waitForWatchReports(routeKey,controller.signal);
+        if(!isCurrent())return;
         const [data,prefs,state]=await Promise.all([playbackApi.info(libraryId,itemId,controller.signal),watchApi.preferences(controller.signal),watchApi.state(libraryId,itemId,controller.signal)]);
         if(!isCurrent()||!video.current)return;
         const caps=await playbackCapabilities(data,video.current);if(!isCurrent())return;
@@ -288,13 +307,16 @@ export default function PlayerPage() {
   useEffect(()=>{
     mounted.current=true;void initializeItem();
     return()=>{
-      report(false,true,false,true);mounted.current=false;requestGeneration.current++;initializationGeneration.current++;
+      report(false,true,false,true);const finalReports=finishWatchReports(routeKey);mounted.current=false;requestGeneration.current++;initializationGeneration.current++;
       initializationController.current?.abort();initializedRoute.current=null;
       ready.current=false;watchSession.current="";pendingSeek.current=null;mediaOwner.current=null;metadataCleanup.current?.();metadataCleanup.current=undefined;
       heartbeatQueue.current?.clear();infoRef.current=undefined;capability.current=undefined;
       segmented.current?.destroy();segmented.current=undefined;seekQueue.current.reset();fragmentSampler.current.reset();
       const element=video.current;if(element){element.pause();element.removeAttribute("src");element.load();}
-      const stopped=current.current;current.current=undefined;if(stopped)void playbackApi.stop(stopped.id).catch(()=>{});
+      const stopped=current.current;current.current=undefined;if(stopped){
+        const stopping=finalReports.then(()=>playbackApi.stop(stopped.id)).catch(()=>{});pendingStop.current=stopping;
+        void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});
+      }
     };
   // A new item owns an independent watch/session lifecycle, including StrictMode cleanup.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -328,6 +350,7 @@ export default function PlayerPage() {
     if(current.current.method!=="direct"&&(!ready.current||!segmented.current?.available(bound-current.current.offset_seconds))){void reposition(bound);return;}
     const offset=current.current.offset_seconds;
     const wasReady=ready.current,actual=Number.isFinite(element.currentTime)?Math.max(0,element.currentTime+offset):sourcePosition.current;
+    nativeActivity.current={position:bound,at:Date.now(),seekTarget:bound};setRecoveryNeeded(false);
     sourcePosition.current=bound;setPosition(bound);setScrubbing(null);pendingSeek.current={generation:requestGeneration.current,target:bound};
     fragmentSampler.current.clearWindow();bandwidthDetector.current.suppressUntil(performance.now()+8_000);bandwidthStall.current=null;
     try{element.currentTime=Math.max(0,bound-offset);waitingDemand.current=false;report(false,false,true);heartbeat(!playIntent.current);}catch{
@@ -336,7 +359,10 @@ export default function PlayerPage() {
     }
   },[interact,report,routeKey,heartbeat,reposition]);
   const toggle=useCallback(()=>{if(controls.current.prompt||activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;interact();if(controls.current.ended){void replayRef.current();return;}if(!ready.current&&current.current){playIntent.current=!playIntent.current;setNotice(playIntent.current?"Playback will begin when the video is ready.":"Playback will start paused.");return;}if(video.current?.paused)void play();else{playIntent.current=false;video.current?.pause();}},[play,interact,routeKey]);
-  const exit=()=>{report(false,true);navigate(returnPath);};
+  const exit=()=>{
+    const element=video.current;if(ready.current&&!pendingSeek.current&&element&&Number.isFinite(element.currentTime))sourcePosition.current=Math.max(0,element.currentTime+(current.current?.offset_seconds??0));
+    report(false,true);navigate(returnPath);
+  };
   const next=useCallback((automatic=false)=>{
     if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
     const value=infoRef.current?.next;if(!value)return;
@@ -421,7 +447,8 @@ export default function PlayerPage() {
       }catch(error){if(!canceled&&!controller.signal.aborted)setNotice(`Subtitles: ${errorMessage(error)} Choose another text or ASS subtitle track.`);}
     })();
     return()=>{canceled=true;controller.abort();element.textTracks.removeEventListener?.("addtrack",disableNative);void renderer?.destroy();track?.remove();if(objectUrl)URL.revokeObjectURL(objectUrl);};
-  },[info,session,subtitle,libraryId,itemId,preferences.subtitle_position]);
+  // Retained HLS seeks replace the session object without changing subtitle time.
+  },[info,session?.offset_seconds,!!session,subtitle,libraryId,itemId,preferences.subtitle_position]);
   const changeTrack=(kind:"audio"|"subtitle",value:number)=>{
     if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
     interact();setNotice("");
@@ -462,6 +489,7 @@ export default function PlayerPage() {
       try{element.currentTime=Math.max(0,sourcePosition.current-(current.current?.offset_seconds??0));}catch { /* Keep the last source time while the media recovers. */ }
       report(false,false,true);return false;
     }
+    if(Math.abs(source-nativeActivity.current.position)>0.1){nativeActivity.current={position:source,at:Date.now(),seekTarget:null};setRecoveryNeeded(false);}
     sourcePosition.current=Math.max(0,source);setPosition(sourcePosition.current);
     const usable=element.paused?element.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA:element.readyState>=HTMLMediaElement.HAVE_FUTURE_DATA;
     if(usable){waitingDemand.current=false;setBuffering(false);setLoading(false);}
@@ -536,8 +564,29 @@ export default function PlayerPage() {
     if(!ownsMedia()||!mediaError)return;
     terminalError(mediaError.code===2?"The original file could not be loaded. Retry playback.":"This browser cannot play the original file. Try a browser that supports its video and audio formats.");
   };
+  useEffect(()=>{
+    const timer=window.setInterval(()=>{
+      const element=video.current,owned=current.current;
+      if(!mounted.current||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!ready.current||owned?.method!=="direct"||!element||mediaOwner.current?.generation!==requestGeneration.current||controls.current.ended||controls.current.prompt)return;
+      const activity=nativeActivity.current,target=pendingSeek.current?.target;
+      if(target!==undefined&&activity.seekTarget!==target){nativeActivity.current={position:target,at:Date.now(),seekTarget:target};return;}
+      if(target===undefined&&(!playIntent.current||element.paused)){nativeActivity.current.at=Date.now();return;}
+      const seconds=target===undefined?30:8;
+      if(Date.now()-nativeActivity.current.at>=seconds*1000){
+        const policy=selectedDelivery.current,data=infoRef.current;
+        if(!nativeFallbackAttempted.current&&policy.delivery==="auto"&&policy.quality===0&&data&&losslessAudioAllowed(data,capability.current,selected.current.audio)){
+          nativeFallbackAttempted.current=true;
+          setNotice("The original-file seek stalled. Recovering with a lossless stream; video and audio remain unchanged.");
+          void start(target??sourcePosition.current,playIntent.current,true);
+        }else{setRecoveryNeeded(true);setVisible(true);}
+      }
+    },1000);
+    return()=>window.clearInterval(timer);
+  },[routeKey,start]);
   const changeQuality=(mode:Delivery,value=0)=>{
-    interact();selectedDelivery.current={delivery:mode,quality:value,budget:0};setDelivery(mode);setQuality(value);setMenu(null);bandwidthDetector.current.suppressUntil(performance.now()+8_000);void start(sourcePosition.current);
+    interact();
+    if(selectedDelivery.current.delivery===mode&&selectedDelivery.current.quality===value){setMenu(null);return;}
+    selectedDelivery.current={delivery:mode,quality:value,budget:0};setDelivery(mode);setQuality(value);setMenu(null);bandwidthDetector.current.suppressUntil(performance.now()+8_000);void start(sourcePosition.current);
   };
   const audioSelectable=(index:number)=>{
     const track=info?.tracks.find(value=>value.index===index);
@@ -559,7 +608,8 @@ export default function PlayerPage() {
         <button className="pv-icon" aria-label={fullscreen?"Exit fullscreen":"Fullscreen"} onClick={()=>void toggleFullscreen()}>{fullscreen?<Minimize/>:<Maximize/>}</button>
       </div>
     </div>
-    {(loading||buffering&&bufferingVisible)&&!error&&<div className="pv-player-loading" role="status"><span className="pv-spinner"/><span>{loading?"Preparing playback…":"Buffering…"}</span></div>}
+    {(loading||buffering&&bufferingVisible)&&!error&&!recoveryNeeded&&<div className="pv-player-loading" role="status"><span className="pv-spinner"/><span>{loading?"Preparing playback…":"Buffering…"}</span></div>}
+    {recoveryNeeded&&!error&&<div className="pv-player-message" role="alert"><h2>Playback is not advancing</h2><p>Your position is saved. Recover the current source or return to media.</p><div><button className="pv-primary" onClick={()=>{const owned=current.current;if(!owned)return;const target=pendingSeek.current?.target??sourcePosition.current;const generation=++requestGeneration.current;pendingSeek.current={generation,target};ready.current=false;setLoading(true);setRecoveryNeeded(false);nativeActivity.current={position:target,at:Date.now(),seekTarget:target};attachSource(owned,target,generation);}}>Recover current playback</button><button className="pv-button" onClick={exit}>Back to media</button></div></div>}
     {error&&<div className="pv-player-message" role="alert"><h1>Unable to play</h1><p>{error}</p><div><button className="pv-primary" onClick={retryPlayback}>{retryLabel}</button><button className="pv-button" onClick={exit}>Back to media</button></div></div>}
     {watchPrompt&&<div className="pv-player-message" role="dialog" aria-modal="true" aria-label="Still watching" onKeyDown={event=>{if(event.key!=="Tab")return;const buttons=event.currentTarget.querySelectorAll<HTMLButtonElement>("button"),first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}}><h2>Are you still watching?</h2><p>Playback paused after inactivity.</p><button className="pv-primary" autoFocus onClick={()=>{setWatchPrompt(false);interact();void play();}}>Continue watching</button><button className="pv-button" onClick={exit}>Stop playback</button></div>}
     {notice&&<div className="pv-player-notice" role="status">{notice}<button aria-label="Dismiss message" onClick={()=>setNotice("")}><X size={16}/></button></div>}

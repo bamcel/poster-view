@@ -7,12 +7,13 @@ use crate::transcoding::Settings;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicU32, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::process::{Child, Command};
 
@@ -22,6 +23,36 @@ impl Drop for Slot {
         self.0.fetch_sub(1, Ordering::AcqRel);
     }
 }
+// Preparing futures can be cancelled before they return a Producer. Ownership
+// survives cancellation long enough for child kill-on-drop and Windows file locks.
+struct GenerationDirectory(Option<PathBuf>);
+impl Drop for GenerationDirectory {
+    fn drop(&mut self) {
+        let Some(dir) = self.0.take() else {
+            return;
+        };
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                for _ in 0..60 {
+                    let path = dir.clone();
+                    let removed = tokio::task::spawn_blocking(move || {
+                        remove_owned(&path);
+                        !path.exists()
+                    })
+                    .await
+                    .unwrap_or(false);
+                    if removed {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            });
+        } else {
+            remove_owned(&dir);
+        }
+    }
+}
+
 pub(super) struct Producer {
     child: Child,
     pub(super) dir: PathBuf,
@@ -36,7 +67,13 @@ impl Producer {
         self.suspend(false);
         let _ = self.child.kill().await;
         let _ = tokio::time::timeout(Duration::from_secs(3), self.child.wait()).await;
+        let mut retired = GenerationDirectory(Some(self.dir.clone()));
         remove_owned(&self.dir);
+        if !self.dir.exists() {
+            retired.0.take();
+        }
+        // Open delivery handles may keep retired generations locked on Windows.
+        // The guard retries cleanup without relying on the logical session sweep.
     }
     pub(super) fn suspend(&mut self, suspend: bool) {
         if self.suspended == suspend {
@@ -196,6 +233,9 @@ pub(super) fn total_bytes(store: &PlaybackStore) -> u64 {
         .iter()
         .cloned()
         .collect::<Vec<_>>();
+    total_bytes_roots(&roots)
+}
+fn total_bytes_roots(roots: &[PathBuf]) -> u64 {
     roots
         .iter()
         .flat_map(|root| std::fs::read_dir(root).into_iter().flatten().flatten())
@@ -204,6 +244,26 @@ pub(super) fn total_bytes(store: &PlaybackStore) -> u64 {
         .map(|path| directory_bytes(&path))
         .fold(0, u64::saturating_add)
 }
+async fn accounted_bytes(store: &PlaybackStore) -> Result<u64, HttpError> {
+    let roots = store
+        .cache_roots
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    tokio::task::spawn_blocking(move || total_bytes_roots(&roots))
+        .await
+        .map_err(|_| failure("Playback storage accounting was interrupted."))
+}
+fn storage_check_due(
+    last: Option<tokio::time::Instant>,
+    now: tokio::time::Instant,
+    ready: bool,
+) -> bool {
+    ready || last.is_none_or(|last| now.duration_since(last) >= Duration::from_millis(500))
+}
+
 pub(super) async fn sweep_abandoned(
     store: &PlaybackStore,
     active: &std::collections::HashSet<String>,
@@ -318,7 +378,91 @@ fn generation_dir(
     }
     Ok(dir)
 }
-pub(super) async fn copy_seek_start(source: &Source, position: f64) -> Result<f64, HttpError> {
+type CopySeekKey = (PathBuf, u64, u128, u64);
+#[derive(Default)]
+pub(super) struct CopySeekCache(tokio::sync::Mutex<HashMap<CopySeekKey, (f64, Instant)>>);
+impl CopySeekCache {
+    async fn lookup(&self, key: &CopySeekKey) -> Option<f64> {
+        let mut cache = self.0.lock().await;
+        cache.retain(|stored, _| stored.0 != key.0 || (stored.1, stored.2) == (key.1, key.2));
+        cache.get_mut(key).map(|(value, used)| {
+            *used = Instant::now();
+            *value
+        })
+    }
+    async fn record(&self, key: CopySeekKey, value: f64) {
+        let mut cache = self.0.lock().await;
+        cache.retain(|stored, _| stored.0 != key.0 || (stored.1, stored.2) == (key.1, key.2));
+        if !cache.contains_key(&key)
+            && cache.len() >= 128
+            && let Some(old) = cache
+                .iter()
+                .min_by_key(|(_, (_, used))| *used)
+                .map(|(key, _)| key.clone())
+        {
+            cache.remove(&old);
+        }
+        cache.insert(key, (value, Instant::now()));
+    }
+}
+async fn copy_seek_key(path: &Path, position: f64) -> Result<CopySeekKey, HttpError> {
+    let path = tokio::fs::canonicalize(path)
+        .await
+        .map_err(|_| bad("This video is no longer available."))?;
+    let meta = tokio::fs::metadata(&path)
+        .await
+        .map_err(|_| bad("This video is no longer available."))?;
+    if !meta.is_file() {
+        return Err(bad("This video is no longer available."));
+    }
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |value| value.as_nanos());
+    Ok((path, meta.len(), modified, position.to_bits()))
+}
+pub(super) async fn copy_seek_start(
+    store: &PlaybackStore,
+    source: &Source,
+    position: f64,
+) -> Result<f64, HttpError> {
+    if !position.is_finite() || position < 0.0 {
+        return Err(bad("Invalid video seek position."));
+    }
+    if position < 0.01 {
+        return Ok(0.0);
+    }
+    let key = copy_seek_key(&source.path, position).await?;
+    if (key.1, key.2) != source.fingerprint {
+        return Err(bad("The video file changed. Reopen the player."));
+    }
+    if let Some(position) = store.copy_seeks.lookup(&key).await {
+        return Ok(position);
+    }
+    let _permit = store
+        .jobs
+        .acquire()
+        .await
+        .map_err(|_| failure("Video seek inspection was interrupted."))?;
+    if copy_seek_key(&source.path, position).await? != key {
+        return Err(bad("The video file changed. Reopen the player."));
+    }
+    // Another inspection may have completed while this request waited for a worker.
+    if let Some(position) = store.copy_seeks.lookup(&key).await {
+        return Ok(position);
+    }
+    let start = inspect_copy_seek(source, position).await?;
+    if copy_seek_key(&source.path, position).await? != key {
+        return Err(bad(
+            "The video file changed during seek inspection. Reopen the player.",
+        ));
+    }
+    store.copy_seeks.record(key, start).await;
+    Ok(start)
+}
+
+async fn inspect_copy_seek(source: &Source, position: f64) -> Result<f64, HttpError> {
     if position < 0.01 {
         return Ok(0.0);
     }
@@ -611,6 +755,7 @@ pub(super) async fn start(
         })?;
     let slot = Slot(counter);
     let dir = generation_dir(store, settings, id, generation)?;
+    let mut preparing = GenerationDirectory(Some(dir.clone()));
     let selected = if plan.method == "transcode" {
         match super::hardware::encoder(store, plan, settings).await {
             Ok(encoder) => Some(encoder),
@@ -656,6 +801,7 @@ pub(super) async fn start(
             return Err(error);
         }
     };
+    preparing.0.take();
     Ok((
         Producer {
             child,
@@ -699,17 +845,32 @@ async fn start_process(
         return Err(failure("Unable to mark playback process ownership."));
     }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    let mut last_storage_check = None;
     loop {
-        if total_bytes(store) > store.cache_budget.load(Ordering::Acquire) {
-            let _ = child.kill().await;
-            let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
-            return Err(failure(
-                "Playback preparation exceeded the temporary storage limit.",
-            ));
+        let ready = tokio::fs::metadata(dir.join("init.mp4"))
+            .await
+            .is_ok_and(|meta| meta.is_file())
+            && manifest::playlist_seconds(&dir.join("index.m3u8")) > 0.0;
+        if storage_check_due(last_storage_check, tokio::time::Instant::now(), ready) {
+            let bytes = match accounted_bytes(store).await {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    let _ = child.kill().await;
+                    let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
+                    return Err(error);
+                }
+            };
+            last_storage_check = Some(tokio::time::Instant::now());
+            if bytes > store.cache_budget.load(Ordering::Acquire) {
+                let _ = child.kill().await;
+                let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
+                return Err(failure(
+                    "Playback preparation exceeded the temporary storage limit.",
+                ));
+            }
         }
-        if dir.join("init.mp4").is_file()
-            && manifest::playlist_seconds(&dir.join("index.m3u8")) > 0.0
-        {
+        // A fresh off-worker accounting pass is mandatory before publishing readiness.
+        if ready {
             return Ok(child);
         }
         if child
@@ -736,6 +897,204 @@ async fn start_process(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn retiring_producer_retries_cleanup_after_delivery_releases_its_file() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let store = PlaybackStore::new(temp.path());
+        let dir = generation_dir(
+            &store,
+            &Settings::default(),
+            &uuid::Uuid::new_v4().to_string(),
+            1,
+        )
+        .unwrap();
+        std::fs::write(dir.join("init.mp4"), [0u8; 4096]).unwrap();
+        let delivery = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(dir.join("init.mp4"))
+            .unwrap();
+        let counter = Arc::new(AtomicU32::new(1));
+        let mut cmd = command("cmd");
+        cmd.args(["/C", "exit", "0"]);
+        Producer {
+            child: cmd.spawn().unwrap(),
+            dir: dir.clone(),
+            suspended: false,
+            buffer_seconds: 30.0,
+            cache_bytes: 1024 * 1024,
+            throttle: false,
+            _slot: Some(Slot(counter.clone())),
+        }
+        .stop()
+        .await;
+        assert_eq!(counter.load(Ordering::Acquire), 0);
+        assert!(dir.exists());
+        drop(delivery);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while dir.exists() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_preparation_removes_its_owned_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = PlaybackStore::new(temp.path());
+        let dir = generation_dir(
+            &store,
+            &Settings::default(),
+            &uuid::Uuid::new_v4().to_string(),
+            1,
+        )
+        .unwrap();
+        std::fs::write(dir.join("init.mp4"), [0u8; 4096]).unwrap();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let preparing = dir.clone();
+        let task = tokio::spawn(async move {
+            let _guard = GenerationDirectory(Some(preparing));
+            ready_tx.send(()).unwrap();
+            std::future::pending::<()>().await;
+        });
+        ready_rx.await.unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while dir.exists() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let committed = generation_dir(
+            &store,
+            &Settings::default(),
+            &uuid::Uuid::new_v4().to_string(),
+            1,
+        )
+        .unwrap();
+        let mut guard = GenerationDirectory(Some(committed.clone()));
+        guard.0.take();
+        drop(guard);
+        assert!(committed.exists());
+    }
+
+    #[test]
+    fn preparation_checks_storage_at_bounded_cadence_and_before_readiness() {
+        let start = tokio::time::Instant::now();
+        let mut last = None;
+        let mut scans = 0;
+        for tick in 0..=60 {
+            let now = start + Duration::from_millis(tick * 50);
+            if storage_check_due(last, now, false) {
+                scans += 1;
+                last = Some(now);
+            }
+        }
+        assert_eq!(scans, 7);
+        assert!(storage_check_due(
+            last,
+            start + Duration::from_millis(3050),
+            true
+        ));
+        assert!(!storage_check_due(
+            last,
+            start + Duration::from_millis(3050),
+            false
+        ));
+    }
+    #[tokio::test]
+    async fn copied_seek_cache_is_bounded_and_invalidates_replaced_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("video.mkv");
+        std::fs::write(&path, b"first").unwrap();
+        let cache = CopySeekCache::default();
+        let key = copy_seek_key(&path, 30.0).await.unwrap();
+        cache.record(key.clone(), 24.0).await;
+        assert_eq!(
+            cache
+                .lookup(
+                    &copy_seek_key(&dir.path().join("./video.mkv"), 30.0)
+                        .await
+                        .unwrap()
+                )
+                .await,
+            Some(24.0)
+        );
+        assert_eq!(
+            cache
+                .lookup(&copy_seek_key(&path, 31.0).await.unwrap())
+                .await,
+            None
+        );
+        std::fs::write(&path, b"replacement with a different fingerprint").unwrap();
+        let replacement = copy_seek_key(&path, 30.0).await.unwrap();
+        assert_eq!(cache.lookup(&replacement).await, None);
+        assert!(cache.0.lock().await.is_empty());
+        for position in 0..=128 {
+            cache
+                .record(
+                    copy_seek_key(&path, f64::from(position)).await.unwrap(),
+                    f64::from(position),
+                )
+                .await;
+        }
+        assert_eq!(cache.0.lock().await.len(), 128);
+        assert_eq!(
+            cache
+                .lookup(&copy_seek_key(&path, 0.0).await.unwrap())
+                .await,
+            None
+        );
+        assert_eq!(
+            cache
+                .lookup(&copy_seek_key(&path, 128.0).await.unwrap())
+                .await,
+            Some(128.0)
+        );
+    }
+    #[tokio::test]
+    async fn cached_seek_avoids_inspecting_media_and_rejects_source_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("video.mkv");
+        std::fs::write(&path, b"not probeable media").unwrap();
+        let store = PlaybackStore::new(dir.path());
+        let key = copy_seek_key(&path, 30.0).await.unwrap();
+        store.copy_seeks.record(key.clone(), 24.0).await;
+        let source=Source{library_id:"library".into(),item:serde_json::from_value(serde_json::json!({"id":"item","path":"video.mkv","kind":"movie","parent_path":null,"title":"Fixture","metadata":{},"artwork":[],"files":[],"nfo_path":null,"nfo_xml":null,"available":true,"revision":1})).unwrap(),path:path.clone(),fingerprint:(key.1,key.2),series_title:None,next:None};
+        // Invalid media would fail ffprobe, so this success proves the completed seek is reused.
+        assert_eq!(copy_seek_start(&store, &source, 30.0).await.unwrap(), 24.0);
+        std::fs::write(&path, b"a replaced video of another size").unwrap();
+        assert!(
+            copy_seek_start(&store, &source, 30.0)
+                .await
+                .unwrap_err()
+                .detail
+                .contains("changed")
+        );
+    }
+
+    #[tokio::test]
+    async fn blocking_storage_accounting_includes_preparing_owned_generations() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlaybackStore::new(dir.path());
+        let owned = generation_dir(
+            &store,
+            &Settings::default(),
+            &uuid::Uuid::new_v4().to_string(),
+            1,
+        )
+        .unwrap();
+        std::fs::write(owned.join("init.mp4"), [0u8; 4096]).unwrap();
+        assert_eq!(accounted_bytes(&store).await.unwrap(), total_bytes(&store));
+        assert!(accounted_bytes(&store).await.unwrap() >= 4096);
+    }
+
     #[test]
     fn orphan_pid_must_be_ffmpeg_with_the_exact_owned_playlist() {
         let index = Path::new("/cache/owned.g1/index.m3u8");

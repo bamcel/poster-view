@@ -88,3 +88,13 @@ it("keeps compatible audio selectable inside an already authorized video encode 
  expect(audioDeliveryAllowed(bandwidth,caps,1,{videoEncoding:true,bandwidthBudget:2000000})).toBe(true);
  expect(audioDeliveryAllowed(bandwidth,caps,2,{videoEncoding:true,bandwidthBudget:2000000})).toBe(false);
 });
+
+it("bounds a stalled browser capability probe without discarding canPlayType evidence", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("navigator", { userAgent: "Chrome/145.0", mediaCapabilities: { decodingInfo: () => new Promise(() => {}) } });
+  const video = { canPlayType: () => "probably" } as unknown as HTMLVideoElement;
+  const probing = playbackCapabilities({ ...info, tracks: [{ index: 0, kind: "video", codec: "h264" }] }, video);
+  await vi.advanceTimersByTimeAsync(1500);
+  expect((await probing).source_video_supported).toBe(true);
+  vi.useRealTimers();
+});

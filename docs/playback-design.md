@@ -26,6 +26,13 @@ different delivery servers and warmed caches; they are evidence that native
 seeking can be fast, not a universal performance guarantee.
 
 The earlier 26-second resume and 13-second seek observations also remain relevant.
+An October 12, 2026 comparison in the same browser reproduced an approximately
+35-second PosterView cold-resume stall near 11 minutes, while Emby resumed near
+10 minutes in approximately one second. Both delivered the original HEVC/MKV.
+These estimates use sampled media clocks, not instrumented first-frame events;
+the target positions and warmed browser caches differed. Native skip/seek checks
+completed in roughly 0.2 seconds. They motivated first-data seek initialization
+and policy-authorized lossless recovery rather than unconditional video encoding.
 Startup, storage latency, source indexes, browser decoder behavior and background
 tab scheduling can vary. Sending every compatible original through an encoder
 would not address all of these causes and would add cost and quality loss.
@@ -49,6 +56,12 @@ The seek request supplies the expected generation. A stale generation returns
 coalesces rapid seek intent. UI and watch reports use the full source clock;
 generation-relative media events cannot reset the displayed time to zero. Watch
 sessions and completion sequencing remain separate from delivery generations.
+Preparation reserves a unique generation, then performs probing and FFmpeg work
+outside the session mutex. Stop and newer seeks cancel pending preparation. A
+completed replacement rechecks session membership, account permissions, source
+fingerprint and its reservation before publication. Existing delivery remains
+available during preparation when the configured producer limit permits it.
+At a one-producer limit, the old producer retires before replacement preparation.
 Closing a session marks it closed and removes active membership before queued
 operations can restart it. The cleanup worker also sweeps marked abandoned jobs
 after canceled preparation expires, rechecking active membership before removing
@@ -70,6 +83,11 @@ and automatic bandwidth adaptation. Existing stored settings retain their JSON
 keys and explicit permissions. Hardware selection uses a small real encoder probe;
 an installed encoder name alone is insufficient. An encoder probe does not prove
 hardware decoding, HDR tone mapping or sustained real-file throughput.
+Hardware validation uses independent per-encoder locks; one slow probe does not
+block cached or unrelated encoder choices. Verified stream-copy seek points have
+a bounded fingerprint-aware cache. Preparation polls readiness separately from
+storage accounting, which runs on blocking workers at a bounded cadence and
+again before publishing a ready stream.
 
 Automatic bandwidth decisions use HLS fragment transfer evidence and sustained
 buffering. They exclude startup, recent seeks, pauses and cached transfers. Native

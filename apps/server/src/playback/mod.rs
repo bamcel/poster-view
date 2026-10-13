@@ -273,7 +273,19 @@ fn generated_resource(entry: &std::fs::DirEntry) -> bool {
             .file_type()
             .is_ok_and(|kind| kind.is_file() && !kind.is_symlink())
 }
+#[cfg(test)]
+#[derive(Default)]
+struct PreparationGate {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+struct PendingPreparation {
+    generation: u64,
+    cancel: tokio::sync::watch::Sender<()>,
+}
 struct Session {
+    preparation: Option<PendingPreparation>,
+    next_generation: u64,
     owner: String,
     source: Source,
     probe: Value,
@@ -289,6 +301,8 @@ struct Session {
 
 pub(crate) struct PlaybackStore {
     root: PathBuf,
+    #[cfg(test)]
+    preparation_gate: Mutex<Option<Arc<PreparationGate>>>,
     sessions: Mutex<HashMap<String, Arc<Mutex<Session>>>>,
     probes: Mutex<HashMap<PathBuf, ProbeCache>>,
     resources: Mutex<HashMap<ResourceKey, ResourceCache>>,
@@ -296,6 +310,8 @@ pub(crate) struct PlaybackStore {
     jobs: Arc<Semaphore>,
     started: AtomicBool,
     hardware: Mutex<HashMap<String, (Instant, hardware::Encoder)>>,
+    hardware_probes: hardware::ProbeGates,
+    copy_seeks: segmented::CopySeekCache,
     producers: Arc<AtomicU32>,
     instance: String,
     cache_roots: StdMutex<HashSet<PathBuf>>,
@@ -314,12 +330,16 @@ impl PlaybackStore {
         }
         Self {
             root,
+            #[cfg(test)]
+            preparation_gate: Mutex::new(None),
             sessions: Mutex::new(HashMap::new()),
             probes: Mutex::new(HashMap::new()),
             resources: Mutex::new(HashMap::new()),
             jobs: Arc::new(Semaphore::new(2)),
             started: AtomicBool::new(false),
             hardware: Mutex::new(HashMap::new()),
+            hardware_probes: Default::default(),
+            copy_seeks: Default::default(),
             producers: Arc::new(AtomicU32::new(0)),
             instance: uuid::Uuid::new_v4().to_string(),
             cache_roots: StdMutex::new(HashSet::new()),
@@ -386,6 +406,7 @@ impl PlaybackStore {
             let producer = {
                 let mut session = handle.lock().await;
                 session.closed = true;
+                cancel_preparation(&mut session);
                 session.producer.take()
             };
             if let Some(producer) = producer {
@@ -482,6 +503,17 @@ impl PlaybackStore {
             .acquire()
             .await
             .map_err(|_| failure("Media inspection was interrupted."))?;
+        // A concurrent inspection may have filled the cache while this request waited.
+        {
+            let mut cache = self.probes.lock().await;
+            if let Some(cached) = cache
+                .get_mut(&source.path)
+                .filter(|cached| cached.stamp == source.fingerprint)
+            {
+                cached.used = Instant::now();
+                return Ok(cached.probe.clone());
+            }
+        }
         let temp = tempfile::NamedTempFile::new()
             .map_err(|_| failure("Unable to create media inspection output."))?;
         let mut cmd = command("ffprobe");
@@ -904,6 +936,14 @@ async fn prepare(
     settings: &crate::transcoding::Settings,
     options: GenerationOptions,
 ) -> Result<(SessionResponse, Option<segmented::Producer>), HttpError> {
+    #[cfg(test)]
+    let gate = store.preparation_gate.lock().await.take();
+    #[cfg(test)]
+    if let Some(gate) = gate {
+        gate.entered.notify_one();
+        gate.release.notified().await;
+        return Err(bad("Controlled preparation failure."));
+    }
     let GenerationOptions {
         number: generation,
         select_in_stream,
@@ -919,7 +959,7 @@ async fn prepare(
         return Ok((response(id, source, probe, &planned, 0, 0.0, None), None));
     }
     if planned.method != "transcode" {
-        match segmented::copy_seek_start(source, input.position_seconds).await {
+        match segmented::copy_seek_start(store, source, input.position_seconds).await {
             Ok(position) => input.position_seconds = position,
             Err(error) if !settings.allow_conversion || input.force_remux => return Err(error),
             Err(_) => {
@@ -959,6 +999,65 @@ async fn prepare(
     );
     Ok((result, Some(producer)))
 }
+fn cancel_preparation(session: &mut Session) {
+    if let Some(pending) = session.preparation.take() {
+        pending.cancel.send_replace(());
+    }
+}
+fn reserve_preparation(
+    session: &mut Session,
+) -> Result<(u64, tokio::sync::watch::Receiver<()>), HttpError> {
+    cancel_preparation(session);
+    let generation = session.next_generation;
+    session.next_generation = generation
+        .checked_add(1)
+        .ok_or_else(|| bad("Playback generation limit reached."))?;
+    let (cancel, receiver) = tokio::sync::watch::channel(());
+    session.preparation = Some(PendingPreparation { generation, cancel });
+    Ok((generation, receiver))
+}
+fn revalidate_owner(state: &AppState, owner: &str, source: &Source) -> Result<(), HttpError> {
+    let user = ServerStore::new(state.runtime.data_dir())
+        .user(owner)
+        .map_err(|_| failure("Unable to verify playback account."))?
+        .or_else(|| {
+            state
+                .auth
+                .request_user(&HeaderMap::new())
+                .ok()
+                .filter(|user| user.id == owner)
+        })
+        .filter(|user| user.enabled)
+        .ok_or_else(HttpError::not_found)?;
+    crate::access::require_item(state, &user, &source.library_id, &source.item.id)
+}
+async fn retire_idle(store: &Arc<PlaybackStore>) {
+    let handles = store
+        .sessions
+        .lock()
+        .await
+        .iter()
+        .map(|(id, handle)| (id.clone(), handle.clone()))
+        .collect::<Vec<_>>();
+    for (id, handle) in handles {
+        let Ok(mut session) = handle.try_lock() else {
+            continue;
+        };
+        if session.touched.elapsed() <= SESSION_IDLE {
+            continue;
+        }
+        session.closed = true;
+        cancel_preparation(&mut session);
+        let producer = session.producer.take();
+        store.sessions.lock().await.remove(&id);
+        drop(session);
+        if let Some(producer) = producer {
+            tokio::spawn(async move {
+                producer.stop().await;
+            });
+        }
+    }
+}
 pub(crate) async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -967,7 +1066,7 @@ pub(crate) async fn create(
 ) -> Result<Json<SessionResponse>, HttpError> {
     let user = state.auth.request_user(&headers)?;
     validate_request(&input)?;
-    state.playback.maintain().await;
+    retire_idle(&state.playback).await;
     crate::access::require_item(&state, &user, &library, &item)?;
     let mut source = source(&state, library, item).await?;
     if source.next.as_ref().is_some_and(|next| {
@@ -981,6 +1080,8 @@ pub(crate) async fn create(
     let id = uuid::Uuid::new_v4().to_string();
     let initial = response(&id, &source, &probe, &planned, 0, 0.0, None);
     let session = Arc::new(Mutex::new(Session {
+        preparation: None,
+        next_generation: 1,
         owner: user.id.clone(),
         source,
         probe,
@@ -1004,21 +1105,63 @@ pub(crate) async fn create(
         }
         sessions.insert(id.clone(), session.clone());
     }
-    let result = prepare(
+    let (generation, mut canceled) = reserve_preparation(&mut guard)?;
+    let source = guard.source.clone();
+    let probe = guard.probe.clone();
+    drop(guard);
+    let result = tokio::select! {
+        biased;
+        _ = canceled.changed() => Err(conflict()),
+        result = prepare(
         &state.playback,
         &id,
-        &guard.source,
-        &guard.probe,
+        &source,
+        &probe,
         input,
         &settings,
         GenerationOptions {
-            number: 1,
+            number: generation,
             select_in_stream: false,
         },
-    )
-    .await;
+    ) => result,
+    };
+    let mut guard = session.lock().await;
+    if guard.closed
+        || !state.playback.sessions.lock().await.contains_key(&id)
+        || guard
+            .preparation
+            .as_ref()
+            .is_none_or(|pending| pending.generation != generation)
+    {
+        drop(guard);
+        if let Ok((_, Some(producer))) = result {
+            producer.stop().await;
+        }
+        return Err(conflict());
+    }
+    if let Err(error) = validate_session(&guard) {
+        drop(guard);
+        if let Ok((_, Some(producer))) = result {
+            producer.stop().await;
+        }
+        state.playback.stop_id(&id).await;
+        return Err(error);
+    }
+    if let Err(error) = revalidate_owner(&state, &guard.owner, &source) {
+        drop(guard);
+        if let Ok((_, Some(producer))) = result {
+            producer.stop().await;
+        }
+        state.playback.stop_id(&id).await;
+        return Err(error);
+    }
+    guard.preparation = None;
     match result {
         Ok((response, producer)) => {
+            guard.next_generation = response
+                .generation
+                .checked_add(1)
+                .ok_or_else(|| bad("Playback generation limit reached."))?;
             guard.response = response.clone();
             guard.producer = producer;
             guard.touched = Instant::now();
@@ -1118,6 +1261,7 @@ async fn seek_session(
     if let Some(index) = request.audio_index {
         selected_stream(&session.probe, "audio", Some(index))?;
     }
+    cancel_preparation(&mut session);
     if session.response.generation == 0 && request.audio_index.is_none() {
         session.position = request.position_seconds;
         session.touched = Instant::now();
@@ -1158,46 +1302,80 @@ async fn seek_session(
         &settings,
         true,
     )?;
-    let generation = session
-        .response
-        .generation
-        .checked_add(1)
-        .ok_or_else(|| bad("Playback generation limit reached."))?;
-    if let Some(producer) = session.producer.take() {
+    let (generation, mut canceled) = reserve_preparation(&mut session)?;
+    let owner = session.owner.clone();
+    let source = session.source.clone();
+    let probe = session.probe.clone();
+    // Preserve the active generation while warming a replacement if capacity permits.
+    let retire =
+        if state.playback.producers.load(Ordering::Acquire) >= settings.max_concurrent.max(1) {
+            session.producer.take()
+        } else {
+            None
+        };
+    drop(session);
+    if let Some(producer) = retire {
         producer.stop().await;
     }
-    let result = prepare(
-        &state.playback,
-        &id,
-        &session.source,
-        &session.probe,
-        input.clone(),
-        &settings,
-        GenerationOptions {
-            number: generation,
-            select_in_stream: true,
-        },
-    )
-    .await;
+    let result = tokio::select! {
+        biased;
+        _=canceled.changed()=>Err(conflict()),
+        result=prepare(&state.playback,&id,&source,&probe,input.clone(),&settings,GenerationOptions{number:generation,select_in_stream:true})=>result,
+    };
+    let mut session = handle.lock().await;
+    if session.closed
+        || session.owner != owner
+        || !state.playback.sessions.lock().await.contains_key(&id)
+        || session
+            .preparation
+            .as_ref()
+            .is_none_or(|pending| pending.generation != generation)
+    {
+        drop(session);
+        if let Ok((_, Some(producer))) = result {
+            producer.stop().await;
+        }
+        return Err(conflict());
+    }
+    if let Err(error) = validate_session(&session) {
+        drop(session);
+        if let Ok((_, Some(producer))) = result {
+            producer.stop().await;
+        }
+        state.playback.stop_id(&id).await;
+        return Err(error);
+    }
+    if let Err(error) = revalidate_owner(&state, &owner, &source) {
+        drop(session);
+        if let Ok((_, Some(producer))) = result {
+            producer.stop().await;
+        }
+        state.playback.stop_id(&id).await;
+        return Err(error);
+    }
+    session.preparation = None;
     match result {
         Ok((response, producer)) => {
-            if !state.playback.sessions.lock().await.contains_key(&id) {
-                if let Some(producer) = producer {
-                    producer.stop().await;
-                }
-                session.closed = true;
-                return Err(bad("Playback session expired. Reopen the player."));
-            }
+            let retired = std::mem::replace(&mut session.producer, producer);
             session.input = input;
             session.response = response.clone();
-            session.producer = producer;
             session.position = request.position_seconds;
             session.touched = Instant::now();
+            drop(session);
+            if let Some(producer) = retired {
+                tokio::spawn(async move {
+                    producer.stop().await;
+                });
+            }
             Ok(Json(response))
         }
         Err(error) => {
+            // A preserved generation stays playable; otherwise clearly retire the failed session.
+            let has_delivery = session.producer.is_some() || session.response.generation == 0;
             drop(session);
-            state.playback.stop_id(&id).await;
+            if !has_delivery {
+                state.playback.stop_id(&id).await;
+            }
             Err(error)
         }
     }

@@ -4,8 +4,14 @@ use crate::{AppState, HttpError, transcoding::Settings};
 use axum::{Json, extract::State};
 use serde::Serialize;
 use serde_json::{Value, json};
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    future::Future,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::process::Command;
+use tokio::sync::Mutex;
 
 #[derive(Clone, Serialize)]
 pub(crate) struct Encoder {
@@ -53,50 +59,89 @@ fn playback_candidates(
         })
         .collect()
 }
+#[derive(Default)]
+pub(super) struct ProbeGates(Mutex<HashMap<String, Arc<Mutex<()>>>>);
+impl ProbeGates {
+    async fn gate(&self, name: &str) -> Arc<Mutex<()>> {
+        self.0
+            .lock()
+            .await
+            .entry(name.to_owned())
+            .or_default()
+            .clone()
+    }
+}
+async fn cached_probe<F, Fut>(store: &PlaybackStore, name: &str, probe: F) -> Encoder
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Encoder>,
+{
+    let cached = || async {
+        store
+            .hardware
+            .lock()
+            .await
+            .get(name)
+            .filter(|(used, _)| used.elapsed() < Duration::from_secs(300))
+            .map(|(_, encoder)| encoder.clone())
+    };
+    if let Some(result) = cached().await {
+        return result;
+    }
+    let gate = store.hardware_probes.gate(name).await;
+    let _probe = gate.lock().await;
+    // A same-encoder request may have filled the cache while this one waited.
+    if let Some(result) = cached().await {
+        return result;
+    }
+    let result = probe().await;
+    store
+        .hardware
+        .lock()
+        .await
+        .insert(name.into(), (Instant::now(), result.clone()));
+    result
+}
+
 async fn test_encoder(
     store: &PlaybackStore,
     (name, backend, codec): (&str, &str, &str),
 ) -> Encoder {
-    let mut cache = store.hardware.lock().await;
-    if let Some((used, encoder)) = cache.get(name) {
-        if used.elapsed() < Duration::from_secs(300) {
-            return encoder.clone();
+    cached_probe(store, name, || async {
+        let mut cmd = command("ffmpeg");
+        cmd.args(["-nostdin", "-hide_banner", "-v", "error"]);
+        hardware_input(&mut cmd, backend);
+        cmd.args([
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=128x128:r=10:d=0.2",
+            "-vf",
+        ]);
+        let filter = upload(backend).trim_start_matches(',');
+        cmd.arg(filter)
+            .args(["-c:v", name, "-frames:v", "2", "-f", "null", "-"]);
+        let available = run(
+            &mut cmd,
+            Duration::from_secs(4),
+            "Hardware encoder validation",
+        )
+        .await
+        .is_ok();
+        Encoder {
+            name: name.into(),
+            backend: backend.into(),
+            codec: codec.into(),
+            available,
+            detail: if available {
+                "A real encode completed successfully."
+            } else {
+                "A test encode failed. Check GPU devices, drivers, and this FFmpeg build."
+            }
+            .into(),
         }
-    }
-    let mut cmd = command("ffmpeg");
-    cmd.args(["-nostdin", "-hide_banner", "-v", "error"]);
-    hardware_input(&mut cmd, backend);
-    cmd.args([
-        "-f",
-        "lavfi",
-        "-i",
-        "color=c=black:s=128x128:r=10:d=0.2",
-        "-vf",
-    ]);
-    let filter = upload(backend).trim_start_matches(',');
-    cmd.arg(filter)
-        .args(["-c:v", name, "-frames:v", "2", "-f", "null", "-"]);
-    let available = run(
-        &mut cmd,
-        Duration::from_secs(4),
-        "Hardware encoder validation",
-    )
+    })
     .await
-    .is_ok();
-    let result = Encoder {
-        name: name.into(),
-        backend: backend.into(),
-        codec: codec.into(),
-        available,
-        detail: if available {
-            "A real encode completed successfully."
-        } else {
-            "A test encode failed. Check GPU devices, drivers, and this FFmpeg build."
-        }
-        .into(),
-    };
-    cache.insert(name.into(), (Instant::now(), result.clone()));
-    result
 }
 async fn test_encoders(store: &PlaybackStore) -> Vec<Encoder> {
     let mut encoders = vec![];
@@ -158,6 +203,45 @@ mod tests {
             detail: "Fixture".into(),
         }
     }
+    #[tokio::test]
+    async fn same_encoder_probes_share_one_fill_and_independent_encoders_do_not_wait() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let directory = tempfile::tempdir().unwrap();
+        let store = PlaybackStore::new(directory.path());
+        let calls = AtomicUsize::new(0);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let first = cached_probe(&store, "h264_qsv", || async {
+            calls.fetch_add(1, Ordering::Relaxed);
+            started_tx.send(()).unwrap();
+            release_rx.await.unwrap();
+            cached(("h264_qsv", "qsv", "h264"), true)
+        });
+        let other = async {
+            started_rx.await.unwrap();
+            let different = tokio::time::timeout(
+                Duration::from_secs(1),
+                cached_probe(&store, "h264_nvenc", || async {
+                    cached(("h264_nvenc", "nvenc", "h264"), true)
+                }),
+            )
+            .await
+            .unwrap();
+            assert_eq!(different.name, "h264_nvenc");
+            // Reading/updating the shared cache remains possible during a probe.
+            assert_eq!(store.hardware.lock().await.len(), 1);
+            release_tx.send(()).unwrap();
+            cached_probe(&store, "h264_qsv", || async {
+                calls.fetch_add(1, Ordering::Relaxed);
+                cached(("h264_qsv", "qsv", "h264"), false)
+            })
+            .await
+        };
+        let (first, second) = tokio::join!(first, other);
+        assert!(first.available && second.available);
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+    }
+
     #[test]
     fn playback_candidates_match_only_requested_backend_and_codec_in_priority_order() {
         assert_eq!(

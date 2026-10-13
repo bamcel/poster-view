@@ -441,7 +441,6 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
     assert_eq!(restarted.generation, 2);
     assert_eq!(restarted.audio_index, Some(2));
     assert_eq!(restarted.duration_seconds, promoted.duration_seconds);
-    assert!(!dir.exists());
     assert_eq!(
         segment(
             State(fixture.state.clone()),
@@ -454,6 +453,15 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
         .status,
         StatusCode::CONFLICT
     );
+    // The generation becomes inaccessible immediately; process/directory retirement runs
+    // after publishing its replacement so cleanup cannot delay the seek response.
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while dir.exists() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("Retired playback generation was not cleaned up.");
     let a = seek(
         State(fixture.state.clone()),
         HeaderMap::new(),
@@ -1125,6 +1133,8 @@ async fn session_limit_is_bounded_and_expired_entries_release_slots() {
         sessions.insert(
             number.to_string(),
             Arc::new(Mutex::new(Session {
+                preparation: None,
+                next_generation: 1,
                 owner: fixture
                     .state
                     .auth
@@ -1712,4 +1722,164 @@ async fn session_resources_reject_another_account_even_an_administrator() {
             .unwrap()
             .is_some()
     );
+}
+
+async fn gated_seek(
+    fixture: &VideoFixture,
+    id: &str,
+    generation: u64,
+) -> (
+    Arc<PreparationGate>,
+    tokio::task::JoinHandle<Result<Json<SessionResponse>, HttpError>>,
+) {
+    save_policy(fixture, crate::transcoding::Settings::default());
+    {
+        let session = handle(&fixture.state.playback, id).await.unwrap();
+        let mut session = session.lock().await;
+        session.input.hls_supported = true;
+        session.input.hls_video_codecs = vec!["hevc".into()];
+        session.input.hls_audio_codecs = vec!["opus".into()];
+    }
+    let gate = Arc::new(PreparationGate::default());
+    *fixture.state.playback.preparation_gate.lock().await = Some(gate.clone());
+    let state = fixture.state.clone();
+    let id = id.to_owned();
+    let task = tokio::spawn(async move {
+        seek(
+            State(state),
+            HeaderMap::new(),
+            Path(id),
+            Json(SeekInput {
+                position_seconds: 30.0,
+                generation,
+                audio_index: Some(2),
+            }),
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_secs(2), gate.entered.notified())
+        .await
+        .unwrap();
+    (gate, task)
+}
+#[tokio::test]
+async fn stop_cancels_preparation_without_waiting_for_media_work() {
+    let fixture = video_fixture(b"original", original_mkv_probe()).await;
+    let initial = direct(&fixture).await;
+    let (_gate, preparing) = gated_seek(&fixture, &initial.id, initial.generation).await;
+    let owner = fixture.state.auth.request_user(&HeaderMap::new()).unwrap();
+    let mut other = owner.clone();
+    other.id = "another-account".into();
+    assert!(
+        authorize_session(&fixture.state, &initial.id, &other)
+            .await
+            .is_err()
+    );
+    assert!(
+        fixture
+            .state
+            .playback
+            .sessions
+            .lock()
+            .await
+            .contains_key(&initial.id)
+    );
+    let stopped = tokio::time::timeout(
+        Duration::from_secs(1),
+        stop(
+            State(fixture.state.clone()),
+            Path(initial.id.clone()),
+            HeaderMap::new(),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(stopped, StatusCode::NO_CONTENT);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), preparing)
+            .await
+            .unwrap()
+            .unwrap()
+            .err()
+            .unwrap()
+            .status,
+        StatusCode::CONFLICT
+    );
+    assert!(fixture.state.playback.sessions.lock().await.is_empty());
+}
+#[tokio::test]
+async fn superseding_seek_cancels_preparation_and_failed_replacement_keeps_direct_delivery() {
+    let fixture = video_fixture(b"original", original_mkv_probe()).await;
+    let initial = direct(&fixture).await;
+    let (_first_gate, first) = gated_seek(&fixture, &initial.id, 0).await;
+    // The current direct generation stays available while its replacement warms.
+    assert!(session_path(&fixture.state, &initial.id).await.is_ok());
+    let (second_gate, second) = gated_seek(&fixture, &initial.id, 0).await;
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), first)
+            .await
+            .unwrap()
+            .unwrap()
+            .err()
+            .unwrap()
+            .status,
+        StatusCode::CONFLICT
+    );
+    second_gate.release.notify_one();
+    assert!(second.await.unwrap().is_err());
+    assert!(session_path(&fixture.state, &initial.id).await.is_ok());
+    let handle = handle(&fixture.state.playback, &initial.id).await.unwrap();
+    let session = handle.lock().await;
+    assert_eq!(session.response.generation, 0);
+    assert!(session.preparation.is_none());
+    assert_eq!(session.next_generation, 3);
+}
+
+#[tokio::test]
+async fn inspection_rechecks_cache_after_waiting_for_a_job_permit() {
+    let fixture = video_fixture(b"not a real media file", original_mkv_probe()).await;
+    let source = source(
+        &fixture.state,
+        fixture.library.clone(),
+        fixture.item.clone(),
+    )
+    .await
+    .unwrap();
+    fixture.state.playback.probes.lock().await.clear();
+    let permits = fixture.state.playback.jobs.acquire_many(2).await.unwrap();
+    let store = fixture.state.playback.clone();
+    let inspected = source.clone();
+    let waiting = tokio::spawn(async move { store.probe(&inspected).await });
+    tokio::task::yield_now().await;
+    fixture.state.playback.probes.lock().await.insert(
+        source.path.clone(),
+        ProbeCache {
+            stamp: source.fingerprint,
+            probe: original_mkv_probe(),
+            used: Instant::now(),
+        },
+    );
+    drop(permits);
+    let result = waiting.await.unwrap().unwrap();
+    assert_eq!(result, original_mkv_probe());
+}
+
+#[tokio::test]
+async fn source_replacement_during_preparation_cannot_publish_a_generation() {
+    let fixture = video_fixture(b"original", original_mkv_probe()).await;
+    let initial = direct(&fixture).await;
+    let retained = handle(&fixture.state.playback, &initial.id).await.unwrap();
+    let (gate, preparing) = gated_seek(&fixture, &initial.id, 0).await;
+    std::fs::write(&fixture.file, b"replacement with different fingerprint").unwrap();
+    gate.release.notify_one();
+    let error = preparing.await.unwrap().err().unwrap();
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    assert!(error.detail.contains("file changed"));
+    assert!(fixture.state.playback.sessions.lock().await.is_empty());
+    let session = retained.lock().await;
+    assert!(session.closed);
+    assert_eq!(session.response.generation, 0);
+    assert!(session.preparation.is_none());
+    assert!(session.producer.is_none());
 }

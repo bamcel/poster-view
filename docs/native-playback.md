@@ -90,6 +90,14 @@ Stream copies selected video and audio without encoding. Explicit lower bitrate
 choices encode video only when permitted; HLS packaging itself does not reduce
 quality. The player reports the actual delivery mode and codecs.
 
+Resuming an original file waits for its initial media data or a usable seek range
+before applying a nonzero position. Auto can recover a stalled native seek through
+lossless Direct Stream when remuxing and the exact copied tracks are supported.
+This recovery does not permit video or audio encoding. Original mode keeps the
+original file and offers a recovery action at the requested position instead.
+Exiting saves final progress before stopping delivery; immediate reopening waits
+for that save before creating a new watch token.
+
 HLS seeks within retained available segments use the current stream. Beyond that
 range the server repositions a keyframe-aligned producer inside the same logical
 session, preserving the full episode timeline and watch token. That can still

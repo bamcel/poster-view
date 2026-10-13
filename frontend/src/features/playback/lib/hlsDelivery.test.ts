@@ -23,3 +23,15 @@ describe("lightweight HLS capability and lazy delivery",()=>{
   vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});const stale=document.createElement("video"),fresh=document.createElement("video"),fatal=vi.fn();let current=true;const old=attachSegmentedPlayback(stale,session,{fatal,isCurrent:()=>current});expect(old.attached()).toBe(false);await vi.waitFor(()=>expect(moduleLoad.factory).toHaveBeenCalledTimes(1));current=false;old.destroy();moduleLoad.complete();await moduleLoad.ready;await Promise.resolve();await Promise.resolve();expect(moduleLoad.created).not.toHaveBeenCalled();expect(stale.getAttribute("src")).toBeNull();expect(fatal).not.toHaveBeenCalled();const next=attachSegmentedPlayback(fresh,{...session,generation:2,url:"/hls/2/index.m3u8"},{fatal});await vi.waitFor(()=>expect(next.attached()).toBe(true));expect(moduleLoad.created).toHaveBeenCalledTimes(1);expect(fresh.getAttribute("src")).toBe("blob:owned-hls");next.destroy();expect(moduleLoad.destroy).toHaveBeenCalledTimes(1);
  });
 });
+
+it("does not retain a failed HLS engine load across a later retry", async () => {
+  vi.resetModules();
+  const { loadSegmentedEngine } = await import("./hlsDelivery");
+  const result = { default: {} } as unknown as typeof import("hls.js");
+  const load = vi.fn<() => Promise<typeof import("hls.js")>>()
+    .mockRejectedValueOnce(new Error("Temporary asset download failure"))
+    .mockResolvedValue(result);
+  await expect(loadSegmentedEngine(load)).rejects.toThrow("Temporary asset download failure");
+  await expect(loadSegmentedEngine(load)).resolves.toBe(result);
+  expect(load).toHaveBeenCalledTimes(2);
+});
