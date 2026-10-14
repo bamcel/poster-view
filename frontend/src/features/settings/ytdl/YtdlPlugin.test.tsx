@@ -71,11 +71,10 @@ it("uses library settings for setup and browses download folders in a dropdown",
  expect(screen.queryByRole("button",{name:"Create YouTube library"})).toBeNull();
  expect(screen.queryByRole("button",{name:"Edit channels and library"})).toBeNull();
  fireEvent.click(screen.getByLabelText("Download directory"));
- await screen.findByRole("option",{name:"Downloads/"});
- fireEvent.change(screen.getByLabelText("Browse directories"),{target:{value:"YouTube/Downloads"}});
+ fireEvent.click(await screen.findByRole("button",{name:"Open folder Downloads"}));
  await waitFor(()=>expect(nativeLibraries.folders).toHaveBeenCalledWith("YouTube/Downloads"));
- await waitFor(()=>expect((screen.getByRole("button",{name:"Use selected folder"}) as HTMLButtonElement).disabled).toBe(false));
- fireEvent.click(screen.getByRole("button",{name:"Use selected folder"}));
+ await waitFor(()=>expect((screen.getByRole("button",{name:"Use this folder"}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByRole("button",{name:"Use this folder"}));
  fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,directory:"YouTube/Downloads"}));
 });

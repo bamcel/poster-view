@@ -3,9 +3,9 @@ import {createPortal} from "react-dom";
 import {useMutation,useQuery,useQueryClient} from "@tanstack/react-query";
 import {Video,X} from "lucide-react";
 import PluginCard from "../../../components/PluginCard";
-import {nativeLibraries} from "../../../api/nativeLibraries";
 import {ytdl,type YtdlSettings} from "./client";
 import YtdlSubscriptions from "./YtdlSubscriptions";
+import DownloadDirectoryPicker from "./DownloadDirectoryPicker";
 const input="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm";
 const button="rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50 hover:bg-elevated";
 const configKey=["plugin-ytdl"];
@@ -18,10 +18,9 @@ export default function YtdlPlugin(){
 export function YtdlPopup({onClose}:{onClose:()=>void}){
  const dialog=useRef<HTMLDialogElement>(null),client=useQueryClient();
  const config=useQuery({queryKey:configKey,queryFn:ytdl.configuration});
- const [draft,setDraft]=useState<YtdlSettings|null>(null),[tab,setTab]=useState("Configuration"),[url,setUrl]=useState(""),[selected,setSelected]=useState<string[]>([]),[folder,setFolder]=useState("");
- const folders=useQuery({queryKey:["native-folders",folder],queryFn:()=>nativeLibraries.folders(folder),enabled:tab==="Configuration"});
+ const [draft,setDraft]=useState<YtdlSettings|null>(null),[tab,setTab]=useState("Configuration"),[url,setUrl]=useState(""),[selected,setSelected]=useState<string[]>([]);
  useEffect(()=>{dialog.current?.showModal();},[]);
- useEffect(()=>{if(config.data){setDraft({...config.data.settings,library_id:""});setFolder(config.data.settings.directory);}},[config.data]);
+ useEffect(()=>{if(config.data){setDraft({...config.data.settings,library_id:""});}},[config.data]);
  const jobs=useQuery({queryKey:["ytdl-jobs"],queryFn:ytdl.jobs,refetchInterval:query=>query.state.data?.some(job=>active(job.status))?2000:false});
  const previousJobs=useRef<Record<string,string>>({});
  useEffect(()=>{
@@ -41,14 +40,13 @@ export function YtdlPopup({onClose}:{onClose:()=>void}){
  const action=useMutation({mutationFn:({id,operation}:{id:string;operation:"cancel"|"retry"})=>ytdl.action(id,operation),onSuccess:()=>{void client.invalidateQueries({queryKey:["ytdl-jobs"]});}});
  const update=<K extends keyof YtdlSettings>(key:K,value:YtdlSettings[K])=>{setDraft(previous=>previous?{...previous,[key]:value}:previous);save.reset();};
  const valid=!!draft;
- const folderAllowed=!!draft;
  const error=config.error||save.error||inspect.error||submit.error||jobs.error||action.error;
  return createPortal(<dialog ref={dialog} aria-label="YTDL configuration" onCancel={onClose} className="fixed inset-0 m-auto max-h-[90dvh] w-[min(56rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-border bg-sidebar p-6 text-white shadow-2xl backdrop:bg-black/60"><header className="mb-5 flex items-center justify-between"><h2 className="flex items-center gap-2 text-lg font-semibold"><Video className="size-6"/>YTDL</h2><button aria-label="Close YTDL" onClick={onClose} data-icon-button="true"><X className="size-5"/></button></header><p className="mb-5 text-sm text-muted">Administrator-only downloads. Configure media libraries separately in Library settings.</p><nav aria-label="YTDL sections" className="mb-6 flex gap-2">{["Configuration","Downloads","Queue","Subscriptions"].map(name=><button key={name} aria-pressed={tab===name} className={`${button} ${tab===name?"text-accent":"text-muted"}`} onClick={()=>setTab(name)}>{name}</button>)}</nav>
  {tab==="Subscriptions"&&<YtdlSubscriptions/>}
  {config.isPending&&<p role="status">Loading configuration…</p>}
  {draft&&tab==="Configuration"&&<div className="space-y-5"><label className="flex justify-between">Enable YTDL<input aria-label="Enable YTDL" type="checkbox" checked={draft.enabled} onChange={event=>update("enabled",event.target.checked)}/></label><div className="rounded-lg bg-window p-3 text-xs text-muted">{Object.entries(config.data?.dependencies??{}).map(([name,version])=><p key={name}>{name}: {version||"Unavailable"}</p>)}</div>
 
- <div className="text-sm"><p className="mb-2">Download directory</p><details className="rounded-lg border border-border bg-input"><summary aria-label="Download directory" className="cursor-pointer px-3 py-2 break-all">/media{draft.directory?`/${draft.directory}`:""}</summary><div className="space-y-3 border-t border-border p-3"><p className="break-all text-xs text-muted">Browsing /media{folder?`/${folder}`:""}</p><label className="block text-sm">Browse directories<select aria-label="Browse directories" className={input} value="" disabled={folders.isFetching} onChange={event=>setFolder(event.target.value==="__parent"?folder.split("/").slice(0,-1).join("/"):event.target.value)}><option value="">{folders.isFetching?"Loading folders…":"Choose a folder to open"}</option>{folder&&<option value="__parent">↑ Parent folder</option>}{folders.data?.folders.map(item=><option key={item.path} value={item.path}>{item.name}/</option>)}</select></label><button className={button} disabled={!folderAllowed||folders.isFetching||!!folders.error} onClick={()=>update("directory",folder)}>Use selected folder</button><p className="text-xs text-muted">Choose a download directory under /media.</p>{folders.error&&<p role="alert">{folders.error.message}</p>}</div></details></div>
+ <DownloadDirectoryPicker value={draft.directory} onChange={value=>update("directory",value)}/>
  <label className="block text-sm">Filename convention<select aria-label="Filename convention" className={input} value={draft.filename_convention??"id"} onChange={event=>update("filename_convention",event.target.value as NonNullable<YtdlSettings["filename_convention"]>)}><option value="id">Video ID</option><option value="title">Title only</option><option value="date_title">Upload date + Title</option><option value="title_id">Title + video ID</option><option value="date_title_id">Upload date + title + video ID (Recommended)</option></select><span className="mt-2 block break-all text-xs text-muted">Example: {draft.filename_convention==="title"?"Example video":draft.filename_convention==="date_title"?"2026-01-02 - Example video":draft.filename_convention==="date_title_id"?"2026-01-02 - Example video [abc123]":draft.filename_convention==="title_id"?"Example video [abc123]":"abc123"}.{draft.container}</span></label><p className="text-xs text-muted">Existing files are preserved. Videos display by newest upload date regardless of filename. YouTube IDs remain in NFO metadata.</p>
 
  <div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm">Quality<select aria-label="Quality" className={input} value={draft.quality??([480,720,1080,2160].includes(draft.max_height)?draft.max_height:0)} onChange={event=>update("quality",Number(event.target.value))}><option value={0}>Highest Available</option>{[2160,1080,720,480].map(height=><option key={height} value={height}>{height}</option>)}</select></label><label className="block text-sm">If quality is unavailable<select aria-label="If quality is unavailable" className={input} value={draft.fallback==="best"?"next_lowest":draft.fallback==="strict"?"skip":draft.fallback} onChange={event=>{setDraft({...draft,quality:draft.quality??([480,720,1080,2160].includes(draft.max_height)?draft.max_height:0),fallback:event.target.value as YtdlSettings["fallback"]});save.reset();}} disabled={draft.quality===0}><option value="highest">Highest Available</option><option value="next_highest">Next highest</option><option value="next_lowest">Next lowest</option><option value="skip">Skip</option></select></label></div>
