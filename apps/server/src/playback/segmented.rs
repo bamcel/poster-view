@@ -726,6 +726,16 @@ pub(super) fn hls_command(
         }
     } else {
         cmd.args(["-c:a", "copy"]);
+        if plan
+            .audio
+            .as_ref()
+            .and_then(|audio| audio["codec_name"].as_str())
+            == Some("flac")
+        {
+            // FFmpeg 5.x requires this for FLAC in the fragmented MP4 HLS muxer.
+            // Copy the track unchanged rather than needlessly converting lossless audio.
+            cmd.args(["-strict", "experimental"]);
+        }
     }
     cmd.args([
         "-avoid_negative_ts",

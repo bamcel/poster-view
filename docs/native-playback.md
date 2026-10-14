@@ -44,11 +44,17 @@ cached by the browser; metadata probes cache against file size and modification 
 Several audio tracks do not prevent playback of the default track. Other tracks
 use reliable native selection where available, otherwise authorized Direct Stream
 selects and copies the requested track. Unsupported selected audio, including
-TrueHD, DTS/DTS-HD and PCM/LPCM, can use AAC stereo at 192 kbps when audio encoding
-is permitted. This changes audio quality and does not preserve lossless surround
+Dolby TrueHD (also called TrueHD), DTS-HD Master Audio/DTS and PCM/LPCM, can use
+AAC stereo at 192 kbps when audio encoding is permitted. This changes audio quality
+and does not preserve lossless surround
 or Atmos metadata; video is copied when compatible. Unsupported video can use an
 authorized video encoder. With these permissions disabled, the player explains
 compatibility limits.
+
+FLAC is copied losslessly when the browser supports the selected delivery format.
+Direct Stream enables FFmpeg's FLAC-in-fragmented-MP4 compatibility option for
+older FFmpeg versions, retaining the original channels and bit depth. If the
+browser cannot decode FLAC, the same permitted audio-only AAC fallback applies.
 
 ## Subtitles and metadata
 

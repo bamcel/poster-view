@@ -163,6 +163,7 @@ async fn producer_commands_copy_tracks_and_apply_only_authorized_encoding() {
         .collect::<Vec<_>>();
     assert!(args.windows(2).any(|pair| pair == ["-c:v", "copy"]));
     assert!(args.windows(2).any(|pair| pair == ["-c:a", "copy"]));
+    assert!(!args.iter().any(|arg| arg == "-strict"));
     assert!(
         !args
             .iter()
@@ -269,6 +270,90 @@ async fn producer_commands_copy_tracks_and_apply_only_authorized_encoding() {
     .collect::<Vec<_>>();
     assert!(args.iter().any(|arg| arg.contains("tonemap=tonemap=hable")));
     assert!(args.windows(2).any(|pair| pair == ["-color_trc", "bt709"]));
+}
+
+#[tokio::test]
+async fn copied_flac_hls_preserves_lossless_audio_and_video() {
+    let fixture = video_fixture(b"placeholder", test_support::probe()).await;
+    let mut cmd = command("ffmpeg");
+    cmd.args([
+        "-nostdin",
+        "-v",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=160x90:rate=25:duration=2",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:sample_rate=48000:duration=2",
+        "-c:v",
+        "libx264",
+        "-threads",
+        "1",
+        "-c:a",
+        "flac",
+        "-sample_fmt",
+        "s32",
+    ])
+    .arg(&fixture.file);
+    run(&mut cmd, Duration::from_secs(15), "FLAC fixture")
+        .await
+        .unwrap();
+    let resolved = source(
+        &fixture.state,
+        fixture.library.clone(),
+        fixture.item.clone(),
+    )
+    .await
+    .unwrap();
+    fixture.state.playback.probes.lock().await.clear();
+    let probe = fixture.state.playback.probe(&resolved).await.unwrap();
+    let request = SessionInput {
+        hls_audio_codecs: vec!["flac".into()],
+        force_remux: true,
+        ..input()
+    };
+    let settings = crate::transcoding::Settings::default();
+    let chosen = plan(&probe, "mkv", &request, &settings).unwrap();
+    assert_eq!(chosen.method, "remux");
+    assert!(!chosen.convert_audio);
+    let mut cmd = segmented::hls_command(
+        &segmented::Delivery {
+            source: &resolved,
+            probe: &probe,
+            plan: &chosen,
+            input: &request,
+            settings: &settings,
+            select_in_stream: false,
+            ready_position_seconds: 0.0,
+        },
+        None,
+        fixture._directory.path(),
+    )
+    .unwrap();
+    let args = cmd
+        .as_std()
+        .get_args()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    assert!(args.windows(2).any(|pair| pair == ["-c:v", "copy"]));
+    assert!(args.windows(2).any(|pair| pair == ["-c:a", "copy"]));
+    assert!(
+        args.windows(2)
+            .any(|pair| pair == ["-strict", "experimental"])
+    );
+    run(&mut cmd, Duration::from_secs(15), "FLAC HLS copy")
+        .await
+        .unwrap();
+    assert!(fixture._directory.path().join("init.mp4").is_file());
+    assert!(
+        std::fs::read_to_string(fixture._directory.path().join("index.m3u8"))
+            .unwrap()
+            .contains("#EXT-X-ENDLIST")
+    );
 }
 
 #[tokio::test]

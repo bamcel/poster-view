@@ -451,9 +451,24 @@ mod tests {
             allow_remux: false,
             ..Default::default()
         };
-        for codec in ["truehd", "dts", "pcm_s16le", "pcm_s24le", "pcm_bluray"] {
+        for codec in [
+            "flac",
+            "truehd",
+            "dts",
+            "pcm_s16le",
+            "pcm_s24le",
+            "pcm_s32le",
+            "pcm_s16be",
+            "pcm_s24be",
+            "pcm_f32le",
+            "pcm_f64le",
+            "pcm_bluray",
+        ] {
             let mut source = data.clone();
             source["streams"][1]["codec_name"] = json!(codec);
+            if codec == "dts" {
+                source["streams"][1]["profile"] = json!("DTS-HD MA");
+            }
             let planned = plan(&source, "mkv", &request, &audio).unwrap();
             assert_eq!(planned.method, "audio_transcode");
             assert!(planned.convert_audio);
