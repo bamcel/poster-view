@@ -574,6 +574,8 @@ pub(super) struct Delivery<'a> {
     pub(super) input: &'a SessionInput,
     pub(super) settings: &'a Settings,
     pub(super) select_in_stream: bool,
+    // Requested browser position relative to the verified producer keyframe.
+    pub(super) ready_position_seconds: f64,
 }
 pub(super) fn hls_command(
     delivery: &Delivery<'_>,
@@ -587,6 +589,7 @@ pub(super) fn hls_command(
         input,
         settings,
         select_in_stream,
+        ready_position_seconds: _,
     } = *delivery;
     let authorized = planner::plan_for_delivery(
         probe,
@@ -762,6 +765,7 @@ pub(super) async fn start(
         input: _,
         settings,
         select_in_stream: _,
+        ready_position_seconds: _,
     } = *delivery;
     store.cache_budget.store(
         u64::from(settings.cache_gb) * 1024 * 1024 * 1024,
@@ -874,7 +878,15 @@ async fn start_process(
         let ready = tokio::fs::metadata(dir.join("init.mp4"))
             .await
             .is_ok_and(|meta| meta.is_file())
-            && manifest::playlist_seconds(&dir.join("index.m3u8")) > 0.0;
+            && playlist_covers_position(
+                &std::fs::read_to_string(dir.join("index.m3u8")).unwrap_or_default(),
+                delivery.ready_position_seconds,
+                if delivery.plan.method == "remux" {
+                    2.0
+                } else {
+                    0.1
+                },
+            );
         if storage_check_due(last_storage_check, tokio::time::Instant::now(), ready) {
             let bytes = match accounted_bytes(store).await {
                 Ok(bytes) => bytes,
@@ -918,9 +930,45 @@ async fn start_process(
     }
 }
 
+fn playlist_covers_position(raw: &str, position: f64, headroom: f64) -> bool {
+    let seconds: f64 = raw
+        .lines()
+        .filter_map(|line| line.strip_prefix("#EXTINF:"))
+        .filter_map(|value| value.split(',').next()?.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .sum();
+    // A first fragment can precede the requested point when the demuxer seeks
+    // to an earlier keyframe. Publish only once the browser can reach its target,
+    // with a small copied-media cushion to reduce immediate underflow. At EOF the
+    // final complete fragment is sufficient even for an end-of-title seek.
+    seconds > 0.0
+        && (seconds >= position + headroom || raw.lines().any(|line| line == "#EXT-X-ENDLIST"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preparation_waits_for_the_requested_point_and_accepts_completed_short_tails() {
+        let first = "#EXTM3U\n#EXTINF:4.0,\nsegment-000000.m4s\n";
+        assert!(playlist_covers_position(first, 0.0, 2.0));
+        assert!(!playlist_covers_position(first, 6.5, 2.0));
+        assert!(!playlist_covers_position(first, 3.5, 2.0));
+        assert!(playlist_covers_position(first, 3.5, 0.1));
+        assert!(!playlist_covers_position(first, 4.0, 0.1));
+        let ready = format!("{first}#EXTINF:4.0,\nsegment-000001.m4s\n");
+        assert!(playlist_covers_position(&ready, 3.5, 2.0));
+        assert!(playlist_covers_position(
+            &format!("{ready}#EXT-X-ENDLIST\n"),
+            8.0,
+            2.0
+        ));
+        assert!(!playlist_covers_position(
+            "#EXTM3U\n#EXT-X-ENDLIST\n",
+            0.0,
+            2.0
+        ));
+    }
     #[test]
     fn paused_copy_buffer_prepares_skips_and_refills_without_changing_encoding_limits() {
         assert!(!buffer_suspended(false, 15.0, 120.0, true, true));

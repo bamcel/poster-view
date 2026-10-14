@@ -23,7 +23,7 @@ export function loadSegmentedEngine(load:()=>Promise<typeof import("hls.js")>=()
   }
   return engine;
 }
-export function attachSegmentedPlayback(video:HTMLVideoElement,session:PlaybackSession,callbacks:Callbacks) {
+export function attachSegmentedPlayback(video:HTMLVideoElement,session:PlaybackSession,callbacks:Callbacks,position=0) {
   const copied=session.method==="remux",backBuffer=copied?120:60;
   if(!msePlaybackSupported()){
     if(!video.canPlayType("application/vnd.apple.mpegurl"))throw new Error("This browser cannot play a segmented stream.");
@@ -42,7 +42,10 @@ export function attachSegmentedPlayback(video:HTMLVideoElement,session:PlaybackS
   void loadSegmentedEngine().then(({default:Engine})=>{
     if(!owns())return;
     if(!Engine.isSupported())throw new Error("This browser cannot play a segmented stream.");
-    const instance=new Engine({startPosition:0,maxBufferLength:ahead,maxMaxBufferLength:ahead,maxBufferSize:byteBudget,backBufferLength:backBuffer});hls=instance;
+    // Load the fragment containing the copied-stream resume target immediately,
+    // instead of starting at zero and waiting for metadata to trigger a seek.
+    const startPosition=copied&&Number.isFinite(position)?Math.max(0,position):0;
+    const instance=new Engine({startPosition,maxBufferLength:ahead,maxMaxBufferLength:ahead,maxBufferSize:byteBudget,backBufferLength:backBuffer});hls=instance;
     instance.on(Engine.Events.ERROR,(_event,data)=>{
       if(!owns()||!data.fatal)return;
       lastFailure=performance.now();

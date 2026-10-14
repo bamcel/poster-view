@@ -56,6 +56,20 @@ it("does not retain a failed HLS engine load across a later retry", async () => 
 });
 
 it.each([
+ {method:"remux" as const,position:5.5,startPosition:5.5},
+ {method:"remux" as const,position:-5,startPosition:0},
+ {method:"remux" as const,position:NaN,startPosition:0},
+ {method:"audio_transcode" as const,position:5,startPosition:0},
+ {method:"transcode" as const,position:5,startPosition:0},
+])("starts $method loading at the permitted resume position",async({method,position,startPosition})=>{
+ vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+ const adapter=attachSegmentedPlayback(document.createElement("video"),{...session,method},{fatal:vi.fn()},position);
+ await vi.waitFor(()=>expect(adapter.attached()).toBe(true));
+ expect(moduleLoad.created).toHaveBeenLastCalledWith(expect.objectContaining({startPosition}));
+ adapter.destroy();
+});
+
+it.each([
  {method:"remux" as const,bitrate:undefined,seconds:120},
  {method:"remux" as const,bitrate:0,seconds:120},
  {method:"audio_transcode" as const,bitrate:undefined,seconds:20},

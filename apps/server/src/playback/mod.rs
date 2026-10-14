@@ -958,6 +958,7 @@ async fn prepare(
     if planned.method == "direct" {
         return Ok((response(id, source, probe, &planned, 0, 0.0, None), None));
     }
+    let requested_position = input.position_seconds;
     if planned.method != "transcode" {
         match segmented::copy_seek_start(store, source, input.position_seconds).await {
             Ok(position) => input.position_seconds = position,
@@ -985,6 +986,7 @@ async fn prepare(
             input: &input,
             settings,
             select_in_stream,
+            ready_position_seconds: (requested_position - input.position_seconds).max(0.0),
         },
     )
     .await?;

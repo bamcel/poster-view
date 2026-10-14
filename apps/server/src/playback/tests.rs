@@ -153,6 +153,7 @@ async fn producer_commands_copy_tracks_and_apply_only_authorized_encoding() {
         input: &request,
         settings: &settings,
         select_in_stream: false,
+        ready_position_seconds: 0.0,
     };
     let args = segmented::hls_command(&delivery, None, fixture._directory.path())
         .unwrap()
@@ -183,6 +184,7 @@ async fn producer_commands_copy_tracks_and_apply_only_authorized_encoding() {
         input: &request,
         settings: &audio_settings,
         select_in_stream: false,
+        ready_position_seconds: 0.0,
     };
     let args = segmented::hls_command(&audio_delivery, None, fixture._directory.path())
         .unwrap()
@@ -211,6 +213,7 @@ async fn producer_commands_copy_tracks_and_apply_only_authorized_encoding() {
             input: &request,
             settings: &audio_settings,
             select_in_stream: false,
+            ready_position_seconds: 0.0,
         },
         None,
         fixture._directory.path(),
@@ -254,6 +257,7 @@ async fn producer_commands_copy_tracks_and_apply_only_authorized_encoding() {
             input: &encoded,
             settings: &settings,
             select_in_stream: false,
+            ready_position_seconds: 0.0,
         },
         Some(("libx264", "software")),
         fixture._directory.path(),
@@ -265,6 +269,81 @@ async fn producer_commands_copy_tracks_and_apply_only_authorized_encoding() {
     .collect::<Vec<_>>();
     assert!(args.iter().any(|arg| arg.contains("tonemap=tonemap=hable")));
     assert!(args.windows(2).any(|pair| pair == ["-color_trc", "bt709"]));
+}
+
+#[tokio::test]
+async fn real_copied_preparation_covers_resume_target_before_publishing() {
+    let fixture = video_fixture(b"placeholder", test_support::probe()).await;
+    let mut cmd = command("ffmpeg");
+    cmd.args([
+        "-nostdin",
+        "-v",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=160x90:rate=25:duration=12",
+        "-c:v",
+        "libx264",
+        "-threads",
+        "1",
+        "-g",
+        "50",
+        "-sc_threshold",
+        "0",
+    ])
+    .arg(&fixture.file);
+    run(
+        &mut cmd,
+        Duration::from_secs(15),
+        "Resume readiness fixture",
+    )
+    .await
+    .unwrap();
+    let source = source(
+        &fixture.state,
+        fixture.library.clone(),
+        fixture.item.clone(),
+    )
+    .await
+    .unwrap();
+    fixture.state.playback.probes.lock().await.clear();
+    let probe = fixture.state.playback.probe(&source).await.unwrap();
+    let input = SessionInput {
+        force_remux: true,
+        ..input()
+    };
+    let settings = crate::transcoding::Settings::default();
+    let plan = plan(&probe, "mkv", &input, &settings).unwrap();
+    assert_eq!(plan.method, "remux");
+    for requested in [3.5, 6.5, 12.0] {
+        let (producer, encoder) = segmented::start(
+            &fixture.state.playback,
+            &uuid::Uuid::new_v4().to_string(),
+            1,
+            &segmented::Delivery {
+                source: &source,
+                probe: &probe,
+                plan: &plan,
+                input: &input,
+                settings: &settings,
+                select_in_stream: false,
+                ready_position_seconds: requested,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(encoder.is_none());
+        let raw = std::fs::read_to_string(producer.dir.join("index.m3u8")).unwrap();
+        let prepared = manifest::playlist_seconds(&producer.dir.join("index.m3u8"));
+        assert!(prepared >= requested + 2.0 || raw.lines().any(|line| line == "#EXT-X-ENDLIST"));
+        assert!(
+            prepared > 4.0,
+            "The first fragment alone cannot reach this resume point."
+        );
+        producer.stop().await;
+    }
 }
 
 #[tokio::test]

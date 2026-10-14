@@ -204,7 +204,7 @@ export default function PlayerPage() {
       fatal:message=>{if(owns())terminalError(message);},
       fragmentLoading:data=>{if(owns())fragmentSampler.current.start(data.frag.stats);},
       fragmentLoaded:data=>{if(!owns())return;const sample=fragmentSampler.current.finish(data.frag.stats);if(sample&&bandwidthObservationAllowed())bandwidthDetector.current.observe(sample.bytes,sample.bodyMilliseconds,performance.now());},
-    });}catch(error){terminalError(errorMessage(error));}
+    },Math.max(0,target-created.offset_seconds));}catch(error){terminalError(errorMessage(error));}
   },[routeKey,play,report,terminalError,heartbeat]);
   const start=useCallback(async(sourceTime:number,playOverride?:boolean,losslessFallback=false)=>{
     const element=video.current,data=infoRef.current,caps=capability.current;
