@@ -1,6 +1,7 @@
 import type Hls from "hls.js";
 import type {FragLoadingData,FragLoadedData} from "hls.js";
 import type {PlaybackSession} from "../types";
+import {watchRemuxPlaylistRefresh} from "./remuxPlaylistRefresh";
 
 // Mirrors hls.js 1.7.3 is-supported.ts without loading the playback engine:
 // prefer ManagedMediaSource, validate exposed SourceBuffer APIs, then probe
@@ -33,6 +34,7 @@ export function attachSegmentedPlayback(video:HTMLVideoElement,session:PlaybackS
   }
   let hls:Hls|undefined,active=true,recovery=0,networkRecovery=0,lastFailure=0;
   let recoveryTimer:ReturnType<typeof setTimeout>|undefined;
+  let stopPlaylistRefresh:(()=>void)|undefined;
   const owns=()=>active&&callbacks.isCurrent?.()!==false;
   const byteBudget=(copied?96:48)*1024*1024,rate=session.bitrate??0;
   // Keep nearby copied-stream seeks local. maxBufferSize is an hls.js target,
@@ -65,6 +67,7 @@ export function attachSegmentedPlayback(video:HTMLVideoElement,session:PlaybackS
       callbacks.fragmentLoaded?.(data);
     }});
     if(!owns()){instance.destroy();hls=undefined;return;}
+    if(copied)stopPlaylistRefresh=watchRemuxPlaylistRefresh(instance,Engine,video,owns);
     instance.loadSource(session.url);instance.attachMedia(video);
   }).catch(error=>{if(owns())callbacks.fatal(error instanceof Error?error.message:"The playback engine could not be loaded. Retry playback.");});
   return {get hls(){return hls;},attached:()=>active&&hls?.media===video,owns:()=>owns()&&hls?.media===video,available:(time:number,confirmed=video.currentTime)=>{
@@ -72,6 +75,6 @@ export function attachSegmentedPlayback(video:HTMLVideoElement,session:PlaybackS
     // A playlist entry is not buffered media. Ask the server to retain or
     // reposition unbuffered targets before loading them into this generation.
     return inRange(video.buffered,time,confirmed-backBuffer+5);
-  },refresh:(time:number)=>{if(owns())hls?.startLoad(time);},destroy:()=>{active=false;clearTimeout(recoveryTimer);hls?.destroy();hls=undefined;}};
+  },refresh:(time:number)=>{if(owns())hls?.startLoad(time);},destroy:()=>{active=false;clearTimeout(recoveryTimer);stopPlaylistRefresh?.();hls?.destroy();hls=undefined;}};
 }
 function inRange(ranges:TimeRanges,time:number,minimumEnd=-Infinity){for(let index=0;index<ranges.length;index++)if(time>=ranges.start(index)&&time<ranges.end(index)&&ranges.end(index)>=minimumEnd)return true;return false;}

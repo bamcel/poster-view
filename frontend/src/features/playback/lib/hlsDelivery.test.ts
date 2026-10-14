@@ -5,7 +5,7 @@ const moduleLoad=vi.hoisted(()=>{
  let complete!:()=>void;const ready=new Promise<void>(resolve=>{complete=resolve;});return {ready,complete,factory:vi.fn(),created:vi.fn(),destroy:vi.fn()};
 });
 vi.mock("hls.js",async()=>{moduleLoad.factory();await moduleLoad.ready;return {default:class{
- static isSupported(){return true;}static Events={ERROR:"error",FRAG_LOADING:"loading",FRAG_LOADED:"loaded"};static ErrorTypes={MEDIA_ERROR:"media",NETWORK_ERROR:"network"};media:HTMLVideoElement|null=null;latestLevelDetails={fragments:[]};constructor(options:unknown){moduleLoad.created(options);}on(){}loadSource(){}attachMedia(video:HTMLVideoElement){this.media=video;video.src="blob:owned-hls";}destroy(){moduleLoad.destroy();this.media=null;}startLoad(){}recoverMediaError(){}
+ static isSupported(){return true;}static Events={ERROR:"error",FRAG_LOADING:"loading",FRAG_LOADED:"loaded",LEVEL_LOADING:"levelLoading",LEVEL_LOADED:"levelLoaded"};static ErrorTypes={MEDIA_ERROR:"media",NETWORK_ERROR:"network"};media:HTMLVideoElement|null=null;latestLevelDetails={fragments:[]};constructor(options:unknown){moduleLoad.created(options);}on(){}off(){}loadSource(){}attachMedia(video:HTMLVideoElement){this.media=video;video.src="blob:owned-hls";}destroy(){moduleLoad.destroy();this.media=null;}startLoad(){}recoverMediaError(){}
 }};});
 const session:PlaybackSession={id:"one",generation:1,method:"remux",url:"/hls/1/index.m3u8",offset_seconds:0,mime:"application/vnd.apple.mpegurl",reason:"Copy",duration_seconds:1200};
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks();});
