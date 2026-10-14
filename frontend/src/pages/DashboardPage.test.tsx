@@ -37,7 +37,7 @@ it("keeps a cached series page visible when background refresh fails",async()=>{
  vi.mocked(nativeLibraries.catalog).mockRejectedValue(new Error("Refresh unavailable"));
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
  client.setQueryData(["native-libraries"],[library]);
- client.setQueryData(["native-catalog",library.id],[{id:"dragon",title:"Dragon Ball",kind:"series",path:"Anime/Dragon Ball",parent_path:null,available:true,files:[],metadata:{},artwork:[],nfo_path:null,revision:1}],{updatedAt:Date.now()-120_000});
+ client.setQueryData(["native-catalog",library.id],[{id:"dragon",title:"Dragon Ball",kind:"series",path:"Anime/Dragon Ball",parent_path:null,available:true,files:[],metadata:{},artwork:[],nfo_path:null,revision:1}],{updatedAt:Date.now()-6*60_000});
  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/media/Anime/Dragon-Ball"]}><Routes><Route path="/media/:libraryId/:itemSlug" element={<DashboardPage/>}/></Routes></MemoryRouter></QueryClientProvider>);
  expect(screen.getByTestId("selected").textContent).toBe("dragon");
  await waitFor(()=>expect(client.getQueryState(["native-catalog",library.id])?.status).toBe("error"));

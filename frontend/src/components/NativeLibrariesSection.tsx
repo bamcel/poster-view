@@ -1,3 +1,4 @@
+import FolderBrowser from "./FolderBrowser";
 import SeriesActionsDialog from "./SeriesActionsDialog";
 import {youtubeOptions} from "../features/settings/ytdl/client";
 import {BACKDROP_BLUR_EVENT, PANEL_SOLIDITY_EVENT, PANEL_OVERLAY_EVENT, backdropBlur, panelSolidity, panelOverlay, translucentPanelColor} from "../lib/dashboardSettings";
@@ -7,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import LibrarySettings from "./NativeLibrarySettings";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, ChevronRight, Folder, FolderPlus, Loader2, MoreHorizontal, RefreshCw, Trash2, Plus, Search, X } from "lucide-react";
+import { Check, Folder, FolderPlus, Loader2, MoreHorizontal, RefreshCw, Trash2, Plus, X } from "lucide-react";
 import { defaultNativeOptions, nativeLibraries, type NativeLibrary, type NativeLibraryInput, type NativeLibraryType } from "../api/nativeLibraries";
 
 const TYPES: Record<NativeLibraryType, string> = { movies: "Movies", shows: "TV Shows", anime: "Anime", books: "Books", youtube: "YouTube" };
@@ -86,7 +87,7 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
       <div className="mt-3 min-h-0 overflow-y-auto text-xs text-muted">{status.data?.status === "scanning" && <NativeScanProgress status={status.data} compact/>}{scan.isPending && status.data?.status !== "scanning" && <p role="status">Starting scan…</p>}</div>
     </div>
     {open&&createPortal(<div ref={menu} role="region" aria-label={`Library actions for ${library.name}`} style={{...position,backgroundColor:"var(--color-surface, #20232b)",maxHeight:`calc(100dvh - ${position.top+12}px)`}} className="fixed z-[90] w-[min(22rem,calc(100vw-24px))] overflow-y-auto rounded-2xl p-4 text-white shadow-2xl">
-        <div className="mb-3 flex items-center gap-3"><div aria-hidden="true" className="flex w-20 shrink-0 overflow-hidden rounded">{previews.data?.slice(0,4).map(item=><img key={item.id} src={nativeLibraries.artworkUrl(library.id,item.id,"poster")+`?v=${item.revision}`} alt="" className="aspect-[2/3] w-1/4 object-cover"/>)}</div><p className="flex-1 font-semibold">{library.name}</p><button type="button" aria-label="Close library actions" className="rounded-lg p-2 text-muted hover:bg-elevated" onClick={()=>{setOpen(false);setConfirmDelete(false);}} data-icon-button="true"><X className="size-4"/></button></div>
+        <div className="mb-3 flex items-center gap-3"><div aria-hidden="true" className="flex w-20 shrink-0 overflow-hidden rounded">{previews.data?.slice(0,4).map(item=><img key={item.id} src={nativeLibraries.artworkUrl(library.id,item.id,"poster")+`?v=${encodeURIComponent(item.artwork_version??String(item.revision))}`} alt="" className="aspect-[2/3] w-1/4 object-cover"/>)}</div><p className="flex-1 font-semibold">{library.name}</p><button type="button" aria-label="Close library actions" className="rounded-lg p-2 text-muted hover:bg-elevated" onClick={()=>{setOpen(false);setConfirmDelete(false);}} data-icon-button="true"><X className="size-4"/></button></div>
         <div className="flex flex-col"><button className={`${MENU_ACTION} flex items-center justify-between`} onClick={()=>{setOpen(false);if(action.current)onEdit(action.current);}}>Library<Folder className="size-4"/></button><button className={`${MENU_ACTION} flex items-center justify-between`} disabled={scan.isPending||remove.isPending||status.data?.manual_queued} onClick={()=>scan.mutate()}>{status.data?.manual_queued?"Scan queued":"Scan Library Files"}<RefreshCw className="size-4"/></button>
         <button className={MENU_ACTION} disabled={remove.isPending} onClick={()=>{setOpen(false);setRefreshing(true);}}>Refresh Metadata</button>
         {status.data?.status==="scanning"&&<p role="status" className="px-3 py-2 text-xs text-muted">{status.data.manual_queued?"Manual scan queued. It will run when the current scan finishes.":"A scan is running. You can queue a manual scan."}</p>}
@@ -107,14 +108,12 @@ export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer
   const initial = useRef<NativeLibraryInput>(seed ?? (library ? { name: library.name, library_type: library.library_type, anime_content: library.anime_content, paths: library.paths, options: { ...defaultNativeOptions, ...library.options }, revision: library.revision } : { name: "", library_type: "movies", anime_content: "both", paths: [], options: { ...defaultNativeOptions }, revision: null }));
   const [draft, setDraft] = useState(initial.current);
   const [step, setStep] = useState(0);
-  const [path, setPath] = useState("");
-  const [filter, setFilter] = useState("");
+  const [browseFolders, setBrowseFolders] = useState(false);
   const [discard, setDiscard] = useState(false);
   const dialog = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLElement>(null);
   useEffect(() => { if (content.current) content.current.scrollTop = 0; }, [step]);
   const save = useMutation({ mutationFn: () => nativeLibraries.save(draft.library_type === "youtube" ? {...draft,options:{...defaultNativeOptions,...draft.options,...youtubeOptions,youtube_channels:draft.options?.youtube_channels?.map(value=>value.trim()).filter(Boolean)??[]}} : draft.library_type === "books" ? {...draft, options:{...draft.options!, allow_adult_metadata:true}} : draft, library?.id), onSuccess: onSaved });
-  const folders = useQuery({ queryKey: ["native-folders", path], queryFn: () => nativeLibraries.folders(path), enabled: step === 1 });
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial.current);
   const closeRef = useRef<() => void>(() => {});
   closeRef.current = () => { if (save.isPending) { onClose(); return; } if (dirty) { setDiscard(true); if(content.current)content.current.scrollTop=0; } else onClose(); };
@@ -123,6 +122,7 @@ export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer
     document.body.style.overflow = "hidden";
     dialog.current?.querySelector<HTMLElement>("input,button")?.focus();
     const keydown = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest("dialog")) return;
       if (event.key === "Escape") { event.preventDefault(); closeRef.current(); }
       if (event.key !== "Tab") return;
       const focusable = [...(dialog.current?.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex="0"]') ?? [])];
@@ -136,8 +136,6 @@ export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer
   const toggle = (selected: string) => setDraft(previous => ({ ...previous, paths: previous.paths.includes(selected) ? previous.paths.filter(p => p !== selected) : [...previous.paths, selected] }));
   const pathsInvalid = draft.paths.length === 0 || draft.paths.length > 32 || overlap(draft.paths);
   const basicsInvalid = !draft.name.trim() || draft.name.trim().length > 120;
-  const navigate = (next: string) => { setPath(next); setFilter(""); };
-  const visible = folders.data?.folders.filter(folder => folder.name.toLowerCase().includes(filter.toLowerCase())) ?? [];
   return createPortal(<div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm sm:p-6">
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="library-dialog-title" className="flex h-full w-full max-w-5xl flex-col overflow-hidden border border-border bg-sidebar shadow-2xl sm:h-[min(760px,90dvh)] sm:rounded-2xl">
       <header className="flex shrink-0 items-center gap-4 bg-sidebar px-6 py-4 sm:px-8"><div><h2 id="library-dialog-title" className="text-lg font-semibold text-white">{library ? "Edit library" : "Create library"}</h2><p className="mt-1 text-xs text-muted">PosterView library</p></div><button aria-label="Close library dialog" className="ml-auto shrink-0 grid size-9 place-items-center rounded-lg text-muted hover:bg-elevated hover:text-white disabled:opacity-50" onClick={onClose} data-icon-button="true"><X className="size-5" /></button></header>
@@ -152,14 +150,9 @@ export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer
             {draft.library_type === "anime" && <label className="block text-sm text-muted">Anime content<select aria-label="Anime content" aria-describedby="anime-content-help" className={`${INPUT} mt-2`} value={draft.anime_content} onChange={e => setDraft({ ...draft, anime_content: e.target.value as NativeLibraryInput["anime_content"] })}><option value="both">Mixed</option><option value="shows">Shows only</option><option value="movies">Movies only</option></select><span id="anime-content-help" className="mt-2 block text-xs text-faint">Anime is a dedicated library type. Each title will retain its movie or series identity.</span></label>}
             {draft.library_type === "books" && <p className="rounded-xl bg-window p-4 text-sm text-muted">Your existing book reader and custom NFO metadata tools remain available. Native scanning preserves custom book NFO fields and identifies supported book files.</p>}
           </div>}
-          {step === 1 && <div className="space-y-4"><div><h3 className="font-medium text-white">Media folders</h3><p className="mt-1 text-sm text-muted">Check folders to select them; use the arrow to browse inside. Selections stay selected as you browse.</p></div>
-            <div className="flex flex-wrap items-center gap-1 text-sm text-muted"><button className={BUTTON} onClick={() => navigate("")}>/media</button>{path.split("/").filter(Boolean).map((part, i, parts) => <span className="flex items-center" key={parts.slice(0, i + 1).join("/")}><ChevronRight className="size-4" /><button className="rounded px-2 py-1 hover:text-accent" onClick={() => navigate(parts.slice(0, i + 1).join("/"))}>{part}</button></span>)}</div>
-            <div className="flex flex-wrap gap-2">{path && <button className={BUTTON} onClick={() => navigate(path.split("/").slice(0, -1).join("/"))} data-icon-button="true"><ArrowLeft className="size-4" aria-label="Parent folder" /></button>}<button disabled={!folders.data || folders.isFetching || !!folders.error} className={BUTTON} onClick={() => toggle(path)}>{draft.paths.includes(path) ? "Deselect current folder" : "Select current folder"}</button><button disabled={!visible.length} className={BUTTON} onClick={() => setDraft(previous => ({ ...previous, paths: [...new Set([...previous.paths, ...visible.map(f => f.path)])] }))}>Select all visible</button></div>
-            <label className="flex items-center gap-2 rounded-xl border border-border bg-window px-3"><Search className="size-4 text-faint" /><input aria-label="Filter folders" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search" className="w-full bg-transparent py-2.5 text-sm text-white outline-none" /></label>
-            {folders.isPending && <p role="status" className="text-sm text-muted">Loading folders…</p>}
-            {folders.error && <div role="alert" className="text-sm text-danger">{folders.error.message}<button className={`${BUTTON} ml-2`} onClick={() => void folders.refetch()}>Retry</button></div>}
-            {!folders.isPending && !folders.error && visible.length === 0 && <p className="py-4 text-sm text-muted">{filter ? "No matching folders." : "No subfolders. You can select the current folder."}</p>}
-            <div className="max-h-64 overflow-y-auto rounded-xl border border-border">{visible.map(folder => <div key={folder.path} className={`flex items-center gap-3 border-b border-border last:border-b-0 ${draft.paths.includes(folder.path) ? "bg-accent/10" : ""}`}><label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 p-3 text-sm text-white"><input className="size-4 accent-accent" type="checkbox" checked={draft.paths.includes(folder.path)} onChange={() => toggle(folder.path)} /><Folder className="size-4 shrink-0 text-accent" /><span className="truncate">{folder.name}</span></label><button aria-label={`Open ${folder.name}`} className="m-1 rounded-lg p-3 text-muted hover:bg-window" onClick={() => navigate(folder.path)} data-icon-button="true"><ChevronRight className="size-4" /></button></div>)}</div>
+          {step === 1 && <div className="space-y-4"><div><h3 className="font-medium text-white">Media folders</h3><p className="mt-1 text-sm text-muted">Open the folder browser to select media roots. You can choose multiple folders and review them here before saving.</p></div>
+            <button type="button" className={`${BUTTON} flex items-center gap-2`} onClick={()=>setBrowseFolders(true)}><FolderPlus className="size-4"/>Browse folders</button>
+            {browseFolders&&<FolderBrowser initial="" title="Select Media Folders" selected={draft.paths} onClose={()=>setBrowseFolders(false)} onSelect={path=>{setDraft(previous=>({...previous,paths:[...new Set([...previous.paths,path])]}));setBrowseFolders(false);}} onSelectMany={paths=>{setDraft(previous=>({...previous,paths}));setBrowseFolders(false);}}/>}
             <div className="rounded-xl bg-window p-4"><p className="mb-2 text-sm font-medium text-white">{draft.paths.length} folders selected</p><ul className="space-y-1">{draft.paths.map(selected => <li key={selected} className="flex items-center justify-between gap-2 text-xs text-muted"><span className="break-all">{displayPath(selected)}</span><button className="shrink-0 rounded-lg p-2 hover:text-danger" aria-label={`Remove ${displayPath(selected)}`} onClick={() => toggle(selected)} data-icon-button="true"><X className="size-4" /></button></li>)}</ul></div>
             {overlap(draft.paths) && <p role="alert" className="text-sm text-danger">Selected folders overlap. Select a parent folder or its children, rather than both.</p>}
             {draft.paths.length > 32 && <p role="alert" className="text-sm text-danger">Choose at most 32 folders.</p>}

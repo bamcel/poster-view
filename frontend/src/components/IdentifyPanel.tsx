@@ -1,3 +1,4 @@
+import {nativeArtworkVersion} from "../lib/nativeArtworkCache";
 import {backdropBlur,panelSolidity,panelOverlay,translucentPanelColor} from "../lib/dashboardSettings";
 import ProviderIdPreview from "./ProviderIdPreview";
 import TVIdentifyPanel from "./TVIdentifyPanel";
@@ -94,7 +95,7 @@ function ProviderIdentifyPanel({library,entry,busy,onSaved}:{library:NativeLibra
   }
   return <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-5 sm:px-8">
     <header className="flex items-center gap-4 pt-2">
-      <div className="aspect-[2/3] w-16 shrink-0 overflow-hidden rounded-lg bg-surface-2">{entry.artwork.some(art=>art.kind==="poster")?<img src={`${nativeLibraries.artworkUrl(library.id,entry.id,"poster")}?v=${entry.revision}`} alt="" className="size-full object-cover"/>:<div className="grid size-full place-items-center text-faint"><ImageOff className="size-6"/></div>}</div>
+      <div className="aspect-[2/3] w-16 shrink-0 overflow-hidden rounded-lg bg-surface-2">{entry.artwork.some(art=>art.kind==="poster")?<img src={`${nativeLibraries.artworkUrl(library.id,entry.id,"poster")}?v=${encodeURIComponent(nativeArtworkVersion(entry,"poster"))}`} alt="" className="size-full object-cover"/>:<div className="grid size-full place-items-center text-faint"><ImageOff className="size-6"/></div>}</div>
       <div className="min-w-0"><h3 className="text-xl font-semibold text-white">{entry.title}</h3><p className="mt-1 text-sm text-muted">Search for a match, then review each provider before saving.</p><p className="mt-1 text-xs text-muted">Your display title and existing artwork are kept. Saving a new identity clears previous descriptive metadata.</p></div>
     </header>
     <details className="rounded-xl border border-border px-4 py-3 text-xs text-muted" style={surface}><summary className="cursor-pointer font-medium text-white">Media path and current IDs</summary><p className="mt-3 break-all">{entry.path}</p><p className="mt-2 break-words">Current IDs: {Object.entries((entry.metadata.identifiers as Record<string,string>)??{}).map(([key,value])=>`${names[key]??key}: ${value}`).join(" · ")||"None"}</p></details>

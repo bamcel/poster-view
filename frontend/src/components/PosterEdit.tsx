@@ -1,3 +1,4 @@
+import {nativeArtworkVersion} from "../lib/nativeArtworkCache";
 import RemovePosterOverlay from "./RemovePosterOverlay";
 import {useEffect, useRef, useState} from "react";
 import {useQuery, useQueryClient} from "@tanstack/react-query";
@@ -27,7 +28,7 @@ export default function PosterEdit({serverId,item}: {serverId:number;item:ItemDe
   const current=item.poster?.split("&logoOverlay=")[0];
   const animated=["gif","webm"].includes(artworkFormat(current));
   const original=saved?.poster_path === entry?.artwork.find(a=>a.kind==="poster")?.path ? entry?.artwork.find(a=>a.kind==="poster-edit-original") : undefined;
-  const source=!animated && original ? `${nativeLibraries.artworkUrl(library,id,original.kind)}?v=${entry?.revision}` : current;
+  const source=!animated && original ? `${nativeLibraries.artworkUrl(library,id,original.kind)}?v=${encodeURIComponent(nativeArtworkVersion(entry!,original.kind))}` : current;
   const logo=item.logo;
   const update=(key:keyof Placement,value:number)=>setPlacement(p=>({...p,[key]:value}));
   const drag=(event:React.PointerEvent<HTMLImageElement>)=>{

@@ -1,3 +1,4 @@
+import { nativeArtworkVersion } from "../lib/nativeArtworkCache";
 import AdminOnly from "./AdminOnly";
 import {useIsAdmin} from "../lib/authContext";
 import NativeSeriesPlay from "../features/playback/components/NativeSeriesPlay";
@@ -92,12 +93,12 @@ function artwork(
   const edit = (entry?.metadata.posteredit ?? entry?.metadata.poseredit) as {enabled?:boolean;mode?:string;poster_path?:string} | undefined;
   const overlayEnabled = animatedArtworkEnabled(library.id) && (kind === "poster-animated" || kind === "poster" && edit?.mode === "overlay");
   if (overlayEnabled && kind === "poster" && edit?.poster_path === entry?.artwork.find(a=>a.kind==="poster")?.path && entry?.artwork.some(a=>a.kind==="poster-edit-original")) kind="poster-edit-original";
-  const overlay = overlayEnabled && edit?.enabled && entry?.artwork.some(a=>a.kind==="logo") ? `&logoOverlay=${encodeURIComponent(JSON.stringify({...edit,logo:`${nativeLibraries.artworkUrl(library.id,entry.id,"logo")}?v=${entry.revision}`}))}` : "";
+  const overlay = overlayEnabled && edit?.enabled && entry?.artwork.some(a=>a.kind==="logo") ? `&logoOverlay=${encodeURIComponent(JSON.stringify({...edit,logo:`${nativeLibraries.artworkUrl(library.id,entry.id,"logo")}?v=${encodeURIComponent(nativeArtworkVersion(entry,"logo"))}`}))}` : "";
   const framing = animatedArtworkEnabled(library.id) && ["backdrop","backdrop-animated"].includes(kind) ? validFraming(entry?.metadata.backdropedit) : undefined;
-  if (framing?.logo && entry) framing.logo={...framing.logo,enabled:framing.logo.enabled && entry.artwork.some(a=>a.kind==="logo"),src:`${nativeLibraries.artworkUrl(library.id,entry.id,"logo")}?v=${entry.revision}`};
+  if (framing?.logo && entry) framing.logo={...framing.logo,enabled:framing.logo.enabled && entry.artwork.some(a=>a.kind==="logo"),src:`${nativeLibraries.artworkUrl(library.id,entry.id,"logo")}?v=${encodeURIComponent(nativeArtworkVersion(entry,"logo"))}`};
   if(kind==="thumb" && entry?.metadata.missing===true && !entry.artwork.some(a=>a.kind==="thumb") && typeof entry.metadata.expected_thumb_url==="string" && /^https:\/\/(?:image\.tmdb\.org|artworks\.thetvdb\.com)\//.test(entry.metadata.expected_thumb_url)) return entry.metadata.expected_thumb_url;
   return entry?.artwork.some((a) => a.kind === kind)
-    ? `${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${entry.revision}&format=${entry.artwork.find(a => a.kind === kind)?.path.split(".").pop()?.toLowerCase() ?? ""}${!animatedArtworkEnabled(library.id) ? "&still=1" : ""}${overlay}${framing ? `&backdropEdit=${encodeURIComponent(JSON.stringify(framing))}` : ""}`
+    ? `${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${encodeURIComponent(nativeArtworkVersion(entry,kind))}&format=${entry.artwork.find(a => a.kind === kind)?.path.split(".").pop()?.toLowerCase() ?? ""}${!animatedArtworkEnabled(library.id) ? "&still=1" : ""}${overlay}${framing ? `&backdropEdit=${encodeURIComponent(JSON.stringify(framing))}` : ""}`
     : undefined;
 }
 function picture(
@@ -255,11 +256,21 @@ export default function NativeLibraryBrowser({
   const catalog = useQuery({
     queryKey: ["native-catalog", library.id],
     queryFn: () => nativeLibraries.catalog(library.id),
-    staleTime: 60_000,
-    gcTime: 5 * 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
     refetchInterval: status.data?.status === "scanning" ? 5000 : false,
   });
-  useEffect(()=>{if(status.data?.artwork_revision) void client.invalidateQueries({queryKey:["native-catalog",library.id]});},[status.data?.artwork_revision,library.id,client]);
+  useEffect(() => {
+    const revision = status.data?.artwork_revision;
+    if (revision == null) return;
+    const key = ["native-catalog-artwork-revision", library.id];
+    const previous = client.getQueryData<string>(key);
+    client.setQueryDefaults(key, {gcTime: 30 * 60_000});
+    client.setQueryData(key, revision);
+    if (previous !== undefined && previous !== revision) {
+      void client.invalidateQueries({queryKey: ["native-catalog", library.id]});
+    }
+  }, [status.data?.artwork_revision, library.id, client]);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("title");
   const [artFilter, setArtFilter] = useState("all");
@@ -287,14 +298,17 @@ export default function NativeLibraryBrowser({
       window.removeEventListener(BACKDROP_OVERLAY_EVENT, update);
     };
   }, []);
-  const previousScanStatus = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (previousScanStatus.current === "scanning" && status.data?.status && status.data.status !== "scanning")
-      void client.invalidateQueries({
-        queryKey: ["native-catalog", library.id],
-      });
-    previousScanStatus.current = status.data?.status;
-  }, [status.data?.status, client, library.id]);
+    if (!status.data) return;
+    const current = {status: status.data.status, count: status.data.count};
+    const key = ["native-catalog-scan-state", library.id];
+    const previous = client.getQueryData<typeof current>(key);
+    client.setQueryDefaults(key, {gcTime: 30 * 60_000});
+    client.setQueryData(key, current);
+    if (previous && current.status !== "scanning" && (previous.status === "scanning" || previous.count !== current.count)) {
+      void client.invalidateQueries({queryKey: ["native-catalog", library.id]});
+    }
+  }, [status.data?.status, status.data?.count, client, library.id]);
   const view = useMemo(
     () => nativeCatalogView(catalog.data ?? []),
     [catalog.data],
@@ -532,7 +546,7 @@ export default function NativeLibraryBrowser({
                   coloredEffect={library.library_type === "books" && String(entry.metadata.edition ?? "").trim().toLowerCase() === "colored" ? bookDisplay.coloredEffect : "off"}
                   coloredTitle={library.library_type === "books" && String(entry.metadata.edition ?? "").trim().toLowerCase() === "colored" && bookDisplay.coloredTitle}
                   title={entry.title}
-                  menuImage={entry.artwork.some(a=>a.kind==="poster-animated")?`${nativeLibraries.artworkUrl(library.id,entry.id,"poster-animated")}?v=${entry.revision}&format=${entry.artwork.find(a=>a.kind==="poster-animated")?.path.split(".").pop()?.toLowerCase()}&still=1`:picture(library,entry,"poster")}
+                  menuImage={entry.artwork.some(a=>a.kind==="poster-animated")?`${nativeLibraries.artworkUrl(library.id,entry.id,"poster-animated")}?v=${encodeURIComponent(nativeArtworkVersion(entry,"poster-animated"))}&format=${entry.artwork.find(a=>a.kind==="poster-animated")?.path.split(".").pop()?.toLowerCase()}&still=1`:picture(library,entry,"poster")}
                   backdropView={backdropView}
                     image={(backdropView ? picture(library, entry, "backdrop") ?? picture(library, entry, "landscape") : undefined) ?? picture(library, entry, "poster")}
                   subtitle={String(entry.metadata.year ?? "")}

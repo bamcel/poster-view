@@ -77,6 +77,7 @@ pub(crate) struct Folder {
     name: String,
     path: String,
     has_nfo: bool,
+    modified_at: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -232,6 +233,11 @@ impl MetadataStore {
                 } else {
                     format!("{path}/{name}")
                 },
+                modified_at: entry
+                    .metadata()
+                    .ok()
+                    .and_then(|m| m.modified().ok())
+                    .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339()),
                 has_nfo: Self::target(&entry.path()).symlink_metadata().is_ok(),
                 name,
             });
@@ -1251,6 +1257,12 @@ mod tests {
         let doc = store.read("Manga & Color").ok().unwrap();
         assert!(doc.revision.is_none());
         assert!(!store.list("").ok().unwrap().folders[0].has_nfo);
+        assert!(
+            store.list("").unwrap().folders[0]
+                .modified_at
+                .as_deref()
+                .is_some_and(|date| chrono::DateTime::parse_from_rfc3339(date).is_ok())
+        );
         assert_eq!(
             doc.target,
             folder

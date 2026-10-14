@@ -240,16 +240,29 @@ pub(crate) async fn require_auth(
     next: Next,
 ) -> Response {
     let Some(user) = auth.principal(request.headers(), peer(&request)) else {
-        return auth::unauthorized();
+        return uncached_auth_response(auth::unauthorized());
     };
     if let Err(error) = crate::access::authorize_request(&auth, &user, &request) {
-        return error.into_response();
+        return uncached_auth_response(error.into_response());
     }
     let uri_path = request.uri().path().to_owned();
     let mut request = request;
     request.extensions_mut().insert(user.clone());
     let response = next.run(request).await;
     crate::access::filter_response(&auth, &user, &uri_path, response).await
+}
+
+fn uncached_auth_response(mut response: Response) -> Response {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("private, no-store"),
+    );
+    response
+        .headers_mut()
+        .append(header::VARY, axum::http::HeaderValue::from_static("Cookie"));
+    response.headers_mut().remove(header::ETAG);
+    response.headers_mut().remove(header::LAST_MODIFIED);
+    response
 }
 
 fn peer(request: &Request) -> Option<std::net::SocketAddr> {

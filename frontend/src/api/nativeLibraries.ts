@@ -34,10 +34,10 @@ export interface NativeLibrary extends NativeLibraryInput {
 export interface FolderList {
   root: string;
   path: string;
-  folders: { name: string; path: string; has_nfo: boolean }[];
+  folders: { name: string; path: string; has_nfo: boolean; modified_at?: string | null }[];
 }
 export const nativeLibraries = {
-  previews: (id: string) => apiRequest<{id:string;title:string;revision:number;artwork_kind?:"poster"|"thumb"}[]>(`/native/libraries/${encodeURIComponent(id)}/previews`),
+  previews: (id: string) => apiRequest<{id:string;title:string;revision:number;artwork_version?:string;artwork_kind?:"poster"|"thumb"}[]>(`/native/libraries/${encodeURIComponent(id)}/previews`),
   list: () => apiRequest<NativeLibrary[]>("/native/libraries"),
   save: (input: NativeLibraryInput, id?: string) => apiRequest<NativeLibrary>(
     `/native/libraries${id ? `/${encodeURIComponent(id)}` : ""}`,

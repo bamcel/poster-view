@@ -276,7 +276,7 @@ pub(crate) async fn previews(
             let kind = entry.artwork.iter().find(|art| art.kind == "thumb")
                 .or_else(|| entry.artwork.iter().find(|art| art.kind == "poster"))?;
             if entry.kind != "episode" { return None; }
-            Some(serde_json::json!({"id":entry.id,"title":entry.title,"revision":entry.revision,"artwork_kind":kind.kind}))
+            Some(serde_json::json!({"id":entry.id,"title":entry.title,"revision":entry.revision,"artwork_version":serde_json::json!([kind.path,kind.source,entry.metadata.get("_artwork_cache_revision")]).to_string(),"artwork_kind":kind.kind}))
         } else if ["series", "movie", "book", "book_series"].contains(&entry.kind.as_str())
             && entry.artwork.iter().any(|art| art.kind == "poster") {
             Some(serde_json::json!({"id":entry.id,"title":entry.title,"revision":entry.revision}))

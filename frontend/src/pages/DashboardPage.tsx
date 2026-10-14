@@ -20,7 +20,7 @@ export default function DashboardPage() {
  const library=resolveNamed(libraryId??params.get("native_library")??undefined,libraries.data??[])
    ?? (!libraryId ? libraries.data?.find(l=>l.id===localStorage.getItem("posterview.manualLibraryTab")) ?? libraries.data?.[0] : undefined);
 
- const catalog=useQuery({queryKey:["native-catalog",library?.id],queryFn:()=>nativeLibraries.catalog(library!.id),enabled:!!library&&!preview,staleTime:60_000,gcTime:5*60_000});
+ const catalog=useQuery({queryKey:["native-catalog",library?.id],queryFn:()=>nativeLibraries.catalog(library!.id),enabled:!!library&&!preview,staleTime:5*60_000,gcTime:30*60_000});
  const view=useMemo(()=>nativeCatalogView(catalog.data??[]),[catalog.data]);
  const entries=view.entries;
  const series=seasonSlug ? resolveNamed(itemSlug,entries.filter(entry=>entry.kind==="series")) : undefined;

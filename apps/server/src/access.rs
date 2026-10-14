@@ -284,15 +284,30 @@ pub(crate) async fn filter_response(
     path: &str,
     mut response: Response,
 ) -> Response {
+    let artwork = segments(path).is_ok_and(|parts| {
+        let parts: Vec<_> = parts.iter().map(String::as_str).collect();
+        matches!(
+            parts.as_slice(),
+            ["api", "native", "libraries", _, "items", _, "artwork", _]
+        )
+    }) && matches!(response.status(), StatusCode::OK | StatusCode::NOT_MODIFIED);
     response.headers_mut().insert(
         header::CACHE_CONTROL,
-        "private, no-store".parse().expect("constant header"),
+        if artwork {
+            "private, no-cache, must-revalidate"
+        } else {
+            "private, no-store"
+        }
+        .parse()
+        .expect("constant header"),
     );
     response
         .headers_mut()
         .append(header::VARY, "Cookie".parse().expect("constant header"));
-    response.headers_mut().remove(header::ETAG);
-    response.headers_mut().remove(header::LAST_MODIFIED);
+    if !artwork {
+        response.headers_mut().remove(header::ETAG);
+        response.headers_mut().remove(header::LAST_MODIFIED);
+    }
     if user.role == UserRole::Admin {
         return response;
     }
@@ -521,7 +536,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn admin_media_is_not_cached_across_account_switches() {
+    async fn admin_media_must_revalidate_across_account_switches() {
         let mut admin = user();
         admin.role = UserRole::Admin;
         let response = Response::builder()
@@ -539,10 +554,38 @@ mod tests {
         .await;
         assert_eq!(
             response.headers()[header::CACHE_CONTROL],
-            "private, no-store"
+            "private, no-cache, must-revalidate"
         );
-        assert!(response.headers().get(header::ETAG).is_none());
-        assert!(response.headers().get(header::LAST_MODIFIED).is_none());
+        assert_eq!(response.headers()[header::ETAG], "old");
+        assert_eq!(response.headers()[header::LAST_MODIFIED], "old");
+        assert_eq!(response.headers()[header::VARY], "Cookie");
+    }
+    #[tokio::test]
+    async fn failed_artwork_and_non_artwork_keep_no_store() {
+        let mut admin = user();
+        admin.role = UserRole::Admin;
+        for (path, status) in [
+            (
+                "/api/native/libraries/a/items/b/artwork/poster",
+                StatusCode::NOT_FOUND,
+            ),
+            ("/api/native/libraries/a/items", StatusCode::OK),
+            ("/api/playback/native/a/b", StatusCode::OK),
+        ] {
+            let response = Response::builder()
+                .status(status)
+                .header(header::ETAG, "old")
+                .header(header::LAST_MODIFIED, "old")
+                .body(axum::body::Body::empty())
+                .unwrap();
+            let response = filter_response(&AuthState::for_tests(""), &admin, path, response).await;
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "private, no-store"
+            );
+            assert!(response.headers().get(header::ETAG).is_none());
+            assert!(response.headers().get(header::LAST_MODIFIED).is_none());
+        }
     }
     #[tokio::test]
     async fn router_filters_catalogs_and_rejects_direct_and_admin_access() {
@@ -607,6 +650,22 @@ mod tests {
             .unwrap()
             .unwrap()
             .id;
+        let mut image = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgba8(2, 2)
+            .write_to(&mut image, image::ImageFormat::Png)
+            .unwrap();
+        let artwork_path = crate::native_provider::store_image(&state, image.get_ref()).unwrap();
+        store
+            .save_native_artwork(
+                &library.id,
+                &adult_id,
+                &posterview_contracts::native::NativeArtwork {
+                    kind: "poster".into(),
+                    path: artwork_path,
+                    source: "manual".into(),
+                },
+            )
+            .unwrap();
         let mut permissions = user().permissions;
         permissions.library_ids = vec![library.id.clone()];
         store
@@ -620,9 +679,84 @@ mod tests {
             })
             .unwrap();
         let (_, cookie) = state.auth.login("viewer", "viewer-password").unwrap();
+        let (_, admin_cookie) = state.auth.login("admin", "admin-password").unwrap();
         let app = crate::routes::system::public()
             .merge(crate::routes::protected(state.auth.clone()))
             .with_state(state);
+        let artwork_url = format!(
+            "/api/native/libraries/{}/items/{}/artwork/poster",
+            library.id, adult_id
+        );
+        let cached = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(&artwork_url)
+                    .header(header::COOKIE, &admin_cookie)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(cached.status(), StatusCode::OK);
+        assert_eq!(
+            cached.headers()[header::CACHE_CONTROL],
+            "private, no-cache, must-revalidate"
+        );
+        let tag = cached.headers()[header::ETAG].clone();
+        assert!(
+            !to_bytes(cached.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let unchanged = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(&artwork_url)
+                    .header(header::COOKIE, &admin_cookie)
+                    .header(header::IF_NONE_MATCH, &tag)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(unchanged.headers()[header::ETAG], tag);
+        assert_eq!(
+            unchanged.headers()[header::CACHE_CONTROL],
+            "private, no-cache, must-revalidate"
+        );
+        assert_eq!(unchanged.headers()[header::VARY], "Cookie");
+        assert!(
+            to_bytes(unchanged.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        for (account, expected) in [
+            (Some(cookie.to_str().unwrap()), StatusCode::FORBIDDEN),
+            (None, StatusCode::UNAUTHORIZED),
+        ] {
+            let mut request = Request::builder()
+                .uri(&artwork_url)
+                .header(header::IF_NONE_MATCH, &tag);
+            if let Some(account) = account {
+                request = request.header(header::COOKIE, account);
+            }
+            let response = app
+                .clone()
+                .oneshot(request.body(axum::body::Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "private, no-store"
+            );
+            assert!(response.headers().get(header::ETAG).is_none());
+        }
         for path in [
             "/api/users".to_owned(),
             format!(

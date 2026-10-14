@@ -224,6 +224,39 @@ it("refreshes the catalog after an active scan finishes", async () => {
   await waitFor(() => expect(nativeLibraries.catalog).toHaveBeenCalledTimes(2));
 });
 
+it("reuses catalog across navigation remounts and detects artwork changes while away", async () => {
+  vi.mocked(nativeLibraries.catalog).mockClear();
+  vi.mocked(nativeLibraries.status).mockResolvedValue({status: "complete", count: 3, warnings: [], artwork_revision: "art-1"});
+  const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  const view = () => render(<MemoryRouter><QueryClientProvider client={client}><NativeLibraryBrowser library={library} /></QueryClientProvider></MemoryRouter>);
+  const first = view();
+  await screen.findByText("Example Series");
+  await waitFor(() => expect(client.getQueryData(["native-catalog-artwork-revision", library.id])).toBe("art-1"));
+  expect(nativeLibraries.catalog).toHaveBeenCalledTimes(1);
+  first.unmount();
+  const second = view();
+  await screen.findByText("Example Series");
+  await waitFor(() => expect(nativeLibraries.status).toHaveBeenCalled());
+  expect(nativeLibraries.catalog).toHaveBeenCalledTimes(1);
+  second.unmount();
+  vi.mocked(nativeLibraries.status).mockResolvedValue({status: "complete", count: 3, warnings: [], artwork_revision: "art-2"});
+  view();
+  await waitFor(() => expect(nativeLibraries.catalog).toHaveBeenCalledTimes(2));
+});
+
+it("keeps artwork URLs stable when only catalog metadata revisions change", async () => {
+  const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<MemoryRouter><QueryClientProvider client={client}><NativeLibraryBrowser library={library} /></QueryClientProvider></MemoryRouter>);
+  await screen.findByText("Example Series");
+  const poster = () => document.querySelector<HTMLImageElement>('img[src^="/art/native/show/poster?"]')?.getAttribute("src");
+  const original = poster();
+  expect(original).toBeTruthy();
+  client.setQueryData(["native-catalog", library.id], [{...series, revision: 99}]);
+  await waitFor(() => expect(poster()).toBe(original));
+  client.setQueryData(["native-catalog", library.id], [{...series, artwork: [{kind: "poster", path: "replacement.jpg", source: "local"}]}]);
+  await waitFor(() => expect(poster()).not.toBe(original));
+});
+
 it("shows stored character and cast portraits including relative TMDB paths", async () => {
   vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series, metadata: {...series.metadata,
     characters: [{name: "Character", image: "https://s4.anilist.co/character.jpg"}],
@@ -559,4 +592,15 @@ it("allows viewer browsing without editing artwork, metadata or scan actions",as
  expect(screen.queryByRole("button",{name:"Edit Images"})).toBeNull();
  expect(screen.queryByRole("button",{name:"Identify"})).toBeNull();
  expect(nativeLibraries.status).not.toHaveBeenCalled();
+});
+
+it("refreshes fresh catalog when the library count changes while away",async()=>{
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ vi.mocked(nativeLibraries.catalog).mockClear();
+ vi.mocked(nativeLibraries.status).mockResolvedValue({status:"complete",count:3,warnings:[]});
+ const view=()=>render(<MemoryRouter><QueryClientProvider client={client}><NativeLibraryBrowser library={library}/></QueryClientProvider></MemoryRouter>);
+ const first=view();await screen.findByText("Example Series");
+ await waitFor(()=>expect(client.getQueryData(["native-catalog-scan-state",library.id])).toEqual({status:"complete",count:3}));
+ first.unmount();vi.mocked(nativeLibraries.status).mockResolvedValue({status:"complete",count:4,warnings:[]});view();
+ await waitFor(()=>expect(nativeLibraries.catalog).toHaveBeenCalledTimes(2));
 });

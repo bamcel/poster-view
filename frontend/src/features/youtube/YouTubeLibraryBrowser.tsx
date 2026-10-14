@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { nativeArtworkVersion } from '../../lib/nativeArtworkCache';
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { nativeLibraries, type NativeLibrary, type NativeCatalogEntry } from '../../api/nativeLibraries';
 import { useSearchParams } from '../../lib/libraryNavigation';
@@ -7,7 +8,7 @@ import { channelsFromCatalog, playlistVideos, youtubeMetadata } from './catalog'
 
 export default function YouTubeLibraryBrowser({ library }: { library: NativeLibrary }) {
   const [params, setParams] = useSearchParams();
-  const catalog = useQuery({ queryKey: ['native-catalog', library.id], queryFn: () => nativeLibraries.catalog(library.id), staleTime: 60_000 });
+  const catalog = useQuery({ queryKey: ['native-catalog', library.id], queryFn: () => nativeLibraries.catalog(library.id), staleTime: 5 * 60_000, gcTime: 30 * 60_000 });
   const channels = channelsFromCatalog(catalog.data ?? []);
   const single = library.options?.youtube_mode !== 'multiple_channels';
   const playlistId = params.get('youtube_playlist');
@@ -15,7 +16,7 @@ export default function YouTubeLibraryBrowser({ library }: { library: NativeLibr
   const channelId=params.get('youtube_channel')??(video?youtubeMetadata(video).channel_id:undefined);
   const channel=channels.find(c=>c.id===channelId)??(single?channels[0]:undefined);
   const navigate = (channelId?: string, playlist?: string, item?: string) => { const next = new URLSearchParams(params); for (const key of ['youtube_channel', 'youtube_playlist', 'youtube_video']) next.delete(key); if (channelId) next.set('youtube_channel', channelId); if (playlist) next.set('youtube_playlist', playlist); if (item) next.set('youtube_video', item); setParams(next); };
-  const image = (entry?: NativeCatalogEntry) => { const kind = entry?.artwork.find(a => a.kind === 'thumb')?.kind ?? entry?.artwork.find(a => a.kind === 'poster')?.kind; return entry && kind ? nativeLibraries.artworkUrl(library.id, entry.id, kind) : undefined; };
+  const image = (entry?: NativeCatalogEntry) => { const kind = entry?.artwork.find(a => a.kind === 'thumb')?.kind ?? entry?.artwork.find(a => a.kind === 'poster')?.kind; return entry && kind ? `${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${encodeURIComponent(nativeArtworkVersion(entry, kind))}` : undefined; };
   const thumbnail = (entry?: NativeCatalogEntry) => image(entry) ? <img src={image(entry)} alt="" className="aspect-video w-full rounded-lg object-cover"/> : <div className="aspect-video rounded-lg bg-white/10"/>;
   const back = () => video ? navigate(channel?.id, playlistId ?? 'all') : playlistId ? navigate(channel?.id) : navigate();
   if (catalog.isPending) return <p className="p-6 text-muted">Loading YouTube library…</p>;

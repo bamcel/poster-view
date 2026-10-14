@@ -84,6 +84,7 @@ impl ServerStore {
         let mut db = self.connection()?;
         let tx = db.transaction()?;
         let changed=tx.execute("UPDATE catalog_items SET revision=revision+1 WHERE id IN (SELECT a.item_id FROM catalog_artwork a JOIN native_catalog_sources s ON s.item_id=a.item_id WHERE s.library_id=?1 AND s.available=1 AND a.path=?2 AND a.source='local' AND a.locked=0)",params![library,path])?;
+        tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) SELECT DISTINCT a.item_id,'_artwork_cache_revision',?3,'manual',1 FROM catalog_artwork a JOIN native_catalog_sources s ON s.item_id=a.item_id WHERE s.library_id=?1 AND s.available=1 AND a.path=?2 AND a.source='local' AND a.locked=0 ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,revision=revision+1", params![library,path,json!(uuid::Uuid::new_v4().to_string()).to_string()])?;
         tx.commit()?;
         if changed > 0 {
             self.set_setting(
@@ -716,6 +717,7 @@ impl ServerStore {
             "UPDATE catalog_items SET revision=revision+1 WHERE id=?1",
             [item],
         )?;
+        update_artwork_cache_revision(&tx, item)?;
         tx.commit()?;
         Ok(())
     }
@@ -763,6 +765,7 @@ impl ServerStore {
             "UPDATE catalog_items SET revision=revision+1 WHERE id=?1",
             [item],
         )?;
+        update_artwork_cache_revision(&tx, item)?;
         tx.commit()?;
         Ok(())
     }
@@ -985,6 +988,16 @@ impl ServerStore {
         Ok(())
     }
 }
+// Keep artwork cache identity independent of scan and descriptive metadata revisions.
+// Internal fields are excluded from ingest and NFO export; locking also protects this marker.
+fn update_artwork_cache_revision(
+    tx: &rusqlite::Transaction<'_>,
+    item: &str,
+) -> Result<(), StoreError> {
+    tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_artwork_cache_revision',?2,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,revision=revision+1", params![item,json!(uuid::Uuid::new_v4().to_string()).to_string()])?;
+    Ok(())
+}
+
 fn project_metadata(
     tx: &rusqlite::Transaction<'_>,
     id: &str,
@@ -1081,6 +1094,96 @@ fn project_metadata(
 mod tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryInput, NativeLibraryType};
+    #[test]
+    fn artwork_cache_identity_survives_scans_and_metadata_edits() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "TV".into(),
+                    library_type: NativeLibraryType::Anime,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["TV".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let entry = NativeCatalogEntry {
+            id: String::new(),
+            path: "TV/Show".into(),
+            kind: "series".into(),
+            parent_path: None,
+            title: "Show".into(),
+            metadata: json!({"title":"Show"}),
+            artwork: vec![NativeArtwork {
+                kind: "poster".into(),
+                path: "TV/Show/poster.jpg".into(),
+                source: "local".into(),
+            }],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
+        assert!(
+            !db.refresh_local_artwork(&library.id, "TV/Unknown/poster.jpg")
+                .unwrap()
+        );
+        assert!(
+            db.refresh_local_artwork(&library.id, "TV/Show/poster.jpg")
+                .unwrap()
+        );
+        let first = db.native_catalog(&library.id).unwrap().remove(0);
+        let marker = first.metadata["_artwork_cache_revision"].clone();
+        assert!(uuid::Uuid::parse_str(marker.as_str().unwrap()).is_ok());
+        db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&first))
+            .unwrap();
+        let scanned = db.native_catalog(&library.id).unwrap().remove(0);
+        assert!(scanned.revision > first.revision);
+        assert_eq!(scanned.metadata["_artwork_cache_revision"], marker);
+        db.edit_native_entry(
+            &library.id,
+            &scanned.id,
+            scanned.revision,
+            &json!({"title":"Edited"}),
+        )
+        .unwrap();
+        let edited = db.native_catalog(&library.id).unwrap().remove(0);
+        assert_eq!(edited.metadata["_artwork_cache_revision"], marker);
+        db.refresh_local_artwork(&library.id, "TV/Show/poster.jpg")
+            .unwrap();
+        let touched = db.native_catalog(&library.id).unwrap().remove(0);
+        assert_ne!(touched.metadata["_artwork_cache_revision"], marker);
+        db.save_native_artwork(
+            &library.id,
+            &edited.id,
+            &NativeArtwork {
+                kind: "poster".into(),
+                path: "@managed/replacement.jpg".into(),
+                source: "manual".into(),
+            },
+        )
+        .unwrap();
+        let replaced = db.native_catalog(&library.id).unwrap().remove(0);
+        assert_ne!(
+            replaced.metadata["_artwork_cache_revision"],
+            touched.metadata["_artwork_cache_revision"]
+        );
+        db.remove_native_artwork(&library.id, &edited.id, "poster")
+            .unwrap();
+        let removed = db.native_catalog(&library.id).unwrap().remove(0);
+        assert_ne!(
+            removed.metadata["_artwork_cache_revision"],
+            replaced.metadata["_artwork_cache_revision"]
+        );
+    }
     #[test]
     fn title_edits_preserve_unchanged_legacy_credit_shapes() {
         let temp = tempfile::tempdir().unwrap();

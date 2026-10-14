@@ -12,6 +12,7 @@ function mount(component: React.ReactNode) {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{component}</QueryClientProvider>);
 }
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal=vi.fn(function(this:HTMLDialogElement){this.setAttribute("open","");});
   vi.mocked(api.listServers).mockResolvedValue([]);
   vi.mocked(nativeLibraries.list).mockResolvedValue([]);
   vi.mocked(nativeLibraries.previews).mockResolvedValue([]);
@@ -27,8 +28,10 @@ it("creates an Anime library with multiple media folders and no remote-server im
   fireEvent.change(screen.getByLabelText("Library type"), { target: { value: "anime" } });
   expect((screen.getByLabelText("Anime content") as HTMLSelectElement).value).toBe("both");
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: "Shows" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Movies" }));
+  fireEvent.click(screen.getByRole("button", { name: "Select Folders" }));
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
   fireEvent.click(screen.getByRole("button", { name: /Review/ }));
@@ -41,9 +44,11 @@ it("keeps selected folders across navigation and prevents overlapping roots", as
   mount(<LibraryDialog onClose={vi.fn()} onSaved={vi.fn()} />);
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "TV" } });
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: "Shows" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open Shows" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open folder Shows" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: "Season 1" }));
+  fireEvent.click(screen.getByRole("button", { name: "Select Folders" }));
   expect(screen.getByText(/Selected folders overlap/)).toBeTruthy();
   expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Remove /media/Shows" }));
@@ -186,8 +191,20 @@ it("creates YouTube library with channel hierarchy and local NFO defaults", asyn
  fireEvent.change(screen.getByLabelText("YouTube content"),{target:{value:"multiple_channels"}});
  fireEvent.change(screen.getByLabelText("Channel URLs or IDs"),{target:{value:"@first\n@second"}});
  fireEvent.click(screen.getByRole("button",{name:"Next"}));
+ fireEvent.click(screen.getByRole("button",{name:"Browse folders"}));
  fireEvent.click(await screen.findByRole("checkbox",{name:"Shows"}));
+ fireEvent.click(screen.getByRole("button",{name:"Select Folders"}));
  fireEvent.click(screen.getByRole("button",{name:/Review/}));
  fireEvent.click(screen.getByRole("button",{name:"Create library"}));
  await waitFor(()=>expect(nativeLibraries.save).toHaveBeenCalledWith(expect.objectContaining({library_type:"youtube",options:expect.objectContaining({youtube_mode:"multiple_channels",youtube_channels:["@first","@second"],read_nfo:true,save_nfo:true,fetch_missing:false,show_missing_files:false,metadata_providers:{},image_providers:{}})}),undefined));
+});
+
+it("cancels folder edits without changing the library's existing roots",async()=>{
+ mount(<LibraryDialog library={saved} onClose={vi.fn()} onSaved={vi.fn()}/>);
+ fireEvent.click(screen.getByRole("button",{name:/Folders/}));
+ fireEvent.click(screen.getByRole("button",{name:"Browse folders"}));
+ fireEvent.click(await screen.findByRole("checkbox",{name:"Shows"}));
+ fireEvent.click(screen.getByRole("button",{name:"Cancel"}));
+ expect(screen.getByRole("dialog",{name:"Edit library"})).toBeTruthy();
+ expect(screen.getByText("2 folders selected")).toBeTruthy();
 });

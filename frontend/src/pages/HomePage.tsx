@@ -1,3 +1,4 @@
+import {nativeArtworkVersion} from "../lib/nativeArtworkCache";
 import ContinueWatching from "../features/playback/components/ContinueWatching";
 import {useCatalogPrefetch} from "../lib/catalogPrefetch";
 import {HOME_RESET_EVENT} from "../lib/homeNavigation";
@@ -23,7 +24,7 @@ function LibraryHome(){
  const [search,setSearch]=useState("");
  useEffect(()=>{const reset=()=>setSearch("");window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
  const term=search.trim().toLocaleLowerCase();
- const catalogs=useQueries({queries:(term ? libraries.data??[] : []).map(library=>({queryKey:["native-catalog",library.id],queryFn:()=>nativeLibraries.catalog(library.id),staleTime:60_000,gcTime:5*60_000}))});
+ const catalogs=useQueries({queries:(term ? libraries.data??[] : []).map(library=>({queryKey:["native-catalog",library.id],queryFn:()=>nativeLibraries.catalog(library.id),staleTime:5*60_000,gcTime:30*60_000}))});
  const results=catalogs.flatMap((catalog,index)=>(catalog.data??[]).filter(entry=>entry.available&&entry.kind!=="season"&&[entry.title,entry.metadata.originaltitle].some(value=>typeof value==="string"&&value.toLocaleLowerCase().includes(term))).map(entry=>({entry,library:libraries.data![index]})));
  const sections=[{name:"Movies",kinds:["movie"]},{name:"Series",kinds:["series"]},{name:"Episodes",kinds:["episode"]},{name:"Books",kinds:["book","book_series"]}].map(section=>({...section,results:results.filter(({entry})=>section.kinds.includes(entry.kind))})).filter(section=>section.results.length>0);
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
@@ -48,7 +49,7 @@ function LibraryHome(){
    <div className="space-y-8">{sections.map(section=><section key={section.name} aria-label={section.name}>
     <h2 className="mb-4 text-xl font-semibold text-white">{section.name}</h2>
     <div className="flex gap-5 overflow-x-auto pb-3">{section.results.slice(0,100).map(({entry,library})=><Link key={`${library.id}:${entry.id}`} to={`/media/${encodeURIComponent(library.id)}?native_library=${encodeURIComponent(library.id)}&native_item=${encodeURIComponent(entry.id)}`} aria-label={`Open ${entry.title} in ${library.name}`} className={`group shrink-0 rounded-lg focus-visible:outline-2 focus-visible:outline-accent ${entry.kind==="episode"?"w-64 sm:w-72 lg:w-80":"w-36 sm:w-44 lg:w-52"}`}>
-    <div className={`grid place-items-center overflow-hidden rounded-lg bg-elevated ${entry.kind==="episode"?"aspect-video":"aspect-[2/3]"}`}>{(()=>{const kind=entry.kind==="episode"?entry.artwork.find(art=>art.kind==="thumb")?.kind??entry.artwork.find(art=>art.kind==="landscape")?.kind:entry.artwork.find(art=>art.kind==="poster")?.kind;return kind?<img src={`${nativeLibraries.artworkUrl(library.id,entry.id,kind)}?v=${entry.revision}`} alt="" loading="lazy" className="h-full w-full object-cover"/>:<Film className="size-10 text-faint"/>;})()}</div>
+    <div className={`grid place-items-center overflow-hidden rounded-lg bg-elevated ${entry.kind==="episode"?"aspect-video":"aspect-[2/3]"}`}>{(()=>{const kind=entry.kind==="episode"?entry.artwork.find(art=>art.kind==="thumb")?.kind??entry.artwork.find(art=>art.kind==="landscape")?.kind:entry.artwork.find(art=>art.kind==="poster")?.kind;return kind?<img src={`${nativeLibraries.artworkUrl(library.id,entry.id,kind)}?v=${encodeURIComponent(nativeArtworkVersion(entry,kind))}`} alt="" loading="lazy" className="h-full w-full object-cover"/>:<Film className="size-10 text-faint"/>;})()}</div>
     <p className="mt-2 truncate text-sm font-medium text-white group-hover:text-accent">{entry.title}</p><p className="text-xs text-muted">{library.name} · {entry.kind.replaceAll("_"," ")}</p>
    </Link>)}</div>
    {section.results.length>100&&<p className="mt-3 text-sm text-muted">Showing 100 of {section.results.length} matches. Refine your search to see fewer results.</p>}
