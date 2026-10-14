@@ -15,7 +15,7 @@ it("filters folders and confirms a nested destination without selecting during n
 });
 it("navigates to the media root through breadcrumbs and selects it",async()=>{
  const change=mount();fireEvent.click(screen.getByLabelText("Download directory"));await screen.findByRole("button",{name:"Open folder Channels"});
- fireEvent.click(within(screen.getByRole("navigation",{name:"Directory breadcrumbs"})).getByRole("button",{name:"/media",exact:true}));await waitFor(()=>expect(nativeLibraries.folders).toHaveBeenCalledWith(""));await screen.findByText("No subfolders. You can select this folder.");
+ fireEvent.click(within(screen.getByRole("navigation",{name:"Directory breadcrumbs"})).getByRole("button",{name:"/media"}));await waitFor(()=>expect(nativeLibraries.folders).toHaveBeenCalledWith(""));await screen.findByText("No subfolders. You can select this folder.");
  fireEvent.click(screen.getByRole("button",{name:"Use this folder"}));expect(change).toHaveBeenCalledWith("");
 });
 it("keeps confirmation disabled when folder loading fails",async()=>{
