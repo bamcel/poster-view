@@ -37,6 +37,23 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();window.dispatchEvent(new Event("posterview:account-changed"));vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();if(originalAudioProperty)Object.defineProperty(HTMLMediaElement.prototype,"audioTracks",originalAudioProperty);else Reflect.deleteProperty(HTMLMediaElement.prototype,"audioTracks");});
 describe("original-file player",()=>{
+ it("retires a session allocated after pagehide instead of attaching it",async()=>{
+  let allocate!:(value:PlaybackSession)=>void;
+  vi.mocked(playbackApi.create).mockImplementation(()=>new Promise(resolve=>{allocate=resolve;}));
+  player();await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledOnce());
+  fireEvent(window,new Event("pagehide"));allocate(session);
+  await waitFor(()=>expect(playbackApi.stop).toHaveBeenCalledWith("playback-one"));
+  expect(document.querySelector("video")!.getAttribute("src")).toBeNull();
+ });
+ it("keeps delivery on tab switches, stops it on pagehide, and recreates it after bfcache restore",async()=>{
+  player();const video=await ready();video.currentTime=420;
+  fireEvent(document,new Event("visibilitychange"));expect(playbackApi.stop).not.toHaveBeenCalled();
+  fireEvent(window,new Event("pagehide"));expect(playbackApi.stop).toHaveBeenCalledWith("playback-one",true);
+  expect(video.getAttribute("src")).toBeNull();
+  const restore=new Event("pageshow");Object.defineProperty(restore,"persisted",{value:true});fireEvent(window,restore);
+  await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));
+  expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:420}));
+ });
  it("holds the previous decoded picture across source replacement without restoring the poster",async()=>{
   vi.mocked(playbackApi.info).mockResolvedValue({...info,poster_url:"/poster.jpg",remux_allowed:true});hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
   const draw=vi.fn();vi.spyOn(HTMLCanvasElement.prototype,"getContext").mockReturnValue({drawImage:draw} as unknown as CanvasRenderingContext2D);

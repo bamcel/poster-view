@@ -1,3 +1,4 @@
+import {stopAfterWatchReports} from "./lib/sessionTeardown";
 import {waitForPreviousPlayback} from "./lib/previousPlayback";
 import {trackWatchReport, finishWatchReports, waitForWatchReports} from "./lib/watchReports";
 import {watchApi} from "./api/watch";
@@ -145,7 +146,7 @@ export default function PlayerPage() {
     if(stopped)heartbeatQueue.current?.forget(stopped.id);
     if(element){element.removeAttribute("src");element.load();}
     if(stopped){
-      const stopping=Promise.all([finalReport,finishWatchReports(routeKey)]).then(()=>playbackApi.stop(stopped.id)).catch(()=>{});pendingStop.current=stopping;
+      const stopping=stopAfterWatchReports(Promise.all([finalReport,finishWatchReports(routeKey)]),()=>playbackApi.stop(stopped.id));pendingStop.current=stopping;
       void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});
     }
     setLoading(false);setBuffering(false);setPlaying(false);setVisible(true);setError(message);
@@ -222,7 +223,7 @@ export default function PlayerPage() {
     waitingDemand.current=false;if(previous)heartbeatQueue.current?.forget(previous.id);
     element.pause();setPlaying(false);setLoading(true);setBuffering(false);setError("");setEnded(false);setCountdown(null);
     element.removeAttribute("src");element.load();
-    if(previous){const stopping=finishWatchReports(routeKey).then(()=>playbackApi.stop(previous.id)).catch(()=>{});pendingStop.current=stopping;void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});}
+    if(previous){const stopping=stopAfterWatchReports(finishWatchReports(routeKey),()=>playbackApi.stop(previous.id));pendingStop.current=stopping;void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});}
     try{
       if(pendingStop.current)await waitForPreviousPlayback(pendingStop.current,"The previous playback session");
       if(pendingAllocation.current)await waitForPreviousPlayback(pendingAllocation.current,"The previous playback request");
@@ -343,7 +344,7 @@ export default function PlayerPage() {
       segmented.current?.destroy();segmented.current=undefined;seekQueue.current.reset();fragmentSampler.current.reset();
       const element=video.current;if(element){element.pause();element.removeAttribute("src");element.load();}
       const stopped=current.current;current.current=undefined;if(stopped){
-        const stopping=finalReports.then(()=>playbackApi.stop(stopped.id)).catch(()=>{});pendingStop.current=stopping;
+        const stopping=stopAfterWatchReports(finalReports,()=>playbackApi.stop(stopped.id));pendingStop.current=stopping;
         void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});
       }
     };
@@ -351,13 +352,34 @@ export default function PlayerPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[initializeItem,report]);
   useEffect(()=>{
+    let pageSuspended=false;
     const timer=window.setInterval(()=>{
       if(ready.current){report();heartbeat();}
     },10_000);
     const flush=()=>report(false,true);
-    window.addEventListener("pagehide",flush);document.addEventListener("visibilitychange",flush);
-    return()=>{clearInterval(timer);window.removeEventListener("pagehide",flush);document.removeEventListener("visibilitychange",flush);};
-  },[report,heartbeat]);
+    const hide=()=>{
+      const element=video.current,owned=current.current;
+      if(!owned&&!pendingAllocation.current)return;
+      if(owned&&ready.current&&!pendingSeek.current&&element&&Number.isFinite(element.currentTime))sourcePosition.current=element.currentTime+owned.offset_seconds;
+      if(owned&&ready.current&&element)playIntent.current=!element.paused;
+      flush();pageSuspended=true;ready.current=false;requestGeneration.current++;
+      current.current=undefined;mediaOwner.current=null;if(owned)heartbeatQueue.current?.forget(owned.id);
+      metadataCleanup.current?.();metadataCleanup.current=undefined;segmented.current?.destroy();segmented.current=undefined;seekQueue.current.reset();
+      element?.pause();if(element){element.removeAttribute("src");element.load();}
+      // A pending allocation observes the invalidated generation and stops its
+      // returned session instead of attaching it to this departed page.
+      if(!owned)return;
+      // Unload cannot wait for another request. Keepalive watch reports omit
+      // playback_session_id, so deleting delivery does not invalidate the save.
+      const stopping=playbackApi.stop(owned.id,true).catch(()=>{});pendingStop.current=stopping;
+      void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});
+    };
+    const show=(event:PageTransitionEvent)=>{
+      if(event.persisted&&pageSuspended){pageSuspended=false;void start(sourcePosition.current,playIntent.current);}
+    };
+    window.addEventListener("pagehide",hide);window.addEventListener("pageshow",show);document.addEventListener("visibilitychange",flush);
+    return()=>{clearInterval(timer);window.removeEventListener("pagehide",hide);window.removeEventListener("pageshow",show);document.removeEventListener("visibilitychange",flush);};
+  },[report,heartbeat,start]);
   useEffect(()=>{
     controls.current.playing=playing;controls.current.menu=menu;controls.current.dragging=scrubbing!==null;controls.current.prompt=watchPrompt;controls.current.ended=ended;
   },[playing,menu,scrubbing,watchPrompt,ended]);

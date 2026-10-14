@@ -1054,9 +1054,9 @@ async fn retire_idle(store: &Arc<PlaybackStore>) {
         store.sessions.lock().await.remove(&id);
         drop(session);
         if let Some(producer) = producer {
-            tokio::spawn(async move {
-                producer.stop().await;
-            });
+            // The caller may allocate immediately at the concurrency limit.
+            // Release the expired producer's slot before returning capacity.
+            producer.stop().await;
         }
     }
 }

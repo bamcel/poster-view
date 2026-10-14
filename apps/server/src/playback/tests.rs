@@ -357,6 +357,64 @@ async fn copied_flac_hls_preserves_lossless_audio_and_video() {
 }
 
 #[tokio::test]
+async fn expired_producer_releases_capacity_before_replacement_allocation() {
+    let fixture = video_fixture(b"placeholder", test_support::probe()).await;
+    let mut cmd = command("ffmpeg");
+    cmd.args([
+        "-nostdin",
+        "-v",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=160x90:rate=25:duration=2",
+        "-c:v",
+        "libx264",
+        "-threads",
+        "1",
+    ])
+    .arg(&fixture.file);
+    run(
+        &mut cmd,
+        Duration::from_secs(15),
+        "Expired producer fixture",
+    )
+    .await
+    .unwrap();
+    fixture.state.playback.probes.lock().await.clear();
+    save_policy(
+        &fixture,
+        crate::transcoding::Settings {
+            max_concurrent: 1,
+            ..Default::default()
+        },
+    );
+    let allocate = || {
+        create(
+            State(fixture.state.clone()),
+            HeaderMap::new(),
+            Path((fixture.library.clone(), fixture.item.clone())),
+            Json(SessionInput {
+                force_remux: true,
+                ..input()
+            }),
+        )
+    };
+    let first = allocate().await.unwrap().0;
+    assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 1);
+    let first_handle = handle(&fixture.state.playback, &first.id).await.unwrap();
+    first_handle.lock().await.touched = Instant::now() - SESSION_IDLE - Duration::from_secs(1);
+    retire_idle(&fixture.state.playback).await;
+    assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
+    assert!(first_handle.lock().await.closed);
+    let replacement = allocate().await.unwrap().0;
+    assert_eq!(replacement.method, "remux");
+    fixture.state.playback.stop_id(&replacement.id).await;
+    assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
 async fn real_copied_preparation_covers_resume_target_before_publishing() {
     let fixture = video_fixture(b"placeholder", test_support::probe()).await;
     let mut cmd = command("ffmpeg");
