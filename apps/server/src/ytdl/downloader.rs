@@ -446,7 +446,7 @@ fn choose_quality(s: &Settings, info: &Value) -> QualityChoice {
     height.map(QualityChoice::Height).unwrap_or_else(||QualityChoice::Skip(format!("{}: requested {} quality is unavailable with the selected codec, container, and frame rate",text(info,"id"),if requested==0{"highest".into()}else{format!("{requested}p")})))
 }
 pub(super) fn conversion_args(s: &Settings, input: &Path, output: &Path) -> Vec<String> {
-    vec![
+    let mut args = vec![
         "-nostdin".into(),
         "-n".into(),
         "-i".into(),
@@ -473,8 +473,15 @@ pub(super) fn conversion_args(s: &Settings, input: &Path, output: &Path) -> Vec<
             _ => "copy",
         }
         .into(),
-        output.to_string_lossy().into(),
-    ]
+    ];
+    if s.video_codec != "auto" || s.container == "webm" {
+        args.extend(["-crf".into(), s.crf.to_string()]);
+        if s.video_codec == "vp9" || (s.video_codec == "auto" && s.container == "webm") {
+            args.extend(["-b:v".into(), "0".into()]);
+        }
+    }
+    args.push(output.to_string_lossy().into());
+    args
 }
 async fn cancellable(state: &AppState, job: &Job, mut command: Command) -> Result<(), HttpError> {
     isolate(&mut command);
@@ -1192,6 +1199,24 @@ mod tests {
         assert!(args.contains(&"libsvtav1".to_string()));
         assert!(args.contains(&"libopus".to_string()));
         assert!(args.contains(&"-n".to_string()));
+    }
+    #[test]
+    fn conversion_crf_applies_to_encoders_but_not_stream_copy() {
+        for codec in ["h264", "hevc", "vp9", "av1", "auto"] {
+            let mut settings = Settings {
+                video_codec: codec.into(),
+                convert: true,
+                ..Default::default()
+            };
+            let args = conversion_args(&settings, Path::new("in.mp4"), Path::new("out.mkv"));
+            assert_eq!(args.windows(2).any(|p| p == ["-crf", "23"]), codec != "auto");
+            assert_eq!(args.windows(2).any(|p| p == ["-b:v", "0"]), codec == "vp9");
+            settings.crf = 19;
+            settings.container = "webm".into();
+            let args = conversion_args(&settings, Path::new("in.mp4"), Path::new("out.webm"));
+            assert!(args.windows(2).any(|p| p == ["-crf", "19"]));
+            assert_eq!(args.last().unwrap(), "out.webm");
+        }
     }
     #[test]
     fn publishing_preserves_original() {

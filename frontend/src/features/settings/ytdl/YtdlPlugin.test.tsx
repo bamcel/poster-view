@@ -104,12 +104,24 @@ it("saves HEVC conversion settings",async()=>{
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,video_codec:"hevc",convert:true}));
 });
 
-it("saves an explicit quality and nearest higher fallback",async()=>{
+it("shows default CRF only during conversion and saves a custom value",async()=>{
+ mount();await screen.findByLabelText("Convert to selected codecs");
+ expect(screen.queryByLabelText("CRF")).toBeNull();
+ fireEvent.click(screen.getByLabelText("Convert to selected codecs"));
+ expect((screen.getByLabelText("CRF") as HTMLInputElement).value).toBe("23");
+ fireEvent.change(screen.getByLabelText("CRF"),{target:{value:"19"}});
+ fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,convert:true,crf:19}));
+ fireEvent.click(screen.getByLabelText("Convert to selected codecs"));
+ expect(screen.queryByLabelText("CRF")).toBeNull();
+});
+
+it.each([720,1440])("saves %s quality and nearest higher fallback",async(quality)=>{
  mount();await screen.findByLabelText("Quality");
- fireEvent.change(screen.getByLabelText("Quality"),{target:{value:"720"}});
+ fireEvent.change(screen.getByLabelText("Quality"),{target:{value:String(quality)}});
  fireEvent.change(screen.getByLabelText("If quality is unavailable"),{target:{value:"next_highest"}});
  fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
- await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,quality:720,fallback:"next_highest"}));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,quality,fallback:"next_highest"}));
 });
 
 it("saves a download destination without any media library",async()=>{

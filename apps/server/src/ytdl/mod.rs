@@ -33,6 +33,7 @@ pub(crate) struct Settings {
     pub max_fps: u32,
     pub fallback: String,
     pub convert: bool,
+    pub crf: u32,
     pub subtitles: bool,
     pub subtitle_languages: Vec<String>,
     pub chapters: bool,
@@ -56,6 +57,7 @@ impl Default for Settings {
             max_fps: 60,
             fallback: "best".into(),
             convert: false,
+            crf: 23,
             subtitles: false,
             subtitle_languages: vec!["en".into()],
             chapters: true,
@@ -138,9 +140,10 @@ fn validate_settings(state: &AppState, s: &Settings) -> Result<PathBuf, HttpErro
         ]
         .contains(&s.fallback.as_str())
         || s.quality
-            .is_some_and(|q| ![0, 480, 720, 1080, 2160].contains(&q))
+            .is_some_and(|q| ![0, 480, 720, 1080, 1440, 2160].contains(&q))
         || !(144..=4320).contains(&s.max_height)
         || !(1..=240).contains(&s.max_fps)
+        || s.crf > 51
         || s.subtitle_languages.len() > 20
         || s.subtitle_languages.iter().any(|v| {
             v.is_empty()
@@ -371,6 +374,7 @@ mod tests {
     fn older_saved_jobs_keep_id_filenames() {
         let settings: Settings = serde_json::from_value(json!({"enabled":false})).unwrap();
         assert_eq!(settings.filename_convention, "id");
+        assert_eq!(settings.crf, 23);
         assert_eq!(Settings::default().filename_convention, "date_title_id");
     }
 
@@ -413,6 +417,11 @@ mod tests {
         );
         settings.library_id = "deleted-library".into();
         assert!(validate_settings(&state, &settings).is_ok());
+        settings.quality = Some(1440);
+        assert!(validate_settings(&state, &settings).is_ok());
+        settings.crf = 52;
+        assert!(validate_settings(&state, &settings).is_err());
+        settings.crf = 23;
         settings.directory = "../outside".into();
         assert!(validate_settings(&state, &settings).is_err());
         settings.directory = "missing".into();
