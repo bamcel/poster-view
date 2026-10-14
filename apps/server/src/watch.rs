@@ -97,6 +97,7 @@ pub(crate) struct PlaybackPreferences {
     pub skip_back_seconds: u32,
     pub skip_forward_seconds: u32,
     pub still_watching_minutes: u32,
+    pub still_watching_timeout_minutes: u32,
     pub up_next: bool,
     pub subtitle_size: u32,
     pub subtitle_color: String,
@@ -117,7 +118,8 @@ impl Default for PlaybackPreferences {
             resume_rewind_seconds: 5,
             skip_back_seconds: 10,
             skip_forward_seconds: 30,
-            still_watching_minutes: 120,
+            still_watching_minutes: 5,
+            still_watching_timeout_minutes: 5,
             up_next: true,
             subtitle_size: 100,
             subtitle_color: "#ffffff".into(),
@@ -155,6 +157,7 @@ impl PlaybackPreferences {
             || !(1..=120).contains(&self.skip_back_seconds)
             || !(1..=120).contains(&self.skip_forward_seconds)
             || self.still_watching_minutes > 1_440
+            || !(1..=1_440).contains(&self.still_watching_timeout_minutes)
             || !(50..=200).contains(&self.subtitle_size)
             || self.subtitle_color.len() != 7
             || !self.subtitle_color.starts_with('#')
@@ -1257,6 +1260,41 @@ mod tests {
         assert!(!reloaded.preferences("user").unwrap().autoplay_next);
         assert!(reloaded.preferences("someone else").unwrap().autoplay_next);
         assert_eq!(reloaded.rules("anime").unwrap().maximum_percentage, 95.0);
+    }
+    #[test]
+    fn paused_watch_timeouts_default_to_five_and_persist_independently() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("watch.sqlite");
+        let store = WatchStore::new(path.clone());
+        let defaults = store.preferences("user").unwrap();
+        assert_eq!(defaults.still_watching_minutes, 5);
+        assert_eq!(defaults.still_watching_timeout_minutes, 5);
+        let legacy: PlaybackPreferences =
+            serde_json::from_str(r#"{"still_watching_minutes":0}"#).unwrap();
+        assert_eq!(legacy.still_watching_minutes, 0);
+        assert_eq!(legacy.still_watching_timeout_minutes, 5);
+        let custom = PlaybackPreferences {
+            still_watching_minutes: 2,
+            still_watching_timeout_minutes: 3,
+            ..defaults
+        };
+        store.save_preferences("user", custom).unwrap();
+        let reloaded = WatchStore::new(path).preferences("user").unwrap();
+        assert_eq!(reloaded.still_watching_minutes, 2);
+        assert_eq!(reloaded.still_watching_timeout_minutes, 3);
+        for timeout in [0, 1441] {
+            assert!(
+                store
+                    .save_preferences(
+                        "user",
+                        PlaybackPreferences {
+                            still_watching_timeout_minutes: timeout,
+                            ..reloaded.clone()
+                        }
+                    )
+                    .is_err()
+            );
+        }
     }
     #[test]
     fn invalid_preferences_and_rules_are_not_saved() {

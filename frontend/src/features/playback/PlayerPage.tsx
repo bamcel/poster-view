@@ -1,4 +1,6 @@
 import {stopAfterWatchReports} from "./lib/sessionTeardown";
+import {createPausedInactivity} from "./lib/pausedInactivity";
+import ChapterTicks from "./components/ChapterTicks";
 import {waitForPreviousPlayback} from "./lib/previousPlayback";
 import {trackWatchReport, finishWatchReports, waitForWatchReports} from "./lib/watchReports";
 import {watchApi} from "./api/watch";
@@ -97,6 +99,7 @@ export default function PlayerPage() {
   const completedReport=useRef<{routeKey:string;generation:number;promise:Promise<void>}|null>(null);
   const selected=useRef({audio:null as number|null,subtitle:-1});
   const controls=useRef({visible:true,playing:false,menu:null as Menu,dragging:false,lastActive:Date.now(),focus:false,prompt:false,ended:false});
+  const pausedInactivity=useRef(createPausedInactivity()),exitRef=useRef<()=>void>(()=>{});
   const replayRef=useRef<(position?:number,autoplay?:boolean)=>Promise<void>>(async()=>{});
   const failureRef=useRef<(message:string)=>void>(()=>{});
   const report=useCallback((isEnded=false,keepalive=false,seeking=false,previousRoute=false)=>{
@@ -111,6 +114,7 @@ export default function PlayerPage() {
     return trackWatchReport(routeKey,saving);
   },[libraryId,itemId,routeKey]);
   const interact=useCallback(()=>{
+    pausedInactivity.current.interact(Date.now());
     controls.current.lastActive=Date.now();controls.current.visible=true;setVisible(true);
   },[]);
   const heartbeat=useCallback((paused=video.current?.paused??true,position=sourcePosition.current)=>{
@@ -208,6 +212,7 @@ export default function PlayerPage() {
     },Math.max(0,target-created.offset_seconds));}catch(error){terminalError(errorMessage(error));}
   },[routeKey,play,report,terminalError,heartbeat]);
   const start=useCallback(async(sourceTime:number,playOverride?:boolean,losslessFallback=false)=>{
+    pausedInactivity.current.reset();setWatchPrompt(false);
     const element=video.current,data=infoRef.current,caps=capability.current;
     if(!element||!data||!caps||activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!watchSession.current)return;
     heldVideo.current.capture(element);
@@ -304,7 +309,7 @@ export default function PlayerPage() {
     infoRef.current=undefined;capability.current=undefined;
     setInitializing(true);setLoading(true);setRecoveryNeeded(false);setError("");setNotice("");setWatchError("");
     setInfo(undefined);setSession(undefined);setPosition(0);setBuffered(0);setScrubbing(null);setPlaying(false);setBuffering(false);
-    audioMapping.current.clear();setNativeAudioChoices([]);setAudioHelp("");setAudio(null);setSubtitle(-1);setMenu(null);setEnded(false);setCountdown(null);setWatchPrompt(false);setVisible(true);
+    audioMapping.current.clear();setNativeAudioChoices([]);setAudioHelp("");setAudio(null);setSubtitle(-1);setMenu(null);setEnded(false);setCountdown(null);setWatchPrompt(false);pausedInactivity.current.reset();setVisible(true);
     sourcePosition.current=0;confirmedPosition.current=0;streamSeekRecovery.current=null;nativeFallbackAttempted.current=false;
     controls.current.playing=false;controls.current.menu=null;controls.current.dragging=false;controls.current.prompt=false;controls.current.ended=false;
       try{
@@ -387,11 +392,13 @@ export default function PlayerPage() {
     const timer=window.setInterval(()=>{
       const value=controls.current;
       if(value.playing&&!value.menu&&!value.dragging&&!value.focus&&!value.prompt&&Date.now()-value.lastActive>4000){value.visible=false;setVisible(false);}
-      const minutes=prefsRef.current.still_watching_minutes;
-      if(minutes>0&&value.playing&&!value.prompt&&Date.now()-value.lastActive>minutes*60_000){video.current?.pause();setWatchPrompt(true);setVisible(true);}
+      const eligible=mounted.current&&activeRoute.current===routeKey&&initializedRoute.current===routeKey&&ready.current&&!!current.current&&!pendingSeek.current&&!playIntent.current&&video.current?.paused===true&&!value.ended;
+      const action=pausedInactivity.current.tick(Date.now(),eligible,prefsRef.current.still_watching_minutes,prefsRef.current.still_watching_timeout_minutes??5);
+      if(action==="prompt"){setWatchPrompt(true);setVisible(true);}
+      else if(action==="exit"){pausedInactivity.current.reset();exitRef.current();}
     },500);
     return()=>clearInterval(timer);
-  },[]);
+  },[routeKey]);
   const seek=useCallback((target:number)=>{
     if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey||!current.current||!video.current)return;
     interact();const bound=Math.max(0,Math.min(target,infoRef.current?.duration_seconds||target));if(!Number.isFinite(bound))return;
@@ -415,6 +422,7 @@ export default function PlayerPage() {
     const element=video.current;if(ready.current&&!pendingSeek.current&&element&&Number.isFinite(element.currentTime))sourcePosition.current=Math.max(0,element.currentTime+(current.current?.offset_seconds??0));
     report(false,true);navigate(returnPath);
   };
+  exitRef.current=exit;
   const next=useCallback((automatic=false)=>{
     if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
     const value=infoRef.current?.next;if(!value)return;
@@ -564,6 +572,7 @@ export default function PlayerPage() {
   const mediaPause=()=>{
     if(!ownsMedia()||!ready.current||!video.current?.paused)return;
     if(!pendingSeek.current)playIntent.current=false;
+    pausedInactivity.current.pause(Date.now());
     fragmentSampler.current.clearWindow();bandwidthStall.current=null;
     setPlaying(false);setVisible(true);report();
     if(!playIntent.current)heartbeat(true);
@@ -684,7 +693,7 @@ export default function PlayerPage() {
     {(loading||buffering&&bufferingVisible)&&!error&&!recoveryNeeded&&<div className="pv-player-loading" role="status"><span className="pv-spinner"/><span>{loading?"Preparing playback…":"Buffering…"}</span></div>}
     {recoveryNeeded&&!error&&<div className="pv-player-message" role="alert"><h2>Playback is not advancing</h2><p>Your position is saved. Recover the current source or return to media.</p><div><button className="pv-primary" onClick={()=>{const owned=current.current;if(!owned)return;const target=pendingSeek.current?.target??sourcePosition.current;const generation=++requestGeneration.current;pendingSeek.current={generation,target};ready.current=false;setLoading(true);setRecoveryNeeded(false);nativeActivity.current={position:target,at:Date.now(),seekTarget:target};attachSource(owned,target,generation);}}>Recover current playback</button><button className="pv-button" onClick={exit}>Back to media</button></div></div>}
     {error&&<div className="pv-player-message" role="alert"><h1>Unable to play</h1><p>{error}</p><div><button className="pv-primary" onClick={retryPlayback}>{retryLabel}</button><button className="pv-button" onClick={exit}>Back to media</button></div></div>}
-    {watchPrompt&&<div className="pv-player-message" role="dialog" aria-modal="true" aria-label="Still watching" onKeyDown={event=>{if(event.key!=="Tab")return;const buttons=event.currentTarget.querySelectorAll<HTMLButtonElement>("button"),first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}}><h2>Are you still watching?</h2><p>Playback paused after inactivity.</p><button className="pv-primary" autoFocus onClick={()=>{setWatchPrompt(false);interact();void play();}}>Continue watching</button><button className="pv-button" onClick={exit}>Stop playback</button></div>}
+    {watchPrompt&&<div className="pv-player-message" role="dialog" aria-modal="true" aria-label="Still watching" onKeyDown={event=>{if(event.key!=="Tab")return;const buttons=event.currentTarget.querySelectorAll<HTMLButtonElement>("button"),first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}}><h2>Are you still watching?</h2><p>Playback has been paused. Your position will be saved and playback will close after {preferences.still_watching_timeout_minutes??5} minutes without a response.</p><button className="pv-primary" autoFocus onClick={()=>{setWatchPrompt(false);interact();void play();}}>Continue watching</button><button className="pv-button" onClick={exit}>Stop playback</button></div>}
     {notice&&<div className="pv-player-notice" role="status">{notice}<button aria-label="Dismiss message" onClick={()=>setNotice("")}><X size={16}/></button></div>}
     {watchError&&<div className="pv-watch-error" role="status">{watchError}</div>}
     {(showNext||ended)&&info?.next&&!menu&&!watchPrompt&&<div className="pv-up-next"><p>Up next{countdown!==null?` in ${countdown} seconds`:""}</p><h3>{info.next.title}</h3><div><button className="pv-primary" onClick={()=>next()}><Play size={16}/> Play next</button>{countdown!==null&&<button className="pv-button" onClick={()=>setCountdown(null)}>Cancel autoplay</button>}</div></div>}
@@ -706,7 +715,7 @@ export default function PlayerPage() {
         <button className="pv-button" aria-label="Playback quality" aria-expanded={menu==="quality"} onClick={()=>toggleMenu("quality")}><Settings2/><span>{delivery==="original"?"Original":delivery==="stream"?"Direct Stream":quality===0?"Auto":qualityChoices[quality].label}</span></button>
         <button className="pv-button" aria-label="Playback speed" aria-expanded={menu==="speed"} onClick={()=>toggleMenu("speed")}><Gauge/><span>{speed}×</span></button>
       </div></div>
-      <div className="pv-timeline-row"><time>{playbackTime(scrubbing??position)}</time><div className="pv-timeline" style={{"--buffered":`${duration?Math.min(100,buffered/duration*100):0}%`,"--position":`${duration?Math.min(100,(scrubbing??position)/duration*100):0}%`} as React.CSSProperties}><input aria-label="Seek" disabled={pendingInitialization||!!error||duration<=0} aria-valuetext={`${playbackTime(scrubbing??position)} of ${playbackTime(duration)}`} type="range" min="0" max={duration||1} step="0.1" value={scrubbing??Math.min(position,duration||position)} onPointerDown={()=>{controls.current.dragging=true;}} onChange={event=>setScrubbing(Number(event.target.value))} onPointerUp={event=>{const value=Number(event.currentTarget.value);setScrubbing(null);controls.current.dragging=false;seek(value);}} onKeyUp={event=>{if(["ArrowLeft","ArrowRight","Home","End","PageUp","PageDown"].includes(event.key)){const value=Number(event.currentTarget.value);setScrubbing(null);seek(value);}}} onPointerCancel={()=>{setScrubbing(null);controls.current.dragging=false;}}/></div><time>{duration>0?`-${playbackTime(duration-(scrubbing??position))}`:"--:--"}</time></div>
+      <div className="pv-timeline-row"><time>{playbackTime(scrubbing??position)}</time><div className="pv-timeline" style={{"--buffered":`${duration?Math.min(100,buffered/duration*100):0}%`,"--position":`${duration?Math.min(100,(scrubbing??position)/duration*100):0}%`} as React.CSSProperties}><input aria-label="Seek" disabled={pendingInitialization||!!error||duration<=0} aria-valuetext={`${playbackTime(scrubbing??position)} of ${playbackTime(duration)}`} type="range" min="0" max={duration||1} step="0.1" value={scrubbing??Math.min(position,duration||position)} onPointerDown={()=>{controls.current.dragging=true;}} onChange={event=>setScrubbing(Number(event.target.value))} onPointerUp={event=>{const value=Number(event.currentTarget.value);setScrubbing(null);controls.current.dragging=false;seek(value);}} onKeyUp={event=>{if(["ArrowLeft","ArrowRight","Home","End","PageUp","PageDown"].includes(event.key)){const value=Number(event.currentTarget.value);setScrubbing(null);seek(value);}}} onPointerCancel={()=>{setScrubbing(null);controls.current.dragging=false;}}/><ChapterTicks chapters={info?.chapters??[]} duration={duration} disabled={pendingInitialization||!!error||duration<=0} onSeek={seek}/></div><time>{duration>0?`-${playbackTime(duration-(scrubbing??position))}`:"--:--"}</time></div>
       <div className="pv-transport-row"><div className="pv-transport"><button className="pv-icon" aria-label={`Rewind ${preferences.skip_back_seconds} seconds`} onClick={()=>seek(position-preferences.skip_back_seconds)}><RotateCcw/><small>{preferences.skip_back_seconds}</small></button><button className="pv-icon pv-play" aria-label={playing?"Pause":"Play"} onClick={toggle} disabled={loading||pendingInitialization||!!error}>{playing?<Pause/>:<Play/>}</button><button className="pv-icon" aria-label={`Forward ${preferences.skip_forward_seconds} seconds`} onClick={()=>seek(position+preferences.skip_forward_seconds)}><RotateCw/><small>{preferences.skip_forward_seconds}</small></button>{info?.next&&<button className="pv-icon" aria-label="Next episode" onClick={()=>next()}><SkipForward/></button>}</div><div className="pv-sections"><button className="pv-button" aria-label="Info" aria-expanded={menu==="info"} onClick={()=>toggleMenu("info")}><CircleHelp/><span>Info</span></button>{!!info?.chapters.length&&<button className="pv-button" aria-label="Chapters" aria-expanded={menu==="chapters"} onClick={()=>toggleMenu("chapters")}><ListVideo/><span>Chapters</span></button>}{info?.next&&<button className="pv-button" aria-label="Up Next" aria-expanded={menu==="next"} onClick={()=>toggleMenu("next")}><SkipForward/><span>Up Next</span></button>}</div></div>
     </div>
   </div>;

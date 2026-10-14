@@ -7,6 +7,18 @@ import {watchApi} from "../api/watch";
 import {defaultPlaybackPreferences} from "../types";
 vi.mock("../api/watch",()=>({watchApi:{preferences:vi.fn(),savePreferences:vi.fn()}}));
 afterEach(()=>{cleanup();vi.clearAllMocks();});
+it("shows and saves independent paused prompt and unanswered exit timeouts",async()=>{
+  vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);
+  vi.mocked(watchApi.savePreferences).mockImplementation(async value=>value);
+  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><PlaybackPreferences/></QueryClientProvider>);
+  const prompt=await screen.findByLabelText(/Paused inactivity before prompt/) as HTMLInputElement;
+  const exit=screen.getByLabelText(/Unanswered prompt before exit/) as HTMLInputElement;
+  expect(prompt.value).toBe("5");expect(exit.value).toBe("5");
+  fireEvent.change(prompt,{target:{value:"2"}});fireEvent.change(exit,{target:{value:"3"}});
+  fireEvent.click(screen.getByRole("button",{name:"Save preferences"}));
+  await screen.findByText("Playback preferences saved.");
+  expect(watchApi.savePreferences).toHaveBeenCalledWith(expect.objectContaining({still_watching_minutes:2,still_watching_timeout_minutes:3}));
+});
 it("preserves ordered language entries and reports a successful server save",async()=>{
   const defaults={audio_languages:["en"],subtitle_languages:["en"],prefer_default_audio:true,remember_audio:true,remember_subtitles:true,subtitle_mode:"default" as const,autoplay_next:true,resume_rewind_seconds:5,skip_back_seconds:10,skip_forward_seconds:30,still_watching_minutes:120,up_next:true,subtitle_size:100};
   vi.mocked(watchApi.preferences).mockResolvedValue(defaults);

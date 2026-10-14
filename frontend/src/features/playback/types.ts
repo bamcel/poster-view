@@ -57,7 +57,7 @@ export interface PlaybackPreferences {
   remember_audio: boolean; remember_subtitles: boolean;
   subtitle_mode: "default" | "smart" | "forced" | "hearing_impaired" | "always" | "off";
   autoplay_next: boolean; resume_rewind_seconds: number; skip_back_seconds: number;
-  skip_forward_seconds: number; still_watching_minutes: number; up_next: boolean; subtitle_size: number;
+  skip_forward_seconds: number; still_watching_minutes: number; still_watching_timeout_minutes?: number; up_next: boolean; subtitle_size: number;
   // Optional while loading older saved preferences; the server supplies defaults.
   subtitle_color?: string;
   subtitle_shadow?: "none" | "drop" | "outline";
@@ -67,7 +67,7 @@ export interface PlaybackPreferences {
 export const defaultPlaybackPreferences: PlaybackPreferences = {
   audio_languages: ["en"], subtitle_languages: ["en"], prefer_default_audio: true, remember_audio: true,
   remember_subtitles: true, subtitle_mode: "default", autoplay_next: true, resume_rewind_seconds: 5,
-  skip_back_seconds: 10, skip_forward_seconds: 30, still_watching_minutes: 120, up_next: true, subtitle_size: 100,
+  skip_back_seconds: 10, skip_forward_seconds: 30, still_watching_minutes: 5, still_watching_timeout_minutes: 5, up_next: true, subtitle_size: 100,
   subtitle_color: "#ffffff", subtitle_shadow: "none", subtitle_background: "dark", subtitle_position: "auto",
 };
 

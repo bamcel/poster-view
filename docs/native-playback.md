@@ -14,9 +14,17 @@ audio selections, browser-rendered text and bitmap subtitles, speed, chapters, f
 picture in picture when supported, and Up Next. Space/K toggles playback,
 left/right arrows skip, F toggles fullscreen, and M toggles mute. Controls remain
 visible while paused or using a menu and hide during uninterrupted playback.
+Chapter boundaries appear as ticks on the seek timeline when chapter metadata
+is available. Hover for the chapter title and timestamp, or click a tick to seek.
+Markers are also keyboard accessible and use the same seek path as the slider.
 
 Settings → Playback controls preferred languages, remembered tracks, subtitles,
 skip lengths, resume rewind, automatic next episode and the inactivity prompt.
+Paused inactivity defaults to five minutes before a “Still watching?” prompt,
+then five more minutes without a response before saving progress and returning to
+media details. Normal playback does not trigger this prompt. Pointer or keyboard
+interaction resets the timer. Both intervals are configurable; a prompt interval
+of 0 disables it. Existing saved prompt intervals are preserved.
 Settings → Transcoding separately permits lossless remuxing, audio-only encoding,
 video encoding and automatic bandwidth adaptation. Hardware and temporary storage
 limits apply to segmented playback. Old saved permission keys remain compatible.

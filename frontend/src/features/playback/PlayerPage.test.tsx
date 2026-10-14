@@ -30,6 +30,12 @@ function loadMetadata(video:HTMLVideoElement){fireEvent.loadedMetadata(video);Ob
 async function ready(){await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());const video=document.querySelector("video")!;loadMetadata(video);fireEvent.seeked(video);await waitFor(()=>expect(screen.getByRole("heading",{name:"S1:E1 – Maomao"})).toBeTruthy());return video;}
 function scrubTo(value:number){const slider=screen.getByRole("slider",{name:"Seek"});fireEvent.change(slider,{target:{value:String(value)}});fireEvent.pointerUp(slider);return slider as HTMLInputElement;}
 function mediaError(video:HTMLVideoElement,code:number|null){Object.defineProperty(video,"error",{value:code===null?null:{code,message:"Media playback failed"},configurable:true});}
+it("seeks from a chapter timeline tick without replacing Original playback",async()=>{
+  player();const video=await ready();const original=video.src;
+  fireEvent.click(screen.getByRole("button",{name:"Seek to chapter Opening at 1:30"}));
+  expect(video.currentTime).toBe(90);expect(video.src).toBe(original);
+  expect(playbackApi.create).toHaveBeenCalledTimes(1);
+});
 beforeEach(()=>{
  browserAudio=undefined;hlsState.supported=false;hlsState.instances=[];Object.defineProperty(HTMLMediaElement.prototype,"audioTracks",{get:()=>browserAudio,configurable:true});
  vi.clearAllMocks();vi.spyOn(HTMLMediaElement.prototype,"load").mockImplementation(()=>{});vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue();vi.spyOn(HTMLMediaElement.prototype,"canPlayType").mockReturnValue("probably");
@@ -37,6 +43,25 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();window.dispatchEvent(new Event("posterview:account-changed"));vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();if(originalAudioProperty)Object.defineProperty(HTMLMediaElement.prototype,"audioTracks",originalAudioProperty);else Reflect.deleteProperty(HTMLMediaElement.prototype,"audioTracks");});
 describe("original-file player",()=>{
+ it("prompts after paused inactivity and exits after no response, saving and stopping delivery",async()=>{
+  vi.useFakeTimers({shouldAdvanceTime:true});vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,still_watching_minutes:1,still_watching_timeout_minutes:1});
+  player();const video=await ready();fireEvent.pause(video);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(60_500);});
+  expect(screen.getByRole("dialog",{name:"Still watching"})).toBeTruthy();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(60_500);});
+  expect(screen.getByText("Media page")).toBeTruthy();await act(async()=>{});
+  expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");expect(watchApi.progress).toHaveBeenCalled();
+ });
+ it("never interrupts normal playing and restarts paused inactivity after pointer interaction",async()=>{
+  vi.useFakeTimers({shouldAdvanceTime:true});vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,still_watching_minutes:1,still_watching_timeout_minutes:1});
+  player();const video=await ready();Object.defineProperty(video,"paused",{value:false,configurable:true});fireEvent.play(video);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(125_000);});expect(screen.queryByRole("dialog",{name:"Still watching"})).toBeNull();
+  Object.defineProperty(video,"paused",{value:true,configurable:true});fireEvent.pause(video);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(40_000);});fireEvent.pointerMove(video);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(40_000);});expect(screen.queryByRole("dialog",{name:"Still watching"})).toBeNull();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(21_000);});expect(screen.getByRole("dialog",{name:"Still watching"})).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"Continue watching"}));expect(screen.queryByRole("dialog",{name:"Still watching"})).toBeNull();
+ });
  it("retires a session allocated after pagehide instead of attaching it",async()=>{
   let allocate!:(value:PlaybackSession)=>void;
   vi.mocked(playbackApi.create).mockImplementation(()=>new Promise(resolve=>{allocate=resolve;}));
@@ -183,7 +208,7 @@ describe("original-file player",()=>{
   vi.mocked(playbackApi.info).mockResolvedValue({...info,duration_seconds:0,next:null});vi.mocked(playbackApi.create).mockResolvedValue({...session,duration_seconds:0});player();const video=await ready();video.currentTime=77;fireEvent.ended(video);expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:77,ended:true}),false);
  });
  it("offers chapter, keyboard seek and volume controls without new sessions",async()=>{
-  player();const video=await ready();fireEvent.click(screen.getByRole("button",{name:"Chapters"}));fireEvent.click(screen.getByRole("button",{name:/Opening/}));expect(video.currentTime).toBe(90);fireEvent.seeked(video);fireEvent.keyDown(document,{key:"ArrowRight"});expect(video.currentTime).toBe(120);fireEvent.seeked(video);fireEvent.keyDown(document,{key:"m"});expect(video.muted).toBe(true);expect(playbackApi.create).toHaveBeenCalledTimes(1);
+  player();const video=await ready();fireEvent.click(screen.getByRole("button",{name:"Chapters"}));fireEvent.click(screen.getByRole("button",{name:/^Opening/}));expect(video.currentTime).toBe(90);fireEvent.seeked(video);fireEvent.keyDown(document,{key:"ArrowRight"});expect(video.currentTime).toBe(120);fireEvent.seeked(video);fireEvent.keyDown(document,{key:"m"});expect(video.muted).toBe(true);expect(playbackApi.create).toHaveBeenCalledTimes(1);
  });
  it("disables image subtitles and keeps styled ASS/fonts/Off client-side with original timestamps",async()=>{
   vi.spyOn(globalThis,"fetch").mockImplementation(async()=>new Response("[Script Info]\n[Events]\n"));vi.mocked(playbackApi.info).mockResolvedValue({...info,tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"ass",subtitle_format:"ass",language:"ja",url:"/captions.ass"},{index:5,kind:"subtitle",codec:"pgs",subtitle_format:"image"}],fonts:[{index:6,name:"Font.ttf",url:"/font.ttf"}]});player();const video=await ready();video.currentTime=340;fireEvent.timeUpdate(video);Object.defineProperty(video,"readyState",{value:2,configurable:true});Object.defineProperty(video,"videoWidth",{value:1920});Object.defineProperty(video,"videoHeight",{value:1080});

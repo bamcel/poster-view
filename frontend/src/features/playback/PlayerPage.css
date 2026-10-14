@@ -37,6 +37,12 @@
 .pv-timeline input::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:14px;height:14px;margin-top:-5px;border-radius:50%;background:var(--color-accent,#77b778)}
 .pv-timeline input::-moz-range-track{height:4px;background:transparent}
 .pv-timeline input::-moz-range-thumb{width:14px;height:14px;border:0;border-radius:50%;background:var(--color-accent,#77b778)}
+.pv-chapter-ticks{position:absolute;inset:0;pointer-events:none}
+.pv-chapter-tick{position:absolute;top:4px;width:12px;height:16px;padding:0;border:0;background:transparent;transform:translateX(-50%);pointer-events:auto;cursor:pointer;display:grid;place-items:center}
+.pv-chapter-tick span{width:2px;height:10px;background:rgba(255,255,255,.95);box-shadow:0 0 2px #000;border-radius:1px}
+.pv-chapter-tick:hover span,.pv-chapter-tick:focus-visible span{height:16px;background:var(--color-accent,#77b778)}
+.pv-chapter-tick:focus-visible{outline:2px solid white;outline-offset:2px;border-radius:3px}
+.pv-chapter-tick:disabled{pointer-events:none;opacity:.45}
 .pv-transport-row{display:flex;justify-content:space-between;align-items:center;margin-top:7px}
 .pv-transport,.pv-sections{display:flex;align-items:center;gap:8px}
 .pv-transport .pv-play{width:56px;height:56px}
