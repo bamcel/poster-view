@@ -5,7 +5,7 @@ import {apiRequest} from "../../../api/client";
 import TranscodingSettings,{type TranscodingSettingsValue} from "./TranscodingSettings";
 
 vi.mock("../../../api/client",()=>({apiRequest:vi.fn()}));
-const settings:TranscodingSettingsValue={allow_conversion:false,allow_audio_transcoding:false,auto_bandwidth_transcoding:false,allow_remux:true,hardware_enabled:false,hardware_backend:"auto",preferred_encoder:"avc",allow_hevc:false,allow_av1:false,software_fallback:true,max_resolution:1080,max_concurrent:2,threads:0,temporary_path:"",cache_gb:10,throttle:true,buffer_seconds:120,subtitle_extraction:true,font_extraction:true,audio_boost:1};
+const settings:TranscodingSettingsValue={allow_conversion:false,allow_audio_transcoding:false,auto_bandwidth_transcoding:false,allow_remux:true,hardware_enabled:false,hardware_backend:"auto",preferred_encoder:"avc",allow_hevc:false,allow_av1:false,software_fallback:true,max_resolution:1080,max_concurrent:2,max_stream_jobs:8,max_jobs_per_user:5,threads:0,temporary_path:"",cache_gb:10,throttle:true,buffer_seconds:120,subtitle_extraction:true,font_extraction:true,audio_boost:1};
 afterEach(()=>{cleanup();vi.resetAllMocks();});
 function mount(){const client=new QueryClient({defaultOptions:{queries:{retry:false}}});render(<QueryClientProvider client={client}><TranscodingSettings/></QueryClientProvider>);return client;}
 
@@ -27,6 +27,20 @@ it("reports a rejected save without announcing success",async()=>{
   fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
   expect((await screen.findByRole("alert")).textContent).toContain("Temporary path must be an absolute server path.");
   expect(screen.queryByText("Transcoding settings saved.")).toBeNull();
+  client.clear();
+});
+
+it("shows and saves independent stream, video and per-user job limits",async()=>{
+  vi.mocked(apiRequest).mockImplementation(async(_path,options)=>options?.method==="PUT"?JSON.parse(String(options.body)):settings);
+  const client=mount();
+  expect((await screen.findByLabelText("Maximum Direct Stream / audio-only jobs") as HTMLInputElement).value).toBe("8");
+  expect((screen.getByLabelText("Maximum video transcodes") as HTMLInputElement).value).toBe("2");
+  expect((screen.getByLabelText(/Maximum FFmpeg jobs per user/) as HTMLInputElement).value).toBe("5");
+  fireEvent.change(screen.getByLabelText("Maximum Direct Stream / audio-only jobs"),{target:{value:"10"}});
+  fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+  await screen.findByText("Transcoding settings saved.");
+  const write=vi.mocked(apiRequest).mock.calls.find(([,options])=>options?.method==="PUT")!;
+  expect(JSON.parse(String(write[1]?.body))).toMatchObject({max_stream_jobs:10,max_concurrent:2,max_jobs_per_user:5});
   client.clear();
 });
 

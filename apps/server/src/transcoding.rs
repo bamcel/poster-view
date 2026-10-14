@@ -17,6 +17,8 @@ pub struct Settings {
     pub software_fallback: bool,
     pub max_resolution: u32,
     pub max_concurrent: u32,
+    pub max_stream_jobs: u32,
+    pub max_jobs_per_user: u32,
     pub threads: u32,
     pub temporary_path: String,
     pub cache_gb: u32,
@@ -41,6 +43,8 @@ impl Default for Settings {
             software_fallback: true,
             max_resolution: 1080,
             max_concurrent: 2,
+            max_stream_jobs: 8,
+            max_jobs_per_user: 5,
             threads: 0,
             temporary_path: String::new(),
             cache_gb: 10,
@@ -70,6 +74,8 @@ impl Settings {
         }
         if ![0, 480, 720, 1080, 2160].contains(&self.max_resolution)
             || !(1..=16).contains(&self.max_concurrent)
+            || !(1..=64).contains(&self.max_stream_jobs)
+            || !(1..=64).contains(&self.max_jobs_per_user)
             || self.threads > 128
             || !(1..=1024).contains(&self.cache_gb)
             || !(10..=600).contains(&self.buffer_seconds)
@@ -172,6 +178,9 @@ mod tests {
         assert!(settings.allow_remux);
         assert!(settings.subtitle_extraction);
         assert!(settings.font_extraction);
+        assert_eq!(settings.max_stream_jobs, 8);
+        assert_eq!(settings.max_concurrent, 2);
+        assert_eq!(settings.max_jobs_per_user, 5);
         let _ = save(State(state.clone()), Json(settings)).await.unwrap();
         assert!(!load(&state).unwrap().allow_conversion);
         let settings = Settings {
@@ -207,5 +216,16 @@ mod tests {
             .set_setting("transcoding-settings", r#"{"max_concurrent":0}"#)
             .unwrap();
         assert!(load(&state).is_err());
+        for raw in [
+            r#"{"max_stream_jobs":0}"#,
+            r#"{"max_stream_jobs":65}"#,
+            r#"{"max_jobs_per_user":0}"#,
+            r#"{"max_jobs_per_user":65}"#,
+        ] {
+            ServerStore::new(state.runtime.data_dir())
+                .set_setting("transcoding-settings", raw)
+                .unwrap();
+            assert!(load(&state).is_err());
+        }
     }
 }

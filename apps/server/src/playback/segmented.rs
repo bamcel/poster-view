@@ -17,10 +17,13 @@ use std::{
 };
 use tokio::process::{Child, Command};
 
-struct Slot(Arc<AtomicU32>);
+struct Slot {
+    counter: Arc<AtomicU32>,
+    _lease: super::producer_limits::Lease,
+}
 impl Drop for Slot {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
+        self.counter.fetch_sub(1, Ordering::AcqRel);
     }
 }
 // Preparing futures can be cancelled before they return a Producer. Ownership
@@ -64,6 +67,9 @@ pub(super) struct Producer {
     _slot: Option<Slot>,
 }
 impl Producer {
+    pub(super) fn reserves_slot(&self) -> bool {
+        self._slot.is_some()
+    }
     pub(super) async fn stop(mut self) {
         self.suspend(false);
         let _ = self.child.kill().await;
@@ -765,6 +771,7 @@ pub(super) fn hls_command(
 pub(super) async fn start(
     store: &PlaybackStore,
     id: &str,
+    owner: &str,
     generation: u64,
     delivery: &Delivery<'_>,
 ) -> Result<(Producer, Option<String>), HttpError> {
@@ -781,16 +788,15 @@ pub(super) async fn start(
         u64::from(settings.cache_gb) * 1024 * 1024 * 1024,
         Ordering::Release,
     );
+    let lease = store
+        .producer_limits
+        .reserve(owner, plan.method == "transcode", settings)?;
     let counter = store.producers.clone();
-    counter
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-            (count < settings.max_concurrent.max(1)).then_some(count + 1)
-        })
-        .map_err(|_| HttpError {
-            status: axum::http::StatusCode::TOO_MANY_REQUESTS,
-            detail: "The simultaneous playback producer limit has been reached.".into(),
-        })?;
-    let slot = Slot(counter);
+    counter.fetch_add(1, Ordering::AcqRel);
+    let slot = Slot {
+        counter,
+        _lease: lease,
+    };
     let dir = generation_dir(store, settings, id, generation)?;
     let mut preparing = GenerationDirectory(Some(dir.clone()));
     let selected = if plan.method == "transcode" {
@@ -1029,7 +1035,13 @@ mod tests {
             cache_bytes: 1024 * 1024,
             throttle: false,
             paused_copy_buffer: false,
-            _slot: Some(Slot(counter.clone())),
+            _slot: Some(Slot {
+                counter: counter.clone(),
+                _lease: store
+                    .producer_limits
+                    .reserve("test-user", false, &Settings::default())
+                    .unwrap(),
+            }),
         }
         .stop()
         .await;

@@ -3,6 +3,7 @@ mod hardware;
 mod manifest;
 mod models;
 mod planner;
+mod producer_limits;
 mod segmented;
 #[cfg(test)]
 mod test_support;
@@ -313,6 +314,7 @@ pub(crate) struct PlaybackStore {
     hardware_probes: hardware::ProbeGates,
     copy_seeks: segmented::CopySeekCache,
     producers: Arc<AtomicU32>,
+    producer_limits: Arc<producer_limits::ProducerLimits>,
     instance: String,
     cache_roots: StdMutex<HashSet<PathBuf>>,
     cache_budget: AtomicU64,
@@ -341,6 +343,7 @@ impl PlaybackStore {
             hardware_probes: Default::default(),
             copy_seeks: Default::default(),
             producers: Arc::new(AtomicU32::new(0)),
+            producer_limits: Default::default(),
             instance: uuid::Uuid::new_v4().to_string(),
             cache_roots: StdMutex::new(HashSet::new()),
             cache_budget: AtomicU64::new(10 * 1024 * 1024 * 1024),
@@ -923,7 +926,8 @@ fn response(
         },
     }
 }
-struct GenerationOptions {
+struct GenerationOptions<'a> {
+    owner: &'a str,
     number: u64,
     select_in_stream: bool,
 }
@@ -934,7 +938,7 @@ async fn prepare(
     probe: &Value,
     mut input: SessionInput,
     settings: &crate::transcoding::Settings,
-    options: GenerationOptions,
+    options: GenerationOptions<'_>,
 ) -> Result<(SessionResponse, Option<segmented::Producer>), HttpError> {
     #[cfg(test)]
     let gate = store.preparation_gate.lock().await.take();
@@ -945,6 +949,7 @@ async fn prepare(
         return Err(bad("Controlled preparation failure."));
     }
     let GenerationOptions {
+        owner,
         number: generation,
         select_in_stream,
     } = options;
@@ -978,6 +983,7 @@ async fn prepare(
     let (producer, encoder) = segmented::start(
         store,
         id,
+        owner,
         generation,
         &segmented::Delivery {
             source,
@@ -1122,6 +1128,7 @@ pub(crate) async fn create(
         input,
         &settings,
         GenerationOptions {
+            owner: &user.id,
             number: generation,
             select_in_stream: false,
         },
@@ -1297,7 +1304,7 @@ async fn seek_session(
     let settings = crate::transcoding::load(&state)?;
     // Validate before retiring the current producer. Audio promotion explicitly bypasses
     // the original-file preference because native track selection has already failed.
-    plan_for_delivery(
+    let replacement_plan = plan_for_delivery(
         &session.probe,
         &container(&session.source.path),
         &input,
@@ -1309,12 +1316,25 @@ async fn seek_session(
     let source = session.source.clone();
     let probe = session.probe.clone();
     // Preserve the active generation while warming a replacement if capacity permits.
-    let retire =
-        if state.playback.producers.load(Ordering::Acquire) >= settings.max_concurrent.max(1) {
-            session.producer.take()
-        } else {
-            None
-        };
+    // Only retire it early when its reservation can actually admit the replacement.
+    let retire = if state.playback.producer_limits.at_limit(
+        &owner,
+        replacement_plan.method == "transcode",
+        &settings,
+    ) && session
+        .producer
+        .as_ref()
+        .is_some_and(|producer| producer.reserves_slot())
+        && state.playback.producer_limits.can_replace(
+            &owner,
+            session.response.method == "transcode",
+            replacement_plan.method == "transcode",
+            &settings,
+        ) {
+        session.producer.take()
+    } else {
+        None
+    };
     drop(session);
     if let Some(producer) = retire {
         producer.stop().await;
@@ -1322,7 +1342,7 @@ async fn seek_session(
     let result = tokio::select! {
         biased;
         _=canceled.changed()=>Err(conflict()),
-        result=prepare(&state.playback,&id,&source,&probe,input.clone(),&settings,GenerationOptions{number:generation,select_in_stream:true})=>result,
+        result=prepare(&state.playback,&id,&source,&probe,input.clone(),&settings,GenerationOptions{owner:&owner,number:generation,select_in_stream:true})=>result,
     };
     let mut session = handle.lock().await;
     if session.closed

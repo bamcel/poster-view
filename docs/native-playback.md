@@ -21,6 +21,14 @@ Settings → Transcoding separately permits lossless remuxing, audio-only encodi
 video encoding and automatic bandwidth adaptation. Hardware and temporary storage
 limits apply to segmented playback. Old saved permission keys remain compatible.
 
+FFmpeg producers use separate server-wide limits: eight Direct Stream/audio-only
+jobs and two video transcodes by default. Each account can hold at most five jobs
+across both types. Original playback uses no producer slot. These limits are
+editable in Settings → Transcoding. Existing `max_concurrent` settings now control
+video transcodes; saved configurations gain the new stream and user defaults.
+Paused jobs retain their reservations until stopped or finished. Track changes
+and seeks release the current producer first when a replacement cannot fit.
+
 ## Browser compatibility and delivery
 
 The browser must decode the original container, video profile and selected audio.

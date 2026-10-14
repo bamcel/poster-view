@@ -1,7 +1,7 @@
 import {useEffect,useState} from "react";
 import {useQuery} from "@tanstack/react-query";
 import {apiRequest} from "../../../api/client";
-type Settings={allow_conversion:boolean;allow_audio_transcoding:boolean;auto_bandwidth_transcoding:boolean;allow_remux:boolean;hardware_enabled:boolean;hardware_backend:string;preferred_encoder:string;allow_hevc:boolean;allow_av1:boolean;software_fallback:boolean;max_resolution:number;max_concurrent:number;threads:number;temporary_path:string;cache_gb:number;throttle:boolean;buffer_seconds:number;subtitle_extraction:boolean;font_extraction:boolean;audio_boost:number};
+type Settings={allow_conversion:boolean;allow_audio_transcoding:boolean;auto_bandwidth_transcoding:boolean;allow_remux:boolean;hardware_enabled:boolean;hardware_backend:string;preferred_encoder:string;allow_hevc:boolean;allow_av1:boolean;software_fallback:boolean;max_resolution:number;max_concurrent:number;max_stream_jobs:number;max_jobs_per_user:number;threads:number;temporary_path:string;cache_gb:number;throttle:boolean;buffer_seconds:number;subtitle_extraction:boolean;font_extraction:boolean;audio_boost:number};
 export type TranscodingSettingsValue=Settings;
 const input="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm";
 export default function TranscodingSettings(){
@@ -44,7 +44,7 @@ export default function TranscodingSettings(){
  <label className="mt-4 block text-sm">Maximum transcoding resolution<select className={input} value={settings.max_resolution} onChange={e=>set("max_resolution",Number(e.target.value))}>{[[0,"No limit"],[2160,"4K / 2160p"],[1080,"1080p"],[720,"720p"],[480,"480p"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></label></fieldset>
  <fieldset className="space-y-4 rounded-xl border border-border p-5"><legend className="px-2 font-semibold">Resources and temporary storage</legend>
  <label className="block text-sm">Transcoding temporary path<input className={input} value={settings.temporary_path} placeholder="Default server temporary directory" onChange={e=>set("temporary_path",e.target.value)}/><span className="mt-1 block text-xs text-muted">Absolute path inside the container. An SSD-backed directory is recommended. Saving does not create or delete files.</span></label>
- <div className="grid gap-4 sm:grid-cols-2">{number("max_concurrent","Maximum concurrent playback jobs",1,16)}{number("threads","Software encoding threads",0,128,"0 lets the encoder choose.")}{number("cache_gb","Temporary storage limit (GB)",1,1024)}{number("buffer_seconds","Read-ahead buffer (seconds)",10,600)}</div>
+ <div className="grid gap-4 sm:grid-cols-2">{number("max_stream_jobs","Maximum Direct Stream / audio-only jobs",1,64)}{number("max_concurrent","Maximum video transcodes",1,16)}{number("max_jobs_per_user","Maximum FFmpeg jobs per user",1,64,"Shared across both job types. Original playback uses no slots.")}{number("threads","Software encoding threads",0,128,"0 lets the encoder choose.")}{number("cache_gb","Temporary storage limit (GB)",1,1024)}{number("buffer_seconds","Read-ahead buffer (seconds)",10,600)}</div>
  {toggle("throttle","Enable transcoding throttling","Limit segmented playback read-ahead to reduce sustained server load and temporary storage.")}</fieldset>
  <fieldset className="rounded-xl border border-border p-5"><legend className="px-2 font-semibold">Subtitles and audio</legend>
  {toggle("subtitle_extraction","Allow subtitle extraction","Extract text, ASS / SSA, PGS, and VobSub tracks for browser overlays without changing the video.")}

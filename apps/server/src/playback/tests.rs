@@ -387,6 +387,8 @@ async fn expired_producer_releases_capacity_before_replacement_allocation() {
         &fixture,
         crate::transcoding::Settings {
             max_concurrent: 1,
+            max_stream_jobs: 8,
+            max_jobs_per_user: 1,
             ..Default::default()
         },
     );
@@ -403,6 +405,24 @@ async fn expired_producer_releases_capacity_before_replacement_allocation() {
     };
     let first = allocate().await.unwrap().0;
     assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 1);
+    let refused = allocate().await.err().unwrap();
+    assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(refused.detail.contains("Your concurrent"));
+    let original = create(
+        State(fixture.state.clone()),
+        HeaderMap::new(),
+        Path((fixture.library.clone(), fixture.item.clone())),
+        Json(SessionInput {
+            containers: vec!["mkv".into()],
+            ..input()
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(original.method, "direct");
+    assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 1);
+    fixture.state.playback.stop_id(&original.id).await;
     let first_handle = handle(&fixture.state.playback, &first.id).await.unwrap();
     first_handle.lock().await.touched = Instant::now() - SESSION_IDLE - Duration::from_secs(1);
     retire_idle(&fixture.state.playback).await;
@@ -464,6 +484,7 @@ async fn real_copied_preparation_covers_resume_target_before_publishing() {
         let (producer, encoder) = segmented::start(
             &fixture.state.playback,
             &uuid::Uuid::new_v4().to_string(),
+            "test-user",
             1,
             &segmented::Delivery {
                 source: &source,
@@ -541,6 +562,7 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
         crate::transcoding::Settings {
             throttle: false,
             max_concurrent: 1,
+            max_stream_jobs: 1,
             ..Default::default()
         },
     );
