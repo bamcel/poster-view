@@ -6,7 +6,7 @@ import {ytdl,type YtdlSettings} from "./client";
 import {nativeLibraries,defaultNativeOptions} from "../../../api/nativeLibraries";
 vi.mock("./client",async original=>({...await original<typeof import("./client")>(),ytdl:{configuration:vi.fn(),save:vi.fn(),inspect:vi.fn(),jobs:vi.fn(),submit:vi.fn(),action:vi.fn()}}));
 vi.mock("../../../api/nativeLibraries",async original=>({...await original<typeof import("../../../api/nativeLibraries")>(),nativeLibraries:{list:vi.fn(),folders:vi.fn()}}));
-const settings:YtdlSettings={enabled:true,library_id:"yt",directory:"YouTube",video_codec:"auto",audio_codec:"auto",container:"mp4",max_height:1080,max_fps:60,fallback:"best",convert:false,subtitles:false,subtitle_languages:["en"],chapters:true,thumbnail:true};
+const settings:YtdlSettings={enabled:true,library_id:"",directory:"YouTube",video_codec:"auto",audio_codec:"auto",container:"mp4",max_height:1080,max_fps:60,fallback:"best",convert:false,subtitles:false,subtitle_languages:["en"],chapters:true,thumbnail:true};
 beforeEach(()=>{
  HTMLDialogElement.prototype.showModal=vi.fn(function(this:HTMLDialogElement){this.setAttribute("open","");});
  vi.mocked(ytdl.configuration).mockResolvedValue({settings,dependencies:{yt_dlp:"1",ffmpeg:"7",js_runtime:"1"}});
@@ -67,6 +67,7 @@ it("permits the library media root and retries interrupted downloads",async()=>{
 it("uses library settings for setup and browses download folders in a dropdown",async()=>{
  vi.mocked(nativeLibraries.folders).mockImplementation(async path=>({root:"/media",path,folders:path==="YouTube"?[{name:"Downloads",path:"YouTube/Downloads",has_nfo:false}]:[]}));
  mount();await screen.findByLabelText("Video codec");
+ expect(screen.queryByLabelText("YouTube library")).toBeNull();
  expect(screen.queryByRole("button",{name:"Create YouTube library"})).toBeNull();
  expect(screen.queryByRole("button",{name:"Edit channels and library"})).toBeNull();
  fireEvent.click(screen.getByLabelText("Download directory"));
@@ -110,4 +111,12 @@ it("saves an explicit quality and nearest higher fallback",async()=>{
  fireEvent.change(screen.getByLabelText("If quality is unavailable"),{target:{value:"next_highest"}});
  fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,quality:720,fallback:"next_highest"}));
+});
+
+it("saves a download destination without any media library",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([]);
+ mount();await screen.findByLabelText("Video codec");
+ fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith(settings));
+ expect(nativeLibraries.list).not.toHaveBeenCalled();
 });

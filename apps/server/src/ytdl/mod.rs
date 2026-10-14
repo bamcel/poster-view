@@ -159,31 +159,7 @@ fn validate_settings(state: &AppState, s: &Settings) -> Result<PathBuf, HttpErro
             "WebM requires VP9/AV1 video and Opus audio. Choose MKV/MP4 for H.264, HEVC, or AAC.",
         ));
     }
-    if !s.enabled && s.library_id.is_empty() {
-        return Ok(PathBuf::new());
-    }
-    let library = ServerStore::new(state.runtime.data_dir())
-        .native_libraries()
-        .map_err(err)?
-        .into_iter()
-        .find(|l| l.id == s.library_id && l.library_type.as_str() == "youtube")
-        .ok_or_else(|| err("Select a YouTube library."))?;
     let destination = state.metadata.directory(&s.directory, true)?;
-    let roots = if library.paths.is_empty() {
-        vec![String::new()]
-    } else {
-        library.paths
-    };
-    if !roots.iter().any(|root| {
-        state
-            .metadata
-            .directory(root, true)
-            .is_ok_and(|p| destination.starts_with(p))
-    }) {
-        return Err(err(
-            "Download directory must be inside the selected library.",
-        ));
-    }
     tempfile::NamedTempFile::new_in(&destination)
         .map_err(|_| err("Download directory is not writable."))?;
     Ok(destination)
@@ -420,6 +396,27 @@ mod tests {
             load::<Vec<Job>>(&state, "plugin-ytdl-jobs").unwrap()[0].status,
             "cancelled"
         );
+    }
+    #[test]
+    fn downloads_require_a_writable_media_directory_not_a_library() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        std::fs::create_dir(temp.path().join("media/downloads")).unwrap();
+        let mut settings = Settings {
+            enabled: true,
+            directory: "downloads".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            validate_settings(&state, &settings).unwrap(),
+            temp.path().join("media/downloads").canonicalize().unwrap()
+        );
+        settings.library_id = "deleted-library".into();
+        assert!(validate_settings(&state, &settings).is_ok());
+        settings.directory = "../outside".into();
+        assert!(validate_settings(&state, &settings).is_err());
+        settings.directory = "missing".into();
+        assert!(validate_settings(&state, &settings).is_err());
     }
     #[test]
     fn invalid_settings_cannot_disable_validation() {

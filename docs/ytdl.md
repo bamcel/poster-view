@@ -2,24 +2,23 @@
 
 Administrators configure YTDL in **Settings → Plugins → YTDL**. The plugin
 downloads public YouTube videos and playlists with yt-dlp, writes local NFO
-metadata and thumbnails, and imports completed files into a native YouTube
-library. Browsing, playback, resume, and watch history use normal library access
+metadata and thumbnails. It works without a configured media library. Existing
+YouTube libraries whose folders contain the download directory are refreshed
+after completion. Browsing, playback, resume, and watch history use normal library access
 permissions. Non-administrators cannot configure, inspect, queue, cancel, or retry
 downloads through the API.
 
 ## Setup
 
-1. Create a library with type **YouTube** in **Settings → Libraries**.
-2. Choose **Single channel** (playlists → videos) or **Multiple channels**
-   (channels → playlists → videos). Configure channel IDs, `@handles`, or HTTPS
-   YouTube channel URLs. An empty channel list permits the first channel for a
-   single-channel library, or any channel for a multiple-channel library.
-3. Select existing folders under the configured media mount. Docker/Unraid paths
-   are container paths, not host paths. The download directory must already
-   exist, be writable, and lie within this library's selected roots. Use the plugin's
-   **Download directory** dropdown browser to navigate and select the destination.
-4. In the plugin popup, select the library/directory, enable YTDL, choose formats
-   and metadata options, and **Save configuration**.
+1. In the plugin popup, select a writable existing directory under the media mount
+   using **Download directory**, enable YTDL, choose formats and metadata options,
+   and **Save configuration**. Docker/Unraid paths are container paths.
+2. To browse downloaded files in PosterView, create a **YouTube** library separately
+   in **Settings → Libraries** and select the download folder (or a parent folder).
+3. Configure **Single channel** (playlists → videos) or **Multiple channels**
+   (channels → playlists → videos) and optional channel filters in Library settings.
+   These settings control library display and do not restrict plugin downloads.
+4. A library can be added after downloading; scan it to import the existing NFOs.
 5. Paste a video or playlist URL into Downloads, **Fetch Info**, select videos,
    and queue the download. A channel URL opens its playlists; choose **Open
    playlist** before selecting videos. Standalone videos appear under All Videos.

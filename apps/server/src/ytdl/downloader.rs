@@ -557,35 +557,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     if !super::load::<Settings>(state, "plugin-ytdl")?.enabled {
         return Err(err("YTDL plugin is disabled."));
     }
-    validate_settings(state, &job.settings)?;
-    let library = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir())
-        .native_libraries()
-        .map_err(err)?
-        .into_iter()
-        .find(|l| l.id == job.settings.library_id)
-        .ok_or_else(|| err("Library no longer exists."))?;
-    let mut allowed_channels = Vec::new();
-    for configured in &library.options.youtube_channels {
-        if configured.starts_with("UC") && valid_id(configured) {
-            allowed_channels.push(configured.clone());
-        } else {
-            let url = if configured.starts_with("https://") {
-                configured.clone()
-            } else {
-                format!(
-                    "https://www.youtube.com/{}",
-                    configured.trim_start_matches('/')
-                )
-            };
-            let value = job_raw_inspect(state, job, &url).await?;
-            let channel = text(&value, "channel_id");
-            if !valid_id(&channel) {
-                return Err(err("Configured channel cannot be resolved."));
-            }
-            allowed_channels.push(channel);
-        }
-    }
-    let mut first_channel = None;
+    let destination = validate_settings(state, &job.settings)?;
     let mut channel_metadata = std::collections::HashMap::new();
     update(state, &job.id, "inspecting", None, None).await?;
     let inspect_source = async {
@@ -644,35 +616,6 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
         let channel_info = channel_metadata
             .get(&channel)
             .ok_or_else(|| err("Channel metadata unavailable."))?;
-        if !allowed_channels.is_empty() && !allowed_channels.contains(&channel) {
-            return Err(err("Video is outside the library's configured channels."));
-        }
-        if library.options.youtube_mode == "single_channel" {
-            if first_channel
-                .as_ref()
-                .is_some_and(|first| first != &channel)
-            {
-                return Err(err(
-                    "Single-channel libraries cannot contain multiple channels.",
-                ));
-            }
-            let existing = std::fs::read_dir(
-                state
-                    .metadata
-                    .directory(&job.settings.directory, true)?
-                    .join("channels"),
-            );
-            if existing.is_ok_and(|entries| {
-                entries.flatten().any(|e| {
-                    e.file_type().is_ok_and(|t| t.is_dir()) && e.file_name() != channel.as_str()
-                })
-            }) {
-                return Err(err(
-                    "This single-channel library already contains another channel.",
-                ));
-            }
-            first_channel = Some(channel.clone());
-        }
         let channel_relative = format!("channels/{channel}");
         let mut folder = job.settings.directory.clone();
         for part in ["channels", channel.as_str(), id.as_str()] {
@@ -827,8 +770,17 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     if scopes.is_empty() {
         return update(state, &job.id, "completed", skipped_summary, Some(100.0)).await;
     }
-    crate::native::start_scan_scoped(state.clone(), job.settings.library_id.clone(), Some(scopes))
-        .await?;
+    let libraries = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir())
+        .native_libraries()
+        .map_err(err)?;
+    let matching = eligible_import_libraries(state, &destination, &libraries);
+    if matching.is_empty() {
+        return update(state, &job.id, "completed", skipped_summary, Some(100.0)).await;
+    }
+    for library in &matching {
+        crate::native::start_scan_scoped(state.clone(), library.clone(), Some(scopes.clone()))
+            .await?;
+    }
     // A completed job must be visible in the catalog before clients invalidate it.
     tokio::time::timeout(Duration::from_secs(3600), async {
         loop {
@@ -839,7 +791,8 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
                 .active_native_scans
                 .lock()
                 .map_err(err)?
-                .contains(&job.settings.library_id);
+                .iter()
+                .any(|active| matching.contains(active));
             if !importing {
                 return Ok(());
             }
@@ -849,6 +802,27 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     .await
     .map_err(|_| err("Library import timed out. Retry to rescan the downloaded files."))??;
     update(state, &job.id, "completed", skipped_summary, Some(100.0)).await
+}
+fn eligible_import_libraries(
+    state: &AppState,
+    destination: &Path,
+    libraries: &[posterview_contracts::native::NativeLibrary],
+) -> Vec<String> {
+    libraries
+        .iter()
+        .filter(|library| {
+            library.library_type == posterview_contracts::native::NativeLibraryType::Youtube
+        })
+        .filter(|library| {
+            library.paths.iter().any(|root| {
+                state
+                    .metadata
+                    .directory(root, true)
+                    .is_ok_and(|root| destination.starts_with(root))
+            })
+        })
+        .map(|library| library.id.clone())
+        .collect()
 }
 fn upload_modified_time(info: &Value) -> Option<std::time::SystemTime> {
     info["timestamp"]
@@ -898,6 +872,57 @@ fn publish_with_modified(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn optional_import_matches_all_covering_youtube_libraries() {
+        use posterview_contracts::native::{AnimeContent, NativeLibrary, NativeLibraryType};
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        for path in ["downloads", "elsewhere", "downloads/narrow"] {
+            std::fs::create_dir_all(temp.path().join("media").join(path)).unwrap();
+        }
+        let library = |id: &str, kind, paths: Vec<String>| NativeLibrary {
+            id: id.into(),
+            name: id.into(),
+            library_type: kind,
+            anime_content: AnimeContent::Both,
+            paths,
+            revision: 1,
+            options: Default::default(),
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+        let libraries = vec![
+            library("all", NativeLibraryType::Youtube, vec!["".into()]),
+            library("unconfigured", NativeLibraryType::Youtube, vec![]),
+            library(
+                "downloads",
+                NativeLibraryType::Youtube,
+                vec!["downloads".into()],
+            ),
+            library(
+                "other",
+                NativeLibraryType::Youtube,
+                vec!["elsewhere".into()],
+            ),
+            library(
+                "narrow",
+                NativeLibraryType::Youtube,
+                vec!["downloads/narrow".into()],
+            ),
+            library("shows", NativeLibraryType::Shows, vec!["downloads".into()]),
+            library(
+                "invalid",
+                NativeLibraryType::Youtube,
+                vec!["../outside".into()],
+            ),
+        ];
+        let destination = state.metadata.directory("downloads", false).unwrap();
+        assert_eq!(
+            eligible_import_libraries(&state, &destination, &libraries),
+            vec!["all", "downloads"]
+        );
+        assert!(eligible_import_libraries(&state, &destination, &[]).is_empty());
+    }
     fn quality_fixture(heights: &[u32]) -> Value {
         let mut formats = heights
             .iter()

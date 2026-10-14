@@ -231,9 +231,9 @@ async fn manual(
 ) -> Result<Json<Subscription>, HttpError> {
     check(&state, &id, false).await.map(Json)
 }
-fn active_video(jobs: &[Job], library: &str, url: &str, id: &str) -> bool {
+fn active_video(jobs: &[Job], directory: &str, url: &str, id: &str) -> bool {
     jobs.iter().any(|job| {
-        job.settings.library_id == library
+        same_destination(&job.settings.directory, directory)
             && same_source(&job.url, url)
             && [
                 "queued",
@@ -245,6 +245,18 @@ fn active_video(jobs: &[Job], library: &str, url: &str, id: &str) -> bool {
             .contains(&job.status.as_str())
             && (job.video_ids.is_empty() || job.video_ids.iter().any(|v| v == id))
     })
+}
+fn same_destination(a: &str, b: &str) -> bool {
+    let a = a.trim_end_matches('/');
+    let b = b.trim_end_matches('/');
+    #[cfg(windows)]
+    {
+        a.eq_ignore_ascii_case(b)
+    }
+    #[cfg(not(windows))]
+    {
+        a == b
+    }
 }
 fn same_source(a: &str, b: &str) -> bool {
     if a == b {
@@ -478,7 +490,7 @@ fn append_source_jobs(
                 || !downloader::valid_id(id)
                 || !seen.insert(id)
                 || (!source.playlist && covered.contains(id))
-                || active_video(jobs, &settings.library_id, &source.url, id)
+                || active_video(jobs, &settings.directory, &source.url, id)
             {
                 continue;
             }
@@ -812,7 +824,7 @@ mod tests {
     #[test]
     fn active_jobs_deduplicate_but_failures_can_retry() {
         let settings = Settings {
-            library_id: "library".into(),
+            directory: "downloads".into(),
             ..Default::default()
         };
         let mut jobs = vec![Job {
@@ -828,22 +840,25 @@ mod tests {
             settings,
             video_ids: vec!["vid".into()],
         }];
-        assert!(active_video(&jobs, "library", &jobs[0].url, "vid"));
+        assert!(active_video(&jobs, "downloads", &jobs[0].url, "vid"));
+        jobs[0].settings.library_id = "retired-library".into();
+        assert!(active_video(&jobs, "downloads/", &jobs[0].url, "vid"));
+        assert!(!active_video(&jobs, "other-downloads", &jobs[0].url, "vid"));
         assert!(!active_video(
             &jobs,
-            "library",
+            "downloads",
             "https://youtube.com/playlist?list=PLother",
             "vid"
         ));
         assert!(!active_video(&jobs, "another", "other", "vid"));
         jobs[0].status = "failed".into();
-        assert!(!active_video(&jobs, "library", "other", "vid"));
+        assert!(!active_video(&jobs, "downloads", "other", "vid"));
         jobs[0].status = "downloading".into();
         jobs[0].video_ids.clear();
-        assert!(active_video(&jobs, "library", &jobs[0].url, "vid"));
+        assert!(active_video(&jobs, "downloads", &jobs[0].url, "vid"));
         assert!(active_video(
             &jobs,
-            "library",
+            "downloads",
             "https://www.youtube.com/playlist?list=PLid&index=3",
             "vid"
         ));
@@ -921,19 +936,14 @@ mod tests {
             "plugin-ytdl",
             &Settings {
                 enabled: true,
-                library_id: "missing-library".into(),
+                directory: "../outside".into(),
                 ..Default::default()
             },
         )
         .unwrap();
         let result = check(&state, "claim-fixture", false).await.unwrap();
         assert!(result.last_checked.is_some());
-        assert!(
-            result
-                .error
-                .as_ref()
-                .is_some_and(|e| e.contains("YouTube library"))
-        );
+        assert!(result.error.as_ref().is_some_and(|e| e.contains("folder")));
         assert!(
             result
                 .next_check
