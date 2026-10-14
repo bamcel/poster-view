@@ -92,17 +92,22 @@ it("pauses offscreen without restarting the slide",async()=>{
  expect(track.getAttribute("style")).toBe(position);
 });
 
-it("moves on physical pixels at fractional display scaling",async()=>{
+it("moves continuously between physical pixels at fractional display scaling",async()=>{
  vi.stubGlobal("devicePixelRatio",1.25);
  let callback:FrameRequestCallback=()=>{};
  vi.stubGlobal("requestAnimationFrame",vi.fn((next:FrameRequestCallback)=>{callback=next;return 1;}));
  vi.stubGlobal("cancelAnimationFrame",vi.fn());
  mount();await act(async()=>{});
  act(()=>callback(0));
- for(let time=17;time<=5100;time+=17){
+ const offsets:number[]=[];
+ for(let time=17;time<=510;time+=17){
   act(()=>callback(time));
   const style=screen.getByLabelText("Library poster preview").firstElementChild?.getAttribute("style")??"";
   const offset=Number(/translate3d\(([-\d.]+)px/.exec(style)?.[1]);
-  expect(Math.abs(offset*1.25-Math.round(offset*1.25))).toBeLessThan(0.00001);
+  offsets.push(offset);
  }
+ expect(offsets.some(offset=>Math.abs(offset*1.25-Math.round(offset*1.25))>0.00001)).toBe(true);
+ const steps=offsets.slice(1).map((offset,index)=>offset-offsets[index]);
+ expect(steps.every(step=>step>0)).toBe(true);
+ expect(Math.max(...steps)-Math.min(...steps)).toBeLessThan(0.00001);
 });
