@@ -20,6 +20,7 @@ function newUser(): UserInput {
       max_movie_rating: null,
       max_tv_rating: null,
       allow_unrated: false,
+      max_playback_streams: 5,
     },
   };
 }
@@ -43,7 +44,7 @@ export default function UsersSection() {
       role: account.role,
       enabled: account.enabled,
       password: "",
-      permissions: { ...account.permissions, library_ids: [...account.permissions.library_ids] },
+      permissions: { ...account.permissions, max_playback_streams: account.permissions.max_playback_streams ?? 5, library_ids: [...account.permissions.library_ids] },
     } : newUser());
     setError("");
     setNotice("");
@@ -181,6 +182,13 @@ export default function UsersSection() {
             <input type="checkbox" checked={form.enabled} onChange={event => setForm({ ...form, enabled: event.target.checked })} />
             Account enabled
           </label>
+          <div className="space-y-2">
+            <label className="block space-y-2">
+              Simultaneous playback limit
+              <input className={inputClass} type="number" min={0} max={64} step={1} required value={form.permissions.max_playback_streams ?? 5} onChange={event => updatePolicy({ max_playback_streams: event.target.valueAsNumber })} aria-describedby="playback-limit-help" />
+            </label>
+            <p id="playback-limit-help" className="text-sm text-muted">Use 0 for unlimited playback sessions. Original playback, Direct Stream and transcodes all count. Seeking and changing audio keep the same stream. Separate server FFmpeg job limits still apply.</p>
+          </div>
           {form.role === "admin" ? (
             <p className="text-sm text-muted">
               Administrators have unrestricted library access and can change all server settings. Keep at least one enabled administrator.

@@ -29,6 +29,15 @@ video transcodes; saved configurations gain the new stream and user defaults.
 Paused jobs retain their reservations until stopped or finished. Track changes
 and seeks release the current producer first when a replacement cannot fit.
 
+Settings → Users adds a separate simultaneous playback limit for each account,
+including administrators. New and existing accounts default to five playbacks;
+choose 0 for unlimited or a limit from 1 to 64. Original, Direct Stream and video
+transcoding each count as one playback. Seeking, audio changes and generation
+replacement keep the same session reservation. Paused players still count;
+closing the player, failed startup and session expiry release the reservation.
+An unlimited playback allowance does not override server or per-user FFmpeg job
+limits. Lowering an allowance blocks new sessions without interrupting existing ones.
+
 ## Browser compatibility and delivery
 
 The browser must decode the original container, video profile and selected audio.

@@ -583,6 +583,24 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
     .0;
     assert_eq!(created.method, "direct");
     assert_eq!(created.generation, 0);
+    // Four other playbacks put this owner at the five-stream cap. Audio
+    // promotion and all following seeks must keep this session's single lease.
+    let owner = fixture
+        .state
+        .auth
+        .request_user(&HeaderMap::new())
+        .unwrap()
+        .id;
+    let _other_streams = (0..4)
+        .map(|_| {
+            fixture
+                .state
+                .playback
+                .session_limits
+                .reserve(&owner, 5)
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
     let promoted = seek(
         State(fixture.state.clone()),
         HeaderMap::new(),
@@ -1362,6 +1380,55 @@ async fn unknown_duration_heartbeats_keep_real_positions_with_bounded_validation
 }
 
 #[tokio::test]
+async fn original_playback_counts_toward_user_limit_and_exit_or_expiry_releases_it() {
+    let fixture = video_fixture(b"original", original_mkv_probe()).await;
+    let mut sessions = Vec::new();
+    for _ in 0..5 {
+        sessions.push(direct(&fixture).await);
+    }
+    let rejected = create(
+        State(fixture.state.clone()),
+        HeaderMap::new(),
+        Path((fixture.library.clone(), fixture.item.clone())),
+        Json(original_mkv_input()),
+    )
+    .await
+    .err()
+    .unwrap();
+    assert_eq!(rejected.status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(rejected.detail.contains("simultaneous playback"));
+    // At the user limit, seeking the same video retains its existing reservation.
+    let moved = seek(
+        State(fixture.state.clone()),
+        HeaderMap::new(),
+        Path(sessions[0].id.clone()),
+        Json(SeekInput {
+            position_seconds: 40.0,
+            generation: 0,
+            audio_index: None,
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(moved.id, sessions[0].id);
+    assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
+    fixture
+        .state
+        .playback
+        .stop_id(&sessions.pop().unwrap().id)
+        .await;
+    let replacement = direct(&fixture).await;
+    let old = handle(&fixture.state.playback, &replacement.id)
+        .await
+        .unwrap();
+    old.lock().await.touched = Instant::now() - SESSION_IDLE - Duration::from_secs(1);
+    let next = direct(&fixture).await;
+    assert_ne!(next.id, replacement.id);
+    assert!(old.lock().await.closed);
+}
+
+#[tokio::test]
 async fn session_limit_is_bounded_and_expired_entries_release_slots() {
     let fixture = video_fixture(b"0123456789", original_mkv_probe()).await;
     let response = direct(&fixture).await;
@@ -1377,6 +1444,7 @@ async fn session_limit_is_bounded_and_expired_entries_release_slots() {
         sessions.insert(
             number.to_string(),
             Arc::new(Mutex::new(Session {
+                playback_slot: None,
                 preparation: None,
                 next_generation: 1,
                 owner: fixture

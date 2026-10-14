@@ -47,6 +47,11 @@ fn validate(
     password: Option<&str>,
     permissions: &UserPermissions,
 ) -> Result<(), StoreError> {
+    if permissions.max_playback_streams > 64 {
+        return Err(StoreError::Validation(
+            "Simultaneous playback limit must be between 0 and 64 (0 means unlimited).".into(),
+        ));
+    }
     if username.trim().is_empty()
         || username.len() > 64
         || !username
@@ -259,6 +264,58 @@ fn protect_last_admin(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn playback_limits_persist_on_create_and_update_and_validate_range() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ServerStore::new(dir.path());
+        store.initialize().unwrap();
+        let mut input = UserCreate {
+            username: "viewer".into(),
+            display_name: "Viewer".into(),
+            password: "password123".into(),
+            role: UserRole::User,
+            enabled: true,
+            permissions: UserPermissions {
+                max_playback_streams: 2,
+                ..Default::default()
+            },
+        };
+        let created = store.create_user(&input).unwrap();
+        assert_eq!(
+            store
+                .user(&created.id)
+                .unwrap()
+                .unwrap()
+                .permissions
+                .max_playback_streams,
+            2
+        );
+        let mut update = UserUpdate {
+            revision: created.revision,
+            username: created.username,
+            display_name: created.display_name,
+            role: created.role,
+            enabled: true,
+            permissions: UserPermissions {
+                max_playback_streams: 0,
+                ..created.permissions
+            },
+            password: None,
+        };
+        let updated = store.update_user(&created.id, &update).unwrap().unwrap();
+        assert_eq!(updated.permissions.max_playback_streams, 0);
+        update.revision = updated.revision;
+        update.permissions.max_playback_streams = 65;
+        assert!(matches!(
+            store.update_user(&created.id, &update),
+            Err(StoreError::Validation(_))
+        ));
+        input.permissions.max_playback_streams = 65;
+        assert!(matches!(
+            store.create_user(&input),
+            Err(StoreError::Validation(_))
+        ));
+    }
     #[test]
     fn first_admin_setup_is_atomic_and_forces_administrator_permissions() {
         let dir = tempfile::tempdir().unwrap();

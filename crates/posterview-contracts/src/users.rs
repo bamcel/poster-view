@@ -7,7 +7,7 @@ pub enum UserRole {
     User,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct UserPermissions {
     pub all_libraries: bool,
@@ -15,6 +15,19 @@ pub struct UserPermissions {
     pub max_movie_rating: Option<String>,
     pub max_tv_rating: Option<String>,
     pub allow_unrated: bool,
+    pub max_playback_streams: u32,
+}
+impl Default for UserPermissions {
+    fn default() -> Self {
+        Self {
+            all_libraries: false,
+            library_ids: Vec::new(),
+            max_movie_rating: None,
+            max_tv_rating: None,
+            allow_unrated: false,
+            max_playback_streams: 5,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,4 +68,18 @@ pub struct UserUpdate {
     pub enabled: bool,
     pub permissions: UserPermissions,
     pub password: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn legacy_permissions_default_to_five_streams_and_zero_stays_unlimited() {
+        let legacy: UserPermissions = serde_json::from_str(r#"{"all_libraries":true}"#).unwrap();
+        assert_eq!(legacy.max_playback_streams, 5);
+        assert!(legacy.all_libraries);
+        let unlimited: UserPermissions =
+            serde_json::from_str(r#"{"max_playback_streams":0}"#).unwrap();
+        assert_eq!(unlimited.max_playback_streams, 0);
+    }
 }

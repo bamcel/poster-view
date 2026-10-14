@@ -50,6 +50,7 @@ it("creates a viewer with explicit libraries and separate content ceilings", asy
     permissions: {
       all_libraries: false, library_ids: ["movies"], max_movie_rating: "PG-13",
       max_tv_rating: "TV-PG", allow_unrated: false,
+      max_playback_streams: 5,
     },
   }));
 });
@@ -61,6 +62,42 @@ it("keeps the saved password when editing and sends the revision", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Save user" }));
   await waitFor(() => expect(api.updateUser).toHaveBeenCalledWith("u", expect.objectContaining({
     revision: 4, password: null, display_name: "New name",
+  })));
+});
+
+it("creates an administrator with unlimited playback without changing library permissions", async () => {
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Create user" }));
+  fireEvent.change(screen.getByLabelText("Username"), { target: { value: "admin2" } });
+  fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Admin two" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret1234" } });
+  fireEvent.change(screen.getByLabelText("Role"), { target: { value: "admin" } });
+  expect((screen.getByLabelText("Simultaneous playback limit") as HTMLInputElement).value).toBe("5");
+  fireEvent.change(screen.getByLabelText("Simultaneous playback limit"), { target: { value: "0" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save user" }));
+  await waitFor(() => expect(api.createUser).toHaveBeenCalledWith(expect.objectContaining({
+    role: "admin", permissions: { ...account.permissions, max_playback_streams: 0 },
+  })));
+});
+
+it("loads and edits an existing playback limit while preserving content restrictions", async () => {
+  const permissions = { ...account.permissions, all_libraries: false, library_ids: ["movies"], max_movie_rating: "PG", max_tv_rating: "TV-PG", max_playback_streams: 3 };
+  vi.mocked(api.users).mockResolvedValue([{ ...account, permissions }]);
+  mount();fireEvent.click(await screen.findByRole("button", { name: "Edit Viewer" }));
+  expect((screen.getByLabelText("Simultaneous playback limit") as HTMLInputElement).value).toBe("3");
+  fireEvent.change(screen.getByLabelText("Simultaneous playback limit"), { target: { value: "0" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save user" }));
+  await waitFor(() => expect(api.updateUser).toHaveBeenCalledWith("u", expect.objectContaining({
+    permissions: { ...permissions, max_playback_streams: 0 }, revision: 4,
+  })));
+});
+
+it("uses five streams for legacy accounts without a saved playback limit", async () => {
+  mount();fireEvent.click(await screen.findByRole("button", { name: "Edit Viewer" }));
+  expect((screen.getByLabelText("Simultaneous playback limit") as HTMLInputElement).value).toBe("5");
+  fireEvent.click(screen.getByRole("button", { name: "Save user" }));
+  await waitFor(() => expect(api.updateUser).toHaveBeenCalledWith("u", expect.objectContaining({
+    permissions: { ...account.permissions, max_playback_streams: 5 },
   })));
 });
 

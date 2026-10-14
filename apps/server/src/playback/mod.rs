@@ -5,6 +5,7 @@ mod models;
 mod planner;
 mod producer_limits;
 mod segmented;
+mod session_limits;
 #[cfg(test)]
 mod test_support;
 use models::{Chapter, Font, Info, NextItem, SeekInput, SessionInput, SessionResponse, Track};
@@ -285,6 +286,7 @@ struct PendingPreparation {
     cancel: tokio::sync::watch::Sender<()>,
 }
 struct Session {
+    playback_slot: Option<session_limits::Lease>,
     preparation: Option<PendingPreparation>,
     next_generation: u64,
     owner: String,
@@ -315,6 +317,7 @@ pub(crate) struct PlaybackStore {
     copy_seeks: segmented::CopySeekCache,
     producers: Arc<AtomicU32>,
     producer_limits: Arc<producer_limits::ProducerLimits>,
+    session_limits: Arc<session_limits::SessionLimits>,
     instance: String,
     cache_roots: StdMutex<HashSet<PathBuf>>,
     cache_budget: AtomicU64,
@@ -344,6 +347,7 @@ impl PlaybackStore {
             copy_seeks: Default::default(),
             producers: Arc::new(AtomicU32::new(0)),
             producer_limits: Default::default(),
+            session_limits: Default::default(),
             instance: uuid::Uuid::new_v4().to_string(),
             cache_roots: StdMutex::new(HashSet::new()),
             cache_budget: AtomicU64::new(10 * 1024 * 1024 * 1024),
@@ -409,6 +413,7 @@ impl PlaybackStore {
             let producer = {
                 let mut session = handle.lock().await;
                 session.closed = true;
+                session.playback_slot.take();
                 cancel_preparation(&mut session);
                 session.producer.take()
             };
@@ -1055,6 +1060,7 @@ async fn retire_idle(store: &Arc<PlaybackStore>) {
             continue;
         }
         session.closed = true;
+        session.playback_slot.take();
         cancel_preparation(&mut session);
         let producer = session.producer.take();
         store.sessions.lock().await.remove(&id);
@@ -1087,7 +1093,12 @@ pub(crate) async fn create(
     let planned = plan(&probe, &container(&source.path), &input, &settings)?;
     let id = uuid::Uuid::new_v4().to_string();
     let initial = response(&id, &source, &probe, &planned, 0, 0.0, None);
+    let playback_slot = state
+        .playback
+        .session_limits
+        .reserve(&user.id, user.permissions.max_playback_streams)?;
     let session = Arc::new(Mutex::new(Session {
+        playback_slot: Some(playback_slot),
         preparation: None,
         next_generation: 1,
         owner: user.id.clone(),

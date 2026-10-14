@@ -80,7 +80,7 @@ export interface SecuritySettings {
 export interface LoginBackdropManifest { rows: { posters: string[] }[]; }
 
 export type UserRole = "admin" | "user";
-export interface UserPermissions { all_libraries: boolean; library_ids: string[]; max_movie_rating: string | null; max_tv_rating: string | null; allow_unrated: boolean; }
+export interface UserPermissions { all_libraries: boolean; library_ids: string[]; max_movie_rating: string | null; max_tv_rating: string | null; allow_unrated: boolean; max_playback_streams?: number; }
 export interface UserAccount { id: string; username: string; display_name: string; role: UserRole; enabled: boolean; permissions: UserPermissions; revision: number; created_at: string; }
 export type UserInput = Omit<UserAccount, "id" | "revision" | "created_at"> & { password: string };
 export interface AuthSession {
