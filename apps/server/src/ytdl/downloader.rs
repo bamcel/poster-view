@@ -734,6 +734,26 @@ async fn cancellable(
             let message = reader.await.unwrap_or_default();
             let _ = progress_reader.await;
             if status.success() {
+                if encoding_duration.is_some() {
+                    // Some FFmpeg versions report the last frame's start time,
+                    // not the full duration. A successful exit is authoritative.
+                    let _lock = state.ytdl_lock.lock().await;
+                    let mut jobs = super::load::<Vec<Job>>(state, "plugin-ytdl-jobs")?;
+                    if let Some(saved) = jobs
+                        .iter_mut()
+                        .find(|saved| saved.id == job.id && saved.status == "processing")
+                    {
+                        saved.encoding_progress = Some(100.0);
+                        saved.eta = Some("0s".into());
+                        if saved.total_videos > 0 {
+                            let aggregate = (saved.completed_videos as f64 + 0.95)
+                                / saved.total_videos as f64
+                                * 100.0;
+                            saved.progress = Some(saved.progress.unwrap_or(0.0).max(aggregate));
+                        }
+                    }
+                    super::save(state, "plugin-ytdl-jobs", &jobs)?;
+                }
                 return Ok(());
             }
             return Err(err(String::from_utf8_lossy(&message)
@@ -1197,11 +1217,15 @@ mod tests {
             "null",
             "-",
         ]);
-        cancellable(&state, &job, command, Some(Some(1.0)))
+        // Deliberately overestimate duration: completion must use process success,
+        // not assume the final FFmpeg timestamp reaches the metadata duration.
+        cancellable(&state, &job, command, Some(Some(2.0)))
             .await
             .unwrap();
         let saved = super::super::load::<Vec<Job>>(&state, "plugin-ytdl-jobs").unwrap();
         assert_eq!(saved[0].encoding_progress, Some(100.0));
+        assert_eq!(saved[0].eta.as_deref(), Some("0s"));
+        assert!((saved[0].progress.unwrap() - 195.0 / 7.0).abs() < 0.001);
         assert!(saved[0].speed.as_ref().unwrap().contains("encoded"));
     }
     #[test]
