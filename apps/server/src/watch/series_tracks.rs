@@ -123,9 +123,7 @@ fn clear_saved(store: &WatchStore, user: &str) -> Result<(), HttpError> {
                 ))
             })
             .map_err(failure)?;
-        rows
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(failure)?
+        rows.collect::<Result<Vec<_>, _>>().map_err(failure)?
     };
     for (library, item, raw, active_session) in rows {
         let mut saved: serde_json::Value = serde_json::from_str(&raw).map_err(failure)?;

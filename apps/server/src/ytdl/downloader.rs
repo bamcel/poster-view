@@ -448,14 +448,26 @@ fn choose_quality(s: &Settings, info: &Value) -> QualityChoice {
 pub(super) fn conversion_args(s: &Settings, input: &Path, output: &Path) -> Vec<String> {
     let mut args = vec![
         "-nostdin".into(),
+        "-progress".into(),
+        "pipe:1".into(),
+        "-stats_period".into(),
+        "1".into(),
+        "-nostats".into(),
         "-n".into(),
-        "-i".into(),
-        input.to_string_lossy().into(),
-        "-map".into(),
-        "0:v:0".into(),
-        "-map".into(),
-        "0:a:0?".into(),
-        "-c:v".into(),
+    ];
+    match s.hardware_backend.as_str() {
+        "qsv" => args.extend([
+            "-init_hw_device".into(),
+            "qsv=qs".into(),
+            "-filter_hw_device".into(),
+            "qs".into(),
+        ]),
+        "vaapi" => args.extend(["-vaapi_device".into(), "/dev/dri/renderD128".into()]),
+        _ => {}
+    }
+    let video_encoder = if s.hardware_backend != "cpu" {
+        format!("{}_{}", s.video_codec, s.hardware_backend)
+    } else {
         match s.video_codec.as_str() {
             "h264" => "libx264",
             "hevc" => "libx265",
@@ -464,7 +476,17 @@ pub(super) fn conversion_args(s: &Settings, input: &Path, output: &Path) -> Vec<
             _ if s.container == "webm" => "libvpx-vp9",
             _ => "copy",
         }
-        .into(),
+        .into()
+    };
+    args.extend([
+        "-i".into(),
+        input.to_string_lossy().into(),
+        "-map".into(),
+        "0:v:0".into(),
+        "-map".into(),
+        "0:a:0?".into(),
+        "-c:v".into(),
+        video_encoder,
         "-c:a".into(),
         match s.audio_codec.as_str() {
             "aac" => "aac",
@@ -473,8 +495,31 @@ pub(super) fn conversion_args(s: &Settings, input: &Path, output: &Path) -> Vec<
             _ => "copy",
         }
         .into(),
-    ];
-    if s.video_codec != "auto" || s.container == "webm" {
+    ]);
+    match s.hardware_backend.as_str() {
+        "nvenc" => args.extend([
+            "-rc".into(),
+            "vbr".into(),
+            "-cq".into(),
+            s.crf.to_string(),
+            "-b:v".into(),
+            "0".into(),
+        ]),
+        "qsv" => args.extend([
+            "-global_quality".into(),
+            s.crf.to_string(),
+            "-vf".into(),
+            "format=nv12,hwupload=extra_hw_frames=64".into(),
+        ]),
+        "vaapi" => args.extend([
+            "-qp".into(),
+            s.crf.to_string(),
+            "-vf".into(),
+            "format=nv12,hwupload".into(),
+        ]),
+        _ => {}
+    }
+    if s.hardware_backend == "cpu" && (s.video_codec != "auto" || s.container == "webm") {
         args.extend(["-crf".into(), s.crf.to_string()]);
         if s.video_codec == "vp9" || (s.video_codec == "auto" && s.container == "webm") {
             args.extend(["-b:v".into(), "0".into()]);
@@ -488,11 +533,76 @@ pub(super) fn conversion_args(s: &Settings, input: &Path, output: &Path) -> Vec<
 pub(super) fn record_stream_progress(job: &mut Job, stream_progress: Option<f64>) {
     if job.total_videos > 0 {
         if let Some(percent) = stream_progress {
-            let aggregate = (job.completed_videos as f64 + percent / 100.0 * 0.95)
+            let aggregate = (job.completed_videos as f64
+                + percent / 100.0 * if job.settings.convert { 0.5 } else { 0.95 })
                 / job.total_videos as f64
                 * 100.0;
             job.progress = Some(job.progress.unwrap_or(0.0).max(aggregate));
         }
+    }
+}
+
+#[derive(Default)]
+struct EncodingProgress {
+    seconds: Option<f64>,
+    speed: Option<f64>,
+    fps: Option<f64>,
+    frame: Option<u64>,
+}
+impl EncodingProgress {
+    fn line(&mut self, line: &str) -> bool {
+        let Some((key, value)) = line.split_once('=') else {
+            return false;
+        };
+        let number = || {
+            value
+                .trim()
+                .trim_end_matches('x')
+                .parse::<f64>()
+                .ok()
+                .filter(|n| n.is_finite() && *n >= 0.0)
+        };
+        match key {
+            "out_time_us" => self.seconds = number().map(|n| n / 1_000_000.0),
+            "speed" => self.speed = number().filter(|n| *n > 0.0),
+            "fps" => self.fps = number(),
+            "frame" => self.frame = value.trim().parse().ok(),
+            "progress" => return matches!(value, "continue" | "end"),
+            _ => {}
+        }
+        false
+    }
+    fn record(&self, job: &mut Job, duration: Option<f64>) {
+        let duration = duration.filter(|d| d.is_finite() && *d > 0.0);
+        if let Some((seconds, duration)) = self.seconds.zip(duration) {
+            let percent = (seconds / duration * 100.0).clamp(0.0, 100.0);
+            job.encoding_progress = Some(job.encoding_progress.unwrap_or(0.0).max(percent));
+            if job.total_videos > 0 {
+                let aggregate = (job.completed_videos as f64 + 0.5 + percent / 100.0 * 0.45)
+                    / job.total_videos as f64
+                    * 100.0;
+                job.progress = Some(job.progress.unwrap_or(0.0).max(aggregate));
+            }
+            job.eta = self
+                .speed
+                .map(|speed| format!("{:.0}s", (duration - seconds).max(0.0) / speed));
+        } else {
+            job.eta = None;
+        }
+        let mut activity = Vec::new();
+        if let Some(frame) = self.frame {
+            activity.push(format!("frame {frame}"));
+        }
+        if let Some(seconds) = self.seconds {
+            activity.push(format!("{seconds:.1}s encoded"));
+        }
+        if let Some(fps) = self.fps {
+            activity.push(format!("{fps:.1} fps"));
+        }
+        if let Some(speed) = self.speed {
+            activity.push(format!("{speed:.2}x"));
+        }
+        job.speed = (!activity.is_empty()).then(|| activity.join(" · "));
     }
 }
 
@@ -509,15 +619,38 @@ pub(super) async fn video_progress(
         .iter_mut()
         .find(|j| j.id == id && j.status != "cancelled")
     {
+        let next_video = job.completed_videos != completed || job.current_video_title.is_none();
         job.total_videos = total;
         job.completed_videos = completed;
+        if next_video {
+            job.encoding_progress = None;
+            job.speed = None;
+            job.eta = None;
+        }
         job.current_video_title = title;
         job.progress = Some(completed as f64 / total.max(1) as f64 * 100.0);
     }
     super::save(state, "plugin-ytdl-jobs", &jobs)
 }
 
-async fn cancellable(state: &AppState, job: &Job, mut command: Command) -> Result<(), HttpError> {
+async fn cancellable(
+    state: &AppState,
+    job: &Job,
+    mut command: Command,
+    encoding_duration: Option<Option<f64>>,
+) -> Result<(), HttpError> {
+    if encoding_duration.is_some() {
+        let _lock = state.ytdl_lock.lock().await;
+        let mut jobs = super::load::<Vec<Job>>(state, "plugin-ytdl-jobs")?;
+        if let Some(saved) = jobs
+            .iter_mut()
+            .find(|j| j.id == job.id && j.status == "processing")
+        {
+            saved.speed = Some("Starting encoder".into());
+            saved.eta = None;
+        }
+        super::save(state, "plugin-ytdl-jobs", &jobs)?;
+    }
     isolate(&mut command);
     command
         .stdout(Stdio::piped())
@@ -539,8 +672,24 @@ async fn cancellable(state: &AppState, job: &Job, mut command: Command) -> Resul
     let progress_reader = tokio::spawn(async move {
         if let Some(stdout) = stdout {
             let mut lines = BufReader::new(stdout).lines();
+            let mut encoding = EncodingProgress::default();
             while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(data) = line.strip_prefix("PVPROGRESS:") {
+                if let Some(duration) = encoding_duration {
+                    if encoding.line(&line) {
+                        let _lock = progress_state.ytdl_lock.lock().await;
+                        if let Ok(mut jobs) =
+                            super::load::<Vec<Job>>(&progress_state, "plugin-ytdl-jobs")
+                        {
+                            if let Some(job) = jobs
+                                .iter_mut()
+                                .find(|j| j.id == id && j.status == "processing")
+                            {
+                                encoding.record(job, duration);
+                            }
+                            let _ = super::save(&progress_state, "plugin-ytdl-jobs", &jobs);
+                        }
+                    }
+                } else if let Some(data) = line.strip_prefix("PVPROGRESS:") {
                     if let Ok(value) = serde_json::from_str::<Value>(data) {
                         let _lock = progress_state.ytdl_lock.lock().await;
                         if let Ok(mut jobs) =
@@ -600,6 +749,14 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
         return Err(err("YTDL plugin is disabled."));
     }
     let destination = validate_settings(state, &job.settings)?;
+    if job.settings.convert && job.settings.hardware_backend != "cpu" {
+        crate::playback::validate_download_encoder(
+            state,
+            &job.settings.video_codec,
+            &job.settings.hardware_backend,
+        )
+        .await?;
+    }
     let mut channel_metadata = std::collections::HashMap::new();
     update(state, &job.id, "inspecting", None, None).await?;
     let inspect_source = async {
@@ -674,9 +831,16 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
         let channel_info = channel_metadata
             .get(&channel)
             .ok_or_else(|| err("Channel metadata unavailable."))?;
-        let channel_relative = format!("channels/{channel}");
+        let (channel_folder, video_folder) = super::naming::folder_names(
+            &destination,
+            &channel,
+            &id,
+            &text(&info, "channel"),
+            &text(&info, "title"),
+        )?;
+        let channel_relative = format!("channels/{channel_folder}");
         let mut folder = job.settings.directory.clone();
-        for part in ["channels", channel.as_str(), id.as_str()] {
+        for part in ["channels", channel_folder.as_str(), video_folder.as_str()] {
             let parent = state.metadata.directory(&folder, true)?;
             let next = parent.join(part);
             if !next.exists() {
@@ -691,7 +855,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
         }
         // Revalidate every component to reject linked folders introduced after configuration.
         let relative = format!(
-            "{}{channel_relative}/{id}",
+            "{}{channel_relative}/{video_folder}",
             if job.settings.directory.is_empty() {
                 String::new()
             } else {
@@ -710,6 +874,9 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             super::naming::stem(&info, &job.settings.filename_convention)?
         };
         let media = target.join(format!("{stem}.{}", job.settings.container));
+        // Reserve stable identities before staging so retries reuse readable folders
+        // even if titles change or a previous download did not finish publishing.
+        super::nfo::write_named(&target, &stem, &info, e, &inspection, channel_info)?;
         if existing.is_none() {
             let mut download_settings = job.settings.clone();
             match choose_quality(&job.settings, &info) {
@@ -772,7 +939,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
                 command.arg("--embed-chapters");
             }
             command.args(["--", &url]);
-            cancellable(state, job, command).await?;
+            cancellable(state, job, command, None).await?;
             let source = stage.path().join(format!("{id}.{download_container}"));
             let source = if job.settings.convert {
                 update(state, &job.id, "processing", None, None).await?;
@@ -781,7 +948,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
                     .join(format!("converted.{}", job.settings.container));
                 let mut ff = Command::new("ffmpeg");
                 ff.args(conversion_args(&job.settings, &source, &converted));
-                cancellable(state, job, ff).await?;
+                cancellable(state, job, ff, Some(info["duration"].as_f64())).await?;
                 converted
             } else {
                 source
@@ -932,6 +1099,111 @@ fn publish_with_modified(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn progress_fixture() -> Job {
+        Job {
+            id: "progress-fixture".into(),
+            url: String::new(),
+            title: String::new(),
+            status: "processing".into(),
+            progress: None,
+            total_videos: 7,
+            completed_videos: 1,
+            current_video_title: None,
+            speed: None,
+            eta: None,
+            error: None,
+            created_at: String::new(),
+            settings: Settings {
+                convert: true,
+                ..Default::default()
+            },
+            finished_at: None,
+            encoding_progress: None,
+            video_ids: vec![],
+        }
+    }
+    #[test]
+    fn encoding_progress_parses_batches_and_aggregates_without_regression() {
+        let mut progress = EncodingProgress::default();
+        for line in [
+            "frame=1500",
+            "fps=30.0",
+            "out_time_us=50000000",
+            "speed=2.0x",
+        ] {
+            assert!(!progress.line(line));
+        }
+        assert!(progress.line("progress=continue"));
+        let mut job = progress_fixture();
+        record_stream_progress(&mut job, Some(100.0));
+        assert!((job.progress.unwrap() - 150.0 / 7.0).abs() < 0.001);
+        progress.record(&mut job, Some(100.0));
+        assert_eq!(job.encoding_progress, Some(50.0));
+        assert_eq!(job.eta.as_deref(), Some("25s"));
+        assert!(job.speed.as_ref().unwrap().contains("30.0 fps"));
+        let aggregate = job.progress.unwrap();
+        assert!((aggregate - 172.5 / 7.0).abs() < 0.001);
+        progress.line("out_time_us=10000000");
+        progress.record(&mut job, Some(100.0));
+        assert_eq!(job.encoding_progress, Some(50.0));
+        assert_eq!(job.progress, Some(aggregate));
+        progress.line("out_time_us=110000000");
+        assert!(progress.line("progress=end"));
+        progress.record(&mut job, Some(100.0));
+        assert_eq!(job.encoding_progress, Some(100.0));
+        assert!((job.progress.unwrap() - 195.0 / 7.0).abs() < 0.001);
+    }
+    #[test]
+    fn unknown_duration_reports_activity_without_fabricated_percent() {
+        let mut progress = EncodingProgress::default();
+        progress.line("out_time_us=50000000");
+        progress.line("speed=N/A");
+        progress.line("fps=24.0");
+        for duration in [None, Some(0.0), Some(-1.0), Some(f64::NAN)] {
+            let mut job = progress_fixture();
+            progress.record(&mut job, duration);
+            assert_eq!(job.encoding_progress, None);
+            assert_eq!(job.progress, None);
+            assert_eq!(job.eta, None);
+            assert!(job.speed.as_ref().unwrap().contains("50.0s encoded"));
+        }
+    }
+    #[tokio::test]
+    async fn ffmpeg_fixture_persists_encoding_progress() {
+        if !std::process::Command::new("ffmpeg")
+            .arg("-version")
+            .output()
+            .is_ok_and(|o| o.status.success())
+        {
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let job = progress_fixture();
+        super::super::save(&state, "plugin-ytdl-jobs", &vec![job.clone()]).unwrap();
+        let mut command = Command::new("ffmpeg");
+        command.args([
+            "-nostdin",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=s=32x32:r=10:d=1",
+            "-progress",
+            "pipe:1",
+            "-stats_period",
+            "0.1",
+            "-nostats",
+            "-f",
+            "null",
+            "-",
+        ]);
+        cancellable(&state, &job, command, Some(Some(1.0)))
+            .await
+            .unwrap();
+        let saved = super::super::load::<Vec<Job>>(&state, "plugin-ytdl-jobs").unwrap();
+        assert_eq!(saved[0].encoding_progress, Some(100.0));
+        assert!(saved[0].speed.as_ref().unwrap().contains("encoded"));
+    }
     #[test]
     fn optional_import_matches_all_covering_youtube_libraries() {
         use posterview_contracts::native::{AnimeContent, NativeLibrary, NativeLibraryType};
@@ -1152,6 +1424,8 @@ mod tests {
             error: None,
             created_at: String::new(),
             settings: Settings::default(),
+            finished_at: None,
+            encoding_progress: None,
             video_ids: vec![],
         };
         super::super::save(&state, "plugin-ytdl-jobs", &vec![job.clone()]).unwrap();
@@ -1169,7 +1443,7 @@ mod tests {
         #[cfg(not(windows))]
         command.args(["-c", "sleep 30"]);
         let before = std::time::Instant::now();
-        assert!(cancellable(&state, &job, command).await.is_err());
+        assert!(cancellable(&state, &job, command, None).await.is_err());
         assert!(before.elapsed() < Duration::from_secs(10));
     }
     #[test]
@@ -1275,6 +1549,84 @@ mod tests {
             let args = conversion_args(&settings, Path::new("in.mp4"), Path::new("out.webm"));
             assert!(args.windows(2).any(|p| p == ["-crf", "19"]));
             assert_eq!(args.last().unwrap(), "out.webm");
+        }
+    }
+    #[test]
+    fn hardware_encoding_uses_selected_codec_quality_and_progress() {
+        for backend in ["nvenc", "qsv", "vaapi"] {
+            for codec in ["h264", "hevc", "av1"] {
+                let settings = Settings {
+                    convert: true,
+                    hardware_backend: backend.into(),
+                    video_codec: codec.into(),
+                    crf: 21,
+                    ..Default::default()
+                };
+                let args = conversion_args(&settings, Path::new("in.mkv"), Path::new("out.mkv"));
+                assert!(
+                    args.windows(2)
+                        .any(|p| p == ["-c:v", &format!("{codec}_{backend}")])
+                );
+                assert!(args.windows(2).any(|p| p == ["-progress", "pipe:1"]));
+                assert!(!args.iter().any(|arg| arg == "-crf"));
+                assert!(args.windows(2).any(|p| p
+                    == [
+                        match backend {
+                            "nvenc" => "-cq",
+                            "qsv" => "-global_quality",
+                            _ => "-qp",
+                        },
+                        "21"
+                    ]));
+                match backend {
+                    "nvenc" => {
+                        assert!(args.windows(2).any(|p| p == ["-rc", "vbr"]));
+                        assert!(args.windows(2).any(|p| p == ["-b:v", "0"]));
+                        assert!(!args.iter().any(|arg| arg == "-vf"));
+                    }
+                    "qsv" => {
+                        assert!(args.windows(2).any(|p| p == ["-init_hw_device", "qsv=qs"]));
+                        assert!(args.windows(2).any(|p| p == ["-filter_hw_device", "qs"]));
+                        assert!(
+                            args.windows(2)
+                                .any(|p| p == ["-vf", "format=nv12,hwupload=extra_hw_frames=64"])
+                        );
+                    }
+                    _ => {
+                        assert!(
+                            args.windows(2)
+                                .any(|p| p == ["-vaapi_device", "/dev/dri/renderD128"])
+                        );
+                        assert!(
+                            args.windows(2)
+                                .any(|p| p == ["-vf", "format=nv12,hwupload"])
+                        );
+                    }
+                }
+                assert_eq!(args.last().unwrap(), "out.mkv");
+            }
+        }
+    }
+
+    #[test]
+    fn cpu_conversion_does_not_require_gpu_devices() {
+        let settings = Settings {
+            convert: true,
+            video_codec: "hevc".into(),
+            ..Default::default()
+        };
+        let args = conversion_args(&settings, Path::new("in.mkv"), Path::new("out.mkv"));
+        assert!(args.windows(2).any(|p| p == ["-c:v", "libx265"]));
+        for option in [
+            "-vaapi_device",
+            "-init_hw_device",
+            "-filter_hw_device",
+            "-vf",
+            "-cq",
+            "-qp",
+            "-global_quality",
+        ] {
+            assert!(!args.iter().any(|arg| arg == option));
         }
     }
     #[test]

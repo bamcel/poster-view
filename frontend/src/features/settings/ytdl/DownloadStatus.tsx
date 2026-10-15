@@ -21,6 +21,7 @@ export default function DownloadStatus({compact=false}:{compact?:boolean}){
    <p className="break-words text-sm font-medium">{job.title||job.url}</p>
    {!!job.total_videos&&<p className="text-xs text-muted">{job.completed_videos??0} of {job.total_videos} videos complete{job.current_video_title?` · ${job.current_video_title}`:""}</p>}
    <p className={`text-xs ${job.status==="completed"?"text-accent":"text-muted"}`}>{job.status.replaceAll("_"," ")}{job.progress!=null?` · ${Math.round(job.progress)}%`:""}{job.speed?` · ${job.speed}`:""}{job.eta?` · ETA ${job.eta}`:""}</p>
+   {job.status==="processing"&&<div className="space-y-1"><p className="text-xs text-accent">Encoding{job.encoding_progress!=null?` · ${job.encoding_progress.toFixed(1)}%`:" · Waiting for encoder progress…"}</p><progress aria-label={`Encoding progress for ${job.title||job.id}`} className="h-2 w-full accent-accent" max={100} value={job.encoding_progress??undefined}/></div>}
    {activeDownload(job.status)&&<progress aria-label={`Download progress for ${job.title||job.id}`} max={100} value={job.progress??undefined} className="h-2 w-full accent-accent"/>}
    <p className="flex items-start gap-2 break-all text-xs text-muted"><FolderOpen className="size-3 shrink-0"/>/media/{job.settings.directory}</p>
    {job.error&&<p className="break-words text-xs text-danger">{job.error}</p>}

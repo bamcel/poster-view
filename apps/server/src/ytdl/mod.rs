@@ -34,6 +34,7 @@ pub(crate) struct Settings {
     pub fallback: String,
     pub convert: bool,
     pub crf: u32,
+    pub hardware_backend: String,
     pub subtitles: bool,
     pub subtitle_languages: Vec<String>,
     pub chapters: bool,
@@ -58,6 +59,7 @@ impl Default for Settings {
             fallback: "best".into(),
             convert: false,
             crf: 23,
+            hardware_backend: "cpu".into(),
             subtitles: false,
             subtitle_languages: vec!["en".into()],
             chapters: true,
@@ -73,6 +75,8 @@ pub(crate) struct Job {
     pub status: String,
     pub progress: Option<f64>,
     #[serde(default)]
+    pub encoding_progress: Option<f64>,
+    #[serde(default)]
     pub total_videos: usize,
     #[serde(default)]
     pub completed_videos: usize,
@@ -82,6 +86,8 @@ pub(crate) struct Job {
     pub eta: Option<String>,
     pub error: Option<String>,
     pub created_at: String,
+    #[serde(default)]
+    pub finished_at: Option<String>,
     pub settings: Settings,
     #[serde(default)]
     pub video_ids: Vec<String>,
@@ -112,6 +118,7 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/api/plugins/ytdl", get(settings_get).put(settings_save))
         .route("/api/plugins/ytdl/inspect", post(inspect))
         .route("/api/plugins/ytdl/jobs", get(jobs_get).post(jobs_create))
+        .route("/api/plugins/ytdl/jobs/{id}", axum::routing::delete(remove))
         .route("/api/plugins/ytdl/jobs/{id}/cancel", post(cancel))
         .route("/api/plugins/ytdl/jobs/{id}/retry", post(retry))
         .merge(subscriptions::routes())
@@ -150,6 +157,7 @@ fn validate_settings(state: &AppState, s: &Settings) -> Result<PathBuf, HttpErro
         || !(144..=4320).contains(&s.max_height)
         || !(1..=240).contains(&s.max_fps)
         || s.crf > 51
+        || !["cpu", "nvenc", "qsv", "vaapi"].contains(&s.hardware_backend.as_str())
         || s.subtitle_languages.len() > 20
         || s.subtitle_languages.iter().any(|v| {
             v.is_empty()
@@ -160,6 +168,14 @@ fn validate_settings(state: &AppState, s: &Settings) -> Result<PathBuf, HttpErro
         })
     {
         return Err(err("Invalid codec, quality, or subtitle setting."));
+    }
+    if s.convert
+        && s.hardware_backend != "cpu"
+        && !["h264", "hevc", "av1"].contains(&s.video_codec.as_str())
+    {
+        return Err(err(
+            "GPU encoding requires an explicit H.264, HEVC, or AV1 video codec. Choose CPU for Automatic or VP9.",
+        ));
     }
     if s.container == "webm"
         && (["h264", "hevc"].contains(&s.video_codec.as_str()) || s.audio_codec == "aac")
@@ -221,6 +237,7 @@ async fn jobs_create(
         title: "YouTube download".into(),
         status: "queued".into(),
         progress: None,
+        encoding_progress: None,
         total_videos: 0,
         completed_videos: 0,
         current_video_title: None,
@@ -228,6 +245,7 @@ async fn jobs_create(
         eta: None,
         error: None,
         created_at: chrono::Utc::now().to_rfc3339(),
+        finished_at: None,
         settings: input.settings,
         video_ids: input.video_ids,
     };
@@ -261,14 +279,17 @@ async fn change(state: &AppState, id: &str, retry: bool) -> Result<Job, HttpErro
         job.status = "queued".into();
         job.error = None;
         job.progress = None;
+        job.encoding_progress = None;
         job.total_videos = 0;
         job.completed_videos = 0;
         job.current_video_title = None;
+        job.finished_at = None;
     } else {
         if job.status == "completed" {
             return Err(err("Completed downloads cannot be cancelled."));
         }
         job.status = "cancelled".into();
+        job.finished_at = Some(chrono::Utc::now().to_rfc3339());
     }
     let result = job.clone();
     save(state, "plugin-ytdl-jobs", &jobs)?;
@@ -287,6 +308,28 @@ async fn retry(
 ) -> Result<Json<Job>, HttpError> {
     change(&state, &id, true).await.map(Json)
 }
+async fn remove(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<axum::http::StatusCode, HttpError> {
+    let _lock = state.ytdl_lock.lock().await;
+    let mut jobs: Vec<Job> = load(&state, "plugin-ytdl-jobs")?;
+    jobs.retain(|job| job.id != id);
+    save(&state, "plugin-ytdl-jobs", &jobs)?;
+    // Missing jobs are treated as cancelled by the worker. Keep media files intact.
+    state.ytdl_notify.notify_one();
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+fn clean_history(jobs: &mut Vec<Job>, now: chrono::DateTime<chrono::Utc>) {
+    let cutoff = now - chrono::Duration::days(7);
+    jobs.retain(|job| {
+        !["completed", "failed", "cancelled", "interrupted"].contains(&job.status.as_str())
+            || chrono::DateTime::parse_from_rfc3339(
+                job.finished_at.as_deref().unwrap_or(&job.created_at),
+            )
+            .map_or(true, |finished| finished > cutoff)
+    });
+}
 async fn update(
     state: &AppState,
     id: &str,
@@ -299,6 +342,9 @@ async fn update(
     if let Some(job) = jobs.iter_mut().find(|j| j.id == id) {
         if job.status != "cancelled" {
             job.status = status.into();
+            if ["completed", "failed", "interrupted"].contains(&status) {
+                job.finished_at = Some(chrono::Utc::now().to_rfc3339());
+            }
             job.error = error;
             if progress.is_some() {
                 job.progress = progress;
@@ -323,11 +369,27 @@ fn recover(jobs: &mut [Job]) {
     for job in jobs {
         if ["inspecting", "downloading", "processing", "importing"].contains(&job.status.as_str()) {
             job.status = "interrupted".into();
+            job.finished_at = Some(chrono::Utc::now().to_rfc3339());
             job.error = Some("Server restarted. Retry to resume this download.".into());
         }
     }
 }
 pub(crate) fn start(state: AppState) {
+    let cleanup_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            let _lock = cleanup_state.ytdl_lock.lock().await;
+            if let Ok(mut jobs) = load::<Vec<Job>>(&cleanup_state, "plugin-ytdl-jobs") {
+                let before = jobs.len();
+                clean_history(&mut jobs, chrono::Utc::now());
+                if jobs.len() != before {
+                    let _ = save(&cleanup_state, "plugin-ytdl-jobs", &jobs);
+                }
+            }
+        }
+    });
     tokio::spawn(async move {
         {
             let _lock = state.ytdl_lock.lock().await;
@@ -376,6 +438,7 @@ mod tests {
             title: "Fixture".into(),
             status: status.into(),
             progress: None,
+            encoding_progress: None,
             total_videos: 0,
             completed_videos: 0,
             current_video_title: None,
@@ -383,9 +446,54 @@ mod tests {
             eta: None,
             error: None,
             created_at: "2026-01-01".into(),
+            finished_at: None,
             settings: Settings::default(),
             video_ids: vec![],
         }
+    }
+    #[test]
+    fn history_cleanup_uses_finish_time_and_preserves_active_jobs() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-10-15T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let mut old = job("completed");
+        old.finished_at = Some("2026-10-08T00:00:00Z".into());
+        let mut recent = job("failed");
+        recent.finished_at = Some("2026-10-14T00:00:00Z".into());
+        let mut legacy = job("cancelled");
+        legacy.created_at = "2026-10-01T00:00:00Z".into();
+        let mut jobs = vec![old, recent, legacy, job("downloading"), job("queued")];
+        clean_history(&mut jobs, now);
+        assert_eq!(
+            jobs.iter()
+                .map(|job| job.status.as_str())
+                .collect::<Vec<_>>(),
+            ["failed", "downloading", "queued"]
+        );
+    }
+    #[tokio::test]
+    async fn removed_jobs_stop_workers_without_removing_media_or_reappearing() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let media = temp.path().join("keep.mkv");
+        std::fs::write(&media, "downloaded video").unwrap();
+        save(&state, "plugin-ytdl-jobs", &vec![job("downloading")]).unwrap();
+        assert_eq!(
+            remove(State(state.clone()), Path("fixture".into()))
+                .await
+                .unwrap(),
+            axum::http::StatusCode::NO_CONTENT
+        );
+        assert!(cancelled(&state, "fixture").await);
+        update(&state, "fixture", "completed", None, Some(100.0))
+            .await
+            .unwrap();
+        assert!(
+            load::<Vec<Job>>(&state, "plugin-ytdl-jobs")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(media.exists());
     }
     #[test]
     fn legacy_jobs_default_playlist_progress() {
@@ -444,6 +552,7 @@ mod tests {
         let settings: Settings = serde_json::from_value(json!({"enabled":false})).unwrap();
         assert_eq!(settings.filename_convention, "id");
         assert_eq!(settings.crf, 23);
+        assert_eq!(settings.hardware_backend, "cpu");
         assert_eq!(Settings::default().filename_convention, "date_title_id");
     }
 
@@ -491,6 +600,14 @@ mod tests {
         settings.crf = 52;
         assert!(validate_settings(&state, &settings).is_err());
         settings.crf = 23;
+        settings.convert = true;
+        settings.hardware_backend = "nvenc".into();
+        assert!(validate_settings(&state, &settings).is_err());
+        settings.video_codec = "hevc".into();
+        assert!(validate_settings(&state, &settings).is_ok());
+        settings.hardware_backend = "unsupported".into();
+        assert!(validate_settings(&state, &settings).is_err());
+        settings.hardware_backend = "cpu".into();
         settings.directory = "../outside".into();
         assert!(validate_settings(&state, &settings).is_err());
         settings.directory = "missing".into();

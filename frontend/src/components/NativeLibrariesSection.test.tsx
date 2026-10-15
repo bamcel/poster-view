@@ -46,7 +46,7 @@ it("keeps selected folders across navigation and prevents overlapping roots", as
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
   fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: "Shows" }));
-  fireEvent.click(screen.getByRole("button", { name: "Open folder Shows" }));
+  fireEvent.doubleClick(screen.getByRole("button",{name:"Open folder Shows"}));
   fireEvent.click(await screen.findByRole("checkbox", { name: "Season 1" }));
   fireEvent.click(screen.getByRole("button", { name: "Select Folders" }));
   expect(screen.getByText(/Selected folders overlap/)).toBeTruthy();

@@ -1,10 +1,12 @@
 import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import {afterEach,beforeEach,expect,it,vi} from "vitest";
+import {apiRequest} from "../../../api/client";
 import {YtdlPopup} from "./YtdlPlugin";
 import {ytdl,type YtdlSettings,type YtdlJob} from "./client";
 import {nativeLibraries,defaultNativeOptions} from "../../../api/nativeLibraries";
-vi.mock("./client",async original=>({...await original<typeof import("./client")>(),ytdl:{configuration:vi.fn(),save:vi.fn(),inspect:vi.fn(),jobs:vi.fn(),submit:vi.fn(),action:vi.fn()}}));
+vi.mock("../../../api/client",async original=>({...await original<typeof import("../../../api/client")>(),apiRequest:vi.fn()}));
+vi.mock("./client",async original=>({...await original<typeof import("./client")>(),ytdl:{configuration:vi.fn(),save:vi.fn(),inspect:vi.fn(),jobs:vi.fn(),submit:vi.fn(),action:vi.fn(),remove:vi.fn()}}));
 vi.mock("../../../api/nativeLibraries",async original=>({...await original<typeof import("../../../api/nativeLibraries")>(),nativeLibraries:{list:vi.fn(),folders:vi.fn()}}));
 const settings:YtdlSettings={enabled:true,library_id:"",directory:"YouTube",video_codec:"auto",audio_codec:"auto",container:"mp4",max_height:1080,max_fps:60,fallback:"best",convert:false,subtitles:false,subtitle_languages:["en"],chapters:true,thumbnail:true};
 beforeEach(()=>{
@@ -18,6 +20,21 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 function mount(){render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><YtdlPopup onClose={()=>{}}/></QueryClientProvider>);}
+it("shows current-video encoding progress in the queue",async()=>{
+ vi.mocked(ytdl.jobs).mockResolvedValue([{id:"encoding",title:"Encoding video",status:"processing",progress:40,encoding_progress:32.1,settings}] as YtdlJob[]);
+ mount();
+ expect(await screen.findByText("Encoding · 32.1%")).toBeTruthy();
+ expect(screen.getByRole("progressbar",{name:"Encoding progress for Encoding video"}).getAttribute("value")).toBe("32.1");
+});
+it("removes a queue card and refreshes the shared persisted queue",async()=>{
+ vi.mocked(ytdl.jobs).mockResolvedValueOnce([{id:"existing",title:"Playlist to remove",status:"downloading",progress:20,settings}] as YtdlJob[]).mockResolvedValue([]);
+ vi.mocked(ytdl.remove).mockResolvedValue(undefined);
+ mount();
+ fireEvent.click(await screen.findByRole("button",{name:"Remove Playlist to remove"}));
+ await waitFor(()=>expect(ytdl.remove).toHaveBeenCalledWith("existing",expect.anything()));
+ await waitFor(()=>expect(screen.queryByText("Playlist to remove")).toBeNull());
+ expect(screen.getByText(/Finished jobs are removed after 7 days/)).toBeTruthy();
+});
 it("restores the active queue when reopened and minimizes without cancelling",async()=>{
  vi.mocked(ytdl.jobs).mockResolvedValue([{id:"existing",title:"Active playlist",status:"downloading",progress:42,total_videos:7,completed_videos:1,current_video_title:"Second video",settings}] as YtdlJob[]);
  const onClose=vi.fn();
@@ -81,7 +98,7 @@ it("uses library settings for setup and browses download folders in a dropdown",
  expect(screen.queryByRole("button",{name:"Create YouTube library"})).toBeNull();
  expect(screen.queryByRole("button",{name:"Edit channels and library"})).toBeNull();
  fireEvent.click(screen.getByLabelText("Download directory"));
- fireEvent.click(await screen.findByRole("button",{name:"Open folder Downloads"}));
+ fireEvent.doubleClick(await screen.findByRole("button",{name:"Open folder Downloads"}));
  await waitFor(()=>expect(nativeLibraries.folders).toHaveBeenCalledWith("YouTube/Downloads"));
  await waitFor(()=>expect((screen.getByRole("button",{name:"Select This Folder"}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.click(screen.getByRole("button",{name:"Select This Folder"}));
@@ -140,4 +157,42 @@ it("saves a download destination without any media library",async()=>{
  fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith(settings));
  expect(nativeLibraries.list).not.toHaveBeenCalled();
+});
+
+it("shows GPU controls only for conversion and saves backend and quality",async()=>{
+ mount();await screen.findByLabelText("Video codec");
+ expect(screen.queryByLabelText("Encoding device")).toBeNull();
+ expect(apiRequest).not.toHaveBeenCalled();
+ fireEvent.change(screen.getByLabelText("Video codec"),{target:{value:"hevc"}});
+ fireEvent.click(screen.getByLabelText("Convert to selected codecs"));
+ fireEvent.change(screen.getByLabelText("Encoding device"),{target:{value:"nvenc"}});
+ expect(screen.queryByLabelText("CRF")).toBeNull();
+ expect((screen.getByLabelText("Encoding quality") as HTMLInputElement).value).toBe("23");
+ fireEvent.change(screen.getByLabelText("Encoding quality"),{target:{value:"25"}});
+ fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,convert:true,video_codec:"hevc",hardware_backend:"nvenc",crf:25}));
+});
+it("requires an explicit supported codec for GPU encoding",async()=>{
+ mount();await screen.findByLabelText("Video codec");
+ fireEvent.click(screen.getByLabelText("Convert to selected codecs"));
+ fireEvent.change(screen.getByLabelText("Encoding device"),{target:{value:"qsv"}});
+ expect(screen.getByRole("alert").textContent).toContain("GPU encoding requires");
+ expect((screen.getByRole("button",{name:"Save configuration"}) as HTMLButtonElement).disabled).toBe(true);
+ expect((screen.getByLabelText("Video codec") as HTMLSelectElement).value).toBe("auto");
+ fireEvent.change(screen.getByLabelText("Video codec"),{target:{value:"vp9"}});
+ expect((screen.getByRole("button",{name:"Save configuration"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.change(screen.getByLabelText("Video codec"),{target:{value:"h264"}});
+ expect((screen.getByRole("button",{name:"Save configuration"}) as HTMLButtonElement).disabled).toBe(false);
+});
+it("tests hardware on request and displays availability and setup help",async()=>{
+ vi.mocked(apiRequest).mockResolvedValue({encoders:[{name:"hevc_nvenc",backend:"nvenc",codec:"hevc",available:false,detail:"GPU test failed."}],hardware_help:{nvenc:"Configure NVIDIA GPU access."}});
+ mount();await screen.findByLabelText("Video codec");
+ fireEvent.click(screen.getByLabelText("Convert to selected codecs"));
+ fireEvent.change(screen.getByLabelText("Encoding device"),{target:{value:"nvenc"}});
+ fireEvent.change(screen.getByLabelText("Video codec"),{target:{value:"hevc"}});
+ expect(apiRequest).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole("button",{name:"Test hardware encoders"}));
+ expect(await screen.findByText("hevc_nvenc: Unavailable. GPU test failed.")).toBeTruthy();
+ expect(screen.getByText("Configure NVIDIA GPU access.")).toBeTruthy();
+ expect(apiRequest).toHaveBeenCalledWith("/playback/capabilities");
 });

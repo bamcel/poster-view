@@ -1,5 +1,6 @@
 //! Original-file playback, media inspection, resource extraction, and direct session lifecycle.
 mod hardware;
+pub(crate) use hardware::validate_download_encoder;
 mod manifest;
 mod models;
 mod planner;

@@ -313,7 +313,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let state = crate::test_support::state(temp.path());
         let root = state.metadata.directory("", true).unwrap();
-        let target = root.join("YouTube/channels/UCfixture/video");
+        let target = root.join("YouTube/channels/Readable Channel/Video title");
         std::fs::create_dir_all(&target).unwrap();
         std::fs::write(target.join("video.mp4"), b"fixture").unwrap();
         image::DynamicImage::new_rgb8(16, 9)

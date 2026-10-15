@@ -42,11 +42,37 @@ H.264, HEVC/H.265, or AAC. HEVC conversion uses FFmpeg libx265; enable
 **Convert to selected codecs** to encode to HEVC when no matching source exists.
 Conversion runs FFmpeg in staging before publishing a final file.
 
+With conversion enabled, **Encoding device** selects CPU, NVIDIA NVENC, Intel
+Quick Sync, or VA-API. GPU conversion requires an explicit H.264, HEVC, or AV1
+codec; Automatic and VP9 use CPU. **Test hardware encoders** performs real short
+encodes to check codec support and container access. GPU jobs validate the chosen
+encoder before downloading and fail with setup guidance if it is unavailable;
+they do not silently switch to CPU. CPU uses CRF, while GPU quality uses the
+backend's constant-quality control; all default to 23, but their quality scales
+are not equivalent.
+
+For Intel Quick Sync or VA-API on Unraid, expose `/dev/dri` to the PosterView
+container. VA-API uses `/dev/dri/renderD128`; ensure that render node belongs to
+the intended GPU. The image includes Intel media drivers. NVIDIA requires the
+Unraid NVIDIA driver and NVIDIA container runtime, an exposed GPU, and the
+`video` driver capability (usually `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`).
+Container access changes take effect after a container recreation; let active
+downloads finish before applying them. NVIDIA RTX 3050 supports H.264/HEVC
+encoding, while supported codecs always depend on the GPU and FFmpeg build.
+
 The queue runs one job at a time and persists job settings, status, progress,
 speed, ETA, and errors. Each job keeps the settings used when it was submitted.
 Cancel stops work; retry is available once the process has stopped. A server
 restart marks active jobs Interrupted and leaves queued jobs queued. Retry is
 explicit; staging for interrupted work is not guaranteed resumable.
+
+The queue, settings sidebar, and settings dashboard show playlist counts and
+overall progress. During conversion they also show the current video's encoding
+percentage, encoded time, frame rate, speed, and estimated remaining encoding
+time. If duration is unavailable, live encoder activity is shown without an
+estimated percentage. Minimize closes the popup without stopping work.
+Removing a queue card stops that job without deleting downloaded files. Finished
+job history expires after seven days; queued and active jobs are retained.
 
 Completed video IDs are reused even when requested in another playlist. Existing
 media is not overwritten or automatically re-encoded when format settings change.
@@ -69,13 +95,16 @@ prefixes sort chronologically in file browsers; choose descending name order for
 newest-first filesystem listings. Filename settings do not control app ordering.
 Existing media is preserved and reused, including its original filenames.
 
-Folder paths keep stable channel/video IDs; filenames and matching sidecars may
-be readable:
+New channel/video folders use sanitized channel names and video titles. Stable
+IDs remain in NFO metadata and identify existing downloads even after titles
+change. Existing ID-based folders are reused without moving files. Different
+channels or videos with identical names receive a numeric folder suffix such as
+` (2)`; filename convention remains a separate setting:
 
 ```text
-<download-directory>/channels/<channel-id>/
+<download-directory>/channels/<channel-name>/
   tvshow.nfo
-  <video-id>/
+  <video-title>/
     2026-01-02 - Example video [<video-id>].mp4
     2026-01-02 - Example video [<video-id>].nfo
     2026-01-02 - Example video [<video-id>].jpg

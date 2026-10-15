@@ -150,6 +150,20 @@ async fn test_encoders(store: &PlaybackStore) -> Vec<Encoder> {
     }
     encoders
 }
+pub(crate) async fn validate_download_encoder(
+    state: &AppState,
+    codec: &str,
+    backend: &str,
+) -> Result<(), HttpError> {
+    for candidate in playback_candidates(codec, backend) {
+        if test_encoder(&state.playback, candidate).await.available {
+            return Ok(());
+        }
+    }
+    Err(failure(
+        "The selected YouTube GPU encoder is unavailable. Test hardware encoders and check container GPU passthrough and drivers, or select CPU encoding.",
+    ))
+}
 pub(crate) async fn capabilities(State(state): State<AppState>) -> Result<Json<Value>, HttpError> {
     let encoders = test_encoders(&state.playback).await;
     Ok(Json(

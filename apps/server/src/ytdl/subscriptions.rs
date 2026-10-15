@@ -276,16 +276,10 @@ fn same_source(a: &str, b: &str) -> bool {
 }
 #[cfg(test)]
 fn downloaded(root: &std::path::Path, id: &str) -> bool {
-    std::fs::read_dir(root.join("channels")).is_ok_and(|channels| {
-        channels
-            .flatten()
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
-            .any(|channel| {
-                let directory = channel.path().join(id);
-                super::naming::existing_media(&directory)
-                    .map_or_else(|_| directory.is_dir(), |media| media.is_some())
-            })
-    })
+    media_index(root)
+        .ok()
+        .and_then(|index| index.get(id).cloned())
+        .is_some_and(|media| matches!(media, Ok(Some(_))))
 }
 struct Source {
     url: String,
@@ -430,8 +424,13 @@ type MediaIndex = std::collections::HashMap<String, Result<Option<std::path::Pat
 fn media_index(root: &std::path::Path) -> Result<MediaIndex, HttpError> {
     let mut index = std::collections::HashMap::new();
     let channels = root.join("channels");
-    if !channels.exists() {
-        return Ok(index);
+    let metadata = match std::fs::symlink_metadata(&channels) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(index),
+        Err(error) => return Err(err(error)),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(err("YouTube channels directory must be a real directory."));
     }
     for channel in std::fs::read_dir(channels).map_err(err)? {
         let channel = channel.map_err(err)?;
@@ -443,7 +442,21 @@ fn media_index(root: &std::path::Path) -> Result<MediaIndex, HttpError> {
             if !video.file_type().map_err(err)?.is_dir() {
                 continue;
             }
-            let id = video.file_name().to_string_lossy().to_string();
+            let id = match super::naming::video_identity(&video.path())? {
+                Some(id) => id,
+                None => {
+                    // Preserve downloads created before IDs were recorded in NFO files.
+                    let channel_name = channel.file_name().to_string_lossy().into_owned();
+                    let video_name = video.file_name().to_string_lossy().into_owned();
+                    if !channel_name.starts_with("UC")
+                        || !downloader::valid_id(&channel_name)
+                        || !downloader::valid_id(&video_name)
+                    {
+                        continue;
+                    }
+                    video_name
+                }
+            };
             let media = super::naming::existing_media(&video.path()).map_err(|e| e.detail);
             match index.entry(id) {
                 std::collections::hash_map::Entry::Occupied(mut entry) => {
@@ -531,6 +544,7 @@ fn append_source_jobs(
                 .to_string(),
             status: "queued".into(),
             progress: None,
+            encoding_progress: None,
             total_videos: 0,
             completed_videos: 0,
             current_video_title: None,
@@ -538,6 +552,7 @@ fn append_source_jobs(
             eta: None,
             error: None,
             created_at: Utc::now().to_rfc3339(),
+            finished_at: None,
             settings: settings.clone(),
             video_ids: ids,
         });
@@ -836,6 +851,7 @@ mod tests {
             title: String::new(),
             status: "queued".into(),
             progress: None,
+            encoding_progress: None,
             total_videos: 0,
             completed_videos: 0,
             current_video_title: None,
@@ -843,6 +859,7 @@ mod tests {
             eta: None,
             error: None,
             created_at: String::new(),
+            finished_at: None,
             settings,
             video_ids: vec!["vid".into()],
         }];
@@ -982,6 +999,43 @@ mod tests {
             restored[0].next_check.as_deref(),
             Some("2020-01-01T00:00:00Z")
         );
+    }
+    #[test]
+    fn readable_folders_use_nfo_identity_and_report_duplicate_ids() {
+        let temp = tempfile::tempdir().unwrap();
+        let folder = temp.path().join("channels/Readable Channel/Readable Video");
+        std::fs::create_dir_all(&folder).unwrap();
+        let media = folder.join("Readable Video.mkv");
+        std::fs::write(&media, "original").unwrap();
+        std::fs::write(
+            folder.join("Readable Video.nfo"),
+            "<episodedetails><uniqueid type=\"youtube\">video123</uniqueid><youtube><video_id>video123</video_id></youtube></episodedetails>",
+        )
+        .unwrap();
+        let index = media_index(temp.path()).unwrap();
+        assert_eq!(
+            index.get("video123").unwrap().as_ref().unwrap(),
+            &Some(media)
+        );
+        assert!(!index.contains_key("Readable Video"));
+        assert!(downloaded(temp.path(), "video123"));
+        let duplicate = temp.path().join("channels/Another Channel/Another Title");
+        std::fs::create_dir_all(&duplicate).unwrap();
+        std::fs::write(duplicate.join("another.mkv"), "original").unwrap();
+        std::fs::write(
+            duplicate.join("another.nfo"),
+            "<episodedetails><uniqueid type=\"youtube\">video123</uniqueid></episodedetails>",
+        )
+        .unwrap();
+        assert!(media_index(temp.path()).unwrap()["video123"].is_err());
+    }
+    #[test]
+    fn readable_folders_without_identity_are_not_video_ids() {
+        let temp = tempfile::tempdir().unwrap();
+        let folder = temp.path().join("channels/Readable Channel/Title");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("video.mkv"), "original").unwrap();
+        assert!(media_index(temp.path()).unwrap().is_empty());
     }
     #[test]
     fn downloaded_detection_preserves_named_files() {
