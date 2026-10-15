@@ -3,7 +3,7 @@ import { apiRequest } from "./client";
 export type NativeLibraryType = "movies" | "shows" | "anime" | "books" | "youtube";
 export interface NativeLibraryOptions {
   youtube_mode?: "single_channel" | "multiple_channels"; youtube_channels?: string[];
-  show_missing_files?:boolean; show_missing_specials?:boolean;
+  show_missing_files?:boolean; show_missing_specials?:boolean; show_specials_in_seasons?:boolean;
   read_nfo: boolean; save_nfo: boolean; local_artwork: boolean; save_artwork: boolean; fetch_missing: boolean;
   metadata_language: string; certification_country: string; image_language: string;
   prefer_embedded_titles: boolean; real_time_monitor: boolean; sample_ignore_mb: number; allow_adult_metadata: boolean;
@@ -11,7 +11,7 @@ export interface NativeLibraryOptions {
 }
 export const defaultNativeOptions: NativeLibraryOptions = {
   youtube_mode:"single_channel",youtube_channels:[],
-  show_missing_files:true,show_missing_specials:false,
+  show_missing_files:true,show_missing_specials:false,show_specials_in_seasons:false,
   read_nfo: true, save_nfo: false, local_artwork: true, save_artwork: false, fetch_missing: true,
   metadata_language: "en", certification_country: "US", image_language: "en", prefer_embedded_titles: false, real_time_monitor: false,
   sample_ignore_mb: 300, allow_adult_metadata: false, metadata_providers: {}, image_providers: {},

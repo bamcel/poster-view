@@ -44,3 +44,27 @@ it("offers icon deletion for every artwork preview",async()=>{
  await waitFor(()=>expect(saved).toHaveBeenCalled());
  confirm.mockRestore();
 });
+const special:NativeCatalogEntry={...item,id:"special",kind:"episode",metadata:{title:"Special",season:0,episode:1,airs_before_season:2,airs_before_episode:5}};
+function mountSpecial(entry=special,lib=library){return render(<QueryClientProvider client={new QueryClient()}><EntryEditor library={lib} entry={entry} busy={false} onSaved={vi.fn()}/></QueryClientProvider>);}
+it("edits special placement using numeric changes without changing season zero",async()=>{
+ mountSpecial();fireEvent.change(screen.getByLabelText("Airs before episode"),{target:{value:"6"}});fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",special,{airs_before_episode:6}));
+});
+it("keeps unchanged provider placement out of a manual metadata patch",async()=>{
+ mountSpecial();fireEvent.change(screen.getByLabelText("Title"),{target:{value:"Updated special"}});fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",special,{title:"Updated special"}));
+});
+it("clears existing special placement as null and supports after-season placement",async()=>{
+ mountSpecial();fireEvent.change(screen.getByLabelText("Airs during season"),{target:{value:""}});
+ expect((screen.getByRole("button",{name:"Save metadata"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.change(screen.getByLabelText("Airs before episode"),{target:{value:""}});fireEvent.change(screen.getByLabelText("Airs after season"),{target:{value:"2"}});fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",special,{airs_before_season:null,airs_before_episode:null,airs_after_season:2}));
+});
+it("rejects nonpositive, fractional, and conflicting special placement",()=>{
+ mountSpecial();for(const value of ["0","-1","1.5"]){fireEvent.change(screen.getByLabelText("Airs during season"),{target:{value}});expect((screen.getByRole("button",{name:"Save metadata"}) as HTMLButtonElement).disabled).toBe(true);expect(screen.getByRole("alert").textContent).toContain("positive whole numbers");}
+ fireEvent.change(screen.getByLabelText("Airs during season"),{target:{value:"2"}});fireEvent.change(screen.getByLabelText("Airs after season"),{target:{value:"2"}});
+ expect((screen.getByRole("button",{name:"Save metadata"}) as HTMLButtonElement).disabled).toBe(true);expect(screen.getByRole("alert").textContent).toContain("Choose either");
+});
+it("limits special placement fields to season-zero show episodes",()=>{
+ for(const [entry,lib] of [[{...special,metadata:{...special.metadata,season:1}},library],[{...special,kind:"series"},library],[special,{...library,library_type:"youtube"}]] as const){const view=mountSpecial(entry,lib);expect(screen.queryByLabelText("Airs during season")).toBeNull();expect(screen.queryByLabelText("airs before season")).toBeNull();view.unmount();}
+});

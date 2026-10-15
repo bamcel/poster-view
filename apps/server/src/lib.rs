@@ -10,6 +10,7 @@ use tower_http::{
 mod access;
 mod auth;
 mod config;
+mod episode_order;
 mod error;
 mod login_backdrop;
 mod metadata;

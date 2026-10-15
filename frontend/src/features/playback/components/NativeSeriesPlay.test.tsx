@@ -14,6 +14,13 @@ function setup(){render(<QueryClientProvider client={new QueryClient({defaultOpt
 beforeEach(()=>{vi.clearAllMocks();vi.mocked(watchApi.continue).mockResolvedValue([]);vi.mocked(watchApi.states).mockResolvedValue({});});
 afterEach(cleanup);
 describe("series playback selection",()=>{
+ it("plays an inline special before the next regular episode without changing its ID",async()=>{
+  const special={...episode(4),id:"special",path:"anime/show/Specials/S00E04.mkv",parent_path:"anime/show/Specials",metadata:{season:0,episode:4,airs_before_season:1,airs_before_episode:2}};
+  vi.mocked(watchApi.states).mockResolvedValue({"episode-1":state});
+  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><Routes><Route path="/" element={<NativeSeriesPlay library="anime" path="anime/show/Season 01" entries={[...entries,special]} includeIds={[special.id]} specialsInSeasons/>}/><Route path="/play/native/:libraryId/:itemId" element={<Destination/>}/></Routes></MemoryRouter></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole("button",{name:"Play"}));
+  expect(await screen.findByText("Playing special")).toBeTruthy();
+ });
  it("plays the first unplayed episode after completed episodes",async()=>{vi.mocked(watchApi.states).mockResolvedValue({"episode-1":state});setup();await waitFor(()=>expect(screen.getByRole("button",{name:"Play"})).toBeTruthy());fireEvent.click(screen.getByRole("button",{name:"Play"}));expect(screen.getByText("Playing episode-2")).toBeTruthy();});
  it("prefers resumable progress, including an interrupted rewatch, over the first unplayed item",async()=>{
   vi.mocked(watchApi.states).mockResolvedValue({"episode-3":state});vi.mocked(watchApi.continue).mockResolvedValue([{library_id:"anime",library_name:"Anime",item_id:"episode-3",title:"Episode 3",kind:"episode",entry:episode(3),state:{...state,position_seconds:200}}]);

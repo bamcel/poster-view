@@ -224,13 +224,7 @@ async fn source(state: &AppState, library: String, item: String) -> Result<Sourc
                 }
             })
             .collect::<Vec<_>>();
-        episodes.sort_by_key(|e| {
-            (
-                e.metadata["season"].as_i64().unwrap_or(0),
-                e.metadata["episode"].as_i64().unwrap_or(0),
-                e.path.clone(),
-            )
-        });
+        crate::episode_order::sort_episodes(&mut episodes, lib.options.show_specials_in_seasons);
         let next = episodes
             .iter()
             .position(|e| e.id == item)

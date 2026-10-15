@@ -1,3 +1,4 @@
+import {compareEpisodeOrder,placedSpecials} from "../lib/episodeOrder";
 import { nativeArtworkVersion } from "../lib/nativeArtworkCache";
 import AdminOnly from "./AdminOnly";
 import {useIsAdmin} from "../lib/authContext";
@@ -470,7 +471,7 @@ export default function NativeLibraryBrowser({
           back={back}
           refresh={refresh}
           fetching={catalog.isFetching || refreshingArtwork}
-          edit={(kind) => setEditor({ id: selected.id, kind })}
+          edit={(kind, id = selected.id) => setEditor({ id, kind })}
           showBackdrop={showBackdrop}
           overlay={overlay}
         />
@@ -623,7 +624,7 @@ function NativeDetail({
   back: () => void;
   refresh: () => void;
   fetching: boolean;
-  edit: (kind: "metadata" | "artwork" | "identify" | "fetch-metadata") => void;
+  edit: (kind: "metadata" | "artwork" | "identify" | "fetch-metadata", id?: string) => void;
   showBackdrop: boolean;
   overlay: number;
 }) {
@@ -641,10 +642,12 @@ function NativeDetail({
         ? parent
         : entries.find((e) => e.path === parent?.parent_path);
   const artworkPlugin=useArtworkPlugin();
+  const inlineSpecials=new Set(placedSpecials(entries,entry,series,library.options?.show_specials_in_seasons===true).map(special=>special.id));
   const children = entries
-    .filter((e) => e.available && e.parent_path === entry.path)
+    .filter((e) => e.available && (e.parent_path === entry.path || inlineSpecials.has(e.id)))
     .sort(
       (a, b) =>
+        (a.kind==="episode"&&b.kind==="episode"&&library.options?.show_specials_in_seasons?compareEpisodeOrder(a,b,true):0)||
         (number(a.kind === "season" ? a.metadata.season : a.kind === "book" ? a.metadata.volume ?? a.metadata.chapter : a.metadata.episode) ??
           0) -
           (number(
@@ -860,7 +863,7 @@ function NativeDetail({
                   {["series","movie","book_series","book"].includes(entry.kind) && <AdminOnly><button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")} data-icon-button="true"><Fingerprint className="size-4"/></button></AdminOnly>}
                 </div>}
                 {playable&&<NativePlaybackActions library={library.id} item={entry.id}/>}
-                {(isSeries||entry.kind==="season")&&<NativeSeriesPlay library={library.id} path={entry.path} entries={entries}/>}
+                {(isSeries||entry.kind==="season")&&<NativeSeriesPlay library={library.id} path={entry.path} entries={entries} includeIds={[...inlineSpecials]} specialsInSeasons={library.options?.show_specials_in_seasons===true}/>}
                 <div className={isSeries || isBookSeries ? "hidden sm:block" : "text-left"}>
                   <DetailSynopsis text={overview} lines={isSeries || isBookSeries || entry.kind==="season" ? 8 : 3} />
                 </div>
@@ -924,14 +927,18 @@ function NativeDetail({
                           />
                         </button>
                         <div className="min-w-0 flex-1 py-1">
+                          <div className="flex items-start gap-2">
                           <button
                             onClick={() => open(episode)}
                             className="text-left text-base font-semibold leading-snug text-white"
                           >
                             {String(episode.metadata.episode ?? "")}.{" "}
                             {episode.title}
+                            {inlineSpecials.has(episode.id)&&<span className="ml-2 text-xs text-accent">Special</span>}
                             {episode.metadata.missing===true&&<span className="ml-2 rounded-full border border-amber-400/40 bg-amber-400/15 px-2 py-0.5 text-xs text-amber-200">Missing</span>}
                           </button>
+                          <AdminOnly><button type="button" aria-label={`Edit NFO metadata for ${episode.title}`} title="Edit NFO metadata" onClick={()=>edit("metadata",episode.id)} className="episode-inline-action shrink-0"><Pencil aria-hidden="true" className="size-4"/></button></AdminOnly>
+                          </div>
                           <p className="mt-2 text-xs text-muted">
                             {String(episode.metadata.aired ?? "")}
                             {episode.metadata.runtime

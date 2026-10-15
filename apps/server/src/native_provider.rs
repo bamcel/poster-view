@@ -25,6 +25,28 @@ fn metadata_complete(entry: &NativeCatalogEntry) -> bool {
     };
     fields.iter().all(|field| !missing(&entry.metadata[*field]))
 }
+const SPECIAL_PLACEMENT_FIELDS: [&str; 3] = [
+    "airs_before_season",
+    "airs_before_episode",
+    "airs_after_season",
+];
+fn needs_special_placement(entry: &NativeCatalogEntry, library: &NativeLibrary) -> bool {
+    entry.kind == "episode"
+        && entry.metadata["season"].as_u64() == Some(0)
+        && (entry.metadata["_identify_source"] == "tvdb"
+            || library
+                .options
+                .metadata_providers
+                .get("episode")
+                .is_some_and(|providers| providers.iter().any(|p| p == "tvdb")))
+        && !SPECIAL_PLACEMENT_FIELDS.iter().any(|field| {
+            !missing(&entry.metadata[*field])
+                || matches!(
+                    entry.metadata["_sources"][*field].as_str(),
+                    Some("manual" | "nfo")
+                )
+        })
+}
 fn needs_voice_cast(entry: &NativeCatalogEntry, library: &NativeLibrary) -> bool {
     library.library_type == NativeLibraryType::Anime
         && ["series", "movie"].contains(&entry.kind.as_str())
@@ -127,7 +149,15 @@ pub(crate) fn merge_credit_portraits(metadata: &mut Value, incoming: &Value) {
     }
 }
 fn fill(entry: &mut NativeCatalogEntry, field: &str, value: Value, source: &str) {
-    if missing(&value) {
+    if missing(&value)
+        || (SPECIAL_PLACEMENT_FIELDS.contains(&field)
+            && SPECIAL_PLACEMENT_FIELDS.iter().any(|key| {
+                matches!(
+                    entry.metadata["_sources"][*key].as_str(),
+                    Some("manual" | "nfo")
+                )
+            }))
+    {
         return;
     }
     if field == "credits" {
@@ -612,6 +642,9 @@ fn check_identity(
     let mut identity = json!({"title":search_title(entry),"kind":entry.kind,"ids":entry.metadata["identifiers"],
         "year":entry.metadata["year"],"season":entry.metadata["season"],"episode":entry.metadata["episode"],
         "parent":parent.and_then(|p|parents.get(p)),"options":library.options});
+    if entry.kind == "episode" && entry.metadata["season"].as_u64() == Some(0) {
+        identity["special_placement_schema"] = json!(1);
+    }
     if entry.kind == "book_series" {
         identity["book_characters_schema"] = json!(1);
     }
@@ -683,7 +716,8 @@ pub(crate) async fn enrich(
             .filter(|(_, e)| {
                 e.kind != "book"
                     && e.metadata["missing"] != true
-                    && e.metadata["_scan_unchanged"] != true
+                    && (e.metadata["_scan_unchanged"] != true
+                        || needs_special_placement(e, library))
                     && match e.kind.as_str() {
                         "series" | "book_series" | "movie" => tier == 0,
                         "season" => tier == 1,
@@ -771,6 +805,7 @@ async fn enrich_one(
         && !needs_voice_cast(entry, library)
         && !needs_book_characters(entry, library)
         && !needs_credit_portraits(entry)
+        && !needs_special_placement(entry, library)
     {
         return;
     }
@@ -838,6 +873,7 @@ async fn enrich_one(
             && !(provider_name == "anilist"
                 && (needs_voice_cast(entry, library) || needs_book_characters(entry, library)))
             && !(matches!(provider_name.as_str(), "tmdb" | "tvdb") && needs_credit_portraits(entry))
+            && !(provider_name == "tvdb" && needs_special_placement(entry, library))
         {
             continue;
         }
@@ -1362,6 +1398,33 @@ async fn download_candidates(
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn special_placement_backfill_respects_local_and_manual_overrides() {
+        let mut entry = local_entry("episode");
+        entry.metadata["season"] = json!(0);
+        let mut configured = library();
+        assert!(!needs_special_placement(&entry, &configured));
+        configured
+            .options
+            .metadata_providers
+            .insert("episode".into(), vec!["tvdb".into()]);
+        assert!(needs_special_placement(&entry, &configured));
+        for source in ["nfo", "manual"] {
+            entry.metadata["airs_before_season"] = Value::Null;
+            entry.metadata["_sources"]["airs_before_season"] = json!(source);
+            assert!(!needs_special_placement(&entry, &configured));
+            fill(&mut entry, "airs_before_season", json!(2), "tvdb");
+            assert!(entry.metadata["airs_before_season"].is_null());
+            fill(&mut entry, "airs_after_season", json!(3), "tvdb");
+            assert!(entry.metadata["airs_after_season"].is_null());
+        }
+        entry.metadata["_sources"]["airs_before_season"] = Value::Null;
+        fill(&mut entry, "airs_before_season", json!(2), "tvdb");
+        assert_eq!(entry.metadata["airs_before_season"], 2);
+        assert!(!needs_special_placement(&entry, &configured));
+        entry.metadata["season"] = json!(1);
+        assert!(!needs_special_placement(&entry, &configured));
+    }
     #[test]
     fn voice_cast_retains_dub_editions_and_role_notes() {
         let data = json!({"characters":{"edges":[{"node":{"name":{"full":"Satsuki"}},"voiceActorRoles":[{"dubGroup":"Animax","roleNotes":"Young","voiceActor":{"id":1,"name":{"full":"Andrea"},"languageV2":"English"}},{"dubGroup":null,"voiceActor":{"id":2,"name":{"full":"Hilary"},"languageV2":"English"}}]}]}});

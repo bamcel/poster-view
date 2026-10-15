@@ -98,6 +98,13 @@ it("places missing specials under episode discovery and defaults it off",()=>{
  fireEvent.click(screen.getByRole("switch",{name:"Find Missing Episodes"}));
  expect(screen.queryByRole("switch",{name:"Show Missing Specials"})).toBeNull();
 });
+it("lets a library opt into special placement independently of missing episodes",()=>{
+ render(<Harness section={2}/>);
+ const placement=screen.getByRole("switch",{name:"Show specials within seasons"}) as HTMLInputElement;
+ expect(placement.checked).toBe(false);
+ fireEvent.click(placement);
+ expect(JSON.parse(screen.getByTestId("options").textContent!).show_specials_in_seasons).toBe(true);
+});
 
 it("offers supported book providers without Google Books",()=>{
  render(<NativeLibrarySettings options={defaultNativeOptions} type="books" animeContent="both" section={3} onChange={()=>{}}/>);

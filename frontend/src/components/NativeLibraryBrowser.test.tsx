@@ -529,6 +529,26 @@ it("saves a TV title without resubmitting invalid imported credits", async()=>{
  await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",imported,{title:"New title"}));
 });
 
+it("edits an episode NFO directly from its season row without navigating",async()=>{
+ vi.mocked(nativeLibraries.editItem).mockResolvedValue({entry:episode,warnings:[]});
+ mount("/?native_library=native&native_item=season");
+ fireEvent.click(await screen.findByRole("button",{name:"Edit NFO metadata for First Episode"}));
+ expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("First Episode");
+ fireEvent.change(screen.getByLabelText("Title"),{target:{value:"Edited episode title"}});
+ fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",episode,{title:"Edited episode title"}));
+ expect(screen.getByTestId("location").textContent).toContain("native_item=season");
+});
+it("places a special before its target episode while keeping its identity",async()=>{
+ const specials={...season,id:"specials",path:"Anime/Show/Specials",title:"Specials",metadata:{season:0}};
+ const special={...episode,id:"ova",path:`${specials.path}/S00E01.mkv`,parent_path:specials.path,title:"Special OVA",metadata:{season:0,episode:1,airs_before_season:1,airs_before_episode:1}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([series,season,specials,special,episode]);
+ mount("/?native_library=native&native_item=season",{...library,options:{...importedDefaults,show_specials_in_seasons:true}});
+ await screen.findByRole("button",{name:"Edit NFO metadata for Special OVA"});
+ const articles=screen.getAllByRole("article");
+ expect(articles.map(article=>article.textContent).join("|")).toMatch(/Special OVA.*First Episode/);
+});
+
 it("includes explicitly edited credits in the metadata patch", async()=>{
  const imported={...series,metadata:{...series.metadata,credits:[{name:"Actor",category:"cast"}]}};
  vi.mocked(nativeLibraries.catalog).mockResolvedValue([imported]);

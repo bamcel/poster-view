@@ -554,7 +554,17 @@ async fn run_scan_scoped_mode(
                 for (field, value) in fields {
                     if entry.metadata.get(field).is_none() {
                         entry.metadata[field] = value.clone();
-                        entry.metadata["_sources"][field] = serde_json::json!("database");
+                        entry.metadata["_sources"][field] = if [
+                            "airs_before_season",
+                            "airs_before_episode",
+                            "airs_after_season",
+                        ]
+                        .contains(&field.as_str())
+                        {
+                            previous.metadata["_sources"][field].clone()
+                        } else {
+                            serde_json::json!("database")
+                        };
                     }
                 }
             }

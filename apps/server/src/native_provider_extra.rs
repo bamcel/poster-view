@@ -703,7 +703,7 @@ async fn tvdb(
             .map(|(id, name)| json!({"id":id,"name":name}))
             .collect(),
     );
-    Ok(map_tvdb(
+    let mut data = map_tvdb(
         raw,
         selected,
         &types,
@@ -711,7 +711,17 @@ async fn tvdb(
         &library.options.certification_country,
         entry.kind.as_str(),
         library.library_type != posterview_contracts::native::NativeLibraryType::Anime,
-    ))
+    );
+    if entry.kind != "episode" || entry.metadata["season"].as_u64() != Some(0) {
+        for field in [
+            "airs_before_season",
+            "airs_before_episode",
+            "airs_after_season",
+        ] {
+            data.fields.as_object_mut().unwrap().remove(field);
+        }
+    }
+    Ok(data)
 }
 fn map_tvdb(
     raw: Value,
@@ -760,7 +770,19 @@ fn map_tvdb(
         })
         .map(|v| v["name"].clone())
         .unwrap_or(Value::Null);
-    let fields = json!({"title":raw["name"],"plot":raw["overview"],"year":year(&raw["year"]).or(year(&raw["firstAired"])),"runtime":raw["runtime"],"genres":raw["genres"].as_array().into_iter().flatten().filter_map(|v|v["name"].as_str()).collect::<Vec<_>>(),"studios":raw["companies"]["production"].as_array().into_iter().flatten().filter_map(|v|v["name"].as_str()).collect::<Vec<_>>(),"status":raw["status"]["name"],"mpaa":rating,"credits":credits,"identifiers":identifiers});
+    let mut fields = json!({"title":raw["name"],"plot":raw["overview"],"year":year(&raw["year"]).or(year(&raw["firstAired"])),"runtime":raw["runtime"],"genres":raw["genres"].as_array().into_iter().flatten().filter_map(|v|v["name"].as_str()).collect::<Vec<_>>(),"studios":raw["companies"]["production"].as_array().into_iter().flatten().filter_map(|v|v["name"].as_str()).collect::<Vec<_>>(),"status":raw["status"]["name"],"mpaa":rating,"credits":credits,"identifiers":identifiers});
+    // Placement is supplemental metadata for a confirmed special, never numbering.
+    if kind == "episode" && raw["seasonNumber"].as_u64() == Some(0) {
+        for (input, output) in [
+            ("airsBeforeSeason", "airs_before_season"),
+            ("airsBeforeEpisode", "airs_before_episode"),
+            ("airsAfterSeason", "airs_after_season"),
+        ] {
+            if let Some(number) = raw[input].as_u64().filter(|number| *number > 0) {
+                fields[output] = json!(number);
+            }
+        }
+    }
     let mut artwork = Vec::new();
     let mut arts = raw["artworks"].as_array().cloned().unwrap_or_default();
     arts.sort_by_key(|v| {
@@ -1355,5 +1377,35 @@ mod tests {
         let error = parse_anidb("<error code='500'>banned</error>").unwrap_err();
         assert!(error.contains("AniDB error 500: banned"));
         assert!(parse_anidb("<anime id='1'><titles /></anime>").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod special_placement_tests {
+    use super::*;
+    #[test]
+    fn tvdb_special_placement_ignores_normal_episodes_and_unknown_numbers() {
+        let map = |raw| map_tvdb(raw, "1".into(), &json!([]), "en", "US", "episode", true).fields;
+        let fields = map(
+            json!({"seasonNumber":0,"airsBeforeSeason":2,"airsBeforeEpisode":5,"airsAfterSeason":null}),
+        );
+        assert_eq!(fields["airs_before_season"], 2);
+        assert_eq!(fields["airs_before_episode"], 5);
+        assert!(fields.get("airs_after_season").is_none());
+        let fields = map(
+            json!({"seasonNumber":0,"airsBeforeSeason":0,"airsBeforeEpisode":null,"airsAfterSeason":3}),
+        );
+        assert!(fields.get("airs_before_season").is_none());
+        assert!(fields.get("airs_before_episode").is_none());
+        assert_eq!(fields["airs_after_season"], 3);
+        for raw in [
+            json!({"seasonNumber":1,"airsBeforeSeason":2}),
+            json!({"airsBeforeSeason":2}),
+            json!({"seasonNumber":0,"airsBeforeSeason":-1,"airsBeforeEpisode":1.5}),
+        ] {
+            let fields = map(raw);
+            assert!(fields.get("airs_before_season").is_none());
+            assert!(fields.get("airs_before_episode").is_none());
+        }
     }
 }

@@ -214,6 +214,34 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
             fields[field] = json!(v);
         }
     }
+    if root.name == "episodedetails" {
+        for (field, tag, alias) in [
+            (
+                "airs_before_season",
+                "airsbefore_season",
+                Some("displayseason"),
+            ),
+            (
+                "airs_before_episode",
+                "airsbefore_episode",
+                Some("displayepisode"),
+            ),
+            ("airs_after_season", "airsafter_season", None),
+        ] {
+            // An explicit empty canonical tag clears placement and suppresses aliases.
+            let input = fields
+                .get(tag)
+                .or_else(|| alias.and_then(|key| fields.get(key)));
+            if let Some(input) = input {
+                let number = input
+                    .as_str()
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .or_else(|| input.as_u64())
+                    .filter(|v| *v > 0);
+                fields[field] = number.map_or(Value::Null, |v| json!(v));
+            }
+        }
+    }
     for (input, output) in [
         ("genre", "genres"),
         ("tag", "tags"),
@@ -1186,6 +1214,35 @@ pub(crate) fn write_nfo(
 ) -> Result<(String, String), String> {
     write_nfo_inner(state, entry, false)
 }
+fn write_special_placement(xml: &mut Element, metadata: &Value) {
+    if xml.name != "episodedetails" {
+        return;
+    }
+    for (field, tag, alias) in [
+        (
+            "airs_before_season",
+            "airsbefore_season",
+            Some("displayseason"),
+        ),
+        (
+            "airs_before_episode",
+            "airsbefore_episode",
+            Some("displayepisode"),
+        ),
+        ("airs_after_season", "airsafter_season", None),
+    ] {
+        let Some(value) = metadata.get(field) else {
+            continue;
+        };
+        xml.children.retain(|node| !matches!(node, XMLNode::Element(element) if element.name == tag || alias == Some(element.name.as_str())));
+        let mut element = Element::new(tag);
+        // Keep an explicit empty canonical tag so rescans cannot restore an alias.
+        if let Some(number) = value.as_u64().filter(|number| *number > 0) {
+            element.children.push(XMLNode::Text(number.to_string()));
+        }
+        xml.children.push(XMLNode::Element(element));
+    }
+}
 fn clear_identity_nfo(xml: &mut Element) {
     xml.children.retain(|node|!matches!(node,XMLNode::Element(e) if !["fileinfo","streamdetails","season","episode","thumb","fanart","art","logo","banner","posterview"].contains(&e.name.as_str())));
 }
@@ -1295,6 +1352,7 @@ fn write_nfo_inner(
         element.children.push(XMLNode::Text(text));
         xml.children.push(XMLNode::Element(element));
     }
+    write_special_placement(&mut xml, &entry.metadata);
     for (field, tag) in [("genres", "genre"), ("tags", "tag"), ("studios", "studio")] {
         if let Some(values) = entry.metadata[field].as_array() {
             xml.children
@@ -1828,5 +1886,45 @@ mod youtube_nfo_tests {
             "Full playlist description"
         );
         assert_eq!(fields["youtube"]["custom"], "keep");
+    }
+}
+
+#[cfg(test)]
+mod special_placement_tests {
+    use super::*;
+    #[test]
+    fn special_nfo_roundtrip_preserves_identity_and_unknown_xml_and_clears_aliases() {
+        let input = b"<episodedetails><season>0</season><episode>1</episode><displayseason>2</displayseason><displayepisode>5</displayepisode><custom keep='yes'>untouched</custom></episodedetails>";
+        let (_, mut fields) = parse_nfo(input).unwrap();
+        assert_eq!(fields["airs_before_season"], 2);
+        assert_eq!(fields["airs_before_episode"], 5);
+        assert_eq!(fields["_sources"]["airs_before_season"], "nfo");
+        let mut xml = Element::parse(input.as_slice()).unwrap();
+        write_special_placement(&mut xml, &fields);
+        let mut bytes = Vec::new();
+        xml.write(&mut bytes).unwrap();
+        let (_, roundtrip) = parse_nfo(&bytes).unwrap();
+        assert_eq!(roundtrip["season"], 0);
+        assert_eq!(roundtrip["episode"], 1);
+        assert_eq!(roundtrip["airs_before_episode"], 5);
+        assert_eq!(xml.get_child("custom").unwrap().attributes["keep"], "yes");
+        assert!(xml.get_child("displayseason").is_none());
+        fields["airs_before_season"] = Value::Null;
+        fields["airs_before_episode"] = Value::Null;
+        write_special_placement(&mut xml, &fields);
+        bytes.clear();
+        xml.write(&mut bytes).unwrap();
+        let (_, cleared) = parse_nfo(&bytes).unwrap();
+        assert!(cleared["airs_before_season"].is_null());
+        assert!(cleared["airs_before_episode"].is_null());
+        assert!(xml.get_child("displayepisode").is_none());
+        assert_eq!(cleared["custom"], "untouched");
+    }
+    #[test]
+    fn canonical_tags_take_priority_over_kodi_aliases_even_when_empty() {
+        let (_, fields) = parse_nfo(b"<episodedetails><airsbefore_season>3</airsbefore_season><displayseason>2</displayseason><airsbefore_episode/><displayepisode>5</displayepisode><airsafter_season>4</airsafter_season></episodedetails>").unwrap();
+        assert_eq!(fields["airs_before_season"], 3);
+        assert!(fields["airs_before_episode"].is_null());
+        assert_eq!(fields["airs_after_season"], 4);
     }
 }

@@ -512,7 +512,15 @@ impl ServerStore {
             tx.execute("INSERT INTO native_catalog_sources VALUES(?1,?2,?3,?4,1) ON CONFLICT(library_id,relative_path) DO UPDATE SET snapshot_json=excluded.snapshot_json,available=1",params![library,entry.path,id,serde_json::to_string(&snapshot).map_err(|_|invalid("Invalid snapshot."))?])?;
             if let Some(fields) = entry.metadata.as_object() {
                 for (field, value) in fields {
-                    if field.starts_with('_') || value.is_null() {
+                    let placement_clear = value.is_null()
+                        && [
+                            "airs_before_season",
+                            "airs_before_episode",
+                            "airs_after_season",
+                        ]
+                        .contains(&field.as_str())
+                        && entry.metadata["_sources"][field] == "nfo";
+                    if field.starts_with('_') || (value.is_null() && !placement_clear) {
                         continue;
                     }
                     let source = entry.metadata["_sources"][field]
@@ -609,6 +617,22 @@ impl ServerStore {
         }
         if fields.len() > 100 || fields.contains_key("_sources") {
             return Err(invalid("Invalid metadata fields."));
+        }
+        for key in [
+            "airs_before_season",
+            "airs_before_episode",
+            "airs_after_season",
+        ] {
+            if fields.get(key).is_some_and(|value| {
+                !value.is_null()
+                    && !value
+                        .as_u64()
+                        .is_some_and(|n| n > 0 && n <= u32::MAX as u64)
+            }) {
+                return Err(invalid(
+                    "Special episode placement must be a positive integer or empty.",
+                ));
+            }
         }
         let mut db = self.connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -1094,6 +1118,69 @@ fn project_metadata(
 mod tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryInput, NativeLibraryType};
+    #[test]
+    fn special_placement_nfo_clear_and_manual_clear_survive_provider_scans() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "TV".into(),
+                    library_type: NativeLibraryType::Shows,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["TV".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let mut entry = NativeCatalogEntry {
+            id: String::new(),
+            path: "TV/Show/Specials/S00E01.mkv".into(),
+            kind: "episode".into(),
+            parent_path: None,
+            title: "Special".into(),
+            metadata: json!({"season":0,"episode":1,"airs_before_season":2,"_sources":{"airs_before_season":"tvdb"}}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, &[entry.clone()])
+            .unwrap();
+        entry.metadata["airs_before_season"] = Value::Null;
+        entry.metadata["_sources"]["airs_before_season"] = json!("nfo");
+        db.ingest_native_catalog(&library.id, library.revision, &[entry.clone()])
+            .unwrap();
+        let saved = db.native_catalog(&library.id).unwrap().remove(0);
+        assert!(saved.metadata["airs_before_season"].is_null());
+        db.edit_native_entry(
+            &library.id,
+            &saved.id,
+            saved.revision,
+            &json!({"airs_before_season":3}),
+        )
+        .unwrap();
+        let saved = db.native_catalog(&library.id).unwrap().remove(0);
+        db.edit_native_entry(
+            &library.id,
+            &saved.id,
+            saved.revision,
+            &json!({"airs_before_season":null}),
+        )
+        .unwrap();
+        entry.metadata["airs_before_season"] = json!(2);
+        entry.metadata["_sources"]["airs_before_season"] = json!("tvdb");
+        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
+        assert!(
+            db.native_catalog(&library.id).unwrap()[0].metadata["airs_before_season"].is_null()
+        );
+    }
     #[test]
     fn artwork_cache_identity_survives_scans_and_metadata_edits() {
         let temp = tempfile::tempdir().unwrap();

@@ -247,6 +247,18 @@ Manual Dashboard browsing uses the shared poster cards, library backdrop, title 
 
 `Specials` and `Special` folders belong to their parent series as season 0. Named season folders beneath a series `tvshow.nfo` also inherit that series, within the selected library root. A rescan marks old standalone Specials records unavailable.
 
+Special episode placement can be edited under **Special Episode Info** without
+changing Season 0 numbering or moving files. When TheTVDB is enabled for episode
+metadata and the series/episode match is confirmed, a scan fills missing placement
+from its extended episode data. Existing NFO placement and manual edits, including
+explicitly cleared fields, take priority. No placement is guessed from air dates.
+NFO reads accept `airsbefore_season`, `airsbefore_episode`, `airsafter_season` and
+Kodi `displayseason`/`displayepisode` aliases; saves use the canonical airs tags.
+Enable **Show specials within seasons** in library settings to include placed
+specials in season lists and Play Next order. Specials remain accessible in their
+original Specials folder with the same item ID and watch history. Without a
+placement value, a special remains in Specials.
+
 The manual Dashboard groups series with matching confirmed provider IDs, combines matching season numbers, and retains all episode/file records. Matching titles alone do not trigger grouping, and conflicting TVDB/TMDB/IMDb identities stay separate. Grouping changes presentation rather than deleting or rewriting either folder.
 
 AniList character and staff connections are paginated beyond the first 100 results, with a 5,000-entry limit per connection. Later-page failures retain earlier data and report partial imports. Previously truncated provider lists can be extended when AniList is fetched again; local and manual credits retain priority. Pagination follows AniList’s connection and `hasNextPage` documentation: https://docs.anilist.co/guide/graphql/connections and https://docs.anilist.co/guide/graphql/pagination. Missing provider configuration skips that provider for the remaining scan; failed HTTP requests include status codes without exposing request URLs or API keys. The metadata editor includes MAL and AniDB identifiers.
