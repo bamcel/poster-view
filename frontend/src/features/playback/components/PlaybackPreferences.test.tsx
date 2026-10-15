@@ -5,7 +5,7 @@ import {afterEach,expect,it,vi} from "vitest";
 import PlaybackPreferences from "./PlaybackPreferences";
 import {watchApi} from "../api/watch";
 import {defaultPlaybackPreferences} from "../types";
-vi.mock("../api/watch",()=>({watchApi:{preferences:vi.fn(),savePreferences:vi.fn()}}));
+vi.mock("../api/watch",()=>({watchApi:{preferences:vi.fn(),savePreferences:vi.fn(),clearTrackSelections:vi.fn()}}));
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 it("shows and saves independent paused prompt and unanswered exit timeouts",async()=>{
   vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);
@@ -44,7 +44,22 @@ it("loads legacy subtitle appearance defaults and saves selected plain-text form
 it("lets each profile disable series track memory independently of per-video memory",async()=>{
   vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);vi.mocked(watchApi.savePreferences).mockImplementation(async value=>value);
   render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><PlaybackPreferences/></QueryClientProvider>);
-  const option=await screen.findByRole("switch",{name:"Remember audio and subtitles across a series"}) as HTMLInputElement;expect(option.checked).toBe(true);
+  const option=await screen.findByRole("switch",{name:"Remember audio and subtitles track selections"}) as HTMLInputElement;expect(option.checked).toBe(true);
   fireEvent.click(option);fireEvent.click(screen.getByRole("button",{name:"Save preferences"}));await screen.findByText("Playback preferences saved.");
   expect(watchApi.savePreferences).toHaveBeenCalledWith(expect.objectContaining({remember_series_tracks:false,remember_audio:true,remember_subtitles:true}));
+});
+
+it("clears saved track selections without submitting preferences and prevents duplicate requests",async()=>{
+  vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);
+  let finish!:()=>void;vi.mocked(watchApi.clearTrackSelections).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><PlaybackPreferences/></QueryClientProvider>);
+  const button=await screen.findByRole("button",{name:"Clear saved track selections"});fireEvent.click(button);
+  expect((button as HTMLButtonElement).disabled).toBe(true);fireEvent.click(button);expect(watchApi.clearTrackSelections).toHaveBeenCalledTimes(1);expect(watchApi.savePreferences).not.toHaveBeenCalled();
+  finish();await screen.findByText("Saved track selections cleared for your profile.");expect((button as HTMLButtonElement).disabled).toBe(false);
+});
+it("reports a failed clear and allows retry",async()=>{
+  vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);vi.mocked(watchApi.clearTrackSelections).mockRejectedValueOnce(new Error("Reset failed"));
+  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><PlaybackPreferences/></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole("button",{name:"Clear saved track selections"}));expect(await screen.findByRole("alert")).toHaveProperty("textContent","Reset failed");
+  expect((screen.getByRole("button",{name:"Clear saved track selections"}) as HTMLButtonElement).disabled).toBe(false);
 });

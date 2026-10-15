@@ -109,7 +109,10 @@ Series track choices live in the watch database keyed by user, library and catal
 series ID. The personal `remember_series_tracks` option controls them independently
 of per-video memory. Only explicit choices update series preferences; matching uses
 language and track characteristics, never another episode's track index. Valid
-remembered per-video selections take priority. Chapter names/highlighting and the
+remembered per-video selections take priority. The personal Playback settings reset
+clears both per-video and series track choices atomically. It preserves watch state
+and preferences; an internal active-session marker prevents old player reports
+from restoring cleared choices until the video is reopened. Chapter names/highlighting and the
 `[` / `]` previous/next shortcuts share normalized, bounded source timestamps.
  When permitted and needed, the planner
 chooses stream-copy HLS, audio-only AAC encoding, or video encoding. Direct Stream

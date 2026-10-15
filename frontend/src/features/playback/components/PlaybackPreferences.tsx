@@ -1,10 +1,12 @@
 import {useEffect,useState} from "react";
-import {useQuery} from "@tanstack/react-query";
+import {useQuery,useQueryClient} from "@tanstack/react-query";
 import {watchApi,type PlaybackPreferences as Preferences} from "../api/watch";
 import {SETTINGS_BUTTON} from "../../../components/SettingsPageFrame";
 import {subtitleAppearance} from "../lib/subtitleAppearance";
 const input="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm";
 export default function PlaybackPreferences() {
+  const client=useQueryClient();
+  const [clearing,setClearing]=useState(false);
   const query=useQuery({queryKey:["playback-preferences"],queryFn:()=>watchApi.preferences()});
   const [audioText,setAudioText]=useState(""),[subtitleText,setSubtitleText]=useState("");
   const [settings,setSettings]=useState<Preferences>(),[saving,setSaving]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");
@@ -16,7 +18,7 @@ export default function PlaybackPreferences() {
   const number=(key:"resume_rewind_seconds"|"skip_back_seconds"|"skip_forward_seconds"|"still_watching_minutes"|"still_watching_timeout_minutes"|"subtitle_size",label:string,min:number,max:number,help?:string)=><label className="block text-sm">{label}<input type="number" className={input} value={settings[key]??5} min={min} max={max} onChange={e=>change(key,Number(e.target.value))}/>{help&&<span className="mt-1 block text-xs text-muted">{help}</span>}</label>;
   return <form className="max-w-3xl space-y-6" onSubmit={async e=>{e.preventDefault();setSaving(true);setError("");try{const value=await watchApi.savePreferences({...settings,audio_languages:audioText.split(",").map(s=>s.trim()).filter(Boolean),subtitle_languages:subtitleText.split(",").map(s=>s.trim()).filter(Boolean)});setSettings(value);setMessage("Playback preferences saved.");}catch(e){setError(e instanceof Error?e.message:"Could not save preferences.");}finally{setSaving(false);}}}>
     <fieldset className="rounded-xl border border-border p-5"><legend className="px-2 font-semibold">Series track preferences</legend>
-      {toggle("remember_series_tracks","Remember audio and subtitles across a series","Use your selected language and track characteristics in other episodes. Saved choices for an individual video take priority. Applies only to your profile.")}
+      {toggle("remember_series_tracks","Remember audio and subtitles track selections","Use your selected language and track characteristics in other episodes. Saved choices for an individual video take priority. Applies only to your profile.")}
     </fieldset>
     <fieldset className="rounded-xl border border-border p-5"><legend className="px-2 font-semibold">Audio</legend>
       <label className="block text-sm">Preferred audio languages<input aria-label="Preferred audio languages" className={input} value={audioText} onChange={e=>{setAudioText(e.target.value);setMessage("");}}/><span className="mt-1 block text-xs text-muted">Language codes in preference order, such as en, ja, ko.</span></label>
@@ -42,6 +44,16 @@ export default function PlaybackPreferences() {
       <div className="mt-3 grid gap-4 sm:grid-cols-2">{number("skip_back_seconds","Skip back (seconds)",5,120)}{number("skip_forward_seconds","Skip forward (seconds)",5,120)}{number("resume_rewind_seconds","Rewind on resume (seconds)",0,30,"Only when resuming saved progress, not after each pause.")}{number("still_watching_minutes","Paused inactivity before prompt (minutes)",0,1440,"Only while paused. 0 disables the prompt.")}{number("still_watching_timeout_minutes","Unanswered prompt before exit (minutes)",1,1440,"Saves progress and frees playback slots when the prompt times out.")}</div>
     </fieldset>
     {error&&<p role="alert" className="text-sm text-danger">{error}</p>}{message&&<p role="status" className="text-sm text-accent">{message}</p>}
-    <button disabled={saving} className={SETTINGS_BUTTON}>{saving?"Saving…":"Save preferences"}</button>
+    <button disabled={saving||clearing} className={SETTINGS_BUTTON}>{saving?"Saving…":"Save preferences"}</button>
+    <section className="rounded-xl border border-border p-5" aria-labelledby="clear-track-selections-title">
+      <h2 id="clear-track-selections-title" className="font-semibold">Saved track selections</h2>
+      <p className="my-3 text-sm text-muted">Reset saved audio and subtitle choices for all videos and series in your profile. Your language preferences, watch history and progress are kept. Reopen playing videos to apply your defaults.</p>
+      <button type="button" disabled={saving||clearing} className={SETTINGS_BUTTON} onClick={async()=>{
+        setClearing(true);setError("");setMessage("");
+        try{await watchApi.clearTrackSelections();void client.invalidateQueries({queryKey:["watch-state"]});void client.invalidateQueries({queryKey:["watch-library-states"]});setMessage("Saved track selections cleared for your profile.");}
+        catch(error){setError(error instanceof Error?error.message:"Could not clear saved track selections.");}
+        finally{setClearing(false);}
+      }}>{clearing?"Clearing…":"Clear saved track selections"}</button>
+    </section>
   </form>;
 }

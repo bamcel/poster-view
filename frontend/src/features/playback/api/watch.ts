@@ -5,6 +5,7 @@ export type {WatchState, PlaybackPreferences, WatchRules, ContinueItem} from "..
 
 const itemUrl=(library:string,item:string)=>`/watch/native/${encodeURIComponent(library)}/${encodeURIComponent(item)}`;
 export const watchApi={
+  clearTrackSelections:()=>apiRequest<void>("/playback/track-selections",{method:"DELETE"}),
   seriesTracks:(library:string,item:string,signal?:AbortSignal)=>apiRequest<SeriesTrackPreferences>(`${itemUrl(library,item)}/series-tracks`,{signal}),
   saveSeriesTracks:(library:string,item:string,body:SeriesTrackPreferences)=>apiRequest<SeriesTrackPreferences>(`${itemUrl(library,item)}/series-tracks`,{method:"PUT",body:JSON.stringify(body)}),
   state:(library:string,item:string,signal?:AbortSignal)=>apiRequest<WatchState>(itemUrl(library,item),{signal}),

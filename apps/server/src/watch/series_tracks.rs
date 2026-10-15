@@ -104,6 +104,57 @@ fn read(
     raw.map(|raw| serde_json::from_str(&raw).map_err(failure))
         .unwrap_or_else(|| Ok(SeriesTracks::default()))
 }
+fn clear_saved(store: &WatchStore, user: &str) -> Result<(), HttpError> {
+    let mut db = database(store)?;
+    let tx = db
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(failure)?;
+    let rows = {
+        let mut statement = tx
+            .prepare("SELECT library,item,state_json,active_session FROM video_watch WHERE user=?1")
+            .map_err(failure)?;
+        let rows = statement
+            .query_map([user], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })
+            .map_err(failure)?;
+        rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(failure)?
+    };
+    for (library, item, raw, active_session) in rows {
+        let mut saved: serde_json::Value = serde_json::from_str(&raw).map_err(failure)?;
+        saved["audio_index"] = serde_json::Value::Null;
+        saved["subtitle_index"] = serde_json::Value::Null;
+        if let Some(session) = active_session {
+            saved["_track_reset_session"] = serde_json::json!(session);
+        }
+        tx.execute(
+            "UPDATE video_watch SET state_json=?4 WHERE user=?1 AND library=?2 AND item=?3",
+            params![user, library, item, saved.to_string()],
+        )
+        .map_err(failure)?;
+    }
+    tx.execute("DELETE FROM video_series_tracks WHERE user=?1", [user])
+        .map_err(failure)?;
+    tx.commit().map_err(failure)?;
+    Ok(())
+}
+pub(super) async fn clear(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<StatusCode, HttpError> {
+    let user = state.auth.request_user(&headers)?;
+    tokio::task::spawn_blocking(move || clear_saved(&store(&state), &user.id))
+        .await
+        .map_err(failure)??;
+    Ok(StatusCode::NO_CONTENT)
+}
 fn write(
     store: &WatchStore,
     user: &str,
@@ -213,6 +264,100 @@ mod tests {
     use super::*;
     fn patch(value: serde_json::Value) -> TrackPatch {
         serde_json::from_value(value).unwrap()
+    }
+    #[test]
+    fn clearing_is_profile_scoped_durable_and_keeps_watch_state_and_active_session() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("watch.sqlite");
+        let store = WatchStore::new(path.clone());
+        let mut sessions = Vec::new();
+        for user in ["one", "two"] {
+            let session = store
+                .begin_at(user, "library", "episode", 1_000.0, 0)
+                .unwrap()
+                .session_id;
+            let report = serde_json::from_value(serde_json::json!({
+                "session_id": session, "sequence": 0, "position_seconds": 40,
+                "audio_index": 2, "subtitle_index": -1, "subtitle_delay_seconds": 1.5
+            }))
+            .unwrap();
+            store
+                .report_at(user, "library", "episode", 1_000.0, report, 10_000)
+                .unwrap();
+            write(
+                &store,
+                user,
+                "library",
+                "series",
+                patch(serde_json::json!({"audio":{"language":"en"},"subtitles_off":true})),
+            )
+            .unwrap();
+            sessions.push(session);
+        }
+        let before = store.get("one", "library", "episode", 1_000.0).unwrap();
+        let preferences = serde_json::to_value(store.preferences("one").unwrap()).unwrap();
+        clear_saved(&store, "one").unwrap();
+        let store = WatchStore::new(path);
+        let after = store.get("one", "library", "episode", 1_000.0).unwrap();
+        let mut expected = serde_json::to_value(&before).unwrap();
+        expected["audio_index"] = serde_json::Value::Null;
+        expected["subtitle_index"] = serde_json::Value::Null;
+        assert_eq!(serde_json::to_value(&after).unwrap(), expected);
+        assert_eq!(
+            serde_json::to_value(store.preferences("one").unwrap()).unwrap(),
+            preferences
+        );
+        assert_eq!(
+            store
+                .get("two", "library", "episode", 1_000.0)
+                .unwrap()
+                .audio_index,
+            Some(2)
+        );
+        let db = database(&store).unwrap();
+        assert_eq!(
+            read(&db, "one", "library", "series").unwrap(),
+            SeriesTracks::default()
+        );
+        assert!(
+            read(&db, "two", "library", "series")
+                .unwrap()
+                .audio
+                .is_some()
+        );
+        // Multiple later reports keep saving progress and subtitle timing, but cannot resurrect tracks.
+        for sequence in 1..=2 {
+            let report = serde_json::from_value(serde_json::json!({
+                "session_id": sessions[0], "sequence": sequence, "position_seconds": 40 + sequence * 10,
+                "audio_index": 2, "subtitle_index": -1, "subtitle_delay_seconds": 2.0
+            })).unwrap();
+            let saved = store
+                .report_at(
+                    "one",
+                    "library",
+                    "episode",
+                    1_000.0,
+                    report,
+                    10_000 + sequence as i64 * 10_000,
+                )
+                .unwrap();
+            assert_eq!(saved.audio_index, None);
+            assert_eq!(saved.subtitle_index, None);
+            assert_eq!(saved.position_seconds, (40 + sequence * 10) as f64);
+            assert_eq!(saved.subtitle_delay_seconds, 2.0);
+        }
+        let session = store
+            .begin_at("one", "library", "episode", 1_000.0, 40_000)
+            .unwrap()
+            .session_id;
+        let report = serde_json::from_value(serde_json::json!({"session_id":session,"sequence":0,"position_seconds":65,"audio_index":3,"subtitle_index":4})).unwrap();
+        let saved = store
+            .report_at("one", "library", "episode", 1_000.0, report, 50_000)
+            .unwrap();
+        assert_eq!(
+            (saved.audio_index, saved.subtitle_index),
+            (Some(3), Some(4))
+        );
     }
     #[test]
     fn preferences_survive_restart_and_isolate_profiles_libraries_and_series() {

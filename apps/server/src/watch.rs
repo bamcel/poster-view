@@ -514,17 +514,28 @@ impl WatchStore {
         if credited > 0.0 {
             state.last_played_at = Some(timestamp(now));
         }
-        if let Some(index) = input.audio_index {
-            state.audio_index = index;
-        }
-        if let Some(index) = input.subtitle_index {
-            state.subtitle_index = index;
+        let reset_session = serde_json::from_str::<serde_json::Value>(&raw_state)
+            .map_err(failure)?["_track_reset_session"]
+            .as_str()
+            .map(str::to_owned);
+        // Clearing saved selections must survive ordinary reports from an already-open player.
+        // That player retains its current tracks, while a newly opened session can save choices.
+        if reset_session.as_deref() != Some(input.session_id.as_str()) {
+            if let Some(index) = input.audio_index {
+                state.audio_index = index;
+            }
+            if let Some(index) = input.subtitle_index {
+                state.subtitle_index = index;
+            }
         }
         if let Some(delay) = input.subtitle_delay_seconds {
             state.subtitle_delay_seconds = delay;
         }
         state.version += 1;
         let mut stored_state = serde_json::to_value(&state).map_err(failure)?;
+        if let Some(session) = reset_session.filter(|s| s == &input.session_id) {
+            stored_state["_track_reset_session"] = serde_json::json!(session);
+        }
         if credited > 0.0 {
             stored_state["_last_viewed_sequence"] = serde_json::json!(input.sequence);
         }
@@ -1070,6 +1081,10 @@ pub(crate) async fn save_rules(
 
 pub(crate) fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route(
+            "/api/playback/track-selections",
+            axum::routing::delete(series_tracks::clear),
+        )
         .route(
             "/api/watch/native/{library}/{item}/series-tracks",
             axum::routing::get(series_tracks::get).put(series_tracks::save),
