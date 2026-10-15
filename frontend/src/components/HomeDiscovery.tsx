@@ -44,31 +44,37 @@ function Artwork({title, hero = false}: {title: HomeTitle; hero?: boolean}) {
   return <img src={src} alt="" loading={hero ? "eager" : "lazy"} className="h-full w-full object-cover" onError={() => setFailed(true)}/>;
 }
 
-export function FeaturedTitle({titles}: {titles: HomeTitle[]}) {
+function QuickInfo({title,onQuickView,hero=false}: {title:HomeTitle;onQuickView?:(title:HomeTitle)=>void;hero?:boolean}) {
+  const className=hero?"inline-flex min-h-11 items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-2.5 text-sm font-semibold text-[#fff] backdrop-blur-sm hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent":"inline-flex min-h-11 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 text-xs font-medium text-muted hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+  const content=<><Info aria-hidden="true" className={hero?"size-5":"size-3.5"}/>{hero?"More Info":"Info"}</>;
+  return onQuickView?<button type="button" aria-label={`More info about ${title.entry.title}`} aria-haspopup="dialog" className={className} onClick={()=>onQuickView(title)}>{content}</button>:<Link to={detailUrl(title)} aria-label={`More info about ${title.entry.title}`} className={className}>{content}</Link>;
+}
+
+export function FeaturedTitle({titles,onQuickView}: {titles: HomeTitle[];onQuickView?:(title:HomeTitle)=>void}) {
   const title = titles.find(item => artwork(item, ["backdrop", "landscape", "fanart"])) ?? titles[0];
   if (!title) return null;
   const {entry, library} = title;
   const year = number(entry.metadata.year);
   const plot = typeof entry.metadata.plot === "string" ? entry.metadata.plot.trim() : "";
   const metadata = [year && year > 0 ? String(year) : "", entry.kind === "series" ? "Series" : "Movie", ...genres(title).slice(0, 2)].filter(Boolean);
-  return <section aria-label="Featured title" className="relative isolate mb-8 overflow-hidden rounded-2xl border border-border bg-elevated">
+  return <section aria-label="Featured title" className="relative isolate mb-8 overflow-hidden bg-elevated">
     <div className="absolute inset-0 -z-20"><Artwork key={`${library.id}:${entry.id}`} title={title} hero/></div>
     <div className="absolute inset-0 -z-10 bg-gradient-to-r from-black/90 via-black/65 to-black/10"/>
     <div className="absolute inset-0 -z-10 bg-gradient-to-t from-black/70 to-transparent"/>
-    <div className="flex min-h-80 flex-col justify-end px-6 py-8 sm:min-h-96 sm:px-10 sm:py-10 lg:min-h-[27rem]">
+    <div className="flex min-h-[max(32rem,75dvh)] flex-col justify-end px-5 pb-14 pt-28 sm:px-8 md:px-12 lg:min-h-[80dvh] lg:pb-20">
       <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-accent">Featured · {library.name}</p>
       <h2 className="max-w-2xl break-words text-3xl font-bold text-[#fff] sm:text-4xl lg:text-5xl">{entry.title}</h2>
       <p className="mt-3 text-sm text-white/80">{metadata.join(" · ")}</p>
       {plot && <p className="mt-4 line-clamp-3 max-w-xl text-sm leading-relaxed text-white/80 sm:text-[16px]">{plot}</p>}
       <div className="mt-6 flex flex-wrap gap-3">
         {playable(title) && <Link to={playUrl(title)} aria-label={`Play ${entry.title}`} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-accent px-6 py-2.5 text-sm font-semibold text-black focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"><Play aria-hidden="true" className="size-5 fill-current"/>Play</Link>}
-        <Link to={detailUrl(title)} aria-label={`More info about ${entry.title}`} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-2.5 text-sm font-semibold text-[#fff] backdrop-blur-sm hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"><Info aria-hidden="true" className="size-5"/>More Info</Link>
+        <QuickInfo title={title} onQuickView={onQuickView} hero/>
       </div>
     </div>
   </section>;
 }
 
-function TitleCard({title}: {title: HomeTitle}) {
+function TitleCard({title,onQuickView}: {title: HomeTitle;onQuickView?:(title:HomeTitle)=>void}) {
   const {entry, library} = title;
   const year = number(entry.metadata.year);
   return <article className="group w-36 shrink-0 snap-start sm:w-44 lg:w-48">
@@ -79,12 +85,12 @@ function TitleCard({title}: {title: HomeTitle}) {
     <p className="mt-1 truncate text-xs text-muted">{year && year > 0 ? `${year} · ` : ""}{library.name}</p>
     <div className="mt-2 flex gap-2">
       {playable(title) && <Link to={playUrl(title)} aria-label={`Play ${entry.title}`} className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-accent px-3 text-xs font-semibold text-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"><Play aria-hidden="true" className="size-3.5 fill-current"/>Play</Link>}
-      <Link to={detailUrl(title)} aria-label={`More info about ${entry.title}`} className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 text-xs font-medium text-muted hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"><Info aria-hidden="true" className="size-3.5"/>Info</Link>
+      <QuickInfo title={title} onQuickView={onQuickView}/>
     </div>
   </article>;
 }
 
-function DiscoveryRow({label, titles}: {label: string; titles: HomeTitle[]}) {
+function DiscoveryRow({label, titles,onQuickView}: {label: string; titles: HomeTitle[];onQuickView?:(title:HomeTitle)=>void}) {
   const row = useRef<HTMLDivElement>(null);
   const heading = useId();
   const [edges, setEdges] = useState({left: false, right: false});
@@ -109,11 +115,11 @@ function DiscoveryRow({label, titles}: {label: string; titles: HomeTitle[]}) {
         <button type="button" aria-label={`Scroll ${label} right`} disabled={!edges.right} onClick={() => scroll(1)} className="grid size-11 place-items-center rounded-full border border-border bg-surface-2 text-muted hover:text-white focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-30"><ChevronRight aria-hidden="true" className="size-5"/></button>
       </div>}
     </div>
-    <div ref={row} className="scrollbar-hidden flex snap-x snap-proximity gap-4 overflow-x-auto px-1 pb-3 pt-1">{titles.slice(0, 20).map(title => <TitleCard key={`${title.library.id}:${title.entry.id}`} title={title}/>)}</div>
+    <div ref={row} className="scrollbar-hidden flex snap-x snap-proximity gap-4 overflow-x-auto px-1 pb-3 pt-1">{titles.slice(0, 20).map(title => <TitleCard key={`${title.library.id}:${title.entry.id}`} title={title} onQuickView={onQuickView}/>)}</div>
   </section>;
 }
 
-export default function HomeDiscovery({titles}: {titles: HomeTitle[]}) {
+export default function HomeDiscovery({titles,onQuickView}: {titles: HomeTitle[];onQuickView?:(title:HomeTitle)=>void}) {
   const rows = useMemo(() => {
     const rated = titles.filter(title => {const rating = number(title.entry.metadata.rating); return rating !== undefined && rating >= 7 && rating <= 10;}).sort((a, b) => number(b.entry.metadata.rating)! - number(a.entry.metadata.rating)!);
     const recent = titles.filter(title => {const year = number(title.entry.metadata.year); return year !== undefined && Number.isInteger(year) && year > 0 && year <= 9999;}).sort((a, b) => number(b.entry.metadata.year)! - number(a.entry.metadata.year)!);
@@ -129,5 +135,5 @@ export default function HomeDiscovery({titles}: {titles: HomeTitle[]}) {
     const result = [{label: "Highly Rated", titles: rated}, {label: "Recent Releases", titles: recent}, ...[...genreGroups.values()].filter(group => group.titles.length >= 2).sort((a, b) => b.titles.length - a.titles.length || a.label.localeCompare(b.label)).slice(0, 2)].filter(group => group.titles.length > 0);
     return result.length ? result : titles.length ? [{label: "Explore Your Libraries", titles}] : [];
   }, [titles]);
-  return <div className="space-y-8">{rows.map(row => <DiscoveryRow key={row.label} label={row.label} titles={row.titles}/>)}</div>;
+  return <div className="space-y-8">{rows.map(row => <DiscoveryRow key={row.label} label={row.label} titles={row.titles} onQuickView={onQuickView}/>)}</div>;
 }

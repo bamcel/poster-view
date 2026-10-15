@@ -5,11 +5,11 @@ import {afterEach, beforeEach, it, expect, vi} from "vitest";
 import HomePage from "./HomePage";
 import {nativeLibraries} from "../api/nativeLibraries";
 import {watchApi} from "../features/playback/api/watch";
-vi.mock("../features/playback/api/watch",()=>({watchApi:{continue:vi.fn()}}));
+vi.mock("../features/playback/api/watch",()=>({watchApi:{continue:vi.fn(),state:vi.fn()}}));
 vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(),catalog:vi.fn(),artworkUrl:vi.fn()}}));
 vi.mock("../components/LibraryPosterStrip",()=>({default:({library}:{library:string})=><div data-testid={`collage-${library}`}>Shared collage</div>}));
 vi.mock("./DashboardPage",()=>({default:()=> <div>Legacy library</div>}));
-beforeEach(()=>{vi.resetAllMocks();vi.mocked(nativeLibraries.catalog).mockResolvedValue([]);vi.mocked(watchApi.continue).mockResolvedValue([]);vi.mocked(nativeLibraries.artworkUrl).mockImplementation((library,item,kind)=>`/art/${library}/${item}/${kind}`);});
+beforeEach(()=>{vi.resetAllMocks();HTMLDialogElement.prototype.showModal=vi.fn(function(this:HTMLDialogElement){this.setAttribute("open","");});HTMLDialogElement.prototype.close=vi.fn(function(this:HTMLDialogElement){this.removeAttribute("open");});vi.mocked(nativeLibraries.catalog).mockResolvedValue([]);vi.mocked(watchApi.continue).mockResolvedValue([]);vi.mocked(nativeLibraries.artworkUrl).mockImplementation((library,item,kind)=>`/art/${library}/${item}/${kind}`);});
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 function mount(path="/"){
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
@@ -83,6 +83,25 @@ it("keeps library navigation usable when discovery fails",async()=>{
  mount();
  expect(await screen.findByRole("link",{name:"Open Films"})).toBeTruthy();
  expect(await screen.findByText("Could not load discoveries from Films: Unavailable")).toBeTruthy();
+});
+
+it("opens quick view on the homepage and keeps the library cards after closing",async()=>{
+ const movie={...entryDefaults,id:"film",title:"A Journey",kind:"movie",available:true,metadata:{plot:"A complete synopsis",year:2025},artwork:[],files:[{path:"film.mkv",size:100,extension:"mkv"}]};
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"films",name:"Films",library_type:"movies"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([movie]);
+ vi.mocked(watchApi.state).mockResolvedValue({position_seconds:120,duration_seconds:360,watched:false,play_count:1,last_played_at:null,audio_index:null,subtitle_index:null,session_id:null,version:1});
+ mount();
+ const featured=await screen.findByRole("region",{name:"Featured title"});
+ expect(watchApi.state).not.toHaveBeenCalled();
+ fireEvent.click(within(featured).getByRole("button",{name:"More info about A Journey"}));
+ const dialog=await screen.findByRole("dialog");
+ expect(within(dialog).getByText("A complete synopsis")).toBeTruthy();
+ expect(await within(dialog).findByRole("link",{name:/Resume/})).toBeTruthy();
+ expect(screen.queryByText("Opened library page")).toBeNull();
+ expect(screen.queryByText("My List")).toBeNull();
+ fireEvent.click(within(dialog).getByRole("button",{name:/Close/}));
+ expect(screen.queryByRole("dialog")).toBeNull();
+ expect(screen.getByTestId("collage-films")).toBeTruthy();
 });
 it("reports a failed library search while keeping successful matches",async()=>{
  vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"tv",name:"TV Series"},{id:"books",name:"Books"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);

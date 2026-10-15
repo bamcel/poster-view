@@ -11,7 +11,8 @@ import {useQueries, useQuery} from "@tanstack/react-query";
 import LibraryPosterStrip from "../components/LibraryPosterStrip";
 import {nativeLibraries, type NativeLibrary} from "../api/nativeLibraries";
 import DashboardPage from "./DashboardPage";
-import HomeDiscovery, {FeaturedTitle} from "../components/HomeDiscovery";
+import HomeDiscovery, {FeaturedTitle, type HomeTitle} from "../components/HomeDiscovery";
+import HomeQuickView from "../components/HomeQuickView";
 import {nativeCatalogView} from "../lib/nativeCatalogView";
 
 function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:NativeLibrary[]}) {
@@ -24,28 +25,30 @@ function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:Native
 function LibraryHome(){
  const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list});
  const [search,setSearch]=useState("");
- useEffect(()=>{const reset=()=>setSearch("");window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
+ const [quickView,setQuickView]=useState<HomeTitle|null>(null);
+ useEffect(()=>{const reset=()=>{setSearch("");setQuickView(null);};window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
  const term=search.trim().toLocaleLowerCase();
  const catalogs=useQueries({queries:(libraries.data??[]).map(library=>({queryKey:["native-catalog",library.id],queryFn:()=>nativeLibraries.catalog(library.id),enabled:!!term||!["books","youtube"].includes(library.library_type),staleTime:5*60_000,gcTime:30*60_000}))});
  const titles=term?[]:catalogs.flatMap((catalog,index)=>nativeCatalogView(catalog.data??[]).entries.filter(entry=>entry.metadata.missing!==true&&["movie","series"].includes(entry.kind)).map(entry=>({entry,library:libraries.data![index]})));
  const results=term?catalogs.flatMap((catalog,index)=>(catalog.data??[]).filter(entry=>entry.available&&entry.kind!=="season"&&[entry.title,entry.metadata.originaltitle].some(value=>typeof value==="string"&&value.toLocaleLowerCase().includes(term))).map(entry=>({entry,library:libraries.data![index]}))):[];
  const sections=[{name:"Movies",kinds:["movie"]},{name:"Series",kinds:["series"]},{name:"Episodes",kinds:["episode"]},{name:"Books",kinds:["book","book_series"]}].map(section=>({...section,results:results.filter(({entry})=>section.kinds.includes(entry.kind))})).filter(section=>section.results.length>0);
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
- return <main className="h-full overflow-y-auto px-5 pb-8 pt-5 sm:px-8 md:px-12">
-  <header className="mb-3 flex flex-col gap-7 md:gap-10">
-   <h1 className="order-2 text-2xl font-semibold text-white">{term?"Search results":"My Media"}</h1>
+ const featured=!term&&titles.length>0;
+ return <main className="relative h-full overflow-y-auto pb-8">
+  <header className={featured?"absolute inset-x-0 top-0 z-10 px-5 pt-5 sm:px-8 md:px-12":"mb-3 flex flex-col gap-7 px-5 pt-5 sm:px-8 md:gap-10 md:px-12"}>
+   <h1 className={featured?"sr-only":"order-2 text-2xl font-semibold text-white"}>{term?"Search results":"My Media"}</h1>
   <div role="search" className="order-1 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
    <div className="relative col-start-2 mx-auto w-full max-w-[21rem]">
     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint"/>
-    <input aria-label="Search all libraries" placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-10 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"/>
+    <input aria-label="Search all libraries" placeholder="Search" value={search} onChange={event=>{setSearch(event.target.value);setQuickView(null);}} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-10 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"/>
     {search&&<button type="button" aria-label="Clear search" onClick={()=>setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white" data-icon-button="true"><X className="size-4"/></button>}
    </div>
   </div>
   </header>
-  {libraries.isPending&&<p role="status" className="text-muted">Loading libraries…</p>}
-  {libraries.error&&<p role="alert" className="text-danger">{libraries.error.message}</p>}
-  {libraries.data?.length===0&&<div className="space-y-3 text-muted"><p>Your libraries will appear here once you add them.</p><Link className="text-accent hover:underline" to="/settings/libraries">Add a library</Link></div>}
-  {term?<>
+  {libraries.isPending&&<p role="status" className="px-5 text-muted sm:px-8 md:px-12">Loading libraries…</p>}
+  {libraries.error&&<p role="alert" className="px-5 text-danger sm:px-8 md:px-12">{libraries.error.message}</p>}
+  {libraries.data?.length===0&&<div className="space-y-3 px-5 text-muted sm:px-8 md:px-12"><p>Your libraries will appear here once you add them.</p><Link className="text-accent hover:underline" to="/settings/libraries">Add a library</Link></div>}
+  {term?<div className="px-5 sm:px-8 md:px-12">
    {loading&&<p role="status" className="mb-4 text-muted">Searching libraries…</p>}
    {catalogs.map((catalog,index)=>catalog.error&&<p role="alert" key={libraries.data![index].id} className="mb-3 text-danger">Could not search {libraries.data![index].name}: {catalog.error.message}</p>)}
    {!loading&&results.length===0&&<p className="text-muted">No matching titles found.</p>}
@@ -57,8 +60,9 @@ function LibraryHome(){
    </Link>)}</div>
    {section.results.length>100&&<p className="mt-3 text-sm text-muted">Showing 100 of {section.results.length} matches. Refine your search to see fewer results.</p>}
    </section>)}</div>
-  </>:<>
-   <FeaturedTitle titles={titles}/>
+  </div>:<>
+   <FeaturedTitle titles={titles} onQuickView={setQuickView}/>
+   <div className="px-5 sm:px-8 md:px-12">
    <ContinueWatching/>
    <section aria-label="My libraries" className="mt-8">
     <h2 className="mb-4 text-xl font-semibold text-white">My Libraries</h2>
@@ -66,8 +70,10 @@ function LibraryHome(){
    </section>
    {catalogs.some((catalog,index)=>catalog.isPending&&!["books","youtube"].includes(libraries.data![index].library_type))&&<p role="status" className="mt-6 text-muted">Discovering your titles…</p>}
    {catalogs.map((catalog,index)=>catalog.error&&<p role="alert" key={libraries.data![index].id} className="mt-4 text-danger">Could not load discoveries from {libraries.data![index].name}: {catalog.error.message}</p>)}
-   <HomeDiscovery titles={titles}/>
+   <HomeDiscovery titles={titles} onQuickView={setQuickView}/>
+   </div>
   </>}
+  {quickView&&<HomeQuickView key={`${quickView.library.id}:${quickView.entry.id}`} title={quickView} onClose={()=>setQuickView(null)}/>}
  </main>;
 }
 export default function HomePage(){

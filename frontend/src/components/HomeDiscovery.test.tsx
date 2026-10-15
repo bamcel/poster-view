@@ -76,6 +76,17 @@ it("renders no discovery or featured sections without available titles", () => {
   expect(screen.queryByRole("region")).toBeNull();
 });
 
+it("opens quick view from banner and row info actions without navigating", () => {
+  const item=title("Quick view title");
+  const open=vi.fn();
+  render(<MemoryRouter><FeaturedTitle titles={[item]} onQuickView={open}/><HomeDiscovery titles={[item]} onQuickView={open}/></MemoryRouter>);
+  const actions=screen.getAllByRole("button",{name:"More info about Quick view title"});
+  expect(actions).toHaveLength(2);
+  actions.forEach(action=>{expect(action.getAttribute("aria-haspopup")).toBe("dialog");fireEvent.click(action);});
+  expect(open).toHaveBeenNthCalledWith(1,item);
+  expect(open).toHaveBeenNthCalledWith(2,item);
+});
+
 it("bounds a discovery row and scrolls by page with reduced motion respected", () => {
   vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(500);
   vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(2000);
