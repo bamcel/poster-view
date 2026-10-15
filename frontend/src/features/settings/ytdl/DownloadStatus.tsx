@@ -12,6 +12,15 @@ export default function DownloadStatus({compact=false}:{compact?:boolean}){
  const active=jobs.data?.filter(job=>activeDownload(job.status))??[];
  const visible=compact?(active.length?active:jobs.data?.slice(-1)??[]):jobs.data??[];
  if(compact&&!visible.length&&!jobs.error)return null;
+ if(compact){
+  const job=visible[0];
+  const percentage=job?.progress??(job?.status==="completed"?100:null);
+  return <section aria-label="YouTube download status" className="rounded-xl border border-border bg-window p-3">
+   <div className="flex items-center justify-between gap-2 text-xs"><h2 className="uppercase tracking-wide text-muted">Status</h2><span aria-label="Overall completion" className="font-medium tabular-nums text-accent">{percentage==null?"—":`${Math.round(percentage)}%`}</span></div>
+   {job&&<><p title={job.title||job.url} className="mt-1 truncate text-xs font-medium">{job.title||job.url}</p><p className="truncate text-xs text-muted">{job.status.replaceAll("_"," ")}{job.total_videos?` · ${job.completed_videos??0}/${job.total_videos} complete`:""}{active.length>1?` · +${active.length-1} active`:""}</p><progress aria-label={`Download progress for ${job.title||job.id}`} max={100} value={percentage??undefined} className="block h-1 w-full accent-accent"/></>}
+   {jobs.error&&<p role="alert" className="truncate text-xs text-danger">Download status unavailable</p>}
+  </section>;
+ }
  return <section aria-label="YouTube download status" className={`rounded-xl border border-border bg-window ${compact?"p-3":"p-5"}`}>
   <div className="mb-3 flex items-center justify-between gap-2"><h2 className={compact?"text-xs uppercase tracking-wide text-muted":"font-semibold"}>{compact?"Status":"YouTube downloads"}</h2><button type="button" className="text-xs text-accent hover:underline" onClick={()=>window.dispatchEvent(new Event(openDownloadsEvent))}>Open queue</button></div>
   {jobs.isPending&&<p className="text-sm text-muted">Loading downloads…</p>}
