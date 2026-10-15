@@ -6,6 +6,8 @@ import PlayerPage from "./PlayerPage";
 import {playbackApi,defaultPlaybackPreferences,type PlaybackInfo,type PlaybackSession} from "./api/playback";
 import {watchApi} from "./api/watch";
 import type {NativeAudioList} from "./lib/nativeAudio";
+// Storyboard transport/decode has its own tests; keep player delivery assertions independent.
+vi.mock("./lib/usePreviewStoryboard",()=>({usePreviewStoryboard:()=>({frame:()=>null})}));
 vi.mock("./api/playback",async importOriginal=>({...await importOriginal<typeof import("./api/playback")>(),playbackApi:{info:vi.fn(),create:vi.fn(),seek:vi.fn(),stop:vi.fn(),heartbeat:vi.fn(),subtitle:vi.fn()}}));
 vi.mock("./api/watch",()=>({watchApi:{preferences:vi.fn(),state:vi.fn(),begin:vi.fn(),progress:vi.fn(),seriesTracks:vi.fn(),saveSeriesTracks:vi.fn()}}));
 const renderer=vi.hoisted(()=>({construct:vi.fn(),destroy:vi.fn(),manual:vi.fn()}));

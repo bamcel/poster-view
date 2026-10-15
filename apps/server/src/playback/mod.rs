@@ -1840,6 +1840,14 @@ pub(crate) fn routes() -> axum::Router<AppState> {
             axum::routing::get(previews::preview),
         )
         .route(
+            "/api/playback/native/{library}/{item}/preview-storyboard",
+            axum::routing::get(previews::storyboard),
+        )
+        .route(
+            "/api/playback/native/{library}/{item}/preview-sheet/{index}",
+            axum::routing::get(previews::sheet),
+        )
+        .route(
             "/api/playback/native/{library}/{item}/sessions",
             axum::routing::post(create),
         )

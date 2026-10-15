@@ -21,6 +21,6 @@ export default function PlaybackTimeline({library,item,duration,position,buffere
   }} onPointerLeave={()=>setHover(null)} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))setHover(null);}}
     style={{"--timeline-left":`${timelineLeft}px`,"--buffered":`${duration?Math.min(100,buffered/duration*100):0}%`,"--position":`${duration?Math.min(100,position/duration*100):0}%`} as CSSProperties}>
     {children}
-    <TimelinePreview library={library} item={item} seconds={disabled?null:scrubbing??hover} duration={duration} chapters={chapters}/>
+    <TimelinePreview library={library} item={item} seconds={disabled?null:scrubbing??hover} duration={duration} position={position} chapters={chapters}/>
   </div>;
 }

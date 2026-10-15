@@ -1,12 +1,23 @@
 import {act,cleanup,render,screen} from "@testing-library/react";
 import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import TimelinePreview from "./TimelinePreview";
+const prepared=vi.hoisted(()=>({enabled:false}));
+vi.mock("../lib/usePreviewStoryboard",()=>({usePreviewStoryboard:()=>({frame:(seconds:number)=>prepared.enabled?{url:"blob:sheet",x:Math.floor(seconds/10)%6*240,y:0,width:240,height:136,columns:6,rows:5}:null})}));
 const props={library:"a",item:"one",duration:1000};
 const advance=async(ms=120)=>{await act(async()=>{await vi.advanceTimersByTimeAsync(ms);});};
 const success=(size=4)=>({ok:true,status:200,blob:async()=>new Blob([new Uint8Array(size)])}) as Response;
 beforeEach(()=>{
+ prepared.enabled=false;
  vi.useFakeTimers();vi.stubGlobal("fetch",vi.fn().mockResolvedValue(success()));let serial=0;
  vi.spyOn(URL,"createObjectURL").mockImplementation(()=>`blob:${++serial}`);vi.spyOn(URL,"revokeObjectURL").mockImplementation(()=>{});
+});
+it("renders preloaded sprite tiles immediately without per-hover requests",async()=>{
+ prepared.enabled=true;
+ const view=render(<TimelinePreview {...props} seconds={15}/>);
+ expect(screen.getByRole("img").style.backgroundPosition).toBe("20% 0%");
+ view.rerender(<TimelinePreview {...props} seconds={45}/>);
+ expect(screen.getByRole("img").style.backgroundPosition).toBe("80% 0%");
+ await advance(1000);expect(fetch).not.toHaveBeenCalled();
 });
 afterEach(()=>{cleanup();vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();});
 it("debounces deliberate inspection to the latest quantized target",async()=>{

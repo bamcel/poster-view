@@ -98,10 +98,20 @@ API modules re-export their types for existing consumers; definitions live in
 `features/playback/types.ts`.
 
 Playback prefers authenticated original-file byte ranges with source offset zero.
-Native seeks keep one URL and session. Timeline previews are requested only during timeline inspection,
-using authenticated, permission-checked 10-second JPEG buckets. A separate
-single-thread FFmpeg worker and a 256-image/32 MiB fingerprinted cache keep
-preview work outside playback/probe admission. Busy previews fall back to a timestamp.
+Native seeks keep one URL and session. Opening playback starts optional background
+timeline storyboard preparation, with authenticated, permission-checked manifests
+and JPEG sheets of thirty 240×136 previews at ten-second intervals. The browser
+preloads and decodes sheets at low network priority; inspecting a ready frame
+only changes the sprite crop. Unprepared positions retain on-demand JPEG fallback.
+One single-thread background FFmpeg worker runs outside playback/probe admission,
+with a separate single-worker budget for interactive fallback previews so sheet
+generation cannot block hover requests. It uses keyframe-only decoding for approximate previews,
+yields between sheets and limits preparation to six hours per title. Source
+fingerprints invalidate changed media. The disk cache is capped at 512 files/
+128 MiB; the browser retains at most eight sheets/16 MiB of compressed images
+and cancels preloading on media/account changes. First-time preparation still
+takes time; unavailable previews fall back to a timestamp. Playback media URLs,
+quality, sessions and encoding decisions do not change for preview preparation.
 Playback statistics poll browser media state only while Info is open. Subtitle
 delay is stored per user/video in watch JSON (positive means later), defaults to
 zero for old records, and adjusts browser subtitle rendering without replacing media.
