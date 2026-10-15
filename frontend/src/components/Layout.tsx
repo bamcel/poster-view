@@ -1,4 +1,5 @@
 import {useCatalogPrefetch} from "../lib/catalogPrefetch";
+import DownloadStatus,{openDownloadsEvent} from "../features/settings/ytdl/DownloadStatus";
 import {resetHomeNavigation} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
@@ -10,10 +11,11 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, } from "lucide-react";
 import { Logo } from "./ui";
 import { api } from "../api/client";
-import { useContext, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useContext, useEffect, useState, type ReactNode } from "react";
 import { useNavigate as useLibraryNavigate } from "../lib/libraryNavigation";
 import { AuthSessionContext, useIsAdmin } from "../lib/authContext";
 import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
+const DownloadQueuePopup=lazy(()=>import("../features/settings/ytdl/YtdlPlugin").then(module=>({default:module.YtdlPopup})));
 
 export default function Layout({ children, preview = false, showPreviewChrome = true, previewPath = "/" }: { children?: ReactNode; preview?: boolean; showPreviewChrome?: boolean; previewPath?: string }) {
   const queryClient=useQueryClient();
@@ -24,6 +26,13 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   const previewNavigate = useLibraryNavigate();
   const session = useContext(AuthSessionContext);
   const isAdmin=useIsAdmin();
+  const [downloadsOpen,setDownloadsOpen]=useState(false);
+  useEffect(()=>{
+    if(preview||!isAdmin)return;
+    const open=()=>setDownloadsOpen(true);
+    window.addEventListener(openDownloadsEvent,open);
+    return ()=>window.removeEventListener(openDownloadsEvent,open);
+  },[preview,isAdmin]);
   const showSignOut = session?.password_required !== false && !preview;
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
@@ -72,17 +81,17 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
       }}>
 
       <aside
-        className="relative z-20 hidden w-[14.75rem] shrink-0 flex-col overflow-y-auto border-r border-border px-3 py-5 md:flex"
+        className="relative z-20 hidden w-[14.75rem] shrink-0 flex-col overflow-hidden border-r border-border px-3 py-5 md:flex"
         style={{ backgroundColor: translucentPanelColor("--color-sidebar", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
       >
-        <div className="mb-8 px-1">
+        <div className="mb-8 shrink-0 px-1">
           <NavLink to="/" aria-label="Go to Home" className="block w-fit">
             <Logo />
           </NavLink>
           <div className="mt-1 whitespace-nowrap text-left text-xs text-faint">Artwork Management Console</div>
         </div>
 
-        <nav className="flex flex-col gap-1.5">
+        <nav className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto [&>a]:shrink-0">
           {navigationItems.slice(0,1).map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
@@ -108,7 +117,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
         </nav>
 
-        <div className="mt-auto pt-4" />
+        <div className="mt-auto max-h-[40%] shrink-0 overflow-y-auto pt-4">{!preview&&settingsOpen&&isAdmin&&<DownloadStatus compact/>}</div>
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -156,6 +165,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
       <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
         {children ?? <Outlet />}
       </main>
+      {!preview&&isAdmin&&downloadsOpen&&<Suspense fallback={null}><DownloadQueuePopup initialTab="Queue" onClose={()=>setDownloadsOpen(false)}/></Suspense>}
       </div>
     </div>
   );

@@ -72,6 +72,12 @@ pub(crate) struct Job {
     pub title: String,
     pub status: String,
     pub progress: Option<f64>,
+    #[serde(default)]
+    pub total_videos: usize,
+    #[serde(default)]
+    pub completed_videos: usize,
+    #[serde(default)]
+    pub current_video_title: Option<String>,
     pub speed: Option<String>,
     pub eta: Option<String>,
     pub error: Option<String>,
@@ -215,6 +221,9 @@ async fn jobs_create(
         title: "YouTube download".into(),
         status: "queued".into(),
         progress: None,
+        total_videos: 0,
+        completed_videos: 0,
+        current_video_title: None,
         speed: None,
         eta: None,
         error: None,
@@ -252,6 +261,9 @@ async fn change(state: &AppState, id: &str, retry: bool) -> Result<Job, HttpErro
         job.status = "queued".into();
         job.error = None;
         job.progress = None;
+        job.total_videos = 0;
+        job.completed_videos = 0;
+        job.current_video_title = None;
     } else {
         if job.status == "completed" {
             return Err(err("Completed downloads cannot be cancelled."));
@@ -288,7 +300,9 @@ async fn update(
         if job.status != "cancelled" {
             job.status = status.into();
             job.error = error;
-            job.progress = progress;
+            if progress.is_some() {
+                job.progress = progress;
+            }
             if status != "downloading" {
                 job.speed = None;
                 job.eta = None;
@@ -362,6 +376,9 @@ mod tests {
             title: "Fixture".into(),
             status: status.into(),
             progress: None,
+            total_videos: 0,
+            completed_videos: 0,
+            current_video_title: None,
             speed: None,
             eta: None,
             error: None,
@@ -370,6 +387,58 @@ mod tests {
             video_ids: vec![],
         }
     }
+    #[test]
+    fn legacy_jobs_default_playlist_progress() {
+        let mut value = serde_json::to_value(job("downloading")).unwrap();
+        let object = value.as_object_mut().unwrap();
+        for key in ["total_videos", "completed_videos", "current_video_title"] {
+            object.remove(key);
+        }
+        let restored: Job = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.total_videos, 0);
+        assert_eq!(restored.completed_videos, 0);
+        assert!(restored.current_video_title.is_none());
+    }
+
+    #[tokio::test]
+    async fn playlist_progress_is_durable_and_preserved_between_phases() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let mut fixture = job("downloading");
+        fixture.total_videos = 4;
+        fixture.completed_videos = 1;
+        fixture.current_video_title = Some("Second video".into());
+        fixture.progress = Some(25.0);
+        downloader::record_stream_progress(&mut fixture, Some(100.0));
+        let aggregate = fixture.progress;
+        assert_eq!(aggregate, Some(48.75));
+        downloader::record_stream_progress(&mut fixture, Some(5.0));
+        assert_eq!(
+            fixture.progress, aggregate,
+            "audio stream must not reset progress"
+        );
+        save(&state, "plugin-ytdl-jobs", &vec![fixture]).unwrap();
+        update(&state, "fixture", "processing", None, None)
+            .await
+            .unwrap();
+        let Json(restored) = jobs_get(State(state.clone())).await.unwrap();
+        assert_eq!(restored[0].progress, aggregate);
+        assert_eq!(restored[0].completed_videos, 1);
+        assert_eq!(
+            restored[0].current_video_title.as_deref(),
+            Some("Second video")
+        );
+        downloader::video_progress(&state, "fixture", 4, 2, None)
+            .await
+            .unwrap();
+        update(&state, "fixture", "importing", None, None)
+            .await
+            .unwrap();
+        let Json(restored) = jobs_get(State(state)).await.unwrap();
+        assert_eq!(restored[0].progress, Some(50.0));
+        assert_eq!(restored[0].completed_videos, 2);
+    }
+
     #[test]
     fn older_saved_jobs_keep_id_filenames() {
         let settings: Settings = serde_json::from_value(json!({"enabled":false})).unwrap();

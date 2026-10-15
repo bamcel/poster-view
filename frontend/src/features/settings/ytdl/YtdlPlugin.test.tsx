@@ -2,7 +2,7 @@ import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import {YtdlPopup} from "./YtdlPlugin";
-import {ytdl,type YtdlSettings} from "./client";
+import {ytdl,type YtdlSettings,type YtdlJob} from "./client";
 import {nativeLibraries,defaultNativeOptions} from "../../../api/nativeLibraries";
 vi.mock("./client",async original=>({...await original<typeof import("./client")>(),ytdl:{configuration:vi.fn(),save:vi.fn(),inspect:vi.fn(),jobs:vi.fn(),submit:vi.fn(),action:vi.fn()}}));
 vi.mock("../../../api/nativeLibraries",async original=>({...await original<typeof import("../../../api/nativeLibraries")>(),nativeLibraries:{list:vi.fn(),folders:vi.fn()}}));
@@ -18,6 +18,16 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 function mount(){render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><YtdlPopup onClose={()=>{}}/></QueryClientProvider>);}
+it("restores the active queue when reopened and minimizes without cancelling",async()=>{
+ vi.mocked(ytdl.jobs).mockResolvedValue([{id:"existing",title:"Active playlist",status:"downloading",progress:42,total_videos:7,completed_videos:1,current_video_title:"Second video",settings}] as YtdlJob[]);
+ const onClose=vi.fn();
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><YtdlPopup onClose={onClose}/></QueryClientProvider>);
+ expect(await screen.findByText("Active playlist")).toBeTruthy();
+ expect(screen.getByText("1 of 7 videos complete · Second video")).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Queue"}).getAttribute("aria-pressed")).toBe("true");
+ fireEvent.click(screen.getByRole("button",{name:"Minimize downloads"}));
+ expect(onClose).toHaveBeenCalledOnce();expect(ytdl.submit).not.toHaveBeenCalled();expect(ytdl.action).not.toHaveBeenCalled();
+});
 it("saves codec and fallback settings through the plugin popup",async()=>{
  mount();await screen.findByLabelText("Video codec");
  fireEvent.change(screen.getByLabelText("Video codec"),{target:{value:"av1"}});

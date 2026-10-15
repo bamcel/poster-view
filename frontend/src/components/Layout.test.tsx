@@ -8,6 +8,7 @@ import Layout from "./Layout";
 import { api } from "../api/client";
 
 vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(async()=>[])}}));
+vi.mock("../features/settings/ytdl/client",()=>({ytdl:{jobs:vi.fn(async()=>[])}}));
 function render(node:ReactNode){return rtlRender(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}>{node}</QueryClientProvider>);}
 
 vi.mock("../api/client", () => ({ api: { authStatus: vi.fn() } }));

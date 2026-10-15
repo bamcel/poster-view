@@ -483,6 +483,40 @@ pub(super) fn conversion_args(s: &Settings, input: &Path, output: &Path) -> Vec<
     args.push(output.to_string_lossy().into());
     args
 }
+// Streams may restart at zero for audio. Keep the playlist's progress monotonic;
+// publication accounts for the last five percent of each video.
+pub(super) fn record_stream_progress(job: &mut Job, stream_progress: Option<f64>) {
+    if job.total_videos > 0 {
+        if let Some(percent) = stream_progress {
+            let aggregate = (job.completed_videos as f64 + percent / 100.0 * 0.95)
+                / job.total_videos as f64
+                * 100.0;
+            job.progress = Some(job.progress.unwrap_or(0.0).max(aggregate));
+        }
+    }
+}
+
+pub(super) async fn video_progress(
+    state: &AppState,
+    id: &str,
+    total: usize,
+    completed: usize,
+    title: Option<String>,
+) -> Result<(), HttpError> {
+    let _lock = state.ytdl_lock.lock().await;
+    let mut jobs = super::load::<Vec<Job>>(state, "plugin-ytdl-jobs")?;
+    if let Some(job) = jobs
+        .iter_mut()
+        .find(|j| j.id == id && j.status != "cancelled")
+    {
+        job.total_videos = total;
+        job.completed_videos = completed;
+        job.current_video_title = title;
+        job.progress = Some(completed as f64 / total.max(1) as f64 * 100.0);
+    }
+    super::save(state, "plugin-ytdl-jobs", &jobs)
+}
+
 async fn cancellable(state: &AppState, job: &Job, mut command: Command) -> Result<(), HttpError> {
     isolate(&mut command);
     command
@@ -519,11 +553,12 @@ async fn cancellable(state: &AppState, job: &Job, mut command: Command) -> Resul
                                 let total = value["total_bytes"]
                                     .as_f64()
                                     .or_else(|| value["total_bytes_estimate"].as_f64());
-                                job.progress = total.filter(|t| *t > 0.0).and_then(|t| {
+                                let stream_progress = total.filter(|t| *t > 0.0).and_then(|t| {
                                     value["downloaded_bytes"]
                                         .as_f64()
                                         .map(|n| (100.0 * n / t).clamp(0.0, 100.0))
                                 });
+                                record_stream_progress(job, stream_progress);
                                 job.speed = value["speed"]
                                     .as_f64()
                                     .map(|s| format!("{:.1} KiB/s", s / 1024.0));
@@ -606,7 +641,23 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             return Err(err("Invalid video identity."));
         }
         let url = format!("https://www.youtube.com/watch?v={id}");
+        video_progress(
+            state,
+            &job.id,
+            selected.len(),
+            index,
+            Some(text(e, "title")),
+        )
+        .await?;
         let info = job_raw_inspect(state, job, &url).await?;
+        video_progress(
+            state,
+            &job.id,
+            selected.len(),
+            index,
+            Some(text(&info, "title")),
+        )
+        .await?;
         let channel = text(&info, "channel_id");
         if !valid_id(&channel) {
             return Err(err("Video has no stable channel ID."));
@@ -666,6 +717,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
                 QualityChoice::Height(height) => download_settings.quality = Some(height),
                 QualityChoice::Skip(reason) => {
                     skipped.push(reason);
+                    video_progress(state, &job.id, selected.len(), index + 1, None).await?;
                     continue;
                 }
             }
@@ -762,6 +814,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             }
         );
         scopes.push(scope);
+        video_progress(state, &job.id, selected.len(), index + 1, None).await?;
     }
     scopes.sort();
     scopes.dedup();
@@ -1091,6 +1144,9 @@ mod tests {
             title: "Fixture".into(),
             status: "cancelled".into(),
             progress: None,
+            total_videos: 0,
+            completed_videos: 0,
+            current_video_title: None,
             speed: None,
             eta: None,
             error: None,

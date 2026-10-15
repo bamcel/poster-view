@@ -4,6 +4,7 @@ import {MemoryRouter} from "react-router-dom";
 import {afterEach,it,expect,vi} from "vitest";
 import ServerSettingsDashboard,{groupNotices} from "./ServerSettingsDashboard";
 vi.mock("../api/client",()=>({apiRequest:vi.fn(async(path:string)=>path==="/tasks"?[]:{name:"PosterView",version:"1.2.3",data_dir:"/data"}),api:{listServers:vi.fn(async()=>[])}}));
+vi.mock("../features/settings/ytdl/client",()=>({ytdl:{jobs:vi.fn(async()=>[])}}));
 vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(async()=>[{id:"anime",name:"Anime",options:{server_sync:{enabled:true}}}]),status:vi.fn(async()=>({status:"scanning",count:10,warnings:["Provider unavailable"]})),syncStatus:vi.fn(async()=>({status:"synced",pending:0,failed:0,notices:[]}))}}));
 afterEach(cleanup);
 it("shows actual server details, library activity and provider notices",async()=>{
