@@ -98,7 +98,13 @@ API modules re-export their types for existing consumers; definitions live in
 `features/playback/types.ts`.
 
 Playback prefers authenticated original-file byte ranges with source offset zero.
-Native seeks keep one URL and session. When permitted and needed, the planner
+Native seeks keep one URL and session. Timeline previews are requested only during timeline inspection,
+using authenticated, permission-checked 10-second JPEG buckets. A separate
+single-thread FFmpeg worker and a 256-image/32 MiB fingerprinted cache keep
+preview work outside playback/probe admission. Busy previews fall back to a timestamp.
+Playback statistics poll browser media state only while Info is open. Subtitle
+delay is stored per user/video in watch JSON (positive means later), defaults to
+zero for old records, and adjusts browser subtitle rendering without replacing media. When permitted and needed, the planner
 chooses stream-copy HLS, audio-only AAC encoding, or video encoding. Direct Stream
 never encodes selected audio/video; audio-only mode copies the video. Compatible
 originals are not encoded merely because hardware acceleration is enabled.

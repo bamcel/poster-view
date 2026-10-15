@@ -1,6 +1,9 @@
 import {stopAfterWatchReports} from "./lib/sessionTeardown";
 import {createPausedInactivity} from "./lib/pausedInactivity";
 import ChapterTicks from "./components/ChapterTicks";
+import PlaybackTimeline from "./components/PlaybackTimeline";
+import PlaybackStatistics from "./components/PlaybackStatistics";
+import {subtitleDelay,subtitleOffset} from "./lib/subtitleTiming";
 import {waitForPreviousPlayback} from "./lib/previousPlayback";
 import {trackWatchReport, finishWatchReports, waitForWatchReports} from "./lib/watchReports";
 import {watchApi} from "./api/watch";
@@ -56,6 +59,7 @@ export default function PlayerPage() {
   };
   useEffect(()=>()=>videoFrames.current.destroy(),[routeKey]);
   const [position,setPosition]=useState(0), [scrubbing,setScrubbing]=useState<number|null>(null), [buffered,setBuffered]=useState(0);
+  const [subtitleDelaySeconds,setSubtitleDelaySeconds]=useState(0),subtitleDelayRef=useRef(0);
   const [audio,setAudio]=useState<number|null>(null), [subtitle,setSubtitle]=useState(-1);
   const [nativeAudioChoices,setNativeAudioChoices]=useState<number[]>([]),[audioHelp,setAudioHelp]=useState("");
   const audioMapping=useRef(new Map<number,NativeAudioTrack>());
@@ -97,7 +101,7 @@ export default function PlayerPage() {
   const report=useCallback((isEnded=false,keepalive=false,seeking=false,previousRoute=false)=>{
     if(!watchSession.current||(!ready.current&&!pendingSeek.current)||(!previousRoute&&activeRoute.current!==routeKey))return Promise.resolve();
     const completion=completedReport.current?.routeKey===routeKey&&completedReport.current.generation===requestGeneration.current?completedReport.current:null;
-    const payload={session_id:watchSession.current,sequence:++sequence.current,position_seconds:sourcePosition.current,paused:video.current?.paused??true,ended:isEnded||!!completion,seeking:seeking||!!pendingSeek.current,...(!keepalive&&current.current?{playback_session_id:current.current.id}:{}),audio_index:selected.current.audio,subtitle_index:selected.current.subtitle};
+    const payload={session_id:watchSession.current,sequence:++sequence.current,position_seconds:sourcePosition.current,paused:video.current?.paused??true,ended:isEnded||!!completion,seeking:seeking||!!pendingSeek.current,...(!keepalive&&current.current?{playback_session_id:current.current.id}:{}),audio_index:selected.current.audio,subtitle_index:selected.current.subtitle,subtitle_delay_seconds:subtitleDelayRef.current};
     const saving=watchApi.progress(libraryId,itemId,payload,keepalive).then(()=>{
       if(mounted.current&&activeRoute.current===routeKey&&payload.session_id===watchSession.current&&payload.sequence===sequence.current)setWatchError("");
       window.dispatchEvent(new Event("posterview-watch-updated"));
@@ -302,6 +306,7 @@ export default function PlayerPage() {
     setInitializing(true);setLoading(true);setRecoveryNeeded(false);setError("");setNotice("");setWatchError("");
     setInfo(undefined);setSession(undefined);setPosition(0);setBuffered(0);setScrubbing(null);setPlaying(false);
     audioMapping.current.clear();setNativeAudioChoices([]);setAudioHelp("");setAudio(null);setSubtitle(-1);setMenu(null);setEnded(false);setCountdown(null);setWatchPrompt(false);pausedInactivity.current.reset();setVisible(true);
+    subtitleDelayRef.current=0;setSubtitleDelaySeconds(0);
     sourcePosition.current=0;confirmedPosition.current=0;streamSeekRecovery.current=null;nativeFallbackAttempted.current=false;
     controls.current.playing=false;controls.current.menu=null;controls.current.dragging=false;controls.current.prompt=false;controls.current.ended=false;
       try{
@@ -322,6 +327,7 @@ export default function PlayerPage() {
         if(messages.length)setNotice(messages.join(" "));
         const watch=await watchApi.begin(libraryId,itemId);if(!isCurrent())return;
         if(!watch.session_id)throw new Error("Watch tracking could not be initialized. Try again.");
+        subtitleDelayRef.current=subtitleDelay(watch.state.subtitle_delay_seconds);setSubtitleDelaySeconds(subtitleDelayRef.current);
         watchSession.current=watch.session_id;sequence.current=0;initializedRoute.current=routeKey;setInitializing(false);
         const initial=startFromBeginning?0:Math.max(0,watch.state.position_seconds-prefs.resume_rewind_seconds);
         await start(initial);
@@ -464,19 +470,19 @@ export default function PlayerPage() {
     const disableNative=()=>{for(const native of Array.from(element.textTracks))if(native!==track?.track)native.mode="disabled";};
     disableNative();element.textTracks.addEventListener?.("addtrack",disableNative);
     if(!session||!selectedTrack||subtitle<0||unsupportedImage(selectedTrack))return()=>element.textTracks.removeEventListener?.("addtrack",disableNative);
-    const controller=new AbortController();
+    const controller=new AbortController(),offset=subtitleOffset(session.offset_seconds,subtitleDelaySeconds);
     void(async()=>{
       try{
         const url=selectedTrack.url||playbackApi.subtitle(libraryId,itemId,subtitle);
         if(bitmapSubtitle(selectedTrack)){
           const {PgsRenderer,VobSubRenderer}=await import("libbitsub");if(canceled)return;
-          const options={video:element,subUrl:url,fileName:selectedTrack.subtitle_format==="vobsub"?"track.mks":"track.sup",timeOffset:session.offset_seconds,maxSubtitleBytes:128*1024*1024,cacheLimit:8,prefetchWindow:{before:1,after:1},devicePixelRatioCap:2,displaySettings:{aspectMode:"contain" as const},onError:(error:Error)=>{if(!canceled)setNotice(`Subtitles: ${errorMessage(error)}`);}};
+          const options={video:element,subUrl:url,fileName:selectedTrack.subtitle_format==="vobsub"?"track.mks":"track.sup",timeOffset:offset,maxSubtitleBytes:128*1024*1024,cacheLimit:8,prefetchWindow:{before:1,after:1},devicePixelRatioCap:2,displaySettings:{aspectMode:"contain" as const},onError:(error:Error)=>{if(!canceled)setNotice(`Subtitles: ${errorMessage(error)}`);}};
           const bitmap=selectedTrack.subtitle_format==="vobsub"?new VobSubRenderer(options):new PgsRenderer(options);renderer={destroy:async()=>{bitmap.dispose();}};
         }else if(selectedTrack.subtitle_format==="ass"||["ass","ssa"].includes(selectedTrack.codec)){
           const [{default:JASSUB},response]=await Promise.all([import("jassub"),fetch(url,{signal:controller.signal})]);
           if(!response.ok)throw new Error("Subtitle extraction failed.");
           const content=await response.text();if(canceled)return;
-          const instance=new JASSUB({video:element,subContent:content,fonts:[...(data?.fonts?.map(font=>font.url)??[]),subtitleFallbackFont],timeOffset:session.offset_seconds,queryFonts:false});renderer=instance;
+          const instance=new JASSUB({video:element,subContent:content,fonts:[...(data?.fonts?.map(font=>font.url)??[]),subtitleFallbackFont],timeOffset:offset,queryFonts:false});renderer=instance;
           await instance.ready;
           if(canceled)void instance.destroy();
           else if(element.paused&&element.readyState>=2&&element.videoWidth>0&&element.videoHeight>0){
@@ -490,8 +496,8 @@ export default function PlayerPage() {
             if(!track||canceled)return;
             const text=track.track;text.mode="showing";
             for(const cue of Array.from(text.cues??[])){
-              if(cue.endTime<=session.offset_seconds){text.removeCue(cue);continue;}
-              cue.startTime=Math.max(0,cue.startTime-session.offset_seconds);cue.endTime-=session.offset_seconds;
+              if(cue.endTime<=offset){text.removeCue(cue);continue;}
+              cue.startTime=Math.max(0,cue.startTime-offset);cue.endTime-=offset;
               applyPlainSubtitlePosition(cue,subtitleAppearance(prefsRef.current).subtitle_position);
             }
           };
@@ -501,7 +507,11 @@ export default function PlayerPage() {
     })();
     return()=>{canceled=true;controller.abort();element.textTracks.removeEventListener?.("addtrack",disableNative);void renderer?.destroy();track?.remove();if(objectUrl)URL.revokeObjectURL(objectUrl);};
   // Retained HLS seeks replace the session object without changing subtitle time.
-  },[info,session?.offset_seconds,!!session,subtitle,libraryId,itemId,preferences.subtitle_position]);
+  },[info,session?.offset_seconds,!!session,subtitle,libraryId,itemId,preferences.subtitle_position,subtitleDelaySeconds]);
+  const changeSubtitleDelay=(value:number)=>{
+    if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
+    interact();const delay=subtitleDelay(value);subtitleDelayRef.current=delay;setSubtitleDelaySeconds(delay);void report();
+  };
   const changeTrack=(kind:"audio"|"subtitle",value:number)=>{
     if(activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
     interact();setNotice("");
@@ -698,11 +708,11 @@ export default function PlayerPage() {
     {menu&&!pendingInitialization&&<div className="pv-player-menu" inert={watchPrompt} role="dialog" aria-label={menu==="next"?"Up next":`${menu[0].toUpperCase()}${menu.slice(1)}`}>
       <header><h2>{menu==="next"?"Up Next":menu[0].toUpperCase()+menu.slice(1)}</h2><button className="pv-icon" aria-label="Close menu" onClick={()=>setMenu(null)}><X/></button></header>
       {menu==="audio"&&<div className="pv-option-list">{info?.tracks.filter(track=>track.kind==="audio").map(track=><button key={track.index} aria-pressed={audio===track.index} disabled={!ready.current||!current.current||!audioSelectable(track.index)} onClick={()=>changeTrack("audio",track.index)}><span>{trackLabel(track)}</span>{audio===track.index&&<Check size={18}/>}</button>)}{audioHelp&&<p className="pv-menu-help">{audioHelp}</p>}<p className="pv-menu-help">Native audio is preferred. Other tracks require a permitted lossless stream or audio conversion.</p></div>}
-      {menu==="subtitles"&&<div className="pv-option-list"><button aria-pressed={subtitle===-1} onClick={()=>changeTrack("subtitle",-1)}>Off{subtitle===-1&&<Check size={18}/>}</button>{info?.tracks.filter(track=>track.kind==="subtitle").map(track=><button key={track.index} aria-pressed={subtitle===track.index} disabled={unsupportedImage(track)} onClick={()=>changeTrack("subtitle",track.index)}><span>{trackLabel(track)}</span>{subtitle===track.index&&<Check size={18}/>}</button>)}<p className="pv-menu-help">Text, ASS, PGS and VobSub subtitles render in your browser. Other bitmap formats are unavailable. Browser overlays may be omitted from picture in picture.</p>{selectedSubtitle?.subtitle_format==="ass"&&<p className="pv-menu-help">ASS styling uses embedded fonts. Picture in picture may omit styled subtitles.</p>}</div>}
+      {menu==="subtitles"&&<div className="pv-option-list"><button aria-pressed={subtitle===-1} onClick={()=>changeTrack("subtitle",-1)}>Off{subtitle===-1&&<Check size={18}/>}</button>{info?.tracks.filter(track=>track.kind==="subtitle").map(track=><button key={track.index} aria-pressed={subtitle===track.index} disabled={unsupportedImage(track)} onClick={()=>changeTrack("subtitle",track.index)}><span>{trackLabel(track)}</span>{subtitle===track.index&&<Check size={18}/>}</button>)}<fieldset className="pv-subtitle-timing"><legend>Subtitle timing</legend><label>Delay (seconds)<input aria-label="Subtitle delay (seconds)" type="number" min="-60" max="60" step="0.25" value={subtitleDelaySeconds} onChange={event=>{if(event.target.value!==""&&Number.isFinite(event.target.valueAsNumber))changeSubtitleDelay(event.target.valueAsNumber);}}/></label><div><button className="pv-button" onClick={()=>changeSubtitleDelay(subtitleDelaySeconds-0.25)}>Earlier 0.25s</button><button className="pv-button" onClick={()=>changeSubtitleDelay(0)}>Reset timing</button><button className="pv-button" onClick={()=>changeSubtitleDelay(subtitleDelaySeconds+0.25)}>Later 0.25s</button></div><p>Positive values display subtitles later. Saved for this video in your profile.</p></fieldset><p className="pv-menu-help">Text, ASS, PGS and VobSub subtitles render in your browser. Other bitmap formats are unavailable. Browser overlays may be omitted from picture in picture.</p>{selectedSubtitle?.subtitle_format==="ass"&&<p className="pv-menu-help">ASS styling uses embedded fonts. Picture in picture may omit styled subtitles.</p>}</div>}
       {menu==="quality"&&<div className="pv-option-list"><button aria-pressed={delivery==="auto"&&quality===0} onClick={()=>changeQuality("auto")}>Auto · direct playback first</button><button aria-pressed={delivery==="original"} onClick={()=>changeQuality("original")}>Original · direct only</button><button disabled={!info||!losslessAudioAllowed(info,capability.current,audio)} aria-pressed={delivery==="stream"} onClick={()=>changeQuality("stream")}>Direct Stream · lossless</button>{qualityChoices.slice(1).map((choice,index)=><button key={choice.label} disabled={info?.conversion_allowed!==true||!capability.current?.hls_supported} aria-pressed={delivery==="auto"&&quality===index+1} onClick={()=>changeQuality("auto",index+1)}>{choice.label}</button>)}<p className="pv-menu-help">Quality changes affect this temporary playback stream. Video conversion must be enabled in the server playback settings. Direct Stream copies video and audio.</p>{info?.bandwidth_adaptation_allowed&&<p className="pv-menu-help">Auto can reduce bitrate after sustained slow HLS downloads. Original-file downloads are not measured automatically.</p>}</div>}
       {menu==="speed"&&<div className="pv-option-list">{[0.5,0.75,1,1.25,1.5,1.75,2].map(value=><button key={value} aria-pressed={speed===value} onClick={()=>{setSpeed(value);setMenu(null);}}>{value===1?"Normal":`${value}×`}{speed===value&&<Check size={18}/>}</button>)}</div>}
       {menu==="chapters"&&<div className="pv-option-list">{info?.chapters.map((chapter,index)=><button key={index} onClick={()=>{seek(chapter.start_seconds);setMenu(null);}}><span>{chapter.title||`Chapter ${index+1}`}</span><time>{playbackTime(chapter.start_seconds)}</time></button>)}</div>}
-      {menu==="info"&&<div className="pv-player-info"><DetailSynopsis text={info?.overview} lines={8}/><dl><dt>Playback</dt><dd>{methodLabel}</dd>{session?.video_codec&&<><dt>Video codec</dt><dd>{session.video_codec.toUpperCase()}{session.width&&session.height?` · ${session.width}×${session.height}`:""}</dd></>}{session?.audio_codec&&<><dt>Audio codec</dt><dd>{session.audio_codec.toUpperCase()}</dd></>}{session?.encoder&&<><dt>Encoder</dt><dd>{session.encoder}</dd></>}{!!session?.bitrate&&<><dt>{session.method==="transcode"?"Target bitrate":"Source bitrate"}</dt><dd>{(session.bitrate/1_000_000).toFixed(1)} Mbps</dd></>}<dt>Reason</dt><dd>{session?.reason}</dd><dt>Position</dt><dd>{playbackTime(position)} / {playbackTime(duration)}</dd><dt>Buffered until</dt><dd>{playbackTime(buffered)}</dd><dt>Audio</dt><dd>{info?.tracks.find(track=>track.index===audio)?trackLabel(info.tracks.find(track=>track.index===audio)!):"None"}</dd><dt>Subtitles</dt><dd>{selectedSubtitle?trackLabel(selectedSubtitle):"Off"}</dd></dl><p className="pv-menu-help">Shortcuts: Space/K play or pause · ←/→ skip · F fullscreen · M mute · Esc close menu.</p></div>}
+      {menu==="info"&&<div className="pv-player-info"><DetailSynopsis text={info?.overview} lines={8}/><dl><dt>Playback</dt><dd>{methodLabel}</dd>{session?.video_codec&&<><dt>Video codec</dt><dd>{session.video_codec.toUpperCase()}{session.width&&session.height?` · ${session.width}×${session.height}`:""}</dd></>}{session?.audio_codec&&<><dt>Audio codec</dt><dd>{session.audio_codec.toUpperCase()}</dd></>}{session?.encoder&&<><dt>Encoder</dt><dd>{session.encoder}</dd></>}{!!session?.bitrate&&<><dt>{session.method==="transcode"?"Target bitrate":"Source bitrate"}</dt><dd>{(session.bitrate/1_000_000).toFixed(1)} Mbps</dd></>}<dt>Reason</dt><dd>{session?.reason}</dd><dt>Position</dt><dd>{playbackTime(position)} / {playbackTime(duration)}</dd><dt>Buffered until</dt><dd>{playbackTime(buffered)}</dd><dt>Audio</dt><dd>{info?.tracks.find(track=>track.index===audio)?trackLabel(info.tracks.find(track=>track.index===audio)!):"None"}</dd><dt>Subtitles</dt><dd>{selectedSubtitle?trackLabel(selectedSubtitle):"Off"}</dd></dl><PlaybackStatistics video={video.current} active={menu==="info"} session={session}/><p className="pv-menu-help">Shortcuts: Space/K play or pause · ←/→ skip · F fullscreen · M mute · Esc close menu.</p></div>}
       {menu==="next"&&info?.next&&<div className="pv-option-list"><button onClick={()=>next()}>{info.next.title}<ChevronRight/></button></div>}
     </div>}
     <div className="pv-player-bottom pv-controls" inert={watchPrompt||pendingInitialization} aria-hidden={!visible&&playing&&!menu}>
@@ -712,7 +722,7 @@ export default function PlayerPage() {
         <button className="pv-button" aria-label="Playback quality" aria-expanded={menu==="quality"} onClick={()=>toggleMenu("quality")}><Settings2/><span>{delivery==="original"?"Original":delivery==="stream"?"Direct Stream":quality===0?"Auto":qualityChoices[quality].label}</span></button>
         <button className="pv-button" aria-label="Playback speed" aria-expanded={menu==="speed"} onClick={()=>toggleMenu("speed")}><Gauge/><span>{speed}×</span></button>
       </div></div>
-      <div className="pv-timeline-row"><time>{playbackTime(scrubbing??position)}</time><div className="pv-timeline" style={{"--buffered":`${duration?Math.min(100,buffered/duration*100):0}%`,"--position":`${duration?Math.min(100,(scrubbing??position)/duration*100):0}%`} as React.CSSProperties}><input aria-label="Seek" disabled={pendingInitialization||!!error||duration<=0} aria-valuetext={`${playbackTime(scrubbing??position)} of ${playbackTime(duration)}`} type="range" min="0" max={duration||1} step="0.1" value={scrubbing??Math.min(position,duration||position)} onPointerDown={()=>{controls.current.dragging=true;}} onChange={event=>setScrubbing(Number(event.target.value))} onPointerUp={event=>{const value=Number(event.currentTarget.value);setScrubbing(null);controls.current.dragging=false;seek(value);}} onKeyUp={event=>{if(["ArrowLeft","ArrowRight","Home","End","PageUp","PageDown"].includes(event.key)){const value=Number(event.currentTarget.value);setScrubbing(null);seek(value);}}} onPointerCancel={()=>{setScrubbing(null);controls.current.dragging=false;}}/><ChapterTicks chapters={info?.chapters??[]} duration={duration} disabled={pendingInitialization||!!error||duration<=0} onSeek={seek}/></div><time>{duration>0?`-${playbackTime(duration-(scrubbing??position))}`:"--:--"}</time></div>
+      <div className="pv-timeline-row"><time>{playbackTime(scrubbing??position)}</time><PlaybackTimeline library={libraryId} item={itemId} duration={duration} position={scrubbing??position} buffered={buffered} scrubbing={scrubbing} disabled={pendingInitialization||!!error}><input aria-label="Seek" disabled={pendingInitialization||!!error||duration<=0} aria-valuetext={`${playbackTime(scrubbing??position)} of ${playbackTime(duration)}`} type="range" min="0" max={duration||1} step="0.1" value={scrubbing??Math.min(position,duration||position)} onPointerDown={()=>{controls.current.dragging=true;}} onChange={event=>setScrubbing(Number(event.target.value))} onBlur={()=>{controls.current.dragging=false;setScrubbing(null);}} onPointerUp={event=>{const value=Number(event.currentTarget.value);setScrubbing(null);controls.current.dragging=false;seek(value);}} onKeyUp={event=>{if(["ArrowLeft","ArrowRight","Home","End","PageUp","PageDown"].includes(event.key)){const value=Number(event.currentTarget.value);setScrubbing(null);seek(value);}}} onPointerCancel={()=>{setScrubbing(null);controls.current.dragging=false;}}/><ChapterTicks chapters={info?.chapters??[]} duration={duration} disabled={pendingInitialization||!!error||duration<=0} onSeek={seek}/></PlaybackTimeline><time>{duration>0?`-${playbackTime(duration-(scrubbing??position))}`:"--:--"}</time></div>
       <div className="pv-transport-row"><div className="pv-transport"><button className="pv-icon" aria-label={`Rewind ${preferences.skip_back_seconds} seconds`} onClick={()=>seek(position-preferences.skip_back_seconds)}><RotateCcw/><small>{preferences.skip_back_seconds}</small></button><button className="pv-icon pv-play" aria-label={playing?"Pause":"Play"} onClick={toggle} disabled={loading||pendingInitialization||!!error}>{playing?<Pause/>:<Play/>}</button><button className="pv-icon" aria-label={`Forward ${preferences.skip_forward_seconds} seconds`} onClick={()=>seek(position+preferences.skip_forward_seconds)}><RotateCw/><small>{preferences.skip_forward_seconds}</small></button>{info?.next&&<button className="pv-icon" aria-label="Next episode" onClick={()=>next()}><SkipForward/></button>}</div><div className="pv-sections"><button className="pv-button" aria-label="Info" aria-expanded={menu==="info"} onClick={()=>toggleMenu("info")}><CircleHelp/><span>Info</span></button>{!!info?.chapters.length&&<button className="pv-button" aria-label="Chapters" aria-expanded={menu==="chapters"} onClick={()=>toggleMenu("chapters")}><ListVideo/><span>Chapters</span></button>}{info?.next&&<button className="pv-button" aria-label="Up Next" aria-expanded={menu==="next"} onClick={()=>toggleMenu("next")}><SkipForward/><span>Up Next</span></button>}</div></div>
     </div>
   </div>;

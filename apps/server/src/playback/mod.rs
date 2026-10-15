@@ -3,6 +3,7 @@ mod hardware;
 mod manifest;
 mod models;
 mod planner;
+mod previews;
 mod producer_limits;
 mod segmented;
 mod session_limits;
@@ -1838,6 +1839,10 @@ pub(crate) fn routes() -> axum::Router<AppState> {
         .route(
             "/api/playback/native/{library}/{item}",
             axum::routing::get(info),
+        )
+        .route(
+            "/api/playback/native/{library}/{item}/preview",
+            axum::routing::get(previews::preview),
         )
         .route(
             "/api/playback/native/{library}/{item}/sessions",

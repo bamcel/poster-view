@@ -238,6 +238,24 @@ describe("original-file player",()=>{
   player();const video=await ready();await waitFor(()=>expect(document.querySelector("track")).toBeTruthy());fireEvent.load(document.querySelector("track")!);expect(cue.startTime).toBe(300);expect(cue.endTime).toBe(310);expect(cue.line).toBe(0);expect(cue.snapToLines).toBe(true);expect(cue.position).toBe(25);expect((document.querySelector(".pv-player") as HTMLElement).style.getPropertyValue("--subtitle-color")).toBe("#ffee00");
   const source=video.getAttribute("src");fireEvent.click(screen.getByRole("button",{name:"Subtitles"}));fireEvent.click(screen.getByRole("button",{name:"Off"}));expect(document.querySelector("track")).toBeNull();expect(video.getAttribute("src")).toBe(source);expect(video.currentTime).toBe(295);expect(playbackApi.create).toHaveBeenCalledTimes(1);
  });
+ it.each([2,-2])("restores saved %s second subtitle delay on VTT cues without replacing Original playback",async delay=>{
+  const cue={startTime:300,endTime:310} as VTTCue,textTrack={mode:"disabled",cues:[cue],removeCue:vi.fn()},create=document.createElement.bind(document);
+  vi.spyOn(document,"createElement").mockImplementation((tag,options)=>{const element=create(tag,options);if(tag==="track")Object.defineProperty(element,"track",{value:textTrack});return element;});
+  vi.spyOn(URL,"createObjectURL").mockReturnValue("blob:subtitles");vi.spyOn(URL,"revokeObjectURL").mockImplementation(()=>{});
+  vi.spyOn(globalThis,"fetch").mockImplementation(async()=>new Response("WEBVTT"));vi.mocked(playbackApi.info).mockResolvedValue({...info,tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"subrip",subtitle_format:"vtt",default:true,url:"/subtitles.vtt"}]});
+  vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state:{...state,subtitle_delay_seconds:delay}});
+  player();const video=await ready();await waitFor(()=>expect(document.querySelector("track")).toBeTruthy());fireEvent.load(document.querySelector("track")!);
+  expect(cue.startTime).toBe(300+delay);expect(cue.endTime).toBe(310+delay);expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(video.currentTime).toBe(295);
+ });
+ it("adjusts and saves ASS timing without reloading or seeking the video",async()=>{
+  vi.spyOn(globalThis,"fetch").mockImplementation(async()=>new Response("[Script Info]"));vi.mocked(playbackApi.info).mockResolvedValue({...info,tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"ass",subtitle_format:"ass",default:true,url:"/captions.ass"}]});
+  player();const video=await ready();await waitFor(()=>expect(renderer.construct).toHaveBeenCalled());const source=video.src;vi.mocked(video.load).mockClear();
+  fireEvent.click(screen.getByRole("button",{name:"Subtitles"}));fireEvent.click(screen.getByRole("button",{name:"Later 0.25s"}));
+  await waitFor(()=>expect(renderer.construct).toHaveBeenLastCalledWith(expect.objectContaining({timeOffset:-0.25})));
+  expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({subtitle_delay_seconds:0.25}),false);
+  fireEvent.click(screen.getByRole("button",{name:"Reset timing"}));await waitFor(()=>expect(renderer.construct).toHaveBeenLastCalledWith(expect.objectContaining({timeOffset:0})));
+  expect(video.src).toBe(source);expect(video.load).not.toHaveBeenCalled();expect(video.currentTime).toBe(295);expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(playbackApi.seek).not.toHaveBeenCalled();
+ });
  it("does not automatically select image subtitles",async()=>{
   vi.mocked(playbackApi.info).mockResolvedValue({...info,tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"dvd_subtitle",subtitle_format:"image",default:true}]});player();await ready();expect(screen.getByText(/image subtitle format is unavailable/)).toBeTruthy();expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({subtitle_index:null}));
  });
@@ -437,6 +455,15 @@ it("finishes exit progress before deleting playback or reopening the same item",
   await act(async () => { finish(); await saving; });
   await waitFor(() => expect(watchApi.begin).toHaveBeenCalledTimes(1));
   expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");
+});
+
+it("combines saved subtitle delay with segmented bitmap source offset",async()=>{
+  hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,remux_allowed:true,tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"hdmv_pgs_subtitle",subtitle_format:"pgs",language:"en",default:true}]});
+  vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,subtitle_mode:"always"});
+  vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state:{...state,subtitle_delay_seconds:2}});
+  vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",generation:1,offset_seconds:290,url:"/hls/1/index.m3u8",mime:"application/vnd.apple.mpegurl"});
+  player();await ready();await waitFor(()=>expect(bitmap.construct).toHaveBeenCalledWith("pgs",expect.objectContaining({timeOffset:288})));
 });
 
 it("preserves bitmap subtitles across a retained HLS generation seek", async () => {

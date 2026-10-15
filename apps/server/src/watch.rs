@@ -45,6 +45,7 @@ pub(crate) struct WatchState {
     pub last_played_at: Option<String>,
     pub audio_index: Option<i64>,
     pub subtitle_index: Option<i64>,
+    pub subtitle_delay_seconds: f64,
     pub session_id: Option<String>,
     pub version: u64,
 }
@@ -197,6 +198,8 @@ pub(crate) struct ProgressInput {
     pub audio_index: Option<Option<i64>>,
     #[serde(default, deserialize_with = "selection")]
     pub subtitle_index: Option<Option<i64>>,
+    #[serde(default)]
+    pub subtitle_delay_seconds: Option<f64>,
 }
 impl ProgressInput {
     fn validate(&self, duration: f64) -> Result<(), HttpError> {
@@ -218,6 +221,9 @@ impl ProgressInput {
                 .subtitle_index
                 .flatten()
                 .is_some_and(|v| !(-1..=1_024).contains(&v))
+            || self
+                .subtitle_delay_seconds
+                .is_some_and(|v| !v.is_finite() || !(-60.0..=60.0).contains(&v))
         {
             return Err(HttpError::bad_request(
                 "Invalid playback progress or track selection.",
@@ -510,6 +516,9 @@ impl WatchStore {
         }
         if let Some(index) = input.subtitle_index {
             state.subtitle_index = index;
+        }
+        if let Some(delay) = input.subtitle_delay_seconds {
+            state.subtitle_delay_seconds = delay;
         }
         state.version += 1;
         let mut stored_state = serde_json::to_value(&state).map_err(failure)?;
@@ -1101,6 +1110,7 @@ mod tests {
             seeking: false,
             audio_index: None,
             subtitle_index: None,
+            subtitle_delay_seconds: None,
         }
     }
     #[test]
@@ -1510,6 +1520,81 @@ mod tests {
             .unwrap();
         assert_eq!(state.audio_index, Some(2));
         assert_eq!(state.subtitle_index, None);
+    }
+    #[test]
+    fn subtitle_delay_persists_per_user_and_video_and_omitted_reports_preserve_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("watch.sqlite");
+        let store = WatchStore::new(path.clone());
+        let session = store
+            .begin_at("u", "l", "i", 1_000.0, 0)
+            .unwrap()
+            .session_id;
+        let mut selected = input(&session, 0, 40.0);
+        selected.subtitle_delay_seconds = Some(1.25);
+        let saved = store
+            .report_at("u", "l", "i", 1_000.0, selected, 10_000)
+            .unwrap();
+        assert_eq!(saved.subtitle_delay_seconds, 1.25);
+        let omitted: ProgressInput = serde_json::from_value(serde_json::json!({
+            "session_id":session,"sequence":1,"position_seconds":50
+        }))
+        .unwrap();
+        store
+            .report_at("u", "l", "i", 1_000.0, omitted, 20_000)
+            .unwrap();
+        let restarted = WatchStore::new(path);
+        assert_eq!(
+            restarted
+                .get("u", "l", "i", 1_000.0)
+                .unwrap()
+                .subtitle_delay_seconds,
+            1.25
+        );
+        for (user, library, item) in [
+            ("other", "l", "i"),
+            ("u", "l", "other"),
+            ("u", "other", "i"),
+        ] {
+            assert_eq!(
+                restarted
+                    .get(user, library, item, 1_000.0)
+                    .unwrap()
+                    .subtitle_delay_seconds,
+                0.0
+            );
+        }
+        let new = restarted.begin_at("u", "l", "i", 1_000.0, 30_000).unwrap();
+        assert_eq!(new.state.subtitle_delay_seconds, 1.25);
+        let mut reset = input(&new.session_id, 0, 50.0);
+        reset.subtitle_delay_seconds = Some(0.0);
+        assert_eq!(
+            restarted
+                .report_at("u", "l", "i", 1_000.0, reset, 40_000)
+                .unwrap()
+                .subtitle_delay_seconds,
+            0.0
+        );
+        let legacy: WatchState =
+            serde_json::from_value(serde_json::json!({"position_seconds":12})).unwrap();
+        assert_eq!(legacy.subtitle_delay_seconds, 0.0);
+    }
+    #[test]
+    fn subtitle_delay_rejects_nonfinite_or_out_of_range_values() {
+        let session = uuid::Uuid::new_v4().to_string();
+        for delay in [-60.01, 60.01, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut report = input(&session, 0, 40.0);
+            report.subtitle_delay_seconds = Some(delay);
+            assert_eq!(
+                report.validate(1_000.0).unwrap_err().status,
+                StatusCode::BAD_REQUEST
+            );
+        }
+        for delay in [-60.0, 0.0, 60.0] {
+            let mut report = input(&session, 0, 40.0);
+            report.subtitle_delay_seconds = Some(delay);
+            assert!(report.validate(1_000.0).is_ok());
+        }
     }
     #[test]
     fn a_reported_seek_does_not_count_as_playing_even_when_its_delta_is_small() {

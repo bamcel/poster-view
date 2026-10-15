@@ -50,7 +50,7 @@ export interface PlaybackDiagnostics {
 export interface WatchState {
   position_seconds:number; duration_seconds:number; watched:boolean; play_count:number;
   last_played_at:string|null; audio_index:number|null; subtitle_index:number|null;
-  session_id:string|null; version:number;
+  session_id:string|null; version:number; subtitle_delay_seconds?:number;
 }
 export interface PlaybackPreferences {
   audio_languages: string[]; subtitle_languages: string[]; prefer_default_audio: boolean;
