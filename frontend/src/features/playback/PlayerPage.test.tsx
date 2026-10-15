@@ -52,6 +52,22 @@ describe("original-file player",()=>{
   expect(screen.getByText("Media page")).toBeTruthy();await act(async()=>{});
   expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");expect(watchApi.progress).toHaveBeenCalled();
  });
+ it("settles rapid paused chapter seeks without seeked events and still expires inactivity",async()=>{
+  vi.useFakeTimers({shouldAdvanceTime:true});vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,still_watching_minutes:1,still_watching_timeout_minutes:1});
+  player();const video=await ready();fireEvent.pause(video);
+  scrubTo(600);fireEvent.click(screen.getByRole("button",{name:"Seek to chapter Opening at 1:30"}));
+  await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+  fireEvent.pause(video);expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:90,seeking:false}),false);
+  await act(async()=>{await vi.advanceTimersByTimeAsync(60_500);});expect(screen.getByRole("dialog",{name:"Still watching"})).toBeTruthy();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(60_500);});expect(screen.getByText("Media page")).toBeTruthy();expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");
+ });
+ it("expires an explicitly paused seek even when decoded data never arrives",async()=>{
+  vi.useFakeTimers({shouldAdvanceTime:true});vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,still_watching_minutes:1,still_watching_timeout_minutes:1});
+  player();const video=await ready();fireEvent.pause(video);Object.defineProperty(video,"readyState",{value:1,configurable:true});
+  scrubTo(900);Object.defineProperty(video,"seeking",{value:true,configurable:true});
+  await act(async()=>{await vi.advanceTimersByTimeAsync(61_000);});expect(screen.getByRole("dialog",{name:"Still watching"})).toBeTruthy();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(61_000);});expect(screen.getByText("Media page")).toBeTruthy();expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");
+ });
  it("never interrupts normal playing and restarts paused inactivity after pointer interaction",async()=>{
   vi.useFakeTimers({shouldAdvanceTime:true});vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,still_watching_minutes:1,still_watching_timeout_minutes:1});
   player();const video=await ready();Object.defineProperty(video,"paused",{value:false,configurable:true});fireEvent.play(video);
@@ -90,7 +106,7 @@ describe("original-file player",()=>{
   expect(held.hidden).toBe(false);expect(draw).toHaveBeenCalledTimes(1);expect(video.getAttribute("poster")).toBeNull();
   loadMetadata(video);fireEvent.seeked(video);expect(held.hidden).toBe(true);
  });
- it("keeps brief native seek waits unobtrusive and shows sustained buffering without replacing the source",async()=>{
+ it("keeps brief and sustained native seek waits free of center buffering overlays",async()=>{
   player();const video=await ready();const source=video.getAttribute("src");
   Object.defineProperty(video,"paused",{value:false,configurable:true});
   vi.useFakeTimers();
@@ -100,7 +116,7 @@ describe("original-file player",()=>{
   act(()=>vi.advanceTimersByTime(1000));expect(screen.queryByText("Buffering…")).toBeNull();
   Object.defineProperty(video,"readyState",{value:1,configurable:true});fireEvent.waiting(video);
   act(()=>vi.advanceTimersByTime(499));expect(screen.queryByText("Buffering…")).toBeNull();
-  act(()=>vi.advanceTimersByTime(1));expect(screen.getByText("Buffering…")).toBeTruthy();
+  act(()=>vi.advanceTimersByTime(1));expect(screen.queryByText("Buffering…")).toBeNull();expect(document.querySelector(".pv-spinner")).toBeNull();
   Object.defineProperty(video,"readyState",{value:4,configurable:true});fireEvent.playing(video);
   expect(screen.queryByText("Buffering…")).toBeNull();expect(video.getAttribute("src")).toBe(source);
   expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(playbackApi.stop).not.toHaveBeenCalled();
@@ -266,6 +282,15 @@ describe("segmented playback and browser bitmap subtitles",()=>{
  });
  it("serializes rapid HLS seeks, attaches only the latest generation and preserves requested position during response waits",async()=>{
   streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);let first!:(value:PlaybackSession)=>void,last!:(value:PlaybackSession)=>void;vi.mocked(playbackApi.seek).mockImplementationOnce(()=>new Promise(resolve=>{first=resolve;})).mockImplementationOnce(()=>new Promise(resolve=>{last=resolve;}));player();const video=await ready();scrubTo(800);scrubTo(900);const slider=scrubTo(1000);expect(slider.value).toBe("1000");expect(playbackApi.seek).toHaveBeenCalledTimes(1);await act(async()=>first({...remux,generation:2,offset_seconds:796,url:"/hls/2/index.m3u8"}));expect(hlsState.instances).toHaveLength(1);expect(playbackApi.seek).toHaveBeenLastCalledWith("playback-one",{position_seconds:1000,generation:2});await act(async()=>last({...remux,generation:3,offset_seconds:996,url:"/hls/3/index.m3u8"}));expect(hlsState.instances).toHaveLength(2);loadMetadata(video);fireEvent.seeked(video);expect(video.currentTime).toBe(4);expect(slider.value).toBe("1000");expect(watchApi.begin).toHaveBeenCalledTimes(1);
+ });
+ it("clears queued playback notices after rapid HLS seeks settle without a seeked event",async()=>{
+  vi.useFakeTimers({shouldAdvanceTime:true});streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);
+  let finish!:(value:PlaybackSession)=>void;vi.mocked(playbackApi.seek).mockResolvedValueOnce(remux).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+  player();const video=await ready();scrubTo(800);await act(async()=>{});scrubTo(900);
+  fireEvent.click(screen.getByRole("button",{name:"Play"}));expect(screen.getByText(/Playback will (begin when the video is ready|start paused)/)).toBeTruthy();
+  await act(async()=>finish(remux));Object.defineProperty(video,"readyState",{value:4,configurable:true});
+  await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+  expect(screen.queryByText(/Playback will (begin when the video is ready|start paused)/)).toBeNull();expect(document.querySelector(".pv-player-loading")).toBeNull();expect(hlsState.instances).toHaveLength(1);
  });
  it("repositions manifest-only HLS targets instead of assuming their frames are buffered",async()=>{
   streaming();vi.mocked(playbackApi.create).mockResolvedValue(remux);vi.mocked(playbackApi.seek).mockResolvedValue({...remux,generation:2,offset_seconds:346,url:"/hls/2/index.m3u8"});player();await ready();hlsState.instances[0].latestLevelDetails={fragments:[{start:50,duration:30}]};scrubTo(350);await waitFor(()=>expect(playbackApi.seek).toHaveBeenCalledWith("playback-one",{position_seconds:350,generation:1}));expect(playbackApi.create).toHaveBeenCalledTimes(1);

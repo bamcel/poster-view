@@ -44,8 +44,7 @@ export default function PlayerPage() {
   const [info,setInfo]=useState<PlaybackInfo>(), [session,setSession]=useState<PlaybackSession>();
   const [preferences,setPreferences]=useState(defaultPlaybackPreferences);
   const [error,setError]=useState(""), [notice,setNotice]=useState(""), [loading,setLoading]=useState(true);
-  const [playing,setPlaying]=useState(false), [buffering,setBuffering]=useState(false), [visible,setVisible]=useState(true);
-  const [bufferingVisible,setBufferingVisible]=useState(false);
+  const [playing,setPlaying]=useState(false), [visible,setVisible]=useState(true);
   const [recoveryNeeded,setRecoveryNeeded]=useState(false);
   const nativeFallbackAttempted=useRef(false);
   const nativeActivity=useRef({position:0,at:Date.now(),seekTarget:null as number|null});
@@ -56,14 +55,6 @@ export default function PlayerPage() {
     heldVideo.current.awaitFrame(element,Math.max(0,target-(owner?.offset_seconds??0)),()=>mounted.current&&activeRoute.current===routeKey&&requestGeneration.current===generation&&current.current===owner&&mediaOwner.current?.generation===generation);
   };
   useEffect(()=>()=>videoFrames.current.destroy(),[routeKey]);
-  useEffect(()=>{
-    setBufferingVisible(false);
-    if(!buffering||loading)return;
-    // Native unbuffered seeks often settle quickly. Keep the current frame
-    // visible and avoid flashing a spinner for these brief fetch/decode waits.
-    const timer=window.setTimeout(()=>setBufferingVisible(true),500);
-    return()=>window.clearTimeout(timer);
-  },[buffering,loading,routeKey,session?.id]);
   const [position,setPosition]=useState(0), [scrubbing,setScrubbing]=useState<number|null>(null), [buffered,setBuffered]=useState(0);
   const [audio,setAudio]=useState<number|null>(null), [subtitle,setSubtitle]=useState(-1);
   const [nativeAudioChoices,setNativeAudioChoices]=useState<number[]>([]),[audioHelp,setAudioHelp]=useState("");
@@ -99,6 +90,7 @@ export default function PlayerPage() {
   const completedReport=useRef<{routeKey:string;generation:number;promise:Promise<void>}|null>(null);
   const selected=useRef({audio:null as number|null,subtitle:-1});
   const controls=useRef({visible:true,playing:false,menu:null as Menu,dragging:false,lastActive:Date.now(),focus:false,prompt:false,ended:false});
+  const settleSeek=useRef<()=>void>(()=>{});
   const pausedInactivity=useRef(createPausedInactivity()),exitRef=useRef<()=>void>(()=>{});
   const replayRef=useRef<(position?:number,autoplay?:boolean)=>Promise<void>>(async()=>{});
   const failureRef=useRef<(message:string)=>void>(()=>{});
@@ -131,7 +123,7 @@ export default function PlayerPage() {
     if(userInteraction)interact();
     heartbeat(false);
     const owned=current.current.id,generation=requestGeneration.current;
-    try{await element.play();if(activeRoute.current===routeKey&&current.current?.id===owned&&requestGeneration.current===generation)setNotice(value=>value==="Press Play to begin playback."||value.startsWith("The browser cannot decode this source.")?"":value);}catch(error){
+    try{await element.play();if(activeRoute.current===routeKey&&current.current?.id===owned&&requestGeneration.current===generation)setNotice(value=>value==="Playback will begin when the video is ready."||value==="Playback will start paused."||value==="Press Play to begin playback."||value.startsWith("The browser cannot decode this source.")?"":value);}catch(error){
       if(activeRoute.current!==routeKey||current.current?.id!==owned||requestGeneration.current!==generation)return;
       if(error instanceof DOMException&&error.name==="NotAllowedError")setNotice("Press Play to begin playback.");
       else failureRef.current("This browser cannot play the original file. Try a browser that supports its video and audio formats.");
@@ -153,7 +145,7 @@ export default function PlayerPage() {
       const stopping=stopAfterWatchReports(Promise.all([finalReport,finishWatchReports(routeKey)]),()=>playbackApi.stop(stopped.id));pendingStop.current=stopping;
       void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});
     }
-    setLoading(false);setBuffering(false);setPlaying(false);setVisible(true);setError(message);
+    setLoading(false);setPlaying(false);setVisible(true);setError(message);
   },[report,routeKey]);
   failureRef.current=terminalError;
   function bandwidthObservationAllowed(){
@@ -226,7 +218,7 @@ export default function PlayerPage() {
     const previous=current.current;current.current=undefined;
     audioMapping.current.clear();setNativeAudioChoices([]);setAudioHelp("Audio choices will be available when playback is ready.");
     waitingDemand.current=false;if(previous)heartbeatQueue.current?.forget(previous.id);
-    element.pause();setPlaying(false);setLoading(true);setBuffering(false);setError("");setEnded(false);setCountdown(null);
+    element.pause();setPlaying(false);setLoading(true);setError("");setEnded(false);setCountdown(null);
     element.removeAttribute("src");element.load();
     if(previous){const stopping=stopAfterWatchReports(finishWatchReports(routeKey),()=>playbackApi.stop(previous.id));pendingStop.current=stopping;void stopping.finally(()=>{if(pendingStop.current===stopping)pendingStop.current=undefined;});}
     try{
@@ -263,7 +255,7 @@ export default function PlayerPage() {
     playIntent.current=playOverride??(ready.current&&!pendingSeek.current?!element.paused:playIntent.current);
     sourcePosition.current=target;pendingSeek.current={generation,target};setPosition(target);setScrubbing(null);report(false,false,true);
     ready.current=false;mediaOwner.current=null;metadataCleanup.current?.();metadataCleanup.current=undefined;
-    element.pause();setPlaying(false);setLoading(false);setBuffering(true);fragmentSampler.current.reset();bandwidthDetector.current.suppressUntil(performance.now()+8_000);
+    element.pause();setPlaying(false);setLoading(false);fragmentSampler.current.reset();bandwidthDetector.current.suppressUntil(performance.now()+8_000);
     try{
       const updated=await seekQueue.current.request(target,audioIndex);
       if(!updated||!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)return;
@@ -308,7 +300,7 @@ export default function PlayerPage() {
     pendingSeek.current=null;mediaOwner.current=null;playIntent.current=true;waitingDemand.current=false;
     infoRef.current=undefined;capability.current=undefined;
     setInitializing(true);setLoading(true);setRecoveryNeeded(false);setError("");setNotice("");setWatchError("");
-    setInfo(undefined);setSession(undefined);setPosition(0);setBuffered(0);setScrubbing(null);setPlaying(false);setBuffering(false);
+    setInfo(undefined);setSession(undefined);setPosition(0);setBuffered(0);setScrubbing(null);setPlaying(false);
     audioMapping.current.clear();setNativeAudioChoices([]);setAudioHelp("");setAudio(null);setSubtitle(-1);setMenu(null);setEnded(false);setCountdown(null);setWatchPrompt(false);pausedInactivity.current.reset();setVisible(true);
     sourcePosition.current=0;confirmedPosition.current=0;streamSeekRecovery.current=null;nativeFallbackAttempted.current=false;
     controls.current.playing=false;controls.current.menu=null;controls.current.dragging=false;controls.current.prompt=false;controls.current.ended=false;
@@ -390,9 +382,10 @@ export default function PlayerPage() {
   },[playing,menu,scrubbing,watchPrompt,ended]);
   useEffect(()=>{
     const timer=window.setInterval(()=>{
+      if(pendingSeek.current)settleSeek.current();
       const value=controls.current;
       if(value.playing&&!value.menu&&!value.dragging&&!value.focus&&!value.prompt&&Date.now()-value.lastActive>4000){value.visible=false;setVisible(false);}
-      const eligible=mounted.current&&activeRoute.current===routeKey&&initializedRoute.current===routeKey&&ready.current&&!!current.current&&!pendingSeek.current&&!playIntent.current&&video.current?.paused===true&&!value.ended;
+      const eligible=mounted.current&&activeRoute.current===routeKey&&initializedRoute.current===routeKey&&!!current.current&&!playIntent.current&&video.current?.paused===true&&!value.ended;
       const action=pausedInactivity.current.tick(Date.now(),eligible,prefsRef.current.still_watching_minutes,prefsRef.current.still_watching_timeout_minutes??5);
       if(action==="prompt"){setWatchPrompt(true);setVisible(true);}
       else if(action==="exit"){pausedInactivity.current.reset();exitRef.current();}
@@ -555,11 +548,17 @@ export default function PlayerPage() {
     if(Math.abs(source-nativeActivity.current.position)>0.1){nativeActivity.current={position:source,at:Date.now(),seekTarget:null};setRecoveryNeeded(false);}
     sourcePosition.current=Math.max(0,source);confirmedPosition.current=sourcePosition.current;setPosition(sourcePosition.current);
     if(element.videoWidth>0&&element.videoHeight>0){setHasVideoFrame(true);heldVideo.current.decoded(element);}
-    if(pending)heartbeat(element.paused);
+    if(pending){
+      setNotice(value=>value==="Playback will begin when the video is ready."||value==="Playback will start paused."?"":value);
+      heartbeat(element.paused);
+    }
     const usable=element.paused?element.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA:element.readyState>=HTMLMediaElement.HAVE_FUTURE_DATA;
-    if(usable){waitingDemand.current=false;setBuffering(false);setLoading(false);}
+    if(usable){waitingDemand.current=false;setLoading(false);}
     return true;
   };
+  // Paused same-source seeks may not emit seeked when the clock is unchanged.
+  // Reuse the owned, decoded-data and target checks rather than clearing blindly.
+  settleSeek.current=()=>{updatePosition();};
   const progressEvent=()=>{
     const element=video.current;if(!element||!ready.current||!ownsMedia())return;
     // Download progress does not advance the source clock.
@@ -579,11 +578,10 @@ export default function PlayerPage() {
   };
   const mediaWaiting=()=>{
     if(!ownsMedia()||!ready.current)return;
-    setBuffering(true);
     if(!waitingDemand.current){waitingDemand.current=true;heartbeat(!playIntent.current);}
   };
   const mediaPlaying=()=>{
-    if(updatePosition()&&!video.current?.paused){setPlaying(true);setBuffering(false);setLoading(false);}
+    if(updatePosition()&&!video.current?.paused){setPlaying(true);setLoading(false);}
   };
   const end=()=>{
     if(!ready.current||!ownsMedia()||pendingSeek.current)return;
@@ -690,7 +688,6 @@ export default function PlayerPage() {
         <button className="pv-icon" aria-label={fullscreen?"Exit fullscreen":"Fullscreen"} onClick={()=>void toggleFullscreen()}>{fullscreen?<Minimize/>:<Maximize/>}</button>
       </div>
     </div>
-    {(loading||buffering&&bufferingVisible)&&!error&&!recoveryNeeded&&<div className="pv-player-loading" role="status"><span className="pv-spinner"/><span>{loading?"Preparing playback…":"Buffering…"}</span></div>}
     {recoveryNeeded&&!error&&<div className="pv-player-message" role="alert"><h2>Playback is not advancing</h2><p>Your position is saved. Recover the current source or return to media.</p><div><button className="pv-primary" onClick={()=>{const owned=current.current;if(!owned)return;const target=pendingSeek.current?.target??sourcePosition.current;const generation=++requestGeneration.current;pendingSeek.current={generation,target};ready.current=false;setLoading(true);setRecoveryNeeded(false);nativeActivity.current={position:target,at:Date.now(),seekTarget:target};attachSource(owned,target,generation);}}>Recover current playback</button><button className="pv-button" onClick={exit}>Back to media</button></div></div>}
     {error&&<div className="pv-player-message" role="alert"><h1>Unable to play</h1><p>{error}</p><div><button className="pv-primary" onClick={retryPlayback}>{retryLabel}</button><button className="pv-button" onClick={exit}>Back to media</button></div></div>}
     {watchPrompt&&<div className="pv-player-message" role="dialog" aria-modal="true" aria-label="Still watching" onKeyDown={event=>{if(event.key!=="Tab")return;const buttons=event.currentTarget.querySelectorAll<HTMLButtonElement>("button"),first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}}><h2>Are you still watching?</h2><p>Playback has been paused. Your position will be saved and playback will close after {preferences.still_watching_timeout_minutes??5} minutes without a response.</p><button className="pv-primary" autoFocus onClick={()=>{setWatchPrompt(false);interact();void play();}}>Continue watching</button><button className="pv-button" onClick={exit}>Stop playback</button></div>}

@@ -48,9 +48,6 @@
 .pv-transport .pv-play{width:56px;height:56px}
 .pv-play svg{width:34px;height:34px;fill:currentColor;stroke-width:1}
 .pv-transport small{position:absolute;top:17px;left:0;right:0;text-align:center;font-size:8px;font-weight:600}
-.pv-player-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:12px;pointer-events:none;text-shadow:0 1px 3px #000}
-.pv-spinner{width:30px;height:30px;border:3px solid rgba(255,255,255,.3);border-top-color:var(--color-accent,#77b778);border-radius:50%;animation:pv-spin 1s linear infinite}
-@keyframes pv-spin{to{transform:rotate(360deg)}}
 .pv-player-message{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(560px,calc(100% - 40px));padding:24px;border:1px solid rgba(255,255,255,.15);border-radius:10px;background:rgba(20,23,28,.96);box-shadow:0 10px 40px #000;text-align:center;z-index:5}
 .pv-player-message h1,.pv-player-message h2{font-size:22px;font-weight:600;margin:0 0 12px}
 .pv-player-message p{margin:0 0 20px;line-height:1.6;overflow-wrap:anywhere}
