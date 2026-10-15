@@ -1209,7 +1209,10 @@ mod tests {
                 ..Default::default()
             };
             let args = conversion_args(&settings, Path::new("in.mp4"), Path::new("out.mkv"));
-            assert_eq!(args.windows(2).any(|p| p == ["-crf", "23"]), codec != "auto");
+            assert_eq!(
+                args.windows(2).any(|p| p == ["-crf", "23"]),
+                codec != "auto"
+            );
             assert_eq!(args.windows(2).any(|p| p == ["-b:v", "0"]), codec == "vp9");
             settings.crf = 19;
             settings.container = "webm".into();
