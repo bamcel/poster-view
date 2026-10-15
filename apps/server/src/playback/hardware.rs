@@ -115,7 +115,9 @@ async fn test_encoder(
             "-f",
             "lavfi",
             "-i",
-            "color=c=black:s=128x128:r=10:d=0.2",
+            // HEVC NVENC rejects tiny frames on supported GPUs (including RTX 3050).
+            // Use a small conventional video size for all backend capability probes.
+            "color=c=black:s=640x360:r=10:d=0.2",
             "-vf",
         ]);
         let filter = upload(backend).trim_start_matches(',');
