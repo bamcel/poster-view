@@ -1,5 +1,6 @@
 //! User watch state is separate from catalog metadata and survives metadata refreshes.
 //! SQLite transactions elect the latest playback session and reject stale reports.
+mod series_tracks;
 use crate::{AppState, HttpError};
 use axum::{
     Json,
@@ -92,6 +93,7 @@ pub(crate) struct PlaybackPreferences {
     pub prefer_default_audio: bool,
     pub remember_audio: bool,
     pub remember_subtitles: bool,
+    pub remember_series_tracks: bool,
     pub subtitle_mode: String,
     pub autoplay_next: bool,
     pub resume_rewind_seconds: u32,
@@ -114,6 +116,7 @@ impl Default for PlaybackPreferences {
             prefer_default_audio: true,
             remember_audio: true,
             remember_subtitles: true,
+            remember_series_tracks: true,
             subtitle_mode: "default".into(),
             autoplay_next: true,
             resume_rewind_seconds: 5,
@@ -1067,6 +1070,10 @@ pub(crate) async fn save_rules(
 
 pub(crate) fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route(
+            "/api/watch/native/{library}/{item}/series-tracks",
+            axum::routing::get(series_tracks::get).put(series_tracks::save),
+        )
         .route("/api/watch/history", axum::routing::get(history))
         .route(
             "/api/watch/native/{library}/{item}",
@@ -1520,6 +1527,27 @@ mod tests {
             .unwrap();
         assert_eq!(state.audio_index, Some(2));
         assert_eq!(state.subtitle_index, None);
+    }
+    #[test]
+    fn series_track_memory_is_a_durable_per_profile_option() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("watch.sqlite");
+        let store = WatchStore::new(path.clone());
+        assert!(store.preferences("one").unwrap().remember_series_tracks);
+        store
+            .save_preferences(
+                "one",
+                PlaybackPreferences {
+                    remember_series_tracks: false,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let restarted = WatchStore::new(path);
+        assert!(!restarted.preferences("one").unwrap().remember_series_tracks);
+        assert!(restarted.preferences("two").unwrap().remember_series_tracks);
+        let legacy: PlaybackPreferences = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(legacy.remember_series_tracks);
     }
     #[test]
     fn subtitle_delay_persists_per_user_and_video_and_omitted_reports_preserve_it() {

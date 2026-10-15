@@ -20,3 +20,12 @@ it("does not show markers for unknown duration or missing chapters",()=>{
   const view=render(<ChapterTicks {...props}/>);expect(screen.queryByRole("button")).toBeNull();
   view.rerender(<ChapterTicks {...props} duration={1200} chapters={[]}/>);expect(screen.queryByRole("button")).toBeNull();
 });
+it("highlights the current chapter and moves the highlight across boundaries",()=>{
+  const props={chapters:[{title:"Finale",start_seconds:180},{title:"Intro",start_seconds:0},{title:"Opening",start_seconds:90}],duration:240,disabled:false,onSeek:vi.fn()};
+  const view=render(<ChapterTicks {...props} position={120}/>);
+  const opening=screen.getByRole("button",{name:"Seek to chapter Opening at 1:30"});
+  expect(opening.getAttribute("aria-current")).toBe("true");expect(opening.classList.contains("pv-chapter-current")).toBe(true);
+  view.rerender(<ChapterTicks {...props} position={180}/>);
+  expect(opening.hasAttribute("aria-current")).toBe(false);
+  expect(screen.getByRole("button",{name:"Seek to chapter Finale at 3:00"}).getAttribute("aria-current")).toBe("true");
+});

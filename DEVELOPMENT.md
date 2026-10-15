@@ -104,7 +104,14 @@ single-thread FFmpeg worker and a 256-image/32 MiB fingerprinted cache keep
 preview work outside playback/probe admission. Busy previews fall back to a timestamp.
 Playback statistics poll browser media state only while Info is open. Subtitle
 delay is stored per user/video in watch JSON (positive means later), defaults to
-zero for old records, and adjusts browser subtitle rendering without replacing media. When permitted and needed, the planner
+zero for old records, and adjusts browser subtitle rendering without replacing media.
+Series track choices live in the watch database keyed by user, library and catalog
+series ID. The personal `remember_series_tracks` option controls them independently
+of per-video memory. Only explicit choices update series preferences; matching uses
+language and track characteristics, never another episode's track index. Valid
+remembered per-video selections take priority. Chapter names/highlighting and the
+`[` / `]` previous/next shortcuts share normalized, bounded source timestamps.
+ When permitted and needed, the planner
 chooses stream-copy HLS, audio-only AAC encoding, or video encoding. Direct Stream
 never encodes selected audio/video; audio-only mode copies the video. Compatible
 originals are not encoded merely because hardware acceleration is enabled.

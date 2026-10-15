@@ -1,9 +1,12 @@
+import type {SeriesTrackPreferences} from "../lib/seriesTracks";
 import {apiRequest} from "../../../api/client";
 import type {WatchState, PlaybackPreferences, WatchRules, ContinueItem} from "../types";
 export type {WatchState, PlaybackPreferences, WatchRules, ContinueItem} from "../types";
 
 const itemUrl=(library:string,item:string)=>`/watch/native/${encodeURIComponent(library)}/${encodeURIComponent(item)}`;
 export const watchApi={
+  seriesTracks:(library:string,item:string,signal?:AbortSignal)=>apiRequest<SeriesTrackPreferences>(`${itemUrl(library,item)}/series-tracks`,{signal}),
+  saveSeriesTracks:(library:string,item:string,body:SeriesTrackPreferences)=>apiRequest<SeriesTrackPreferences>(`${itemUrl(library,item)}/series-tracks`,{method:"PUT",body:JSON.stringify(body)}),
   state:(library:string,item:string,signal?:AbortSignal)=>apiRequest<WatchState>(itemUrl(library,item),{signal}),
   begin:(library:string,item:string)=>apiRequest<{session_id:string;state:WatchState}>(`${itemUrl(library,item)}/begin`,{method:"POST"}),
   progress:(library:string,item:string,body:Record<string,unknown>,keepalive=false)=>apiRequest<WatchState>(`${itemUrl(library,item)}/progress`,{method:"PUT",body:JSON.stringify(body),keepalive}),

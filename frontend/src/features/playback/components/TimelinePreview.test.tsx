@@ -42,3 +42,12 @@ it("does not reuse a revoked image when reentering the same timeline bucket",asy
   expect(screen.queryByRole("img")).toBeNull();
   await act(async()=>{await vi.advanceTimersByTimeAsync(350);});expect(screen.queryByRole("img")).toBeNull();
 });
+it("shows the chapter at the exact scrub position without additional preview requests",async()=>{
+  const chapters=[{title:"Middle",start_seconds:25},{title:"Intro",start_seconds:0}];
+  const view=render(<TimelinePreview library="a" item="one" seconds={24} duration={100} chapters={chapters}/>);
+  expect(screen.getByText("Intro")).toBeTruthy();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(350);});
+  view.rerender(<TimelinePreview library="a" item="one" seconds={25} duration={100} chapters={chapters}/>);
+  expect(screen.getByText("Middle")).toBeTruthy();expect(screen.queryByText("Intro")).toBeNull();
+  await act(async()=>{await vi.advanceTimersByTimeAsync(350);});expect(fetch).toHaveBeenCalledTimes(1);
+});

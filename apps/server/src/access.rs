@@ -261,6 +261,7 @@ pub(crate) fn authorize_request(
         }
         ["api", "watch", "libraries", library, "states"] => get && library_allowed(user, library),
         ["api", "watch", "native", _, _] => personal_write,
+        ["api", "watch", "native", _, _, "series-tracks"] => personal_write,
         ["api", "watch", "native", _, _, "begin"] => *method == Method::POST,
         ["api", "watch", "native", _, _, "progress"] => *method == Method::PUT,
         ["api", "playback", "native", _, _] => get,
@@ -486,6 +487,25 @@ mod tests {
         assert!(!permitted.contains("adult"));
         parent.metadata = serde_json::json!({"mpaa":"TV-MA"});
         assert!(catalog_allowed(&user, &[parent, child, sibling]).is_empty());
+    }
+    #[test]
+    fn viewer_can_manage_own_series_track_preferences() {
+        let auth = AuthState::for_tests("");
+        let user = user();
+        for method in [Method::GET, Method::PUT] {
+            let request = Request::builder()
+                .method(method)
+                .uri("/api/watch/native/library/episode/series-tracks")
+                .body(axum::body::Body::empty())
+                .unwrap();
+            assert!(authorize_request(&auth, &user, &request).is_ok());
+        }
+        let request = Request::builder()
+            .method(Method::DELETE)
+            .uri("/api/watch/native/library/episode/series-tracks")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert!(authorize_request(&auth, &user, &request).is_err());
     }
     #[test]
     fn viewer_routes_are_default_deny_even_for_read_only_admin_apis() {

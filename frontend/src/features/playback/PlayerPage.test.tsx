@@ -7,7 +7,7 @@ import {playbackApi,defaultPlaybackPreferences,type PlaybackInfo,type PlaybackSe
 import {watchApi} from "./api/watch";
 import type {NativeAudioList} from "./lib/nativeAudio";
 vi.mock("./api/playback",async importOriginal=>({...await importOriginal<typeof import("./api/playback")>(),playbackApi:{info:vi.fn(),create:vi.fn(),seek:vi.fn(),stop:vi.fn(),heartbeat:vi.fn(),subtitle:vi.fn()}}));
-vi.mock("./api/watch",()=>({watchApi:{preferences:vi.fn(),state:vi.fn(),begin:vi.fn(),progress:vi.fn()}}));
+vi.mock("./api/watch",()=>({watchApi:{preferences:vi.fn(),state:vi.fn(),begin:vi.fn(),progress:vi.fn(),seriesTracks:vi.fn(),saveSeriesTracks:vi.fn()}}));
 const renderer=vi.hoisted(()=>({construct:vi.fn(),destroy:vi.fn(),manual:vi.fn()}));
 const bitmap=vi.hoisted(()=>({construct:vi.fn(),dispose:vi.fn()}));
 vi.mock("libbitsub",()=>({PgsRenderer:class{constructor(options:unknown){bitmap.construct("pgs",options);}dispose(){bitmap.dispose();}},VobSubRenderer:class{constructor(options:unknown){bitmap.construct("vobsub",options);}dispose(){bitmap.dispose();}}}));
@@ -39,6 +39,7 @@ it("seeks from a chapter timeline tick without replacing Original playback",asyn
 beforeEach(()=>{
  browserAudio=undefined;hlsState.supported=false;hlsState.instances=[];Object.defineProperty(HTMLMediaElement.prototype,"audioTracks",{get:()=>browserAudio,configurable:true});
  vi.clearAllMocks();vi.spyOn(HTMLMediaElement.prototype,"load").mockImplementation(()=>{});vi.spyOn(HTMLMediaElement.prototype,"pause").mockImplementation(()=>{});vi.spyOn(HTMLMediaElement.prototype,"play").mockResolvedValue();vi.spyOn(HTMLMediaElement.prototype,"canPlayType").mockReturnValue("probably");
+ vi.mocked(watchApi.seriesTracks).mockResolvedValue({});vi.mocked(watchApi.saveSeriesTracks).mockResolvedValue({});
  vi.mocked(playbackApi.info).mockResolvedValue(info);vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);vi.mocked(watchApi.state).mockResolvedValue(state);vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state});vi.mocked(playbackApi.create).mockResolvedValue(session);vi.mocked(playbackApi.stop).mockResolvedValue();vi.mocked(playbackApi.heartbeat).mockResolvedValue();vi.mocked(watchApi.progress).mockResolvedValue({...state,audio_index:2,subtitle_index:-1});
 });
 afterEach(()=>{cleanup();window.dispatchEvent(new Event("posterview:account-changed"));vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();if(originalAudioProperty)Object.defineProperty(HTMLMediaElement.prototype,"audioTracks",originalAudioProperty);else Reflect.deleteProperty(HTMLMediaElement.prototype,"audioTracks");});
@@ -67,6 +68,38 @@ describe("original-file player",()=>{
   scrubTo(900);Object.defineProperty(video,"seeking",{value:true,configurable:true});
   await act(async()=>{await vi.advanceTimersByTimeAsync(61_000);});expect(screen.getByRole("dialog",{name:"Still watching"})).toBeTruthy();
   await act(async()=>{await vi.advanceTimersByTimeAsync(61_000);});expect(screen.getByText("Media page")).toBeTruthy();expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");
+ });
+ it("uses series language and characteristics instead of previous episode indexes",async()=>{
+  browserAudio=audioList([{language:"eng",enabled:true},{language:"jpn",enabled:false}]);
+  vi.spyOn(globalThis,"fetch").mockImplementation(async()=>new Response("[Script Info]"));
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,tracks:[...info.tracks.map(track=>track.kind==="audio"?{...track,default:track.index===3}:track),{index:6,kind:"subtitle",codec:"ass",subtitle_format:"ass",language:"en",forced:true},{index:8,kind:"subtitle",codec:"ass",subtitle_format:"ass",language:"eng",forced:false}]});
+  vi.mocked(watchApi.seriesTracks).mockResolvedValue({audio:{language:"jpn",codec:"flac",channels:2},subtitle:{language:"en",forced:false}});
+  player();await ready();expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({audio_index:2,subtitle_index:8}));expect(watchApi.saveSeriesTracks).not.toHaveBeenCalled();
+ });
+ it("does not apply or save series choices when this profile disables the option",async()=>{
+  vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,remember_series_tracks:false});
+  vi.mocked(watchApi.seriesTracks).mockResolvedValue({audio:{language:"en"},subtitles_off:true});
+  player();await ready();expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({audio_index:2}));
+  fireEvent.click(screen.getByRole("button",{name:"Audio"}));fireEvent.click(screen.getByRole("button",{name:/Japanese/}));expect(watchApi.saveSeriesTracks).not.toHaveBeenCalled();
+ });
+ it("saves explicit current-track choices without indexes and waits before opening next episode",async()=>{
+  let finish!:(value:{})=>void;vi.mocked(watchApi.saveSeriesTracks).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+  player();const video=await ready();const source=video.src;
+  fireEvent.click(screen.getByRole("button",{name:"Audio"}));fireEvent.click(screen.getByRole("button",{name:/Japanese/}));
+  await waitFor(()=>expect(watchApi.saveSeriesTracks).toHaveBeenCalledWith("anime","one",{audio:expect.objectContaining({language:"ja",codec:"aac"})}));
+  expect(vi.mocked(watchApi.saveSeriesTracks).mock.calls[0][2].audio).not.toHaveProperty("index");
+  fireEvent.click(screen.getByRole("button",{name:"Next episode"}));expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(video.src).toBe(source);
+  await act(async()=>finish({}));await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledWith("anime","two",expect.anything()));
+ });
+ it("navigates chapters and highlights the current chapter without reloading Original playback",async()=>{
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,chapters:[{title:"Intro",start_seconds:0},{title:"Opening",start_seconds:90},{title:"Story",start_seconds:400}]});
+  player();const video=await ready(),source=video.src;vi.mocked(video.load).mockClear();
+  fireEvent.click(screen.getByRole("button",{name:"Next chapter"}));expect(video.currentTime).toBe(400);fireEvent.seeked(video);
+  expect(screen.getByRole("button",{name:"Seek to chapter Story at 6:40"}).getAttribute("aria-current")).toBe("true");
+  fireEvent.keyDown(document,{key:"["});expect(video.currentTime).toBe(90);fireEvent.seeked(video);
+  fireEvent.keyDown(document,{key:"]"});expect(video.currentTime).toBe(400);fireEvent.seeked(video);
+  fireEvent.click(screen.getByRole("button",{name:"Chapters"}));expect(screen.getByRole("button",{name:/^Story6:40$/}).getAttribute("aria-current")).toBe("true");
+  expect(video.src).toBe(source);expect(video.load).not.toHaveBeenCalled();expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(playbackApi.seek).not.toHaveBeenCalled();
  });
  it("never interrupts normal playing and restarts paused inactivity after pointer interaction",async()=>{
   vi.useFakeTimers({shouldAdvanceTime:true});vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,still_watching_minutes:1,still_watching_timeout_minutes:1});

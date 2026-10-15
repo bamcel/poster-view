@@ -95,3 +95,11 @@
 .pv-subtitle-timing>div{display:flex;flex-wrap:wrap;justify-content:space-between;margin-top:8px}
 .pv-subtitle-timing .pv-button{font-size:12px;padding:5px}
 .pv-subtitle-timing p{font-size:12px;line-height:1.5;color:#b6bac1}
+
+.pv-chapter-current span{height:16px;background:var(--color-accent,#77b778);box-shadow:0 0 4px #000}
+.pv-option-list>button[aria-current=true]{background:rgba(119,183,120,.18);color:var(--color-accent,#77b778)}
+.pv-preview-chapter{display:block;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ddd}
+
+@media(max-width:720px){.pv-transport-row{flex-wrap:wrap;gap:4px}.pv-sections{margin-left:auto}}
+@media(max-width:720px) and (min-height:521px){.pv-player-menu{bottom:250px;max-height:calc(100dvh - 320px)}}
+@media(max-width:720px) and (max-height:520px){.pv-player-menu{bottom:190px;max-height:calc(100dvh - 225px)}}

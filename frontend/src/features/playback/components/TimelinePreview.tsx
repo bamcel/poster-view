@@ -1,7 +1,8 @@
 import {useEffect,useState} from "react";
 import {playbackTime} from "../lib/playback";
+import {currentChapter,type Chapter} from "../lib/chapters";
 
-export default function TimelinePreview({library,item,seconds,duration}:{library:string;item:string;seconds:number|null;duration:number}) {
+export default function TimelinePreview({library,item,seconds,duration,chapters=[]}:{library:string;item:string;seconds:number|null;duration:number;chapters?:readonly Chapter[]}) {
   const bucket=seconds===null?null:Math.floor(Math.max(0,seconds)/10)*10;
   const [image,setImage]=useState<{key:string;url:string}|null>(null);
   const key=bucket===null?null:`${library}/${item}/${bucket}`;
@@ -21,8 +22,9 @@ export default function TimelinePreview({library,item,seconds,duration}:{library
     return()=>{clearTimeout(timer);controller.abort();if(objectUrl)URL.revokeObjectURL(objectUrl);};
   },[library,item,bucket,key]);
   if(seconds===null||duration<=0)return null;
+  const chapter=currentChapter(chapters,seconds,duration);
   return <figure className="pv-timeline-preview" style={{left:`clamp(85px,${Math.max(0,Math.min(100,seconds/duration*100))}%,calc(100% - 85px))`}} aria-label="Timeline preview">
     {image?.key===key&&<img src={image.url} alt={`Preview near ${playbackTime(bucket??0)}`}/>}
-    <figcaption><time>{playbackTime(seconds)}</time></figcaption>
+    <figcaption><time>{playbackTime(seconds)}</time>{chapter&&<span className="pv-preview-chapter">{chapter.title}</span>}</figcaption>
   </figure>;
 }

@@ -40,3 +40,11 @@ it("loads legacy subtitle appearance defaults and saves selected plain-text form
   fireEvent.click(screen.getByRole("button",{name:"Save preferences"}));await screen.findByText("Playback preferences saved.");
   expect(watchApi.savePreferences).toHaveBeenCalledWith(expect.objectContaining({subtitle_color:"#ffee00",subtitle_shadow:"outline",subtitle_background:"none",subtitle_position:"top",subtitle_size:100}));
 });
+
+it("lets each profile disable series track memory independently of per-video memory",async()=>{
+  vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);vi.mocked(watchApi.savePreferences).mockImplementation(async value=>value);
+  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><PlaybackPreferences/></QueryClientProvider>);
+  const option=await screen.findByRole("switch",{name:"Remember audio and subtitles across a series"}) as HTMLInputElement;expect(option.checked).toBe(true);
+  fireEvent.click(option);fireEvent.click(screen.getByRole("button",{name:"Save preferences"}));await screen.findByText("Playback preferences saved.");
+  expect(watchApi.savePreferences).toHaveBeenCalledWith(expect.objectContaining({remember_series_tracks:false,remember_audio:true,remember_subtitles:true}));
+});
