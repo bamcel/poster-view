@@ -1,17 +1,19 @@
+import {useHomepageHeadline} from "../lib/homepagePreferences";
 import {cleanup,fireEvent,render,screen,within} from "@testing-library/react";
 import {MemoryRouter} from "react-router-dom";
 import {afterEach,expect,it,vi} from "vitest";
 import HomeExperience,{FeaturedTitle} from "./HomeExperience";
 import type {HomeTitle} from "./HomeDiscovery";
 import type {NativeLibrary} from "../api/nativeLibraries";
+vi.mock("./SeriesBannerPlay",()=>({default:({title}:{title:HomeTitle})=><button aria-label={`Play ${title.entry.title}`}>Play</button>}));
 function title(name:string,metadata:Record<string,unknown>={}):HomeTitle{return {library:{id:"movie library",name:"Movies"} as NativeLibrary,entry:{id:name,title:name,path:name,kind:"movie",parent_path:null,available:true,revision:1,metadata,artwork:[],files:[{path:"movie.mkv",size:1,extension:"mkv"}],nfo_path:null}};}
-afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();});
+afterEach(()=>{localStorage.clear();cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();});
 it("features scene artwork with real metadata and existing encoded routes",()=>{
   const movie=title("Movie/one",{year:2025,mpaa:"PG-13",plot:"A journey home",genres:["Drama"]});movie.entry.artwork=[{kind:"backdrop",path:"backdrop.jpg",source:"local"}];
   render(<MemoryRouter><FeaturedTitle titles={[title("No art"),movie]}/></MemoryRouter>);
   const hero=screen.getByRole("region",{name:"Featured title"});expect(within(hero).getByRole("heading",{name:"Movie/one"})).toBeTruthy();
   expect(within(hero).getByText("Movie · 2025 · PG-13 · Drama")).toBeTruthy();expect(within(hero).getByText("A journey home")).toBeTruthy();
-  expect(within(hero).getByRole("link",{name:"Play Movie/one"}).getAttribute("href")).toBe("/play/native/movie%20library/Movie%2Fone?return=%2F");
+  expect(within(hero).getByRole("link",{name:"Play Movie/one"}).getAttribute("href")).toBe("/play/native/movie%20library/Movie%2Fone?return=%2F&start=0");
   const bannerImage=hero.querySelector("img")!;
   expect(bannerImage.getAttribute("src")).toContain("/artwork/backdrop?");
   expect(new URL(bannerImage.src).searchParams.has("width")).toBe(false);
@@ -60,7 +62,7 @@ it("rotates artwork and title actions together across libraries",()=>{
  expect(within(banner).getByText("1 / 3")).toBeTruthy();
  fireEvent.click(screen.getByRole("button",{name:"Next featured title"}));
  expect(within(banner).getByRole("heading",{name:"A series"})).toBeTruthy();
- expect(within(banner).getByRole("link",{name:"Browse episodes of A series"}).getAttribute("href")).toContain("/media/anime?");
+ expect(within(banner).getByRole("button",{name:"Play A series"})).toBeTruthy();
  expect(within(banner).queryByRole("link",{name:"Play First movie"})).toBeNull();
  fireEvent.click(screen.getByRole("button",{name:"Previous featured title"}));
  expect(within(banner).getByRole("heading",{name:"First movie"})).toBeTruthy();
@@ -73,4 +75,25 @@ it("prefers selected backdrops for the banner while rows keep landscape artwork"
  movie.entry.artwork=movie.entry.artwork.filter(art=>art.kind!=="backdrop");
  view.rerender(<MemoryRouter><FeaturedTitle titles={[movie]}/></MemoryRouter>);
  expect(view.container.querySelector("img")?.getAttribute("src")).toContain("/artwork/landscape?");
+});
+
+it("uses banner artwork with grey placeholders and switches back to backdrops",()=>{
+ function Preference(){const [value,setValue]=useHomepageHeadline();return <select aria-label="Test headline" value={value} onChange={event=>setValue(event.target.value as "backdrop"|"banner")}><option value="backdrop">Backdrop</option><option value="banner">Banner</option></select>;}
+ const movie=title("Has banner");movie.entry.artwork=[{kind:"backdrop",path:"backdrop.jpg",source:"local"},{kind:"banner",path:"banner.jpg",source:"local"}];
+ const noBanner=title("No banner");noBanner.entry.artwork=[{kind:"backdrop",path:"backdrop.jpg",source:"local"}];
+ const view=render(<MemoryRouter><Preference/><FeaturedTitle titles={[noBanner,movie]}/></MemoryRouter>);
+ fireEvent.change(screen.getByLabelText("Test headline"),{target:{value:"banner"}});
+ const hero=screen.getByRole("region",{name:"Featured title"});
+ expect(hero.className).toContain("pv-home-hero-banner");
+ expect(within(hero).getByRole("heading",{name:"No banner"})).toBeTruthy();
+ expect(within(hero).getByTestId("banner-placeholder")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Next featured title"}));
+ expect(within(hero).getByRole("heading",{name:"Has banner"})).toBeTruthy();
+ expect(hero.querySelector("img")?.getAttribute("src")).toContain("/artwork/banner?");
+ fireEvent.error(hero.querySelector(".is-current img")!);
+ expect(hero.querySelector('.is-current [data-testid="banner-placeholder"]')).toBeTruthy();
+ view.rerender(<MemoryRouter><Preference/><FeaturedTitle titles={[noBanner]}/></MemoryRouter>);
+ expect(screen.getByTestId("banner-placeholder")).toBeTruthy();
+ fireEvent.change(screen.getByLabelText("Test headline"),{target:{value:"backdrop"}});
+ expect(screen.getByRole("region",{name:"Featured title"}).querySelector("img")?.getAttribute("src")).toContain("/artwork/backdrop?");
 });

@@ -26,3 +26,12 @@ it("groups animated posters, backgrounds, and provider animation results togethe
  fireEvent.click(screen.getAllByRole("button",{name:"Animated Background"})[1]);
  await waitFor(()=>expect(api.applyPoster).toHaveBeenCalledWith(expect.objectContaining({target:"background",download_url:"https://assets.fanart.tv/background.webm"})));
 });
+
+it.each(["tvdb","fanart"])("applies %s banners to native media",async provider=>{
+ vi.mocked(api.getArtwork).mockResolvedValue({provider,items:[{provider,id:"banner-one",type:"banner",kind:"show",title:"Series banner",thumb_url:"https://artworks.thetvdb.com/banner.jpg",download_url:"https://artworks.thetvdb.com/banner.jpg",applyable:true}]});
+ vi.mocked(api.applyPoster).mockResolvedValue({ok:true,message:"Applied"});
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<QueryClientProvider client={client}><ArtworkBrowser provider={provider} serverId={0} item={{id:"native:lib:show",title:"Example",type:"show",seasons:[],external_ids:{},members:[]}}/></QueryClientProvider>);
+ fireEvent.click(await screen.findByRole("button",{name:"Banner"}));
+ await waitFor(()=>expect(api.applyPoster).toHaveBeenCalledWith(expect.objectContaining({target:"banner",item_id:"native:lib:show",server_id:0})));
+});

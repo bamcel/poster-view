@@ -50,6 +50,7 @@ async fn upload_image(
                     "background" => ImageTarget::Background,
                     "logo" => ImageTarget::Logo,
                     "landscape" => ImageTarget::Landscape,
+                    "banner" => ImageTarget::Banner,
                     _ => ImageTarget::Poster,
                 };
             }

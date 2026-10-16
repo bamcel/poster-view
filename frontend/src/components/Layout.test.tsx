@@ -13,27 +13,31 @@ function render(node:ReactNode){return rtlRender(<QueryClientProvider client={ne
 
 vi.mock("../api/client", () => ({ api: { authStatus: vi.fn() } }));
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [], selectedId: 7, setSelectedId: vi.fn() }) }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); sessionStorage.clear(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); sessionStorage.clear();localStorage.clear(); });
 
 function CurrentLocation() {
   const location = useLocation();
   return <p>{location.pathname}{location.search}</p>;
 }
 
-it("keeps Home full width until navigation is opened and restores focus on Escape",async()=>{
-  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
-  render(<MemoryRouter><AuthGate><Layout><p>Homepage content</p></Layout></AuthGate></MemoryRouter>);
-  const toggle=await screen.findByRole("button",{name:"Open navigation"});
-  expect(toggle.getAttribute("aria-expanded")).toBe("false");
-  expect(screen.queryByRole("dialog",{name:"Navigation"})).toBeNull();
-  fireEvent.click(toggle);
-  const panel=screen.getByRole("dialog",{name:"Navigation"});
-  expect(document.activeElement).toBe(within(panel).getByRole("button",{name:"Close navigation"}));
-  fireEvent.keyDown(window,{key:"Escape"});
-  expect(screen.queryByRole("dialog",{name:"Navigation"})).toBeNull();
-  expect(document.activeElement).toBe(toggle);
-  fireEvent.click(toggle);fireEvent.click(screen.getByRole("button",{name:"Dismiss navigation"}));
-  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+it("docks homepage navigation and remembers expanded or collapsed state",async()=>{
+ vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
+ const mount=()=>render(<MemoryRouter><AuthGate><Layout><p>Homepage content</p></Layout></AuthGate></MemoryRouter>);
+ const first=mount();
+ const toggle=await screen.findByRole("button",{name:"Open navigation"});
+ expect(toggle.getAttribute("aria-expanded")).toBe("false");
+ fireEvent.click(toggle);
+ const panel=screen.getByRole("complementary",{name:"Navigation"});
+ expect(screen.queryByRole("dialog",{name:"Navigation"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Dismiss navigation"})).toBeNull();
+ expect(document.activeElement).toBe(within(panel).getByRole("button",{name:"Close navigation"}));
+ first.unmount();
+ const second=mount();
+ expect((await screen.findByRole("button",{name:"Collapse navigation"})).getAttribute("aria-expanded")).toBe("true");
+ fireEvent.keyDown(window,{key:"Escape"});
+ expect(screen.getByRole("button",{name:"Open navigation"}).getAttribute("aria-expanded")).toBe("false");
+ second.unmount();mount();
+ expect((await screen.findByRole("button",{name:"Open navigation"})).getAttribute("aria-expanded")).toBe("false");
 });
 
 it("offers separate Playback preferences and Transcoding policy in navigation",async()=>{
@@ -139,4 +143,15 @@ it("orders Preferences, Profile, Settings and opens personal preference links",a
  fireEvent.keyDown(window,{key:"Escape"});
  expect(preferences.closest("details")?.open).toBe(false);
  expect(document.activeElement).toBe(preferences);
+});
+
+it("offers Backdrop and Banner headline choices in homepage preferences",async()=>{
+ vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
+ render(<MemoryRouter><AuthGate><Layout/></AuthGate></MemoryRouter>);
+ fireEvent.click(await screen.findByLabelText("Preferences"));
+ const choice=screen.getByRole("combobox",{name:"Headline artwork"}) as HTMLSelectElement;
+ expect(choice.value).toBe("backdrop");
+ fireEvent.change(choice,{target:{value:"banner"}});
+ expect(choice.value).toBe("banner");
+ expect(within(choice).getByRole("option",{name:"Banner"})).toBeTruthy();
 });

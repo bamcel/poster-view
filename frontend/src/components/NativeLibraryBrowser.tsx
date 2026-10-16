@@ -389,7 +389,7 @@ export default function NativeLibraryBrowser({
         artFilter === "all" ||
         !e.artwork.some(
           (a) =>
-            a.kind === (artFilter === "missing-poster" ? "poster" : "backdrop"),
+            a.kind === (artFilter === "missing-poster" ? "poster" : artFilter === "missing-banner" ? "banner" : "backdrop"),
         ),
     )
     .filter(e=>metadataFilter==="all" || (metadataFilter==="missing-ids" ? !Object.keys(providerNames).some(p=>hasId(e,p)) : metadataFilter==="missing-configured-ids" ? metadataProviders.some(p=>!hasId(e,p)) : metadataFilter==="missing-description" ? !String(e.metadata.plot??"").trim() : metadataFilter==="missing-year" ? !number(e.metadata.year) : !hasId(e,metadataFilter.replace("missing-id-",""))))
@@ -512,6 +512,7 @@ export default function NativeLibraryBrowser({
                       <option value="all">All titles</option>
                       <option value="missing-poster">Missing poster</option>
                       <option value="missing-backdrop">Missing backdrop</option>
+                      <option value="missing-banner">Missing banner</option>
                     </select>
                   </label>
                   <h3 className="mb-3 mt-6 border-t border-border pt-5 text-sm font-semibold">Metadata</h3>

@@ -428,42 +428,12 @@ impl ArtworkService {
             return Err(provider_status_error("TheTVDB", response.status()));
         }
         let body: Value = response.json().await.map_err(network_error)?;
-        let mut items = body
-            .pointer("/data/artworks")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|art| {
-                let slug = types.get(&art.get("type")?.as_i64()?)?;
-                let artwork_type = slug_type(slug)?;
-                let url = absolute_tvdb(art.get("image")?.as_str()?);
-                Some(ArtworkItem {
-                    manga: None,
-                    id: value_string(art.get("id")).unwrap_or_else(|| url.clone()),
-                    provider: "tvdb".to_owned(),
-                    artwork_type: artwork_type.to_owned(),
-                    kind: item_kind(item),
-                    season_number: None,
-                    title: Some(item.title.clone()),
-                    lang: art
-                        .get("language")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned),
-                    likes: art.get("score").and_then(value_i64),
-                    thumb_url: absolute_tvdb(
-                        art.get("thumbnail")
-                            .or_else(|| art.get("image"))
-                            .and_then(Value::as_str)
-                            .unwrap_or(""),
-                    ),
-                    download_url: url,
-                    applyable: matches!(artwork_type, "poster" | "background" | "logo"),
-                    source_url: None,
-                })
-            })
-            .collect::<Vec<_>>();
-        sort_artwork(&mut items);
-        Ok(items)
+        Ok(parse_tvdb_artwork(
+            &body,
+            &types,
+            &item.title,
+            &item_kind(item),
+        ))
     }
 
     pub const fn posterdb(&self) -> &PosterDbClient {
@@ -513,6 +483,68 @@ pub async fn download_public_image(provider: &str, url: &str) -> Result<(Vec<u8>
     Ok((bytes.to_vec(), content_type))
 }
 
+fn parse_tvdb_artwork(
+    body: &Value,
+    types: &HashMap<i64, String>,
+    title: &str,
+    kind: &str,
+) -> Vec<ArtworkItem> {
+    let mut items = body
+        .pointer("/data/artworks")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|art| {
+            let slug = types.get(&art.get("type")?.as_i64()?)?;
+            let artwork_type = slug_type(slug)?;
+            let url = absolute_tvdb(art.get("image")?.as_str()?);
+            Some(ArtworkItem {
+                manga: None,
+                id: value_string(art.get("id")).unwrap_or_else(|| url.clone()),
+                provider: "tvdb".to_owned(),
+                artwork_type: artwork_type.to_owned(),
+                kind: kind.to_owned(),
+                season_number: None,
+                title: Some(title.to_owned()),
+                lang: art
+                    .get("language")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                likes: art.get("score").and_then(value_i64),
+                thumb_url: absolute_tvdb(
+                    art.get("thumbnail")
+                        .or_else(|| art.get("image"))
+                        .and_then(Value::as_str)
+                        .unwrap_or(""),
+                ),
+                download_url: url,
+                applyable: matches!(artwork_type, "poster" | "background" | "logo" | "banner"),
+                source_url: None,
+            })
+        })
+        .collect::<Vec<_>>();
+    sort_artwork(&mut items);
+    items
+}
+
+const FANART_MOVIE_FIELDS: &[(&str, &str, bool)] = &[
+    ("movieposter", "poster", false),
+    ("moviebackground", "background", false),
+    ("moviebanner", "banner", false),
+    ("hdmovielogo", "logo", false),
+    ("movielogo", "logo", false),
+];
+
+const FANART_TV_FIELDS: &[(&str, &str, bool)] = &[
+    ("tvposter", "poster", false),
+    ("showbackground", "background", false),
+    ("tvbanner", "banner", false),
+    ("hdtvlogo", "logo", false),
+    ("clearlogo", "logo", false),
+    ("seasonposter", "poster", true),
+    ("seasonbanner", "banner", true),
+];
+
 async fn fetch_fanart(
     item: &ItemDetail,
     id_override: Option<&str>,
@@ -526,34 +558,12 @@ async fn fetch_fanart(
             .or_else(|| item.external_ids.get("tmdb").map(String::as_str))
             .or_else(|| item.external_ids.get("imdb").map(String::as_str))
             .ok_or_else(|| "This movie has no TMDB/IMDb id, which Fanart.tv needs.".to_owned())?;
-        (
-            format!("movies/{id}"),
-            &[
-                ("movieposter", "poster", false),
-                ("moviebackground", "background", false),
-                ("moviebanner", "banner", false),
-                ("hdmovielogo", "logo", false),
-                ("movielogo", "logo", false),
-            ],
-            "movie",
-        )
+        (format!("movies/{id}"), FANART_MOVIE_FIELDS, "movie")
     } else {
         let id = id_override
             .or_else(|| item.external_ids.get("tvdb").map(String::as_str))
             .ok_or_else(|| "This show has no TheTVDB id, which Fanart.tv needs.".to_owned())?;
-        (
-            format!("tv/{id}"),
-            &[
-                ("tvposter", "poster", false),
-                ("showbackground", "background", false),
-                ("tvbanner", "banner", false),
-                ("hdtvlogo", "logo", false),
-                ("clearlogo", "logo", false),
-                ("seasonposter", "poster", true),
-                ("seasonbanner", "banner", true),
-            ],
-            "show",
-        )
+        (format!("tv/{id}"), FANART_TV_FIELDS, "show")
     };
     let response = http_client()?
         .get(format!("{FANART_BASE}/{path}"))
@@ -574,6 +584,15 @@ async fn fetch_fanart(
         return Err(provider_status_error("Fanart.tv", response.status()));
     }
     let body: Value = response.json().await.map_err(network_error)?;
+    Ok(parse_fanart_artwork(&body, fields, kind, &item.title))
+}
+
+fn parse_fanart_artwork(
+    body: &Value,
+    fields: &[(&str, &str, bool)],
+    kind: &str,
+    title: &str,
+) -> Vec<ArtworkItem> {
     let mut items = Vec::new();
     for (field, artwork_type, seasonal) in fields {
         for entry in body
@@ -603,7 +622,7 @@ async fn fetch_fanart(
                 artwork_type: (*artwork_type).to_owned(),
                 kind: if *seasonal { "season" } else { kind }.to_owned(),
                 season_number,
-                title: Some(item.title.clone()),
+                title: Some(title.to_owned()),
                 lang: entry
                     .get("lang")
                     .and_then(Value::as_str)
@@ -612,13 +631,13 @@ async fn fetch_fanart(
                 likes: entry.get("likes").and_then(value_i64),
                 thumb_url: url.clone(),
                 download_url: url,
-                applyable: matches!(*artwork_type, "poster" | "background" | "logo"),
+                applyable: matches!(*artwork_type, "poster" | "background" | "logo" | "banner"),
                 source_url: None,
             });
         }
     }
     sort_artwork(&mut items);
-    Ok(items)
+    items
 }
 
 async fn fetch_anilist(
@@ -1194,6 +1213,50 @@ mod tests {
         )]));
         let types = service.native_tvdb_types("", "").await.unwrap();
         assert_eq!(types.get(&2).map(String::as_str), Some("series-posters"));
+    }
+
+    #[test]
+    fn tvdb_banner_payloads_are_available_for_local_apply() {
+        let body = serde_json::json!({"data": {"artworks": [
+            {"id": 14, "type": 1, "image": "/banners/example.jpg", "thumbnail": "/banners/small.jpg", "language": "eng", "score": 8},
+            {"id": 15, "type": 999, "image": "/unsupported.jpg"}
+        ]}});
+        let types = std::collections::HashMap::from([(1, "series-banners".to_owned())]);
+        let items = super::parse_tvdb_artwork(&body, &types, "Example", "show");
+        assert_eq!(items.len(), 1);
+        let banner = &items[0];
+        assert_eq!(banner.artwork_type, "banner");
+        assert_eq!(banner.kind, "show");
+        assert!(banner.applyable);
+        assert_eq!(
+            banner.download_url,
+            "https://artworks.thetvdb.com/banners/example.jpg"
+        );
+        assert_eq!(banner.lang.as_deref(), Some("eng"));
+    }
+
+    #[test]
+    fn fanart_movie_show_and_season_banners_are_available_for_local_apply() {
+        let body = serde_json::json!({
+            "moviebanner": [{"id": "movie", "url": "http://assets.fanart.tv/movie.jpg"}],
+            "tvbanner": [{"id": "show", "url": "https://assets.fanart.tv/show.jpg", "lang": "en"}],
+            "seasonbanner": [{"id": "season", "url": "https://assets.fanart.tv/season.jpg", "season": "2"}]
+        });
+        let movies =
+            super::parse_fanart_artwork(&body, super::FANART_MOVIE_FIELDS, "movie", "Example");
+        assert_eq!(movies.len(), 1);
+        assert_eq!(movies[0].kind, "movie");
+        assert_eq!(movies[0].download_url, "https://assets.fanart.tv/movie.jpg");
+        let shows = super::parse_fanart_artwork(&body, super::FANART_TV_FIELDS, "show", "Example");
+        assert_eq!(shows.len(), 2);
+        let season = shows.iter().find(|art| art.kind == "season").unwrap();
+        assert_eq!(season.season_number, Some(2));
+        assert!(shows.iter().any(|art| art.kind == "show"));
+        for banner in movies.iter().chain(&shows) {
+            assert_eq!(banner.provider, "fanart");
+            assert_eq!(banner.artwork_type, "banner");
+            assert!(banner.applyable);
+        }
     }
 
     use super::{slug_type, strip_year};

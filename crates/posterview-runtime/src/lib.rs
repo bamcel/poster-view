@@ -687,7 +687,7 @@ fn image_reference<'a>(detail: &'a ItemDetail, target: &ImageTarget) -> Option<&
         ImageTarget::Poster => detail.poster.as_ref(),
         ImageTarget::Background => detail.background.as_ref(),
         ImageTarget::Logo => detail.logo.as_ref(),
-        ImageTarget::Landscape => None,
+        ImageTarget::Landscape | ImageTarget::Banner => None,
     }
 }
 

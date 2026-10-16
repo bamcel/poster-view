@@ -698,3 +698,16 @@ it("keeps cached full title details visible when its background refresh fails",a
  expect(screen.getByRole("heading",{name:series.title})).toBeTruthy();
  expect(screen.getByRole("button",{name:/Open Season 1/})).toBeTruthy();
 });
+
+it("filters missing banners independently of landscape and backdrop artwork",async()=>{
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([
+  {...series,id:"with-banner",title:"Has banner",path:"Anime/HasBanner",artwork:[{kind:"banner",path:"banner.jpg",source:"local"}]},
+  {...series,id:"without-banner",title:"Needs banner",path:"Anime/NeedsBanner",artwork:[{kind:"backdrop",path:"fanart.jpg",source:"local"},{kind:"landscape",path:"landscape.jpg",source:"local"}]},
+ ]);
+ mount();await screen.findByText("Has banner");
+ fireEvent.change(screen.getByLabelText("Filter by artwork"),{target:{value:"missing-banner"}});
+ expect(screen.queryByText("Has banner")).toBeNull();
+ expect(screen.getByText("Needs banner")).toBeTruthy();
+ fireEvent.change(screen.getByLabelText("Filter by artwork"),{target:{value:"all"}});
+ expect(screen.getByText("Has banner")).toBeTruthy();
+});

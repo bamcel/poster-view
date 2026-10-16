@@ -1,8 +1,7 @@
 import { invalidateArtworkItems } from "../lib/artworkTarget";
 // Browses one API-based provider's artwork (Fanart.tv / TheTVDB / AniList) for
 // the current item, grouped into Posters / Backgrounds / Banners / Logos.
-// Poster, background, and logo are applyable; banners are shown (view-only) —
-// no media server we support has a banner-upload endpoint.
+// Posters, backgrounds, logos and banners can be applied to supported destinations.
 //
 // A small id/search box lets you override the auto-detected lookup. It's
 // pre-filled from the item's external_ids when one's known (from the media
@@ -378,6 +377,8 @@ export default function ArtworkBrowser({
                         busy={busyKey === `b-${art.id}`}
                         onClick={() => apply(art, "background", item.id, `b-${art.id}`)}
                       />
+                    ) : art.applyable && art.type === "banner" ? (
+                      <ApplyBtn label="Banner" busy={busyKey === `banner-${art.id}`} onClick={() => apply(art,"banner",season?.id ?? item.id,`banner-${art.id}`)}/>
                     ) : art.applyable && art.type === "logo" ? (
                       <ApplyBtn
                         label="Logo"
@@ -390,7 +391,7 @@ export default function ArtworkBrowser({
                         target="_blank"
                         rel="noreferrer"
                         className="flex min-w-0 items-center justify-center gap-1 rounded bg-elevated px-2 py-1 text-[11px] text-muted hover:text-white"
-                        title="Applying banners isn't wired up yet (no media server we support has a banner-upload endpoint) — open the source"
+                        title="Open artwork source"
                       >
                         View <ExternalLink className="size-3" />
                       </a>

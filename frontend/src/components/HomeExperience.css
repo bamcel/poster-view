@@ -39,3 +39,19 @@
  .pv-home-actions{margin-top:14px}
 }
 @media(min-width:960px) and (max-width:1399px){.pv-home-hero-content{padding:58px 16px 16px}.pv-home-hero h2{font-size:24px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.pv-home-eyebrow,.pv-home-hero-plot{display:none}.pv-home-action{padding:8px 12px;font-size:12px}.pv-home-actions{gap:8px}}
+
+.pv-home-hero.pv-home-hero-banner{width:auto;margin-inline:20px;aspect-ratio:4.36/1;min-height:280px}
+@media(min-width:640px){.pv-home-hero.pv-home-hero-banner{margin-inline:32px}}
+@media(min-width:768px){.pv-home-hero.pv-home-hero-banner{margin-inline:48px}}
+@media(max-width:959px){.pv-home-hero-banner .pv-home-hero-content{padding:64px 24px 24px}.pv-home-hero-banner h2{font-size:28px}.pv-home-hero-banner .pv-home-hero-plot{-webkit-line-clamp:2;font-size:14px}.pv-home-hero-banner .pv-home-actions{margin-top:14px}}
+
+.pv-home-hero-banner .pv-home-eyebrow{display:block}.pv-home-hero-banner .pv-home-hero-plot{display:-webkit-box}
+
+.pv-home-banner-placeholder{width:100%;height:100%;background:#60656b}
+
+.pv-home-edge-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:2;display:grid;place-items:center;width:40px;height:64px;border-radius:16px;background:#09101580;color:#fff;opacity:0;pointer-events:none;transition:opacity .25s ease,background-color .2s ease;cursor:pointer}
+.pv-home-edge-previous{left:8px}.pv-home-edge-next{right:8px}.pv-home-edge-arrow svg{width:26px;height:26px}
+.pv-home-hero:hover .pv-home-edge-arrow,.pv-home-hero:focus-within .pv-home-edge-arrow{opacity:1;pointer-events:auto}.pv-home-edge-arrow:hover{background:#091015b3}.pv-home-edge-arrow:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
+.pv-home-hero .pv-home-hero-content{padding-inline:52px}
+@media(hover:none){.pv-home-edge-arrow{opacity:1;pointer-events:auto;width:32px;height:48px}.pv-home-edge-previous{left:4px}.pv-home-edge-next{right:4px}.pv-home-hero .pv-home-hero-content{padding-inline:40px}}
+@media(prefers-reduced-motion:reduce){.pv-home-edge-arrow{transition:none}}

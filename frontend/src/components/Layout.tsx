@@ -1,3 +1,4 @@
+import {useHomepageHeadline,useHomepageNavigation} from "../lib/homepagePreferences";
 import {useCatalogPrefetch} from "../lib/catalogPrefetch";
 import {HeaderSearchTarget} from "../lib/headerSearch";
 import DownloadStatus,{openDownloadsEvent} from "../features/settings/ytdl/DownloadStatus";
@@ -23,21 +24,21 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   const location = useLocation();
   const [searchTarget,setSearchTarget]=useState<HTMLDivElement|null>(null);
   const homeSearch=!preview&&location.pathname==="/"&&!new URLSearchParams(location.search).has("lib")&&!new URLSearchParams(location.search).has("native_library");
-  const [navigationOpen,setNavigationOpen]=useState(false);
+  const [navigationOpen,setNavigationOpen]=useHomepageNavigation();
   const navigationToggle=useRef<HTMLButtonElement>(null);
   const navigationPanel=useRef<HTMLElement>(null);
   const preferencesMenu=useRef<HTMLDetailsElement>(null);
+  const [headline,setHeadline]=useHomepageHeadline();
   useEffect(()=>{
     const close=(event:PointerEvent)=>{if(preferencesMenu.current&&!preferencesMenu.current.contains(event.target as Node))preferencesMenu.current.open=false;};
-    const escape=(event:KeyboardEvent)=>{if(event.key==="Escape"&&preferencesMenu.current?.open){preferencesMenu.current.open=false;preferencesMenu.current.querySelector("summary")?.focus();}};
+    const escape=(event:KeyboardEvent)=>{if(event.key==="Escape"&&preferencesMenu.current?.open){event.preventDefault();preferencesMenu.current.open=false;preferencesMenu.current.querySelector("summary")?.focus();}};
     document.addEventListener("pointerdown",close);window.addEventListener("keydown",escape);
     return()=>{document.removeEventListener("pointerdown",close);window.removeEventListener("keydown",escape);};
   },[]);
-  useEffect(()=>{setNavigationOpen(false);},[location.pathname]);
   useEffect(()=>{
     if(!homeSearch||!navigationOpen)return;
     navigationPanel.current?.querySelector<HTMLButtonElement>("button")?.focus();
-    const escape=(event:KeyboardEvent)=>{if(event.key==="Escape"){event.preventDefault();setNavigationOpen(false);navigationToggle.current?.focus();}};
+    const escape=(event:KeyboardEvent)=>{if(event.key==="Escape"&&!event.defaultPrevented){event.preventDefault();setNavigationOpen(false);navigationToggle.current?.focus();}};
     window.addEventListener("keydown",escape);
     return()=>window.removeEventListener("keydown",escape);
   },[homeSearch,navigationOpen]);
@@ -87,24 +88,21 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   }
 
   return (
-    <div className={`flex h-full flex-col md:flex-row ${preview && !showPreviewChrome ? "[&>aside]:hidden [&>div>header]:hidden" : ""}`}
+    <div className={`flex h-full ${homeSearch?"flex-row":"flex-col md:flex-row"} ${preview && !showPreviewChrome ? "[&>aside]:hidden [&>div>header]:hidden" : ""}`}
       onClickCapture={event => {
         const anchor = (event.target as Element).closest("a");
         if (!anchor || !event.currentTarget.contains(anchor) ) return;
         const href=anchor.getAttribute("href");
         if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
         if(href==="/")resetHomeNavigation();
-        if(homeSearch)setNavigationOpen(false);
         if(!preview)return;
         event.preventDefault();
         event.stopPropagation();
         if(href?.startsWith("/")) void previewNavigate(href);
       }}>
 
-      {homeSearch&&navigationOpen&&<button type="button" aria-label="Dismiss navigation" className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm" onClick={()=>{setNavigationOpen(false);navigationToggle.current?.focus();}}/>}
-      <aside ref={navigationPanel} id="app-navigation" aria-label={homeSearch?"Navigation":undefined} role={homeSearch&&navigationOpen?"dialog":undefined} aria-modal={homeSearch&&navigationOpen?true:undefined} aria-hidden={homeSearch&&!navigationOpen?true:undefined} inert={homeSearch&&!navigationOpen}
-        onKeyDown={event=>{if(!homeSearch||!navigationOpen||event.key!=="Tab")return;const links=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('a[href],button:not([disabled])'));const first=links[0],last=links[links.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}}
-        className={homeSearch?`fixed inset-y-0 left-0 z-40 flex w-[min(18rem,85vw)] flex-col overflow-hidden border-r border-border px-3 py-5 shadow-2xl transition-transform duration-200 motion-reduce:transition-none ${navigationOpen?"translate-x-0":"-translate-x-full"}`:"relative z-20 hidden w-[14.75rem] shrink-0 flex-col overflow-hidden border-r border-border px-3 py-5 md:flex"}
+      <aside ref={navigationPanel} id="app-navigation" aria-label={homeSearch?"Navigation":undefined} aria-hidden={homeSearch&&!navigationOpen?true:undefined} inert={homeSearch&&!navigationOpen}
+        className={homeSearch?`relative z-20 flex shrink-0 flex-col overflow-hidden transition-[width,padding] duration-200 motion-reduce:transition-none ${navigationOpen?"w-[min(18rem,42vw)] border-r border-border px-3 py-5":"w-0 p-0"}`:"relative z-20 hidden w-[14.75rem] shrink-0 flex-col overflow-hidden border-r border-border px-3 py-5 md:flex"}
         style={{ backgroundColor: translucentPanelColor("--color-sidebar", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
       >
         <div className="mb-8 shrink-0 px-1">
@@ -112,7 +110,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           <NavLink to="/" aria-label="Go to Home" className="block w-fit">
             <Logo />
           </NavLink>
-          <div className="mt-1 whitespace-nowrap text-left text-xs text-faint">Artwork Management Console</div>
+          <div className="mt-1 whitespace-nowrap text-left text-xs text-faint">{isAdmin?"Artwork Management Console":"Your media library"}</div>
         </div>
 
         <nav className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto [&>a]:shrink-0">
@@ -146,7 +144,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className={`relative z-20 flex shrink-0 items-center gap-2 bg-transparent px-3 ${homeSearch?"min-h-14 flex-wrap sm:h-14 sm:flex-nowrap":"h-14"}`}>
-        {homeSearch&&<button ref={navigationToggle} type="button" aria-label="Open navigation" aria-expanded={navigationOpen} aria-controls="app-navigation" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>setNavigationOpen(value=>!value)}><Menu size={21}/></button>}
+        {homeSearch&&<button ref={navigationToggle} type="button" aria-label={navigationOpen?"Collapse navigation":"Open navigation"} aria-expanded={navigationOpen} aria-controls="app-navigation" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>setNavigationOpen(!navigationOpen)}><Menu size={21}/></button>}
         <NavLink to="/" aria-label="Go to Home" className="mr-auto min-w-0 md:hidden">
           <Logo className="w-20 overflow-hidden [&>img]:max-w-full [&>img]:translate-y-[5px] sm:w-36" />
         </NavLink>
@@ -173,6 +171,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           <details ref={preferencesMenu} className="relative">
             <summary aria-label="Preferences" title="Preferences" className="grid size-11 cursor-pointer list-none place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white [&::-webkit-details-marker]:hidden"><MoreHorizontal className="size-[20px]"/></summary>
             <nav aria-label="Personal preferences" className="absolute right-0 top-full z-30 mt-2 w-56 rounded-xl border border-border bg-sidebar p-2 shadow-xl">
+              {homeSearch&&<label className="block border-b border-border px-3 py-3 text-sm text-muted">Headline<select aria-label="Headline artwork" value={headline} onChange={event=>setHeadline(event.target.value as "backdrop"|"banner")} className="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-white"><option value="backdrop">Backdrop</option><option value="banner">Banner</option></select><span className="mt-2 block text-xs text-faint">Saved for your account in this browser.</span></label>}
               <NavLink to="/settings/playback" onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-input-hover hover:text-white">Playback preferences</NavLink>
               <NavLink to="/settings/reading" onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-input-hover hover:text-white">Reading preferences</NavLink>
             </nav>

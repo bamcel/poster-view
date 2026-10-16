@@ -1,3 +1,5 @@
+import HomeBackground from "../components/HomeBackground";
+import {useHomepageHeadline} from "../lib/homepagePreferences";
 import {AuthSessionContext} from "../lib/authContext";
 import HomeMediaRow from "../components/HomeMediaRow";
 import {nativeArtworkVersion} from "../lib/nativeArtworkCache";
@@ -28,6 +30,7 @@ function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:Native
 }
 function LibraryHome(){
  const searchTarget=useContext(HeaderSearchTarget);
+ const [headline]=useHomepageHeadline();
  const user=useContext(AuthSessionContext)?.user;
  const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,select:items=>items.filter(library=>!user||user.role==="admin"||user.permissions.all_libraries||user.permissions.library_ids.includes(library.id))});
  const [search,setSearch]=useState("");
@@ -47,7 +50,9 @@ function LibraryHome(){
     {search&&<button type="button" aria-label="Clear search" onClick={()=>setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white" data-icon-button="true"><X className="size-4"/></button>}
    </div>
   </div>;
- return <main className="relative h-full overflow-y-auto pb-8">
+ return <main className="relative z-10 h-full overflow-y-auto pb-8">
+  <HomeBackground libraries={libraries.data??[]}/>
+  <div className="relative z-10 min-h-full">
   {searchTarget&&createPortal(searchControl,searchTarget)}
   <header className={featured&&searchTarget?"sr-only":"mb-3 flex flex-col gap-3 px-5 pt-3 sm:px-8 md:px-12"}>
    <h1 className={featured?"sr-only":"text-2xl font-semibold text-white"}>{term?"Search results":"My Media"}</h1>
@@ -69,7 +74,7 @@ function LibraryHome(){
    {section.results.length>100&&<p className="mt-3 text-sm text-muted">Showing 100 of {section.results.length} matches. Refine your search to see fewer results.</p>}
    </section>)}</div>
   </div>:<>
-   {bannerLoading?<section className="pv-home-hero" aria-label="Loading featured title" aria-busy="true"><p role="status" className="pv-home-hero-content text-muted">Loading featured titles…</p></section>:<FeaturedTitle titles={titles}/>}
+   {bannerLoading?<section className={`pv-home-hero ${headline==="banner"?"pv-home-hero-banner":""}`} aria-label="Loading featured title" aria-busy="true"><p role="status" className="pv-home-hero-content text-muted">Loading featured titles…</p></section>:<FeaturedTitle titles={titles}/>}
    <div className="px-5 sm:px-8 md:px-12">
    <div className="pv-home-library-section"><HomeMediaRow label="My Libraries" ariaLabel="My libraries">
     {libraries.data?.map(library=><LibraryTile key={library.id} library={library} libraries={libraries.data??[]}/>)}
@@ -80,6 +85,7 @@ function LibraryHome(){
    <HomeDiscovery titles={titles}/>
    </div>
   </>}
+  </div>
  </main>;
 }
 export default function HomePage(){

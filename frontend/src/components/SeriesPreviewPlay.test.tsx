@@ -3,11 +3,12 @@ import {QueryClient, QueryClientProvider} from "@tanstack/react-query";
 import {MemoryRouter, useLocation} from "react-router-dom";
 import {afterEach, beforeEach, expect, it, vi} from "vitest";
 import SeriesPreviewPlay from "./SeriesPreviewPlay";
+import {seriesPlaybackSelection} from "../lib/seriesPlaybackSelection";
 import {nativeLibraries, type NativeCatalogEntry, type NativeLibrary} from "../api/nativeLibraries";
 import {watchApi, type WatchState, type ContinueItem} from "../features/playback/api/watch";
 import type {HomeTitle} from "./HomeDiscovery";
 
-vi.mock("../api/nativeLibraries", () => ({nativeLibraries: {catalog: vi.fn()}}));
+vi.mock("../api/nativeLibraries", () => ({nativeLibraries: {catalog: vi.fn(), summaries: vi.fn()}}));
 vi.mock("../features/playback/api/watch", () => ({watchApi: {states: vi.fn(), continue: vi.fn()}}));
 const state: WatchState = {position_seconds: 0, duration_seconds: 1000, watched: false, play_count: 0, last_played_at: null, audio_index: null, subtitle_index: null, session_id: null, version: 1};
 const series: NativeCatalogEntry = {id: "series", path: "/series", title: "Anime", kind: "series", parent_path: null, available: true, revision: 1, metadata: {}, files: [], artwork: [], nfo_path: null};
@@ -22,89 +23,68 @@ function setup(item = title) {
   const view = render(<QueryClientProvider client={client}><MemoryRouter><SeriesPreviewPlay title={item} onChoosingChange={onChoosingChange}/><Destination/></MemoryRouter></QueryClientProvider>);
   return {...view, client, onChoosingChange};
 }
-async function open() {fireEvent.click(screen.getByRole("button", {name: "Play Anime"})); await screen.findByRole("group", {name: "Playback options for Anime"});}
-beforeEach(() => {vi.clearAllMocks(); vi.mocked(nativeLibraries.catalog).mockResolvedValue([series, one, two]); vi.mocked(watchApi.states).mockResolvedValue({}); vi.mocked(watchApi.continue).mockResolvedValue([]);});
+beforeEach(() => {vi.clearAllMocks(); vi.mocked(nativeLibraries.summaries).mockResolvedValue([series, one, two].map(item => ({...item, files: [], metadata: {...item.metadata, _has_files: item.kind === "episode"}}))); vi.mocked(nativeLibraries.catalog).mockResolvedValue([series, one, two]); vi.mocked(watchApi.states).mockResolvedValue({}); vi.mocked(watchApi.continue).mockResolvedValue([]);});
 afterEach(cleanup);
 
-it("loads only after Play, starts S1E1 rather than specials and explicitly starts at zero", async () => {
-  vi.mocked(nativeLibraries.catalog).mockResolvedValue([series, episode("special", 0), two, one]);
-  setup(); expect(nativeLibraries.catalog).not.toHaveBeenCalled(); expect(watchApi.states).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", {name: "Play Anime"}));
+it("resolves summary-only episodes without fetching the full catalog or starting playback", async () => {
+  const view = setup(); await waitFor(() => expect(screen.getByRole("button", {name: "Play"}).hasAttribute("disabled")).toBe(false));
+  expect(view.onChoosingChange).not.toHaveBeenCalled(); expect(nativeLibraries.catalog).not.toHaveBeenCalled(); expect(screen.getByRole("status").textContent).toBe("/");
+  fireEvent.click(screen.getByRole("button", {name: "Play"})); await waitFor(() => expect(screen.getByRole("status").textContent).toBe("/play/native/library/one?return=%2F&start=0"));
+  expect(view.onChoosingChange).toHaveBeenLastCalledWith(false);
+});
+it("shows adjacent restart and continue buttons for history and resumes the correct episode", async () => {
+  vi.mocked(watchApi.continue).mockResolvedValue([continued(two)]); setup();
+  await screen.findByRole("button", {name: "Play from beginning"});
+  expect(screen.queryByRole("button", {name: "Cancel"})).toBeNull();
+  expect(screen.queryByRole("group")).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name: "Resume"}));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("/play/native/library/two?return=%2F"));
+});
+it("restarts at S1E1 without touching saved watch state", async () => {
+  vi.mocked(watchApi.states).mockResolvedValue({two: {...state, watched: true}}); setup();
+  fireEvent.click(await screen.findByRole("button", {name: "Play from beginning"}));
   await waitFor(() => expect(screen.getByRole("status").textContent).toBe("/play/native/library/one?return=%2F&start=0"));
 });
-it("asks before resuming an interrupted rewatch and focuses the beginning choice", async () => {
-  vi.mocked(watchApi.continue).mockResolvedValue([continued(two)]); setup(); await open();
-  expect(document.activeElement).toBe(screen.getByRole("button", {name: "Play from beginning"}));
-  expect(screen.getByRole("status").textContent).toBe("/");
-  fireEvent.click(screen.getByRole("button", {name: "Continue where you left off"}));
-  expect(screen.getByRole("status").textContent).toBe("/play/native/library/two?return=%2F");
+it("does not navigate when no playable episodes are available", async () => {
+  vi.mocked(nativeLibraries.summaries).mockResolvedValue([series]); vi.mocked(nativeLibraries.catalog).mockResolvedValue([series]); setup();
+  await waitFor(() => expect(screen.getByRole("button", {name: "Play"}).hasAttribute("disabled")).toBe(false)); fireEvent.click(screen.getByRole("button", {name: "Play"}));
+  expect((await screen.findByRole("alert")).textContent).toBe("No playable episodes are available."); expect(screen.getByRole("status").textContent).toBe("/");
 });
-it("beginning overrides saved resume without modifying watch state", async () => {
-  vi.mocked(watchApi.continue).mockResolvedValue([continued(two)]); setup(); await open();
-  fireEvent.click(screen.getByRole("button", {name: "Play from beginning"}));
-  expect(screen.getByRole("status").textContent).toBe("/play/native/library/one?return=%2F&start=0");
-});
-it("advances past completed episodes", async () => {
-  vi.mocked(watchApi.states).mockResolvedValue({one: {...state, watched: true, play_count: 1}}); setup(); await open();
-  fireEvent.click(screen.getByRole("button", {name: "Continue where you left off"}));
-  expect(screen.getByRole("status").textContent).toContain("/two?");
-});
-it("falls back to S1E1 when all episodes are completed", async () => {
-  vi.mocked(watchApi.states).mockResolvedValue({one: {...state, watched: true}, two: {...state, watched: true}}); setup(); await open();
-  fireEvent.click(screen.getByRole("button", {name: "Continue where you left off"})); expect(screen.getByRole("status").textContent).toBe("/play/native/library/one?return=%2F&start=0");
-});
-it("selects the latest unfinished progress when continue entry is unavailable", async () => {
-  vi.mocked(watchApi.states).mockResolvedValue({one: {...state, position_seconds: 50, last_played_at: "2026-01-01"}, two: {...state, position_seconds: 100, last_played_at: "2026-02-01"}});
-  setup(); await open(); fireEvent.click(screen.getByRole("button", {name: "Continue where you left off"})); expect(screen.getByRole("status").textContent).toContain("/two?");
-});
-it("groups series aliases by identity", async () => {
-  const canonical = {...series, metadata: {identifiers: {tvdb: "1"}}};
-  vi.mocked(nativeLibraries.catalog).mockResolvedValue([canonical, {...canonical, id: "alias", path: "/alias"}, {...one, path: "/alias/one"}]);
-  setup({...title, entry: canonical}); fireEvent.click(screen.getByRole("button", {name: "Play Anime"}));
+it("allows retry after a failed history request", async () => {
+  vi.mocked(watchApi.states).mockRejectedValueOnce(new Error("offline")); setup();
+  fireEvent.click(await screen.findByRole("button", {name: "Retry playback"}));
   await waitFor(() => expect(screen.getByRole("status").textContent).toContain("/one?"));
 });
-it("ignores other libraries, unrelated series, and unplayable episodes", async () => {
-  vi.mocked(watchApi.continue).mockResolvedValue([continued(two, "other"), continued(episode("elsewhere", 1, 1, "/different/one"))]);
-  vi.mocked(watchApi.states).mockResolvedValue({elsewhere: {...state, watched: true}});
-  vi.mocked(nativeLibraries.catalog).mockResolvedValue([series, {...one, available: false}, two, {...episode("missing"), metadata: {season: 1, episode: 1, missing: true}}]);
-  setup(); fireEvent.click(screen.getByRole("button", {name: "Play Anime"})); await waitFor(() => expect(screen.getByRole("status").textContent).toContain("/two?"));
-});
-it("fails safely and allows retry", async () => {
-  vi.mocked(watchApi.states).mockRejectedValueOnce(new Error("offline")); setup(); fireEvent.click(screen.getByRole("button", {name: "Play Anime"}));
-  await screen.findByRole("alert"); expect(screen.getByRole("status").textContent).toBe("/");
-  fireEvent.click(screen.getByRole("button", {name: "Play Anime"})); await waitFor(() => expect(screen.getByRole("status").textContent).toContain("/one?"));
-});
-it("cancel closes choices and releases the hover card", async () => {
-  vi.mocked(watchApi.continue).mockResolvedValue([continued()]); const view = setup(); await open(); fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
-  expect(screen.queryByRole("group")).toBeNull(); expect(view.onChoosingChange).toHaveBeenLastCalledWith(false); expect(screen.getByRole("status").textContent).toBe("/");
-  expect(document.activeElement).toBe(screen.getByRole("button", {name: "Play Anime"}));
-});
-it("bounds double clicks and ignores completion after unmount", async () => {
-  let resolve!: (value: NativeCatalogEntry[]) => void;
-  vi.mocked(nativeLibraries.catalog).mockReturnValue(new Promise(done => {resolve = done;}));
-  const view = setup(); const button = screen.getByRole("button", {name: "Play Anime"}); fireEvent.click(button); fireEvent.click(button);
-  expect(nativeLibraries.catalog).toHaveBeenCalledTimes(1); view.unmount(); resolve([series, one]);
-  await Promise.resolve(); expect(view.onChoosingChange).toHaveBeenLastCalledWith(false);
-});
-it("does not offer playback for unavailable or missing series", () => {
-  const view = setup({...title, entry: {...series, available: false}});
-  expect(screen.queryByRole("button")).toBeNull(); view.unmount();
-  setup({...title, entry: {...series, metadata: {missing: true}}});
-  expect(screen.queryByRole("button")).toBeNull(); expect(nativeLibraries.catalog).not.toHaveBeenCalled();
-});
-it("reports an empty playable catalog without navigating", async () => {
-  vi.mocked(nativeLibraries.catalog).mockResolvedValue([series, {...one, files: []}]); setup();
-  fireEvent.click(screen.getByRole("button", {name: "Play Anime"}));
-  expect((await screen.findByRole("alert")).textContent).toBe("No playable episodes are available.");
-  expect(screen.getByRole("status").textContent).toBe("/");
-});
-it("ignores a pending result after the hovered title changes", async () => {
-  let resolve!: (value: NativeCatalogEntry[]) => void;
+it("ignores pending playback completion after title changes", async () => {
+  vi.mocked(nativeLibraries.summaries).mockResolvedValue([series]);
+  let resolve!: (items: NativeCatalogEntry[]) => void;
   vi.mocked(nativeLibraries.catalog).mockReturnValue(new Promise(done => {resolve = done;}));
   const client = new QueryClient({defaultOptions: {queries: {retry: false, gcTime: 0}}});
-  const contents = (item: HomeTitle) => <QueryClientProvider client={client}><MemoryRouter><SeriesPreviewPlay title={item}/><Destination/></MemoryRouter></QueryClientProvider>;
-  const view = render(contents(title)); fireEvent.click(screen.getByRole("button", {name: "Play Anime"}));
-  view.rerender(contents({...title, entry: {...series, id: "other", path: "/other", title: "Other"}}));
-  resolve([series, one]); await waitFor(() => expect(screen.getByRole("button", {name: "Play Other"}).hasAttribute("disabled")).toBe(false));
-  expect(screen.getByRole("status").textContent).toBe("/");
+  const content = (item: HomeTitle) => <QueryClientProvider client={client}><MemoryRouter><SeriesPreviewPlay title={item}/><Destination/></MemoryRouter></QueryClientProvider>;
+  const view = render(content(title));
+  await waitFor(() => expect(screen.getByRole("button", {name: "Play"}).hasAttribute("disabled")).toBe(false)); fireEvent.click(screen.getByRole("button", {name: "Play"}));
+  view.rerender(content({...title, entry: {...series, id: "other", path: "/other"}}));
+  resolve([series, one]); await waitFor(() => expect(screen.getByRole("button", {name: "Play"}).hasAttribute("disabled")).toBe(false)); expect(screen.getByRole("status").textContent).toBe("/");
+});
+
+it("chooses S1E1 before specials and handles grouped series aliases", () => {
+  const canonical = {...series, metadata: {identifiers: {tvdb: "1"}}};
+  const alias = {...canonical, id: "alias", path: "/alias"};
+  const result = seriesPlaybackSelection([canonical, alias, episode("special", 0), two, {...one, path: "/alias/one"}], canonical, title.library, {}, []);
+  expect(result.first.id).toBe("one"); expect(result.history).toBe(false);
+});
+it("ignores unrelated series and inaccessible or missing episodes", () => {
+  const items = [series, {...one, available: false}, two, {...episode("missing"), metadata: {season: 1, episode: 1, missing: true}}, episode("unrelated", 1, 1, "/different/one")];
+  const result = seriesPlaybackSelection(items, series, title.library, {}, [continued(one), continued(two, "other")]);
+  expect(result.first.id).toBe("two"); expect(result.history).toBe(false);
+});
+it("uses latest unfinished progress or advances after completed episodes", () => {
+  const entries = [series, one, two];
+  expect(seriesPlaybackSelection(entries, series, title.library, {one: {...state, position_seconds: 50, last_played_at: "2026-01-01"}, two: {...state, position_seconds: 100, last_played_at: "2026-02-01"}}, []).resume.id).toBe("two");
+  expect(seriesPlaybackSelection(entries, series, title.library, {one: {...state, watched: true}}, []).resume.id).toBe("two");
+  expect(seriesPlaybackSelection(entries, series, title.library, {one: {...state, watched: true}, two: {...state, watched: true}}, []).restart).toBe(true);
+});
+it("offers no playback for unavailable series", () => {
+  setup({...title, entry: {...series, available: false}});
+  expect(screen.queryByRole("button")).toBeNull(); expect(nativeLibraries.summaries).not.toHaveBeenCalled();
 });

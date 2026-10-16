@@ -1,7 +1,8 @@
+import MoviePreviewPlay from "./MoviePreviewPlay";
 import { mediaDescription } from "../lib/mediaDescription";
 import {useEffect, useId, useRef, useState, type ReactNode} from "react";
 import {createPortal} from "react-dom";
-import {Film, Info, Play, X} from "lucide-react";
+import {Film, Info, X} from "lucide-react";
 import {nativeLibraries} from "../api/nativeLibraries";
 import {Link} from "../lib/libraryNavigation";
 import {nativeArtworkVersion} from "../lib/nativeArtworkCache";
@@ -89,7 +90,7 @@ export default function DiscoveryHoverCard({title, children}: {title: HomeTitle;
         {mediaDescription(entry.metadata.plot) && <p className="pv-discovery-hover-plot">{mediaDescription(entry.metadata.plot)}</p>}
         <div className="pv-discovery-hover-actions">
           {entry.kind==="series"&&entry.available&&entry.metadata.missing!==true&&<SeriesPreviewPlay title={title} onChoosingChange={choosing=>{choosingPlayback.current=choosing;cancel();}}/>}
-          {entry.available && entry.metadata.missing !== true && entry.kind === "movie" && entry.files.length > 0 && <Link className="pv-discovery-hover-play" to={`/play/native/${encodeURIComponent(library.id)}/${encodeURIComponent(entry.id)}?return=%2F`} aria-label={`Play ${entry.title}`}><Play size={16} aria-hidden="true"/>Play</Link>}
+          {entry.kind==="movie"&&<MoviePreviewPlay title={title}/>}
           <Link to={detail} aria-label={`More info about ${entry.title}`}><Info size={16} aria-hidden="true"/>More Info</Link>
         </div>
       </div>

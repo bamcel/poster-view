@@ -24,6 +24,7 @@ export function buildApplyTargets(item: ItemDetail, includeFolderBackdrop = fals
           { label: "Background", itemId: item.id, target: "background" },
           { label: "Logo", itemId: item.id, target: "logo" },
           { label: "Landscape", itemId: item.id, target: "landscape" },
+          { label: "Banner", itemId: item.id, target: "banner" },
         ];
   const seasons: ApplyTarget[] = item.seasons.map((s) => ({
     label: `${s.title || `Season ${s.index}`}${
