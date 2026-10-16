@@ -1,4 +1,3 @@
-import {useHomepageHeadline} from "../lib/homepagePreferences";
 import {cleanup,fireEvent,render,screen,within} from "@testing-library/react";
 import {MemoryRouter} from "react-router-dom";
 import {afterEach,expect,it,vi} from "vitest";
@@ -78,23 +77,9 @@ it("prefers selected backdrops for the banner while rows keep landscape artwork"
  expect(view.container.querySelector("img")?.getAttribute("src")).toContain("/artwork/landscape?");
 });
 
-it("uses banner artwork with grey placeholders and switches back to backdrops",()=>{
- function Preference(){const [value,setValue]=useHomepageHeadline();return <select aria-label="Test headline" value={value} onChange={event=>setValue(event.target.value as "backdrop"|"banner")}><option value="backdrop">Backdrop</option><option value="banner">Banner</option></select>;}
- const movie=title("Has banner");movie.entry.artwork=[{kind:"backdrop",path:"backdrop.jpg",source:"local"},{kind:"banner",path:"banner.jpg",source:"local"}];
- const noBanner=title("No banner");noBanner.entry.artwork=[{kind:"backdrop",path:"backdrop.jpg",source:"local"}];
- const view=render(<MemoryRouter><Preference/><FeaturedTitle titles={[noBanner,movie]}/></MemoryRouter>);
- fireEvent.change(screen.getByLabelText("Test headline"),{target:{value:"banner"}});
- const hero=screen.getByRole("region",{name:"Featured title"});
- expect(hero.className).toContain("pv-home-hero-banner");
- expect(within(hero).getByRole("heading",{name:"No banner"})).toBeTruthy();
- expect(within(hero).getByTestId("banner-placeholder")).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Next featured title"}));
- expect(within(hero).getByRole("heading",{name:"Has banner"})).toBeTruthy();
- expect(hero.querySelector("img")?.getAttribute("src")).toContain("/artwork/banner?");
- fireEvent.error(hero.querySelector(".is-current img")!);
- expect(hero.querySelector('.is-current [data-testid="banner-placeholder"]')).toBeTruthy();
- view.rerender(<MemoryRouter><Preference/><FeaturedTitle titles={[noBanner]}/></MemoryRouter>);
- expect(screen.getByTestId("banner-placeholder")).toBeTruthy();
- fireEvent.change(screen.getByLabelText("Test headline"),{target:{value:"backdrop"}});
- expect(screen.getByRole("region",{name:"Featured title"}).querySelector("img")?.getAttribute("src")).toContain("/artwork/backdrop?");
+it("ignores the retired banner preference and uses backdrop artwork",()=>{
+ localStorage.setItem("posterview:homepage-headline:local","banner");
+ const movie=title("Backdrop title");movie.entry.artwork=[{kind:"backdrop",path:"backdrop.jpg",source:"local"},{kind:"banner",path:"banner.jpg",source:"local"}];
+ const view=render(<MemoryRouter><FeaturedTitle titles={[movie]}/></MemoryRouter>);
+ expect(view.container.querySelector("img")?.getAttribute("src")).toContain("/artwork/backdrop?");
 });

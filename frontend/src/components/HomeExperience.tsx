@@ -1,5 +1,4 @@
 import SeriesBannerPlay from "./SeriesBannerPlay";
-import {useHomepageHeadline,type HeadlineArtwork} from "../lib/homepagePreferences";
 import {useFeaturedRotation} from "../lib/useFeaturedRotation";
 import HomeMediaRow from "./HomeMediaRow";
 import { mediaDescription } from "../lib/mediaDescription";
@@ -19,35 +18,34 @@ const play=({library,entry}:HomeTitle)=>`/play/native/${encodeURIComponent(libra
 const playable=({entry}:HomeTitle)=>entry.available&&entry.metadata.missing!==true&&entry.kind==="movie"&&(entry.files.length>0||entry.metadata._has_files===true);
 function numeric(value:unknown){if(typeof value!=="number"&&(typeof value!=="string"||!value.trim()))return;const n=Number(value);return Number.isFinite(n)?n:undefined;}
 function genres({entry}:HomeTitle){return Array.isArray(entry.metadata.genres)?[...new Set(entry.metadata.genres.filter((v):v is string=>typeof v==="string"&&!!v.trim()).map(v=>v.trim()))]:[];}
-function Artwork({title,hero=false,headline="backdrop"}:{title:HomeTitle;hero?:boolean;headline?:HeadlineArtwork}){
-  const kind=(hero?(headline==="banner"?["banner"]:["backdrop","landscape","fanart","thumb","poster"]):["landscape","backdrop","fanart","thumb","poster"]).find(kind=>title.entry.artwork.some(art=>art.kind===kind));
+function Artwork({title,hero=false}:{title:HomeTitle;hero?:boolean}){
+  const kind=(hero?["backdrop","landscape","fanart","thumb","poster"]:["landscape","backdrop","fanart","thumb","poster"]).find(kind=>title.entry.artwork.some(art=>art.kind===kind));
   const src=kind?stillArtwork(`${nativeLibraries.artworkUrl(title.library.id,title.entry.id,kind)}?v=${encodeURIComponent(nativeArtworkVersion(title.entry,kind))}`):undefined;
   const [failed,setFailed]=useState(false);
   useEffect(()=>setFailed(false),[src]);
-  return src&&!failed?<img src={hero?src:sizedArtwork(src,640)} srcSet={hero?undefined:`${sizedArtwork(src,320)} 320w, ${sizedArtwork(src,480)} 480w, ${sizedArtwork(src,640)} 640w`} sizes={hero?"100vw":"(min-width: 1200px) 20vw, (min-width: 900px) 25vw, (min-width: 600px) 33vw, 45vw"} alt="" loading={hero?"eager":"lazy"} decoding="async" onError={()=>setFailed(true)}/>:hero&&headline==="banner"?<div className="pv-home-banner-placeholder" data-testid="banner-placeholder"/>:<div className="pv-home-art-fallback"><Film aria-hidden="true"/><span>{title.entry.title}</span></div>;
+  return src&&!failed?<img src={hero?src:sizedArtwork(src,640)} srcSet={hero?undefined:`${sizedArtwork(src,320)} 320w, ${sizedArtwork(src,480)} 480w, ${sizedArtwork(src,640)} 640w`} sizes={hero?"100vw":"(min-width: 1200px) 20vw, (min-width: 900px) 25vw, (min-width: 600px) 33vw, 45vw"} alt="" loading={hero?"eager":"lazy"} decoding="async" onError={()=>setFailed(true)}/>:<div className="pv-home-art-fallback"><Film aria-hidden="true"/><span>{title.entry.title}</span></div>;
 }
 
 export function FeaturedTitle({titles}:{titles:HomeTitle[]}){
-  const [headline]=useHomepageHeadline();
   const candidates=useMemo(()=>{
     const libraries=new Map<string,HomeTitle[]>();
     for(const title of titles){
-      if(!title.entry.available||title.entry.metadata.missing===true||!["movie","series"].includes(title.entry.kind)||(headline!=="banner"&&!title.entry.artwork.some(art=>["backdrop","landscape","fanart"].includes(art.kind))))continue;
+      if(!title.entry.available||title.entry.metadata.missing===true||!["movie","series"].includes(title.entry.kind)||(!title.entry.artwork.some(art=>["backdrop","landscape","fanart"].includes(art.kind))))continue;
       const group=libraries.get(title.library.id)??[];group.push(title);libraries.set(title.library.id,group);
     }
     const groups=[...libraries.values()],result:HomeTitle[]=[];
     for(let index=0;groups.some(group=>index<group.length);index++)for(const group of groups)if(group[index])result.push(group[index]);
-    return result.length||headline==="banner"?result:titles.filter(({entry})=>entry.available&&entry.metadata.missing!==true).slice(0,1);
-  },[titles,headline]);
+    return result.length?result:titles.filter(({entry})=>entry.available&&entry.metadata.missing!==true).slice(0,1);
+  },[titles]);
   const rotation=useFeaturedRotation(candidates.map(({library,entry})=>`${library.id}:${entry.id}`));
   const hovering=useRef(false);
   const title=candidates[rotation.index];
-  if(!title)return headline==="banner"&&titles.length>0?<section className="pv-home-hero pv-home-hero-banner" aria-label="Featured title"><div className="pv-home-hero-content"><h2>No banner artwork available</h2><p className="mt-3 text-sm text-muted">Choose Backdrop in homepage Preferences to display other artwork.</p></div></section>:null;
+  if(!title)return null;
   const year=numeric(title.entry.metadata.year);
   const rating=typeof title.entry.metadata.mpaa==="string"?title.entry.metadata.mpaa.trim():"";
   const plot=mediaDescription(title.entry.metadata.plot);
-  return <section className={`pv-home-hero ${headline==="banner"?"pv-home-hero-banner":""}`} aria-label="Featured title" aria-roledescription={candidates.length>1?"carousel":undefined} onMouseEnter={()=>{hovering.current=true;rotation.setInteracting(true);}} onMouseLeave={event=>{hovering.current=false;rotation.setInteracting(event.currentTarget.contains(document.activeElement));}} onFocus={()=>rotation.setInteracting(true)} onBlur={event=>rotation.setInteracting(hovering.current||event.currentTarget.contains(event.relatedTarget))}>
-    <div className="pv-home-hero-art">{candidates.map((candidate,index)=>({candidate,index})).filter(({index})=>index===rotation.index||index===(rotation.index+1)%candidates.length||index===(rotation.index+candidates.length-1)%candidates.length).map(({candidate,index})=><div key={`${candidate.library.id}:${candidate.entry.id}`} className={`pv-home-hero-slide ${index===rotation.index?"is-current":""}`} aria-hidden="true"><Artwork title={candidate} hero headline={headline}/></div>)}</div>
+  return <section className="pv-home-hero" aria-label="Featured title" aria-roledescription={candidates.length>1?"carousel":undefined} onMouseEnter={()=>{hovering.current=true;rotation.setInteracting(true);}} onMouseLeave={event=>{hovering.current=false;rotation.setInteracting(event.currentTarget.contains(document.activeElement));}} onFocus={()=>rotation.setInteracting(true)} onBlur={event=>rotation.setInteracting(hovering.current||event.currentTarget.contains(event.relatedTarget))}>
+    <div className="pv-home-hero-art">{candidates.map((candidate,index)=>({candidate,index})).filter(({index})=>index===rotation.index||index===(rotation.index+1)%candidates.length||index===(rotation.index+candidates.length-1)%candidates.length).map(({candidate,index})=><div key={`${candidate.library.id}:${candidate.entry.id}`} className={`pv-home-hero-slide ${index===rotation.index?"is-current":""}`} aria-hidden="true"><Artwork title={candidate} hero/></div>)}</div>
     {candidates.length>1&&<>
       <button type="button" className="pv-home-edge-arrow pv-home-edge-previous" aria-label="Previous featured title" onClick={rotation.previous}><ChevronLeft aria-hidden="true"/></button>
       <button type="button" className="pv-home-edge-arrow pv-home-edge-next" aria-label="Next featured title" onClick={rotation.next}><ChevronRight aria-hidden="true"/></button>

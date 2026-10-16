@@ -21,8 +21,11 @@
 /* Keep playback actions equal even when only one includes an icon. */
 .pv-discovery-hover-actions .pv-discovery-hover-play{justify-content:center;min-width:0;min-height:44px;text-align:center;line-height:1.35;padding:8px 10px}
 .pv-discovery-hover-play svg{flex-shrink:0}
-.pv-discovery-hover-actions>a:not(.pv-discovery-hover-play){grid-column:1/-1;justify-self:start}
+.pv-discovery-hover-actions:has(>.pv-discovery-hover-play:nth-child(2)){grid-template-columns:repeat(3,minmax(0,1fr))}
 .pv-discovery-hover-actions .pv-series-preview-error{grid-column:1/-1}
 
 .pv-discovery-hover-actions :is(a,button){background:transparent;color:inherit;border-color:var(--color-border,#ffffff30)}
 .pv-discovery-hover-actions :is(a,button):hover:not(:disabled){background:#ffffff18}
+
+.pv-discovery-hover-actions>:is(a,button){justify-content:center;min-width:0;min-height:44px;padding:8px 6px;gap:5px;text-align:center;line-height:1.35;font-size:12px}
+.pv-discovery-hover-actions>:is(a,button) svg{flex-shrink:0}

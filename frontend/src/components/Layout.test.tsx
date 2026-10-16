@@ -145,13 +145,20 @@ it("orders Preferences, Profile, Settings and opens personal preference links",a
  expect(document.activeElement).toBe(preferences);
 });
 
-it("offers Backdrop and Banner headline choices in homepage preferences",async()=>{
+it("does not offer the retired headline artwork preference",async()=>{
  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
  render(<MemoryRouter><AuthGate><Layout/></AuthGate></MemoryRouter>);
  fireEvent.click(await screen.findByLabelText("Preferences"));
- const choice=screen.getByRole("combobox",{name:"Headline artwork"}) as HTMLSelectElement;
- expect(choice.value).toBe("backdrop");
- fireEvent.change(choice,{target:{value:"banner"}});
- expect(choice.value).toBe("banner");
- expect(within(choice).getByRole("option",{name:"Banner"})).toBeTruthy();
+ expect(screen.queryByRole("combobox",{name:"Headline artwork"})).toBeNull();
+});
+
+it("returns from a library to the homepage using the header back button",async()=>{
+ vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
+ render(<MemoryRouter initialEntries={["/media/Anime"]}><AuthGate><Layout><CurrentLocation/></Layout></AuthGate></MemoryRouter>);
+ const back=await screen.findByRole("link",{name:"Back to homepage"});
+ expect(back.getAttribute("href")).toBe("/");
+ expect(back.className).toContain("size-11");
+ fireEvent.click(back);
+ await waitFor(()=>expect(screen.queryByRole("link",{name:"Back to homepage"})).toBeNull());
+ expect(screen.getByText("/")).toBeTruthy();
 });

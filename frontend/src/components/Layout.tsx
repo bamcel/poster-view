@@ -1,4 +1,4 @@
-import {useHomepageHeadline,useHomepageNavigation} from "../lib/homepagePreferences";
+import {useHomepageNavigation} from "../lib/homepagePreferences";
 import {useCatalogPrefetch} from "../lib/catalogPrefetch";
 import {HeaderSearchTarget} from "../lib/headerSearch";
 import DownloadStatus,{openDownloadsEvent} from "../features/settings/ytdl/DownloadStatus";
@@ -10,7 +10,7 @@ import {nativeLibraries} from "../api/nativeLibraries";
 // App chrome: contextual media/settings navigation and account controls.
 
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, MoreHorizontal, Menu, X, } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, MoreHorizontal, Menu, X, } from "lucide-react";
 import { Logo } from "./ui";
 import { api } from "../api/client";
 import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -28,7 +28,6 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   const navigationToggle=useRef<HTMLButtonElement>(null);
   const navigationPanel=useRef<HTMLElement>(null);
   const preferencesMenu=useRef<HTMLDetailsElement>(null);
-  const [headline,setHeadline]=useHomepageHeadline();
   useEffect(()=>{
     const close=(event:PointerEvent)=>{if(preferencesMenu.current&&!preferencesMenu.current.contains(event.target as Node))preferencesMenu.current.open=false;};
     const escape=(event:KeyboardEvent)=>{if(event.key==="Escape"&&preferencesMenu.current?.open){event.preventDefault();preferencesMenu.current.open=false;preferencesMenu.current.querySelector("summary")?.focus();}};
@@ -144,6 +143,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className={`relative z-20 flex shrink-0 items-center gap-2 bg-transparent px-3 ${homeSearch?"min-h-14 flex-wrap sm:h-14 sm:flex-nowrap":"h-14"}`}>
+        {(preview?previewPath:location.pathname).startsWith("/media/")&&<NavLink to="/" aria-label="Back to homepage" title="Back to homepage" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white focus-visible:outline-2 focus-visible:outline-accent"><ArrowLeft className="size-[20px]" aria-hidden="true"/></NavLink>}
         {homeSearch&&<button ref={navigationToggle} type="button" aria-label={navigationOpen?"Collapse navigation":"Open navigation"} aria-expanded={navigationOpen} aria-controls="app-navigation" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>setNavigationOpen(!navigationOpen)}><Menu size={21}/></button>}
         <NavLink to="/" aria-label="Go to Home" className="mr-auto min-w-0 md:hidden">
           <Logo className="w-20 overflow-hidden [&>img]:max-w-full [&>img]:translate-y-[5px] sm:w-36" />
@@ -171,7 +171,6 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           <details ref={preferencesMenu} className="relative">
             <summary aria-label="Preferences" title="Preferences" className="grid size-11 cursor-pointer list-none place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white [&::-webkit-details-marker]:hidden"><MoreHorizontal className="size-[20px]"/></summary>
             <nav aria-label="Personal preferences" className="absolute right-0 top-full z-30 mt-2 w-56 rounded-xl border border-border bg-sidebar p-2 shadow-xl">
-              {homeSearch&&<label className="block border-b border-border px-3 py-3 text-sm text-muted">Headline<select aria-label="Headline artwork" value={headline} onChange={event=>setHeadline(event.target.value as "backdrop"|"banner")} className="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-white"><option value="backdrop">Backdrop</option><option value="banner">Banner</option></select><span className="mt-2 block text-xs text-faint">Saved for your account in this browser.</span></label>}
               <NavLink to="/settings/playback" onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-input-hover hover:text-white">Playback preferences</NavLink>
               <NavLink to="/settings/reading" onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-input-hover hover:text-white">Reading preferences</NavLink>
             </nav>

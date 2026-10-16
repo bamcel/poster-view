@@ -23,19 +23,10 @@
 @media(max-width:480px){.pv-home-hero{border-radius:18px;min-height:440px;aspect-ratio:2/3}.pv-home-hero-content{padding:24px}.pv-home-hero::before{background:linear-gradient(0deg,rgba(9,13,17,.92),rgba(9,13,17,.72) 36%,rgba(9,13,17,.25) 62%,transparent 85%)}.pv-home-actions{flex-direction:column;gap:8px;margin-top:20px}.pv-home-action{width:100%}.pv-home-hero-plot{white-space:pre-line;font-size:14px}.pv-home-hero h2{font-size:32px}.pv-home-row-heading h2{font-size:18px}.pv-home-card-link h3{font-size:13px}}
 @media(prefers-reduced-motion:reduce){.pv-home-landscape-art{transition:none}}
 
-.pv-home-library-section,.pv-home-continue-section{container-type:inline-size;min-width:0;margin-top:30px}.pv-home-library-card>div{aspect-ratio:16/9;border-radius:12px}.pv-home-library-card h3{font-size:14px;font-weight:600;margin-top:9px}.pv-home-continue-section .pv-home-landscape-card>div{border-radius:12px}
+.pv-home-library-section,.pv-home-continue-section{container-type:inline-size;min-width:0;margin-top:30px}.pv-home-library-card>div{position:relative;aspect-ratio:16/9;border-radius:12px}.pv-home-library-card [aria-label="Library poster preview"]{position:absolute;inset:0}.pv-home-library-card [aria-label="Library poster preview"]>div{height:100%}.pv-home-library-card [aria-label="Library poster preview"]>div>div{display:flex;flex-direction:column;height:100%;min-height:0}.pv-home-library-card [aria-label="Library poster preview"]>div>div>img{height:75%;min-height:0;aspect-ratio:auto}.pv-home-library-card [aria-label="Library poster preview"]>div>div>div{height:25%;flex-shrink:0}.pv-home-library-card h3{font-size:14px;font-weight:600;margin-top:9px}.pv-home-continue-section .pv-home-landscape-card>div{border-radius:12px}
 
 
 .pv-home-hero-slide{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease-in-out}.pv-home-hero-slide.is-current{opacity:1}@media(prefers-reduced-motion:reduce){.pv-home-hero-slide{transition:none}}
-
-.pv-home-hero.pv-home-hero-banner{width:auto;margin-inline:20px;aspect-ratio:4.36/1;min-height:280px}
-@media(min-width:640px){.pv-home-hero.pv-home-hero-banner{margin-inline:32px}}
-@media(min-width:768px){.pv-home-hero.pv-home-hero-banner{margin-inline:48px}}
-@media(max-width:959px){.pv-home-hero-banner .pv-home-hero-content{padding:64px 24px 24px}.pv-home-hero-banner h2{font-size:28px}.pv-home-hero-banner .pv-home-hero-plot{-webkit-line-clamp:2;font-size:14px}.pv-home-hero-banner .pv-home-actions{margin-top:14px}}
-
-.pv-home-hero-banner .pv-home-eyebrow{display:block}.pv-home-hero-banner .pv-home-hero-plot{display:-webkit-box}
-
-.pv-home-banner-placeholder{width:100%;height:100%;background:#60656b}
 
 .pv-home-edge-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:2;display:grid;place-items:center;width:40px;height:64px;border:0;background:transparent;color:#fff;opacity:0;pointer-events:none;transition:opacity .25s ease;cursor:pointer}
 .pv-home-edge-previous{left:8px}.pv-home-edge-next{right:8px}.pv-home-edge-arrow svg{width:26px;height:26px}
