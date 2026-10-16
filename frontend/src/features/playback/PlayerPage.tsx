@@ -240,17 +240,17 @@ export default function PlayerPage() {
       const choice=selected.current,policy=selectedDelivery.current,chosenAudio=data.tracks.find(track=>track.kind==="audio"&&track.index===choice.audio);
       const audioCodecs=caps.audio_codecs.filter(codec=>!chosenAudio||codec!==chosenAudio.codec||originalAudioSupported(chosenAudio,element));
       const q=qualityChoices[policy.quality]??qualityChoices[0];
-      // Cold HEVC-in-Matroska resumes can stall while native demuxers rebuild
-      // their seek state. Start a permitted copied stream without that wait;
-      // warm native seeks and explicit original playback keep their source.
-      const copiedResume=!previous&&target>0&&policy.delivery==="auto"&&policy.quality===0&&["mkv","matroska"].includes(data.container?.toLowerCase()??"")&&data.tracks.some(track=>track.kind==="video"&&track.codec.toLowerCase()==="hevc")&&losslessAudioAllowed(data,caps,choice.audio);
-      const requireCopy=losslessFallback||copiedResume;
+      // Cold HEVC-in-Matroska starts can stall before native demuxers produce
+      // metadata or frames, including Play at zero. Use the same permitted
+      // lossless startup as Resume; warm seeks and explicit Original stay native.
+      const copiedStartup=!previous&&policy.delivery==="auto"&&policy.quality===0&&["mkv","matroska"].includes(data.container?.toLowerCase()??"")&&data.tracks.some(track=>track.kind==="video"&&track.codec.toLowerCase()==="hevc")&&losslessAudioAllowed(data,caps,choice.audio);
+      const requireCopy=losslessFallback||copiedStartup;
       const creating=playbackApi.create(libraryId,itemId,{position_seconds:target,audio_index:choice.audio,subtitle_index:choice.subtitle<0?null:choice.subtitle,...caps,audio_codecs:audioCodecs,direct_only:policy.delivery==="original",force_remux:policy.delivery==="stream"||requireCopy,max_height:q.height,max_bitrate:q.bitrate,bandwidth_limit_bps:policy.budget});
       const allocation=creating.then(async created=>{if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)await playbackApi.stop(created.id).catch(()=>{});}).catch(()=>{});
       pendingAllocation.current=allocation;void allocation.finally(()=>{if(pendingAllocation.current===allocation)pendingAllocation.current=undefined;});
       const created=await creating;
       if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)return;
-      if(requireCopy&&created.method!=="remux"){void playbackApi.stop(created.id).catch(()=>{});throw new Error("The server could not resume this video with lossless stream copying.");}
+      if(requireCopy&&created.method!=="remux"){void playbackApi.stop(created.id).catch(()=>{});throw new Error("The server could not start this video with lossless stream copying.");}
       seekQueue.current.reset(created);attachSource(created,target,generation);
     }catch(error){if(mounted.current&&activeRoute.current===routeKey&&generation===requestGeneration.current){setLoading(false);setError(errorMessage(error));}}
   },[libraryId,itemId,routeKey,report,attachSource,terminalError]);

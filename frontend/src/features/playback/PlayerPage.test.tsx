@@ -395,15 +395,18 @@ describe("segmented playback and browser bitmap subtitles",()=>{
 });
 
 
-it("starts eligible cold HEVC Matroska resumes with lossless copying immediately",async()=>{
+it.each([0,300])("starts eligible cold HEVC Matroska playback at %s with lossless copying immediately",async savedPosition=>{
+  vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state:{...state,position_seconds:savedPosition}});
+  const target=Math.max(0,savedPosition-5);
   hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
   vi.mocked(playbackApi.info).mockResolvedValue({...info,container:"mkv",remux_allowed:true,tracks:info.tracks.map(track=>track.kind==="video"?{...track,codec:"hevc"}:track)});
-  vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",generation:1,offset_seconds:290,url:"/hls/1/index.m3u8",mime:"application/vnd.apple.mpegurl"});
+  vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"remux",generation:1,offset_seconds:Math.max(0,target-5),url:"/hls/1/index.m3u8",mime:"application/vnd.apple.mpegurl"});
   player();const video=await ready();
   expect(playbackApi.create).toHaveBeenCalledTimes(1);
-  expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({force_remux:true,max_bitrate:0,max_height:0,position_seconds:295}));
-  expect(video.currentTime).toBe(5);
-  expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:295}),false);
+  expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({force_remux:true,max_bitrate:0,max_height:0,position_seconds:target}));
+  expect(video.currentTime).toBe(Math.min(5,target));
+  expect(video.play).toHaveBeenCalled();
+  expect(watchApi.progress).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({position_seconds:target}),false);
   vi.mocked(playbackApi.create).mockResolvedValue(session);
   fireEvent.click(screen.getByRole("button",{name:"Playback quality"}));
   fireEvent.click(screen.getByRole("button",{name:"Original · direct only"}));
@@ -413,19 +416,29 @@ it("starts eligible cold HEVC Matroska resumes with lossless copying immediately
 
 it("keeps warm native HEVC Matroska seeks on their original source",async()=>{
   hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
-  vi.mocked(playbackApi.info).mockResolvedValue({...info,container:"mkv",remux_allowed:true,tracks:info.tracks.map(track=>track.kind==="video"?{...track,codec:"hevc"}:track)});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,container:"mkv",remux_allowed:false,tracks:info.tracks.map(track=>track.kind==="video"?{...track,codec:"hevc"}:track)});
   vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state:{...state,position_seconds:0}});
   player();const video=await ready();const source=video.getAttribute("src");scrubTo(600);fireEvent.seeked(video);
   expect(video.currentTime).toBe(600);expect(video.getAttribute("src")).toBe(source);expect(playbackApi.create).toHaveBeenCalledTimes(1);
 });
 
-it.each(["zero","forbidden","unsupported","other codec"])("keeps the original cold source when copied resume is %s",async condition=>{
+it.each([0,300].flatMap(savedPosition=>["forbidden","unsupported","other codec","other container","unsupported audio"].map(condition=>({savedPosition,condition}))))("keeps original cold playback at $savedPosition when copying is $condition",async ({savedPosition,condition})=>{
   hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>condition!=="unsupported"});
-  vi.mocked(playbackApi.info).mockResolvedValue({...info,container:"mkv",remux_allowed:condition!=="forbidden",tracks:info.tracks.map(track=>track.kind==="video"?{...track,codec:condition==="other codec"?"h264":"hevc"}:track)});
-  if(condition==="zero")vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state:{...state,position_seconds:0}});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,container:condition==="other container"?"mp4":"mkv",remux_allowed:condition!=="forbidden",tracks:info.tracks.map(track=>track.kind==="video"?{...track,codec:condition==="other codec"?"h264":"hevc"}:condition==="unsupported audio"&&track.kind==="audio"?{...track,codec:"dts"}:track)});
+  vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state:{...state,position_seconds:savedPosition}});
   player();await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());
   expect(playbackApi.create).toHaveBeenCalledTimes(1);
   expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({force_remux:false,direct_only:false}));
+});
+
+it.each([0,300])("rejects an unexpected encoded response for lossless startup at %s",async savedPosition=>{
+  hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+  vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state:{...state,position_seconds:savedPosition}});
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,container:"mkv",remux_allowed:true,tracks:info.tracks.map(track=>track.kind==="video"?{...track,codec:"hevc"}:track)});
+  vi.mocked(playbackApi.create).mockResolvedValue({...session,method:"transcode"});
+  player();await screen.findByText("The server could not start this video with lossless stream copying.");
+  expect(playbackApi.stop).toHaveBeenCalledWith(session.id);
+  expect(document.querySelector("video")!.getAttribute("src")).toBeNull();
 });
 
 it("bounds native initialization without decoded data and preserves its resume target",async()=>{

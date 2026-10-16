@@ -239,10 +239,14 @@ client path; Unix producer suspension and refill policy are covered by tests,
 and the updated Unraid image still needs live validation. Large jumps outside
 retained media continue to incur keyframe inspection and producer startup.
 
-Auto starts a nonzero cold resume of HEVC in Matroska with stream copying when
-the administrator permits remuxing and the browser supports copying both selected
-tracks. The response must actually be a remux. Time-zero starts, warm native
-seeks and explicit Original mode keep their existing direct delivery behavior.
+Auto starts cold HEVC playback in Matroska with stream copying, including Play
+at zero and nonzero Resume, when the administrator permits remuxing and the
+browser supports copying both selected
+tracks. The response must actually be a remux. Native time-zero movie startup
+was observed stalling before metadata/frames and triggering recovery, while a
+second attempt played. This extends the existing cold-resume safeguard to avoid
+that native startup path without encoding either track. Warm native seeks, other
+compatible formats and explicit Original mode retain direct delivery behavior.
 Native initialization has a bounded recovery deadline even before decoded data
 arrives.
 
