@@ -35,19 +35,39 @@ it("does not invent a percentage for unknown progress", ()=>{
   expect(screen.getByText("In progress")).toBeTruthy();
 });
 
-it("expands other activity and dismisses only finished entries", ()=>{
+it("slides between activities, wraps, and dismisses only finished entries", ()=>{
   mount([running,{id:"test:done",title:"Finished task",detail:"Ready",state:"completed"},{id:"test:failed",title:"Failed task",detail:"Try again",state:"failed"}]);
-  const expand=screen.getByRole("button",{name:"2 more activities"});
-  expect(expand.getAttribute("aria-expanded")).toBe("false");
-  expect(screen.queryByText("Finished task")).toBeNull();
-  fireEvent.click(expand);
-  expect(expand.getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByText("1 / 3")).toBeTruthy();
+  expect(screen.queryByRole("button",{name:"Dismiss Finished task"})).toBeNull();
+  fireEvent.click(screen.getByRole("button",{name:"Next activity"}));
+  expect(screen.getByText("2 / 3")).toBeTruthy();
+  expect(screen.queryByRole("progressbar",{name:running.title})).toBeNull();
   fireEvent.click(screen.getByRole("button",{name:"Dismiss Finished task"}));
   expect(dismiss).toHaveBeenCalledWith("test:done");
+  fireEvent.click(screen.getByRole("button",{name:"Next activity"}));
   fireEvent.click(screen.getByRole("button",{name:"Dismiss Failed task"}));
   expect(dismiss).toHaveBeenCalledWith("test:failed");
+  fireEvent.click(screen.getByRole("button",{name:"Next activity"}));
+  expect(screen.getByText("1 / 3")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"Previous activity"}));
+  expect(screen.getByText("3 / 3")).toBeTruthy();
   fireEvent.click(screen.getByRole("button",{name:"Clear finished"}));
   expect(clearFinished).toHaveBeenCalledOnce();
+});
+
+it("keeps the selected activity through reordering and recovers when it disappears",()=>{
+ const done:ActivityItem={id:"done",title:"Completed",detail:"Ready",state:"completed"};
+ const view=mount([running,done]);
+ fireEvent.keyDown(screen.getByRole("region",{name:"Activity status"}),{key:"ArrowRight"});
+ expect(screen.getByRole("button",{name:"Dismiss Completed"})).toBeTruthy();
+ vi.mocked(useActivity).mockReturnValue({items:[done,running],dismiss,clearFinished,publish:vi.fn()});
+ view.rerender(<MemoryRouter><GlobalActivityStatus/></MemoryRouter>);
+ expect(screen.getByText("1 / 2")).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Dismiss Completed"})).toBeTruthy();
+ vi.mocked(useActivity).mockReturnValue({items:[running],dismiss,clearFinished,publish:vi.fn()});
+ view.rerender(<MemoryRouter><GlobalActivityStatus/></MemoryRouter>);
+ expect(screen.getByRole("progressbar",{name:running.title})).toBeTruthy();
+ expect(screen.queryByRole("button",{name:"Next activity"})).toBeNull();
 });
 
 it("activates internal links and allowed activity events", ()=>{
