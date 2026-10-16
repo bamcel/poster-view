@@ -1,3 +1,4 @@
+import {watchApi} from "../features/playback/api/watch";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -6,6 +7,7 @@ vi.mock("../api/client",()=>({api:{listServers:vi.fn()},apiRequest:vi.fn().mockR
 import NativeLibrariesSection, { LibraryDialog } from "./NativeLibrariesSection";
 import { defaultNativeOptions, nativeLibraries, type NativeLibrary } from "../api/nativeLibraries";
 
+vi.mock("../features/playback/api/watch",async original=>({...await original<typeof import("../features/playback/api/watch")>(),watchApi:{rules:vi.fn(),saveRules:vi.fn()}}));
 vi.mock("../api/nativeLibraries", async importOriginal => ({...(await importOriginal<typeof import("../api/nativeLibraries")>()), nativeLibraries: { list: vi.fn(), save: vi.fn(), folders: vi.fn(), status: vi.fn(), catalog: vi.fn(), previews: vi.fn(), scan: vi.fn(), refresh:vi.fn(), remove: vi.fn() } }));
 const saved: NativeLibrary = { id: "library", name: "Anime", library_type: "anime", anime_content: "both", paths: ["Shows", "Movies"], revision: 1, created_at: "", updated_at: "" };
 function mount(component: React.ReactNode) {
@@ -14,6 +16,7 @@ function mount(component: React.ReactNode) {
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal=vi.fn(function(this:HTMLDialogElement){this.setAttribute("open","");});
   vi.mocked(api.listServers).mockResolvedValue([]);
+  vi.mocked(watchApi.saveRules).mockImplementation(async(_library,rules)=>rules);
   vi.mocked(nativeLibraries.list).mockResolvedValue([]);
   vi.mocked(nativeLibraries.previews).mockResolvedValue([]);
   vi.mocked(nativeLibraries.save).mockResolvedValue(saved);
@@ -207,4 +210,33 @@ it("cancels folder edits without changing the library's existing roots",async()=
  fireEvent.click(screen.getByRole("button",{name:"Cancel"}));
  expect(screen.getByRole("dialog",{name:"Edit library"})).toBeTruthy();
  expect(screen.getByText("2 folders selected")).toBeTruthy();
+});
+
+it("configures YouTube playback rules before creating the library",async()=>{
+ const onSaved=vi.fn();
+ mount(<LibraryDialog seed={{name:"YouTube",library_type:"youtube",anime_content:"both",paths:["YouTube"],options:defaultNativeOptions,revision:null}} onClose={vi.fn()} onSaved={onSaved}/>);
+ fireEvent.click(screen.getByRole("button",{name:/Advanced/}));
+ fireEvent.change(screen.getByLabelText("Minimum resume percentage"),{target:{value:"5"}});
+ fireEvent.change(screen.getByLabelText("Maximum resume percentage"),{target:{value:"95"}});
+ fireEvent.change(screen.getByLabelText("Minimum resume duration (seconds)"),{target:{value:"60"}});
+ expect(watchApi.saveRules).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole("button",{name:/Review/}));fireEvent.click(screen.getByRole("button",{name:"Create library"}));
+ await waitFor(()=>expect(watchApi.saveRules).toHaveBeenCalledWith("library",{minimum_percentage:5,maximum_percentage:95,minimum_duration_seconds:60}));
+ expect(onSaved).toHaveBeenCalledOnce();
+});
+it("retries playback rule persistence against the created library rather than creating twice",async()=>{
+ vi.mocked(watchApi.saveRules).mockRejectedValueOnce(new Error("Temporary error"));
+ const onSaved=vi.fn();mount(<LibraryDialog seed={{name:"TV",library_type:"shows",anime_content:"both",paths:["Shows"],options:defaultNativeOptions,revision:null}} onClose={vi.fn()} onSaved={onSaved}/>);
+ fireEvent.click(screen.getByRole("button",{name:/Advanced/}));fireEvent.change(screen.getByLabelText("Minimum resume percentage"),{target:{value:"3"}});
+ fireEvent.click(screen.getByRole("button",{name:/Review/}));fireEvent.click(screen.getByRole("button",{name:"Create library"}));
+ expect(await screen.findByText(/Library created, but playback rules could not be saved/)).toBeTruthy();expect(onSaved).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole("button",{name:"Create library"}));await waitFor(()=>expect(onSaved).toHaveBeenCalledOnce());
+ expect(vi.mocked(nativeLibraries.save).mock.calls[0][1]).toBeUndefined();expect(vi.mocked(nativeLibraries.save).mock.calls[1][1]).toBe("library");
+ expect(vi.mocked(nativeLibraries.save).mock.calls[1][0].revision).toBe(saved.revision);
+});
+it("prevents creating a library with invalid draft playback thresholds",async()=>{
+ mount(<LibraryDialog seed={{name:"TV",library_type:"shows",anime_content:"both",paths:["Shows"],options:defaultNativeOptions,revision:null}} onClose={vi.fn()} onSaved={vi.fn()}/>);
+ fireEvent.click(screen.getByRole("button",{name:/Advanced/}));fireEvent.change(screen.getByLabelText("Maximum resume percentage"),{target:{value:"1"}});
+ fireEvent.click(screen.getByRole("button",{name:/Review/}));expect((screen.getByRole("button",{name:"Create library"}) as HTMLButtonElement).disabled).toBe(true);
+ expect(nativeLibraries.save).not.toHaveBeenCalled();
 });

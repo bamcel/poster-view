@@ -1,7 +1,9 @@
+import GlobalActivityStatus from "../features/activity/GlobalActivityStatus";
+import {HeaderBackdropContext,headerBackdropStyle} from "../lib/headerBackdrop";
 import {useHomepageNavigation} from "../lib/homepagePreferences";
 import {useCatalogPrefetch} from "../lib/catalogPrefetch";
 import {HeaderSearchTarget} from "../lib/headerSearch";
-import DownloadStatus,{openDownloadsEvent} from "../features/settings/ytdl/DownloadStatus";
+import {openDownloadsEvent} from "../features/settings/ytdl/DownloadStatus";
 import {resetHomeNavigation} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
@@ -24,6 +26,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   const queryClient=useQueryClient();
   const location = useLocation();
   const [searchTarget,setSearchTarget]=useState<HTMLDivElement|null>(null);
+  const [headerBackdrop,setHeaderBackdrop]=useState<string|null>(null);
   const homeSearch=!preview&&location.pathname==="/"&&!new URLSearchParams(location.search).has("lib")&&!new URLSearchParams(location.search).has("native_library");
   const [navigationOpen,setNavigationOpen]=useHomepageNavigation();
   const navigationToggle=useRef<HTMLButtonElement>(null);
@@ -142,10 +145,10 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
         </nav>
 
-        <div className="mt-auto max-h-[40%] shrink-0 overflow-y-auto pt-4">{!preview&&settingsOpen&&isAdmin&&<DownloadStatus compact/>}</div>
+        <div className="mt-auto max-h-[40%] shrink-0 overflow-y-auto pt-4">{!preview&&<GlobalActivityStatus/>}</div>
       </aside>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col" style={!preview&&location.pathname==="/virtual-tv"&&headerBackdrop?headerBackdropStyle(headerBackdrop):undefined}>
       <header className={`relative z-20 flex shrink-0 items-center gap-2 bg-transparent px-3 ${homeSearch?"min-h-14 flex-wrap sm:h-14 sm:flex-nowrap":"h-14"}`}>
         {(preview?previewPath:location.pathname).startsWith("/media/")&&<NavLink to="/" aria-label="Back to homepage" title="Back to homepage" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white focus-visible:outline-2 focus-visible:outline-accent"><ArrowLeft className="size-[20px]" aria-hidden="true"/></NavLink>}
         {homeSearch&&<button ref={navigationToggle} type="button" aria-label={navigationOpen?"Collapse navigation":"Open navigation"} aria-expanded={navigationOpen} aria-controls="app-navigation" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>setNavigationOpen(!navigationOpen)}><Menu size={21}/></button>}
@@ -199,7 +202,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
       {!preview&&!settingsOpen&&virtualTvSettings.data?.enabled&&<NavLink to="/virtual-tv" className="flex shrink-0 items-center gap-2 bg-sidebar px-4 py-2 text-sm md:hidden"><Tv className="size-4"/>Virtual TV</NavLink>}
       <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
-        <HeaderSearchTarget.Provider value={homeSearch?searchTarget:null}>{children ?? <Outlet />}</HeaderSearchTarget.Provider>
+        <HeaderBackdropContext.Provider value={setHeaderBackdrop}><HeaderSearchTarget.Provider value={homeSearch?searchTarget:null}>{children ?? <Outlet />}</HeaderSearchTarget.Provider></HeaderBackdropContext.Provider>
       </main>
       {!preview&&isAdmin&&downloadsOpen&&<Suspense fallback={null}><DownloadQueuePopup initialTab="Queue" onClose={()=>setDownloadsOpen(false)}/></Suspense>}
       </div>

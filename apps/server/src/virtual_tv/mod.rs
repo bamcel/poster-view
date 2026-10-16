@@ -41,6 +41,8 @@ pub(super) struct Channel {
     name: String,
     number: u32,
     library_ids: Vec<String>,
+    #[serde(default)]
+    collection_ids: Vec<String>,
     show_ids: Vec<String>,
     movie_ids: Vec<String>,
     genres: Vec<String>,
@@ -56,6 +58,8 @@ struct ChannelInput {
     name: String,
     number: u32,
     library_ids: Vec<String>,
+    #[serde(default)]
+    collection_ids: Vec<String>,
     #[serde(default)]
     show_ids: Vec<String>,
     #[serde(default)]
@@ -346,9 +350,39 @@ fn special_placement(entry: &NativeCatalogEntry) -> Option<(i64, i64, u8)> {
         _ => None,
     }
 }
-fn candidates(state: &AppState, channel: &Channel) -> Result<Vec<Candidate>, HttpError> {
+fn candidates(state: &AppState, channel: &mut Channel) -> Result<Vec<Candidate>, HttpError> {
     let store = ServerStore::new(state.runtime.data_dir());
     let libraries = store.native_libraries().map_err(storage)?;
+    let mut members = HashSet::new();
+    for id in &channel.collection_ids {
+        let collection = store
+            .collection(id)
+            .map_err(storage)?
+            .ok_or_else(|| HttpError::bad_request("Selected collection no longer exists."))?;
+        if collection.members.is_empty() {
+            return Err(HttpError::bad_request(
+                "Choose collections containing video titles.",
+            ));
+        }
+        for member in collection.members {
+            let entry = store
+                .native_catalog_item(&member.library_id, &member.item_id)
+                .map_err(storage)?
+                .ok_or_else(|| HttpError::bad_request("Collection title no longer exists."))?;
+            if !matches!(entry.kind.as_str(), "series" | "movie") || !source_title(&entry) {
+                return Err(HttpError::bad_request(
+                    "Collections must contain valid movies or series.",
+                ));
+            }
+            channel.library_ids.push(member.library_id.clone());
+            members.insert((member.library_id, member.item_id));
+        }
+    }
+    channel.library_ids.sort();
+    channel.library_ids.dedup();
+    if channel.library_ids.len() > 100 || members.len() > 10000 {
+        return Err(HttpError::bad_request("Channel selection is too large."));
+    }
     let mut result = vec![];
     let mut found_shows = HashSet::new();
     let mut found_movies = HashSet::new();
@@ -396,6 +430,8 @@ fn candidates(state: &AppState, channel: &Channel) -> Result<Vec<Candidate>, Htt
                 }
                 path = ancestor.parent_path.as_deref();
             }
+            let collection_match = members.contains(&(library.clone(), entry.id.clone()))
+                || series.is_some_and(|s| members.contains(&(library.clone(), s.id.clone())));
             let selected = channel.movie_ids.contains(&entry.id)
                 || series.is_some_and(|s| channel.show_ids.contains(&s.id));
             let genre_match = std::iter::once(entry).chain(series).any(|e| {
@@ -419,8 +455,9 @@ fn candidates(state: &AppState, channel: &Channel) -> Result<Vec<Candidate>, Htt
             });
             let unfiltered = channel.show_ids.is_empty()
                 && channel.movie_ids.is_empty()
-                && channel.genres.is_empty();
-            if !unfiltered && !selected && !genre_match {
+                && channel.genres.is_empty()
+                && channel.collection_ids.is_empty();
+            if !unfiltered && !selected && !genre_match && !collection_match {
                 continue;
             }
             let duration = entry
@@ -482,7 +519,7 @@ fn validate(input: ChannelInput, id: String, revision: u64) -> Result<Channel, H
         || input.name.len() > 120
         || input.number == 0
         || input.number > 99999
-        || input.library_ids.is_empty()
+        || (input.library_ids.is_empty() && input.collection_ids.is_empty())
         || input.library_ids.len() > 100
         || !matches!(
             input.order.as_str(),
@@ -491,14 +528,16 @@ fn validate(input: ChannelInput, id: String, revision: u64) -> Result<Channel, H
         || DateTime::parse_from_rfc3339(&input.start_at).is_err()
     {
         return Err(HttpError::bad_request(
-            "Provide a channel name, number, native libraries, valid ordering, and start time.",
+            "Provide a channel name, number, native libraries or collections, valid ordering, and start time.",
         ));
     }
     if input.show_ids.len() + input.movie_ids.len() > 10000
+        || input.collection_ids.len() > 100
         || input.genres.len() > 100
         || input
             .library_ids
             .iter()
+            .chain(&input.collection_ids)
             .chain(&input.show_ids)
             .chain(&input.movie_ids)
             .chain(&input.genres)
@@ -511,11 +550,15 @@ fn validate(input: ChannelInput, id: String, revision: u64) -> Result<Channel, H
     let mut library_ids = input.library_ids;
     library_ids.sort();
     library_ids.dedup();
+    let mut collection_ids = input.collection_ids;
+    collection_ids.sort();
+    collection_ids.dedup();
     Ok(Channel {
         id,
         name: input.name.trim().into(),
         number: input.number,
         library_ids,
+        collection_ids,
         show_ids: input.show_ids,
         movie_ids: input.movie_ids,
         genres: input.genres,
@@ -536,7 +579,7 @@ async fn create(
     if doc.channels.len() >= 128 {
         return Err(HttpError::bad_request("Limit reached: 128 channels."));
     }
-    let channel = validate(input, uuid::Uuid::new_v4().to_string(), 1)?;
+    let mut channel = validate(input, uuid::Uuid::new_v4().to_string(), 1)?;
     if doc
         .channels
         .iter()
@@ -545,7 +588,7 @@ async fn create(
         return Err(HttpError::bad_request("Channel number is already in use."));
     }
     let record = Record {
-        candidates: candidates(&state, &channel)?,
+        candidates: candidates(&state, &mut channel)?,
         channel: channel.clone(),
     };
     program_list(&record)?;
@@ -590,11 +633,12 @@ async fn update(
         return Err(HttpError::bad_request("Channel number is already in use."));
     }
     let mut record = Record {
-        candidates: candidates(&state, &channel)?,
+        candidates: candidates(&state, &mut channel)?,
         channel: channel.clone(),
     };
     program_list(&record)?;
     if channel.library_ids == previous.library_ids
+        && channel.collection_ids == previous.collection_ids
         && channel.show_ids == previous.show_ids
         && channel.movie_ids == previous.movie_ids
         && channel.genres == previous.genres

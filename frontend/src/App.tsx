@@ -1,3 +1,5 @@
+import {ActivityProvider} from "./features/activity/ActivityContext";
+import ActivitySources from "./features/activity/ActivitySources";
 import HomePage from "./pages/HomePage";
 import { Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
@@ -24,6 +26,7 @@ export default function App() {
       <AppearanceBootstrap>
         <ServerProvider>
           <ToastProvider>
+            <ActivityProvider><ActivitySources/>
             <Routes>
             <Route path="/play/virtual-tv/:channelId" element={<Suspense fallback={<p className="p-8">Tuning in…</p>}><VirtualTvPlayer /></Suspense>} />
             <Route path="/play/native/:libraryId/:itemId" element={<Suspense fallback={<p className="p-8">Opening player…</p>}><PlayerPage /></Suspense>} />
@@ -45,6 +48,7 @@ export default function App() {
               <Route path="/server/:serverId/item/:itemId" element={<Suspense fallback={<p role="status" className="p-8">Loading page…</p>}><ItemDetailPage /></Suspense>} />
             </Route>
             </Routes>
+            </ActivityProvider>
           </ToastProvider>
         </ServerProvider>
       </AppearanceBootstrap>

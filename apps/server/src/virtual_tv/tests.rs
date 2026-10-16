@@ -92,6 +92,7 @@ fn input(library: &str) -> ChannelInput {
         name: "Channel".into(),
         number: 1,
         library_ids: vec![library.into()],
+        collection_ids: vec![],
         show_ids: vec![],
         movie_ids: vec![],
         genres: vec![],
@@ -646,4 +647,105 @@ fn invalid_configuration_and_non_admin_writes_are_rejected() {
         .body(axum::body::Body::empty())
         .unwrap();
     assert!(crate::access::authorize_request(&state.auth, &user, &req).is_err());
+}
+
+#[test]
+fn collection_sources_expand_series_and_keep_other_library_titles_out() {
+    use posterview_contracts::collections::CollectionMemberRef;
+    let (_temp, state, library) = fixture();
+    let store = ServerStore::new(state.runtime.data_dir());
+    let movie = store.native_catalog(&library).unwrap().remove(0);
+    let second = store
+        .save_native_library(
+            None,
+            &NativeLibraryInput {
+                name: "Series".into(),
+                library_type: NativeLibraryType::Shows,
+                anime_content: AnimeContent::Both,
+                paths: vec!["Shows".into()],
+                options: Default::default(),
+                revision: None,
+            },
+        )
+        .unwrap();
+    let mut show = movie.clone();
+    show.id = String::new();
+    show.kind = "series".into();
+    show.path = "Shows/Selected".into();
+    show.title = "Selected show".into();
+    show.files.clear();
+    let mut episode = movie.clone();
+    episode.id = String::new();
+    episode.kind = "episode".into();
+    episode.path = "Shows/Selected/Episode.mp4".into();
+    episode.parent_path = Some(show.path.clone());
+    episode.metadata = json!({"season":1,"episode":1});
+    let mut unrelated = movie.clone();
+    unrelated.id = String::new();
+    unrelated.path = "Shows/Other.mp4".into();
+    store
+        .ingest_native_catalog(&second.id, second.revision, &[show, episode, unrelated])
+        .unwrap();
+    let show = store
+        .native_catalog(&second.id)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == "series")
+        .unwrap();
+    let collection = store
+        .create_collection(
+            "Mix",
+            "",
+            "custom",
+            &[
+                CollectionMemberRef {
+                    library_id: library.clone(),
+                    item_id: movie.id.clone(),
+                },
+                CollectionMemberRef {
+                    library_id: second.id.clone(),
+                    item_id: show.id.clone(),
+                },
+            ],
+        )
+        .unwrap();
+    let mut request = input(&library);
+    request.library_ids.clear();
+    request.collection_ids = vec![collection.id.clone(), collection.id.clone()];
+    let mut channel = validate(request, "collection-channel".into(), 1).unwrap();
+    let lineup = candidates(&state, &mut channel).unwrap();
+    assert_eq!(lineup.len(), 2);
+    assert_eq!(channel.collection_ids, vec![collection.id]);
+    assert_eq!(channel.library_ids.len(), 2);
+    assert!(
+        lineup
+            .iter()
+            .any(|e| e.item_id == movie.id && e.library_id == library)
+    );
+    assert!(
+        lineup
+            .iter()
+            .any(|e| e.series_id.as_ref() == Some(&show.id))
+    );
+    assert!(!allowed(&viewer(vec![library.clone()]), &channel));
+    assert!(!allowed(&viewer(vec![second.id.clone()]), &channel));
+    assert!(allowed(&viewer(vec![library, second.id]), &channel));
+}
+
+#[test]
+fn collections_reject_missing_and_empty_sources_and_legacy_channels_default_empty() {
+    let (_temp, state, library) = fixture();
+    let mut request = input(&library);
+    request.collection_ids = vec!["missing".into()];
+    let mut channel = validate(request, "channel".into(), 1).unwrap();
+    assert!(candidates(&state, &mut channel).is_err());
+    let collection = ServerStore::new(state.runtime.data_dir())
+        .create_collection("Empty", "", "title", &[])
+        .unwrap();
+    channel.collection_ids = vec![collection.id];
+    assert!(candidates(&state, &mut channel).is_err());
+    let mut raw = serde_json::to_value(&channel).unwrap();
+    raw.as_object_mut().unwrap().remove("collection_ids");
+    let legacy: Channel = serde_json::from_value(raw).unwrap();
+    assert!(legacy.collection_ids.is_empty());
 }

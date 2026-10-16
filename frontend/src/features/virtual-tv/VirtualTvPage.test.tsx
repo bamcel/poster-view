@@ -1,3 +1,5 @@
+import {useCollections} from "../collections/client";
+import {HeaderBackdropContext} from "../../lib/headerBackdrop";
 import {cleanup,fireEvent,render,screen,waitFor,within} from "@testing-library/react";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import {MemoryRouter} from "react-router-dom";
@@ -8,12 +10,14 @@ import {nativeLibraries,type NativeCatalogEntry} from "../../api/nativeLibraries
 import VirtualTvPage from "./VirtualTvPage";
 import {virtualTv,type Channel} from "./client";
 
+vi.mock("../collections/client",()=>({useCollections:vi.fn()}));
 vi.mock("./LiveChannelPreview",()=>({default:({channelId}:{channelId:string})=><video aria-label={`Live preview ${channelId}`}/>}));
 vi.mock("./client",()=>({virtualTv:{settings:vi.fn(),channels:vi.fn(),guide:vi.fn(),save:vi.fn(),remove:vi.fn()}}));
 vi.mock("../../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(),summaries:vi.fn()}}));
 const channel:Channel={id:"comedy",name:"Comedy",number:2,library_ids:["tv"],show_ids:[],movie_ids:[],genres:[],order:"random_shows",start_at:"2026-01-01T00:00:00Z",revision:1};
 beforeEach(()=>{
  localStorage.clear();
+ vi.mocked(useCollections).mockReturnValue({data:[],isPending:false,error:null} as unknown as ReturnType<typeof useCollections>);
  vi.mocked(virtualTv.settings).mockResolvedValue({enabled:true});
  vi.mocked(virtualTv.channels).mockResolvedValue([channel]);
  vi.mocked(virtualTv.guide).mockResolvedValue([{id:"program",library_id:"tv",item_id:"episode",title:"Pilot",series_title:"Example show",season:1,episode:1,starts_at:new Date(Date.now()-60000).toISOString(),ends_at:new Date(Date.now()+60000).toISOString(),artwork_url:"/api/virtual-tv/program/artwork"}]);
@@ -21,9 +25,9 @@ beforeEach(()=>{
  vi.mocked(nativeLibraries.summaries).mockResolvedValue([]);
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
-function mount(role:"user"|"admin"="user"){
+function mount(role:"user"|"admin"="user",onBackdrop:((url:string|null)=>void)|null=null){
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
- return {...render(<AuthSessionContext.Provider value={{user:{role}} as AuthSession}><QueryClientProvider client={client}><MemoryRouter><VirtualTvPage/></MemoryRouter></QueryClientProvider></AuthSessionContext.Provider>),client};
+ return {...render(<AuthSessionContext.Provider value={{user:{role}} as AuthSession}><QueryClientProvider client={client}><MemoryRouter><HeaderBackdropContext.Provider value={onBackdrop}><VirtualTvPage/></HeaderBackdropContext.Provider></MemoryRouter></QueryClientProvider></AuthSessionContext.Provider>),client};
 }
 it("shows the accessible live guide and tune link without administrator controls",async()=>{
  mount();expect(await screen.findByRole("button",{name:/Comedy: Pilot,/})).toBeTruthy();
@@ -100,7 +104,7 @@ it("loads only eight visible channels at a time and pages to the remaining chann
  await waitFor(()=>expect(virtualTv.guide).toHaveBeenCalledTimes(9));
  expect(screen.queryByRole("button",{name:"Select channel 1 Channel 0"})).toBeNull();
 });
-it("requests bounded three hour windows and supports next, previous, now, and date navigation",async()=>{
+it("requests bounded three hour windows and supports next, previous, and now navigation",async()=>{
  mount();await screen.findByRole("button",{name:/Comedy: Pilot,/});
  const initial=vi.mocked(virtualTv.guide).mock.calls[0];
  expect(Date.parse(initial[2]!)-Date.parse(initial[1]!)).toBe(3*60*60*1000);
@@ -111,8 +115,8 @@ it("requests bounded three hour windows and supports next, previous, now, and da
  expect(screen.queryByRole("button",{name:/Comedy: Pilot,/})).toBeNull();
  fireEvent.click(screen.getByRole("button",{name:"Previous 3 hours"}));
  await screen.findByRole("button",{name:/Comedy: Pilot,/});
- fireEvent.change(screen.getByLabelText("Guide date"),{target:{value:"2027-02-10"}});
- await waitFor(()=>expect((screen.getByLabelText("Guide date") as HTMLInputElement).value).toBe("2027-02-10"));
+ expect(screen.queryByLabelText("Guide date")).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Next 3 hours"}));
  fireEvent.click(screen.getByRole("button",{name:"Now"}));
  await screen.findByRole("button",{name:/Comedy: Pilot,/});
 });
@@ -199,4 +203,36 @@ it("uses the selected program backdrop rather than its preview thumbnail",async(
  fireEvent.click(screen.getByRole("button",{name:/Comedy: Future,/}));
  expect(page.style.backgroundImage).toContain("/future-art?kind=backdrop");
  expect(screen.getByAltText("Future thumbnail").getAttribute("src")).toBe("/future-art");
+});
+it("extends the selected backdrop into app chrome and clears it on leaving",async()=>{
+ const onBackdrop=vi.fn();const view=mount("user",onBackdrop);
+ await screen.findByAltText("Pilot thumbnail");
+ await waitFor(()=>expect(onBackdrop).toHaveBeenCalledWith("/api/virtual-tv/program/artwork?kind=backdrop"));
+ const page=screen.getByRole("heading",{name:/^Virtual TV$/}).closest(".vtv-page") as HTMLElement;
+ expect(page.style.backgroundColor).toBe("transparent");
+ view.unmount();expect(onBackdrop).toHaveBeenLastCalledWith(null);
+});
+it("combines shows and movies with select-all and hides empty media groups",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"tv",name:"Anime",library_type:"anime"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ vi.mocked(nativeLibraries.summaries).mockResolvedValue([{id:"show",kind:"series",path:"Anime/Show",title:"A show",metadata:{}},{id:"movie",kind:"movie",path:"Movies/Film.mkv",title:"A movie",metadata:{}}] as NativeCatalogEntry[]);
+ mount("admin");fireEvent.click(await screen.findByRole("button",{name:"Create channel"}));fireEvent.click(await screen.findByRole("checkbox",{name:"Anime"}));
+ const all=await screen.findByRole("checkbox",{name:"Select all shows and movies"});
+ fireEvent.click(all);expect((screen.getByRole("checkbox",{name:/A show/}) as HTMLInputElement).checked).toBe(true);expect((screen.getByRole("checkbox",{name:/A movie/}) as HTMLInputElement).checked).toBe(true);
+ fireEvent.click(all);expect((screen.getByRole("checkbox",{name:/A show/}) as HTMLInputElement).checked).toBe(false);
+ expect(screen.queryByText("Movies",{selector:"legend"})).toBeNull();
+});
+it("shows a full-width shows picker when no movies exist",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"tv",name:"Anime",library_type:"anime"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ vi.mocked(nativeLibraries.summaries).mockResolvedValue([{id:"show",kind:"series",path:"Anime/Show",title:"A show",metadata:{}}] as NativeCatalogEntry[]);
+ mount("admin");fireEvent.click(await screen.findByRole("button",{name:"Create channel"}));fireEvent.click(await screen.findByRole("checkbox",{name:"Anime"}));
+ expect(await screen.findByRole("checkbox",{name:"Select all shows"})).toBeTruthy();expect(screen.queryByText("Movies",{selector:"legend"})).toBeNull();
+});
+it("saves collection-only sources and offers collection titles in the combined picker",async()=>{
+ vi.mocked(useCollections).mockReturnValue({data:[{id:"collection",title:"Favorites",members:[{library_id:"tv",item_id:"show",entry:{id:"show",kind:"series",path:"Anime/Show",title:"A show",metadata:{}}}]}],isPending:false,error:null} as unknown as ReturnType<typeof useCollections>);
+ vi.mocked(virtualTv.save).mockResolvedValue(channel);
+ mount("admin");fireEvent.click(await screen.findByRole("button",{name:"Create channel"}));
+ fireEvent.change(screen.getByLabelText("Channel name"),{target:{value:"Favorites channel"}});fireEvent.click(screen.getByRole("checkbox",{name:"Favorites"}));
+ expect(await screen.findByRole("checkbox",{name:/A show/})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Save channel"}));
+ await waitFor(()=>expect(virtualTv.save).toHaveBeenCalledWith(expect.objectContaining({name:"Favorites channel",library_ids:[],collection_ids:["collection"]}),undefined));
 });

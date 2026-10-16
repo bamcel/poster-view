@@ -22,7 +22,11 @@ playback or preview failure falls back to the thumbnail; previews use original
 playback or lossless stream copying without starting an encoder.
 ServerConnect remains unchanged; channel sources are native video libraries only.
 
-Choose one or more source libraries and optional shows, movies and genres. These
+Choose source libraries or collections, plus optional shows, movies and genres.
+Shows and movies share one full-width picker with Select all; empty media types
+are hidden. Selected collections include their movies and all episodes of their
+series. Their source libraries are added to the channel access requirements.
+These
 filters combine with OR; with no filters, every playable video in those libraries
 is included. Book libraries are excluded. Selected videos require measured durations
 from a library scan; rounded runtime labels are not used for schedule timing.
@@ -35,7 +39,7 @@ Channels support sequential order, shuffle without repeats within a lineup cycle
 and random show selection with each show's episodes in sequence. The start time is
 entered locally and stored as UTC. The channel's saved lineup and seed repeat on
 a wall-clock timeline and survive refreshes/restarts. Channel edits rebuild the
-lineup immediately; save again after a library scan to include newly added media.
+lineup immediately; save again after library scans or collection changes to include newly added media.
 The guide is generated up to seven days per request, with bounded three-hour UI
 requests and eight displayed channels at once. No background encoder runs for
 unwatched channels. Existing playback policy and GPU support handle active viewers.

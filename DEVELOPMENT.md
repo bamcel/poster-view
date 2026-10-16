@@ -384,3 +384,21 @@ An explicit different version begins at zero and discards incompatible indices;
 missing remembered files fall back with a notice. Series language preferences may
 still match tracks by characteristics. No database migration or media rewrite is
 needed; older clients without a version use the default catalog file.
+
+### Global activity status
+
+`frontend/src/features/activity/ActivityContext.tsx` owns the shared sidebar feed.
+Globally mounted plugin/task adapters publish through
+`useActivitySource("unique-source-name", items, enabled)`; item IDs are scoped to
+that source and unmounting removes its entries. Publish a title, safe user-facing
+detail, state, optional progress (omit when unknown), and `updatedAt` in epoch
+milliseconds for completed entries. Completed entries expire after 30 minutes.
+Set `adminOnly` for management work and gate its API queries before fetching;
+the feed's visibility filtering does not replace server authorization. Sources
+must not publish credentials, filesystem paths, or raw error responses.
+
+The shared card supports internal `href` navigation or a `posterview:` event to
+open the source's detail UI. Active work comes first; finished entries may be
+dismissed. YouTube downloads, native library scans, and scheduled maintenance
+are integrated in `ActivitySources.tsx`. Scans without completion timestamps
+show current work/errors rather than resurrecting old completion messages.

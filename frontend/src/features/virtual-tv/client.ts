@@ -2,7 +2,7 @@ import {apiRequest} from "../../api/client";
 
 export interface VirtualTvSettings {enabled:boolean}
 export interface ChannelInput {
-  name:string; number:number; library_ids:string[]; show_ids:string[]; movie_ids:string[];
+  name:string; number:number; library_ids:string[]; show_ids:string[]; movie_ids:string[]; collection_ids?:string[];
   genres:string[]; order:"sequential"|"random"|"random_shows"; start_at:string; revision?:number;
 }
 export interface Channel extends ChannelInput {id:string; revision:number}

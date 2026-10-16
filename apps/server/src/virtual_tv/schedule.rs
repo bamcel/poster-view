@@ -289,6 +289,7 @@ mod tests {
             name: "Test".into(),
             number: 1,
             library_ids: vec!["library".into()],
+            collection_ids: vec![],
             show_ids: vec![],
             movie_ids: vec![],
             genres: vec![],
