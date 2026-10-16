@@ -86,13 +86,20 @@ fn viewer(library: &str) -> UserAccount {
 fn projects_only_visible_members_and_never_leaks_hidden_overview_or_artwork() {
     let (_temp, state, members) = fixture();
     let store = ServerStore::new(state.runtime.data_dir());
-    let record = store
+    let mut record = store
         .create_collection("Franchise", "Secret R-rated plot", "release", &members)
         .unwrap();
+    record.metadata = posterview_contracts::collections::CollectionMetadata {
+        provider: "tmdb".into(),
+        provider_id: "10".into(),
+        poster_url: "https://image.tmdb.org/t/p/original/restricted.jpg".into(),
+        ..Default::default()
+    };
     let user = viewer(&members[0].library_id);
     let projected = project_one(&store, &user, record.clone()).unwrap();
     assert_eq!(projected.members.len(), 1);
     assert!(projected.overview.is_empty());
+    assert_eq!(projected.metadata, Default::default());
     assert_eq!(projected.members[0].entry.title, "Early");
     assert_eq!(
         projected.members[0].entry.metadata["release_date"],

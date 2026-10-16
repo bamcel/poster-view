@@ -385,6 +385,30 @@ missing remembered files fall back with a notice. Series language preferences ma
 still match tracks by characteristics. No database migration or media rewrite is
 needed; older clients without a version use the default catalog file.
 
+### Collection metadata
+
+Collection pages expose administrator-only Identify, Refresh metadata, and Field
+locks actions. TMDB uses collection search/details; TheTVDB uses exact list ID or
+slug lookup because its documented search endpoint does not search lists. Both
+reuse encrypted credentials configured in Search Providers. Provider requests
+have bounded responses, timeouts, and trusted artwork hosts.
+
+Identification previews the description/artwork and exact provider-ID/type
+matches in existing native video libraries. Applying refetches provider data;
+membership addition is opt-in, additive, deduplicated, and never creates missing
+media. Existing custom order is retained. Locks on title, overview, poster, and
+backdrop protect those fields during refresh; manual collection edits remain
+possible. Revision checks and an SQLite transaction cover metadata, locks, and
+membership together. Schema migration 5 adds defaulted metadata JSON without
+changing existing collection IDs or members. Artwork URLs use provider originals
+and fall back to member artwork when missing. Restricted projections omit
+collection metadata when not every member is visible.
+
+Client-initiated metadata saves publish progress/results through the global
+activity feed. This status is local to the current browser session; it is not a
+durable background-job queue. Tests use provider response fixtures and isolated
+stores; live credentialed provider calls are not part of the offline suite.
+
 ### Global activity status
 
 `frontend/src/features/activity/ActivityContext.tsx` owns the shared sidebar feed.

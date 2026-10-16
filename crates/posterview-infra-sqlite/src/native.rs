@@ -160,6 +160,18 @@ INSERT INTO schema_migrations(version,name) VALUES(2,'native_scan_options_and_ar
         tx.execute_batch(crate::collections::SCHEMA)?;
         tx.execute("INSERT INTO schema_migrations(version,name) VALUES(4,'collections_and_library_grouping')", [])?;
     }
+    let metadata_applied: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=5)",
+        [],
+        |row| row.get(0),
+    )?;
+    if !metadata_applied {
+        tx.execute_batch("ALTER TABLE collections ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(metadata_json));")?;
+        tx.execute(
+            "INSERT INTO schema_migrations(version,name) VALUES(5,'collection_metadata_and_locks')",
+            [],
+        )?;
+    }
     tx.commit()?;
     Ok(())
 }

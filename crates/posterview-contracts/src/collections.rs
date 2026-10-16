@@ -2,6 +2,16 @@
 use crate::native::NativeCatalogEntry;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CollectionMetadata {
+    pub provider: String,
+    pub provider_id: String,
+    pub poster_url: String,
+    pub backdrop_url: String,
+    pub locks: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CollectionMemberRef {
@@ -19,6 +29,8 @@ pub struct CollectionRecord {
     pub created_at: String,
     pub updated_at: String,
     pub members: Vec<CollectionMemberRef>,
+    #[serde(default)]
+    pub metadata: CollectionMetadata,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,4 +51,6 @@ pub struct Collection {
     pub created_at: String,
     pub updated_at: String,
     pub members: Vec<CollectionMember>,
+    #[serde(default)]
+    pub metadata: CollectionMetadata,
 }

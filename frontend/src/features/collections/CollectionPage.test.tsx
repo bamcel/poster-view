@@ -15,3 +15,12 @@ it("browses movies and series through existing media routes without management f
 it("persists custom reordering and removal using the collection revision",async()=>{mount();fireEvent.click(await screen.findByRole("button",{name:"Edit collection"}));fireEvent.click(screen.getByRole("button",{name:"Move B up"}));fireEvent.click(screen.getByRole("button",{name:"Remove C"}));fireEvent.change(screen.getByLabelText("Name"),{target:{value:"Renamed"}});fireEvent.click(screen.getByRole("button",{name:"Save collection"}));await waitFor(()=>expect(collectionsApi.update).toHaveBeenCalledWith("saga",{revision:2,title:"Renamed",overview:"Shared story",ordering:"custom",members:[{library_id:"lib",item_id:"B"},{library_id:"lib",item_id:"A"}]}));});
 
 it("returns to collection browsing with the shared detail back control",async()=>{mount();await screen.findByRole("heading",{name:"Saga"});expect(screen.getByRole("img",{name:"Saga collection artwork"})).toBeTruthy();fireEvent.click(screen.getByRole("button",{name:/^Back$/}));expect(await screen.findByRole("heading",{name:"Collections"})).toBeTruthy();});
+
+it("shows collection metadata management only for admins",async()=>{
+ mount();fireEvent.click(await screen.findByRole("button",{name:"Collection metadata actions"}));
+ expect(screen.getByRole("menuitem",{name:"Identify"})).toBeTruthy();expect(screen.getByRole("menuitem",{name:"Refresh metadata"})).toBeTruthy();expect(screen.getByRole("menuitem",{name:"Field locks"})).toBeTruthy();
+ fireEvent.click(screen.getByRole("menuitem",{name:"Field locks"}));expect(screen.getByRole("dialog",{name:"Collection field locks"})).toBeTruthy();
+});
+it("hides collection metadata management for regular users",async()=>{
+ mount("user");await screen.findByRole("heading",{name:"Saga"});expect(screen.queryByRole("button",{name:"Collection metadata actions"})).toBeNull();
+});

@@ -4,7 +4,7 @@ import {useQuery,useQueryClient} from "@tanstack/react-query";
 import {nativeLibraries,type NativeCatalogEntry} from "../../api/nativeLibraries";
 import {useIsAdmin} from "../../lib/authContext";
 import {nativeArtworkVersion} from "../../lib/nativeArtworkCache";
-import {Layers,Pencil,Trash2} from "lucide-react";
+import {Layers,Pencil,Trash2,MoreHorizontal} from "lucide-react";
 import LibraryDetailLayout,{LibraryDetailHero,LibraryDetailSection} from "../../components/LibraryDetailLayout";
 import DetailSynopsis from "../../components/DetailSynopsis";
 import AnimatedArtwork from "../../components/AnimatedArtwork";
@@ -13,6 +13,7 @@ import {detailActionClass} from "../../lib/detailActions";
 import {LibraryBackdrop} from "../../lib/libraryNavigation";
 import {DASHBOARD_BACKDROP_EVENT,BACKDROP_OVERLAY_EVENT,dashboardBackdropEnabled,backdropOverlay,backdropOverlayGradients} from "../../lib/dashboardSettings";
 import {collectionsApi,useCollectionAccount,memberKey,type Collection,type CollectionMember} from "./client";
+import CollectionMetadataDialog from "./CollectionMetadataDialog";
 import {useCollectionDialog} from "./useCollectionDialog";
 import {orderedMembers,uniqueMembers} from "./grouping";
 
@@ -22,6 +23,7 @@ export default function CollectionPage(){
  const {id}=useParams(),account=useCollectionAccount(),admin=useIsAdmin(),client=useQueryClient(),navigate=useNavigate();
  const query=useQuery({queryKey:["collections",account,"detail",id],queryFn:()=>collectionsApi.get(id!),enabled:!!id});
  const [editing,setEditing]=useState(false),[error,setError]=useState("");
+ const [metadataMenu,setMetadataMenu]=useState(false),[metadataMode,setMetadataMode]=useState<"identify"|"refresh"|"locks"|null>(null);
  const remove=async()=>{if(!query.data||!window.confirm(`Delete ${query.data.title}? Media files will remain.`))return;try{await collectionsApi.remove(query.data.id);await client.invalidateQueries({queryKey:["collections"]});navigate("/collections");}catch(error){setError(String(error));}};
  if(query.isPending)return <p role="status" className="p-8">Loading collection…</p>;
  if(query.error||!query.data)return <p role="alert" className="p-8">{String(query.error??"Collection unavailable")}</p>;
@@ -45,8 +47,9 @@ export default function CollectionPage(){
      {movies.length>0&&<span>{movies.length} {movies.length===1?"movie":"movies"}</span>}
      {series.length>0&&<span>{series.length} series</span>}
      <span>{collection.ordering==="release"?"Release order":collection.ordering==="title"?"Title order":"Custom order"}</span>
+     {collection.metadata?.provider_id&&<a className="text-xs text-muted underline" href={collection.metadata.provider==="tmdb"?`https://www.themoviedb.org/collection/${encodeURIComponent(collection.metadata.provider_id)}`:"https://thetvdb.com"} target="_blank" rel="noreferrer">Metadata from {collection.metadata.provider==="tmdb"?"TMDB":"TheTVDB"}</a>}
     </div>
-    {admin&&<div className="mt-5 flex flex-wrap items-center gap-3"><button aria-label="Delete collection" title="Delete collection" className={detailActionClass} onClick={()=>void remove()}><Trash2 className="size-4"/></button></div>}
+    {admin&&<div className="mt-5 flex flex-wrap items-center gap-3"><div className="relative"><button aria-label="Collection metadata actions" aria-expanded={metadataMenu} aria-haspopup="menu" className={detailActionClass} onClick={()=>setMetadataMenu(value=>!value)}><MoreHorizontal className="size-4"/></button>{metadataMenu&&<div role="menu" aria-label="Collection metadata" className="absolute left-0 top-full z-20 mt-2 min-w-48 rounded-xl border border-border bg-sidebar p-2 shadow-xl" onKeyDown={event=>{if(event.key==="Escape")setMetadataMenu(false);}}>{([{mode:"identify",label:"Identify"},{mode:"refresh",label:"Refresh metadata"},{mode:"locks",label:"Field locks"}] as const).map(action=><button role="menuitem" key={action.mode} className="block w-full rounded p-2 text-left text-sm hover:bg-elevated" onClick={()=>{setMetadataMenu(false);setMetadataMode(action.mode);}}>{action.label}</button>)}</div>}</div><button aria-label="Delete collection" title="Delete collection" className={detailActionClass} onClick={()=>void remove()}><Trash2 className="size-4"/></button></div>}
     {error&&<p role="alert" className="mt-3">{error}</p>}
    </LibraryDetailHero>}
    related={<>
@@ -57,6 +60,7 @@ export default function CollectionPage(){
     {!collection.members.length&&<p className="mt-10 text-muted">No accessible titles in this collection.{admin&&" Edit this collection to add titles."}</p>}
    </>}
   />
+  {admin&&metadataMode&&<CollectionMetadataDialog key={`${collection.id}:${collection.revision}:${metadataMode}`} collection={collection} mode={metadataMode} onClose={()=>setMetadataMode(null)}/>}
   {editing&&<CollectionEditor key={`${collection.id}:${collection.revision}`} collection={collection} onClose={()=>setEditing(false)}/>}
  </>;
 }
@@ -66,6 +70,9 @@ function artworkUrl(member:CollectionMember,kinds:string[]){
 }
 function CollectionPortrait({collection}:{collection:Collection}){
  const members=collection.members.slice(0,4);
+ const [failed,setFailed]=useState("");
+ const poster=collection.metadata?.poster_url;
+ if(poster&&failed!==poster)return <img src={poster} onError={()=>setFailed(poster)} alt={`${collection.title} collection artwork`} className="size-full object-cover"/>;
  return <div role="img" aria-label={`${collection.title} collection artwork`} className={`grid size-full ${members.length>1?"grid-cols-2 grid-rows-2":"grid-cols-1"}`}>
   {members.map(member=>{const src=artworkUrl(member,["poster","backdrop","landscape"]);return <div key={memberKey(member)} className="min-h-0 min-w-0 overflow-hidden bg-surface-2">{src?<img src={src} alt="" className="size-full object-cover"/>:<Layers aria-hidden="true" className="m-auto size-8 text-muted"/>}</div>;})}
   {(members.length===0||members.length===3)&&<div className="flex items-center justify-center bg-surface-2"><Layers aria-hidden="true" className="size-8 text-muted"/></div>}
@@ -74,10 +81,12 @@ function CollectionPortrait({collection}:{collection:Collection}){
 function CollectionBackground({collection}:{collection:Collection}){
  const [enabled,setEnabled]=useState(dashboardBackdropEnabled),[overlay,setOverlay]=useState(backdropOverlay);
  useEffect(()=>{const update=()=>{setEnabled(dashboardBackdropEnabled());setOverlay(backdropOverlay());};window.addEventListener(DASHBOARD_BACKDROP_EVENT,update);window.addEventListener(BACKDROP_OVERLAY_EVENT,update);return()=>{window.removeEventListener(DASHBOARD_BACKDROP_EVENT,update);window.removeEventListener(BACKDROP_OVERLAY_EVENT,update);};},[]);
- const src=collection.members.map(member=>artworkUrl(member,["backdrop","landscape","fanart"])).find(Boolean);
+ const [failed,setFailed]=useState("");
+ const providerBackdrop=collection.metadata?.backdrop_url;
+ const src=(providerBackdrop&&failed!==providerBackdrop?providerBackdrop:undefined)??collection.members.map(member=>artworkUrl(member,["backdrop","landscape","fanart"])).find(Boolean);
  if(!enabled||!src)return null;
  const gradients=backdropOverlayGradients(overlay);
- return <LibraryBackdrop><div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-base"><AnimatedArtwork src={src} width={1920} fill alt="" className="h-full w-full origin-top scale-[1.02] object-cover object-top"/><div className="absolute inset-0 md:hidden" style={{backgroundImage:gradients.mobile}}/><div className="absolute inset-0 hidden md:block" style={{backgroundImage:gradients.desktop}}/></div></LibraryBackdrop>;
+ return <LibraryBackdrop><div aria-hidden="true" className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-base">{src===providerBackdrop?<img src={src} alt="" onError={()=>setFailed(src)} className="h-full w-full object-cover object-top"/>:<AnimatedArtwork src={src} width={1920} fill alt="" className="h-full w-full origin-top scale-[1.02] object-cover object-top"/>}<div className="absolute inset-0 md:hidden" style={{backgroundImage:gradients.mobile}}/><div className="absolute inset-0 hidden md:block" style={{backgroundImage:gradients.desktop}}/></div></LibraryBackdrop>;
 }
 
 function MemberCard({member}:{member:CollectionMember}){const {entry}=member;const art=entry.artwork.find(art=>art.kind==="poster")??entry.artwork[0];return <Link to={`/media/${encodeURIComponent(member.library_id)}?native_library=${encodeURIComponent(member.library_id)}&native_item=${encodeURIComponent(member.item_id)}`} className="min-w-0"><div className="aspect-[2/3] overflow-hidden rounded-xl bg-elevated">{art&&<img alt="" loading="lazy" className="size-full object-cover" src={`${nativeLibraries.artworkUrl(member.library_id,member.item_id,art.kind)}?v=${encodeURIComponent(nativeArtworkVersion(entry,art.kind))}`}/>}</div><h3 className="mt-2 font-semibold">{entry.title}</h3><p className="text-xs text-muted">{member.library_name} · {String(entry.metadata.year??"")}</p></Link>;}

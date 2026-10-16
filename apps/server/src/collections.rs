@@ -14,9 +14,22 @@ use posterview_contracts::{
 use posterview_infra_sqlite::{ServerStore, StoreError};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+mod metadata;
+mod providers;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MetadataCandidate {
+    provider: String,
+    provider_id: String,
+    title: String,
+    overview: String,
+    poster_url: String,
+    backdrop_url: String,
+}
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
+        .merge(metadata::routes())
         .route("/api/collections", get(list).post(create))
         .route(
             "/api/collections/{id}",
@@ -166,7 +179,13 @@ impl Catalog {
         if members.is_empty() && user.role != UserRole::Admin {
             return None;
         }
-        let overview = if members.len() == total {
+        let unrestricted = members.len() == total;
+        let metadata = if unrestricted {
+            record.metadata
+        } else {
+            Default::default()
+        };
+        let overview = if unrestricted {
             record.overview
         } else {
             String::new()
@@ -195,6 +214,7 @@ impl Catalog {
             created_at: record.created_at,
             updated_at: record.updated_at,
             members,
+            metadata,
         })
     }
 }
@@ -246,6 +266,14 @@ async fn list(
             // Library grids need only their own members, not every other library's summaries.
             if let Some(library) = &scope.library_id {
                 for record in &mut records {
+                    if user.role != UserRole::Admin
+                        && record
+                            .members
+                            .iter()
+                            .any(|member| &member.library_id != library)
+                    {
+                        record.metadata = Default::default();
+                    }
                     record
                         .members
                         .retain(|member| &member.library_id == library);

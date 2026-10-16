@@ -1,7 +1,9 @@
 use std::collections::HashSet;
 
 use crate::{ServerStore, StoreError};
-use posterview_contracts::collections::{CollectionMemberRef, CollectionRecord};
+use posterview_contracts::collections::{
+    CollectionMemberRef, CollectionMetadata, CollectionRecord,
+};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 pub(crate) const SCHEMA: &str = r#"
@@ -47,10 +49,11 @@ fn validate(title: &str, overview: &str, ordering: &str) -> Result<(), StoreErro
 
 fn read(db: &Connection, id: &str) -> Result<Option<CollectionRecord>, StoreError> {
     let result = db.query_row(
-        "SELECT id,title,overview,ordering,revision,created_at,updated_at FROM collections WHERE id=?1",
+        "SELECT id,title,overview,ordering,revision,created_at,updated_at,metadata_json FROM collections WHERE id=?1",
         [id], |row| Ok(CollectionRecord {
             id: row.get(0)?, title: row.get(1)?, overview: row.get(2)?, ordering: row.get(3)?,
             revision: row.get(4)?, created_at: row.get(5)?, updated_at: row.get(6)?, members: vec![],
+            metadata: serde_json::from_str(&row.get::<_,String>(7)?).map_err(|error|rusqlite::Error::FromSqlConversionFailure(7,rusqlite::types::Type::Text,Box::new(error)))?,
         }),
     ).optional()?;
     let Some(mut result) = result else {
@@ -108,6 +111,72 @@ fn check_revision(record: &CollectionRecord, revision: i64) -> Result<(), StoreE
 }
 
 impl ServerStore {
+    pub fn save_collection_metadata_locks(
+        &self,
+        id: &str,
+        revision: i64,
+        locks: &[String],
+    ) -> Result<Option<CollectionRecord>, StoreError> {
+        validate_locks(locks)?;
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let Some(mut record) = read(&tx, id)? else {
+            return Ok(None);
+        };
+        check_revision(&record, revision)?;
+        record.metadata.locks = locks.to_vec();
+        save_metadata(&tx, id, &record.metadata)?;
+        let record = read(&tx, id)?;
+        tx.commit()?;
+        Ok(record)
+    }
+
+    pub fn apply_collection_metadata(
+        &self,
+        id: &str,
+        revision: i64,
+        candidate: &CollectionMetadata,
+        text: (&str, &str),
+        locks: &[String],
+        members: &[CollectionMemberRef],
+    ) -> Result<Option<CollectionRecord>, StoreError> {
+        validate_locks(locks)?;
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let Some(record) = read(&tx, id)? else {
+            return Ok(None);
+        };
+        check_revision(&record, revision)?;
+        let locked = |field: &str| locks.iter().any(|value| value == field);
+        let title = if locked("title") {
+            &record.title
+        } else {
+            text.0
+        };
+        let overview = if locked("overview") {
+            &record.overview
+        } else {
+            text.1
+        };
+        validate(title, overview, &record.ordering)?;
+        let mut metadata = candidate.clone();
+        metadata.locks = locks.to_vec();
+        if locked("poster") {
+            metadata.poster_url = record.metadata.poster_url;
+        }
+        if locked("backdrop") {
+            metadata.backdrop_url = record.metadata.backdrop_url;
+        }
+        tx.execute(
+            "UPDATE collections SET title=?2,overview=?3 WHERE id=?1",
+            params![id, title.trim(), overview],
+        )?;
+        insert_members(&tx, id, members)?;
+        save_metadata(&tx, id, &metadata)?;
+        let result = read(&tx, id)?;
+        tx.commit()?;
+        Ok(result)
+    }
     pub fn collections(&self) -> Result<Vec<CollectionRecord>, StoreError> {
         let db = self.connection()?;
         let tx = db.unchecked_transaction()?;
@@ -225,6 +294,29 @@ impl ServerStore {
     }
 }
 
+fn validate_locks(locks: &[String]) -> Result<(), StoreError> {
+    if locks.len() > 4
+        || locks
+            .iter()
+            .any(|field| !matches!(field.as_str(), "title" | "overview" | "poster" | "backdrop"))
+    {
+        return Err(StoreError::Validation(
+            "Unknown collection metadata lock.".into(),
+        ));
+    }
+    Ok(())
+}
+fn save_metadata(
+    db: &Connection,
+    id: &str,
+    metadata: &CollectionMetadata,
+) -> Result<(), StoreError> {
+    let json = serde_json::to_string(metadata)
+        .map_err(|_| StoreError::Validation("Invalid collection metadata.".into()))?;
+    db.execute("UPDATE collections SET metadata_json=?2,revision=revision+1,updated_at=datetime('now') WHERE id=?1",params![id,json])?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,6 +344,118 @@ mod tests {
             })
             .collect();
         (dir, store, library.id, members)
+    }
+
+    #[test]
+    fn metadata_migration_preserves_existing_collections() {
+        let (_dir, store, _library, members) = fixture();
+        let old = store
+            .create_collection(
+                "Existing collection",
+                "Existing description",
+                "release",
+                &members,
+            )
+            .unwrap();
+        let db = store.connection().unwrap();
+        db.execute_batch("ALTER TABLE collections DROP COLUMN metadata_json; DELETE FROM schema_migrations WHERE version=5;").unwrap();
+        drop(db);
+        store.initialize().unwrap();
+        let migrated = store.collection(&old.id).unwrap().unwrap();
+        assert_eq!(migrated.title, old.title);
+        assert_eq!(migrated.members, old.members);
+        assert_eq!(migrated.revision, old.revision);
+        assert_eq!(migrated.metadata, Default::default());
+    }
+
+    #[test]
+    fn metadata_refresh_respects_locks_and_adds_members_atomically() {
+        let (_dir, store, _library, members) = fixture();
+        let original = store
+            .create_collection("Custom title", "Custom overview", "custom", &members[..1])
+            .unwrap();
+        let metadata = CollectionMetadata {
+            provider: "tmdb".into(),
+            provider_id: "10".into(),
+            poster_url: "https://image.tmdb.org/t/p/original/a.jpg".into(),
+            backdrop_url: "https://image.tmdb.org/t/p/original/b.jpg".into(),
+            locks: vec![],
+        };
+        let locks = vec!["title".into(), "poster".into()];
+        let refreshed = store
+            .apply_collection_metadata(
+                &original.id,
+                1,
+                &metadata,
+                ("Provider title", "Provider overview"),
+                &locks,
+                &members,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(refreshed.title, "Custom title");
+        assert_eq!(refreshed.overview, "Provider overview");
+        assert!(refreshed.metadata.poster_url.is_empty());
+        assert_eq!(refreshed.metadata.backdrop_url, metadata.backdrop_url);
+        assert_eq!(refreshed.members.len(), 2);
+        assert_eq!(refreshed.members[0], members[0]);
+        assert!(matches!(
+            store.apply_collection_metadata(
+                &original.id,
+                1,
+                &metadata,
+                ("stale", "stale"),
+                &[],
+                &[]
+            ),
+            Err(StoreError::RevisionConflict)
+        ));
+        let locked = store
+            .save_collection_metadata_locks(&original.id, 2, &["overview".into()])
+            .unwrap()
+            .unwrap();
+        let invalid = CollectionMemberRef {
+            library_id: members[0].library_id.clone(),
+            item_id: "missing".into(),
+        };
+        assert!(
+            store
+                .apply_collection_metadata(
+                    &original.id,
+                    locked.revision,
+                    &metadata,
+                    ("Changed", "Changed"),
+                    &[],
+                    &[invalid]
+                )
+                .is_err()
+        );
+        let restored = store.collection(&original.id).unwrap().unwrap();
+        assert_eq!(restored.title, "Custom title");
+        assert_eq!(restored.revision, locked.revision);
+        assert_eq!(restored.metadata.locks, vec!["overview"]);
+        let edited = store
+            .update_collection(
+                &original.id,
+                restored.revision,
+                "Manual edit",
+                "Manual overview",
+                "custom",
+                &members,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(edited.metadata, restored.metadata);
+        store.initialize().unwrap();
+        assert_eq!(
+            store.collection(&original.id).unwrap().unwrap().metadata,
+            restored.metadata
+        );
+        assert!(
+            store
+                .save_collection_metadata_locks(&original.id, edited.revision, &["invalid".into()])
+                .is_err()
+        );
     }
 
     #[test]
