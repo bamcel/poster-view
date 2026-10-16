@@ -49,9 +49,28 @@ it("preserves movie playback actions from lightweight summaries",()=>{
  expect(screen.getByRole("link",{name:"Play Summary movie"}).getAttribute("href")).toContain("/play/native/movie%20library/Summary%20movie");
 });
 
-it("temporarily features the requested bright-backdrop series for contrast testing",()=>{
- const first=title("First");first.entry.artwork=[{kind:"backdrop",path:"first.jpg",source:"local"}];
- const series=title("More than a Married Couple, but Not Lovers.");series.entry.kind="series";series.entry.artwork=[{kind:"backdrop",path:"bright.jpg",source:"local"}];
- render(<MemoryRouter><FeaturedTitle titles={[first,series]}/></MemoryRouter>);
- expect(within(screen.getByRole("region",{name:"Featured title"})).getByRole("heading",{name:series.entry.title})).toBeTruthy();
+it("rotates artwork and title actions together across libraries",()=>{
+ const first=title("First movie"),another=title("Second movie"),series=title("A series");
+ series.entry.kind="series";series.library={...series.library,id:"anime",name:"Anime"};
+ for(const item of [first,another,series])item.entry.artwork=[{kind:"backdrop",path:"bright.jpg",source:"local"}];
+ const missing=title("Missing",{missing:true});missing.entry.artwork=first.entry.artwork;
+ render(<MemoryRouter><FeaturedTitle titles={[first,another,series,missing]}/></MemoryRouter>);
+ const banner=screen.getByRole("region",{name:"Featured title"});
+ expect(within(banner).getByRole("heading",{name:"First movie"})).toBeTruthy();
+ expect(within(banner).getByText("1 / 3")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Next featured title"}));
+ expect(within(banner).getByRole("heading",{name:"A series"})).toBeTruthy();
+ expect(within(banner).getByRole("link",{name:"Browse episodes of A series"}).getAttribute("href")).toContain("/media/anime?");
+ expect(within(banner).queryByRole("link",{name:"Play First movie"})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Previous featured title"}));
+ expect(within(banner).getByRole("heading",{name:"First movie"})).toBeTruthy();
+});
+
+it("prefers selected backdrops for the banner while rows keep landscape artwork",()=>{
+ const movie=title("Selected artwork");movie.entry.artwork=[{kind:"landscape",path:"landscape.jpg",source:"local"},{kind:"backdrop",path:"backdrop.jpg",source:"local"}];
+ const view=render(<MemoryRouter><FeaturedTitle titles={[movie]}/></MemoryRouter>);
+ expect(view.container.querySelector("img")?.getAttribute("src")).toContain("/artwork/backdrop?");
+ movie.entry.artwork=movie.entry.artwork.filter(art=>art.kind!=="backdrop");
+ view.rerender(<MemoryRouter><FeaturedTitle titles={[movie]}/></MemoryRouter>);
+ expect(view.container.querySelector("img")?.getAttribute("src")).toContain("/artwork/landscape?");
 });

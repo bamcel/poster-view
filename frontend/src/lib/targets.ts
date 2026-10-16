@@ -1,5 +1,5 @@
 // Builds the list of places an image can be applied to for a given item:
-// its poster, background, logo, each season's poster (including Season 0
+// its poster, background, logo, landscape, each season's poster (including Season 0
 // / Specials), and — for a collection — each member movie/show's poster.
 // Shared by ManualUpload and the "Custom" placement picker so an image from
 // any source can be pointed at any target, not just its auto-detected one.
@@ -23,6 +23,7 @@ export function buildApplyTargets(item: ItemDetail, includeFolderBackdrop = fals
           { label: "Poster", itemId: item.id, target: "poster" },
           { label: "Background", itemId: item.id, target: "background" },
           { label: "Logo", itemId: item.id, target: "logo" },
+          { label: "Landscape", itemId: item.id, target: "landscape" },
         ];
   const seasons: ApplyTarget[] = item.seasons.map((s) => ({
     label: `${s.title || `Season ${s.index}`}${
@@ -38,5 +39,6 @@ export function buildApplyTargets(item: ItemDetail, includeFolderBackdrop = fals
     itemId: m.id,
     target: "poster",
   }));
-  return [...base, ...seasons, ...members];
+  const landscape: ApplyTarget[] = item.type === "folder" && item.id.startsWith("native:") ? [{label:"Landscape",itemId:item.id,target:"landscape"}] : [];
+  return [...base, ...landscape, ...seasons, ...members];
 }

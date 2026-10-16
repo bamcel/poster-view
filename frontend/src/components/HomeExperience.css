@@ -1,6 +1,6 @@
 .pv-home-hero{position:relative;isolation:isolate;overflow:hidden;margin:0 20px 28px;border:1px solid var(--color-border);border-radius:24px;background:var(--color-elevated);min-height:380px;aspect-ratio:2.18/1;display:flex;align-items:flex-end;box-shadow:0 16px 40px #0003}
 .pv-home-hero-art{position:absolute;inset:0;z-index:-2}.pv-home-hero-art img{width:100%;height:100%;object-fit:cover}
-.pv-home-hero::before{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,rgba(9,13,17,.62),rgba(9,13,17,.38) 25%,rgba(9,13,17,.08) 48%,transparent 62%),linear-gradient(0deg,rgba(9,13,17,.4),rgba(9,13,17,.06) 12%,transparent 26%)}
+.pv-home-hero::before{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,rgba(9,13,17,.82),rgba(9,13,17,.56) 28%,rgba(9,13,17,.18) 52%,transparent 72%),linear-gradient(0deg,rgba(9,13,17,.65),rgba(9,13,17,.12) 18%,transparent 38%)}
 .pv-home-hero-content{width:100%;padding:clamp(24px,4vw,56px);padding-top:100px;color:#eceff4}
 .pv-home-eyebrow{color:var(--color-accent);font-size:12px;letter-spacing:.16em;text-transform:uppercase;font-weight:700;margin:0 0 14px}
 .pv-home-hero h2{font-size:clamp(30px,3.7vw,60px);font-weight:750;line-height:1.08;max-width:700px;text-wrap:balance;overflow-wrap:anywhere}
@@ -19,10 +19,11 @@
 @container (width < 900px){.pv-home-row{--home-card-width:calc((100cqw - 16px)/3.2)}}
 @container (width < 600px){.pv-home-row{--home-card-width:calc((100cqw - 8px)/2.2)}}
 @media(min-width:640px){.pv-home-hero{margin-inline:32px}}@media(min-width:768px){.pv-home-hero{margin-inline:48px}}
-@media(min-width:481px) and (max-width:959px){.pv-home-hero{aspect-ratio:5/6;min-height:560px}.pv-home-hero-content{padding:32px}.pv-home-hero::before{background:linear-gradient(0deg,rgba(9,13,17,.75),rgba(9,13,17,.48) 30%,rgba(9,13,17,.12) 58%,transparent 76%)}}
-@media(max-width:480px){.pv-home-hero{border-radius:18px;min-height:440px;aspect-ratio:2/3}.pv-home-hero-content{padding:24px}.pv-home-hero::before{background:linear-gradient(0deg,rgba(9,13,17,.8),rgba(9,13,17,.52) 36%,rgba(9,13,17,.14) 62%,transparent 80%)}.pv-home-actions{flex-direction:column;gap:8px;margin-top:20px}.pv-home-action{width:100%}.pv-home-hero-plot{white-space:pre-line;font-size:14px}.pv-home-hero h2{font-size:32px}.pv-home-row-heading h2{font-size:18px}.pv-home-card-link h3{font-size:13px}}
+@media(min-width:481px) and (max-width:959px){.pv-home-hero{aspect-ratio:5/6;min-height:560px}.pv-home-hero-content{padding:32px}.pv-home-hero::before{background:linear-gradient(0deg,rgba(9,13,17,.9),rgba(9,13,17,.65) 30%,rgba(9,13,17,.22) 58%,transparent 80%)}}
+@media(max-width:480px){.pv-home-hero{border-radius:18px;min-height:440px;aspect-ratio:2/3}.pv-home-hero-content{padding:24px}.pv-home-hero::before{background:linear-gradient(0deg,rgba(9,13,17,.92),rgba(9,13,17,.72) 36%,rgba(9,13,17,.25) 62%,transparent 85%)}.pv-home-actions{flex-direction:column;gap:8px;margin-top:20px}.pv-home-action{width:100%}.pv-home-hero-plot{white-space:pre-line;font-size:14px}.pv-home-hero h2{font-size:32px}.pv-home-row-heading h2{font-size:18px}.pv-home-card-link h3{font-size:13px}}
 @media(prefers-reduced-motion:reduce){.pv-home-landscape-art{transition:none}}
 
 .pv-home-library-section,.pv-home-continue-section{container-type:inline-size;min-width:0;margin-top:30px}.pv-home-library-card>div{aspect-ratio:16/9;border-radius:12px}.pv-home-library-card h3{font-size:14px;font-weight:600;margin-top:9px}.pv-home-continue-section .pv-home-landscape-card>div{border-radius:12px}
 
-.pv-home-hero h2,.pv-home-hero-meta,.pv-home-hero-plot{text-shadow:0 1px 4px #000b}
+
+.pv-home-hero-slide{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease-in-out}.pv-home-hero-slide.is-current{opacity:1}.pv-home-rotation{position:absolute;top:18px;right:18px;display:flex;align-items:center;gap:4px;padding:4px;border:1px solid #ffffff30;border-radius:999px;background:#091015b3;backdrop-filter:blur(8px);color:#fff}.pv-home-rotation button{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;cursor:pointer}.pv-home-rotation button:hover{background:#ffffff26}.pv-home-rotation button:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}.pv-home-rotation svg{width:18px;height:18px}.pv-home-rotation span{min-width:44px;text-align:center;font-size:12px;font-variant-numeric:tabular-nums}@media(prefers-reduced-motion:reduce){.pv-home-hero-slide{transition:none}}

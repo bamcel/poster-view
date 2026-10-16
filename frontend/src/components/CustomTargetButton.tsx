@@ -1,7 +1,7 @@
 // A small "Custom" button + popover letting you override where an image gets
 // applied — e.g. using a poster image as a Season 0 (Specials) poster instead
 // of its auto-detected placement. Lists every target: Poster, Background,
-// Logo, and each season. Appears next to the normal Poster/Season/Background
+// Logo, Landscape, and each season. Appears next to the normal Poster/Season/Background
 // button.
 //
 // The popover is rendered into a portal at the document root, positioned from

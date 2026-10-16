@@ -1,7 +1,8 @@
+import {useFeaturedRotation} from "../lib/useFeaturedRotation";
 import HomeMediaRow from "./HomeMediaRow";
 import { mediaDescription } from "../lib/mediaDescription";
-import {useEffect,useMemo,useState} from "react";
-import {Film,Info,Play} from "lucide-react";
+import {useEffect,useMemo,useRef,useState} from "react";
+import {ChevronLeft,ChevronRight,Film,Info,Pause,Play} from "lucide-react";
 import {nativeLibraries} from "../api/nativeLibraries";
 import {Link} from "../lib/libraryNavigation";
 import {nativeArtworkVersion} from "../lib/nativeArtworkCache";
@@ -17,7 +18,7 @@ const playable=({entry}:HomeTitle)=>entry.available&&entry.metadata.missing!==tr
 function numeric(value:unknown){if(typeof value!=="number"&&(typeof value!=="string"||!value.trim()))return;const n=Number(value);return Number.isFinite(n)?n:undefined;}
 function genres({entry}:HomeTitle){return Array.isArray(entry.metadata.genres)?[...new Set(entry.metadata.genres.filter((v):v is string=>typeof v==="string"&&!!v.trim()).map(v=>v.trim()))]:[];}
 function Artwork({title,hero=false}:{title:HomeTitle;hero?:boolean}){
-  const kind=["landscape","backdrop","fanart","thumb","poster"].find(kind=>title.entry.artwork.some(art=>art.kind===kind));
+  const kind=(hero?["backdrop","landscape","fanart","thumb","poster"]:["landscape","backdrop","fanart","thumb","poster"]).find(kind=>title.entry.artwork.some(art=>art.kind===kind));
   const src=kind?stillArtwork(`${nativeLibraries.artworkUrl(title.library.id,title.entry.id,kind)}?v=${encodeURIComponent(nativeArtworkVersion(title.entry,kind))}`):undefined;
   const [failed,setFailed]=useState(false);
   useEffect(()=>setFailed(false),[src]);
@@ -25,15 +26,31 @@ function Artwork({title,hero=false}:{title:HomeTitle;hero?:boolean}){
 }
 
 export function FeaturedTitle({titles}:{titles:HomeTitle[]}){
-  // Temporary featured title for checking text contrast against bright artwork.
-  const contrastTitle=titles.find(({entry})=>entry.kind==="series"&&entry.title.toLocaleLowerCase().replace(/[^a-z0-9]+/g," ").trim()==="more than a married couple but not lovers"&&entry.artwork.some(art=>["backdrop","landscape","fanart"].includes(art.kind)));
-  const title=contrastTitle??titles.find(title=>title.entry.artwork.some(art=>["backdrop","landscape","fanart"].includes(art.kind)))??titles[0];
+  const candidates=useMemo(()=>{
+    const libraries=new Map<string,HomeTitle[]>();
+    for(const title of titles){
+      if(!title.entry.available||title.entry.metadata.missing===true||!["movie","series"].includes(title.entry.kind)||!title.entry.artwork.some(art=>["backdrop","landscape","fanart"].includes(art.kind)))continue;
+      const group=libraries.get(title.library.id)??[];group.push(title);libraries.set(title.library.id,group);
+    }
+    const groups=[...libraries.values()],result:HomeTitle[]=[];
+    for(let index=0;groups.some(group=>index<group.length);index++)for(const group of groups)if(group[index])result.push(group[index]);
+    return result.length?result:titles.filter(({entry})=>entry.available&&entry.metadata.missing!==true).slice(0,1);
+  },[titles]);
+  const rotation=useFeaturedRotation(candidates.map(({library,entry})=>`${library.id}:${entry.id}`));
+  const hovering=useRef(false);
+  const title=candidates[rotation.index];
   if(!title)return null;
   const year=numeric(title.entry.metadata.year);
   const rating=typeof title.entry.metadata.mpaa==="string"?title.entry.metadata.mpaa.trim():"";
   const plot=mediaDescription(title.entry.metadata.plot);
-  return <section className="pv-home-hero" aria-label="Featured title">
-    <div className="pv-home-hero-art"><Artwork title={title} hero/></div>
+  return <section className="pv-home-hero" aria-label="Featured title" aria-roledescription={candidates.length>1?"carousel":undefined} onMouseEnter={()=>{hovering.current=true;rotation.setInteracting(true);}} onMouseLeave={event=>{hovering.current=false;rotation.setInteracting(event.currentTarget.contains(document.activeElement));}} onFocus={()=>rotation.setInteracting(true)} onBlur={event=>rotation.setInteracting(hovering.current||event.currentTarget.contains(event.relatedTarget))}>
+    <div className="pv-home-hero-art">{candidates.map((candidate,index)=>({candidate,index})).filter(({index})=>index===rotation.index||index===(rotation.index+1)%candidates.length||index===(rotation.index+candidates.length-1)%candidates.length).map(({candidate,index})=><div key={`${candidate.library.id}:${candidate.entry.id}`} className={`pv-home-hero-slide ${index===rotation.index?"is-current":""}`} aria-hidden="true"><Artwork title={candidate} hero/></div>)}</div>
+    {candidates.length>1&&<div className="pv-home-rotation" role="group" aria-label="Featured banner controls">
+      <button type="button" aria-label="Previous featured title" onClick={rotation.previous}><ChevronLeft aria-hidden="true"/></button>
+      <span>{rotation.index+1} / {candidates.length}</span>
+      <button type="button" disabled={rotation.reduced} title={rotation.reduced?"Automatic rotation is disabled by your reduced-motion preference":undefined} aria-label={rotation.paused?"Resume banner rotation":"Pause banner rotation"} onClick={()=>rotation.setPaused(!rotation.paused)}>{rotation.paused?<Play aria-hidden="true"/>:<Pause aria-hidden="true"/>}</button>
+      <button type="button" aria-label="Next featured title" onClick={rotation.next}><ChevronRight aria-hidden="true"/></button>
+    </div>}
     <div className="pv-home-hero-content">
       <p className="pv-home-eyebrow">Featured · {title.library.name}</p>
       <h2>{title.entry.title}</h2>

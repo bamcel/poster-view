@@ -1,7 +1,7 @@
 // Shapes mirror the serialized API contracts in crates/posterview-contracts.
 
 export type ServerType = "plex" | "jellyfin" | "emby";
-export type ImageTarget = "poster" | "background" | "logo";
+export type ImageTarget = "poster" | "background" | "logo" | "landscape";
 
 export interface Server {
   id: number;

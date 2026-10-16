@@ -1117,6 +1117,7 @@ pub(crate) async fn apply_panel_artwork(
         let kind = match kind {
             posterview_contracts::ImageTarget::Background => "backdrop",
             posterview_contracts::ImageTarget::Logo => "logo",
+            posterview_contracts::ImageTarget::Landscape => "landscape",
             posterview_contracts::ImageTarget::Poster if entry.kind == "episode" => "thumb",
             _ => "poster",
         };
@@ -2092,6 +2093,46 @@ pub(crate) mod scan_tests {
             .unwrap()
             .unwrap();
         assert_eq!(art.source, "manual");
+        assert!(
+            apply_panel_artwork(
+                state.clone(),
+                target.clone(),
+                ImageTarget::Landscape,
+                Some(bytes.get_ref().clone()),
+            )
+            .await
+            .unwrap()
+            .ok
+        );
+        let landscape = db
+            .native_artwork(&library.id, &series.id, "landscape")
+            .unwrap()
+            .unwrap();
+        assert_eq!(landscape.source, "manual");
+        assert_ne!(landscape.path, art.path);
+        assert_eq!(
+            db.native_artwork(&library.id, &series.id, "poster")
+                .unwrap()
+                .unwrap()
+                .path,
+            art.path
+        );
+        assert!(
+            apply_panel_artwork(state.clone(), target.clone(), ImageTarget::Landscape, None)
+                .await
+                .unwrap()
+                .ok
+        );
+        assert!(
+            db.native_artwork(&library.id, &series.id, "landscape")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            db.native_artwork(&library.id, &series.id, "poster")
+                .unwrap()
+                .is_some()
+        );
         let image_path = (library.id.clone(), series.id.clone(), "poster".to_string());
         let (status, headers, image) = artwork(
             State(state.clone()),

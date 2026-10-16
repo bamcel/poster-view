@@ -18,3 +18,11 @@ it("supports keyboard navigation and restores focus when the target menu closes"
   expect(screen.queryByRole("menu")).toBeNull();
   expect(document.activeElement).toBe(trigger);
 });
+
+it("applies Landscape to the native item from the custom target menu",()=>{
+ const pick=vi.fn();
+ render(<CustomTargetButton item={{id:"native:anime:series",title:"Series",type:"show",seasons:[],external_ids:{},members:[]}} onPick={pick}/>);
+ fireEvent.click(screen.getByRole("button",{name:"Custom"}));
+ fireEvent.click(screen.getByRole("menuitem",{name:"Landscape"}));
+ expect(pick).toHaveBeenCalledWith("landscape","native:anime:series","Landscape");
+});

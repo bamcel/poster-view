@@ -202,6 +202,7 @@ pub enum ImageTarget {
     Poster,
     Background,
     Logo,
+    Landscape,
 }
 
 impl ImageTarget {
@@ -211,6 +212,7 @@ impl ImageTarget {
             Self::Poster => "poster",
             Self::Background => "background",
             Self::Logo => "logo",
+            Self::Landscape => "landscape",
         }
     }
 }

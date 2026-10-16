@@ -36,7 +36,7 @@ export default function ManualUpload({ serverId, item, includeFolderBackdrop = f
   const preview = fileUrl ?? (url.trim() || null);
 
   const target = targets[targetIndex] ?? targets[0];
-  const isBackground = target.target === "background";
+  const isBackground = target.target === "background" || target.target === "landscape";
 
   async function apply() {
     if (!file && !url.trim()) {

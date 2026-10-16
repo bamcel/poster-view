@@ -49,6 +49,7 @@ async fn upload_image(
                 target = match value.as_str() {
                     "background" => ImageTarget::Background,
                     "logo" => ImageTarget::Logo,
+                    "landscape" => ImageTarget::Landscape,
                     _ => ImageTarget::Poster,
                 };
             }
