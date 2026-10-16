@@ -1,3 +1,4 @@
+import { mediaDescription } from "../lib/mediaDescription";
 import {useEffect,useId,useMemo,useRef,useState} from "react";
 import {ChevronLeft,ChevronRight,Film,Info,Play} from "lucide-react";
 import {nativeLibraries} from "../api/nativeLibraries";
@@ -27,7 +28,7 @@ export function FeaturedTitle({titles}:{titles:HomeTitle[]}){
   if(!title)return null;
   const year=numeric(title.entry.metadata.year);
   const rating=typeof title.entry.metadata.mpaa==="string"?title.entry.metadata.mpaa.trim():"";
-  const plot=typeof title.entry.metadata.plot==="string"?title.entry.metadata.plot.trim():"";
+  const plot=mediaDescription(title.entry.metadata.plot);
   return <section className="pv-home-hero" aria-label="Featured title">
     <div className="pv-home-hero-art"><Artwork title={title} hero/></div>
     <div className="pv-home-hero-content">

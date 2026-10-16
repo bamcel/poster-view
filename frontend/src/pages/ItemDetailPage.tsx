@@ -1,3 +1,4 @@
+import { mediaDescription } from "../lib/mediaDescription";
 import {useIsAdmin} from "../lib/authContext";
 import AdminOnly from "../components/AdminOnly";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
@@ -287,7 +288,7 @@ export default function ItemDetailPage() {
                             </span>
                           )}
                         </div>
-                        {metadataQ.data.plot && <p className="mt-3 text-sm leading-relaxed text-white/75">{metadataQ.data.plot}</p>}
+                        {metadataQ.data.plot && <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-white/75">{mediaDescription(metadataQ.data.plot)}</p>}
                       </section>
                     )}
                   </div>

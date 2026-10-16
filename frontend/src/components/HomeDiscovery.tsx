@@ -1,3 +1,4 @@
+import { mediaDescription } from "../lib/mediaDescription";
 import {sizedArtwork} from "../lib/artworkSizes";
 import {useEffect, useId, useMemo, useRef, useState} from "react";
 import {ChevronLeft, ChevronRight, Film, Info, Play} from "lucide-react";
@@ -56,7 +57,7 @@ export function FeaturedTitle({titles,onQuickView}: {titles: HomeTitle[];onQuick
   if (!title) return null;
   const {entry, library} = title;
   const year = number(entry.metadata.year);
-  const plot = typeof entry.metadata.plot === "string" ? entry.metadata.plot.trim() : "";
+  const plot = mediaDescription(entry.metadata.plot);
   const metadata = [year && year > 0 ? String(year) : "", entry.kind === "series" ? "Series" : "Movie", ...genres(title).slice(0, 2)].filter(Boolean);
   return <section aria-label="Featured title" className="relative isolate mb-8 overflow-hidden bg-elevated">
     <div className="absolute inset-0 -z-20"><Artwork key={`${library.id}:${entry.id}`} title={title} hero/></div>
@@ -66,7 +67,7 @@ export function FeaturedTitle({titles,onQuickView}: {titles: HomeTitle[];onQuick
       <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-accent">Featured · {library.name}</p>
       <h2 className="max-w-2xl break-words text-3xl font-bold text-[#fff] sm:text-4xl lg:text-5xl">{entry.title}</h2>
       <p className="mt-3 text-sm text-white/80">{metadata.join(" · ")}</p>
-      {plot && <p className="mt-4 line-clamp-3 max-w-xl text-sm leading-relaxed text-white/80 sm:text-[16px]">{plot}</p>}
+      {plot && <p className="mt-4 whitespace-pre-line line-clamp-3 max-w-xl text-sm leading-relaxed text-white/80 sm:text-[16px]">{plot}</p>}
       <div className="mt-6 flex flex-wrap gap-3">
         {playable(title) && <Link to={playUrl(title)} aria-label={`Play ${entry.title}`} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-accent px-6 py-2.5 text-sm font-semibold text-black focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"><Play aria-hidden="true" className="size-5 fill-current"/>Play</Link>}
         <QuickInfo title={title} onQuickView={onQuickView} hero/>

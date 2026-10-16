@@ -1,3 +1,4 @@
+import { mediaDescription } from "../lib/mediaDescription";
 import {useEffect, useId, useRef, useState, type ReactNode} from "react";
 import {createPortal} from "react-dom";
 import {Film, Info, Play, X} from "lucide-react";
@@ -85,7 +86,7 @@ export default function DiscoveryHoverCard({title, children}: {title: HomeTitle;
         <h3>{entry.title}</h3>
         <p className="pv-discovery-hover-metadata">{[year ? String(year) : "", text(entry.metadata.mpaa), entry.kind === "series" ? "Series" : runtime ? `${Math.round(runtime)} min` : "Movie", rating ? `${Number(rating.toFixed(1))}/10` : ""].filter(Boolean).join(" · ")}</p>
         {genres.length > 0 && <p className="pv-discovery-hover-genres">{genres.join(" · ")}</p>}
-        {text(entry.metadata.plot) && <p className="pv-discovery-hover-plot">{text(entry.metadata.plot)}</p>}
+        {mediaDescription(entry.metadata.plot) && <p className="pv-discovery-hover-plot">{mediaDescription(entry.metadata.plot)}</p>}
         <div className="pv-discovery-hover-actions">
           {entry.kind==="series"&&entry.available&&entry.metadata.missing!==true&&<SeriesPreviewPlay title={title} onChoosingChange={choosing=>{choosingPlayback.current=choosing;cancel();}}/>}
           {entry.available && entry.metadata.missing !== true && entry.kind === "movie" && entry.files.length > 0 && <Link className="pv-discovery-hover-play" to={`/play/native/${encodeURIComponent(library.id)}/${encodeURIComponent(entry.id)}?return=%2F`} aria-label={`Play ${entry.title}`}><Play size={16} aria-hidden="true"/>Play</Link>}

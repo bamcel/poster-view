@@ -1,3 +1,4 @@
+import { mediaDescription } from "../lib/mediaDescription";
 import {sizedArtwork} from "../lib/artworkSizes";
 import {useEffect, useId, useMemo, useRef, useState} from "react";
 import {useQuery} from "@tanstack/react-query";
@@ -70,7 +71,7 @@ export default function HomeQuickView({title, onClose}: {title: HomeTitle; onClo
   const runtime = numeric(entry.metadata.runtime);
   const certification = typeof entry.metadata.mpaa === "string" ? entry.metadata.mpaa.trim() : "";
   const genres = Array.isArray(entry.metadata.genres) ? entry.metadata.genres.filter((genre): genre is string => typeof genre === "string" && !!genre.trim()).map(genre => genre.trim()) : [];
-  const plot = typeof entry.metadata.plot === "string" ? entry.metadata.plot.trim() : "";
+  const plot = mediaDescription(entry.metadata.plot);
   const available = entry.available && entry.metadata.missing !== true;
   return <dialog ref={dialog} aria-labelledby={heading} aria-modal="true" onCancel={event => {event.preventDefault(); onClose();}} onClick={event => {
     if (event.target !== event.currentTarget) return;
