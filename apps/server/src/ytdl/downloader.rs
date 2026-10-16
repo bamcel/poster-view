@@ -259,7 +259,7 @@ fn inspection_value(v: &Value, url: &str, channel_uploads: bool) -> Value {
     let formats=v["formats"].as_array().map(|fs|fs.iter().map(|f|json!({"format_id":f["format_id"],"height":f["height"],"fps":f["fps"],"vcodec":f["vcodec"],"acodec":f["acodec"],"ext":f["ext"]})).collect::<Vec<_>>()).unwrap_or_default();
     json!({"id":v["id"],"title":v["title"],"description":v["description"],"channel":v["channel"],"channel_id":v["channel_id"],"kind":if is_channel_url(url){"channel"}else if playlist.is_some(){"playlist"}else{"video"},"entries":entries,"formats":formats})
 }
-async fn await_cancel(state: &AppState, job: &Job) {
+pub(super) async fn await_cancel(state: &AppState, job: &Job) {
     loop {
         if cancelled(state, &job.id).await {
             return;
@@ -267,7 +267,11 @@ async fn await_cancel(state: &AppState, job: &Job) {
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
 }
-async fn job_raw_inspect(state: &AppState, job: &Job, url: &str) -> Result<Value, HttpError> {
+pub(super) async fn job_raw_inspect(
+    state: &AppState,
+    job: &Job,
+    url: &str,
+) -> Result<Value, HttpError> {
     tokio::select! {result=raw_inspect(url)=>result,_=await_cancel(state,job)=>Err(err("Download cancelled."))}
 }
 pub(super) async fn dependencies() -> Value {
@@ -771,6 +775,9 @@ async fn cancellable(
     }
 }
 pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
+    if job.metadata_only {
+        return super::refresh::run(state, job).await;
+    }
     let mut effective_job = job.clone();
     effective_job.settings = job.settings.effective();
     let job = &effective_job;
@@ -778,15 +785,11 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
         return Err(err("YTDL plugin is disabled."));
     }
     let destination = validate_settings(state, &job.settings)?;
-    if job.settings.convert && job.settings.hardware_backend != "cpu" {
-        crate::playback::validate_download_encoder(
-            state,
-            &job.settings.video_codec,
-            &job.settings.hardware_backend,
-        )
-        .await?;
-    }
-    let mut channel_metadata = std::collections::HashMap::new();
+    let existing_ids = if job.settings.skip_existing {
+        super::refresh::local_videos(&destination)?
+    } else {
+        std::collections::HashSet::new()
+    };
     update(state, &job.id, "inspecting", None, None).await?;
     let inspect_source = async {
         if is_channel_url(&job.url) {
@@ -796,11 +799,23 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
         }
     };
     let inspection = tokio::select! {result=inspect_source=>result?,_=await_cancel(state,job)=>return Err(err("Download cancelled."))};
+    run_inspection(state, job, &destination, &existing_ids, &inspection).await
+}
+
+async fn run_inspection(
+    state: &AppState,
+    job: &Job,
+    destination: &Path,
+    existing_ids: &std::collections::HashSet<String>,
+    inspection: &Value,
+) -> Result<(), HttpError> {
+    let mut encoder_validated = false;
+    let mut channel_metadata = std::collections::HashMap::new();
     {
         let _lock = state.ytdl_lock.lock().await;
         let mut jobs = super::load::<Vec<Job>>(state, "plugin-ytdl-jobs")?;
         if let Some(saved) = jobs.iter_mut().find(|saved| saved.id == job.id) {
-            saved.title = text(&inspection, "title");
+            saved.title = text(inspection, "title");
         }
         super::save(state, "plugin-ytdl-jobs", &jobs)?;
     }
@@ -825,6 +840,10 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
         let id = text(e, "id");
         if !valid_id(&id) {
             return Err(err("Invalid video identity."));
+        }
+        if existing_ids.contains(&id) {
+            video_progress(state, &job.id, selected.len(), index + 1, None).await?;
+            continue;
         }
         let url = format!("https://www.youtube.com/watch?v={id}");
         video_progress(
@@ -861,7 +880,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             .get(&channel)
             .ok_or_else(|| err("Channel metadata unavailable."))?;
         let (channel_folder, video_folder) = super::naming::folder_names(
-            &destination,
+            destination,
             &channel,
             &id,
             &text(&info, "channel"),
@@ -905,8 +924,18 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
         let media = target.join(format!("{stem}.{}", job.settings.container));
         // Reserve stable identities before staging so retries reuse readable folders
         // even if titles change or a previous download did not finish publishing.
-        super::nfo::write_named(&target, &stem, &info, e, &inspection, channel_info)?;
+        super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
         if existing.is_none() {
+            if !encoder_validated && job.settings.convert && job.settings.hardware_backend != "cpu"
+            {
+                crate::playback::validate_download_encoder(
+                    state,
+                    &job.settings.video_codec,
+                    &job.settings.hardware_backend,
+                )
+                .await?;
+                encoder_validated = true;
+            }
             let mut download_settings = job.settings.clone();
             match choose_quality(&job.settings, &info) {
                 QualityChoice::Legacy => {}
@@ -1012,14 +1041,14 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
                     publish(&file.path(), &target.join(name))?;
                 }
             }
-            super::nfo::write_named(&target, &stem, &info, e, &inspection, channel_info)?;
+            super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
             if cancelled(state, &job.id).await {
                 return Err(err("Download cancelled."));
             }
             publish_with_modified(&source, &media, upload_modified_time(&info))?;
         }
 
-        super::nfo::write_named(&target, &stem, &info, e, &inspection, channel_info)?;
+        super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
         video_progress(state, &job.id, selected.len(), index + 1, None).await?;
     }
 
@@ -1133,7 +1162,49 @@ mod tests {
             finished_at: None,
             encoding_progress: None,
             video_ids: vec![],
+            metadata_only: false,
         }
+    }
+    #[tokio::test]
+    async fn skip_existing_bypasses_per_video_inspection_quality_and_encoding() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let destination = temp.path().join("media/downloads");
+        let video = destination.join("channels/UCfixture/fixture");
+        std::fs::create_dir_all(&video).unwrap();
+        let nfo = "<episodedetails><title>Keep title</title><youtube><video_id>fixture</video_id></youtube></episodedetails>";
+        std::fs::write(video.join("low-quality.nfo"), nfo).unwrap();
+        std::fs::write(video.join("low-quality.mp4"), b"existing 480p video").unwrap();
+        let mut job = progress_fixture();
+        job.settings.skip_existing = true;
+        job.settings.quality = Some(2160);
+        job.settings.hardware_backend = "unavailable-encoder".into();
+        job.settings.convert = true;
+        super::super::save(&state, "plugin-ytdl-jobs", &vec![job.clone()]).unwrap();
+        let index = super::super::refresh::local_videos(&destination).unwrap();
+        // This inspected playlist entry has no usable full video metadata. If the
+        // skip is late, the worker would try yt-dlp/encoding and this fixture fails.
+        run_inspection(
+            &state,
+            &job,
+            &destination,
+            &index,
+            &json!({"title":"Fixture playlist", "entries":[{"id":"fixture", "title":"New title"}]}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(video.join("low-quality.nfo")).unwrap(),
+            nfo
+        );
+        assert_eq!(
+            std::fs::read(video.join("low-quality.mp4")).unwrap(),
+            b"existing 480p video"
+        );
+        assert_eq!(std::fs::read_dir(video).unwrap().count(), 2);
+        let saved = super::super::load::<Vec<Job>>(&state, "plugin-ytdl-jobs").unwrap();
+        assert_eq!(saved[0].completed_videos, 1);
+        assert_eq!(saved[0].status, "completed");
     }
     #[test]
     fn encoding_progress_parses_batches_and_aggregates_without_regression() {
@@ -1426,6 +1497,7 @@ mod tests {
             finished_at: None,
             encoding_progress: None,
             video_ids: vec![],
+            metadata_only: false,
         };
         super::super::save(&state, "plugin-ytdl-jobs", &vec![job.clone()]).unwrap();
         #[cfg(windows)]

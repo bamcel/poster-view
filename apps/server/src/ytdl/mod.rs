@@ -2,6 +2,7 @@
 mod downloader;
 mod naming;
 mod nfo;
+mod refresh;
 mod subscriptions;
 use crate::{AppState, HttpError};
 use axum::{
@@ -19,6 +20,7 @@ static ACTIVE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<St
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct Settings {
+    pub skip_existing: bool,
     pub download_mode: String,
     pub enabled: bool,
     pub library_id: String,
@@ -47,6 +49,7 @@ fn legacy_filename_convention() -> String {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            skip_existing: false,
             download_mode: "custom".into(),
             enabled: false,
             library_id: String::new(),
@@ -86,6 +89,8 @@ impl Settings {
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Job {
+    #[serde(default)]
+    pub metadata_only: bool,
     pub id: String,
     pub url: String,
     pub title: String,
@@ -252,6 +257,12 @@ fn validate_settings(state: &AppState, s: &Settings) -> Result<PathBuf, HttpErro
         .map_err(|_| err("Download directory is not writable."))?;
     Ok(destination)
 }
+fn validate_metadata_destination(state: &AppState, s: &Settings) -> Result<PathBuf, HttpError> {
+    let destination = state.metadata.directory(&s.directory, false)?;
+    tempfile::NamedTempFile::new_in(&destination)
+        .map_err(|_| err("Metadata directory is not writable."))?;
+    Ok(destination)
+}
 #[derive(Deserialize)]
 struct InspectRequest {
     url: String,
@@ -268,6 +279,8 @@ async fn jobs_get(State(state): State<AppState>) -> Result<Json<Vec<Job>>, HttpE
 }
 #[derive(Deserialize)]
 struct CreateRequest {
+    #[serde(default)]
+    metadata_only: bool,
     url: String,
     #[serde(default)]
     video_ids: Vec<String>,
@@ -281,11 +294,15 @@ async fn jobs_create(
         return Err(err("Enable and save the YTDL plugin before downloading."));
     }
     downloader::validate_url(&input.url)?;
-    validate_settings(&state, &input.settings)?;
+    if input.metadata_only {
+        validate_metadata_destination(&state, &input.settings)?;
+    } else {
+        validate_settings(&state, &input.settings)?;
+    }
     if !input.settings.enabled {
         return Err(err("Enable the YTDL plugin first."));
     }
-    if downloader::is_channel_url(&input.url) {
+    if !input.metadata_only && downloader::is_channel_url(&input.url) {
         return Err(err(
             "Choose a video or playlist from the channel before downloading.",
         ));
@@ -295,9 +312,15 @@ async fn jobs_create(
     }
     let id = uuid::Uuid::new_v4().to_string();
     let job = Job {
+        metadata_only: input.metadata_only,
         id: id.clone(),
         url: input.url,
-        title: "YouTube download".into(),
+        title: if input.metadata_only {
+            "YouTube NFO update"
+        } else {
+            "YouTube download"
+        }
+        .into(),
         status: "queued".into(),
         progress: None,
         encoding_progress: None,
@@ -338,7 +361,11 @@ async fn change(state: &AppState, id: &str, retry: bool) -> Result<Job, HttpErro
         if !["failed", "interrupted", "cancelled"].contains(&job.status.as_str()) {
             return Err(err("Only stopped downloads can be retried."));
         }
-        validate_settings(state, &job.settings)?;
+        if job.metadata_only {
+            validate_metadata_destination(state, &job.settings)?;
+        } else {
+            validate_settings(state, &job.settings)?;
+        }
         job.status = "queued".into();
         job.error = None;
         job.progress = None;
@@ -496,6 +523,7 @@ mod tests {
     use super::*;
     fn job(status: &str) -> Job {
         Job {
+            metadata_only: false,
             id: "fixture".into(),
             url: "https://youtube.com/watch?v=fixture".into(),
             title: "Fixture".into(),
@@ -597,10 +625,12 @@ mod tests {
         for key in ["total_videos", "completed_videos", "current_video_title"] {
             object.remove(key);
         }
+        object.remove("metadata_only");
         let restored: Job = serde_json::from_value(value).unwrap();
         assert_eq!(restored.total_videos, 0);
         assert_eq!(restored.completed_videos, 0);
         assert!(restored.current_video_title.is_none());
+        assert!(!restored.metadata_only);
     }
 
     #[tokio::test]
@@ -648,7 +678,61 @@ mod tests {
         assert_eq!(settings.filename_convention, "id");
         assert_eq!(settings.crf, 23);
         assert_eq!(settings.hardware_backend, "cpu");
+        assert!(!settings.skip_existing);
         assert_eq!(Settings::default().filename_convention, "date_title_id");
+    }
+
+    #[tokio::test]
+    async fn metadata_jobs_accept_channels_without_download_encoder_settings() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        std::fs::create_dir(temp.path().join("media/downloads")).unwrap();
+        let settings = Settings {
+            enabled: true,
+            directory: "downloads".into(),
+            convert: true,
+            hardware_backend: "nvenc".into(),
+            skip_existing: true,
+            ..Default::default()
+        };
+        save(&state, "plugin-ytdl", &settings).unwrap();
+        let request = |metadata_only| CreateRequest {
+            metadata_only,
+            url: "https://www.youtube.com/@OutdoorBoys".into(),
+            video_ids: vec![],
+            settings: settings.clone(),
+        };
+        assert!(
+            jobs_create(State(state.clone()), Json(request(false)))
+                .await
+                .is_err()
+        );
+        let Json(created) = jobs_create(State(state.clone()), Json(request(true)))
+            .await
+            .unwrap();
+        let jobs: Vec<Job> = load(&state, "plugin-ytdl-jobs").unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(created["id"], jobs[0].id);
+        assert!(jobs[0].metadata_only);
+        assert!(jobs[0].settings.skip_existing);
+        change(&state, &jobs[0].id, false).await.unwrap();
+        let retried = change(&state, &jobs[0].id, true).await.unwrap();
+        assert!(retried.metadata_only);
+        assert_eq!(retried.status, "queued");
+    }
+
+    #[test]
+    fn metadata_destination_must_exist_and_stay_inside_media_root() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let mut settings = Settings {
+            directory: "missing".into(),
+            ..Default::default()
+        };
+        assert!(validate_metadata_destination(&state, &settings).is_err());
+        assert!(!temp.path().join("media/missing").exists());
+        settings.directory = "../outside".into();
+        assert!(validate_metadata_destination(&state, &settings).is_err());
     }
 
     #[test]

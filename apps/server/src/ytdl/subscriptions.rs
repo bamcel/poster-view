@@ -233,7 +233,8 @@ async fn manual(
 }
 fn active_video(jobs: &[Job], directory: &str, url: &str, id: &str) -> bool {
     jobs.iter().any(|job| {
-        same_destination(&job.settings.directory, directory)
+        !job.metadata_only
+            && same_destination(&job.settings.directory, directory)
             && same_source(&job.url, url)
             && [
                 "queued",
@@ -508,6 +509,7 @@ fn append_source_jobs(
                 continue;
             }
             let needed = match index.get(id) {
+                Some(Ok(Some(_))) if settings.skip_existing => false,
                 Some(Ok(Some(media))) if source.playlist => {
                     match super::nfo::playlist_current(media, entry, &source.info) {
                         Ok(current) => !current,
@@ -536,6 +538,7 @@ fn append_source_jobs(
             break;
         }
         jobs.push(Job {
+            metadata_only: false,
             id: uuid::Uuid::new_v4().to_string(),
             url: source.url.clone(),
             title: source.info["title"]
@@ -780,6 +783,19 @@ mod tests {
             &mut errors
         ));
         let new = vec![source("PLnew", &["shared"], true)];
+        let skipping = Settings {
+            skip_existing: true,
+            quality: Some(2160),
+            ..settings.clone()
+        };
+        assert!(!append_source_jobs(
+            &mut jobs,
+            &new,
+            &skipping,
+            &index,
+            &mut errors
+        ));
+        assert_eq!(jobs.len(), 3);
         assert!(append_source_jobs(
             &mut jobs,
             &new,
@@ -846,6 +862,7 @@ mod tests {
             ..Default::default()
         };
         let mut jobs = vec![Job {
+            metadata_only: false,
             id: "job".into(),
             url: "https://youtube.com/playlist?list=PLid".into(),
             title: String::new(),
@@ -864,6 +881,9 @@ mod tests {
             video_ids: vec!["vid".into()],
         }];
         assert!(active_video(&jobs, "downloads", &jobs[0].url, "vid"));
+        jobs[0].metadata_only = true;
+        assert!(!active_video(&jobs, "downloads", &jobs[0].url, "vid"));
+        jobs[0].metadata_only = false;
         jobs[0].settings.library_id = "retired-library".into();
         assert!(active_video(&jobs, "downloads/", &jobs[0].url, "vid"));
         assert!(!active_video(&jobs, "other-downloads", &jobs[0].url, "vid"));

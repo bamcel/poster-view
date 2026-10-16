@@ -31,3 +31,8 @@ it("restores the persisted playlist progress with a new query client after refre
  expect(screen.queryByRole("button",{name:"Open queue"})).toBeNull();
  second.client.clear();
 });
+
+it("labels metadata jobs without showing encoder activity",async()=>{
+ vi.mocked(ytdl.jobs).mockResolvedValue([{id:"nfo",title:"Channel",status:"processing",metadata_only:true,progress:20,encoding_progress:10,settings:{directory:"youtube"}} as YtdlJob]);const view=mount(false);
+ expect(await screen.findByText("NFO update · processing · 20%")).toBeTruthy();expect(screen.queryByText(/Encoding/)).toBeNull();view.client.clear();
+});

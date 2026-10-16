@@ -95,6 +95,27 @@ space both there and at the media destination.
 
 ## Metadata and files
 
+### Refreshing existing NFOs
+
+In **Downloads**, paste a video, playlist, or channel URL and select **Update
+NFOs**. You can also use **Fetch Info** and select individual videos before
+updating. A channel URL refreshes its downloaded videos and their public playlist
+memberships. The queue labels these jobs **NFO update**; cancellation and retry
+work like download jobs.
+
+Only videos already present in the configured download directory are updated.
+Missing videos are skipped. This action fetches metadata and rewrites episode and
+channel NFOs without downloading media, artwork, or subtitles, renaming files, or
+running FFmpeg. Existing filenames and unrelated NFO fields are preserved. Scan
+the YouTube library afterward to import the refreshed metadata.
+
+Enable **Skip existing videos** in Configuration to leave existing downloads and
+their NFOs untouched during ordinary downloads and subscription checks, regardless
+of quality, codec, or container. Existing videos are identified by their YouTube
+IDs, rather than by their current titles or selected download quality. The option
+defaults off for existing configurations. **Update NFOs** ignores this option so
+you can refresh metadata separately.
+
 Video cards display the NFO title and sort by upload date, newest first, in both
 playlists and All Videos. Undated videos come last; equal-time ties use titles.
 Exact publication time is used when available; older NFOs fall back to the upload

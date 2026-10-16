@@ -233,3 +233,49 @@ it("queues direct mode even with incompatible retained custom GPU settings",asyn
  fireEvent.click(await screen.findByRole("button",{name:"Download 1 selected"}));
  await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/watch?v=a",["a"],{...custom,download_mode:"direct"}));
 });
+
+it("refreshes channel NFOs without inspection or valid encoding settings",async()=>{
+ const custom={...settings,convert:true,hardware_backend:"nvenc" as const};
+ vi.mocked(ytdl.configuration).mockResolvedValue({settings:custom,dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}});
+ mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Downloads"}));
+ expect((screen.getByRole("button",{name:"Update NFOs"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});fireEvent.click(screen.getByRole("button",{name:"Update NFOs"}));
+ await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/@channel",[],custom,true));expect(ytdl.inspect).not.toHaveBeenCalled();
+});
+it("prevents duplicate refresh submissions and displays failures",async()=>{
+ let reject!:(error:Error)=>void;vi.mocked(ytdl.submit).mockImplementationOnce(()=>new Promise((_,fail)=>{reject=fail;}));
+ mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Downloads"}));
+ fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});fireEvent.click(screen.getByRole("button",{name:"Update NFOs"}));
+ expect((await screen.findByRole("button",{name:"Queueing NFO update…"}) as HTMLButtonElement).disabled).toBe(true);
+ reject(new Error("Metadata unavailable"));expect((await screen.findByRole("alert")).textContent).toBe("Metadata unavailable");
+});
+it("saves skip existing videos in either download mode",async()=>{
+ mount();await screen.findByLabelText("Skip existing videos");fireEvent.click(screen.getByLabelText("Skip existing videos"));fireEvent.change(screen.getByLabelText("Download mode"),{target:{value:"direct"}});
+ expect((screen.getByLabelText("Skip existing videos") as HTMLInputElement).checked).toBe(true);fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,skip_existing:true,download_mode:"direct"}));
+});
+it("serializes metadata mode and skip existing without changing normal submission defaults",async()=>{
+ const actual=await vi.importActual<typeof import("./client")>("./client");vi.mocked(apiRequest).mockResolvedValue({id:"job"});
+ await actual.ytdl.submit("https://youtube.com/watch?v=a",[],settings,true);
+ expect(apiRequest).toHaveBeenLastCalledWith("/plugins/ytdl/jobs",{method:"POST",body:JSON.stringify({url:"https://youtube.com/watch?v=a",video_ids:[],settings,metadata_only:true})});
+ await actual.ytdl.submit("https://youtube.com/watch?v=a",["a"],{...settings,skip_existing:true});
+ expect(apiRequest).toHaveBeenLastCalledWith("/plugins/ytdl/jobs",{method:"POST",body:JSON.stringify({url:"https://youtube.com/watch?v=a",video_ids:["a"],settings:{...settings,skip_existing:true},metadata_only:false})});
+});
+
+it("refreshes selected playlist entries and disables an empty selection",async()=>{
+ vi.mocked(ytdl.inspect).mockResolvedValue({id:"pl",title:"Playlist",description:"",channel:"Channel",channel_id:"ch",kind:"playlist",formats:[],entries:["a","b"].map(id=>({id,url:`https://www.youtube.com/watch?v=${id}`,title:`Video ${id}`,description:"",channel:"Channel",channel_id:"ch",duration:null,upload_date:"",thumbnail:null,playlist_id:"pl",playlist_title:"Playlist",playlist_index:1}))});
+ mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Downloads"}));fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/playlist?list=pl"}});fireEvent.click(screen.getByRole("button",{name:"Fetch Info"}));await screen.findByRole("checkbox",{name:"Select Video b"});
+ fireEvent.click(screen.getByRole("button",{name:"Clear selection"}));expect((screen.getByRole("button",{name:"Update NFOs"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole("checkbox",{name:"Select Video a"}));fireEvent.click(screen.getByRole("button",{name:"Update NFOs"}));await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/playlist?list=pl",["a"],settings,true));
+});
+it.each([{enabled:false,directory:"YouTube"}])("disables NFO refresh for unavailable settings %j",async overrides=>{
+ vi.mocked(ytdl.configuration).mockResolvedValue({settings:{...settings,...overrides},dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}});
+ mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Downloads"}));fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});
+ expect((screen.getByRole("button",{name:"Update NFOs"}) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it("permits the media root for NFO refresh",async()=>{
+ vi.mocked(ytdl.configuration).mockResolvedValue({settings:{...settings,directory:""},dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}});
+ mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Downloads"}));fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});
+ fireEvent.click(screen.getByRole("button",{name:"Update NFOs"}));await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/@channel",[],{...settings,directory:""},true));
+});
