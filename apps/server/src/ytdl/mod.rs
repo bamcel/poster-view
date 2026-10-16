@@ -116,6 +116,33 @@ fn load<T: serde::de::DeserializeOwned + Default>(
     state: &AppState,
     key: &str,
 ) -> Result<T, HttpError> {
+    if key == "plugin-ytdl-jobs" {
+        let path = state.runtime.data_dir().join("ytdl-jobs.json");
+        match std::fs::read(&path) {
+            Ok(raw) => return serde_json::from_slice(&raw).map_err(err),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(err(error)),
+        }
+        // Migrate once. Never fall back to SQLite after a file read/parse error:
+        // doing so could resurrect jobs that were removed from the new queue.
+        let raw = ServerStore::new(state.runtime.data_dir())
+            .get_setting(key)
+            .map_err(err)?;
+        let value = if raw.is_empty() {
+            T::default()
+        } else {
+            serde_json::from_str(&raw).map_err(err)?
+        };
+        write_queue(
+            state,
+            if raw.is_empty() {
+                b"[]"
+            } else {
+                raw.as_bytes()
+            },
+        )?;
+        return Ok(value);
+    }
     let raw = ServerStore::new(state.runtime.data_dir())
         .get_setting(key)
         .map_err(err)?;
@@ -126,9 +153,23 @@ fn load<T: serde::de::DeserializeOwned + Default>(
     }
 }
 fn save<T: Serialize>(state: &AppState, key: &str, value: &T) -> Result<(), HttpError> {
+    if key == "plugin-ytdl-jobs" {
+        return write_queue(state, &serde_json::to_vec(value).map_err(err)?);
+    }
     ServerStore::new(state.runtime.data_dir())
         .set_setting(key, &serde_json::to_string(value).map_err(err)?)
         .map_err(err)
+}
+fn write_queue(state: &AppState, bytes: &[u8]) -> Result<(), HttpError> {
+    use std::io::Write;
+    let directory = state.runtime.data_dir();
+    let mut staged = tempfile::NamedTempFile::new_in(directory).map_err(err)?;
+    staged.write_all(bytes).map_err(err)?;
+    staged.as_file().sync_all().map_err(err)?;
+    staged
+        .persist(directory.join("ytdl-jobs.json"))
+        .map_err(err)?;
+    Ok(())
 }
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
@@ -472,6 +513,38 @@ mod tests {
             settings: Settings::default(),
             video_ids: vec![],
         }
+    }
+    #[test]
+    fn queue_migrates_once_and_survives_catalog_write_locks() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let mut original = job("downloading");
+        original.video_ids = vec!["video-id".into()];
+        ServerStore::new(state.runtime.data_dir())
+            .set_setting(
+                "plugin-ytdl-jobs",
+                &serde_json::to_string(&vec![original]).unwrap(),
+            )
+            .unwrap();
+        let migrated: Vec<Job> = load(&state, "plugin-ytdl-jobs").unwrap();
+        assert_eq!(migrated[0].video_ids, vec!["video-id"]);
+        let connection =
+            rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).unwrap();
+        connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+        save(&state, "plugin-ytdl-jobs", &Vec::<Job>::new()).unwrap();
+        assert!(
+            load::<Vec<Job>>(&state, "plugin-ytdl-jobs")
+                .unwrap()
+                .is_empty()
+        );
+        connection.execute_batch("ROLLBACK").unwrap();
+        // A corrupt file must not resurrect the old SQLite queue.
+        std::fs::write(
+            state.runtime.data_dir().join("ytdl-jobs.json"),
+            b"broken json",
+        )
+        .unwrap();
+        assert!(load::<Vec<Job>>(&state, "plugin-ytdl-jobs").is_err());
     }
     #[test]
     fn history_cleanup_uses_finish_time_and_preserves_active_jobs() {

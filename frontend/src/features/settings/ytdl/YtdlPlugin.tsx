@@ -27,18 +27,6 @@ export function YtdlPopup({onClose,initialTab="Configuration"}:{onClose:()=>void
  const jobs=useDownloadJobs();
  const restoredQueue=useRef(false);
  useEffect(()=>{if(!restoredQueue.current&&jobs.data){restoredQueue.current=true;if(jobs.data.some(job=>active(job.status)))setTab("Queue");}},[jobs.data]);
- const previousJobs=useRef<Record<string,string>>({});
- useEffect(()=>{
-  const imported=new Set<string>();
-  for(const job of jobs.data??[]){
-   if(job.status==="completed"&&previousJobs.current[job.id]!=="completed")imported.add(job.settings.library_id);
-   previousJobs.current[job.id]=job.status;
-  }
-  for(const id of imported){
-   void client.invalidateQueries({queryKey:id?["native-catalog",id]:["native-catalog"]});
-   void client.invalidateQueries({queryKey:id?["native-previews",id]:["native-previews"]});
-  }
- },[jobs.data,client]);
  const save=useMutation({mutationFn:()=>ytdl.save({...draft!,subtitle_languages:draft!.subtitle_languages.map(value=>value.trim()).filter(Boolean)}),onSuccess:settings=>{client.setQueryData(configKey,{...config.data!,settings});}});
  const inspect=useMutation({mutationFn:(source:string)=>ytdl.inspect(source.trim()),onSuccess:info=>setSelected(info.entries.map(entry=>entry.id))});
  const submit=useMutation({mutationFn:()=>ytdl.submit(url.trim(),selected,{...draft!,subtitle_languages:draft!.subtitle_languages.map(value=>value.trim()).filter(Boolean)}),onSuccess:()=>{void client.invalidateQueries({queryKey:["ytdl-jobs"]});setTab("Queue");}});

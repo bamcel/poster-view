@@ -815,7 +815,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     }
     let stage_root = state.runtime.data_dir().join("ytdl");
     std::fs::create_dir_all(&stage_root).map_err(err)?;
-    let mut scopes = Vec::new();
+
     let mut skipped = Vec::new();
     for (index, e) in selected.iter().enumerate() {
         if cancelled(state, &job.id).await {
@@ -998,21 +998,11 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             }
             publish_with_modified(&source, &media, upload_modified_time(&info))?;
         }
-        update(state, &job.id, "importing", None, None).await?;
+
         super::nfo::write_named(&target, &stem, &info, e, &inspection, channel_info)?;
-        let scope = format!(
-            "{}{channel_relative}",
-            if job.settings.directory.is_empty() {
-                String::new()
-            } else {
-                format!("{}/", job.settings.directory)
-            }
-        );
-        scopes.push(scope);
         video_progress(state, &job.id, selected.len(), index + 1, None).await?;
     }
-    scopes.sort();
-    scopes.dedup();
+
     let skipped_summary = if skipped.is_empty() {
         None
     } else {
@@ -1022,62 +1012,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             skipped.into_iter().take(20).collect::<Vec<_>>().join("; ")
         ))
     };
-    if scopes.is_empty() {
-        return update(state, &job.id, "completed", skipped_summary, Some(100.0)).await;
-    }
-    let libraries = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir())
-        .native_libraries()
-        .map_err(err)?;
-    let matching = eligible_import_libraries(state, &destination, &libraries);
-    if matching.is_empty() {
-        return update(state, &job.id, "completed", skipped_summary, Some(100.0)).await;
-    }
-    for library in &matching {
-        crate::native::start_scan_scoped(state.clone(), library.clone(), Some(scopes.clone()))
-            .await?;
-    }
-    // A completed job must be visible in the catalog before clients invalidate it.
-    tokio::time::timeout(Duration::from_secs(3600), async {
-        loop {
-            if cancelled(state, &job.id).await {
-                return Err(err("Download cancelled."));
-            }
-            let importing = state
-                .active_native_scans
-                .lock()
-                .map_err(err)?
-                .iter()
-                .any(|active| matching.contains(active));
-            if !importing {
-                return Ok(());
-            }
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
-    })
-    .await
-    .map_err(|_| err("Library import timed out. Retry to rescan the downloaded files."))??;
     update(state, &job.id, "completed", skipped_summary, Some(100.0)).await
-}
-fn eligible_import_libraries(
-    state: &AppState,
-    destination: &Path,
-    libraries: &[posterview_contracts::native::NativeLibrary],
-) -> Vec<String> {
-    libraries
-        .iter()
-        .filter(|library| {
-            library.library_type == posterview_contracts::native::NativeLibraryType::Youtube
-        })
-        .filter(|library| {
-            library.paths.iter().any(|root| {
-                state
-                    .metadata
-                    .directory(root, true)
-                    .is_ok_and(|root| destination.starts_with(root))
-            })
-        })
-        .map(|library| library.id.clone())
-        .collect()
 }
 fn upload_modified_time(info: &Value) -> Option<std::time::SystemTime> {
     info["timestamp"]
@@ -1235,57 +1170,6 @@ mod tests {
         assert_eq!(saved[0].eta.as_deref(), Some("0s"));
         assert!((saved[0].progress.unwrap() - 195.0 / 7.0).abs() < 0.001);
         assert!(saved[0].speed.as_ref().unwrap().contains("encoded"));
-    }
-    #[test]
-    fn optional_import_matches_all_covering_youtube_libraries() {
-        use posterview_contracts::native::{AnimeContent, NativeLibrary, NativeLibraryType};
-        let temp = tempfile::tempdir().unwrap();
-        let state = crate::test_support::state(temp.path());
-        for path in ["downloads", "elsewhere", "downloads/narrow"] {
-            std::fs::create_dir_all(temp.path().join("media").join(path)).unwrap();
-        }
-        let library = |id: &str, kind, paths: Vec<String>| NativeLibrary {
-            id: id.into(),
-            name: id.into(),
-            library_type: kind,
-            anime_content: AnimeContent::Both,
-            paths,
-            revision: 1,
-            options: Default::default(),
-            created_at: String::new(),
-            updated_at: String::new(),
-        };
-        let libraries = vec![
-            library("all", NativeLibraryType::Youtube, vec!["".into()]),
-            library("unconfigured", NativeLibraryType::Youtube, vec![]),
-            library(
-                "downloads",
-                NativeLibraryType::Youtube,
-                vec!["downloads".into()],
-            ),
-            library(
-                "other",
-                NativeLibraryType::Youtube,
-                vec!["elsewhere".into()],
-            ),
-            library(
-                "narrow",
-                NativeLibraryType::Youtube,
-                vec!["downloads/narrow".into()],
-            ),
-            library("shows", NativeLibraryType::Shows, vec!["downloads".into()]),
-            library(
-                "invalid",
-                NativeLibraryType::Youtube,
-                vec!["../outside".into()],
-            ),
-        ];
-        let destination = state.metadata.directory("downloads", false).unwrap();
-        assert_eq!(
-            eligible_import_libraries(&state, &destination, &libraries),
-            vec!["all", "downloads"]
-        );
-        assert!(eligible_import_libraries(&state, &destination, &[]).is_empty());
     }
     fn quality_fixture(heights: &[u32]) -> Value {
         let mut formats = heights

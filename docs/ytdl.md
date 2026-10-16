@@ -3,8 +3,7 @@
 Administrators configure YTDL in **Settings → Plugins → YTDL**. The plugin
 downloads public YouTube videos and playlists with yt-dlp, writes local NFO
 metadata and thumbnails. It works without a configured media library. Existing
-YouTube libraries whose folders contain the download directory are refreshed
-after completion. Browsing, playback, resume, and watch history use normal library access
+Library scans are separate from downloads; scan the library to import new files. Browsing, playback, resume, and watch history use normal library access
 permissions. Non-administrators cannot configure, inspect, queue, cancel, or retry
 downloads through the API.
 
@@ -33,7 +32,7 @@ mode also applies to subscription checks and queued settings snapshots.
 5. Paste a video or playlist URL into Downloads, **Fetch Info**, select videos,
    and queue the download. A channel URL opens its playlists; choose **Open
    playlist** before selecting videos. Standalone videos appear under All Videos.
-6. For automatic imports, open **Subscriptions**, add a channel or playlist URL,
+6. For scheduled downloads, open **Subscriptions**, add a channel or playlist URL,
    and choose its days/time/timezone. A channel subscription discovers its public
    playlists automatically; individual playlist subscriptions are optional.
 
@@ -71,7 +70,10 @@ Container access changes take effect after a container recreation; let active
 downloads finish before applying them. NVIDIA RTX 3050 supports H.264/HEVC
 encoding, while supported codecs always depend on the GPU and FFmpeg build.
 
-The queue runs one job at a time and persists job settings, status, progress,
+The queue runs one job at a time and persists independently of the catalog in
+`ytdl-jobs.json` under the application data directory. Existing SQLite queue
+history is migrated automatically on first access. Atomic file replacement keeps
+progress updates independent of SQLite write locks. It persists job settings, status, progress,
 speed, ETA, and errors. Each job keeps the settings used when it was submitted.
 Cancel stops work; retry is available once the process has stopped. A server
 restart marks active jobs Interrupted and leaves queued jobs queued. Retry is
@@ -168,7 +170,7 @@ outside playlists. Videos shared by playlists keep one media file with multiple
 NFO memberships. Existing downloads gain missing playlist groups without being
 downloaded again. Newly discovered playlists are included on later checks. Playlist
 subscriptions retain their playlist membership metadata. Downloads continue through the existing
-serial queue, including normal NFO creation and library import.
+serial queue, including normal NFO creation. Library scanning remains separate.
 
 Schedules and check status persist across restarts. The plugin must be enabled
 for automatic checks. Administrators can edit, pause, delete, or **Check now**, and
