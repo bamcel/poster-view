@@ -35,6 +35,7 @@ it("resolves summary-only episodes without fetching the full catalog or starting
 it("shows adjacent restart and continue buttons for history and resumes the correct episode", async () => {
   vi.mocked(watchApi.continue).mockResolvedValue([continued(two)]); setup();
   await screen.findByRole("button", {name: "Play from beginning"});
+  expect(screen.getByRole("button", {name: "Resume"}).parentElement).toBe(screen.getByRole("button", {name: "Play from beginning"}).parentElement);
   expect(screen.queryByRole("button", {name: "Cancel"})).toBeNull();
   expect(screen.queryByRole("group")).toBeNull();
   fireEvent.click(screen.getByRole("button", {name: "Resume"}));

@@ -15,11 +15,10 @@
 @media(hover:none){.pv-discovery-preview-trigger{width:44px;height:44px}.pv-discovery-hover-actions a{min-height:44px}}
 .pv-discovery-hover-actions button{display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:8px 14px;border:1px solid var(--color-border);border-radius:99px;font-size:13px;font-weight:600;cursor:pointer}
 .pv-discovery-hover-actions button:disabled{opacity:.6;cursor:wait}
-.pv-series-preview-options{flex-basis:100%;display:grid;gap:8px;padding-top:4px}.pv-series-preview-options p{margin:0 0 3px;font-size:13px;color:var(--color-muted)}.pv-series-preview-options button{justify-content:center;min-height:44px}.pv-series-preview-error{flex-basis:100%;font-size:12px;color:var(--color-muted)}
-.pv-series-preview-play:has(.pv-series-preview-options){flex-basis:100%;width:100%}
+.pv-series-preview-error{font-size:12px;color:var(--color-muted)}
 
 /* Keep playback actions equal even when only one includes an icon. */
-.pv-discovery-hover-actions .pv-discovery-hover-play{justify-content:center;min-width:0;min-height:44px;text-align:center;line-height:1.35;padding:8px 10px}
+.pv-discovery-hover-actions .pv-discovery-hover-play{justify-content:center;min-width:0;min-height:44px;text-align:center;line-height:1.35;padding:8px 6px}
 .pv-discovery-hover-play svg{flex-shrink:0}
 .pv-discovery-hover-actions:has(>.pv-discovery-hover-play:nth-child(2)){grid-template-columns:repeat(3,minmax(0,1fr))}
 .pv-discovery-hover-actions .pv-series-preview-error{grid-column:1/-1}
