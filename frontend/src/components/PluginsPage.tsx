@@ -1,3 +1,4 @@
+import {useIsAdmin} from "../lib/authContext";
 import OmdbPlugin from "./OmdbPlugin";
 import YtdlPlugin from "../features/settings/ytdl/YtdlPlugin";
 import AniDBPlugin from "./AniDBPlugin";
@@ -11,12 +12,21 @@ import {createPortal} from "react-dom";
 import {X} from "lucide-react";
 import {apiRequest} from "../api/client";
 import {DefaultArtworkSourcesFields} from "../features/settings/providers/ArtworkSourcesSection";
-export default function PluginsPage({onClose,artworkOpen=false,onArtworkOpen}:{onClose:()=>void;artworkOpen?:boolean;onArtworkOpen:()=>void}){
+type PluginPageProps={onClose:()=>void;artworkOpen?:boolean;onArtworkOpen:()=>void};
+export default function PluginsPage(props:PluginPageProps){
+ const isAdmin=useIsAdmin();
+ return isAdmin?<AdminPluginsPage {...props}/>:null;
+}
+function AdminPluginsPage({onClose,artworkOpen=false,onArtworkOpen}:{onClose:()=>void;artworkOpen?:boolean;onArtworkOpen:()=>void}){
  const artwork=useArtworkPlugin();
  return <div className="grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3"><PluginCard title="Artwork" description="Browse, upload, remove, and edit artwork with PosterEdit and BackdropEdit." branding={<Images className="size-10 text-accent"/>} status={<><span>Built-in</span><span className="rounded-full border border-border px-2 py-1">{artwork.data?artwork.data.enabled?"Enabled":"Disabled":"Loading…"}</span></>} onClick={onArtworkOpen}/><AniDBPlugin/><OmdbPlugin/><YtdlPlugin/>{artworkOpen&&<ArtworkPopup onClose={onClose}/>}</div>;
 }
 
-export function ArtworkPopup({onClose}:{onClose:()=>void}){
+export function ArtworkPopup(props:{onClose:()=>void}){
+ const isAdmin=useIsAdmin();
+ return isAdmin?<AdminArtworkPopup {...props}/>:null;
+}
+function AdminArtworkPopup({onClose}:{onClose:()=>void}){
  const dialog=useRef<HTMLDialogElement>(null);const settings=useArtworkPlugin();const client=useQueryClient();
  const save=useMutation({mutationFn:(value:ArtworkPluginSettings)=>apiRequest<ArtworkPluginSettings>("/plugins/artwork",{method:"PUT",body:JSON.stringify(value)}),onSuccess:value=>client.setQueryData(["plugin-artwork"],value)});
  useEffect(()=>{dialog.current?.showModal();},[]);

@@ -9,7 +9,7 @@ import {nativeLibraries} from "../api/nativeLibraries";
 // App chrome: contextual media/settings navigation and account controls.
 
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, Menu, X, } from "lucide-react";
+import { LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, MoreHorizontal, Menu, X, } from "lucide-react";
 import { Logo } from "./ui";
 import { api } from "../api/client";
 import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -26,6 +26,13 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   const [navigationOpen,setNavigationOpen]=useState(false);
   const navigationToggle=useRef<HTMLButtonElement>(null);
   const navigationPanel=useRef<HTMLElement>(null);
+  const preferencesMenu=useRef<HTMLDetailsElement>(null);
+  useEffect(()=>{
+    const close=(event:PointerEvent)=>{if(preferencesMenu.current&&!preferencesMenu.current.contains(event.target as Node))preferencesMenu.current.open=false;};
+    const escape=(event:KeyboardEvent)=>{if(event.key==="Escape"&&preferencesMenu.current?.open){preferencesMenu.current.open=false;preferencesMenu.current.querySelector("summary")?.focus();}};
+    document.addEventListener("pointerdown",close);window.addEventListener("keydown",escape);
+    return()=>{document.removeEventListener("pointerdown",close);window.removeEventListener("keydown",escape);};
+  },[]);
   useEffect(()=>{setNavigationOpen(false);},[location.pathname]);
   useEffect(()=>{
     if(!homeSearch||!navigationOpen)return;
@@ -163,9 +170,13 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
         </nav>
         <div ref={setSearchTarget} className={homeSearch?"order-last min-w-0 basis-full pb-2 sm:order-none sm:flex-1 sm:basis-auto sm:pb-0":"hidden"}/>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <NavLink to={settingsPath} aria-label="Settings" title="Settings" className={`grid size-11 place-items-center rounded-lg transition-colors ${settingsOpen ? "bg-elevated text-white" : "text-muted hover:bg-surface-2 hover:text-white"}`}>
-            <Settings className="size-[20px]" />
-          </NavLink>
+          <details ref={preferencesMenu} className="relative">
+            <summary aria-label="Preferences" title="Preferences" className="grid size-11 cursor-pointer list-none place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white [&::-webkit-details-marker]:hidden"><MoreHorizontal className="size-[20px]"/></summary>
+            <nav aria-label="Personal preferences" className="absolute right-0 top-full z-30 mt-2 w-56 rounded-xl border border-border bg-sidebar p-2 shadow-xl">
+              <NavLink to="/settings/playback" onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-input-hover hover:text-white">Playback preferences</NavLink>
+              <NavLink to="/settings/reading" onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-input-hover hover:text-white">Reading preferences</NavLink>
+            </nav>
+          </details>
           <details className="relative">
             <summary aria-label="Profile" title="Profile" className="grid size-11 cursor-pointer list-none place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white [&::-webkit-details-marker]:hidden">
               <UserRound className="size-[20px]" />
@@ -176,6 +187,9 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
               {showSignOut && <button type="button" onClick={signOut} className="mt-3 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted hover:bg-input-hover hover:text-white"><LogOut className="size-[18px]" />Sign out</button>}
             </div>
           </details>
+          <NavLink to={settingsPath} aria-label="Settings" title="Settings" className={`grid size-11 place-items-center rounded-lg transition-colors ${settingsOpen ? "bg-elevated text-white" : "text-muted hover:bg-surface-2 hover:text-white"}`}>
+            <Settings className="size-[20px]" />
+          </NavLink>
         </div>
       </header>
       {!preview && !settingsOpen && <details className="shrink-0 bg-sidebar px-4 py-2 md:hidden"><summary className="text-sm text-muted">Media</summary><nav className="flex flex-col gap-2 py-3">{libraries.data?.map(library=><NavLink key={library.id} onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={preview ? `/media/${encodeURIComponent(library.id)}` : libraryPath(library,libraries.data??[])} className="rounded-md bg-elevated px-3 py-2 text-sm">{library.name}</NavLink>)}</nav></details>}

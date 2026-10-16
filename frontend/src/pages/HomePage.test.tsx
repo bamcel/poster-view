@@ -1,4 +1,6 @@
-import {render, screen, cleanup, fireEvent, within} from "@testing-library/react";
+import {AuthSessionContext} from "../lib/authContext";
+import type {AuthSession} from "../api/client";
+import {act,render, screen, cleanup, fireEvent, within} from "@testing-library/react";
 import {QueryClient, QueryClientProvider} from "@tanstack/react-query";
 import {MemoryRouter, Routes, Route} from "react-router-dom";
 import {afterEach, beforeEach, it, expect, vi} from "vitest";
@@ -136,4 +138,42 @@ it("groups matching media into ordered rows and hides empty sections",async()=>{
  expect(within(screen.getByRole("region",{name:"Episodes"})).getByRole("link",{name:"Open Match episode in Media"})).toBeTruthy();
  fireEvent.change(screen.getByRole("textbox",{name:"Search all libraries"}),{target:{value:"Match episode"}});
  expect(screen.getAllByRole("region").map(region=>region.getAttribute("aria-label"))).toEqual(["Episodes"]);
+});
+
+it("waits for all enabled catalogs before choosing the first banner",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"anime",name:"Anime",library_type:"anime"},{id:"korean",name:"Korean",library_type:"shows"},{id:"books",name:"Books",library_type:"books"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ let resolveAnime!:(entries:Awaited<ReturnType<typeof nativeLibraries.catalog>>)=>void;
+ const anime=new Promise<Awaited<ReturnType<typeof nativeLibraries.catalog>>>(resolve=>{resolveAnime=resolve;});
+ const entry=(id:string,title:string)=>({...entryDefaults,id,title,kind:"series",available:true,metadata:{},artwork:[{kind:"backdrop",path:"backdrop.jpg",source:"local"}]});
+ vi.mocked(nativeLibraries.catalog).mockImplementation(id=>id==="anime"?anime:Promise.resolve([entry("bon","Bon Appetit")]));
+ mount();
+ await screen.findByRole("region",{name:"Explore Your Libraries"});
+ expect(screen.getByRole("region",{name:"Loading featured title"}).getAttribute("aria-busy")).toBe("true");
+ expect(within(screen.getByRole("region",{name:"Loading featured title"})).queryByRole("heading")).toBeNull();
+ await act(async()=>resolveAnime([entry("anime-show","Anime First")]));
+ const banner=await screen.findByRole("region",{name:"Featured title"});
+ expect(within(banner).getByRole("heading",{name:"Anime First"})).toBeTruthy();
+ expect(within(screen.getByRole("region",{name:"Featured title"})).queryByRole("heading",{name:"Bon Appetit"})).toBeNull();
+});
+
+it("excludes denied libraries and replaces a banner when library access changes",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"anime",name:"Anime",library_type:"anime"},{id:"films",name:"Films",library_type:"movies"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ vi.mocked(nativeLibraries.catalog).mockImplementation(async id=>[{...entryDefaults,id:id+"-show",title:id==="anime"?"Allowed Anime":"Allowed Movie",kind:"series",available:true,metadata:{},artwork:[{kind:"backdrop",path:"backdrop.jpg",source:"local"}]}]);
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ const view=(ids:string[])=>{
+  const session:AuthSession={authenticated:true,user:{id:"viewer",username:"viewer",display_name:"Viewer",role:"user",enabled:true,revision:1,created_at:"",permissions:{all_libraries:false,library_ids:ids,max_movie_rating:null,max_tv_rating:null,allow_unrated:false}}};
+  return <QueryClientProvider client={client}><AuthSessionContext.Provider value={session}><MemoryRouter><HomePage/></MemoryRouter></AuthSessionContext.Provider></QueryClientProvider>;
+ };
+ const rendered=render(view(["anime"]));
+ let banner=await screen.findByRole("region",{name:"Featured title"});
+ expect(within(banner).getByRole("heading",{name:"Allowed Anime"})).toBeTruthy();
+ expect(screen.queryByRole("link",{name:"Open Films"})).toBeNull();
+ expect(nativeLibraries.catalog).not.toHaveBeenCalledWith("films");
+ rendered.rerender(view(["films"]));
+ banner=await screen.findByRole("region",{name:"Featured title"});
+ expect(await within(banner).findByRole("heading",{name:"Allowed Movie"})).toBeTruthy();
+ expect(screen.queryByRole("link",{name:"Open Anime"})).toBeNull();
+ expect([...banner.querySelectorAll("img")].some(image=>image.src.includes("/anime/"))).toBe(false);
+ rendered.rerender(view([]));
+ expect(screen.queryByRole("region",{name:"Featured title"})).toBeNull();
 });

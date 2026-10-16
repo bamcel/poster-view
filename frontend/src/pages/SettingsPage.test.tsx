@@ -1,3 +1,5 @@
+import {AuthSessionContext} from "../lib/authContext";
+import type {AuthSession} from "../api/client";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
@@ -311,4 +313,13 @@ it.each(["/settings/transcoding", "/settings?tab=transcoding"])("opens playback 
   await waitFor(()=>expect(vi.mocked(apiRequest)).toHaveBeenCalledWith("/transcoding/settings"));
   expect(vi.mocked(apiRequest).mock.calls.some(([url])=>url==="/playback/capabilities")).toBe(false);
   client.clear();
+});
+
+it.each(["plugins","artwork","users","libraries","sources","transcoding","tasks","appearance","security"])("redirects regular users away from %s management",async section=>{
+ const session:AuthSession={authenticated:true,user:{id:"viewer",username:"viewer",display_name:"Viewer",role:"user",enabled:true,revision:1,created_at:"",permissions:{all_libraries:true,library_ids:[],max_movie_rating:null,max_tv_rating:null,allow_unrated:true}}};
+ function Location(){return <p data-testid="role-location">{useLocation().pathname}</p>;}
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<AuthSessionContext.Provider value={session}><QueryClientProvider client={client}><MemoryRouter initialEntries={[`/settings/${section}`]}><SettingsPage/><Location/></MemoryRouter></QueryClientProvider></AuthSessionContext.Provider>);
+ await waitFor(()=>expect(screen.getByTestId("role-location").textContent).toBe("/settings/playback"));
+ expect(screen.queryByRole("heading",{name:"Plugins"})).toBeNull();
 });

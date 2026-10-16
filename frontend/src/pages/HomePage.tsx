@@ -1,3 +1,4 @@
+import {AuthSessionContext} from "../lib/authContext";
 import HomeMediaRow from "../components/HomeMediaRow";
 import {nativeArtworkVersion} from "../lib/nativeArtworkCache";
 import ContinueWatching from "../features/playback/components/ContinueWatching";
@@ -27,7 +28,8 @@ function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:Native
 }
 function LibraryHome(){
  const searchTarget=useContext(HeaderSearchTarget);
- const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list});
+ const user=useContext(AuthSessionContext)?.user;
+ const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,select:items=>items.filter(library=>!user||user.role==="admin"||user.permissions.all_libraries||user.permissions.library_ids.includes(library.id))});
  const [search,setSearch]=useState("");
  useEffect(()=>{const reset=()=>setSearch("");window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
  const term=search.trim().toLocaleLowerCase();
@@ -36,7 +38,8 @@ function LibraryHome(){
  const results=term?groupHomeTitles(catalogs.flatMap((catalog,index)=>(catalog.data??[]).filter(entry=>entry.available&&entry.kind!=="season"&&[entry.title,entry.metadata.originaltitle].some(value=>typeof value==="string"&&value.toLocaleLowerCase().includes(term))).map(entry=>({entry,library:libraries.data![index]})))):[];
  const sections=[{name:"Movies",kinds:["movie"]},{name:"Series",kinds:["series"]},{name:"Episodes",kinds:["episode"]},{name:"Books",kinds:["book","book_series"]}].map(section=>({...section,results:results.filter(({entry})=>section.kinds.includes(entry.kind))})).filter(section=>section.results.length>0);
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
- const featured=!term&&titles.length>0;
+ const bannerLoading=libraries.isPending||catalogs.some((catalog,index)=>!["books","youtube"].includes(libraries.data![index].library_type)&&catalog.isPending);
+ const featured=!term&&(bannerLoading||titles.length>0);
  const searchControl=<div role="search" className="flex min-h-11 min-w-0 items-center">
    <div className="relative mx-auto w-full max-w-[21rem]">
     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint"/>
@@ -66,7 +69,7 @@ function LibraryHome(){
    {section.results.length>100&&<p className="mt-3 text-sm text-muted">Showing 100 of {section.results.length} matches. Refine your search to see fewer results.</p>}
    </section>)}</div>
   </div>:<>
-   <FeaturedTitle titles={titles}/>
+   {bannerLoading?<section className="pv-home-hero" aria-label="Loading featured title" aria-busy="true"><p role="status" className="pv-home-hero-content text-muted">Loading featured titles…</p></section>:<FeaturedTitle titles={titles}/>}
    <div className="px-5 sm:px-8 md:px-12">
    <div className="pv-home-library-section"><HomeMediaRow label="My Libraries" ariaLabel="My libraries">
     {libraries.data?.map(library=><LibraryTile key={library.id} library={library} libraries={libraries.data??[]}/>)}

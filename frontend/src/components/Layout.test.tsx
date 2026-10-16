@@ -117,10 +117,26 @@ it("shows user navigation without administrator controls",async()=>{
   render(<MemoryRouter initialEntries={["/settings/playback"]}><AuthGate><Layout/></AuthGate></MemoryRouter>);
   expect(await screen.findByRole("link",{name:"Playback"})).toBeTruthy();
   expect(screen.getByRole("link",{name:"Reading"})).toBeTruthy();
-  expect(screen.queryByRole("link",{name:"Users"})).toBeNull();
+  for(const label of ["Users","Plugins","Artwork","Dashboard","Search Providers","Scheduled Tasks","Appearance","Privacy / Security"])expect(screen.queryByRole("link",{name:label})).toBeNull();
   expect(screen.queryByRole("link",{name:"Transcoding"})).toBeNull();
   expect(screen.queryByRole("link",{name:"Libraries"})).toBeNull();
   expect(screen.getByRole("link",{name:"Settings"}).getAttribute("href")).toBe("/settings/playback");
   fireEvent.click(screen.getByLabelText("Profile"));
   expect(screen.getByText("Viewer")).toBeTruthy();
+});
+
+it("orders Preferences, Profile, Settings and opens personal preference links",async()=>{
+ vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
+ render(<MemoryRouter><AuthGate><Layout/></AuthGate></MemoryRouter>);
+ const preferences=await screen.findByLabelText("Preferences");
+ const profile=screen.getByLabelText("Profile");const settings=screen.getByRole("link",{name:"Settings"});
+ expect(preferences.compareDocumentPosition(profile)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(profile.compareDocumentPosition(settings)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ fireEvent.click(preferences);
+ const navigation=screen.getByRole("navigation",{name:"Personal preferences"});
+ expect(within(navigation).getByRole("link",{name:"Playback preferences"}).getAttribute("href")).toBe("/settings/playback");
+ expect(within(navigation).getByRole("link",{name:"Reading preferences"}).getAttribute("href")).toBe("/settings/reading");
+ fireEvent.keyDown(window,{key:"Escape"});
+ expect(preferences.closest("details")?.open).toBe(false);
+ expect(document.activeElement).toBe(preferences);
 });
