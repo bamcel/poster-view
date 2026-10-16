@@ -50,7 +50,7 @@ function LibraryHome(){
     {search&&<button type="button" aria-label="Clear search" onClick={()=>setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white" data-icon-button="true"><X className="size-4"/></button>}
    </div>
   </div>;
- return <main className="relative z-10 h-full overflow-y-auto pb-8">
+ return <main className="relative z-10 h-full overflow-y-auto pt-6 pb-8 sm:pt-8">
   <HomeBackground libraries={libraries.data??[]}/>
   <div className="relative z-10 min-h-full">
   {searchTarget&&createPortal(searchControl,searchTarget)}

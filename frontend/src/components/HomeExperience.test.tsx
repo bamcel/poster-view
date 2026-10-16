@@ -59,7 +59,8 @@ it("rotates artwork and title actions together across libraries",()=>{
  render(<MemoryRouter><FeaturedTitle titles={[first,another,series,missing]}/></MemoryRouter>);
  const banner=screen.getByRole("region",{name:"Featured title"});
  expect(within(banner).getByRole("heading",{name:"First movie"})).toBeTruthy();
- expect(within(banner).getByText("1 / 3")).toBeTruthy();
+ expect(within(banner).queryByText("1 / 3")).toBeNull();
+ expect(within(banner).queryByRole("button",{name:/banner rotation/})).toBeNull();
  fireEvent.click(screen.getByRole("button",{name:"Next featured title"}));
  expect(within(banner).getByRole("heading",{name:"A series"})).toBeTruthy();
  expect(within(banner).getByRole("button",{name:"Play A series"})).toBeTruthy();

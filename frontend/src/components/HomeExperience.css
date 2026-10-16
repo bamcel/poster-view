@@ -26,19 +26,7 @@
 .pv-home-library-section,.pv-home-continue-section{container-type:inline-size;min-width:0;margin-top:30px}.pv-home-library-card>div{aspect-ratio:16/9;border-radius:12px}.pv-home-library-card h3{font-size:14px;font-weight:600;margin-top:9px}.pv-home-continue-section .pv-home-landscape-card>div{border-radius:12px}
 
 
-.pv-home-hero-slide{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease-in-out}.pv-home-hero-slide.is-current{opacity:1}.pv-home-rotation{position:absolute;top:18px;right:18px;display:flex;align-items:center;gap:4px;padding:4px;border:1px solid #ffffff30;border-radius:999px;background:#091015b3;backdrop-filter:blur(8px);color:#fff}.pv-home-rotation button{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;cursor:pointer}.pv-home-rotation button:hover{background:#ffffff26}.pv-home-rotation button:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}.pv-home-rotation svg{width:18px;height:18px}.pv-home-rotation span{min-width:44px;text-align:center;font-size:12px;font-variant-numeric:tabular-nums}@media(prefers-reduced-motion:reduce){.pv-home-hero-slide{transition:none}}
-
-/* Half-size desktop preview, preserving the original banner aspect ratio. */
-@media(min-width:960px){
- .pv-home-hero{width:calc((100% - 96px)/2);margin-inline:auto;min-height:190px;aspect-ratio:2.18/1}
- .pv-home-hero-content{padding:24px;padding-top:64px}
- .pv-home-eyebrow{margin-bottom:8px}
- .pv-home-hero h2{font-size:clamp(24px,2.6vw,40px)}
- .pv-home-hero-meta{margin-top:10px;font-size:13px}
- .pv-home-hero-plot{margin-top:10px;font-size:14px;-webkit-line-clamp:2}
- .pv-home-actions{margin-top:14px}
-}
-@media(min-width:960px) and (max-width:1399px){.pv-home-hero-content{padding:58px 16px 16px}.pv-home-hero h2{font-size:24px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.pv-home-eyebrow,.pv-home-hero-plot{display:none}.pv-home-action{padding:8px 12px;font-size:12px}.pv-home-actions{gap:8px}}
+.pv-home-hero-slide{position:absolute;inset:0;opacity:0;transition:opacity 1.2s ease-in-out}.pv-home-hero-slide.is-current{opacity:1}@media(prefers-reduced-motion:reduce){.pv-home-hero-slide{transition:none}}
 
 .pv-home-hero.pv-home-hero-banner{width:auto;margin-inline:20px;aspect-ratio:4.36/1;min-height:280px}
 @media(min-width:640px){.pv-home-hero.pv-home-hero-banner{margin-inline:32px}}
@@ -49,9 +37,9 @@
 
 .pv-home-banner-placeholder{width:100%;height:100%;background:#60656b}
 
-.pv-home-edge-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:2;display:grid;place-items:center;width:40px;height:64px;border-radius:16px;background:#09101580;color:#fff;opacity:0;pointer-events:none;transition:opacity .25s ease,background-color .2s ease;cursor:pointer}
+.pv-home-edge-arrow{position:absolute;top:50%;transform:translateY(-50%);z-index:2;display:grid;place-items:center;width:40px;height:64px;border:0;background:transparent;color:#fff;opacity:0;pointer-events:none;transition:opacity .25s ease;cursor:pointer}
 .pv-home-edge-previous{left:8px}.pv-home-edge-next{right:8px}.pv-home-edge-arrow svg{width:26px;height:26px}
-.pv-home-hero:hover .pv-home-edge-arrow,.pv-home-hero:focus-within .pv-home-edge-arrow{opacity:1;pointer-events:auto}.pv-home-edge-arrow:hover{background:#091015b3}.pv-home-edge-arrow:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
+.pv-home-hero:hover .pv-home-edge-arrow,.pv-home-hero:focus-within .pv-home-edge-arrow{opacity:1;pointer-events:auto}.pv-home-edge-arrow:hover{background:transparent}.pv-home-edge-arrow:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
 .pv-home-hero .pv-home-hero-content{padding-inline:52px}
 @media(hover:none){.pv-home-edge-arrow{opacity:1;pointer-events:auto;width:32px;height:48px}.pv-home-edge-previous{left:4px}.pv-home-edge-next{right:4px}.pv-home-hero .pv-home-hero-content{padding-inline:40px}}
 @media(prefers-reduced-motion:reduce){.pv-home-edge-arrow{transition:none}}

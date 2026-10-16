@@ -4,7 +4,7 @@ import {useFeaturedRotation} from "../lib/useFeaturedRotation";
 import HomeMediaRow from "./HomeMediaRow";
 import { mediaDescription } from "../lib/mediaDescription";
 import {useEffect,useMemo,useRef,useState} from "react";
-import {ChevronLeft,ChevronRight,Film,Info,Pause,Play} from "lucide-react";
+import {ChevronLeft,ChevronRight,Film,Info,Play} from "lucide-react";
 import {nativeLibraries} from "../api/nativeLibraries";
 import {Link} from "../lib/libraryNavigation";
 import {nativeArtworkVersion} from "../lib/nativeArtworkCache";
@@ -50,10 +50,6 @@ export function FeaturedTitle({titles}:{titles:HomeTitle[]}){
     <div className="pv-home-hero-art">{candidates.map((candidate,index)=>({candidate,index})).filter(({index})=>index===rotation.index||index===(rotation.index+1)%candidates.length||index===(rotation.index+candidates.length-1)%candidates.length).map(({candidate,index})=><div key={`${candidate.library.id}:${candidate.entry.id}`} className={`pv-home-hero-slide ${index===rotation.index?"is-current":""}`} aria-hidden="true"><Artwork title={candidate} hero headline={headline}/></div>)}</div>
     {candidates.length>1&&<>
       <button type="button" className="pv-home-edge-arrow pv-home-edge-previous" aria-label="Previous featured title" onClick={rotation.previous}><ChevronLeft aria-hidden="true"/></button>
-      <div className="pv-home-rotation" role="group" aria-label="Featured banner controls">
-      <span>{rotation.index+1} / {candidates.length}</span>
-      <button type="button" disabled={rotation.reduced} title={rotation.reduced?"Automatic rotation is disabled by your reduced-motion preference":undefined} aria-label={rotation.paused?"Resume banner rotation":"Pause banner rotation"} onClick={()=>rotation.setPaused(!rotation.paused)}>{rotation.paused?<Play aria-hidden="true"/>:<Pause aria-hidden="true"/>}</button>
-      </div>
       <button type="button" className="pv-home-edge-arrow pv-home-edge-next" aria-label="Next featured title" onClick={rotation.next}><ChevronRight aria-hidden="true"/></button>
     </>}
     <div className="pv-home-hero-content">
