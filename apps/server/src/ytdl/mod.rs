@@ -20,6 +20,7 @@ static ACTIVE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<St
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct Settings {
+    #[serde(default)]
     pub skip_existing: bool,
     pub download_mode: String,
     pub enabled: bool,
@@ -49,7 +50,7 @@ fn legacy_filename_convention() -> String {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            skip_existing: false,
+            skip_existing: true,
             download_mode: "custom".into(),
             enabled: false,
             library_id: String::new(),
@@ -103,6 +104,19 @@ pub(crate) struct Job {
     #[serde(default)]
     pub completed_videos: usize,
     #[serde(default)]
+    pub downloaded_videos: usize,
+    #[serde(default)]
+    pub existing_videos: usize,
+    #[serde(default)]
+    pub updated_videos: usize,
+    #[serde(default)]
+    pub skipped_videos: usize,
+    #[serde(default)]
+    pub failed_videos: usize,
+    #[serde(default)]
+    pub failed_entries: Vec<VideoFailure>,
+
+    #[serde(default)]
     pub current_video_title: Option<String>,
     pub speed: Option<String>,
     pub eta: Option<String>,
@@ -113,6 +127,73 @@ pub(crate) struct Job {
     pub settings: Settings,
     #[serde(default)]
     pub video_ids: Vec<String>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub(crate) struct VideoFailure {
+    pub video_id: String,
+    pub title: String,
+    pub error: String,
+}
+#[derive(Clone, Copy)]
+enum Outcome {
+    Downloaded,
+    Existing,
+    Updated,
+    Skipped,
+}
+async fn outcome(
+    state: &AppState,
+    id: &str,
+    entry: &Value,
+    result: Result<Outcome, HttpError>,
+) -> Result<(), HttpError> {
+    let _lock = state.ytdl_lock.lock().await;
+    let mut jobs: Vec<Job> = load(state, "plugin-ytdl-jobs")?;
+    if let Some(job) = jobs
+        .iter_mut()
+        .find(|job| job.id == id && job.status != "cancelled")
+    {
+        match result {
+            Ok(Outcome::Downloaded) => job.downloaded_videos += 1,
+            Ok(Outcome::Existing) => job.existing_videos += 1,
+            Ok(Outcome::Updated) => job.updated_videos += 1,
+            Ok(Outcome::Skipped) => job.skipped_videos += 1,
+            Err(error) => {
+                job.failed_videos += 1;
+                job.failed_entries.push(VideoFailure {
+                    video_id: downloader::text(entry, "id"),
+                    title: downloader::text(entry, "title").chars().take(512).collect(),
+                    error: error.detail.chars().take(2048).collect(),
+                });
+            }
+        }
+    }
+    save(state, "plugin-ytdl-jobs", &jobs)
+}
+async fn finish(state: &AppState, id: &str) -> Result<(), HttpError> {
+    let jobs: Vec<Job> = {
+        let _lock = state.ytdl_lock.lock().await;
+        load(state, "plugin-ytdl-jobs")?
+    };
+    let job = jobs
+        .iter()
+        .find(|job| job.id == id)
+        .ok_or_else(|| err("Download not found."))?;
+    let warnings = job.failed_videos + job.skipped_videos;
+    let status = if job.failed_videos > 0 && job.failed_videos == job.completed_videos {
+        "failed"
+    } else if warnings > 0 {
+        "completed_with_warnings"
+    } else {
+        "completed"
+    };
+    let message = (warnings > 0).then(|| {
+        format!(
+            "{} failed, {} skipped. Finished files are kept.",
+            job.failed_videos, job.skipped_videos
+        )
+    });
+    update(state, id, status, message, Some(100.0)).await
 }
 fn err(e: impl std::fmt::Display) -> HttpError {
     HttpError::bad_request(e.to_string())
@@ -184,6 +265,10 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/api/plugins/ytdl/jobs/{id}", axum::routing::delete(remove))
         .route("/api/plugins/ytdl/jobs/{id}/cancel", post(cancel))
         .route("/api/plugins/ytdl/jobs/{id}/retry", post(retry))
+        .route(
+            "/api/plugins/ytdl/jobs/{id}/retry-failed",
+            post(retry_failed),
+        )
         .merge(subscriptions::routes())
 }
 async fn settings_get(State(state): State<AppState>) -> Result<Json<Value>, HttpError> {
@@ -326,6 +411,12 @@ async fn jobs_create(
         encoding_progress: None,
         total_videos: 0,
         completed_videos: 0,
+        downloaded_videos: 0,
+        existing_videos: 0,
+        updated_videos: 0,
+        skipped_videos: 0,
+        failed_videos: 0,
+        failed_entries: Vec::new(),
         current_video_title: None,
         speed: None,
         eta: None,
@@ -345,7 +436,12 @@ async fn jobs_create(
     state.ytdl_notify.notify_one();
     Ok(Json(json!({"id":id})))
 }
-async fn change(state: &AppState, id: &str, retry: bool) -> Result<Job, HttpError> {
+async fn change(
+    state: &AppState,
+    id: &str,
+    retry: bool,
+    failed_only: bool,
+) -> Result<Job, HttpError> {
     let _lock = state.ytdl_lock.lock().await;
     let mut jobs: Vec<Job> = load(state, "plugin-ytdl-jobs")?;
     let job = jobs
@@ -358,7 +454,14 @@ async fn change(state: &AppState, id: &str, retry: bool) -> Result<Job, HttpErro
                 "Wait until the cancelled downloader has stopped before retrying.",
             ));
         }
-        if !["failed", "interrupted", "cancelled"].contains(&job.status.as_str()) {
+        if ![
+            "failed",
+            "interrupted",
+            "cancelled",
+            "completed_with_warnings",
+        ]
+        .contains(&job.status.as_str())
+        {
             return Err(err("Only stopped downloads can be retried."));
         }
         if job.metadata_only {
@@ -366,6 +469,22 @@ async fn change(state: &AppState, id: &str, retry: bool) -> Result<Job, HttpErro
         } else {
             validate_settings(state, &job.settings)?;
         }
+        if failed_only {
+            if job.failed_entries.is_empty() {
+                return Err(err("No failed videos to retry."));
+            }
+            job.video_ids = job
+                .failed_entries
+                .iter()
+                .map(|entry| entry.video_id.clone())
+                .collect();
+        }
+        job.downloaded_videos = 0;
+        job.existing_videos = 0;
+        job.updated_videos = 0;
+        job.skipped_videos = 0;
+        job.failed_videos = 0;
+        job.failed_entries.clear();
         job.status = "queued".into();
         job.error = None;
         job.progress = None;
@@ -375,7 +494,7 @@ async fn change(state: &AppState, id: &str, retry: bool) -> Result<Job, HttpErro
         job.current_video_title = None;
         job.finished_at = None;
     } else {
-        if job.status == "completed" {
+        if ["completed", "completed_with_warnings"].contains(&job.status.as_str()) {
             return Err(err("Completed downloads cannot be cancelled."));
         }
         job.status = "cancelled".into();
@@ -390,13 +509,19 @@ async fn cancel(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Job>, HttpError> {
-    change(&state, &id, false).await.map(Json)
+    change(&state, &id, false, false).await.map(Json)
 }
 async fn retry(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Job>, HttpError> {
-    change(&state, &id, true).await.map(Json)
+    change(&state, &id, true, false).await.map(Json)
+}
+async fn retry_failed(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Job>, HttpError> {
+    change(&state, &id, true, true).await.map(Json)
 }
 async fn remove(
     State(state): State<AppState>,
@@ -413,7 +538,14 @@ async fn remove(
 fn clean_history(jobs: &mut Vec<Job>, now: chrono::DateTime<chrono::Utc>) {
     let cutoff = now - chrono::Duration::days(7);
     jobs.retain(|job| {
-        !["completed", "failed", "cancelled", "interrupted"].contains(&job.status.as_str())
+        ![
+            "completed",
+            "completed_with_warnings",
+            "failed",
+            "cancelled",
+            "interrupted",
+        ]
+        .contains(&job.status.as_str())
             || chrono::DateTime::parse_from_rfc3339(
                 job.finished_at.as_deref().unwrap_or(&job.created_at),
             )
@@ -433,7 +565,14 @@ async fn update(
         && job.status != "cancelled"
     {
         job.status = status.into();
-        if ["completed", "failed", "interrupted"].contains(&status) {
+        if [
+            "completed",
+            "completed_with_warnings",
+            "failed",
+            "interrupted",
+        ]
+        .contains(&status)
+        {
             job.finished_at = Some(chrono::Utc::now().to_rfc3339());
         }
         job.error = error;
@@ -532,6 +671,12 @@ mod tests {
             encoding_progress: None,
             total_videos: 0,
             completed_videos: 0,
+            downloaded_videos: 0,
+            existing_videos: 0,
+            updated_videos: 0,
+            skipped_videos: 0,
+            failed_videos: 0,
+            failed_entries: Vec::new(),
             current_video_title: None,
             speed: None,
             eta: None,
@@ -541,6 +686,81 @@ mod tests {
             settings: Settings::default(),
             video_ids: vec![],
         }
+    }
+    #[test]
+    fn new_defaults_skip_existing_but_legacy_configs_do_not_change() {
+        assert!(Settings::default().skip_existing);
+        assert!(
+            !serde_json::from_str::<Settings>("{}")
+                .unwrap()
+                .skip_existing
+        );
+        let mut legacy = serde_json::to_value(job("completed")).unwrap();
+        for field in [
+            "downloaded_videos",
+            "existing_videos",
+            "updated_videos",
+            "skipped_videos",
+            "failed_videos",
+            "failed_entries",
+        ] {
+            legacy.as_object_mut().unwrap().remove(field);
+        }
+        let restored: Job = serde_json::from_value(legacy).unwrap();
+        assert_eq!(restored.failed_videos, 0);
+        assert!(restored.failed_entries.is_empty());
+    }
+    #[tokio::test]
+    async fn warnings_preserve_success_and_retry_only_failed_videos() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let mut fixture = job("downloading");
+        fixture.settings.enabled = true;
+        fixture.completed_videos = 3;
+        fixture.total_videos = 3;
+        save(&state, "plugin-ytdl-jobs", &vec![fixture]).unwrap();
+        outcome(
+            &state,
+            "fixture",
+            &json!({"id":"good"}),
+            Ok(Outcome::Downloaded),
+        )
+        .await
+        .unwrap();
+        outcome(
+            &state,
+            "fixture",
+            &json!({"id":"old"}),
+            Ok(Outcome::Existing),
+        )
+        .await
+        .unwrap();
+        outcome(
+            &state,
+            "fixture",
+            &json!({"id":"restricted", "title":"Restricted"}),
+            Err(err("Sign in to confirm your age")),
+        )
+        .await
+        .unwrap();
+        finish(&state, "fixture").await.unwrap();
+        let saved: Vec<Job> = load(&state, "plugin-ytdl-jobs").unwrap();
+        assert_eq!(saved[0].status, "completed_with_warnings");
+        assert_eq!(
+            (
+                saved[0].downloaded_videos,
+                saved[0].existing_videos,
+                saved[0].failed_videos
+            ),
+            (1, 1, 1)
+        );
+        let retried = change(&state, "fixture", true, true).await.unwrap();
+        assert_eq!(retried.video_ids, vec!["restricted"]);
+        assert_eq!(retried.completed_videos, 0);
+        assert_eq!(retried.failed_videos, 0);
+        assert!(retried.failed_entries.is_empty());
+        assert_eq!(retried.status, "queued");
+        assert!(change(&state, "fixture", true, true).await.is_err());
     }
     #[test]
     fn queue_migrates_once_and_survives_catalog_write_locks() {
@@ -715,8 +935,8 @@ mod tests {
         assert_eq!(created["id"], jobs[0].id);
         assert!(jobs[0].metadata_only);
         assert!(jobs[0].settings.skip_existing);
-        change(&state, &jobs[0].id, false).await.unwrap();
-        let retried = change(&state, &jobs[0].id, true).await.unwrap();
+        change(&state, &jobs[0].id, false, false).await.unwrap();
+        let retried = change(&state, &jobs[0].id, true, false).await.unwrap();
         assert!(retried.metadata_only);
         assert_eq!(retried.status, "queued");
     }
@@ -748,7 +968,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let state = crate::test_support::state(temp.path());
         save(&state, "plugin-ytdl-jobs", &vec![job("downloading")]).unwrap();
-        change(&state, "fixture", false).await.unwrap();
+        change(&state, "fixture", false, false).await.unwrap();
         update(&state, "fixture", "completed", None, Some(100.0))
             .await
             .unwrap();

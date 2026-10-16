@@ -207,11 +207,12 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     let entries = inspection["entries"]
         .as_array()
         .ok_or_else(|| err("No videos found."))?;
+    let mut seen = HashSet::new();
     let selected = entries
         .iter()
         .filter(|entry| {
             let id = text(entry, "id");
-            local.contains(&id) && (job.video_ids.is_empty() || job.video_ids.contains(&id))
+            (job.video_ids.is_empty() || job.video_ids.contains(&id)) && seen.insert(id)
         })
         .collect::<Vec<_>>();
     if selected.is_empty() {
@@ -219,7 +220,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             "No matching existing local videos found. Metadata refresh never downloads missing videos.",
         ));
     }
-    let mut refreshed = 0;
+
     for (index, entry) in selected.iter().enumerate() {
         if cancelled(state, &job.id).await {
             return Err(err("Metadata refresh cancelled."));
@@ -233,78 +234,132 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             Some(text(entry, "title")),
         )
         .await?;
-        let info = downloader::job_raw_inspect(
-            state,
-            job,
-            &format!("https://www.youtube.com/watch?v={id}"),
-        )
-        .await?;
-        if text(&info, "id") != id {
-            return Err(err(
-                "Extracted video identity did not match the requested video.",
-            ));
+        if !local.contains(&id) {
+            super::outcome(state, &job.id, entry, Ok(super::Outcome::Skipped)).await?;
+            downloader::video_progress(state, &job.id, selected.len(), index + 1, None).await?;
+            continue;
         }
-        let channel_id = text(&info, "channel_id");
-        if !downloader::valid_id(&channel_id) {
-            return Err(err("Video has no stable channel ID."));
-        }
-        if !channels.contains_key(&channel_id) {
-            let value = downloader::job_raw_inspect(
+        let result: Result<super::Outcome, HttpError> = async {
+            let info = downloader::job_raw_inspect(
                 state,
                 job,
-                &format!("https://www.youtube.com/channel/{channel_id}/playlists"),
+                &format!("https://www.youtube.com/watch?v={id}"),
             )
             .await?;
-            channels.insert(channel_id.clone(), value);
-        }
-        let Some(target) = existing_target(&destination, &info)? else {
-            continue;
-        };
-        // Revalidate all components using the application's metadata path policy.
-        let relative = target
-            .strip_prefix(&destination)
-            .map_err(err)?
-            .to_string_lossy()
-            .replace('\\', "/");
-        let relative = if job.settings.directory.is_empty() {
-            relative
-        } else {
-            format!("{}/{relative}", job.settings.directory)
-        };
-        let target = state.metadata.directory(&relative, false)?;
-        if cancelled(state, &job.id).await {
-            return Err(err("Metadata refresh cancelled."));
-        }
-        update(state, &job.id, "importing", None, None).await?;
-        let channel = &channels[&channel_id];
-        if write_existing(&target, &info, entry, &inspection, channel)? {
-            refreshed += 1;
-            for (member, parent) in memberships.get(&id).into_iter().flatten() {
-                if text(member, "id") == id {
-                    if cancelled(state, &job.id).await {
-                        return Err(err("Metadata refresh cancelled."));
-                    }
-                    write_existing(&target, &info, member, parent, channel)?;
-                }
+            if text(&info, "id") != id {
+                return Err(err(
+                    "Extracted video identity did not match the requested video.",
+                ));
             }
+            let channel_id = text(&info, "channel_id");
+            if !downloader::valid_id(&channel_id) {
+                return Err(err("Video has no stable channel ID."));
+            }
+            if !channels.contains_key(&channel_id) {
+                let value = downloader::job_raw_inspect(
+                    state,
+                    job,
+                    &format!("https://www.youtube.com/channel/{channel_id}/playlists"),
+                )
+                .await?;
+                channels.insert(channel_id.clone(), value);
+            }
+            let Some(target) = existing_target(&destination, &info)? else {
+                return Ok(super::Outcome::Skipped);
+            };
+            // Revalidate all components using the application's metadata path policy.
+            let relative = target
+                .strip_prefix(&destination)
+                .map_err(err)?
+                .to_string_lossy()
+                .replace('\\', "/");
+            let relative = if job.settings.directory.is_empty() {
+                relative
+            } else {
+                format!("{}/{relative}", job.settings.directory)
+            };
+            let target = state.metadata.directory(&relative, false)?;
+            if cancelled(state, &job.id).await {
+                return Err(err("Metadata refresh cancelled."));
+            }
+            update(state, &job.id, "importing", None, None).await?;
+            let channel = &channels[&channel_id];
+            if write_existing(&target, &info, entry, &inspection, channel)? {
+                for (member, parent) in memberships.get(&id).into_iter().flatten() {
+                    if text(member, "id") == id {
+                        if cancelled(state, &job.id).await {
+                            return Err(err("Metadata refresh cancelled."));
+                        }
+                        write_existing(&target, &info, member, parent, channel)?;
+                    }
+                }
+                return Ok(super::Outcome::Updated);
+            }
+            Ok(super::Outcome::Skipped)
+        }
+        .await;
+        match result {
+            Err(error) if !downloader::upstream_failure(&error.detail) => return Err(error),
+            result => super::outcome(state, &job.id, entry, result).await?,
         }
         downloader::video_progress(state, &job.id, selected.len(), index + 1, None).await?;
-    }
-    if refreshed == 0 {
-        return Err(err(
-            "No matching existing media files were available to refresh.",
-        ));
     }
     if cancelled(state, &job.id).await {
         return Err(err("Metadata refresh cancelled."));
     }
-    update(state, &job.id, "completed", None, Some(100.0)).await
+    super::finish(state, &job.id).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn age_restricted_metadata_records_failure_and_retries_only_that_video() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        std::fs::create_dir_all(temp.path().join("media/downloads")).unwrap();
+        let job: Job = serde_json::from_value(json!({
+            "id":"metadata-cookie", "metadata_only":true,
+            "url":"https://www.youtube.com/playlist?list=PLfixture",
+            "title":"Metadata", "status":"importing", "created_at":"",
+            "settings":{"enabled":true,"directory":"downloads"}
+        }))
+        .unwrap();
+        super::super::save(&state, "plugin-ytdl-jobs", &vec![job]).unwrap();
+        let detail = "ERROR: Sign in to confirm your age. Use --cookies-from-browser or --cookies for the authentication.";
+        assert!(downloader::upstream_failure(detail));
+        super::super::outcome(
+            &state,
+            "metadata-cookie",
+            &json!({"id":"blocked"}),
+            Err(err(detail)),
+        )
+        .await
+        .unwrap();
+        // The following entry is still processed after the restriction.
+        super::super::outcome(
+            &state,
+            "metadata-cookie",
+            &json!({"id":"good"}),
+            Ok(super::super::Outcome::Updated),
+        )
+        .await
+        .unwrap();
+        super::super::finish(&state, "metadata-cookie")
+            .await
+            .unwrap();
+        let saved: Vec<Job> = super::super::load(&state, "plugin-ytdl-jobs").unwrap();
+        assert_eq!(saved[0].status, "completed_with_warnings");
+        assert_eq!((saved[0].updated_videos, saved[0].failed_videos), (1, 1));
+        let retried = super::super::change(&state, "metadata-cookie", true, true)
+            .await
+            .unwrap();
+        assert!(retried.metadata_only);
+        assert_eq!(retried.video_ids, vec!["blocked"]);
+        assert_eq!(retried.settings.directory, "downloads");
+    }
 
     fn fixture(root: &Path) -> PathBuf {
         let target = root.join("channels/Original channel/Original video");

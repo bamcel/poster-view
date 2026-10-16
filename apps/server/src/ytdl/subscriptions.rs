@@ -550,6 +550,12 @@ fn append_source_jobs(
             encoding_progress: None,
             total_videos: 0,
             completed_videos: 0,
+            downloaded_videos: 0,
+            existing_videos: 0,
+            updated_videos: 0,
+            skipped_videos: 0,
+            failed_videos: 0,
+            failed_entries: Vec::new(),
             current_video_title: None,
             speed: None,
             eta: None,
@@ -723,6 +729,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let settings = Settings {
             library_id: "library".into(),
+            skip_existing: false,
             ..Default::default()
         };
         let sources = vec![
@@ -871,6 +878,12 @@ mod tests {
             encoding_progress: None,
             total_videos: 0,
             completed_videos: 0,
+            downloaded_videos: 0,
+            existing_videos: 0,
+            updated_videos: 0,
+            skipped_videos: 0,
+            failed_videos: 0,
+            failed_entries: Vec::new(),
             current_video_title: None,
             speed: None,
             eta: None,

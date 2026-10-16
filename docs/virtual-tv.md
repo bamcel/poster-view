@@ -63,3 +63,17 @@ Configuration and frozen lineups are saved in the existing encrypted SQLite
 settings store under `plugin-virtual-tv`, with revision checks for edits and
 serialized writes. The application caches the document to avoid repeatedly loading
 the catalog during playback. No media files or NFOs are modified.
+
+YouTube sources follow the library mode. Single-channel libraries list downloaded
+playlists directly. Multi-channel libraries show channels on the left and their
+playlists on the right; selecting a channel initially selects all its playlists.
+Only videos in the selected playlists enter the guide. Shared videos appear once.
+Playlist identity is scoped to its library and YouTube channel. Re-save a Virtual
+TV channel after a library scan to refresh its frozen lineup.
+
+Single-click a guide program to select its details. Double-click an airing program
+to tune to its live channel; double-click a past or future program to play that
+item from the beginning. When Live preview is enabled in Preferences, the selected
+airing program starts automatically, keeping its thumbnail visible until ready.
+Past and future listings show thumbnails only. Previews use the viewer's default
+subtitle preferences and stop before opening full playback.

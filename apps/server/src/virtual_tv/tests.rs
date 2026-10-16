@@ -93,6 +93,7 @@ fn input(library: &str) -> ChannelInput {
         number: 1,
         library_ids: vec![library.into()],
         collection_ids: vec![],
+        youtube_playlists: None,
         show_ids: vec![],
         movie_ids: vec![],
         genres: vec![],
@@ -748,4 +749,89 @@ fn collections_reject_missing_and_empty_sources_and_legacy_channels_default_empt
     raw.as_object_mut().unwrap().remove("collection_ids");
     let legacy: Channel = serde_json::from_value(raw).unwrap();
     assert!(legacy.collection_ids.is_empty());
+}
+
+fn youtube_fixture() -> (tempfile::TempDir, AppState, String) {
+    let (temp, state, _) = fixture();
+    let store = ServerStore::new(state.runtime.data_dir());
+    let library = store
+        .save_native_library(
+            None,
+            &NativeLibraryInput {
+                name: "YouTube".into(),
+                library_type: NativeLibraryType::Youtube,
+                anime_content: AnimeContent::Both,
+                paths: vec!["YouTube".into()],
+                options: Default::default(),
+                revision: None,
+            },
+        )
+        .unwrap();
+    let entries: Vec<_> = [("one", "channel-a", vec!["playlist-a", "shared"]),
+        ("two", "channel-a", vec!["playlist-b"]),
+        ("three", "channel-b", vec!["playlist-a"])]
+        .into_iter().map(|(title, channel, playlists)| NativeCatalogEntry {
+            id: String::new(), path: format!("YouTube/{title}.mkv"), kind: "episode".into(),
+            parent_path: None, title: title.into(),
+            metadata: json!({"season": 0, "episode":0, "youtube":{"channel_id":channel,"duration_seconds":120,"playlists":playlists.into_iter().map(|id| json!({"id":id})).collect::<Vec<_>>()}}),
+            artwork: vec![], files: vec![json!({"path":format!("YouTube/{title}.mkv")})],
+            nfo_path: None, nfo_xml: None, available:true, revision:1,
+        }).collect();
+    store
+        .ingest_native_catalog(&library.id, library.revision, &entries)
+        .unwrap();
+    (temp, state, library.id)
+}
+fn playlist(library: &str, channel: &str, id: &str) -> YoutubePlaylistSelection {
+    YoutubePlaylistSelection {
+        library_id: library.into(),
+        channel_id: channel.into(),
+        playlist_id: id.into(),
+    }
+}
+#[test]
+fn youtube_playlist_filters_are_scoped_and_shared_videos_only_appear_once() {
+    let (_temp, state, library) = youtube_fixture();
+    let mut request = input(&library);
+    request.youtube_playlists = Some(vec![
+        playlist(&library, "channel-a", "playlist-a"),
+        playlist(&library, "channel-a", "shared"),
+    ]);
+    request.genres = vec!["anything".into()];
+    let mut channel = validate(request, "youtube".into(), 1).unwrap();
+    let videos = candidates(&state, &mut channel).unwrap();
+    assert_eq!(videos.len(), 1);
+    assert_eq!(videos[0].title, "one");
+    assert_eq!(videos[0].season, None);
+    assert!(schedule::generate(&channel, videos, Utc::now()).is_ok());
+    channel.youtube_playlists = Some(vec![playlist(&library, "channel-b", "playlist-a")]);
+    assert_eq!(candidates(&state, &mut channel).unwrap()[0].title, "three");
+    channel.youtube_playlists = Some(vec![playlist("another-library", "channel-a", "playlist-a")]);
+    assert!(candidates(&state, &mut channel).is_err());
+    channel.youtube_playlists = Some(vec![playlist(&library, "channel-a", "missing")]);
+    assert!(candidates(&state, &mut channel).is_err());
+}
+#[test]
+fn youtube_legacy_selections_include_videos_without_special_placement() {
+    let (_temp, state, library) = youtube_fixture();
+    let mut channel = validate(input(&library), "youtube".into(), 1).unwrap();
+    let videos = candidates(&state, &mut channel).unwrap();
+    assert_eq!(videos.len(), 3);
+    assert!(schedule::generate(&channel, videos, Utc::now()).is_ok());
+    let mut value = serde_json::to_value(&channel).unwrap();
+    value.as_object_mut().unwrap().remove("youtube_playlists");
+    let legacy: Channel = serde_json::from_value(value).unwrap();
+    assert!(legacy.youtube_playlists.is_none());
+    channel.youtube_playlists = Some(vec![]);
+    assert!(candidates(&state, &mut channel).is_err());
+}
+#[test]
+fn youtube_empty_selection_keeps_non_youtube_sources() {
+    let (_temp, state, library) = fixture();
+    let mut request = input(&library);
+    request.youtube_playlists = Some(vec![]);
+    let mut channel = validate(request, "movie".into(), 1).unwrap();
+    assert_eq!(candidates(&state, &mut channel).unwrap().len(), 1);
+    channel.youtube_playlists = Some(vec![playlist(&library, "channel-a", "playlist-a")]);
+    assert!(candidates(&state, &mut channel).is_err());
 }

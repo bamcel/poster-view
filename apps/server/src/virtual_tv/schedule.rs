@@ -290,6 +290,7 @@ mod tests {
             number: 1,
             library_ids: vec!["library".into()],
             collection_ids: vec![],
+            youtube_playlists: None,
             show_ids: vec![],
             movie_ids: vec![],
             genres: vec![],

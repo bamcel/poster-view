@@ -34,6 +34,13 @@ const KEY: &str = "plugin-virtual-tv";
 struct Settings {
     enabled: bool,
 }
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct YoutubePlaylistSelection {
+    library_id: String,
+    channel_id: String,
+    playlist_id: String,
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Channel {
@@ -43,6 +50,8 @@ pub(super) struct Channel {
     library_ids: Vec<String>,
     #[serde(default)]
     collection_ids: Vec<String>,
+    #[serde(default)]
+    youtube_playlists: Option<Vec<YoutubePlaylistSelection>>,
     show_ids: Vec<String>,
     movie_ids: Vec<String>,
     genres: Vec<String>,
@@ -60,6 +69,8 @@ struct ChannelInput {
     library_ids: Vec<String>,
     #[serde(default)]
     collection_ids: Vec<String>,
+    #[serde(default)]
+    youtube_playlists: Option<Vec<YoutubePlaylistSelection>>,
     #[serde(default)]
     show_ids: Vec<String>,
     #[serde(default)]
@@ -386,6 +397,20 @@ fn candidates(state: &AppState, channel: &mut Channel) -> Result<Vec<Candidate>,
     let mut result = vec![];
     let mut found_shows = HashSet::new();
     let mut found_movies = HashSet::new();
+    let mut found_playlists = HashSet::new();
+    if let Some(selections) = &channel.youtube_playlists {
+        for selection in selections {
+            if !channel.library_ids.contains(&selection.library_id)
+                || !libraries.iter().any(|l| {
+                    l.id == selection.library_id && l.library_type == NativeLibraryType::Youtube
+                })
+            {
+                return Err(HttpError::bad_request(
+                    "Selected playlists must belong to the chosen YouTube libraries.",
+                ));
+            }
+        }
+    }
     for library in &channel.library_ids {
         if !libraries
             .iter()
@@ -395,10 +420,13 @@ fn candidates(state: &AppState, channel: &mut Channel) -> Result<Vec<Candidate>,
                 "Choose existing native video libraries.",
             ));
         }
+        let youtube = libraries
+            .iter()
+            .any(|l| &l.id == library && l.library_type == NativeLibraryType::Youtube);
         let entries = store.native_catalog(library).map_err(storage)?;
         let by_path: HashMap<_, _> = entries.iter().map(|e| (e.path.as_str(), e)).collect();
         for entry in &entries {
-            if !source_title(entry) {
+            if !youtube && !source_title(entry) {
                 continue;
             }
             if entry.kind == "series" && channel.show_ids.contains(&entry.id) {
@@ -457,7 +485,33 @@ fn candidates(state: &AppState, channel: &mut Channel) -> Result<Vec<Candidate>,
                 && channel.movie_ids.is_empty()
                 && channel.genres.is_empty()
                 && channel.collection_ids.is_empty();
-            if !unfiltered && !selected && !genre_match && !collection_match {
+            if youtube {
+                if let Some(selections) = &channel.youtube_playlists {
+                    let mut matched = false;
+                    for (index, selection) in selections.iter().enumerate() {
+                        if selection.library_id == *library
+                            && entry.metadata["youtube"]["channel_id"].as_str()
+                                == Some(selection.channel_id.as_str())
+                            && entry.metadata["youtube"]["playlists"]
+                                .as_array()
+                                .is_some_and(|playlists| {
+                                    playlists.iter().any(|playlist| {
+                                        playlist["id"].as_str()
+                                            == Some(selection.playlist_id.as_str())
+                                    })
+                                })
+                        {
+                            found_playlists.insert(index);
+                            matched = true;
+                        }
+                    }
+                    if !matched {
+                        continue;
+                    }
+                } else if !unfiltered && !selected && !genre_match && !collection_match {
+                    continue;
+                }
+            } else if !unfiltered && !selected && !genre_match && !collection_match {
                 continue;
             }
             let duration = entry
@@ -478,13 +532,17 @@ fn candidates(state: &AppState, channel: &mut Channel) -> Result<Vec<Candidate>,
                 title: entry.title.clone(),
                 series_title: series.map(|s| s.title.clone()),
                 series_id: series.map(|s| s.id.clone()),
-                season: if is_special(entry) {
+                season: if youtube {
+                    entry.metadata["season"]
+                        .as_i64()
+                        .filter(|season| *season > 0)
+                } else if is_special(entry) {
                     Some(0)
                 } else {
                     entry.metadata["season"].as_i64()
                 },
                 episode: entry.metadata["episode"].as_i64(),
-                placement: if is_special(entry) {
+                placement: if !youtube && is_special(entry) {
                     special_placement(entry)
                 } else {
                     None
@@ -496,6 +554,15 @@ fn candidates(state: &AppState, channel: &mut Channel) -> Result<Vec<Candidate>,
                 return Err(HttpError::bad_request("Limit channels to 10,000 videos."));
             }
         }
+    }
+    if channel
+        .youtube_playlists
+        .as_ref()
+        .is_some_and(|selections| found_playlists.len() != selections.len())
+    {
+        return Err(HttpError::bad_request(
+            "Selected YouTube playlists must contain available videos in the chosen channel and library.",
+        ));
     }
     if channel.show_ids.iter().any(|id| !found_shows.contains(id))
         || channel
@@ -547,6 +614,18 @@ fn validate(input: ChannelInput, id: String, revision: u64) -> Result<Channel, H
             "Channel selection is too large or invalid.",
         ));
     }
+    if input.youtube_playlists.as_ref().is_some_and(|selections| {
+        selections.len() > 10000
+            || selections.iter().any(|s| {
+                [&s.library_id, &s.channel_id, &s.playlist_id]
+                    .iter()
+                    .any(|id| id.is_empty() || id.len() > 512 || id.chars().any(char::is_control))
+            })
+    }) {
+        return Err(HttpError::bad_request(
+            "YouTube playlist selection is too large or invalid.",
+        ));
+    }
     let mut library_ids = input.library_ids;
     library_ids.sort();
     library_ids.dedup();
@@ -559,6 +638,7 @@ fn validate(input: ChannelInput, id: String, revision: u64) -> Result<Channel, H
         number: input.number,
         library_ids,
         collection_ids,
+        youtube_playlists: input.youtube_playlists,
         show_ids: input.show_ids,
         movie_ids: input.movie_ids,
         genres: input.genres,
@@ -639,6 +719,7 @@ async fn update(
     program_list(&record)?;
     if channel.library_ids == previous.library_ids
         && channel.collection_ids == previous.collection_ids
+        && channel.youtube_playlists == previous.youtube_playlists
         && channel.show_ids == previous.show_ids
         && channel.movie_ids == previous.movie_ids
         && channel.genres == previous.genres

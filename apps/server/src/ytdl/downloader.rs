@@ -209,7 +209,7 @@ async fn raw_inspect_direct(url: &str) -> Result<Value, HttpError> {
     ]);
     serde_json::from_slice(&output(command, Duration::from_secs(180)).await?).map_err(err)
 }
-fn text(v: &Value, key: &str) -> String {
+pub(super) fn text(v: &Value, key: &str) -> String {
     v[key].as_str().unwrap_or_default().to_string()
 }
 fn entry(v: &Value, parent: &Value, index: usize) -> Value {
@@ -822,9 +822,13 @@ async fn run_inspection(
     let entries = inspection["entries"]
         .as_array()
         .ok_or_else(|| err("No videos found."))?;
+    let mut seen = std::collections::HashSet::new();
     let selected = entries
         .iter()
-        .filter(|e| job.video_ids.is_empty() || job.video_ids.contains(&text(e, "id")))
+        .filter(|e| {
+            (job.video_ids.is_empty() || job.video_ids.contains(&text(e, "id")))
+                && seen.insert(text(e, "id"))
+        })
         .collect::<Vec<_>>();
     if selected.is_empty() {
         return Err(err("No selected videos are available."));
@@ -832,7 +836,6 @@ async fn run_inspection(
     let stage_root = state.runtime.data_dir().join("ytdl");
     std::fs::create_dir_all(&stage_root).map_err(err)?;
 
-    let mut skipped = Vec::new();
     for (index, e) in selected.iter().enumerate() {
         if cancelled(state, &job.id).await {
             return Err(err("Download cancelled."));
@@ -842,6 +845,7 @@ async fn run_inspection(
             return Err(err("Invalid video identity."));
         }
         if existing_ids.contains(&id) {
+            super::outcome(state, &job.id, e, Ok(super::Outcome::Existing)).await?;
             video_progress(state, &job.id, selected.len(), index + 1, None).await?;
             continue;
         }
@@ -854,215 +858,248 @@ async fn run_inspection(
             Some(text(e, "title")),
         )
         .await?;
-        let info = job_raw_inspect(state, job, &url).await?;
-        video_progress(
-            state,
-            &job.id,
-            selected.len(),
-            index,
-            Some(text(&info, "title")),
-        )
-        .await?;
-        let channel = text(&info, "channel_id");
-        if !valid_id(&channel) {
-            return Err(err("Video has no stable channel ID."));
-        }
-        if !channel_metadata.contains_key(&channel) {
-            let data = job_raw_inspect(
-                state,
-                job,
-                &format!("https://www.youtube.com/channel/{channel}/playlists"),
-            )
-            .await?;
-            channel_metadata.insert(channel.clone(), data);
-        }
-        let channel_info = channel_metadata
-            .get(&channel)
-            .ok_or_else(|| err("Channel metadata unavailable."))?;
-        let (channel_folder, video_folder) = super::naming::folder_names(
-            destination,
-            &channel,
-            &id,
-            &text(&info, "channel"),
-            &text(&info, "title"),
-        )?;
-        let channel_relative = format!("channels/{channel_folder}");
-        let mut folder = job.settings.directory.clone();
-        for part in ["channels", channel_folder.as_str(), video_folder.as_str()] {
-            let parent = state.metadata.directory(&folder, true)?;
-            let next = parent.join(part);
-            if !next.exists() {
-                std::fs::create_dir(&next).map_err(err)?;
-            }
-            folder = if folder.is_empty() {
-                part.into()
-            } else {
-                format!("{folder}/{part}")
-            };
-            state.metadata.directory(&folder, false)?;
-        }
-        // Revalidate every component to reject linked folders introduced after configuration.
-        let relative = format!(
-            "{}{channel_relative}/{video_folder}",
-            if job.settings.directory.is_empty() {
-                String::new()
-            } else {
-                format!("{}/", job.settings.directory)
-            }
-        );
-        let target = state.metadata.directory(&relative, false)?;
-        let existing = super::naming::existing_media(&target)?;
-        let stem = if let Some(media) = &existing {
-            media
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .ok_or_else(|| err("Existing video filename is not valid UTF-8."))?
-                .to_string()
-        } else {
-            super::naming::stem(&info, &job.settings.filename_convention)?
-        };
-        let media = target.join(format!("{stem}.{}", job.settings.container));
-        // Reserve stable identities before staging so retries reuse readable folders
-        // even if titles change or a previous download did not finish publishing.
-        super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
-        if existing.is_none() {
-            if !encoder_validated && job.settings.convert && job.settings.hardware_backend != "cpu"
-            {
-                crate::playback::validate_download_encoder(
-                    state,
-                    &job.settings.video_codec,
-                    &job.settings.hardware_backend,
-                )
-                .await?;
-                encoder_validated = true;
-            }
-            let mut download_settings = job.settings.clone();
-            match choose_quality(&job.settings, &info) {
-                QualityChoice::Legacy => {}
-                QualityChoice::Height(height) => download_settings.quality = Some(height),
-                QualityChoice::Skip(reason) => {
-                    skipped.push(reason);
-                    video_progress(state, &job.id, selected.len(), index + 1, None).await?;
-                    continue;
-                }
-            }
-            let stage = tempfile::tempdir_in(&stage_root).map_err(err)?;
-            update(
+        let result: Result<super::Outcome, HttpError> = async {
+            let info = job_raw_inspect(state, job, &url).await?;
+            video_progress(
                 state,
                 &job.id,
-                "downloading",
-                None,
-                Some(index as f64 / selected.len() as f64 * 100.0),
+                selected.len(),
+                index,
+                Some(text(&info, "title")),
             )
             .await?;
-            let template = stage.path().join(format!("{id}.%(ext)s"));
-            let download_container = if job.settings.convert {
-                "mkv"
+            let channel = text(&info, "channel_id");
+            if !valid_id(&channel) {
+                return Err(err("Video has no stable channel ID."));
+            }
+            if !channel_metadata.contains_key(&channel) {
+                let data = job_raw_inspect(
+                    state,
+                    job,
+                    &format!("https://www.youtube.com/channel/{channel}/playlists"),
+                )
+                .await?;
+                channel_metadata.insert(channel.clone(), data);
+            }
+            let channel_info = channel_metadata
+                .get(&channel)
+                .ok_or_else(|| err("Channel metadata unavailable."))?;
+            let (channel_folder, video_folder) = super::naming::folder_names(
+                destination,
+                &channel,
+                &id,
+                &text(&info, "channel"),
+                &text(&info, "title"),
+            )?;
+            let channel_relative = format!("channels/{channel_folder}");
+            let mut folder = job.settings.directory.clone();
+            for part in ["channels", channel_folder.as_str(), video_folder.as_str()] {
+                let parent = state.metadata.directory(&folder, true)?;
+                let next = parent.join(part);
+                if !next.exists() {
+                    std::fs::create_dir(&next).map_err(err)?;
+                }
+                folder = if folder.is_empty() {
+                    part.into()
+                } else {
+                    format!("{folder}/{part}")
+                };
+                state.metadata.directory(&folder, false)?;
+            }
+            // Revalidate every component to reject linked folders introduced after configuration.
+            let relative = format!(
+                "{}{channel_relative}/{video_folder}",
+                if job.settings.directory.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}/", job.settings.directory)
+                }
+            );
+            let target = state.metadata.directory(&relative, false)?;
+            let existing = super::naming::existing_media(&target)?;
+            let stem = if let Some(media) = &existing {
+                media
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .ok_or_else(|| err("Existing video filename is not valid UTF-8."))?
+                    .to_string()
             } else {
-                job.settings.container.as_str()
+                super::naming::stem(&info, &job.settings.filename_convention)?
             };
-            for attempt in 0..2 {
-                let mut command = base();
-                command.arg("--check-formats");
-                command.args([
-                    "--newline",
-                    "--progress",
-                    "--progress-delta",
-                    "1",
-                    "--progress-template",
-                    "download:PVPROGRESS:%(progress)j",
-                ]);
-                command
-                    .args([
-                        "--no-playlist",
-                        "--no-overwrites",
-                        "--format",
-                        &format(&download_settings),
-                        "--merge-output-format",
-                        download_container,
-                        "--remux-video",
-                        download_container,
-                        "--output",
-                    ])
-                    .arg(&template);
-                if job.settings.thumbnail {
-                    command.args(["--write-thumbnail", "--convert-thumbnails", "jpg"]);
-                }
-                if job.settings.subtitles {
-                    command.args([
-                        "--write-subs",
-                        "--sub-langs",
-                        &job.settings.subtitle_languages.join(","),
-                    ]);
-                }
-                if job.settings.chapters {
-                    command.arg("--embed-chapters");
-                }
-                command.args(["--", &url]);
-                match cancellable(state, job, command, None).await {
-                    Ok(()) => break,
-                    Err(error) if media_forbidden(&error.detail) && attempt == 0 => {
-                        if cancelled(state, &job.id).await {
-                            return Err(err("Download cancelled."));
-                        }
-                        // Re-run extraction instead of retrying the same rejected signed URL.
-                        tokio::time::sleep(Duration::from_secs(3)).await;
-                    }
-                    Err(error) if media_forbidden(&error.detail) => {
-                        return Err(err(format!(
-                            "YouTube rejected the video stream (HTTP 403) after a fresh extraction retry. Completed videos are kept. This can require an updated yt-dlp or YouTube access verification. Details: {}",
-                            error.detail
-                        )));
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-            let source = stage.path().join(format!("{id}.{download_container}"));
-            let source = if job.settings.convert {
-                update(state, &job.id, "processing", None, None).await?;
-                let converted = stage
-                    .path()
-                    .join(format!("converted.{}", job.settings.container));
-                let mut ff = Command::new("ffmpeg");
-                ff.args(conversion_args(&job.settings, &source, &converted));
-                cancellable(state, job, ff, Some(info["duration"].as_f64())).await?;
-                converted
-            } else {
-                source
-            };
-            if cancelled(state, &job.id).await {
-                return Err(err("Download cancelled."));
-            }
-            for file in std::fs::read_dir(stage.path()).map_err(err)? {
-                let file = file.map_err(err)?;
-                let name = file.file_name();
-                let name = name.to_string_lossy();
-                if let Some(name) = super::naming::sidecar_name(&name, &id, &stem) {
-                    publish(&file.path(), &target.join(name))?;
-                }
-            }
+            let media = target.join(format!("{stem}.{}", job.settings.container));
+            // Reserve stable identities before staging so retries reuse readable folders
+            // even if titles change or a previous download did not finish publishing.
             super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
-            if cancelled(state, &job.id).await {
-                return Err(err("Download cancelled."));
+            if existing.is_none() {
+                if !encoder_validated && job.settings.convert && job.settings.hardware_backend != "cpu"
+                {
+                    crate::playback::validate_download_encoder(
+                        state,
+                        &job.settings.video_codec,
+                        &job.settings.hardware_backend,
+                    )
+                    .await?;
+                    encoder_validated = true;
+                }
+                let mut download_settings = job.settings.clone();
+                match choose_quality(&job.settings, &info) {
+                    QualityChoice::Legacy => {}
+                    QualityChoice::Height(height) => download_settings.quality = Some(height),
+                    QualityChoice::Skip(reason) => {
+                        let _ = reason;
+                        return Ok(super::Outcome::Skipped);
+                    }
+                }
+                let stage = tempfile::tempdir_in(&stage_root).map_err(err)?;
+                update(
+                    state,
+                    &job.id,
+                    "downloading",
+                    None,
+                    Some(index as f64 / selected.len() as f64 * 100.0),
+                )
+                .await?;
+                let template = stage.path().join(format!("{id}.%(ext)s"));
+                let download_container = if job.settings.convert {
+                    "mkv"
+                } else {
+                    job.settings.container.as_str()
+                };
+                for attempt in 0..2 {
+                    let mut command = base();
+                    command.arg("--check-formats");
+                    command.args([
+                        "--newline",
+                        "--progress",
+                        "--progress-delta",
+                        "1",
+                        "--progress-template",
+                        "download:PVPROGRESS:%(progress)j",
+                    ]);
+                    command
+                        .args([
+                            "--no-playlist",
+                            "--no-overwrites",
+                            "--format",
+                            &format(&download_settings),
+                            "--merge-output-format",
+                            download_container,
+                            "--remux-video",
+                            download_container,
+                            "--output",
+                        ])
+                        .arg(&template);
+                    if job.settings.thumbnail {
+                        command.args(["--write-thumbnail", "--convert-thumbnails", "jpg"]);
+                    }
+                    if job.settings.subtitles {
+                        command.args([
+                            "--write-subs",
+                            "--sub-langs",
+                            &job.settings.subtitle_languages.join(","),
+                        ]);
+                    }
+                    if job.settings.chapters {
+                        command.arg("--embed-chapters");
+                    }
+                    command.args(["--", &url]);
+                    match cancellable(state, job, command, None).await {
+                        Ok(()) => break,
+                        Err(error) if media_forbidden(&error.detail) && attempt == 0 => {
+                            if cancelled(state, &job.id).await {
+                                return Err(err("Download cancelled."));
+                            }
+                            // Re-run extraction instead of retrying the same rejected signed URL.
+                            tokio::time::sleep(Duration::from_secs(3)).await;
+                        }
+                        Err(error) if media_forbidden(&error.detail) => {
+                            return Err(err(format!(
+                                "YouTube rejected the video stream (HTTP 403) after a fresh extraction retry. Completed videos are kept. This can require an updated yt-dlp or YouTube access verification. Details: {}",
+                                error.detail
+                            )));
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                let source = stage.path().join(format!("{id}.{download_container}"));
+                let source = if job.settings.convert {
+                    update(state, &job.id, "processing", None, None).await?;
+                    let converted = stage
+                        .path()
+                        .join(format!("converted.{}", job.settings.container));
+                    let mut ff = Command::new("ffmpeg");
+                    ff.args(conversion_args(&job.settings, &source, &converted));
+                    cancellable(state, job, ff, Some(info["duration"].as_f64())).await?;
+                    converted
+                } else {
+                    source
+                };
+                if cancelled(state, &job.id).await {
+                    return Err(err("Download cancelled."));
+                }
+                for file in std::fs::read_dir(stage.path()).map_err(err)? {
+                    let file = file.map_err(err)?;
+                    let name = file.file_name();
+                    let name = name.to_string_lossy();
+                    if let Some(name) = super::naming::sidecar_name(&name, &id, &stem) {
+                        publish(&file.path(), &target.join(name))?;
+                    }
+                }
+                super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
+                if cancelled(state, &job.id).await {
+                    return Err(err("Download cancelled."));
+                }
+                publish_with_modified(&source, &media, upload_modified_time(&info))?;
             }
-            publish_with_modified(&source, &media, upload_modified_time(&info))?;
-        }
 
-        super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
+            super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
+            Ok(if existing.is_some() { super::Outcome::Updated } else { super::Outcome::Downloaded })
+        }
+        .await;
+        match result {
+            Err(error) if !upstream_failure(&error.detail) => return Err(error),
+            result => super::outcome(state, &job.id, e, result).await?,
+        }
         video_progress(state, &job.id, selected.len(), index + 1, None).await?;
     }
-
-    let skipped_summary = if skipped.is_empty() {
-        None
-    } else {
-        Some(format!(
-            "Skipped {} video(s): {}",
-            skipped.len(),
-            skipped.into_iter().take(20).collect::<Vec<_>>().join("; ")
-        ))
-    };
-    update(state, &job.id, "completed", skipped_summary, Some(100.0)).await
+    super::finish(state, &job.id).await
 }
+pub(super) fn upstream_failure(detail: &str) -> bool {
+    let lower = detail.to_ascii_lowercase();
+    if [
+        "permission denied",
+        "no space left",
+        "download cancelled",
+        "metadata refresh cancelled",
+        "gpu encoder",
+    ]
+    .iter()
+    .any(|message| lower.contains(message))
+    {
+        return false;
+    }
+    [
+        "http error",
+        "sign in",
+        "sign-in",
+        "cookies",
+        "age-restricted",
+        "age restricted",
+        "private video",
+        "requested format is not available",
+        "video has been removed",
+        "join this channel",
+        "video unavailable",
+        "video is unavailable",
+        "removed by",
+        "members-only",
+        "not available in your country",
+        "youtube rejected the video stream",
+    ]
+    .iter()
+    .any(|message| lower.contains(message))
+}
+
 fn media_forbidden(detail: &str) -> bool {
     detail.contains("unable to download video data") && detail.contains("HTTP Error 403")
 }
@@ -1122,6 +1159,27 @@ fn publish_with_modified(
 mod tests {
     use super::*;
     #[test]
+    fn only_upstream_restrictions_are_recoverable_per_video() {
+        for message in [
+            "ERROR: Sign in to confirm your age. Use --cookies",
+            "HTTP Error 403: Forbidden",
+            "Private video",
+            "Video unavailable",
+        ] {
+            assert!(upstream_failure(message));
+        }
+        for message in [
+            "Download cancelled.",
+            "Permission denied",
+            "Permission denied: /media/cookies/Private video.mp4",
+            "No space left on device",
+            "The selected GPU encoder is unavailable.",
+            "Invalid download mode.",
+        ] {
+            assert!(!upstream_failure(message));
+        }
+    }
+    #[test]
     fn only_media_403_triggers_fresh_extraction_retry() {
         assert!(media_forbidden(
             "ERROR: unable to download video data: HTTP Error 403: Forbidden"
@@ -1150,6 +1208,12 @@ mod tests {
             progress: None,
             total_videos: 7,
             completed_videos: 1,
+            downloaded_videos: 0,
+            existing_videos: 0,
+            updated_videos: 0,
+            skipped_videos: 0,
+            failed_videos: 0,
+            failed_entries: Vec::new(),
             current_video_title: None,
             speed: None,
             eta: None,
@@ -1488,6 +1552,12 @@ mod tests {
             progress: None,
             total_videos: 0,
             completed_videos: 0,
+            downloaded_videos: 0,
+            existing_videos: 0,
+            updated_videos: 0,
+            skipped_videos: 0,
+            failed_videos: 0,
+            failed_entries: Vec::new(),
             current_video_title: None,
             speed: None,
             eta: None,

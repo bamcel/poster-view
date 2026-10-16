@@ -1683,6 +1683,7 @@ async fn ytdl_routes_enforce_administrator_downloads() {
         ("POST", "/api/plugins/ytdl/jobs"),
         ("POST", "/api/plugins/ytdl/jobs/job/cancel"),
         ("POST", "/api/plugins/ytdl/jobs/job/retry"),
+        ("POST", "/api/plugins/ytdl/jobs/job/retry-failed"),
         ("GET", "/api/plugins/ytdl/subscriptions"),
         ("POST", "/api/plugins/ytdl/subscriptions"),
         ("PUT", "/api/plugins/ytdl/subscriptions/subscription"),

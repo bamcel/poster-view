@@ -1,3 +1,4 @@
+import {activeYtdlJob,ytdlPhase} from "../settings/ytdl/jobPresentation";
 import type {NativeLibrary,NativeScanStatus} from "../../api/nativeLibraries";
 import type {MaintenanceTask} from "../../components/ScheduledTasks";
 import type {YtdlJob} from "../settings/ytdl/client";
@@ -6,14 +7,14 @@ import type {ActivityItem} from "./ActivityContext";
 const RECENT_MS=15*60*1000;
 const recent=(at:number,now:number)=>Number.isFinite(at)&&at>0&&at<=now+60_000&&now-at<=RECENT_MS;
 const percent=(value:number|null|undefined)=>value==null||!Number.isFinite(value)?null:Math.max(0,Math.min(99,value));
-export const activeYoutubeJob=(status:string)=>!["completed","failed","cancelled","interrupted"].includes(status);
+export const activeYoutubeJob=activeYtdlJob;
 export function youtubeActivities(jobs:YtdlJob[],now=Date.now(),completedAt:ReadonlyMap<string,number>=new Map()):ActivityItem[]{
  return jobs.flatMap(job=>{
   const terminal=!activeYoutubeJob(job.status),at=completedAt.get(job.id)??Date.parse(job.created_at);
   if(terminal&&!recent(at,now))return [];
-  const state:ActivityItem["state"]=job.status==="completed"?"completed":job.status==="failed"||job.status==="interrupted"?"failed":job.status==="cancelled"?"warning":["queued","pending","waiting"].includes(job.status)?"queued":"running";
-  const phase=job.status==="processing"?"Encoding video":job.status==="downloading"?"Downloading video":job.status==="completed"?"Download completed":job.status==="failed"||job.status==="interrupted"?"Download failed. Open the download queue for details.":job.status==="cancelled"?"Download cancelled":state==="queued"?"Waiting in download queue":"Preparing download";
-  const count=job.total_videos&&job.total_videos>1?` · ${Math.max(0,Math.min(job.total_videos,job.completed_videos??0))} of ${job.total_videos} videos complete`:"";
+  const state:ActivityItem["state"]=job.status==="completed"?"completed":job.status==="completed_with_warnings"?"warning":job.status==="failed"||job.status==="interrupted"?"failed":job.status==="cancelled"?"warning":["queued","pending","waiting"].includes(job.status)?"queued":"running";
+  const phase=job.metadata_only||job.status==="completed_with_warnings"?ytdlPhase(job):job.status==="processing"?"Encoding video":job.status==="downloading"?"Downloading video":job.status==="completed"?"Download completed":job.status==="failed"||job.status==="interrupted"?"Download failed. Open the download queue for details.":job.status==="cancelled"?"Download cancelled":state==="queued"?"Waiting in download queue":"Preparing download";
+  const count=job.total_videos&&job.total_videos>1?` · ${Math.max(0,Math.min(job.total_videos,job.completed_videos??0))} of ${job.total_videos} videos processed`:"";
   return [{id:`youtube:${job.id}`,title:job.title||"YouTube download",detail:phase+count,state,progress:state==="completed"?100:state!=="running"?null:percent(job.status==="processing"?job.encoding_progress:job.progress),event:"posterview:open-ytdl-downloads",adminOnly:true,...(terminal?{updatedAt:at}:{})}];
  });
 }

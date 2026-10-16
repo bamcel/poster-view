@@ -2,7 +2,7 @@ import {useCollections} from "../collections/client";
 import {HeaderBackdropContext} from "../../lib/headerBackdrop";
 import {cleanup,fireEvent,render,screen,waitFor,within} from "@testing-library/react";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
-import {MemoryRouter} from "react-router-dom";
+import {MemoryRouter,useLocation} from "react-router-dom";
 import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import {AuthSessionContext} from "../../lib/authContext";
 import type {AuthSession} from "../../api/client";
@@ -11,7 +11,8 @@ import VirtualTvPage from "./VirtualTvPage";
 import {virtualTv,type Channel} from "./client";
 
 vi.mock("../collections/client",()=>({useCollections:vi.fn()}));
-vi.mock("./LiveChannelPreview",()=>({default:({channelId}:{channelId:string})=><video aria-label={`Live preview ${channelId}`}/>}));
+vi.mock("./YoutubePlaylistSources",()=>({default:({libraries,onChange}:{libraries:{id:string}[];onChange:(value:{library_id:string;channel_id:string;playlist_id:string}[])=>void})=><button type="button" onClick={()=>onChange([{library_id:libraries[0].id,channel_id:"UC",playlist_id:"PL"}])}>Choose YouTube playlist</button>}));
+vi.mock("./LiveChannelPreview",()=>({default:({channelId}:{channelId:string})=><video aria-label={`Live preview ${channelId}`}/>,stopLivePreviews:vi.fn().mockResolvedValue(undefined)}));
 vi.mock("./client",()=>({virtualTv:{settings:vi.fn(),channels:vi.fn(),guide:vi.fn(),save:vi.fn(),remove:vi.fn()}}));
 vi.mock("../../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(),summaries:vi.fn()}}));
 const channel:Channel={id:"comedy",name:"Comedy",number:2,library_ids:["tv"],show_ids:[],movie_ids:[],genres:[],order:"random_shows",start_at:"2026-01-01T00:00:00Z",revision:1};
@@ -25,10 +26,24 @@ beforeEach(()=>{
  vi.mocked(nativeLibraries.summaries).mockResolvedValue([]);
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
+function Destination(){const location=useLocation();return <output aria-label="Playback destination">{location.pathname+location.search}</output>;}
 function mount(role:"user"|"admin"="user",onBackdrop:((url:string|null)=>void)|null=null){
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
- return {...render(<AuthSessionContext.Provider value={{user:{role}} as AuthSession}><QueryClientProvider client={client}><MemoryRouter><HeaderBackdropContext.Provider value={onBackdrop}><VirtualTvPage/></HeaderBackdropContext.Provider></MemoryRouter></QueryClientProvider></AuthSessionContext.Provider>),client};
+ return {...render(<AuthSessionContext.Provider value={{user:{role}} as AuthSession}><QueryClientProvider client={client}><MemoryRouter><Destination/><HeaderBackdropContext.Provider value={onBackdrop}><VirtualTvPage/></HeaderBackdropContext.Provider></MemoryRouter></QueryClientProvider></AuthSessionContext.Provider>),client};
 }
+it("double clicks the airing program to watch the live channel",async()=>{
+ mount();fireEvent.doubleClick(await screen.findByRole("button",{name:/Comedy: Pilot,/}));
+ await waitFor(()=>expect(screen.getByLabelText("Playback destination").textContent).toBe("/play/virtual-tv/comedy"));
+});
+it("double clicks a future program to play that item from the beginning",async()=>{
+ vi.mocked(virtualTv.guide).mockResolvedValue([{id:"future",library_id:"tv",item_id:"next/episode",title:"Future",series_title:"Example",season:1,episode:2,starts_at:new Date(Date.now()+60000).toISOString(),ends_at:new Date(Date.now()+120000).toISOString(),artwork_url:null}]);
+ mount();fireEvent.doubleClick(await screen.findByRole("button",{name:/Comedy: Future,/}));
+ await waitFor(()=>expect(screen.getByLabelText("Playback destination").textContent).toBe("/play/native/tv/next%2Fepisode?start=0&return=%2Fvirtual-tv"));
+});
+it("automatically starts the selected airing preview when the preference is already enabled",async()=>{
+ localStorage.setItem("posterview-virtual-tv-live-preview","true");mount();
+ expect(await screen.findByLabelText("Live preview comedy")).toBeTruthy();
+});
 it("shows the accessible live guide and tune link without administrator controls",async()=>{
  mount();expect(await screen.findByRole("button",{name:/Comedy: Pilot,/})).toBeTruthy();
  expect(screen.getByRole("table",{name:"Channel schedule"})).toBeTruthy();
@@ -235,4 +250,14 @@ it("saves collection-only sources and offers collection titles in the combined p
  expect(await screen.findByRole("checkbox",{name:/A show/})).toBeTruthy();
  fireEvent.click(screen.getByRole("button",{name:"Save channel"}));
  await waitFor(()=>expect(virtualTv.save).toHaveBeenCalledWith(expect.objectContaining({name:"Favorites channel",library_ids:[],collection_ids:["collection"]}),undefined));
+});
+it("uses playlist selections instead of the generic title picker for YouTube sources",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"yt",name:"YouTube",library_type:"youtube",options:{youtube_mode:"multiple_channels"}}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ vi.mocked(virtualTv.save).mockResolvedValue(channel);
+ mount("admin");fireEvent.click(await screen.findByRole("button",{name:"Create channel"}));
+ fireEvent.change(screen.getByLabelText("Channel name"),{target:{value:"Videos"}});fireEvent.click(await screen.findByRole("checkbox",{name:"YouTube"}));
+ fireEvent.click(await screen.findByRole("button",{name:"Choose YouTube playlist"}));
+ expect(nativeLibraries.summaries).not.toHaveBeenCalled();expect(screen.queryByText("No shows or movies found in these sources.")).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Save channel"}));
+ await waitFor(()=>expect(virtualTv.save).toHaveBeenCalledWith(expect.objectContaining({library_ids:["yt"],youtube_playlists:[{library_id:"yt",channel_id:"UC",playlist_id:"PL"}]}),undefined));
 });

@@ -210,3 +210,27 @@ Each channel check inspects up to 1,000 playlists within a 15-minute budget. Whe
 either limit is reached, the next check resumes after the last inspected
 playlist. Completed sources are queued and the subscription reports the partial
 check, including inaccessible playlists, rather than discarding successful work.
+
+## Popup workflow
+
+The popup has Download, Activity, Subscriptions and Settings tabs. Settings saves
+global defaults for future jobs and subscription checks. Unsaved settings do not
+affect downloads. Download uses saved defaults unless Override for this job is
+enabled; overrides are captured with that job and never change the defaults.
+Already queued jobs keep their original settings.
+
+Download videos and Refresh existing NFOs are separate operations. NFO refresh
+only updates local metadata, skips missing local videos and hides encoding
+controls. Files and destination, subtitles/metadata, and custom encoding have
+separate groups; dependency versions and hardware tests are under Diagnostics.
+Closing the popup leaves all jobs running.
+
+Activity shows running jobs first, then queued jobs, results needing attention,
+and collapsed completed history. Counts distinguish downloaded, already present,
+metadata updated, skipped and failed. Progress counts videos processed, including
+skipped and failed entries. Known per-video YouTube restrictions are recorded
+without stopping the remaining playlist. Retry failed videos uses only the
+failed video IDs with the job's original settings; system, filesystem, encoder
+and cancellation errors still stop the job. Completed-with-warnings is a finished
+state. New configurations skip existing media by default; existing configurations
+retain their previous setting. This does not add cookie authentication.

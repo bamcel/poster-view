@@ -1,8 +1,9 @@
 import {apiRequest} from "../../api/client";
 
 export interface VirtualTvSettings {enabled:boolean}
+export interface YoutubePlaylistSelection {library_id:string;channel_id:string;playlist_id:string}
 export interface ChannelInput {
-  name:string; number:number; library_ids:string[]; show_ids:string[]; movie_ids:string[]; collection_ids?:string[];
+  name:string; number:number; library_ids:string[]; show_ids:string[]; movie_ids:string[]; collection_ids?:string[]; youtube_playlists?:YoutubePlaylistSelection[]|null;
   genres:string[]; order:"sequential"|"random"|"random_shows"; start_at:string; revision?:number;
 }
 export interface Channel extends ChannelInput {id:string; revision:number}

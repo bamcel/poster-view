@@ -19,7 +19,7 @@ beforeEach(()=>{
  vi.mocked(nativeLibraries.folders).mockResolvedValue({root:"/media",path:"",folders:[]});
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
-function mount(){render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><YtdlPopup onClose={()=>{}}/></QueryClientProvider>);}
+function mount(){render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><YtdlPopup initialTab="Settings" onClose={()=>{}}/></QueryClientProvider>);}
 it("shows current-video encoding progress in the queue",async()=>{
  vi.mocked(ytdl.jobs).mockResolvedValue([{id:"encoding",title:"Encoding video",status:"processing",progress:40,encoding_progress:32.1,settings}] as YtdlJob[]);
  mount();
@@ -33,50 +33,50 @@ it("removes a queue card and refreshes the shared persisted queue",async()=>{
  fireEvent.click(await screen.findByRole("button",{name:"Remove Playlist to remove"}));
  await waitFor(()=>expect(ytdl.remove).toHaveBeenCalledWith("existing",expect.anything()));
  await waitFor(()=>expect(screen.queryByText("Playlist to remove")).toBeNull());
- expect(screen.getByText(/Finished jobs are removed after 7 days/)).toBeTruthy();
+ expect(screen.getByText(/Finished history is cleaned after seven days/)).toBeTruthy();
 });
 it("restores the active queue when reopened and minimizes without cancelling",async()=>{
  vi.mocked(ytdl.jobs).mockResolvedValue([{id:"existing",title:"Active playlist",status:"downloading",progress:42,total_videos:7,completed_videos:1,current_video_title:"Second video",settings}] as YtdlJob[]);
  const onClose=vi.fn();
  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><YtdlPopup onClose={onClose}/></QueryClientProvider>);
  expect(await screen.findByText("Active playlist")).toBeTruthy();
- expect(screen.getByText("1 of 7 videos complete · Second video")).toBeTruthy();
- expect(screen.getByRole("button",{name:"Queue"}).getAttribute("aria-pressed")).toBe("true");
- fireEvent.click(screen.getByRole("button",{name:"Minimize downloads"}));
+ expect(screen.getByText("1 of 7 videos processed · Second video")).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Activity"}).getAttribute("aria-pressed")).toBe("true");
+ fireEvent.click(screen.getByRole("button",{name:"Close YTDL"}));
  expect(onClose).toHaveBeenCalledOnce();expect(ytdl.submit).not.toHaveBeenCalled();expect(ytdl.action).not.toHaveBeenCalled();
 });
 it("saves codec and fallback settings through the plugin popup",async()=>{
  mount();await screen.findByLabelText("Video codec");
  fireEvent.change(screen.getByLabelText("Video codec"),{target:{value:"av1"}});
  fireEvent.change(screen.getByLabelText("If quality is unavailable"),{target:{value:"skip"}});
- fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save defaults"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,video_codec:"av1",quality:1080,fallback:"skip"}));
- expect((await screen.findByRole("status")).textContent).toBe("Configuration saved.");
+ expect((await screen.findByRole("status")).textContent).toBe("Defaults saved.");
 });
 it("inspects a playlist and queues only selected videos with its settings snapshot",async()=>{
  vi.mocked(ytdl.inspect).mockResolvedValue({id:"pl",title:"Playlist",description:"Playlist description",channel:"Channel",channel_id:"ch",kind:"playlist",formats:[],entries:["a","b"].map(id=>({id,url:`https://www.youtube.com/watch?v=${id}`,title:`Video ${id}`,description:"A description",channel:"Channel",channel_id:"ch",duration:120,upload_date:"20260101",thumbnail:null,playlist_id:"pl",playlist_title:"Playlist",playlist_index:1}))});
  mount();await screen.findByLabelText("Video codec");
- fireEvent.click(screen.getByRole("button",{name:"Downloads"}));
+ fireEvent.click(screen.getByRole("button",{name:"Download"}));
  fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/playlist?list=pl"}});
  fireEvent.click(screen.getByRole("button",{name:"Fetch Info"}));
  fireEvent.click(await screen.findByRole("checkbox",{name:"Select Video b"}));
  fireEvent.click(screen.getByRole("button",{name:"Download 1 selected"}));
- await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/playlist?list=pl",["a"],settings));
- expect(screen.getByRole("button",{name:"Queue"}).getAttribute("aria-pressed")).toBe("true");
+ await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/playlist?list=pl",["a"],settings,false));
+ expect(screen.getByRole("button",{name:"Activity"}).getAttribute("aria-pressed")).toBe("true");
 });
 it("shows job failure and retries the saved job",async()=>{
  const job={id:"job",url:"https://youtube.com/watch?v=a",title:"Video a",status:"failed",progress:null,speed:null,eta:null,error:"Format unavailable",created_at:"",settings};
  vi.mocked(ytdl.jobs).mockResolvedValue([job]);vi.mocked(ytdl.action).mockResolvedValue({...job,status:"queued"});
- mount();fireEvent.click(screen.getByRole("button",{name:"Queue"}));
+ mount();fireEvent.click(screen.getByRole("button",{name:"Activity"}));
  expect(await screen.findByText("Format unavailable")).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Retry"}));
+ fireEvent.click(screen.getByRole("button",{name:"Retry job"}));
  await waitFor(()=>expect(ytdl.action).toHaveBeenCalledWith("job","retry"));
 });
 
 it("drills from a channel into its playlist before allowing downloads",async()=>{
  const entry={id:"pl",url:"https://www.youtube.com/playlist?list=pl",title:"Channel playlist",description:"",channel:"Channel",channel_id:"ch",duration:null,upload_date:"",thumbnail:null,playlist_id:"pl",playlist_title:"Channel playlist",playlist_index:null,kind:"playlist" as const};
  vi.mocked(ytdl.inspect).mockResolvedValueOnce({id:"ch",title:"Channel",description:"",channel:"Channel",channel_id:"ch",kind:"channel",formats:[],entries:[entry]}).mockResolvedValueOnce({id:"pl",title:"Playlist",description:"",channel:"Channel",channel_id:"ch",kind:"playlist",formats:[],entries:[]});
- mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Downloads"}));
+ mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Download"}));
  fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});fireEvent.click(screen.getByRole("button",{name:"Fetch Info"}));
  fireEvent.click(await screen.findByRole("button",{name:"Open playlist Channel playlist"}));
  await waitFor(()=>expect(ytdl.inspect).toHaveBeenLastCalledWith(entry.url));
@@ -86,8 +86,8 @@ it("permits the library media root and retries interrupted downloads",async()=>{
  const rootSettings={...settings,directory:""};vi.mocked(ytdl.configuration).mockResolvedValue({settings:rootSettings,dependencies:{yt_dlp:"1",ffmpeg:"7",js_runtime:"1"}});
  vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"yt",name:"YouTube",library_type:"youtube",anime_content:"both",paths:[""],options:defaultNativeOptions,revision:1,created_at:"",updated_at:""}]);
  const job={id:"interrupted",url:"https://youtube.com/watch?v=a",title:"Interrupted video",status:"interrupted",progress:null,speed:null,eta:null,error:null,created_at:"",settings:rootSettings};vi.mocked(ytdl.jobs).mockResolvedValue([job]);vi.mocked(ytdl.action).mockResolvedValue({...job,status:"queued"});
- mount();await screen.findByLabelText("Video codec");expect((screen.getByRole("button",{name:"Save configuration"}) as HTMLButtonElement).disabled).toBe(false);
- fireEvent.click(screen.getByRole("button",{name:"Queue"}));fireEvent.click(await screen.findByRole("button",{name:"Retry"}));await waitFor(()=>expect(ytdl.action).toHaveBeenCalledWith("interrupted","retry"));
+ mount();await screen.findByLabelText("Video codec");expect((screen.getByRole("button",{name:"Save defaults"}) as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.click(screen.getByRole("button",{name:"Activity"}));fireEvent.click(await screen.findByRole("button",{name:"Retry job"}));await waitFor(()=>expect(ytdl.action).toHaveBeenCalledWith("interrupted","retry"));
 });
 
 
@@ -102,7 +102,7 @@ it("uses library settings for setup and browses download folders in a dropdown",
  await waitFor(()=>expect(nativeLibraries.folders).toHaveBeenCalledWith("YouTube/Downloads"));
  await waitFor(()=>expect((screen.getByRole("button",{name:"Select This Folder"}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.click(screen.getByRole("button",{name:"Select This Folder"}));
- fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save defaults"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,directory:"YouTube/Downloads"}));
 });
 it("saves a filename convention and previews the selected container",async()=>{
@@ -111,7 +111,7 @@ it("saves a filename convention and previews the selected container",async()=>{
  fireEvent.change(convention,{target:{value:"date_title_id"}});
  fireEvent.change(screen.getByLabelText("Container"),{target:{value:"mkv"}});
  expect(screen.getByText("Example: 2026-01-02 - Example video [abc123].mkv")).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save defaults"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,filename_convention:"date_title_id",container:"mkv"}));
 });
 
@@ -119,7 +119,7 @@ it.each([["title","Example video"],["date_title","2026-01-02 - Example video"]])
  mount();const convention=await screen.findByLabelText("Filename convention");
  fireEvent.change(convention,{target:{value}});
  expect(screen.getByText(`Example: ${example}.mp4`)).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save defaults"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,filename_convention:value}));
 });
 
@@ -127,7 +127,7 @@ it("saves HEVC conversion settings",async()=>{
  mount();await screen.findByLabelText("Video codec");
  fireEvent.change(screen.getByLabelText("Video codec"),{target:{value:"hevc"}});
  fireEvent.click(screen.getByLabelText("Convert to selected codecs"));
- fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save defaults"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,video_codec:"hevc",convert:true}));
 });
 
@@ -137,7 +137,7 @@ it("shows default CRF only during conversion and saves a custom value",async()=>
  fireEvent.click(screen.getByLabelText("Convert to selected codecs"));
  expect((screen.getByLabelText("CRF") as HTMLInputElement).value).toBe("23");
  fireEvent.change(screen.getByLabelText("CRF"),{target:{value:"19"}});
- fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save defaults"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,convert:true,crf:19}));
  fireEvent.click(screen.getByLabelText("Convert to selected codecs"));
  expect(screen.queryByLabelText("CRF")).toBeNull();
@@ -147,14 +147,14 @@ it.each([720,1440])("saves %s quality and nearest higher fallback",async(quality
  mount();await screen.findByLabelText("Quality");
  fireEvent.change(screen.getByLabelText("Quality"),{target:{value:String(quality)}});
  fireEvent.change(screen.getByLabelText("If quality is unavailable"),{target:{value:"next_highest"}});
- fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save defaults"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,quality,fallback:"next_highest"}));
 });
 
 it("saves a download destination without any media library",async()=>{
  vi.mocked(nativeLibraries.list).mockResolvedValue([]);
  mount();await screen.findByLabelText("Video codec");
- fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save defaults"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith(settings));
  expect(nativeLibraries.list).not.toHaveBeenCalled();
 });
@@ -169,7 +169,7 @@ it("shows GPU controls only for conversion and saves backend and quality",async(
  expect(screen.queryByLabelText("CRF")).toBeNull();
  expect((screen.getByLabelText("Encoding quality") as HTMLInputElement).value).toBe("23");
  fireEvent.change(screen.getByLabelText("Encoding quality"),{target:{value:"25"}});
- fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save defaults"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,convert:true,video_codec:"hevc",hardware_backend:"nvenc",crf:25}));
 });
 it("requires an explicit supported codec for GPU encoding",async()=>{
@@ -177,12 +177,12 @@ it("requires an explicit supported codec for GPU encoding",async()=>{
  fireEvent.click(screen.getByLabelText("Convert to selected codecs"));
  fireEvent.change(screen.getByLabelText("Encoding device"),{target:{value:"qsv"}});
  expect(screen.getByRole("alert").textContent).toContain("GPU encoding requires");
- expect((screen.getByRole("button",{name:"Save configuration"}) as HTMLButtonElement).disabled).toBe(true);
+ expect((screen.getByRole("button",{name:"Save defaults"}) as HTMLButtonElement).disabled).toBe(true);
  expect((screen.getByLabelText("Video codec") as HTMLSelectElement).value).toBe("auto");
  fireEvent.change(screen.getByLabelText("Video codec"),{target:{value:"vp9"}});
- expect((screen.getByRole("button",{name:"Save configuration"}) as HTMLButtonElement).disabled).toBe(true);
+ expect((screen.getByRole("button",{name:"Save defaults"}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.change(screen.getByLabelText("Video codec"),{target:{value:"h264"}});
- expect((screen.getByRole("button",{name:"Save configuration"}) as HTMLButtonElement).disabled).toBe(false);
+ expect((screen.getByRole("button",{name:"Save defaults"}) as HTMLButtonElement).disabled).toBe(false);
 });
 it("tests hardware on request and displays availability and setup help",async()=>{
  vi.mocked(apiRequest).mockResolvedValue({encoders:[{name:"hevc_nvenc",backend:"nvenc",codec:"hevc",available:false,detail:"GPU test failed."}],hardware_help:{nvenc:"Configure NVIDIA GPU access."}});
@@ -191,7 +191,7 @@ it("tests hardware on request and displays availability and setup help",async()=
  fireEvent.change(screen.getByLabelText("Encoding device"),{target:{value:"nvenc"}});
  fireEvent.change(screen.getByLabelText("Video codec"),{target:{value:"hevc"}});
  expect(apiRequest).not.toHaveBeenCalled();
- fireEvent.click(screen.getByRole("button",{name:"Test hardware encoders"}));
+ fireEvent.click(screen.getByText("Diagnostics"));fireEvent.click(screen.getByRole("button",{name:"Test hardware encoders"}));
  expect(await screen.findByText("hevc_nvenc: Unavailable. GPU test failed.")).toBeTruthy();
  expect(screen.getByText("Configure NVIDIA GPU access.")).toBeTruthy();
  expect(apiRequest).toHaveBeenCalledWith("/playback/capabilities");
@@ -207,9 +207,9 @@ it("switches direct mode without discarding custom encoding preferences",async()
  for(const label of ["Video codec","Audio codec","Container","Maximum frame rate","Convert to selected codecs","Encoding device","Encoding quality"])expect(screen.queryByLabelText(label)).toBeNull();
  for(const label of ["Quality","If quality is unavailable","Download subtitles","Include chapters","Download thumbnail","Subtitle languages"])expect(screen.getByLabelText(label)).toBeTruthy();
  expect(screen.getByText("Example: abc123.mkv")).toBeTruthy();
- fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ fireEvent.click(screen.getByRole("button",{name:"Save defaults"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...custom,download_mode:"direct"}));
- await screen.findByText("Configuration saved.");
+ await screen.findByText("Defaults saved.");
  fireEvent.change(screen.getByLabelText("Download mode"),{target:{value:"custom"}});
  expect((screen.getByLabelText("Video codec") as HTMLSelectElement).value).toBe("hevc");
  expect((screen.getByLabelText("Audio codec") as HTMLSelectElement).value).toBe("opus");
@@ -223,35 +223,35 @@ it("queues direct mode even with incompatible retained custom GPU settings",asyn
  vi.mocked(ytdl.configuration).mockResolvedValue({settings:custom,dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}});
  vi.mocked(ytdl.inspect).mockResolvedValue({id:"a",title:"Video",description:"",channel:"Channel",channel_id:"ch",kind:"video",formats:[],entries:[{id:"a",url:"https://www.youtube.com/watch?v=a",title:"Video a",description:"",channel:"Channel",channel_id:"ch",duration:120,upload_date:"20260101",thumbnail:null,playlist_id:"",playlist_title:"",playlist_index:null}]});
  mount();await screen.findByLabelText("Download mode");
- expect((screen.getByRole("button",{name:"Save configuration"}) as HTMLButtonElement).disabled).toBe(true);
+ expect((screen.getByRole("button",{name:"Save defaults"}) as HTMLButtonElement).disabled).toBe(true);
  fireEvent.change(screen.getByLabelText("Download mode"),{target:{value:"direct"}});
  expect(screen.queryByRole("alert")).toBeNull();
- expect((screen.getByRole("button",{name:"Save configuration"}) as HTMLButtonElement).disabled).toBe(false);
- fireEvent.click(screen.getByRole("button",{name:"Downloads"}));
+ expect((screen.getByRole("button",{name:"Save defaults"}) as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.click(screen.getByRole("button",{name:"Save defaults"}));await screen.findByText("Defaults saved.");fireEvent.click(screen.getByRole("button",{name:"Download"}));
  fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/watch?v=a"}});
  fireEvent.click(screen.getByRole("button",{name:"Fetch Info"}));
  fireEvent.click(await screen.findByRole("button",{name:"Download 1 selected"}));
- await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/watch?v=a",["a"],{...custom,download_mode:"direct"}));
+ await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/watch?v=a",["a"],{...custom,download_mode:"direct"},false));
 });
 
 it("refreshes channel NFOs without inspection or valid encoding settings",async()=>{
  const custom={...settings,convert:true,hardware_backend:"nvenc" as const};
  vi.mocked(ytdl.configuration).mockResolvedValue({settings:custom,dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}});
- mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Downloads"}));
- expect((screen.getByRole("button",{name:"Update NFOs"}) as HTMLButtonElement).disabled).toBe(true);
- fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});fireEvent.click(screen.getByRole("button",{name:"Update NFOs"}));
+ mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Download"}));fireEvent.change(screen.getByLabelText("Operation"),{target:{value:"metadata"}});
+ expect((screen.getByRole("button",{name:"Refresh existing NFOs"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});fireEvent.click(screen.getByRole("button",{name:"Refresh existing NFOs"}));
  await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/@channel",[],custom,true));expect(ytdl.inspect).not.toHaveBeenCalled();
 });
 it("prevents duplicate refresh submissions and displays failures",async()=>{
  let reject!:(error:Error)=>void;vi.mocked(ytdl.submit).mockImplementationOnce(()=>new Promise((_,fail)=>{reject=fail;}));
- mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Downloads"}));
- fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});fireEvent.click(screen.getByRole("button",{name:"Update NFOs"}));
- expect((await screen.findByRole("button",{name:"Queueing NFO update…"}) as HTMLButtonElement).disabled).toBe(true);
+ mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Download"}));fireEvent.change(screen.getByLabelText("Operation"),{target:{value:"metadata"}});
+ fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});fireEvent.click(screen.getByRole("button",{name:"Refresh existing NFOs"}));
+ expect((await screen.findByRole("button",{name:"Queueing…"}) as HTMLButtonElement).disabled).toBe(true);
  reject(new Error("Metadata unavailable"));expect((await screen.findByRole("alert")).textContent).toBe("Metadata unavailable");
 });
 it("saves skip existing videos in either download mode",async()=>{
  mount();await screen.findByLabelText("Skip existing videos");fireEvent.click(screen.getByLabelText("Skip existing videos"));fireEvent.change(screen.getByLabelText("Download mode"),{target:{value:"direct"}});
- expect((screen.getByLabelText("Skip existing videos") as HTMLInputElement).checked).toBe(true);fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ expect((screen.getByLabelText("Skip existing videos") as HTMLInputElement).checked).toBe(true);fireEvent.click(screen.getByRole("button",{name:"Save defaults"}));
  await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,skip_existing:true,download_mode:"direct"}));
 });
 it("serializes metadata mode and skip existing without changing normal submission defaults",async()=>{
@@ -264,18 +264,37 @@ it("serializes metadata mode and skip existing without changing normal submissio
 
 it("refreshes selected playlist entries and disables an empty selection",async()=>{
  vi.mocked(ytdl.inspect).mockResolvedValue({id:"pl",title:"Playlist",description:"",channel:"Channel",channel_id:"ch",kind:"playlist",formats:[],entries:["a","b"].map(id=>({id,url:`https://www.youtube.com/watch?v=${id}`,title:`Video ${id}`,description:"",channel:"Channel",channel_id:"ch",duration:null,upload_date:"",thumbnail:null,playlist_id:"pl",playlist_title:"Playlist",playlist_index:1}))});
- mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Downloads"}));fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/playlist?list=pl"}});fireEvent.click(screen.getByRole("button",{name:"Fetch Info"}));await screen.findByRole("checkbox",{name:"Select Video b"});
- fireEvent.click(screen.getByRole("button",{name:"Clear selection"}));expect((screen.getByRole("button",{name:"Update NFOs"}) as HTMLButtonElement).disabled).toBe(true);
- fireEvent.click(screen.getByRole("checkbox",{name:"Select Video a"}));fireEvent.click(screen.getByRole("button",{name:"Update NFOs"}));await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/playlist?list=pl",["a"],settings,true));
+ mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Download"}));fireEvent.change(screen.getByLabelText("Operation"),{target:{value:"metadata"}});fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/playlist?list=pl"}});fireEvent.click(screen.getByRole("button",{name:"Fetch Info"}));await screen.findByRole("checkbox",{name:"Select Video b"});
+ fireEvent.click(screen.getByRole("button",{name:"Clear selection"}));expect((screen.getByRole("button",{name:"Refresh existing NFOs"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole("checkbox",{name:"Select Video a"}));fireEvent.click(screen.getByRole("button",{name:"Refresh existing NFOs"}));await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/playlist?list=pl",["a"],settings,true));
 });
 it.each([{enabled:false,directory:"YouTube"}])("disables NFO refresh for unavailable settings %j",async overrides=>{
  vi.mocked(ytdl.configuration).mockResolvedValue({settings:{...settings,...overrides},dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}});
- mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Downloads"}));fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});
- expect((screen.getByRole("button",{name:"Update NFOs"}) as HTMLButtonElement).disabled).toBe(true);
+ mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Download"}));fireEvent.change(screen.getByLabelText("Operation"),{target:{value:"metadata"}});fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});
+ expect((screen.getByRole("button",{name:"Refresh existing NFOs"}) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it("permits the media root for NFO refresh",async()=>{
  vi.mocked(ytdl.configuration).mockResolvedValue({settings:{...settings,directory:""},dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}});
- mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Downloads"}));fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});
- fireEvent.click(screen.getByRole("button",{name:"Update NFOs"}));await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/@channel",[],{...settings,directory:""},true));
+ mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Download"}));fireEvent.change(screen.getByLabelText("Operation"),{target:{value:"metadata"}});fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});
+ fireEvent.click(screen.getByRole("button",{name:"Refresh existing NFOs"}));await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/@channel",[],{...settings,directory:""},true));
+});
+
+
+it("keeps unsaved defaults out of job overrides and does not persist overrides",async()=>{
+ mount();await screen.findByLabelText("Quality");fireEvent.change(screen.getByLabelText("Quality"),{target:{value:"720"}});fireEvent.click(screen.getByRole("button",{name:"Download"}));
+ expect(screen.getByText(/1080p/)).toBeTruthy();fireEvent.click(screen.getByLabelText("Override for this job"));expect((screen.getByLabelText("Quality") as HTMLSelectElement).value).toBe("1080");fireEvent.change(screen.getByLabelText("Quality"),{target:{value:"480"}});fireEvent.click(screen.getByRole("button",{name:"Settings"}));expect((screen.getByLabelText("Quality") as HTMLSelectElement).value).toBe("720");expect(ytdl.save).not.toHaveBeenCalled();
+});
+it("defaults to Download and keeps diagnostics collapsed",async()=>{
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><YtdlPopup onClose={()=>{}}/></QueryClientProvider>);await screen.findByLabelText("Operation");expect(screen.getByRole("button",{name:"Download"}).getAttribute("aria-pressed")).toBe("true");fireEvent.click(screen.getByRole("button",{name:"Settings"}));expect(screen.getByText("Diagnostics").parentElement?.hasAttribute("open")).toBe(false);expect(apiRequest).not.toHaveBeenCalled();
+});
+it("hides encoding controls and warnings in metadata-only overrides",async()=>{
+ vi.mocked(ytdl.configuration).mockResolvedValue({settings:{...settings,convert:true,hardware_backend:"nvenc"},dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}});mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Download"}));fireEvent.change(screen.getByLabelText("Operation"),{target:{value:"metadata"}});fireEvent.click(screen.getByLabelText("Override for this job"));expect(screen.queryByLabelText("Quality")).toBeNull();expect(screen.queryByLabelText("Video codec")).toBeNull();expect(screen.queryByRole("alert")).toBeNull();expect(screen.getByLabelText("Download directory")).toBeTruthy();
+});
+it.each([["Queue","Activity"],["Configuration","Settings"],["Downloads","Download"]])("maps legacy tab %s to %s",async(initialTab,current)=>{
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><YtdlPopup initialTab={initialTab} onClose={()=>{}}/></QueryClientProvider>);await waitFor(()=>expect(screen.getByRole("button",{name:current}).getAttribute("aria-pressed")).toBe("true"));
+});
+
+it("preserves unsaved defaults through configuration refetch",async()=>{
+ const queryClient=new QueryClient({defaultOptions:{queries:{retry:false}}});render(<QueryClientProvider client={queryClient}><YtdlPopup initialTab="Settings" onClose={()=>{}}/></QueryClientProvider>);await screen.findByLabelText("Quality");fireEvent.change(screen.getByLabelText("Quality"),{target:{value:"720"}});await queryClient.refetchQueries({queryKey:["plugin-ytdl"]});expect((screen.getByLabelText("Quality") as HTMLSelectElement).value).toBe("720");
 });
