@@ -1,0 +1,5 @@
+.pv-scrolling-title{display:block;min-width:0;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.pv-scrolling-title>span{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
+.poster-title-card:is(:hover,:focus-within) .pv-scrolling-title.is-overflowing>span{max-width:none;overflow:visible;animation:pv-title-pan var(--title-duration) ease-in-out infinite alternate}
+@keyframes pv-title-pan{0%,15%{transform:translateX(0)}85%,100%{transform:translateX(var(--title-travel))}}
+@media(prefers-reduced-motion:reduce){.poster-title-card:is(:hover,:focus-within) .pv-scrolling-title.is-overflowing>span{max-width:100%;overflow:hidden;animation:none;transform:none}}

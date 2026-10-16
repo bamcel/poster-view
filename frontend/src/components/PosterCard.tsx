@@ -1,3 +1,4 @@
+import ScrollingTitle from "./ScrollingTitle";
 // A poster tile: artwork on top, title/subtitle below, optional corner badge.
 // Opens on a single click (and Enter for keyboard users) when `onOpen` is set.
 
@@ -142,14 +143,14 @@ export default function PosterCard({
           keeps these legible when a card sits over the vivid backdrop image
           on the item detail page's Seasons row. */}
       <div className="mt-2 px-0.5 [text-shadow:0_1px_6px_rgba(0,0,0,0.8)]">
-        <p className={`flex items-center gap-2 text-sm font-medium ${coloredTitle ? "poster-colored-title" : "text-white/90"}`}>{titleBadge ? <span className="truncate">{title}</span> : title}{titleBadge && <span className="inline-flex shrink-0 rounded-full border border-amber-400/40 bg-amber-400/15 px-2 py-0.5 text-[10px] text-amber-200">{titleBadge}</span>}</p>
+        <p className={`flex items-center gap-2 text-sm font-medium ${coloredTitle ? "poster-colored-title" : "text-white/90"}`}><ScrollingTitle title={title} textClassName={coloredTitle?"poster-colored-title":"text-white/90"}/>{titleBadge && <span className="inline-flex shrink-0 rounded-full border border-amber-400/40 bg-amber-400/15 px-2 py-0.5 text-[10px] text-amber-200">{titleBadge}</span>}</p>
         {subtitle && <p className="truncate text-xs text-faint">{subtitle}</p>}
       </div>
     </>
   );
 
   return onOpen ? (
-    <div className="group/selection relative" onMouseEnter={()=>setHovered(true)} onMouseLeave={() => {setMenuOpen(false);setHovered(false);}} onFocus={()=>setFocused(true)} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))setFocused(false);}}>
+    <div className="poster-title-card group/selection relative" onMouseEnter={()=>setHovered(true)} onMouseLeave={() => {setMenuOpen(false);setHovered(false);}} onFocus={()=>setFocused(true)} onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))setFocused(false);}}>
       <button
         ref={triggerRef}
         type="button"
@@ -225,7 +226,7 @@ export default function PosterCard({
       )}
     </div>
   ) : (
-    <div title={title} className="select-none">
+    <div title={title} className="poster-title-card select-none">
       {content}
     </div>
   );
