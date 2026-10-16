@@ -28,10 +28,10 @@
 .vtv-channel-number { width: 28px; flex-shrink: 0; text-align: center; font-size: 12px; color: inherit; background: transparent; }
 .vtv-channel-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; font-weight: 700; line-height: 1.2; }
 .vtv-program-track { position: relative; flex: 1; height: 58px; }
-.vtv-program { position: absolute; top: 0; bottom: 0; border-radius: 8px; background: transparent; color: #ddd; padding: 0 15px; text-align: left; overflow: hidden; min-width: 0; }
+.vtv-program { position: absolute; top: 0; bottom: 0; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); background: transparent; color: #ddd; padding: 0 15px; text-align: left; overflow: hidden; min-width: 0; }
 .vtv-program > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .vtv-program:hover { background: rgba(255,255,255,.08); }
-.vtv-program-selected, .vtv-program-selected:hover { background: #efefef; color: #151515; font-weight: 600; }
+.vtv-program-selected, .vtv-program-selected:hover { background: var(--color-accent); color: #151515; font-weight: 600; }
 .vtv-now-line { position: absolute; top: 0; bottom: 0; width: 1px; pointer-events: none; background: var(--color-accent, #8aa381); opacity: .45; }
 .vtv-page button:focus-visible, .vtv-page a:focus-visible { outline: 2px solid var(--color-accent, #8aa381); outline-offset: 3px; }
 @media (max-width: 700px) {
