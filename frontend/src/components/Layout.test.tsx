@@ -1,6 +1,6 @@
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import type {ReactNode} from "react";
-import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import AuthGate from "./AuthGate";
@@ -19,6 +19,22 @@ function CurrentLocation() {
   const location = useLocation();
   return <p>{location.pathname}{location.search}</p>;
 }
+
+it("keeps Home full width until navigation is opened and restores focus on Escape",async()=>{
+  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
+  render(<MemoryRouter><AuthGate><Layout><p>Homepage content</p></Layout></AuthGate></MemoryRouter>);
+  const toggle=await screen.findByRole("button",{name:"Open navigation"});
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(screen.queryByRole("dialog",{name:"Navigation"})).toBeNull();
+  fireEvent.click(toggle);
+  const panel=screen.getByRole("dialog",{name:"Navigation"});
+  expect(document.activeElement).toBe(within(panel).getByRole("button",{name:"Close navigation"}));
+  fireEvent.keyDown(window,{key:"Escape"});
+  expect(screen.queryByRole("dialog",{name:"Navigation"})).toBeNull();
+  expect(document.activeElement).toBe(toggle);
+  fireEvent.click(toggle);fireEvent.click(screen.getByRole("button",{name:"Dismiss navigation"}));
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+});
 
 it("offers separate Playback preferences and Transcoding policy in navigation",async()=>{
   vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});

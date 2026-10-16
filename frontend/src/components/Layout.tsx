@@ -1,4 +1,5 @@
 import {useCatalogPrefetch} from "../lib/catalogPrefetch";
+import {HeaderSearchTarget} from "../lib/headerSearch";
 import DownloadStatus,{openDownloadsEvent} from "../features/settings/ytdl/DownloadStatus";
 import {resetHomeNavigation} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
@@ -8,10 +9,10 @@ import {nativeLibraries} from "../api/nativeLibraries";
 // App chrome: contextual media/settings navigation and account controls.
 
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, } from "lucide-react";
+import { LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, Menu, X, } from "lucide-react";
 import { Logo } from "./ui";
 import { api } from "../api/client";
-import { lazy, Suspense, useContext, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate as useLibraryNavigate } from "../lib/libraryNavigation";
 import { AuthSessionContext, useIsAdmin } from "../lib/authContext";
 import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
@@ -20,6 +21,19 @@ const DownloadQueuePopup=lazy(()=>import("../features/settings/ytdl/YtdlPlugin")
 export default function Layout({ children, preview = false, showPreviewChrome = true, previewPath = "/" }: { children?: ReactNode; preview?: boolean; showPreviewChrome?: boolean; previewPath?: string }) {
   const queryClient=useQueryClient();
   const location = useLocation();
+  const [searchTarget,setSearchTarget]=useState<HTMLDivElement|null>(null);
+  const homeSearch=!preview&&location.pathname==="/"&&!new URLSearchParams(location.search).has("lib")&&!new URLSearchParams(location.search).has("native_library");
+  const [navigationOpen,setNavigationOpen]=useState(false);
+  const navigationToggle=useRef<HTMLButtonElement>(null);
+  const navigationPanel=useRef<HTMLElement>(null);
+  useEffect(()=>{setNavigationOpen(false);},[location.pathname]);
+  useEffect(()=>{
+    if(!homeSearch||!navigationOpen)return;
+    navigationPanel.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const escape=(event:KeyboardEvent)=>{if(event.key==="Escape"){event.preventDefault();setNavigationOpen(false);navigationToggle.current?.focus();}};
+    window.addEventListener("keydown",escape);
+    return()=>window.removeEventListener("keydown",escape);
+  },[homeSearch,navigationOpen]);
   const artworkPlugin=useArtworkPlugin();
   const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,enabled:true});
   const prefetchCatalog=useCatalogPrefetch();
@@ -74,17 +88,21 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
         const href=anchor.getAttribute("href");
         if(event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
         if(href==="/")resetHomeNavigation();
+        if(homeSearch)setNavigationOpen(false);
         if(!preview)return;
         event.preventDefault();
         event.stopPropagation();
         if(href?.startsWith("/")) void previewNavigate(href);
       }}>
 
-      <aside
-        className="relative z-20 hidden w-[14.75rem] shrink-0 flex-col overflow-hidden border-r border-border px-3 py-5 md:flex"
+      {homeSearch&&navigationOpen&&<button type="button" aria-label="Dismiss navigation" className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm" onClick={()=>{setNavigationOpen(false);navigationToggle.current?.focus();}}/>}
+      <aside ref={navigationPanel} id="app-navigation" aria-label={homeSearch?"Navigation":undefined} role={homeSearch&&navigationOpen?"dialog":undefined} aria-modal={homeSearch&&navigationOpen?true:undefined} aria-hidden={homeSearch&&!navigationOpen?true:undefined} inert={homeSearch&&!navigationOpen}
+        onKeyDown={event=>{if(!homeSearch||!navigationOpen||event.key!=="Tab")return;const links=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('a[href],button:not([disabled])'));const first=links[0],last=links[links.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}}
+        className={homeSearch?`fixed inset-y-0 left-0 z-40 flex w-[min(18rem,85vw)] flex-col overflow-hidden border-r border-border px-3 py-5 shadow-2xl transition-transform duration-200 motion-reduce:transition-none ${navigationOpen?"translate-x-0":"-translate-x-full"}`:"relative z-20 hidden w-[14.75rem] shrink-0 flex-col overflow-hidden border-r border-border px-3 py-5 md:flex"}
         style={{ backgroundColor: translucentPanelColor("--color-sidebar", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
       >
         <div className="mb-8 shrink-0 px-1">
+          {homeSearch&&<button type="button" aria-label="Close navigation" className="mb-3 ml-auto grid size-11 place-items-center rounded-lg text-muted hover:bg-input-hover hover:text-white focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>{setNavigationOpen(false);navigationToggle.current?.focus();}}><X size={20}/></button>}
           <NavLink to="/" aria-label="Go to Home" className="block w-fit">
             <Logo />
           </NavLink>
@@ -121,7 +139,8 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="relative z-20 flex h-14 shrink-0 items-center gap-2 bg-transparent px-3">
+      <header className={`relative z-20 flex shrink-0 items-center gap-2 bg-transparent px-3 ${homeSearch?"min-h-14 flex-wrap sm:h-14 sm:flex-nowrap":"h-14"}`}>
+        {homeSearch&&<button ref={navigationToggle} type="button" aria-label="Open navigation" aria-expanded={navigationOpen} aria-controls="app-navigation" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>setNavigationOpen(value=>!value)}><Menu size={21}/></button>}
         <NavLink to="/" aria-label="Go to Home" className="mr-auto min-w-0 md:hidden">
           <Logo className="w-20 overflow-hidden [&>img]:max-w-full [&>img]:translate-y-[5px] sm:w-36" />
         </NavLink>
@@ -143,7 +162,8 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           ))}
 
         </nav>
-        <div className="ml-auto flex items-center gap-1">
+        <div ref={setSearchTarget} className={homeSearch?"order-last min-w-0 basis-full pb-2 sm:order-none sm:flex-1 sm:basis-auto sm:pb-0":"hidden"}/>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <NavLink to={settingsPath} aria-label="Settings" title="Settings" className={`grid size-11 place-items-center rounded-lg transition-colors ${settingsOpen ? "bg-elevated text-white" : "text-muted hover:bg-surface-2 hover:text-white"}`}>
             <Settings className="size-[20px]" />
           </NavLink>
@@ -163,7 +183,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
       {!preview && settingsOpen && <div className="shrink-0 border-b border-border bg-sidebar px-4 py-2 md:hidden"><label className="flex items-center gap-3 text-sm text-muted">Settings<select aria-label="Settings page" value={location.pathname.split("/")[2]??""} onChange={event=>void previewNavigate(`/settings${event.target.value?`/${event.target.value}`:""}`)} className="min-w-0 flex-1 rounded-lg border border-border bg-input px-3 py-2 text-white">{[["users","Users"],["","Dashboard"],["plugins","Plugins"],...(artworkPlugin.data?.pinned?[["artwork","Artwork"]]:[]),["libraries","Libraries"],["sources","Search Providers"],["playback","Playback"],["reading","Reading"],["transcoding","Transcoding"],["tasks","Scheduled Tasks"],["appearance","Appearance"],["security","Privacy / Security"]].filter(([section])=>isAdmin||section==="playback"||section==="reading").map(([section,label])=><option key={section} value={section}>{label}</option>)}</select></label></div>}
 
       <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
-        {children ?? <Outlet />}
+        <HeaderSearchTarget.Provider value={homeSearch?searchTarget:null}>{children ?? <Outlet />}</HeaderSearchTarget.Provider>
       </main>
       {!preview&&isAdmin&&downloadsOpen&&<Suspense fallback={null}><DownloadQueuePopup initialTab="Queue" onClose={()=>setDownloadsOpen(false)}/></Suspense>}
       </div>

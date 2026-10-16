@@ -49,7 +49,7 @@ it("searches every library, includes original titles, and clears back to collage
  expect(screen.getByTestId("collage-tv")).toBeTruthy();
 });
 
-it("places featured media and Continue Watching before animated libraries and discovery rows",async()=>{
+it("places My Libraries between featured media and Continue Watching",async()=>{
  const library={id:"films",name:"Films",library_type:"movies"} as Awaited<ReturnType<typeof nativeLibraries.list>>[number];
  const movie={...entryDefaults,id:"film",title:"Featured Film",kind:"movie",available:true,metadata:{plot:"A journey home",year:2025,rating:8.5,genres:["Drama"]},artwork:[{kind:"backdrop",path:"backdrop.jpg",source:"local"}],files:[{path:"film.mkv",size:100,extension:"mkv"}]};
  vi.mocked(nativeLibraries.list).mockResolvedValue([library]);
@@ -59,8 +59,8 @@ it("places featured media and Continue Watching before animated libraries and di
  const featured=await screen.findByRole("region",{name:"Featured title"});
  const continued=await screen.findByRole("region",{name:"Continue watching"});
  const libraries=screen.getByRole("region",{name:"My libraries"});
- expect(featured.compareDocumentPosition(continued)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
- expect(continued.compareDocumentPosition(libraries)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(featured.compareDocumentPosition(libraries)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ expect(libraries.compareDocumentPosition(continued)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
  expect(screen.getByTestId("collage-films")).toBeTruthy();
  expect(within(featured).getByRole("link",{name:/Play/}).getAttribute("href")).toBe("/play/native/films/film?return=%2F");
  expect(screen.queryByText("Missing Film")).toBeNull();

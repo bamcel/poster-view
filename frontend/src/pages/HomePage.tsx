@@ -5,7 +5,9 @@ import {HOME_RESET_EVENT} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
 import {Navigate} from "react-router-dom";
 import {Link, useSearchParams} from "../lib/libraryNavigation";
-import {useEffect,useState} from "react";
+import {useContext,useEffect,useState} from "react";
+import {createPortal} from "react-dom";
+import {HeaderSearchTarget} from "../lib/headerSearch";
 import {Search, X, Film} from "lucide-react";
 import {useQueries, useQuery} from "@tanstack/react-query";
 import LibraryPosterStrip from "../components/LibraryPosterStrip";
@@ -23,6 +25,7 @@ function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:Native
  </Link>;
 }
 function LibraryHome(){
+ const searchTarget=useContext(HeaderSearchTarget);
  const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list});
  const [search,setSearch]=useState("");
  useEffect(()=>{const reset=()=>setSearch("");window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
@@ -33,16 +36,18 @@ function LibraryHome(){
  const sections=[{name:"Movies",kinds:["movie"]},{name:"Series",kinds:["series"]},{name:"Episodes",kinds:["episode"]},{name:"Books",kinds:["book","book_series"]}].map(section=>({...section,results:results.filter(({entry})=>section.kinds.includes(entry.kind))})).filter(section=>section.results.length>0);
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
  const featured=!term&&titles.length>0;
- return <main className="relative h-full overflow-y-auto pb-8">
-  <header className="mb-3 flex flex-col gap-7 px-5 pt-5 sm:px-8 md:gap-10 md:px-12">
-   <h1 className={featured?"sr-only":"order-2 text-2xl font-semibold text-white"}>{term?"Search results":"My Media"}</h1>
-  <div role="search" className="order-1 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
-   <div className="relative col-start-2 mx-auto w-full max-w-[21rem]">
+ const searchControl=<div role="search" className="flex min-h-11 min-w-0 items-center">
+   <div className="relative mx-auto w-full max-w-[21rem]">
     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint"/>
     <input aria-label="Search all libraries" placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-10 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"/>
     {search&&<button type="button" aria-label="Clear search" onClick={()=>setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white" data-icon-button="true"><X className="size-4"/></button>}
    </div>
-  </div>
+  </div>;
+ return <main className="relative h-full overflow-y-auto pb-8">
+  {searchTarget&&createPortal(searchControl,searchTarget)}
+  <header className={featured&&searchTarget?"sr-only":"mb-3 flex flex-col gap-3 px-5 pt-3 sm:px-8 md:px-12"}>
+   <h1 className={featured?"sr-only":"text-2xl font-semibold text-white"}>{term?"Search results":"My Media"}</h1>
+   {!searchTarget&&searchControl}
   </header>
   {libraries.isPending&&<p role="status" className="px-5 text-muted sm:px-8 md:px-12">Loading libraries…</p>}
   {libraries.error&&<p role="alert" className="px-5 text-danger sm:px-8 md:px-12">{libraries.error.message}</p>}
@@ -62,11 +67,11 @@ function LibraryHome(){
   </div>:<>
    <FeaturedTitle titles={titles}/>
    <div className="px-5 sm:px-8 md:px-12">
-   <ContinueWatching/>
    <section aria-label="My libraries" className="mt-8">
     <h2 className="mb-4 text-xl font-semibold text-white">My Libraries</h2>
     <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 lg:gap-x-7 lg:gap-y-10 xl:grid-cols-4 2xl:grid-cols-6">{libraries.data?.map(library=><LibraryTile key={library.id} library={library} libraries={libraries.data??[]}/>)}</div>
    </section>
+   <ContinueWatching/>
    {catalogs.some((catalog,index)=>catalog.isPending&&!["books","youtube"].includes(libraries.data![index].library_type))&&<p role="status" className="mt-6 text-muted">Discovering your titles…</p>}
    {catalogs.map((catalog,index)=>catalog.error&&<p role="alert" key={libraries.data![index].id} className="mt-4 text-danger">Could not load discoveries from {libraries.data![index].name}: {catalog.error.message}</p>)}
    <HomeDiscovery titles={titles}/>
