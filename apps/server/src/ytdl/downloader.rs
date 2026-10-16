@@ -535,19 +535,19 @@ pub(super) fn conversion_args(s: &Settings, input: &Path, output: &Path) -> Vec<
 // Streams may restart at zero for audio. Keep the playlist's progress monotonic;
 // publication accounts for the last five percent of each video.
 pub(super) fn record_stream_progress(job: &mut Job, stream_progress: Option<f64>) {
-    if job.total_videos > 0 {
-        if let Some(percent) = stream_progress {
-            let aggregate = (job.completed_videos as f64
-                + percent / 100.0
-                    * if job.settings.effective().convert {
-                        0.5
-                    } else {
-                        0.95
-                    })
-                / job.total_videos as f64
-                * 100.0;
-            job.progress = Some(job.progress.unwrap_or(0.0).max(aggregate));
-        }
+    if job.total_videos > 0
+        && let Some(percent) = stream_progress
+    {
+        let aggregate = (job.completed_videos as f64
+            + percent / 100.0
+                * if job.settings.effective().convert {
+                    0.5
+                } else {
+                    0.95
+                })
+            / job.total_videos as f64
+            * 100.0;
+        job.progress = Some(job.progress.unwrap_or(0.0).max(aggregate));
     }
 }
 
@@ -698,33 +698,33 @@ async fn cancellable(
                             let _ = super::save(&progress_state, "plugin-ytdl-jobs", &jobs);
                         }
                     }
-                } else if let Some(data) = line.strip_prefix("PVPROGRESS:") {
-                    if let Ok(value) = serde_json::from_str::<Value>(data) {
-                        let _lock = progress_state.ytdl_lock.lock().await;
-                        if let Ok(mut jobs) =
-                            super::load::<Vec<Job>>(&progress_state, "plugin-ytdl-jobs")
+                } else if let Some(data) = line.strip_prefix("PVPROGRESS:")
+                    && let Ok(value) = serde_json::from_str::<Value>(data)
+                {
+                    let _lock = progress_state.ytdl_lock.lock().await;
+                    if let Ok(mut jobs) =
+                        super::load::<Vec<Job>>(&progress_state, "plugin-ytdl-jobs")
+                    {
+                        if let Some(job) = jobs
+                            .iter_mut()
+                            .find(|j| j.id == id && j.status != "cancelled")
                         {
-                            if let Some(job) = jobs
-                                .iter_mut()
-                                .find(|j| j.id == id && j.status != "cancelled")
-                            {
-                                let total = value["total_bytes"]
+                            let total = value["total_bytes"]
+                                .as_f64()
+                                .or_else(|| value["total_bytes_estimate"].as_f64());
+                            let stream_progress = total.filter(|t| *t > 0.0).and_then(|t| {
+                                value["downloaded_bytes"]
                                     .as_f64()
-                                    .or_else(|| value["total_bytes_estimate"].as_f64());
-                                let stream_progress = total.filter(|t| *t > 0.0).and_then(|t| {
-                                    value["downloaded_bytes"]
-                                        .as_f64()
-                                        .map(|n| (100.0 * n / t).clamp(0.0, 100.0))
-                                });
-                                record_stream_progress(job, stream_progress);
-                                job.speed = value["speed"]
-                                    .as_f64()
-                                    .filter(|speed| speed.is_finite() && *speed >= 0.0)
-                                    .map(download_speed);
-                                job.eta = value["eta"].as_f64().map(|s| format!("{s:.0}s"));
-                            }
-                            let _ = super::save(&progress_state, "plugin-ytdl-jobs", &jobs);
+                                    .map(|n| (100.0 * n / t).clamp(0.0, 100.0))
+                            });
+                            record_stream_progress(job, stream_progress);
+                            job.speed = value["speed"]
+                                .as_f64()
+                                .filter(|speed| speed.is_finite() && *speed >= 0.0)
+                                .map(download_speed);
+                            job.eta = value["eta"].as_f64().map(|s| format!("{s:.0}s"));
                         }
+                        let _ = super::save(&progress_state, "plugin-ytdl-jobs", &jobs);
                     }
                 }
             }

@@ -959,12 +959,11 @@ pub(crate) async fn anidb_document(
     let db = store(state);
     let cache_key = format!("native_anidb_{aid}");
     let cached = db.get_setting(&cache_key).unwrap_or_default();
-    if let Ok(v) = serde_json::from_str::<Value>(&cached) {
-        if now().saturating_sub(v["at"].as_u64().unwrap_or(0)) < 86400 {
-            if let Some(xml) = v["xml"].as_str() {
-                return Ok(xml.into());
-            }
-        }
+    if let Ok(v) = serde_json::from_str::<Value>(&cached)
+        && now().saturating_sub(v["at"].as_u64().unwrap_or(0)) < 86400
+        && let Some(xml) = v["xml"].as_str()
+    {
+        return Ok(xml.into());
     }
     let gate = db
         .get_setting("native_anidb_gate")

@@ -64,12 +64,12 @@ pub(super) fn local_videos(root: &Path) -> Result<HashSet<String>, HttpError> {
                 let name = video.file_name().to_string_lossy().into_owned();
                 downloader::valid_id(&name).then_some(name)
             });
-            if let Some(id) = identity {
-                if !ids.insert(id) {
-                    return Err(err(
-                        "Multiple local folders identify the same video; resolve the duplicate before refreshing metadata.",
-                    ));
-                }
+            if let Some(id) = identity
+                && !ids.insert(id)
+            {
+                return Err(err(
+                    "Multiple local folders identify the same video; resolve the duplicate before refreshing metadata.",
+                ));
             }
         }
     }

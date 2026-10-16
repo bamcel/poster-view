@@ -209,10 +209,10 @@ fn sort_title(entry: &NativeCatalogEntry) -> String {
 }
 fn release(entry: &NativeCatalogEntry) -> String {
     for key in ["premiered", "release_date", "aired"] {
-        if let Some(date) = entry.metadata.get(key).and_then(serde_json::Value::as_str) {
-            if chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok() {
-                return date.into();
-            }
+        if let Some(date) = entry.metadata.get(key).and_then(serde_json::Value::as_str)
+            && chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok()
+        {
+            return date.into();
         }
     }
     let year = entry

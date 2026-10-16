@@ -57,17 +57,15 @@ fn nfo_identity(directory: &Path, channel: bool) -> Result<Option<String>, HttpE
         }
         if !channel {
             for node in &document.children {
-                if let XMLNode::Element(element) = node {
-                    if element.name == "uniqueid"
-                        && element
-                            .attributes
-                            .get("type")
-                            .is_some_and(|kind| kind == "youtube")
-                    {
-                        if let Some(value) = element.get_text() {
-                            values.push(value.to_string());
-                        }
-                    }
+                if let XMLNode::Element(element) = node
+                    && element.name == "uniqueid"
+                    && element
+                        .attributes
+                        .get("type")
+                        .is_some_and(|kind| kind == "youtube")
+                    && let Some(value) = element.get_text()
+                {
+                    values.push(value.to_string());
                 }
             }
         }

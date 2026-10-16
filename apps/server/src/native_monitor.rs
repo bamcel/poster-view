@@ -25,14 +25,14 @@ pub(crate) fn own_write<T>(
 ) -> Result<T, String> {
     let mut writes = OWN_WRITES.lock().unwrap_or_else(|e| e.into_inner());
     // Bound the registry without expiring fingerprints during a long library scan.
-    if writes.len() >= 50_000 && !writes.contains_key(path) {
-        if let Some(oldest) = writes
+    if writes.len() >= 50_000
+        && !writes.contains_key(path)
+        && let Some(oldest) = writes
             .iter()
             .min_by_key(|(_, (time, _))| *time)
             .map(|(path, _)| path.clone())
-        {
-            writes.remove(&oldest);
-        }
+    {
+        writes.remove(&oldest);
     }
     let result = write();
     if result.is_ok() {
@@ -271,8 +271,8 @@ pub(crate) fn start(state: AppState) {
                                 let poll_tx=tx.clone();
                                 poll=PollWatcher::new(move|event|{send_change(&poll_tx,event);},Config::default().with_follow_symlinks(false).with_poll_interval(Duration::from_secs(15))).ok();
                                 for (_,root) in &next{
-                                    if let Some(watcher)=native.as_mut(){if let Err(error)=watcher.watch(root,RecursiveMode::Recursive){tracing::warn!(%error,"Native watch unavailable; using polling");}}
-                                    if let Some(watcher)=poll.as_mut(){if let Err(error)=watcher.watch(root,RecursiveMode::Recursive){tracing::warn!(%error,"Native polling watch unavailable");}}
+                                    if let Some(watcher)=native.as_mut()&& let Err(error)=watcher.watch(root,RecursiveMode::Recursive){tracing::warn!(%error,"Native watch unavailable; using polling");}
+                                    if let Some(watcher)=poll.as_mut()&& let Err(error)=watcher.watch(root,RecursiveMode::Recursive){tracing::warn!(%error,"Native polling watch unavailable");}
                                 }
                                 pending.retain(|id,_|next.iter().any(|(library,_)|library==id));
                                 roots=next;

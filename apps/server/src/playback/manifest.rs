@@ -32,12 +32,14 @@ pub(super) fn prune_consumed(dir: &FsPath, position: f64, retention_seconds: f64
                 .next()
                 .and_then(|s| s.parse::<f64>().ok())
                 .filter(|n| n.is_finite() && *n >= 0.0);
-        } else if !line.starts_with('#') && safe_segment(line) && line.ends_with(".m4s") {
-            if let Some(length) = length.take() {
-                end += length;
-                if end + retention_seconds < position {
-                    let _ = std::fs::remove_file(dir.join(line));
-                }
+        } else if !line.starts_with('#')
+            && safe_segment(line)
+            && line.ends_with(".m4s")
+            && let Some(length) = length.take()
+        {
+            end += length;
+            if end + retention_seconds < position {
+                let _ = std::fs::remove_file(dir.join(line));
             }
         }
     }

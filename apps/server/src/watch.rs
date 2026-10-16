@@ -618,10 +618,10 @@ impl WatchStore {
         }
         state.version += 1;
         let mut stored_state = serde_json::to_value(&state).map_err(failure)?;
-        if state.continue_dismissed {
-            if let Some(session) = dismissed_session {
-                stored_state["_continue_dismissed_session"] = serde_json::json!(session);
-            }
+        if state.continue_dismissed
+            && let Some(session) = dismissed_session
+        {
+            stored_state["_continue_dismissed_session"] = serde_json::json!(session);
         }
         if let Some(session) = reset_session.filter(|s| s == &input.session_id) {
             stored_state["_track_reset_session"] = serde_json::json!(session);

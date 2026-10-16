@@ -235,10 +235,10 @@ pub(crate) fn write(
                     target.display()
                 )
             })?;
-        } else if let Err(e) = temp.persist_noclobber(&target) {
-            if e.error.kind() != std::io::ErrorKind::AlreadyExists {
-                return Err(e.to_string());
-            }
+        } else if let Err(e) = temp.persist_noclobber(&target)
+            && e.error.kind() != std::io::ErrorKind::AlreadyExists
+        {
+            return Err(e.to_string());
         }
         Ok(())
     })?;

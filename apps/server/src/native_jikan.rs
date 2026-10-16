@@ -248,13 +248,12 @@ fn merge(entry: &mut NativeCatalogEntry, data: &Value) {
             existing = characters;
         } else {
             for character in &mut existing {
-                if missing(&character["image"]) {
-                    if let Some(other) = characters
+                if missing(&character["image"])
+                    && let Some(other) = characters
                         .iter()
                         .find(|c| name(&c["name"]) == name(&character["name"]))
-                    {
-                        character["image"] = other["image"].clone();
-                    }
+                {
+                    character["image"] = other["image"].clone();
                 }
             }
         }

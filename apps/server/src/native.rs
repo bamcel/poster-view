@@ -922,7 +922,7 @@ pub(crate) async fn scan_folder(
         Some(
             crate::native_operations::acquire(
                 format!("{}:{}", state.runtime.data_dir().display(), id),
-                Some(&[entry.path.clone()]),
+                Some(std::slice::from_ref(&entry.path)),
             )
             .await,
         )
@@ -1039,31 +1039,29 @@ pub(crate) async fn edit_item(
                 .metadata
                 .as_object()
                 .is_some_and(|f| f.contains_key("volumes") || f.contains_key("chapters"))
-        {
-            if let Some(series) = db
+            && let Some(series) = db
                 .native_catalog_item(&library_id, &item)
                 .map_err(error)?
                 .filter(|entry| entry.kind == "book_series")
-            {
-                let scope = series.path.clone();
-                let mut entries = db
-                    .native_catalog_children(&library_id, &scope)
-                    .map_err(error)?
-                    .into_iter()
-                    .filter(|entry| entry.available)
-                    .collect::<Vec<_>>();
-                if series.available {
-                    entries.push(series);
-                }
-                crate::native_scan::book_placeholders(&mut entries);
-                db.ingest_native_catalog_scoped(
-                    &library_id,
-                    library.revision,
-                    &entries,
-                    Some(&[scope]),
-                )
-                .map_err(error)?;
+        {
+            let scope = series.path.clone();
+            let mut entries = db
+                .native_catalog_children(&library_id, &scope)
+                .map_err(error)?
+                .into_iter()
+                .filter(|entry| entry.available)
+                .collect::<Vec<_>>();
+            if series.available {
+                entries.push(series);
             }
+            crate::native_scan::book_placeholders(&mut entries);
+            db.ingest_native_catalog_scoped(
+                &library_id,
+                library.revision,
+                &entries,
+                Some(&[scope]),
+            )
+            .map_err(error)?;
         }
         let entry = db
             .native_catalog_item(&library_id, &item)
@@ -1394,16 +1392,15 @@ pub(crate) async fn artwork(
                     .split(',')
                     .any(|candidate| candidate.trim() == tag || candidate.trim() == "*")
             })
+            && let Some(etag) = etag.clone()
         {
-            if let Some(etag) = etag.clone() {
-                let mut headers = axum::http::HeaderMap::new();
-                headers.insert(axum::http::header::ETAG, etag);
-                headers.insert(
-                    axum::http::header::CACHE_CONTROL,
-                    axum::http::HeaderValue::from_static("private, max-age=60"),
-                );
-                return Ok((StatusCode::NOT_MODIFIED, headers, Vec::new()));
-            }
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(axum::http::header::ETAG, etag);
+            headers.insert(
+                axum::http::header::CACHE_CONTROL,
+                axum::http::HeaderValue::from_static("private, max-age=60"),
+            );
+            return Ok((StatusCode::NOT_MODIFIED, headers, Vec::new()));
         }
         let optimized = variant.is_some();
         let read_path = if let Some(variant) = variant {
@@ -3381,31 +3378,28 @@ pub(crate) async fn remove_variant(
     store(&state)
         .remove_native_artwork(&library, &item, &kind)
         .map_err(error)?;
-    if animated {
-        if let Some(entry) = store(&state)
+    if animated
+        && let Some(entry) = store(&state)
             .native_catalog_item(&library, &item)
             .map_err(error)?
+        && let Ok(root) = state.metadata.directory("", true)
+    {
+        let path = root.join(&entry.path);
+        let (dir, stem) = if path.is_dir() {
+            (path.clone(), None)
+        } else {
+            (
+                path.parent().unwrap_or(&root).to_path_buf(),
+                path.file_stem().map(|s| s.to_string_lossy().into_owned()),
+            )
+        };
+        for art in crate::native_scan::local_art_variants(&root, &dir, stem.as_deref(), true)
+            .into_iter()
+            .filter(|a| a.kind == base)
         {
-            if let Ok(root) = state.metadata.directory("", true) {
-                let path = root.join(&entry.path);
-                let (dir, stem) = if path.is_dir() {
-                    (path.clone(), None)
-                } else {
-                    (
-                        path.parent().unwrap_or(&root).to_path_buf(),
-                        path.file_stem().map(|s| s.to_string_lossy().into_owned()),
-                    )
-                };
-                for art in
-                    crate::native_scan::local_art_variants(&root, &dir, stem.as_deref(), true)
-                        .into_iter()
-                        .filter(|a| a.kind == base)
-                {
-                    store(&state)
-                        .select_local_artwork(&library, &item, &art)
-                        .map_err(error)?;
-                }
-            }
+            store(&state)
+                .select_local_artwork(&library, &item, &art)
+                .map_err(error)?;
         }
     }
     Ok(StatusCode::NO_CONTENT)

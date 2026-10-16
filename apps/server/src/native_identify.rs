@@ -150,10 +150,10 @@ fn candidate(provider: &str, v: &Value, movie: bool) -> Option<Value> {
     let title = title?;
     let mut ids = json!({});
     ids[provider] = json!(id);
-    if provider == "anilist" {
-        if let Some(mal) = numeric(&v["idMal"]) {
-            ids["mal"] = json!(mal);
-        }
+    if provider == "anilist"
+        && let Some(mal) = numeric(&v["idMal"])
+    {
+        ids["mal"] = json!(mal);
     }
     if provider == "tmdb" {
         for field in ["tvdb", "imdb"] {
@@ -389,15 +389,14 @@ async fn lookup(
                         &key(state, "tvdb_pin")?,
                     )
                     .await
+                    && let Ok(translated) = response(res).await
                 {
-                    if let Ok(translated) = response(res).await {
-                        for field in ["name", "overview"] {
-                            if translated["data"][field]
-                                .as_str()
-                                .is_some_and(|s| !s.trim().is_empty())
-                            {
-                                record[field] = translated["data"][field].clone();
-                            }
+                    for field in ["name", "overview"] {
+                        if translated["data"][field]
+                            .as_str()
+                            .is_some_and(|s| !s.trim().is_empty())
+                        {
+                            record[field] = translated["data"][field].clone();
                         }
                     }
                 }
@@ -727,31 +726,32 @@ pub(crate) async fn search(
                 ));
             }
         }
-        let results = if explicit.is_some() || remote.is_none() {
-            if explicit.is_none() && input.title.trim().len() < 2 {
-                return Err(HttpError::bad_request("Enter a title or provider ID."));
-            }
-            lookup(
+        let results = match (explicit, remote) {
+            (None, Some(remote)) => imdb_matches(
                 &state,
                 &client,
-                "tvdb",
-                &input.title,
-                explicit,
-                false,
-                (false, &lib.options.metadata_language, false),
-            )
-            .await
-            .map_err(HttpError::bad_gateway)?
-        } else {
-            imdb_matches(
-                &state,
-                &client,
-                &remote.unwrap(),
+                &remote,
                 false,
                 &lib.options.metadata_language,
             )
             .await
-            .map_err(HttpError::bad_gateway)?
+            .map_err(HttpError::bad_gateway)?,
+            (explicit, _) => {
+                if explicit.is_none() && input.title.trim().len() < 2 {
+                    return Err(HttpError::bad_request("Enter a title or provider ID."));
+                }
+                lookup(
+                    &state,
+                    &client,
+                    "tvdb",
+                    &input.title,
+                    explicit,
+                    false,
+                    (false, &lib.options.metadata_language, false),
+                )
+                .await
+                .map_err(HttpError::bad_gateway)?
+            }
         };
         return Ok(Json(
             json!({"groups":[{"provider":"tvdb","results":results.into_iter().filter(|v|input.year.is_none_or(|y|v["year"].is_null()||v["year"]==y)).collect::<Vec<_>>()}]}),
@@ -841,7 +841,7 @@ pub(crate) async fn apply(
     let (lib, entry) = context(&state, &library, &item).await?;
     let _operation = crate::native_operations::acquire(
         format!("{}:{}", state.runtime.data_dir().display(), library),
-        Some(&[entry.path.clone()]),
+        Some(std::slice::from_ref(&entry.path)),
     )
     .await;
     let (_, fresh) = context(&state, &library, &item).await?;
@@ -992,10 +992,10 @@ pub(crate) async fn apply(
             }
         }
         for (provider, id) in data.fields["identifiers"].as_object().into_iter().flatten() {
-            if ["tvdb", "tmdb", "imdb"].contains(&provider.as_str()) {
-                if let Some(id) = id.as_str().map(str::to_string).or_else(|| numeric(id)) {
-                    ids.insert(provider.clone(), id);
-                }
+            if ["tvdb", "tmdb", "imdb"].contains(&provider.as_str())
+                && let Some(id) = id.as_str().map(str::to_string).or_else(|| numeric(id))
+            {
+                ids.insert(provider.clone(), id);
             }
         }
         if input.replace_artwork {
@@ -1020,10 +1020,10 @@ pub(crate) async fn apply(
         data.fields["_identify_replace_artwork"] = json!(input.replace_artwork);
         replacement = Some(data.fields);
     }
-    if !crate::native_provider_extra::anidb_enabled(&state) {
-        if let Some(saved) = entry.metadata["identifiers"]["anidb"].as_str() {
-            ids.insert("anidb".into(), saved.into());
-        }
+    if !crate::native_provider_extra::anidb_enabled(&state)
+        && let Some(saved) = entry.metadata["identifiers"]["anidb"].as_str()
+    {
+        ids.insert("anidb".into(), saved.into());
     }
     let store = db(&state);
     let id = library.clone();
@@ -1055,12 +1055,11 @@ pub(crate) async fn apply(
         db(&state)
             .save_native_artwork(&library, &item, &art)
             .map_err(|e| HttpError::bad_request(e.to_string()))?;
-        if lib.options.save_artwork
-            || crate::native_artwork::replacement_writes_local(&state, &entry, &art.kind)
+        if (lib.options.save_artwork
+            || crate::native_artwork::replacement_writes_local(&state, &entry, &art.kind))
+            && let Err(e) = crate::native_artwork::write(&state, &entry, &art, true)
         {
-            if let Err(e) = crate::native_artwork::write(&state, &entry, &art, true) {
-                warnings.push(format!("Artwork saved; media-folder write failed: {e}"));
-            }
+            warnings.push(format!("Artwork saved; media-folder write failed: {e}"));
         }
     }
     crate::native_artwork_jobs::request(&state);
@@ -1087,19 +1086,18 @@ pub(crate) async fn apply(
             ));
         }
     }
-    if input.rewrite_metadata {
-        if let Err(e) = crate::native::start_identification_scan(
+    if input.rewrite_metadata
+        && let Err(e) = crate::native::start_identification_scan(
             state.clone(),
             library.clone(),
             updated.path.clone(),
         )
         .await
-        {
-            warnings.push(format!(
-                "Metadata saved; season/episode refresh could not start: {}",
-                e.detail
-            ));
-        }
+    {
+        warnings.push(format!(
+            "Metadata saved; season/episode refresh could not start: {}",
+            e.detail
+        ));
     }
     Ok(Json(
         json!({"entry":updated,"warnings":warnings,"message":if input.rewrite_metadata {"TVDB identification and metadata saved. Season and episode refresh started."} else {"Identification saved. Scan files to fetch missing metadata using the corrected IDs."}}),
@@ -1634,10 +1632,10 @@ pub(crate) async fn resolve(
                         }
                     }
                     let mut record = record.clone();
-                    if entry.kind.starts_with("book") {
-                        if let Some(values) = record["identifiers"].as_object_mut() {
-                            values.retain(|name, _| book_providers(&lib).contains(&name.as_str()));
-                        }
+                    if entry.kind.starts_with("book")
+                        && let Some(values) = record["identifiers"].as_object_mut()
+                    {
+                        values.retain(|name, _| book_providers(&lib).contains(&name.as_str()));
                     }
                     records.push(record);
                 } else {

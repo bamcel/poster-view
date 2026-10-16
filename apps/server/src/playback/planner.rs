@@ -254,14 +254,13 @@ pub(super) fn plan_for_delivery(
             .unwrap_or(input.source_video_supported != Some(false))
         && supported_video_profile(&video, v)
         && input.hls_video_codecs.iter().any(|codec| codec == v);
-    if let Some(indexes) = &input.hls_audio_track_indexes {
-        if indexes.len() > 256
+    if let Some(indexes) = &input.hls_audio_track_indexes
+        && (indexes.len() > 256
             || indexes
                 .iter()
-                .any(|index| selected_stream(probe, "audio", Some(*index)).is_err())
-        {
-            return Err(bad("Invalid browser audio-track capabilities."));
-        }
+                .any(|index| selected_stream(probe, "audio", Some(*index)).is_err()))
+    {
+        return Err(bad("Invalid browser audio-track capabilities."));
     }
     let supported_audio_index = input
         .hls_audio_track_indexes

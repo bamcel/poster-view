@@ -994,19 +994,17 @@ async fn enrich_one(
                 }
             }
             drop(_slot);
-            if image_phase {
-                if let Some(artwork) = image_candidates.get(&provider_name) {
-                    download_candidates(
-                        state,
-                        client,
-                        library,
-                        entry,
-                        &provider_name,
-                        artwork,
-                        warnings,
-                    )
-                    .await;
-                }
+            if image_phase && let Some(artwork) = image_candidates.get(&provider_name) {
+                download_candidates(
+                    state,
+                    client,
+                    library,
+                    entry,
+                    &provider_name,
+                    artwork,
+                    warnings,
+                )
+                .await;
             }
             continue;
         }
@@ -1288,19 +1286,17 @@ async fn enrich_one(
                 .collect(),
         );
         drop(_slot);
-        if image_phase {
-            if let Some(artwork) = image_candidates.get(&provider_name) {
-                download_candidates(
-                    state,
-                    client,
-                    library,
-                    entry,
-                    &provider_name,
-                    artwork,
-                    warnings,
-                )
-                .await;
-            }
+        if image_phase && let Some(artwork) = image_candidates.get(&provider_name) {
+            download_candidates(
+                state,
+                client,
+                library,
+                entry,
+                &provider_name,
+                artwork,
+                warnings,
+            )
+            .await;
         }
     }
 }
@@ -1362,17 +1358,16 @@ async fn download_candidates(
                                 .push(format!("{}: artwork replacement failed: {e}", entry.title));
                             continue;
                         }
-                        if library.options.save_artwork
+                        if (library.options.save_artwork
                             || crate::native_artwork::replacement_writes_local(
                                 state, entry, &art.kind,
-                            )
+                            ))
+                            && let Err(e) = crate::native_artwork::write(state, entry, &art, true)
                         {
-                            if let Err(e) = crate::native_artwork::write(state, entry, &art, true) {
-                                warnings.push(format!(
-                                    "{}: artwork saved; media-folder write failed: {e}",
-                                    entry.title
-                                ));
-                            }
+                            warnings.push(format!(
+                                "{}: artwork saved; media-folder write failed: {e}",
+                                entry.title
+                            ));
                         }
                         entry.artwork.retain(|existing| existing.kind != art.kind);
                     }

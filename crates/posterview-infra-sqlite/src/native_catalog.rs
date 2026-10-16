@@ -593,14 +593,14 @@ impl ServerStore {
         entries: &[NativeCatalogEntry],
         scopes: Option<&[String]>,
     ) -> Result<(), StoreError> {
-        if let Some(scopes) = scopes {
-            if entries.iter().any(|e| {
+        if let Some(scopes) = scopes
+            && entries.iter().any(|e| {
                 !scopes.iter().any(|scope| {
                     scope.is_empty() || e.path == *scope || e.path.starts_with(&format!("{scope}/"))
                 })
-            }) {
-                return Err(invalid("Catalog entry is outside the scan scope."));
-            }
+            })
+        {
+            return Err(invalid("Catalog entry is outside the scan scope."));
         }
         let mut db = self.connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -749,10 +749,9 @@ impl ServerStore {
                     for stream in streams {
                         if let (Some(index), Some(kind)) =
                             (stream["index"].as_i64(), stream["codec_type"].as_str())
+                            && ["video", "audio", "subtitle"].contains(&kind)
                         {
-                            if ["video", "audio", "subtitle"].contains(&kind) {
-                                tx.execute("INSERT INTO catalog_media_streams SELECT id,?1,?2,?3 FROM catalog_files WHERE relative_path=?4",params![index,kind,stream.to_string(),path])?;
-                            }
+                            tx.execute("INSERT INTO catalog_media_streams SELECT id,?1,?2,?3 FROM catalog_files WHERE relative_path=?4",params![index,kind,stream.to_string(),path])?;
                         }
                     }
                 }
@@ -789,15 +788,14 @@ impl ServerStore {
             return Err(invalid("Choose a title of 1–512 characters."));
         }
         for field in ["genres", "tags", "studios", "publishers"] {
-            if let Some(value) = fields.get(field) {
-                if !value
+            if let Some(value) = fields.get(field)
+                && !value
                     .as_array()
                     .is_some_and(|v| v.iter().all(|v| v.as_str().is_some()))
-                {
-                    return Err(invalid(
-                        "Genres, tags, studios, and publishers must be lists of names.",
-                    ));
-                }
+            {
+                return Err(invalid(
+                    "Genres, tags, studios, and publishers must be lists of names.",
+                ));
             }
         }
         if fields.len() > 100 || fields.contains_key("_sources") {

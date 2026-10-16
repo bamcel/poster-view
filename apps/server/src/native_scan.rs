@@ -254,12 +254,11 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
     }
     let mut ids = json!({});
     for child in &root.children {
-        if let XMLNode::Element(child) = child {
-            if child.name == "uniqueid" {
-                if let Some(provider) = child.attributes.get("type") {
-                    ids[provider] = json!(child.get_text().unwrap_or_default());
-                }
-            }
+        if let XMLNode::Element(child) = child
+            && child.name == "uniqueid"
+            && let Some(provider) = child.attributes.get("type")
+        {
+            ids[provider] = json!(child.get_text().unwrap_or_default());
         }
     }
     for (field, provider) in [
@@ -424,35 +423,34 @@ pub(crate) fn local_art_variants(
             .unwrap_or_default()
             .to_string_lossy()
             .to_ascii_lowercase();
-        if stem.is_some_and(|s| base == s.to_lowercase()) {
-            if let Ok(path) = relative(root, &path) {
-                choose_art(
-                    &mut result,
-                    2 + animated,
-                    "thumb".to_owned(),
-                    NativeArtwork {
-                        kind: "thumb".into(),
-                        path,
-                        source: "local".into(),
-                    },
-                );
-            }
+        if stem.is_some_and(|s| base == s.to_lowercase())
+            && let Ok(path) = relative(root, &path)
+        {
+            choose_art(
+                &mut result,
+                2 + animated,
+                "thumb".to_owned(),
+                NativeArtwork {
+                    kind: "thumb".into(),
+                    path,
+                    source: "local".into(),
+                },
+            );
         }
         for (name, kind) in names {
-            if base == name
-                || (stem.is_some_and(|s| base == format!("{}-{name}", s.to_lowercase())))
+            if (base == name
+                || (stem.is_some_and(|s| base == format!("{}-{name}", s.to_lowercase()))))
+                && let Ok(path) = relative(root, &path)
             {
-                if let Ok(path) = relative(root, &path) {
-                    let art = NativeArtwork {
-                        kind: kind.into(),
-                        path,
-                        source: "local".into(),
-                    };
-                    if stem.is_some_and(|s| base == format!("{}-{name}", s.to_lowercase())) {
-                        choose_art(&mut result, 2 + animated, kind.to_owned(), art);
-                    } else {
-                        choose_art(&mut result, animated, kind.to_owned(), art);
-                    }
+                let art = NativeArtwork {
+                    kind: kind.into(),
+                    path,
+                    source: "local".into(),
+                };
+                if stem.is_some_and(|s| base == format!("{}-{name}", s.to_lowercase())) {
+                    choose_art(&mut result, 2 + animated, kind.to_owned(), art);
+                } else {
+                    choose_art(&mut result, animated, kind.to_owned(), art);
                 }
             }
         }
@@ -614,19 +612,18 @@ pub(crate) fn collect_scoped(
             "mkv", "mp4", "avi", "mov", "m4v", "webm", "ts", "mpg", "mpeg", "m2ts",
         ]
         .contains(&ext.as_str())
+            && let Some(dir) = file.parent()
         {
-            if let Some(dir) = file.parent() {
-                *video_counts.entry(dir.to_path_buf()).or_default() += 1;
-                let stem = file.file_stem().unwrap_or_default().to_string_lossy();
-                let version = video_version_name(&stem);
-                video_bases.entry(dir.to_path_buf()).or_default().insert(
-                    version
-                        .map_or(stem.as_ref(), |(base, _)| base)
-                        .to_lowercase(),
-                );
-                if version.is_some() {
-                    version_directories.insert(dir.to_path_buf());
-                }
+            *video_counts.entry(dir.to_path_buf()).or_default() += 1;
+            let stem = file.file_stem().unwrap_or_default().to_string_lossy();
+            let version = video_version_name(&stem);
+            video_bases.entry(dir.to_path_buf()).or_default().insert(
+                version
+                    .map_or(stem.as_ref(), |(base, _)| base)
+                    .to_lowercase(),
+            );
+            if version.is_some() {
+                version_directories.insert(dir.to_path_buf());
             }
         }
     }
@@ -858,53 +855,51 @@ pub(crate) fn collect_scoped(
                 entries.insert(series_path.clone(), series);
             }
             parent = Some(series_path.clone());
-            if show && !youtube {
-                if let Some((season, _)) = numbers {
-                    let season_path = format!("{series_path}/@season-{season}");
-                    entries.entry(season_path.clone()).or_insert_with(|| {
-                        let mut s = blank(
-                            season_path.clone(),
-                            "season",
-                            Some(series_path.clone()),
-                            if season == 0 {
-                                "Specials".into()
-                            } else {
-                                format!("Season {season}")
-                            },
-                        );
-                        if season_folder(&dir.file_name().unwrap_or_default().to_string_lossy())
-                            .is_some()
-                        {
-                            if library.options.read_nfo {
-                                apply_nfo(
-                                    &mut s,
-                                    nfo(&root, &dir.join("season.nfo"), &mut warnings),
-                                );
-                            }
-                            if library.options.local_artwork {
-                                s.artwork = local_art(&root, dir, None);
-                            }
+            if show
+                && !youtube
+                && let Some((season, _)) = numbers
+            {
+                let season_path = format!("{series_path}/@season-{season}");
+                entries.entry(season_path.clone()).or_insert_with(|| {
+                    let mut s = blank(
+                        season_path.clone(),
+                        "season",
+                        Some(series_path.clone()),
+                        if season == 0 {
+                            "Specials".into()
+                        } else {
+                            format!("Season {season}")
+                        },
+                    );
+                    if season_folder(&dir.file_name().unwrap_or_default().to_string_lossy())
+                        .is_some()
+                    {
+                        if library.options.read_nfo {
+                            apply_nfo(&mut s, nfo(&root, &dir.join("season.nfo"), &mut warnings));
                         }
                         if library.options.local_artwork {
-                            let prefix = format!("season{season:02}-");
-                            for art in
-                                local_art(&root, &series_dir, Some(&format!("season{season:02}")))
-                                    .into_iter()
-                                    .filter(|a| {
-                                        Path::new(&a.path).file_name().is_some_and(|n| {
-                                            n.to_string_lossy().to_lowercase().starts_with(&prefix)
-                                        })
-                                    })
-                            {
-                                s.artwork.retain(|a| a.kind != art.kind);
-                                s.artwork.push(art);
-                            }
+                            s.artwork = local_art(&root, dir, None);
                         }
-                        s.metadata["season"] = json!(season);
-                        s
-                    });
-                    parent = Some(season_path);
-                }
+                    }
+                    if library.options.local_artwork {
+                        let prefix = format!("season{season:02}-");
+                        for art in
+                            local_art(&root, &series_dir, Some(&format!("season{season:02}")))
+                                .into_iter()
+                                .filter(|a| {
+                                    Path::new(&a.path).file_name().is_some_and(|n| {
+                                        n.to_string_lossy().to_lowercase().starts_with(&prefix)
+                                    })
+                                })
+                        {
+                            s.artwork.retain(|a| a.kind != art.kind);
+                            s.artwork.push(art);
+                        }
+                    }
+                    s.metadata["season"] = json!(season);
+                    s
+                });
+                parent = Some(season_path);
             }
         }
         let file_path = relative(&root, &file)?;
@@ -925,10 +920,10 @@ pub(crate) fn collect_scoped(
             entry.metadata["season"] = json!(season);
             entry.metadata["episode"] = json!(ep);
         }
-        if let Some(year) = year_regex.captures(&stem) {
-            if entry.metadata["year"].is_null() {
-                entry.metadata["year"] = json!(year[1].parse::<i64>().unwrap());
-            }
+        if let Some(year) = year_regex.captures(&stem)
+            && entry.metadata["year"].is_null()
+        {
+            entry.metadata["year"] = json!(year[1].parse::<i64>().unwrap());
         }
         if !books
             && !show
@@ -1031,15 +1026,13 @@ pub(crate) fn collect_scoped(
         };
         if library.options.prefer_embedded_titles
             && entry.metadata["_sources"]["title"] == "filename"
-        {
-            if let Some(title) = media_info["format"]["tags"]["title"]
+            && let Some(title) = media_info["format"]["tags"]["title"]
                 .as_str()
                 .filter(|v| !v.trim().is_empty())
-            {
-                entry.title = title.trim().into();
-                entry.metadata["title"] = json!(entry.title);
-                entry.metadata["_sources"]["title"] = json!("embedded");
-            }
+        {
+            entry.title = title.trim().into();
+            entry.metadata["title"] = json!(entry.title);
+            entry.metadata["_sources"]["title"] = json!("embedded");
         }
         entry.files.push(json!({"media_info":media_info,"path":file_path,"size":info.len(),"mtime_ns":info.modified().ok().and_then(|m|m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_nanos().to_string()),"modified":info.modified().ok().and_then(|m|m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d|d.as_secs().to_string()),"extension":ext}));
         entries.insert(file_path, entry);
@@ -1372,13 +1365,11 @@ pub(crate) fn book_placeholders(entries: &mut Vec<NativeCatalogEntry>) {
                     .and_then(|v| v.trim().parse::<u64>().ok())
             })
             .is_none()
-        {
-            if let Some(found) = number
+            && let Some(found) = number
                 .captures(&filename)
                 .or_else(|| number.captures(&entry.title))
-            {
-                entry.metadata[key] = json!(found[1].parse::<u64>().unwrap_or(0));
-            }
+        {
+            entry.metadata[key] = json!(found[1].parse::<u64>().unwrap_or(0));
         }
         entry.metadata["missing"] = json!(false);
     }
@@ -1549,12 +1540,11 @@ fn write_nfo_inner(
     if let Some(expected) = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir())
         .native_nfo_content(&relative_target)
         .map_err(|e| e.to_string())?
+        && previous.as_deref() != Some(expected.as_bytes())
     {
-        if previous.as_deref() != Some(expected.as_bytes()) {
-            return Err(
-                "NFO changed since the last scan. Scan the library before writing it again.".into(),
-            );
-        }
+        return Err(
+            "NFO changed since the last scan. Scan the library before writing it again.".into(),
+        );
     }
     let mut xml = if let Some(bytes) = &previous {
         parse_nfo(bytes)?;

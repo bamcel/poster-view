@@ -429,20 +429,20 @@ async fn update(
 ) -> Result<(), HttpError> {
     let _lock = state.ytdl_lock.lock().await;
     let mut jobs: Vec<Job> = load(state, "plugin-ytdl-jobs")?;
-    if let Some(job) = jobs.iter_mut().find(|j| j.id == id) {
-        if job.status != "cancelled" {
-            job.status = status.into();
-            if ["completed", "failed", "interrupted"].contains(&status) {
-                job.finished_at = Some(chrono::Utc::now().to_rfc3339());
-            }
-            job.error = error;
-            if progress.is_some() {
-                job.progress = progress;
-            }
-            if status != "downloading" {
-                job.speed = None;
-                job.eta = None;
-            }
+    if let Some(job) = jobs.iter_mut().find(|j| j.id == id)
+        && job.status != "cancelled"
+    {
+        job.status = status.into();
+        if ["completed", "failed", "interrupted"].contains(&status) {
+            job.finished_at = Some(chrono::Utc::now().to_rfc3339());
+        }
+        job.error = error;
+        if progress.is_some() {
+            job.progress = progress;
+        }
+        if status != "downloading" {
+            job.speed = None;
+            job.eta = None;
         }
     }
     save(state, "plugin-ytdl-jobs", &jobs)

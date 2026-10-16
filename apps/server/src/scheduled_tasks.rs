@@ -618,10 +618,9 @@ pub(crate) fn start(state: AppState) {
                 for task in tasks {
                     if task.enabled
                         && now().saturating_sub(task.last_run) >= task.interval_days * 86400
+                        && let Err(e) = execute(state.clone(), task.id).await
                     {
-                        if let Err(e) = execute(state.clone(), task.id).await {
-                            tracing::warn!(detail=%e.detail,"Scheduled task failed");
-                        }
+                        tracing::warn!(detail=%e.detail,"Scheduled task failed");
                     }
                 }
             }

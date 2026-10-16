@@ -370,21 +370,20 @@ fn generation_dir(
     if let Ok(entries) = std::fs::read_dir(&root) {
         for entry in entries.flatten() {
             let dir = entry.path();
-            if let Some(owner) = owned(&dir) {
-                if owner.instance != store.instance {
-                    #[cfg(unix)]
-                    if let Some(pid) = owner.pid {
-                        let args =
-                            std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
-                        if orphan_ffmpeg(&args, &dir.join("index.m3u8")) {
-                            let _ = nix::sys::signal::kill(
-                                nix::unistd::Pid::from_raw(pid as i32),
-                                nix::sys::signal::Signal::SIGKILL,
-                            );
-                        }
+            if let Some(owner) = owned(&dir)
+                && owner.instance != store.instance
+            {
+                #[cfg(unix)]
+                if let Some(pid) = owner.pid {
+                    let args = std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
+                    if orphan_ffmpeg(&args, &dir.join("index.m3u8")) {
+                        let _ = nix::sys::signal::kill(
+                            nix::unistd::Pid::from_raw(pid as i32),
+                            nix::sys::signal::Signal::SIGKILL,
+                        );
                     }
-                    remove_owned(&dir);
                 }
+                remove_owned(&dir);
             }
         }
     }

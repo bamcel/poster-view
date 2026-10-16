@@ -385,7 +385,7 @@ mod tests {
             revision: 1,
         };
         store
-            .ingest_native_catalog(&library, 1, &[entry.clone()])
+            .ingest_native_catalog(&library, 1, std::slice::from_ref(&entry))
             .unwrap();
         let item = store
             .native_catalog(&library)

@@ -564,14 +564,13 @@ impl PlaybackStore {
         let probe: Value = serde_json::from_slice(&bytes)
             .map_err(|_| failure("Invalid media inspection result."))?;
         let mut cache = self.probes.lock().await;
-        if cache.len() >= 128 {
-            if let Some(old) = cache
+        if cache.len() >= 128
+            && let Some(old) = cache
                 .iter()
                 .min_by_key(|(_, c)| c.used)
                 .map(|(p, _)| p.clone())
-            {
-                cache.remove(&old);
-            }
+        {
+            cache.remove(&old);
         }
         cache.insert(
             source.path.clone(),
@@ -1624,12 +1623,12 @@ pub(crate) async fn heartbeat(
     session.touched = Instant::now();
     let position = (session.position - session.response.offset_seconds).max(0.0);
     let speed = session.speed;
-    if let Some(producer) = session.producer.as_mut() {
-        if !producer.maintain(position, input.paused, speed) {
-            drop(session);
-            state.playback.stop_id(&id).await;
-            return Err(failure("Playback temporary storage limit was reached."));
-        }
+    if let Some(producer) = session.producer.as_mut()
+        && !producer.maintain(position, input.paused, speed)
+    {
+        drop(session);
+        state.playback.stop_id(&id).await;
+        return Err(failure("Playback temporary storage limit was reached."));
     }
     if !input.paused {
         state.auth.activity(&headers);
