@@ -42,7 +42,7 @@ it("searches every library, includes original titles, and clears back to collage
  expect(nativeLibraries.catalog).toHaveBeenCalledWith("tv");
  fireEvent.change(screen.getByRole("textbox",{name:"Search all libraries"}),{target:{value:"HARRY"}});
  const tv=await screen.findByRole("link",{name:"Open Harry Show in TV Series"});
- expect(tv.getAttribute("href")).toBe("/media/tv?native_library=tv&native_item=tv-item");
+ expect(tv.getAttribute("href")).toBe("/media/tv?native_library=tv&native_item=tv-item&from=home");
  expect(await screen.findByRole("link",{name:"Open Different title in Books"})).toBeTruthy();
  expect(screen.queryByText("Harry missing")).toBeNull();
  fireEvent.click(screen.getByRole("button",{name:"Clear search"}));
@@ -85,7 +85,7 @@ it("keeps library navigation usable when discovery fails",async()=>{
  expect(await screen.findByText("Could not load discoveries from Films: Unavailable")).toBeTruthy();
 });
 
-it("opens quick view on the homepage and keeps the library cards after closing",async()=>{
+it("opens title details directly from the homepage without an overlay",async()=>{
  const movie={...entryDefaults,id:"film",title:"A Journey",kind:"movie",available:true,metadata:{plot:"A complete synopsis",year:2025},artwork:[],files:[{path:"film.mkv",size:100,extension:"mkv"}]};
  vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"films",name:"Films",library_type:"movies"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
  vi.mocked(nativeLibraries.catalog).mockResolvedValue([movie]);
@@ -93,15 +93,28 @@ it("opens quick view on the homepage and keeps the library cards after closing",
  mount();
  const featured=await screen.findByRole("region",{name:"Featured title"});
  expect(watchApi.state).not.toHaveBeenCalled();
- fireEvent.click(within(featured).getByRole("button",{name:"More info about A Journey"}));
- const dialog=await screen.findByRole("dialog");
- expect(within(dialog).getByText("A complete synopsis")).toBeTruthy();
- expect(await within(dialog).findByRole("link",{name:/Resume/})).toBeTruthy();
- expect(screen.queryByText("Opened library page")).toBeNull();
+ const info=within(featured).getByRole("link",{name:"More info about A Journey"});
+ expect(info.getAttribute("href")).toBe("/media/films?native_library=films&native_item=film&from=home");
+ fireEvent.click(info);
+ expect(await screen.findByText("Opened library page")).toBeTruthy();
+ expect(watchApi.state).not.toHaveBeenCalled();
  expect(screen.queryByText("My List")).toBeNull();
- fireEvent.click(within(dialog).getByRole("button",{name:/Close/}));
  expect(screen.queryByRole("dialog")).toBeNull();
- expect(screen.getByTestId("collage-films")).toBeTruthy();
+});
+
+it("shows matching titles once per discovery and search row across libraries",async()=>{
+ const series={...entryDefaults,id:"show",title:"Bon Appétit, Your Majesty",kind:"series",available:true,metadata:{year:2025,rating:9,identifiers:{tvdb:123}},artwork:[]};
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"korean",name:"Korean",library_type:"shows"},{id:"tv",name:"TV Series",library_type:"shows"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ vi.mocked(nativeLibraries.catalog).mockImplementation(async library=>[{...series,id:library+"-show",metadata:{...series.metadata,identifiers:{tvdb:library==="korean"?123:"123"}}}]);
+ mount();
+ const row=await screen.findByRole("region",{name:"Highly Rated"});
+ await screen.findByRole("link",{name:"Open TV Series"});
+ expect(within(row).getAllByRole("link",{name:`More info about ${series.title}`})).toHaveLength(1);
+ expect(screen.getByTestId("collage-korean")).toBeTruthy();
+ expect(screen.getByTestId("collage-tv")).toBeTruthy();
+ fireEvent.change(screen.getByRole("textbox",{name:"Search all libraries"}),{target:{value:"Bon Appétit"}});
+ const results=await screen.findByRole("region",{name:"Series"});
+ expect(within(results).getAllByRole("link")).toHaveLength(1);
 });
 it("reports a failed library search while keeping successful matches",async()=>{
  vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"tv",name:"TV Series"},{id:"books",name:"Books"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);

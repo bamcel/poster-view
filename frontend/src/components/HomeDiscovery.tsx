@@ -8,7 +8,7 @@ import {stillArtwork} from "./AnimatedArtwork";
 export type HomeTitle = {entry: NativeCatalogEntry; library: NativeLibrary};
 
 function detailUrl({entry, library}: HomeTitle) {
-  return `/media/${encodeURIComponent(library.id)}?native_library=${encodeURIComponent(library.id)}&native_item=${encodeURIComponent(entry.id)}`;
+  return `/media/${encodeURIComponent(library.id)}?native_library=${encodeURIComponent(library.id)}&native_item=${encodeURIComponent(entry.id)}&from=home`;
 }
 
 function playable({entry}: HomeTitle) {

@@ -21,7 +21,7 @@ it("features a title with landscape art and uses existing encoded playback and d
   expect(within(region).getByRole("heading", {name: "movie/one"})).toBeTruthy();
   expect(within(region).getByText("An actual synopsis")).toBeTruthy();
   expect(within(region).getByRole("link", {name: "Play movie/one"}).getAttribute("href")).toBe("/play/native/movie%20library/movie%2Fone?return=%2F");
-  expect(within(region).getByRole("link", {name: "More info about movie/one"}).getAttribute("href")).toBe("/media/movie%20library?native_library=movie%20library&native_item=movie%2Fone");
+  expect(within(region).getByRole("link", {name: "More info about movie/one"}).getAttribute("href")).toBe("/media/movie%20library?native_library=movie%20library&native_item=movie%2Fone&from=home");
 });
 
 it("offers details without a broken play action for series or movies with no files", () => {

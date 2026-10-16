@@ -11,9 +11,9 @@ import {useQueries, useQuery} from "@tanstack/react-query";
 import LibraryPosterStrip from "../components/LibraryPosterStrip";
 import {nativeLibraries, type NativeLibrary} from "../api/nativeLibraries";
 import DashboardPage from "./DashboardPage";
-import HomeDiscovery, {FeaturedTitle, type HomeTitle} from "../components/HomeDiscovery";
-import HomeQuickView from "../components/HomeQuickView";
+import HomeDiscovery, {FeaturedTitle} from "../components/HomeDiscovery";
 import {nativeCatalogView} from "../lib/nativeCatalogView";
+import {groupHomeTitles} from "../lib/homeTitleGroups";
 
 function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:NativeLibrary[]}) {
  const prefetchCatalog=useCatalogPrefetch();
@@ -25,12 +25,11 @@ function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:Native
 function LibraryHome(){
  const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list});
  const [search,setSearch]=useState("");
- const [quickView,setQuickView]=useState<HomeTitle|null>(null);
- useEffect(()=>{const reset=()=>{setSearch("");setQuickView(null);};window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
+ useEffect(()=>{const reset=()=>setSearch("");window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
  const term=search.trim().toLocaleLowerCase();
  const catalogs=useQueries({queries:(libraries.data??[]).map(library=>({queryKey:["native-catalog",library.id],queryFn:()=>nativeLibraries.catalog(library.id),enabled:!!term||!["books","youtube"].includes(library.library_type),staleTime:5*60_000,gcTime:30*60_000}))});
- const titles=term?[]:catalogs.flatMap((catalog,index)=>nativeCatalogView(catalog.data??[]).entries.filter(entry=>entry.metadata.missing!==true&&["movie","series"].includes(entry.kind)).map(entry=>({entry,library:libraries.data![index]})));
- const results=term?catalogs.flatMap((catalog,index)=>(catalog.data??[]).filter(entry=>entry.available&&entry.kind!=="season"&&[entry.title,entry.metadata.originaltitle].some(value=>typeof value==="string"&&value.toLocaleLowerCase().includes(term))).map(entry=>({entry,library:libraries.data![index]}))):[];
+ const titles=term?[]:groupHomeTitles(catalogs.flatMap((catalog,index)=>nativeCatalogView(catalog.data??[]).entries.filter(entry=>entry.metadata.missing!==true&&["movie","series"].includes(entry.kind)).map(entry=>({entry,library:libraries.data![index]}))));
+ const results=term?groupHomeTitles(catalogs.flatMap((catalog,index)=>(catalog.data??[]).filter(entry=>entry.available&&entry.kind!=="season"&&[entry.title,entry.metadata.originaltitle].some(value=>typeof value==="string"&&value.toLocaleLowerCase().includes(term))).map(entry=>({entry,library:libraries.data![index]})))):[];
  const sections=[{name:"Movies",kinds:["movie"]},{name:"Series",kinds:["series"]},{name:"Episodes",kinds:["episode"]},{name:"Books",kinds:["book","book_series"]}].map(section=>({...section,results:results.filter(({entry})=>section.kinds.includes(entry.kind))})).filter(section=>section.results.length>0);
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
  const featured=!term&&titles.length>0;
@@ -40,7 +39,7 @@ function LibraryHome(){
   <div role="search" className="order-1 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
    <div className="relative col-start-2 mx-auto w-full max-w-[21rem]">
     <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint"/>
-    <input aria-label="Search all libraries" placeholder="Search" value={search} onChange={event=>{setSearch(event.target.value);setQuickView(null);}} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-10 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"/>
+    <input aria-label="Search all libraries" placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-10 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"/>
     {search&&<button type="button" aria-label="Clear search" onClick={()=>setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white" data-icon-button="true"><X className="size-4"/></button>}
    </div>
   </div>
@@ -54,14 +53,14 @@ function LibraryHome(){
    {!loading&&results.length===0&&<p className="text-muted">No matching titles found.</p>}
    <div className="space-y-8">{sections.map(section=><section key={section.name} aria-label={section.name}>
     <h2 className="mb-4 text-xl font-semibold text-white">{section.name}</h2>
-    <div className="flex gap-5 overflow-x-auto pb-3">{section.results.slice(0,100).map(({entry,library})=><Link key={`${library.id}:${entry.id}`} to={`/media/${encodeURIComponent(library.id)}?native_library=${encodeURIComponent(library.id)}&native_item=${encodeURIComponent(entry.id)}`} aria-label={`Open ${entry.title} in ${library.name}`} className={`group shrink-0 rounded-lg focus-visible:outline-2 focus-visible:outline-accent ${entry.kind==="episode"?"w-64 sm:w-72 lg:w-80":"w-36 sm:w-44 lg:w-52"}`}>
+    <div className="flex gap-5 overflow-x-auto pb-3">{section.results.slice(0,100).map(({entry,library})=><Link key={`${library.id}:${entry.id}`} to={`/media/${encodeURIComponent(library.id)}?native_library=${encodeURIComponent(library.id)}&native_item=${encodeURIComponent(entry.id)}&from=home`} aria-label={`Open ${entry.title} in ${library.name}`} className={`group shrink-0 rounded-lg focus-visible:outline-2 focus-visible:outline-accent ${entry.kind==="episode"?"w-64 sm:w-72 lg:w-80":"w-36 sm:w-44 lg:w-52"}`}>
     <div className={`grid place-items-center overflow-hidden rounded-lg bg-elevated ${entry.kind==="episode"?"aspect-video":"aspect-[2/3]"}`}>{(()=>{const kind=entry.kind==="episode"?entry.artwork.find(art=>art.kind==="thumb")?.kind??entry.artwork.find(art=>art.kind==="landscape")?.kind:entry.artwork.find(art=>art.kind==="poster")?.kind;return kind?<img src={`${nativeLibraries.artworkUrl(library.id,entry.id,kind)}?v=${encodeURIComponent(nativeArtworkVersion(entry,kind))}`} alt="" loading="lazy" className="h-full w-full object-cover"/>:<Film className="size-10 text-faint"/>;})()}</div>
     <p className="mt-2 truncate text-sm font-medium text-white group-hover:text-accent">{entry.title}</p><p className="text-xs text-muted">{library.name} · {entry.kind.replaceAll("_"," ")}</p>
    </Link>)}</div>
    {section.results.length>100&&<p className="mt-3 text-sm text-muted">Showing 100 of {section.results.length} matches. Refine your search to see fewer results.</p>}
    </section>)}</div>
   </div>:<>
-   <FeaturedTitle titles={titles} onQuickView={setQuickView}/>
+   <FeaturedTitle titles={titles}/>
    <div className="px-5 sm:px-8 md:px-12">
    <ContinueWatching/>
    <section aria-label="My libraries" className="mt-8">
@@ -70,10 +69,9 @@ function LibraryHome(){
    </section>
    {catalogs.some((catalog,index)=>catalog.isPending&&!["books","youtube"].includes(libraries.data![index].library_type))&&<p role="status" className="mt-6 text-muted">Discovering your titles…</p>}
    {catalogs.map((catalog,index)=>catalog.error&&<p role="alert" key={libraries.data![index].id} className="mt-4 text-danger">Could not load discoveries from {libraries.data![index].name}: {catalog.error.message}</p>)}
-   <HomeDiscovery titles={titles} onQuickView={setQuickView}/>
+   <HomeDiscovery titles={titles}/>
    </div>
   </>}
-  {quickView&&<HomeQuickView key={`${quickView.library.id}:${quickView.entry.id}`} title={quickView} onClose={()=>setQuickView(null)}/>}
  </main>;
 }
 export default function HomePage(){

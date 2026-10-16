@@ -1,4 +1,4 @@
-import {cleanup,render,screen,waitFor} from "@testing-library/react";
+import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
 import {MemoryRouter,useLocation,Routes,Route} from "react-router-dom";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import {afterEach,expect,it,vi} from "vitest";
@@ -6,10 +6,10 @@ import {useSearchParams} from "../lib/libraryNavigation";
 import DashboardPage from "./DashboardPage";
 import {nativeLibraries,defaultNativeOptions,type NativeLibrary} from "../api/nativeLibraries";
 vi.mock("../api/nativeLibraries",async original=>({...await original<typeof import("../api/nativeLibraries")>(),nativeLibraries:{list:vi.fn(),status:vi.fn(),catalog:vi.fn(async()=>[])}}));
-vi.mock("../components/NativeLibraryBrowser",()=>({default:({library}:{library:NativeLibrary})=>{const [params]=useSearchParams();return <><p>Catalog {library.name}</p><span data-testid="selected">{params.get("native_item")}</span></>;}}));
+vi.mock("../components/NativeLibraryBrowser",()=>({default:({library}:{library:NativeLibrary})=>{const [params,setParams]=useSearchParams();return <><p>Catalog {library.name}</p><span data-testid="selected">{params.get("native_item")}</span><button onClick={()=>setParams(previous=>{const next=new URLSearchParams(previous);next.delete("native_item");return next;})}>Back</button></>;}}));
 const library:NativeLibrary={id:"anime",name:"Anime",library_type:"anime",anime_content:"both",paths:["Anime"],revision:1,created_at:"",updated_at:"",options:{...defaultNativeOptions}};
 function Location(){const location=useLocation();return <output>{location.pathname}{location.search}</output>;}
-function mount(url="/"){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter initialEntries={[url]}><Routes><Route path="/" element={<DashboardPage/>}/><Route path="/media/:libraryId" element={<DashboardPage/>}/><Route path="/media/:libraryId/:itemSlug" element={<DashboardPage/>}/></Routes><Location/></MemoryRouter></QueryClientProvider>);}
+function mount(url="/",home=false){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter initialEntries={[url]}><Routes><Route path="/" element={home?<p>Homepage</p>:<DashboardPage/>}/><Route path="/media/:libraryId" element={<DashboardPage/>}/><Route path="/media/:libraryId/:itemSlug" element={<DashboardPage/>}/></Routes><Location/></MemoryRouter></QueryClientProvider>);}
 afterEach(()=>{cleanup();vi.clearAllMocks();localStorage.clear();});
 it("uses only PosterView libraries and redirects old home library URLs to the current library",async()=>{
  vi.mocked(nativeLibraries.list).mockResolvedValue([library]);vi.mocked(nativeLibraries.status).mockResolvedValue({status:"complete",count:1,warnings:[]});mount("/?lib=80197");
@@ -31,6 +31,16 @@ it("opens readable series links and canonicalizes legacy item links",async()=>{
  cleanup();
  mount("/media/Anime/Dragon-Ball");
  await waitFor(()=>expect(screen.getByTestId("selected").textContent).toBe("dragon"));
+});
+
+it.each([true,false])("returns a title to its own homepage or library origin when fromHome=%s",async fromHome=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([library]);
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{id:"dragon",title:"Dragon Ball",kind:"series",path:"Anime/Dragon Ball",parent_path:null,available:true,files:[],metadata:{},artwork:[],nfo_path:null,revision:1}]);
+ mount(`/media/anime?native_library=anime&native_item=dragon${fromHome?"&from=home":""}`,true);
+ await waitFor(()=>expect(screen.getByRole("status").textContent).toBe(`/media/Anime/Dragon-Ball${fromHome?"?from=home":""}`));
+ fireEvent.click(screen.getByRole("button",{name:"Back"}));
+ await waitFor(()=>expect(screen.getByRole("status").textContent).toBe(fromHome?"/":"/media/Anime"));
+ expect(!!screen.queryByText("Homepage")).toBe(fromHome);
 });
 
 it("keeps a cached series page visible when background refresh fails",async()=>{

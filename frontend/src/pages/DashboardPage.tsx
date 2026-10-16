@@ -38,6 +38,7 @@ export default function DashboardPage() {
   const next=createSearchParams(typeof update==="function"?update(new URLSearchParams(effective)):update);
   const item=entries.find(entry=>entry.id===(view.aliases.get(next.get("native_item")??"")??next.get("native_item")));
   if(!library)return;
+  if(next.get("from")==="home"&&!next.has("native_item")) {navigate("/");return;}
   next.delete("native_library");next.delete("native_item");next.delete("lib");
   const path=library.library_type==="youtube"?libraryPath(library,libraries.data??[]):item?itemPath(library,libraries.data??[],item,entries):libraryPath(library,libraries.data??[]);
   navigate(`${path}${next.size?`?${next}`:""}`,options);
