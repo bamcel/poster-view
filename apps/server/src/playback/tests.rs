@@ -183,6 +183,7 @@ async fn independent_audio_permission_is_reported_without_enabling_video() {
         State(fixture.state.clone()),
         HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone())),
+        Query(VersionQuery::default()),
     )
     .await
     .unwrap()
@@ -1046,6 +1047,7 @@ async fn compatible_original_sessions_prefer_direct_and_never_start_playback_job
         State(fixture.state.clone()),
         HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone())),
+        Query(VersionQuery::default()),
     )
     .await
     .unwrap()
@@ -1966,6 +1968,7 @@ async fn real_ffmpeg_inspection_subtitles_fonts_and_direct_delivery_preserve_vid
         State(fixture.state.clone()),
         HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone())),
+        Query(VersionQuery::default()),
     )
     .await
     .unwrap()
@@ -1983,6 +1986,7 @@ async fn real_ffmpeg_inspection_subtitles_fonts_and_direct_delivery_preserve_vid
         let first = subtitle(
             State(fixture.state.clone()),
             Path((fixture.library.clone(), fixture.item.clone(), index)),
+            Query(VersionQuery::default()),
             Request::new(axum::body::Body::empty()),
         )
         .await
@@ -1993,6 +1997,7 @@ async fn real_ffmpeg_inspection_subtitles_fonts_and_direct_delivery_preserve_vid
         let second = subtitle(
             State(fixture.state.clone()),
             Path((fixture.library.clone(), fixture.item.clone(), index)),
+            Query(VersionQuery::default()),
             Request::new(axum::body::Body::empty()),
         )
         .await
@@ -2008,6 +2013,7 @@ async fn real_ffmpeg_inspection_subtitles_fonts_and_direct_delivery_preserve_vid
         State(fixture.state.clone()),
         HeaderMap::new(),
         Path((fixture.library.clone(), fixture.item.clone(), 4)),
+        Query(VersionQuery::default()),
     )
     .await
     .unwrap();
@@ -2263,4 +2269,129 @@ async fn source_replacement_during_preparation_cannot_publish_a_generation() {
     assert_eq!(session.response.generation, 0);
     assert!(session.preparation.is_none());
     assert!(session.producer.is_none());
+}
+
+#[tokio::test]
+async fn selected_versions_isolate_sources_tracks_and_resource_urls() {
+    let fixture = video_fixture(b"first-version", original_mkv_probe()).await;
+    let db = ServerStore::new(fixture.state.runtime.data_dir());
+    let library = db
+        .native_libraries()
+        .unwrap()
+        .into_iter()
+        .find(|l| l.id == fixture.library)
+        .unwrap();
+    let mut entry = db
+        .native_catalog_item(&fixture.library, &fixture.item)
+        .unwrap()
+        .unwrap();
+    let alternate = "Movies/Original - English & UHD.mkv";
+    std::fs::write(
+        fixture
+            .file
+            .parent()
+            .unwrap()
+            .join("Original - English & UHD.mkv"),
+        b"alternate-version",
+    )
+    .unwrap();
+    entry
+        .files
+        .push(json!({"path":alternate,"version_name":"UHD"}));
+    db.ingest_native_catalog(&fixture.library, library.revision, &[entry])
+        .unwrap();
+    let selected = source_version(
+        &fixture.state,
+        fixture.library.clone(),
+        fixture.item.clone(),
+        Some(alternate.into()),
+    )
+    .await
+    .unwrap();
+    assert_ne!(selected.path, fixture.file);
+    let mut probe = original_mkv_probe();
+    probe["streams"] = json!([
+        {"index":0,"codec_type":"video","codec_name":"h264"},
+        {"index":7,"codec_type":"audio","codec_name":"aac","tags":{"language":"eng"}},
+        {"index":9,"codec_type":"subtitle","codec_name":"subrip","tags":{"language":"eng"}}
+    ]);
+    fixture.state.playback.probes.lock().await.insert(
+        selected.path.clone(),
+        ProbeCache {
+            stamp: selected.fingerprint,
+            probe,
+            used: Instant::now(),
+        },
+    );
+    let metadata = info(
+        State(fixture.state.clone()),
+        HeaderMap::new(),
+        Path((fixture.library.clone(), fixture.item.clone())),
+        Query(VersionQuery {
+            version_id: Some(alternate.into()),
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(metadata.version_id, alternate);
+    assert_eq!(metadata.versions.len(), 2);
+    assert_eq!(metadata.versions[1].name, "UHD");
+    assert!(
+        metadata
+            .tracks
+            .iter()
+            .any(|track| track.index == 7 && track.language.as_deref() == Some("eng"))
+    );
+    let subtitle = metadata
+        .tracks
+        .iter()
+        .find(|track| track.index == 9)
+        .unwrap();
+    assert!(
+        subtitle
+            .url
+            .as_ref()
+            .unwrap()
+            .ends_with("?version_id=Movies%2FOriginal%20-%20English%20%26%20UHD.mkv")
+    );
+    let session = create(
+        State(fixture.state.clone()),
+        HeaderMap::new(),
+        Path((fixture.library.clone(), fixture.item.clone())),
+        Json(SessionInput {
+            version_id: Some(alternate.into()),
+            video_codecs: vec!["h264".into()],
+            audio_codecs: vec!["aac".into()],
+            audio_index: Some(7),
+            ..original_mkv_input()
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(
+        fixture.state.playback.sessions.lock().await[&session.id]
+            .lock()
+            .await
+            .source
+            .path,
+        selected.path
+    );
+    for invalid in [
+        "Movies/unlisted.mkv",
+        "../Original.mkv",
+        "Movies/Original.mkv?other=1",
+    ] {
+        assert!(
+            source_version(
+                &fixture.state,
+                fixture.library.clone(),
+                fixture.item.clone(),
+                Some(invalid.into())
+            )
+            .await
+            .is_err()
+        );
+    }
 }

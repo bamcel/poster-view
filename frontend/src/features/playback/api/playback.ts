@@ -5,7 +5,7 @@ export {defaultPlaybackPreferences} from "../types";
 
 const itemPath = (library: string, item: string) => `/native/${encodeURIComponent(library)}/${encodeURIComponent(item)}`;
 export const playbackApi = {
-  info: (library: string, item: string, signal?: AbortSignal) => apiRequest<PlaybackInfo>(`/playback${itemPath(library,item)}`, {signal}),
+  info: (library: string, item: string, signal?: AbortSignal, versionId?: string) => apiRequest<PlaybackInfo>(`/playback${itemPath(library,item)}${versionId?`?version_id=${encodeURIComponent(versionId)}`:""}`, {signal}),
   create: (library: string, item: string, body: PlaybackRequest) => apiRequest<PlaybackSession>(`/playback${itemPath(library,item)}/sessions`, {method:"POST", body:JSON.stringify(body)}),
   seek: (session:string,body:PlaybackSeek) => apiRequest<PlaybackSession>(`/playback/sessions/${encodeURIComponent(session)}/seek`,{method:"POST",body:JSON.stringify(body)}),
   stop: (session: string,keepalive=false) => apiRequest<void>(`/playback/sessions/${encodeURIComponent(session)}`, {method:"DELETE",keepalive}),

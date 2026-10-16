@@ -602,6 +602,8 @@ pub(crate) fn collect_scoped(
         .collect::<std::collections::BTreeSet<_>>();
     files.retain(|p| !is_artwork_video(p, &media_stems));
     let mut video_counts = BTreeMap::<PathBuf, usize>::new();
+    let mut video_bases = BTreeMap::<PathBuf, std::collections::BTreeSet<String>>::new();
+    let mut version_directories = std::collections::BTreeSet::new();
     for file in &files {
         let ext = file
             .extension()
@@ -615,6 +617,16 @@ pub(crate) fn collect_scoped(
         {
             if let Some(dir) = file.parent() {
                 *video_counts.entry(dir.to_path_buf()).or_default() += 1;
+                let stem = file.file_stem().unwrap_or_default().to_string_lossy();
+                let version = video_version_name(&stem);
+                video_bases.entry(dir.to_path_buf()).or_default().insert(
+                    version
+                        .map_or(stem.as_ref(), |(base, _)| base)
+                        .to_lowercase(),
+                );
+                if version.is_some() {
+                    version_directories.insert(dir.to_path_buf());
+                }
             }
         }
     }
@@ -922,7 +934,9 @@ pub(crate) fn collect_scoped(
             && !show
             && entry.nfo_path.is_none()
             && library.options.read_nfo
-            && video_counts.get(dir) == Some(&1)
+            && (video_counts.get(dir) == Some(&1)
+                || (version_directories.contains(dir)
+                    && video_bases.get(dir).is_some_and(|bases| bases.len() == 1)))
         {
             apply_nfo(
                 &mut entry,
@@ -1031,7 +1045,257 @@ pub(crate) fn collect_scoped(
         entries.insert(file_path, entry);
     }
     progress.report("reading", total, Some(total), entries.len(), "", true);
-    Ok((entries.into_values().collect(), warnings))
+    let entries = if matches!(
+        library.library_type,
+        NativeLibraryType::Books | NativeLibraryType::Youtube
+    ) {
+        entries.into_values().collect()
+    } else {
+        group_video_versions(entries.into_values().collect(), &previous)
+    };
+    Ok((entries, warnings))
+}
+
+// Only explicit delivery-version suffixes opt files into grouping. A matching
+// title or episode number alone is not enough: editions can have different cuts.
+fn video_version_name(stem: &str) -> Option<(&str, &str)> {
+    let (base, label) = stem.rsplit_once(" - ")?;
+    let normalized = label.trim().to_ascii_lowercase();
+    let recognized = matches!(
+        normalized.as_str(),
+        "original"
+            | "streamable"
+            | "uhd"
+            | "hd"
+            | "sd"
+            | "4k"
+            | "8k"
+            | "2160p"
+            | "1080p"
+            | "720p"
+            | "480p"
+            | "h264"
+            | "h.264"
+            | "h265"
+            | "h.265"
+            | "hevc"
+            | "av1"
+    );
+    (!base.trim().is_empty() && recognized).then_some((base.trim(), label.trim()))
+}
+
+fn group_video_versions(
+    entries: Vec<NativeCatalogEntry>,
+    previous: &[NativeCatalogEntry],
+) -> Vec<NativeCatalogEntry> {
+    type VersionGroupKey = (String, String, String, Option<String>);
+    let mut groups: BTreeMap<VersionGroupKey, Vec<NativeCatalogEntry>> = BTreeMap::new();
+    let previous_sizes = previous
+        .iter()
+        .map(|entry| (entry.path.as_str(), entry.files.len()))
+        .collect::<BTreeMap<_, _>>();
+    let mut other = Vec::new();
+    for mut entry in entries {
+        if !matches!(entry.kind.as_str(), "movie" | "episode") {
+            other.push(entry);
+            continue;
+        }
+        let path = Path::new(&entry.path);
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        let (base, _) = video_version_name(&stem).unwrap_or((&stem, "Original"));
+        let identity = format!("{}:{}", entry.metadata["season"], entry.metadata["episode"]);
+        let key = (
+            path.parent()
+                .unwrap_or(Path::new(""))
+                .to_string_lossy()
+                .into_owned(),
+            format!("{}:{identity}", base.to_lowercase()),
+            entry.kind.clone(),
+            entry.parent_path.clone(),
+        );
+        for file in &mut entry.files {
+            if let Some(file_path) = file["path"].as_str().map(str::to_owned) {
+                let file_stem = Path::new(&file_path)
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy();
+                let label = video_version_name(&file_stem).map_or("Original", |(_, label)| label);
+                file["version_id"] = json!(file_path);
+                file["version_name"] = json!(label);
+            }
+        }
+        groups.entry(key).or_default().push(entry);
+    }
+    for mut group in groups.into_values() {
+        if group.len() > 1
+            && !group.iter().any(|entry| {
+                Path::new(&entry.path)
+                    .file_stem()
+                    .is_some_and(|stem| video_version_name(&stem.to_string_lossy()).is_some())
+            })
+        {
+            other.extend(group);
+            continue;
+        }
+        group.sort_by(|a, b| a.path.cmp(&b.path));
+        // Prefer the already grouped title, then an existing single-file title.
+        // This keeps the canonical path (and therefore its persisted ID) stable.
+        let primary = group
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| {
+                previous_sizes
+                    .get(entry.path.as_str())
+                    .map(|count| (index, *count))
+            })
+            .max_by_key(|(index, count)| (*count, std::cmp::Reverse(*index)))
+            .map(|(index, _)| index)
+            .unwrap_or_else(|| {
+                group
+                    .iter()
+                    .position(|entry| {
+                        Path::new(&entry.path).file_stem().is_some_and(|stem| {
+                            video_version_name(&stem.to_string_lossy()).is_none()
+                        })
+                    })
+                    .unwrap_or_else(|| {
+                        group
+                            .iter()
+                            .position(|entry| {
+                                entry
+                                    .files
+                                    .first()
+                                    .is_some_and(|file| file["version_name"] == "Original")
+                            })
+                            .unwrap_or(0)
+                    })
+            });
+        let mut title = group.remove(primary);
+        if title.metadata["_sources"]["title"] == "filename" {
+            let stem = Path::new(&title.path)
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy();
+            if let Some((base, _)) = video_version_name(&stem) {
+                title.title = clean_title(base);
+                title.metadata["title"] = json!(title.title);
+            }
+        }
+        for version in group {
+            for file in version.files {
+                if !title
+                    .files
+                    .iter()
+                    .any(|existing| existing["path"] == file["path"])
+                {
+                    title.files.push(file);
+                }
+            }
+            for artwork in version.artwork {
+                if !title
+                    .artwork
+                    .iter()
+                    .any(|existing| existing.kind == artwork.kind)
+                {
+                    title.artwork.push(artwork);
+                }
+            }
+        }
+        other.push(title);
+    }
+    other.sort_by(|a, b| a.path.cmp(&b.path));
+    other
+}
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+
+    fn movie(path: &str) -> NativeCatalogEntry {
+        let mut entry = blank(
+            path.into(),
+            "movie",
+            None,
+            Path::new(path)
+                .file_stem()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        );
+        entry
+            .files
+            .push(json!({"path":path,"media_info":{"streams":[]}}));
+        entry
+    }
+
+    #[test]
+    fn explicit_versions_share_one_title_and_keep_file_identity() {
+        let versions = group_video_versions(
+            vec![
+                movie("John Wick/John Wick - UHD.mkv"),
+                movie("John Wick/John Wick - Original.mkv"),
+                movie("John Wick/John Wick - Streamable.mp4"),
+            ],
+            &[],
+        );
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].title, "John Wick");
+        assert_eq!(versions[0].path, "John Wick/John Wick - Original.mkv");
+        assert_eq!(versions[0].files.len(), 3);
+        for file in &versions[0].files {
+            assert_eq!(file["version_id"], file["path"]);
+            assert!(!file["version_name"].as_str().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn rescanning_keeps_existing_primary_even_when_original_is_added() {
+        let previous = vec![movie("John Wick/John Wick - UHD.mkv")];
+        let versions = group_video_versions(
+            vec![
+                movie("John Wick/John Wick - Original.mkv"),
+                movie("John Wick/John Wick - UHD.mkv"),
+            ],
+            &previous,
+        );
+        assert_eq!(versions[0].path, previous[0].path);
+    }
+
+    #[test]
+    fn existing_group_files_are_labeled_and_duplicate_paths_are_not_added() {
+        let mut existing = movie("Film/Film - Original.mkv");
+        existing.files.push(json!({"path":"Film/Film - UHD.mkv"}));
+        let versions = group_video_versions(vec![existing, movie("Film/Film - UHD.mkv")], &[]);
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].files.len(), 2);
+        assert_eq!(versions[0].files[1]["version_name"], "UHD");
+        assert_eq!(versions[0].files[1]["version_id"], "Film/Film - UHD.mkv");
+    }
+
+    #[test]
+    fn editions_folders_and_different_episode_numbers_are_not_merged() {
+        let mut first = movie("Show/Show S01E01 - Original.mkv");
+        first.kind = "episode".into();
+        first.metadata["season"] = json!(1);
+        first.metadata["episode"] = json!(1);
+        let mut second = movie("Show/Show S01E01 - UHD.mkv");
+        second.kind = "episode".into();
+        second.metadata["season"] = json!(1);
+        second.metadata["episode"] = json!(2);
+        let versions = group_video_versions(
+            vec![
+                first,
+                second,
+                movie("A/Film - Original.mkv"),
+                movie("B/Film - UHD.mkv"),
+                movie("A/Film - Extended.mkv"),
+            ],
+            &[],
+        );
+        assert_eq!(versions.len(), 5);
+        assert!(video_version_name("Film - Extended").is_none());
+        assert!(video_version_name("Film - Director's Cut").is_none());
+    }
 }
 fn capture_book_cover(file: &Path) -> Result<(), String> {
     let target = file.with_extension("jpg");

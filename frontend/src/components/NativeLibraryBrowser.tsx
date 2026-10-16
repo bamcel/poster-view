@@ -676,6 +676,8 @@ function NativeDetail({
 }) {
   const isAdmin=useIsAdmin();
   const [editingDubs,setEditingDubs]=useState(false);
+  const [versionId,setVersionId]=useState<string|undefined>();
+  useEffect(()=>setVersionId(undefined),[entry.id]);
   const dubClient=useQueryClient();
   const {hoverOnly}=useAnimatedArtworkPreference(library.id);
   const {value:animePreferences} = useAnimePreferences(library.id);
@@ -718,7 +720,8 @@ function NativeDetail({
   const isEpisode = entry.kind === "episode";
   const playable = entry.available && ["episode","movie"].includes(entry.kind) && entry.files.length>0;
   const siblings=isEpisode?entries.filter(sibling=>sibling.available&&sibling.kind==="episode"&&sibling.parent_path===entry.parent_path&&sibling.id!==entry.id&&showMissingEntry(library,sibling)).sort((a,b)=>(number(a.metadata.episode)??0)-(number(b.metadata.episode)??0)):[];
-  const streams=entry.files[0]?.media_info?.streams??[];
+  const selectedFile=entry.files.find(file=>(file.version_id??file.path)===versionId)??entry.files[0];
+  const streams=selectedFile?.media_info?.streams??[];
   const episodeTracks=["video","audio","subtitle"].map(type=>({type,values:streams.filter(stream=>stream.codec_type===type).map(stream=>[stream.width&&stream.height?`${stream.width}×${stream.height}`:"",String((stream.tags as Record<string,unknown>|undefined)?.language??""),String(stream.codec_name??"").toUpperCase()].filter(Boolean).join(" "))})).filter(track=>track.values.length>0);
   const headerMetadata = entry.kind === "season" ? {...series?.metadata,...Object.fromEntries(Object.entries(entry.metadata).filter(([,value])=>value!=null&&value!==""&&(!Array.isArray(value)||value.length>0)))} : entry.metadata;
   const headerSeasons = entry.kind === "season" && series ? entries.filter(e=>e.available&&e.parent_path===series.path&&e.kind==="season") : children.filter(e=>e.kind==="season");
@@ -851,8 +854,9 @@ function NativeDetail({
                 )}
                 {isBookSeries ? <p className="mt-2 text-sm text-white/70">{children.filter(e=>e.metadata.missing!==true).length} {children.filter(e=>e.metadata.missing!==true).length === 1 ? bookUnit : `${bookUnit}s`}</p> : isEpisode ? <div aria-label="Title information" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">{detail.rating!=null&&<span>★ {detail.rating.toFixed(1)}</span>}{typeof entry.metadata.aired==="string"&&entry.metadata.aired&&<span>{new Date(`${entry.metadata.aired.slice(0,10)}T12:00:00Z`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric",timeZone:"UTC"})}</span>}{entry.metadata.runtime!=null&&<span>{String(entry.metadata.runtime)}m</span>}{detail.content_rating&&<span className="rounded border border-white/40 px-1.5 text-xs">{detail.content_rating}</span>}</div> : <TitleMetadata item={detail} />}
                 {entry.kind.startsWith("book") && <BookSeriesMetadata unit={isBookSeries ? bookUnit : entry.metadata.chapter!=null && entry.metadata.volume==null ? "Chapter" : "Volume"} metadata={entry.metadata} count={isBookSeries ? children.filter(e=>e.metadata.missing!==true).length : 1}/>}
-                {isEpisode&&episodeTracks.length>0&&<dl aria-label="Episode media tracks" className="mt-4 flex flex-wrap gap-x-6 gap-y-3 text-sm">{episodeTracks.map(track=><div key={track.type} className="flex items-baseline gap-2"><dt className="font-medium capitalize">{track.type==="subtitle"?"Subtitles":track.type}</dt><dd className="text-muted">{track.values.join(" · ")}</dd></div>)}</dl>}
-                {playable&&<NativePlaybackActions library={library.id} item={entry.id}/>}
+                {playable&&episodeTracks.length>0&&<dl aria-label={isEpisode?"Episode media tracks":"Movie media tracks"} className="mt-4 flex flex-wrap gap-x-6 gap-y-3 text-sm">{episodeTracks.map(track=><div key={track.type} className="flex items-baseline gap-2"><dt className="font-medium capitalize">{track.type==="subtitle"?"Subtitles":track.type}</dt><dd className="text-muted">{track.values.join(" · ")}</dd></div>)}</dl>}
+                {playable&&entry.files.length>1&&<label className="mt-4 flex items-center gap-3 text-sm">Version<select aria-label="Version" className="rounded border border-white/20 bg-black/50 p-2" value={selectedFile?.version_id??selectedFile?.path} onChange={event=>setVersionId(event.target.value)}>{entry.files.map(file=><option key={file.path} value={file.version_id??file.path}>{file.version_name??file.path.split("/").pop()}</option>)}</select></label>}
+                {playable&&<NativePlaybackActions library={library.id} item={entry.id} versionId={selectedFile?.version_id??selectedFile?.path}/>}
                 {(isSeries||entry.kind==="season")&&<NativeSeriesPlay library={library.id} path={entry.path} entries={entries} includeIds={[...inlineSpecials]} specialsInSeasons={library.options?.show_specials_in_seasons===true}/>}
         </LibraryDetailHero>}
         related={<>

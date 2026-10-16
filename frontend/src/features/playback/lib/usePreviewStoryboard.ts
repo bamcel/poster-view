@@ -6,18 +6,18 @@ type Manifest={interval:number;width:number;height:number;columns:number;frames_
 type Sheet={url:string;bytes:number;manifest:Manifest};
 const MAX_SHEETS=8,MAX_BYTES=16*1024*1024,MAX_SHEET_BYTES=2*1024*1024;
 
-function validManifest(value:unknown,prefix:string,duration:number):value is Manifest {
+function validManifest(value:unknown,prefix:string,duration:number,versionQuery=""):value is Manifest {
   if(!value||typeof value!=="object")return false;
   const m=value as Manifest;
   return m.interval===10&&m.width===240&&m.height===136&&m.columns===6&&m.frames_per_sheet===30&&
     (m.complete===undefined||typeof m.complete==="boolean")&&Array.isArray(m.sheets)&&m.sheets.length<=Math.ceil(duration/300)+1&&
-    m.sheets.every(s=>Number.isSafeInteger(s.index)&&s.index>=0&&s.index<Math.ceil(duration/300)&&s.url===`${prefix}/preview-sheet/${s.index}`)&&
+    m.sheets.every(s=>Number.isSafeInteger(s.index)&&s.index>=0&&s.index<Math.ceil(duration/300)&&s.url.split("?")[0]===`${prefix}/preview-sheet/${s.index}`&&new URLSearchParams(s.url.split("?")[1]??"").toString()===new URLSearchParams(versionQuery).toString())&&
     new Set(m.sheets.map(s=>s.index)).size===m.sheets.length;
 }
 
 /** Prepared images only: looking up a frame never starts network or decoding work. */
-export function usePreviewStoryboard(library:string,item:string,duration:number,accountRevision:number,targetSeconds:number|null=null) {
-  const identity=`${library}/${item}/${accountRevision}`;
+export function usePreviewStoryboard(library:string,item:string,duration:number,accountRevision:number,targetSeconds:number|null=null,versionId?:string) {
+  const identity=`${library}/${item}/${versionId??""}/${accountRevision}`;
   const cache=useRef<{identity:string;sheets:Map<number,Sheet>}>({identity,sheets:new Map()});
   const [,changed]=useState(0);
   const target=useRef(targetSeconds);target.current=targetSeconds;
@@ -28,13 +28,14 @@ export function usePreviewStoryboard(library:string,item:string,duration:number,
     const visited=new Set<number>(),urls=new Set<string>();
     const sheets=new Map<number,Sheet>();cache.current={identity,sheets};
     const prefix=`/api/playback/native/${encodeURIComponent(library)}/${encodeURIComponent(item)}`;
+    const versionQuery=versionId?`?version_id=${encodeURIComponent(versionId)}`:"";
     const started=Date.now();
     const load=async()=>{
       if(controller.signal.aborted)return;
       if(busy){pending=true;return;}busy=true;clearTimeout(timer);
       try {
-        const manifest=await apiRequest<unknown>(`${prefix.slice(4)}/preview-storyboard`,{signal:controller.signal});
-        if(controller.signal.aborted||!validManifest(manifest,prefix,duration))return;
+        const manifest=await apiRequest<unknown>(`${prefix.slice(4)}/preview-storyboard${versionQuery}`,{signal:controller.signal});
+        if(controller.signal.aborted||!validManifest(manifest,prefix,duration,versionQuery))return;
         const desired=target.current!==null&&Number.isFinite(target.current)&&target.current>=0&&target.current<duration?Math.floor(target.current/300):null;
         const candidates=manifest.sheets.filter(entry=>entry.index===desired||entry.index<MAX_SHEETS&&!visited.has(entry.index));
         candidates.sort((a,b)=>Number(b.index===desired)-Number(a.index===desired)||a.index-b.index);

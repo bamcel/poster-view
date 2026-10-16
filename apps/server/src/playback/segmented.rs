@@ -1181,7 +1181,7 @@ mod tests {
         let store = PlaybackStore::new(dir.path());
         let key = copy_seek_key(&path, 30.0).await.unwrap();
         store.copy_seeks.record(key.clone(), 24.0).await;
-        let source=Source{library_id:"library".into(),item:serde_json::from_value(serde_json::json!({"id":"item","path":"video.mkv","kind":"movie","parent_path":null,"title":"Fixture","metadata":{},"artwork":[],"files":[],"nfo_path":null,"nfo_xml":null,"available":true,"revision":1})).unwrap(),path:path.clone(),fingerprint:(key.1,key.2),series_title:None,next:None};
+        let source=Source{version_id:"video.mkv".into(),library_id:"library".into(),item:serde_json::from_value(serde_json::json!({"id":"item","path":"video.mkv","kind":"movie","parent_path":null,"title":"Fixture","metadata":{},"artwork":[],"files":[],"nfo_path":null,"nfo_xml":null,"available":true,"revision":1})).unwrap(),path:path.clone(),fingerprint:(key.1,key.2),series_title:None,next:None};
         // Invalid media would fail ffprobe, so this success proves the completed seek is reused.
         assert_eq!(copy_seek_start(&store, &source, 30.0).await.unwrap(), 24.0);
         std::fs::write(&path, b"a replaced video of another size").unwrap();

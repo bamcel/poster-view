@@ -9,6 +9,7 @@ export interface PlaybackTrack {
   subtitle_format?: "ass" | "vtt" | "image" | "pgs" | "vobsub"; url?: string | null;
 }
 export interface PlaybackInfo {
+  version_id?: string; versions?: {id:string;name:string}[];
   title: string; series_title?: string | null; season?: number | null; episode?: number | null;
   poster_url?: string | null; overview?: string | null; container?: string; duration_seconds: number;
   tracks: PlaybackTrack[]; chapters: {title: string; start_seconds: number}[];
@@ -30,6 +31,7 @@ export interface PlaybackSession {
   width?: number | null; height?: number | null; bitrate?: number | null;
 }
 export interface PlaybackRequest {
+  version_id?: string;
   virtual_channel_id?: string;
   position_seconds: number; audio_index: number | null; subtitle_index: number | null;
   video_codecs: string[]; audio_codecs: string[]; containers: string[];
@@ -50,6 +52,7 @@ export interface PlaybackDiagnostics {
   fps?:number|null; speed?:number|null; buffered_seconds?:number|null;
 }
 export interface WatchState {
+  version_id?: string | null;
   position_seconds:number; duration_seconds:number; watched:boolean; play_count:number;
   last_played_at:string|null; audio_index:number|null; subtitle_index:number|null;
   session_id:string|null; version:number; subtitle_delay_seconds?:number;

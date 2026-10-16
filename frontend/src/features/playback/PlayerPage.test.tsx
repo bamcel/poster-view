@@ -3,6 +3,7 @@ import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
 import {MemoryRouter,Route,Routes,useNavigate,type NavigateFunction} from "react-router-dom";
 import {StrictMode} from "react";
 import PlayerPage from "./PlayerPage";
+import {ApiError} from "../../api/client";
 import {playbackApi,defaultPlaybackPreferences,type PlaybackInfo,type PlaybackSession} from "./api/playback";
 import {watchApi} from "./api/watch";
 import type {NativeAudioList} from "./lib/nativeAudio";
@@ -27,7 +28,7 @@ let navigateInTest:NavigateFunction|undefined,browserAudio:NativeAudioList|undef
 const originalAudioProperty=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,"audioTracks");
 const audioList=(tracks:NativeAudioList[number][])=>Object.assign({length:tracks.length},tracks) as NativeAudioList;
 function CaptureNavigation(){navigateInTest=useNavigate();return null;}
-function player(strict=false){const content=<MemoryRouter initialEntries={["/play/native/anime/one?return=%2Fmedia%2FAnime"]}><CaptureNavigation/><Routes><Route path="/play/native/:libraryId/:itemId" element={<PlayerPage/>}/><Route path="/media/Anime" element={<p>Media page</p>}/></Routes></MemoryRouter>;return render(strict?<StrictMode>{content}</StrictMode>:content);}
+function player(strict=false,query=""){const content=<MemoryRouter initialEntries={[`/play/native/anime/one?return=%2Fmedia%2FAnime${query}`]}><CaptureNavigation/><Routes><Route path="/play/native/:libraryId/:itemId" element={<PlayerPage/>}/><Route path="/media/Anime" element={<p>Media page</p>}/></Routes></MemoryRouter>;return render(strict?<StrictMode>{content}</StrictMode>:content);}
 function loadMetadata(video:HTMLVideoElement){fireEvent.loadedMetadata(video);Object.defineProperty(video,"readyState",{value:2,configurable:true});fireEvent.loadedData(video);}
 async function ready(){await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());const video=document.querySelector("video")!;loadMetadata(video);fireEvent.seeked(video);await waitFor(()=>expect(screen.getByRole("heading",{name:"S1:E1 – Maomao"})).toBeTruthy());return video;}
 function scrubTo(value:number){const slider=screen.getByRole("slider",{name:"Seek"});fireEvent.change(slider,{target:{value:String(value)}});fireEvent.pointerUp(slider);return slider as HTMLInputElement;}
@@ -295,7 +296,7 @@ describe("original-file player",()=>{
   vi.mocked(playbackApi.info).mockResolvedValue({...info,tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"dvd_subtitle",subtitle_format:"image",default:true}]});player();await ready();expect(screen.getByText(/image subtitle format is unavailable/)).toBeTruthy();expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({subtitle_index:null}));
  });
  it("shows autoplay denial as a user Play action, and preserves next-episode navigation",async()=>{
-  vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(new DOMException("Gesture required","NotAllowedError"));player();await ready();expect(screen.getByText("Press Play to begin playback.")).toBeTruthy();fireEvent.click(screen.getByRole("button",{name:"Play"}));await waitFor(()=>expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2));expect(screen.queryByRole("alert")).toBeNull();fireEvent.click(screen.getByRole("button",{name:"Next episode"}));await waitFor(()=>expect(playbackApi.info).toHaveBeenCalledWith("anime","two",expect.any(AbortSignal)));
+  vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(new DOMException("Gesture required","NotAllowedError"));player();await ready();expect(screen.getByText("Press Play to begin playback.")).toBeTruthy();fireEvent.click(screen.getByRole("button",{name:"Play"}));await waitFor(()=>expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2));expect(screen.queryByRole("alert")).toBeNull();fireEvent.click(screen.getByRole("button",{name:"Next episode"}));await waitFor(()=>expect(playbackApi.info).toHaveBeenCalledWith("anime","two",expect.any(AbortSignal),undefined));
  });
 });
 
@@ -678,4 +679,51 @@ it("settles a paused native seek when its decoded frame arrives after an early s
   fireEvent.loadedData(video);
   expect((screen.getByRole("slider", { name: "Seek" }) as HTMLInputElement).value).toBe("600.5");
   expect(playbackApi.create).toHaveBeenCalledTimes(1);
+});
+
+it("resumes the saved version with its own track indexes",async()=>{
+ browserAudio=audioList([{language:"ja",enabled:true},{language:"en",enabled:false}]);
+ vi.mocked(watchApi.state).mockResolvedValue({...state,version_id:"uhd",audio_index:3});
+ vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-version",state:{...state,version_id:"uhd",audio_index:3}});
+ vi.mocked(playbackApi.info).mockResolvedValue({...info,version_id:"uhd",versions:[{id:"original",name:"Original"},{id:"uhd",name:"UHD"}]});
+ player();await ready();
+ expect(playbackApi.info).toHaveBeenCalledWith("anime","one",expect.any(AbortSignal),"uhd");
+ expect(watchApi.begin).toHaveBeenCalledWith("anime","one","uhd");
+ expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({version_id:"uhd",audio_index:3}));
+ expect(screen.getByRole("combobox",{name:"Version"})).toHaveProperty("value","uhd");
+});
+it("starts a different explicit version at zero without carrying old track indexes",async()=>{
+ vi.mocked(watchApi.state).mockResolvedValue({...state,version_id:"uhd",audio_index:3});
+ vi.mocked(playbackApi.info).mockResolvedValue({...info,version_id:"original"});
+ player(false,"&version_id=original");await ready();
+ expect(playbackApi.info).toHaveBeenCalledWith("anime","one",expect.any(AbortSignal),"original");
+ expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({version_id:"original",position_seconds:0,audio_index:2}));
+});
+
+it("falls back safely when the remembered version was removed",async()=>{
+ vi.mocked(watchApi.state).mockResolvedValue({...state,version_id:"removed",audio_index:3});
+ vi.mocked(playbackApi.info).mockRejectedValueOnce(new ApiError(404,"Version unavailable")).mockResolvedValue({...info,version_id:"original"});
+ player();await ready();
+ expect(screen.getByRole("status").textContent).toContain("saved version is unavailable");
+ expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({position_seconds:0,version_id:"original",audio_index:2}));
+});
+it("switches versions through a fresh owned session and resets the source clock",async()=>{
+ vi.mocked(watchApi.state).mockResolvedValue({...state,version_id:"original"});
+ vi.mocked(playbackApi.info).mockImplementation(async(_library,_item,_signal,version)=>({...info,version_id:version??"original",versions:[{id:"original",name:"Original"},{id:"uhd",name:"UHD"}]}));
+ player();await ready();
+ fireEvent.change(screen.getByRole("combobox",{name:"Version"}),{target:{value:"uhd"}});
+ await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));
+ expect(playbackApi.stop).toHaveBeenCalledWith("playback-one");
+ expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({version_id:"uhd",position_seconds:0}));
+ expect(watchApi.progress).toHaveBeenCalledWith("anime","one",expect.objectContaining({version_id:"original"}),expect.any(Boolean));
+});
+
+it("disables version switching until watch ownership is initialized",async()=>{
+ let begin!:(value:Awaited<ReturnType<typeof watchApi.begin>>)=>void;
+ vi.mocked(watchApi.begin).mockImplementation(()=>new Promise(resolve=>{begin=resolve;}));
+ vi.mocked(playbackApi.info).mockResolvedValue({...info,version_id:"original",versions:[{id:"original",name:"Original"},{id:"uhd",name:"UHD"}]});
+ player();await waitFor(()=>expect(watchApi.begin).toHaveBeenCalled());
+ expect(screen.getByRole("combobox",{name:"Version"})).toHaveProperty("disabled",true);
+ await act(async()=>{begin({session_id:"watch-ready",state});});await ready();
+ expect(screen.getByRole("combobox",{name:"Version"})).toHaveProperty("disabled",false);
 });

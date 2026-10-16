@@ -24,6 +24,19 @@ describe("prepared playback storyboards",()=>{
     expect(fetchMock.mock.calls[1][1]).toMatchObject({priority:"low"});
     unmount();expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:sheet");
   });
+  it("pins manifests and sheets to the selected version and clears the cache on version change",async()=>{
+    const version="Film/Film - UHD (1).mkv";
+    const query=`?version_id=${encodeURIComponent(version).replaceAll("(","%28").replaceAll(")","%29")}`;
+    fetchMock.mockImplementation(async(url:string)=>url.includes("preview-storyboard")?{ok:true,json:async()=>({...manifest(),sheets:[{index:0,url:`${prefix}/preview-sheet/0${query}`}]})}:{ok:true,headers:new Headers(),blob:async()=>new Blob(["sheet"],{type:"image/jpeg"})});
+    const {result,rerender}=renderHook(({version})=>usePreviewStoryboard("library","item",1400,0,0,version),{initialProps:{version}});
+    await waitFor(()=>expect(result.current.frame(0)).not.toBeNull());
+    expect(fetchMock.mock.calls[0][0]).toContain(`version_id=${encodeURIComponent(version)}`);
+    expect(fetchMock.mock.calls[1][0]).toBe(`${prefix}/preview-sheet/0${query}`);
+    fetchMock.mockImplementation(()=>new Promise(()=>{}));
+    rerender({version:"Film/Original.mkv"});
+    expect(result.current.frame(0)).toBeNull();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:sheet");
+  });
   it("clears account-owned images and aborts the old request on account change",async()=>{
     const {result,rerender}=renderHook(({revision})=>usePreviewStoryboard("library","item",1400,revision),{initialProps:{revision:0}});
     await waitFor(()=>expect(result.current.frame(0)).not.toBeNull());

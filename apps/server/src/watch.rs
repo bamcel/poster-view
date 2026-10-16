@@ -4,7 +4,7 @@ mod series_tracks;
 use crate::{AppState, HttpError};
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     http::StatusCode,
 };
@@ -39,6 +39,7 @@ fn timestamp(milliseconds: i64) -> String {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub(crate) struct WatchState {
+    pub version_id: Option<String>,
     pub position_seconds: f64,
     pub duration_seconds: f64,
     pub watched: bool,
@@ -186,6 +187,7 @@ fn selection<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<i64
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ProgressInput {
+    pub version_id: Option<String>,
     pub session_id: String,
     pub playback_session_id: Option<String>,
     pub sequence: u64,
@@ -206,7 +208,11 @@ pub(crate) struct ProgressInput {
 }
 impl ProgressInput {
     fn validate(&self, duration: f64) -> Result<(), HttpError> {
-        if self.session_id.len() != 36
+        if self
+            .version_id
+            .as_ref()
+            .is_some_and(|v| v.is_empty() || v.len() > 4096)
+            || self.session_id.len() != 36
             || uuid::Uuid::parse_str(&self.session_id).is_err()
             || self.sequence > i64::MAX as u64
             || !self.position_seconds.is_finite()
@@ -363,6 +369,7 @@ impl WatchStore {
     ) -> Result<WatchState, HttpError> {
         Self::state(&self.db()?, user, library, item, duration)
     }
+    #[cfg(test)]
     pub(crate) fn begin_at(
         &self,
         user: &str,
@@ -371,11 +378,35 @@ impl WatchStore {
         duration: f64,
         now: i64,
     ) -> Result<BeginResult, HttpError> {
+        self.begin_version_at(user, library, item, duration, now, None)
+    }
+    fn begin_version_at(
+        &self,
+        user: &str,
+        library: &str,
+        item: &str,
+        duration: f64,
+        now: i64,
+        version_id: Option<&str>,
+    ) -> Result<BeginResult, HttpError> {
         let mut db = self.db()?;
         let tx = db
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(failure)?;
         let mut state = Self::state(&tx, user, library, item, duration)?;
+        if let Some(version) = version_id {
+            if state
+                .version_id
+                .as_deref()
+                .is_some_and(|saved| saved != version)
+            {
+                state.position_seconds = 0.0;
+                state.audio_index = None;
+                state.subtitle_index = None;
+                state.subtitle_delay_seconds = 0.0;
+            }
+            state.version_id = Some(version.to_owned());
+        }
         let session_id = uuid::Uuid::new_v4().to_string();
         state.session_id = Some(session_id.clone());
         state.version += 1;
@@ -459,6 +490,13 @@ impl WatchStore {
             ));
         }
         let mut state = Self::state(&tx, user, library, item, duration)?;
+        if input
+            .version_id
+            .as_ref()
+            .is_some_and(|version| state.version_id.as_ref() != Some(version))
+        {
+            return Err(conflict("The playback version changed. Reopen this video."));
+        }
         let rules = Self::rules_from(&tx, &format!("{user}:{library}"))?;
         let position = if duration > 0.0 {
             input.position_seconds.min(duration)
@@ -759,6 +797,21 @@ fn catalog_signature(entry: &NativeCatalogEntry) -> String {
     ])
     .to_string()
 }
+fn select_version(entry: &mut NativeCatalogEntry, version: Option<&str>) -> Result<(), HttpError> {
+    if let Some(version) = version {
+        let index = entry
+            .files
+            .iter()
+            .position(|file| file["path"].as_str() == Some(version))
+            .ok_or_else(|| HttpError::bad_request("This video version is unavailable."))?;
+        entry.files.swap(0, index);
+    }
+    Ok(())
+}
+#[derive(Default, Deserialize)]
+pub(crate) struct VersionQuery {
+    pub version_id: Option<String>,
+}
 fn resolved_duration(
     store: &WatchStore,
     user: &str,
@@ -773,7 +826,15 @@ fn resolved_duration(
     if let Some(duration) = probe_duration(entry) {
         return Ok(duration);
     }
-    let saved = store.get(user, library, &entry.id, 0.0)?.duration_seconds;
+    let saved_state = store.get(user, library, &entry.id, 0.0)?;
+    let saved =
+        if saved_state.version_id.as_deref().is_none_or(|version| {
+            entry.files.first().and_then(|f| f["path"].as_str()) == Some(version)
+        }) {
+            saved_state.duration_seconds
+        } else {
+            0.0
+        };
     Ok(if saved > 0.0 { saved } else { duration(entry) })
 }
 fn video(state: &AppState, library: &str, item: &str) -> Result<NativeCatalogEntry, HttpError> {
@@ -803,8 +864,12 @@ pub(crate) async fn get_state(
     let user = state.auth.request_user(&headers)?;
     tokio::task::spawn_blocking(move || {
         crate::access::require_item(&state, &user, &library, &item)?;
-        let entry = video(&state, &library, &item)?;
+        let mut entry = video(&state, &library, &item)?;
         let store = store(&state);
+        let saved = store.get(&user.id, &library, &item, 0.0)?;
+        if let Some(version) = saved.version_id.as_deref() {
+            let _ = select_version(&mut entry, Some(version));
+        }
         let duration = resolved_duration(&store, &user.id, &library, &entry)?;
         store.get(&user.id, &library, &item, duration).map(Json)
     })
@@ -815,15 +880,18 @@ pub(crate) async fn begin(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path((library, item)): Path<(String, String)>,
+    Query(query): Query<VersionQuery>,
 ) -> Result<Json<BeginResult>, HttpError> {
     let user = state.auth.request_user(&headers)?;
     tokio::task::spawn_blocking(move || {
         crate::access::require_item(&state, &user, &library, &item)?;
-        let entry = video(&state, &library, &item)?;
+        let mut entry = video(&state, &library, &item)?;
+        select_version(&mut entry, query.version_id.as_deref())?;
         let store = store(&state);
         let duration = resolved_duration(&store, &user.id, &library, &entry)?;
+        let version = entry.files.first().and_then(|file| file["path"].as_str());
         store
-            .begin_at(&user.id, &library, &item, duration, now_ms())
+            .begin_version_at(&user.id, &library, &item, duration, now_ms(), version)
             .map(Json)
     })
     .await
@@ -833,7 +901,7 @@ pub(crate) async fn progress(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path((library, item)): Path<(String, String)>,
-    Json(input): Json<ProgressInput>,
+    Json(mut input): Json<ProgressInput>,
 ) -> Result<Json<WatchState>, HttpError> {
     let user = state.auth.request_user(&headers)?;
     let playback_duration = if let Some(id) = &input.playback_session_id {
@@ -860,7 +928,13 @@ pub(crate) async fn progress(
     };
     tokio::task::spawn_blocking(move || {
         crate::access::require_item(&state, &user, &library, &item)?;
-        let entry = video(&state, &library, &item)?;
+        let mut entry = video(&state, &library, &item)?;
+        select_version(&mut entry, input.version_id.as_deref())?;
+        input.version_id = entry
+            .files
+            .first()
+            .and_then(|file| file["path"].as_str())
+            .map(str::to_owned);
         // Playback creation validates actual source tracks. Catalog stream indices can be stale
         // after a file replacement; rejecting them here would lose otherwise valid watch progress.
         // Bounds are still validated and remembered selections absent from the live file are ignored.
@@ -896,8 +970,12 @@ pub(crate) async fn set_state(
     let user = state.auth.request_user(&headers)?;
     tokio::task::spawn_blocking(move || {
         crate::access::require_item(&state, &user, &library, &item)?;
-        let entry = video(&state, &library, &item)?;
+        let mut entry = video(&state, &library, &item)?;
         let store = store(&state);
+        let saved = store.get(&user.id, &library, &item, 0.0)?;
+        if let Some(version) = saved.version_id.as_deref() {
+            let _ = select_version(&mut entry, Some(version));
+        }
         let duration = resolved_duration(&store, &user.id, &library, &entry)?;
         store
             .manual(&user.id, &library, &item, duration, input)
@@ -934,6 +1012,9 @@ pub(crate) async fn continue_watching(
             else {
                 continue;
             };
+            if let Some(version) = saved.version_id.as_deref() {
+                let _ = select_version(&mut entry, Some(version));
+            }
             saved.duration_seconds =
                 resolved_duration(&watch_store, &user.id, &library_id, &entry)?;
             if saved.position_seconds <= 0.0
@@ -991,6 +1072,9 @@ pub(crate) async fn history(
             else {
                 continue;
             };
+            if let Some(version) = saved.version_id.as_deref() {
+                let _ = select_version(&mut entry, Some(version));
+            }
             saved.duration_seconds =
                 resolved_duration(&watch_store, &user.id, &library_id, &entry)?;
 
@@ -1122,6 +1206,7 @@ mod tests {
     use super::*;
     fn input(session: &str, sequence: u64, position: f64) -> ProgressInput {
         ProgressInput {
+            version_id: None,
             session_id: session.into(),
             playback_session_id: None,
             sequence,
@@ -1134,6 +1219,76 @@ mod tests {
             subtitle_index: None,
             subtitle_delay_seconds: None,
         }
+    }
+    #[test]
+    fn resume_pins_version_and_tracks_and_version_change_resets_timeline() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = WatchStore::new(temp.path().join("watch.sqlite"));
+        let first = store
+            .begin_version_at("u", "l", "i", 1000.0, 0, Some("Movie - UHD.mkv"))
+            .unwrap();
+        let mut report = input(&first.session_id, 0, 60.0);
+        report.version_id = Some("Movie - UHD.mkv".into());
+        report.audio_index = Some(Some(3));
+        report.subtitle_index = Some(Some(7));
+        let saved = store
+            .report_at("u", "l", "i", 1000.0, report, 30_000)
+            .unwrap();
+        assert_eq!(saved.version_id.as_deref(), Some("Movie - UHD.mkv"));
+        let resumed = store
+            .begin_version_at("u", "l", "i", 1000.0, 40_000, Some("Movie - UHD.mkv"))
+            .unwrap();
+        assert_eq!(
+            (
+                resumed.state.position_seconds,
+                resumed.state.audio_index,
+                resumed.state.subtitle_index
+            ),
+            (60.0, Some(3), Some(7))
+        );
+        let changed = store
+            .begin_version_at(
+                "u",
+                "l",
+                "i",
+                1100.0,
+                50_000,
+                Some("Movie - Streamable.mp4"),
+            )
+            .unwrap();
+        assert_eq!(
+            (
+                changed.state.position_seconds,
+                changed.state.audio_index,
+                changed.state.subtitle_index
+            ),
+            (0.0, None, None)
+        );
+        let mut stale = input(&first.session_id, 1, 65.0);
+        stale.version_id = Some("Movie - UHD.mkv".into());
+        assert!(
+            store
+                .report_at("u", "l", "i", 1100.0, stale, 60_000)
+                .is_err()
+        );
+        let mut wrong = input(&changed.session_id, 0, 65.0);
+        wrong.version_id = Some("Movie - UHD.mkv".into());
+        assert!(
+            store
+                .report_at("u", "l", "i", 1100.0, wrong, 60_000)
+                .is_err()
+        );
+    }
+    #[test]
+    fn version_selection_requires_catalog_membership_and_selects_duration() {
+        let mut entry: NativeCatalogEntry = serde_json::from_value(serde_json::json!({
+            "id":"i","path":"movie.mkv","kind":"movie","parent_path":null,"title":"Movie","metadata":{},"artwork":[],
+            "files":[{"path":"movie.mkv","media_info":{"format":{"duration":"100"}}},{"path":"Movie - UHD.mkv","media_info":{"format":{"duration":"120"}}}],
+            "nfo_path":null,"nfo_xml":null,"available":true,"revision":1
+        })).unwrap();
+        assert!(select_version(&mut entry, Some("../other.mkv")).is_err());
+        select_version(&mut entry, Some("Movie - UHD.mkv")).unwrap();
+        assert_eq!(duration(&entry), 120.0);
     }
     #[test]
     fn personal_history_includes_completed_titles_and_isolates_accounts() {
@@ -1823,6 +1978,7 @@ mod tests {
             State(state.clone()),
             HeaderMap::new(),
             Path((lib.id.clone(), entry.id.clone())),
+            Query(VersionQuery::default()),
         )
         .await
         .unwrap()

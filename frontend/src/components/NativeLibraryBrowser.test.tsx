@@ -832,3 +832,17 @@ it("keeps book volume navigation and metadata controls before character details 
  expect(screen.queryByRole("heading",{name:"About"})).toBeNull();
  expect(screen.queryByRole("heading",{name:"Cast and crew"})).toBeNull();
 });
+
+it("shows audio and subtitles from the selected movie version",async()=>{
+ const movie:NativeCatalogEntry={...series,kind:"movie",files:[
+  {path:"movie-original.mkv",version_id:"original",version_name:"Original",size:1,extension:"mkv",media_info:{streams:[{codec_type:"audio",codec_name:"aac",tags:{language:"ja"}},{codec_type:"subtitle",codec_name:"ass",tags:{language:"en"}}]}},
+  {path:"movie-uhd.mkv",version_id:"uhd",version_name:"UHD",size:2,extension:"mkv",media_info:{streams:[{codec_type:"audio",codec_name:"truehd",tags:{language:"en"}},{codec_type:"subtitle",codec_name:"subrip",tags:{language:"fr"}}]}}
+ ]};
+ vi.mocked(nativeLibraries.summaries).mockResolvedValue([movie]);vi.mocked(nativeLibraries.item).mockResolvedValue(movie);
+ mount("/?native_library=native&native_item=show",{...library,library_type:"movies"});
+ const selector=await screen.findByRole("combobox",{name:"Version"});
+ expect(screen.getByLabelText("Movie media tracks").textContent).toContain("ja AAC");
+ fireEvent.change(selector,{target:{value:"uhd"}});
+ const tracks=screen.getByLabelText("Movie media tracks");
+ expect(tracks.textContent).toContain("en TRUEHD");expect(tracks.textContent).toContain("fr SUBRIP");expect(tracks.textContent).not.toContain("ja AAC");
+});

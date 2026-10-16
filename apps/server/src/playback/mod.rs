@@ -10,13 +10,16 @@ mod segmented;
 mod session_limits;
 #[cfg(test)]
 mod test_support;
-use models::{Chapter, Font, Info, NextItem, SeekInput, SessionInput, SessionResponse, Track};
+use models::{
+    Chapter, Font, Info, NextItem, SeekInput, SessionInput, SessionResponse, Track, Version,
+    VersionQuery,
+};
 use planner::{plan, plan_for_delivery, selected_stream, validate_request};
 
 use crate::{AppState, HttpError};
 use axum::{
     Json,
-    extract::{Path, Request, State},
+    extract::{Path, Query, Request, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
@@ -80,6 +83,7 @@ struct Source {
     library_id: String,
     item: NativeCatalogEntry,
     path: PathBuf,
+    version_id: String,
     fingerprint: (u64, u128),
     series_title: Option<String>,
     next: Option<NextItem>,
@@ -129,7 +133,16 @@ fn safe_source_path(
     }
     Ok(path)
 }
+#[cfg(test)]
 async fn source(state: &AppState, library: String, item: String) -> Result<Source, HttpError> {
+    source_version(state, library, item, None).await
+}
+async fn source_version(
+    state: &AppState,
+    library: String,
+    item: String,
+    version_id: Option<String>,
+) -> Result<Source, HttpError> {
     let state = state.clone();
     tokio::task::spawn_blocking(move || {
         let db = ServerStore::new(state.runtime.data_dir());
@@ -151,7 +164,8 @@ async fn source(state: &AppState, library: String, item: String) -> Result<Sourc
         let file = entry
             .files
             .iter()
-            .find_map(|f| f["path"].as_str())
+            .filter_map(|f| f["path"].as_str())
+            .find(|path| version_id.as_deref().is_none_or(|id| id == *path))
             .ok_or_else(|| bad("This title has no playable video file. Run Scan Library Files."))?;
         let root = state.metadata.directory("", true)?;
         let path = safe_source_path(&root, file, &lib.paths)?;
@@ -238,6 +252,7 @@ async fn source(state: &AppState, library: String, item: String) -> Result<Sourc
             library_id: library,
             item: entry.clone(),
             path,
+            version_id: file.to_string(),
             fingerprint,
             series_title: series.map(|s| s.title),
             next,
@@ -632,8 +647,10 @@ fn tracks(probe: &Value, source: &Source, subtitle_extraction: bool) -> Vec<Trac
                 .filter(|v| v.as_str() != "image" && subtitle_extraction)
                 .map(|_| {
                     format!(
-                        "/api/playback/native/{}/{}/subtitles/{index}",
-                        source.library_id, source.item.id
+                        "/api/playback/native/{}/{}/subtitles/{index}{}",
+                        source.library_id,
+                        source.item.id,
+                        version_suffix(&source.version_id)
                     )
                 });
             Some(Track {
@@ -756,11 +773,12 @@ pub(crate) async fn info(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path((library, item)): Path<(String, String)>,
+    Query(query): Query<VersionQuery>,
 ) -> Result<Json<Info>, HttpError> {
     let user = state.auth.request_user(&headers)?;
     let settings = crate::transcoding::load(&state)?;
     crate::access::require_item(&state, &user, &library, &item)?;
-    let mut source = source(&state, library, item).await?;
+    let mut source = source_version(&state, library, item, query.version_id).await?;
     if source.next.as_ref().is_some_and(|next| {
         !crate::access::allows_item(&state, &user, &source.library_id, &next.item_id)
     }) {
@@ -794,8 +812,10 @@ pub(crate) async fn info(
                     .unwrap_or("Embedded font")
                     .to_string(),
                 url: format!(
-                    "/api/playback/native/{}/{}/fonts/{index}",
-                    source.library_id, source.item.id
+                    "/api/playback/native/{}/{}/fonts/{index}{}",
+                    source.library_id,
+                    source.item.id,
+                    version_suffix(&source.version_id)
                 ),
             })
         })
@@ -804,6 +824,29 @@ pub(crate) async fn info(
     Ok(Json(Info {
         library_id: source.library_id.clone(),
         item_id: source.item.id.clone(),
+        version_id: source.version_id.clone(),
+        versions: source
+            .item
+            .files
+            .iter()
+            .filter_map(|file| {
+                let id = file["path"].as_str()?;
+                Some(Version {
+                    id: id.to_string(),
+                    name: file["version_name"]
+                        .as_str()
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| {
+                            FsPath::new(id)
+                                .file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .into_owned()
+                        }),
+                })
+            })
+            .collect(),
         title: source.item.title.clone(),
         series_title: source.series_title.clone(),
         overview: source.item.metadata["plot"]
@@ -835,6 +878,18 @@ pub(crate) async fn info(
         fonts,
         next: source.next.clone(),
     }))
+}
+
+fn version_suffix(id: &str) -> String {
+    let mut query = String::from("?version_id=");
+    for byte in id.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            query.push(char::from(byte));
+        } else {
+            query.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    query
 }
 
 fn original_mime(path: &FsPath) -> &'static str {
@@ -1083,7 +1138,7 @@ pub(crate) async fn create(
     validate_request(&input)?;
     retire_idle(&state.playback).await;
     crate::access::require_item(&state, &user, &library, &item)?;
-    let mut source = source(&state, library, item).await?;
+    let mut source = source_version(&state, library, item, input.version_id.clone()).await?;
     if source.next.as_ref().is_some_and(|next| {
         !crate::access::allows_item(&state, &user, &source.library_id, &next.item_id)
     }) {
@@ -1743,6 +1798,7 @@ async fn extracted_resource(
 pub(crate) async fn subtitle(
     State(state): State<AppState>,
     Path((library, item, index)): Path<(String, String, u32)>,
+    Query(query): Query<VersionQuery>,
     request: Request,
 ) -> Result<Response, HttpError> {
     let user = state.auth.request_user(request.headers())?;
@@ -1752,7 +1808,7 @@ pub(crate) async fn subtitle(
         ));
     }
     crate::access::require_item(&state, &user, &library, &item)?;
-    let mut source = source(&state, library, item).await?;
+    let mut source = source_version(&state, library, item, query.version_id).await?;
     if source.next.as_ref().is_some_and(|next| {
         !crate::access::allows_item(&state, &user, &source.library_id, &next.item_id)
     }) {
@@ -1786,6 +1842,7 @@ pub(crate) async fn font(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path((library, item, index)): Path<(String, String, u32)>,
+    Query(query): Query<VersionQuery>,
 ) -> Result<Response, HttpError> {
     let user = state.auth.request_user(&headers)?;
     if !crate::transcoding::load(&state)?.font_extraction {
@@ -1794,7 +1851,7 @@ pub(crate) async fn font(
         ));
     }
     crate::access::require_item(&state, &user, &library, &item)?;
-    let mut source = source(&state, library, item).await?;
+    let mut source = source_version(&state, library, item, query.version_id).await?;
     if source.next.as_ref().is_some_and(|next| {
         !crate::access::allows_item(&state, &user, &source.library_id, &next.item_id)
     }) {

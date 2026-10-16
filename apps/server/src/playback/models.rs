@@ -41,9 +41,20 @@ pub(crate) struct NextItem {
     pub(super) title: String,
 }
 #[derive(Serialize)]
+pub(crate) struct Version {
+    pub(super) id: String,
+    pub(super) name: String,
+}
+#[derive(Default, Deserialize)]
+pub(crate) struct VersionQuery {
+    pub(super) version_id: Option<String>,
+}
+#[derive(Serialize)]
 pub(crate) struct Info {
     pub(super) library_id: String,
     pub(super) item_id: String,
+    pub(super) version_id: String,
+    pub(super) versions: Vec<Version>,
     pub(super) title: String,
     pub(super) series_title: Option<String>,
     pub(super) overview: Option<String>,
@@ -66,6 +77,7 @@ pub(crate) struct Info {
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct SessionInput {
     pub(super) virtual_channel_id: Option<String>,
+    pub(super) version_id: Option<String>,
     pub(super) position_seconds: f64,
     pub(super) audio_index: Option<u32>,
     pub(super) subtitle_index: Option<u32>,

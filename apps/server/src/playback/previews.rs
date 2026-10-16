@@ -11,6 +11,7 @@ const MAX_IMAGE_BYTES: u64 = 1024 * 1024;
 #[derive(Deserialize)]
 pub(super) struct PreviewQuery {
     seconds: f64,
+    version_id: Option<String>,
 }
 
 fn bucket(seconds: f64) -> Result<u64, HttpError> {
@@ -113,7 +114,7 @@ pub(super) async fn preview(
     let user = state.auth.request_user(request.headers())?;
     crate::access::require_item(&state, &user, &library, &item)?;
     let seconds = bucket(query.seconds)?;
-    let source = source(&state, library, item).await?;
+    let source = source_version(&state, library, item, query.version_id).await?;
     let root = state.playback.root.join("previews");
     let output = root.join(cache_name(&source.path, source.fingerprint, seconds));
     if !output.is_file() {
@@ -274,15 +275,16 @@ async fn build_storyboard(root: PathBuf, source: Source) -> Result<(), HttpError
 pub(super) async fn storyboard(
     State(state): State<AppState>,
     Path((library, item)): Path<(String, String)>,
+    Query(query): Query<VersionQuery>,
     request: Request,
 ) -> Result<Json<Value>, HttpError> {
     let user = state.auth.request_user(request.headers())?;
     crate::access::require_item(&state, &user, &library, &item)?;
-    let source = source(&state, library.clone(), item.clone()).await?;
+    let source = source_version(&state, library.clone(), item.clone(), query.version_id).await?;
     let root = state.playback.root.join("previews");
     let count = descriptor(&root, &source);
     let sheets = (0..count.unwrap_or(0)).filter(|&index| ready_sheet(&root, &source, index))
-        .map(|index| json!({"index": index, "url": format!("/api/playback/native/{library}/{item}/preview-sheet/{index}")}))
+        .map(|index| json!({"index": index, "url": format!("/api/playback/native/{library}/{item}/preview-sheet/{index}{}", version_suffix(&source.version_id))}))
         .collect::<Vec<_>>();
     let complete = count.is_some_and(|count| sheets.len() == count);
     if !complete
@@ -313,6 +315,7 @@ pub(super) async fn storyboard(
 pub(super) async fn sheet(
     State(state): State<AppState>,
     Path((library, item, index)): Path<(String, String, usize)>,
+    Query(query): Query<VersionQuery>,
     request: Request,
 ) -> Result<Response, HttpError> {
     let user = state.auth.request_user(request.headers())?;
@@ -320,7 +323,7 @@ pub(super) async fn sheet(
     if index >= MAX_SHEETS {
         return Err(HttpError::not_found());
     }
-    let source = source(&state, library, item).await?;
+    let source = source_version(&state, library, item, query.version_id).await?;
     let root = state.playback.root.join("previews");
     if !ready_sheet(&root, &source, index) {
         return Err(HttpError::not_found());
@@ -344,7 +347,10 @@ mod tests {
         let error = preview(
             State(state),
             Path(("missing-library".into(), "missing-item".into())),
-            Query(PreviewQuery { seconds: 0.0 }),
+            Query(PreviewQuery {
+                seconds: 0.0,
+                version_id: None,
+            }),
             request,
         )
         .await
@@ -393,6 +399,7 @@ mod tests {
         let error = storyboard(
             State(state.clone()),
             Path(("missing".into(), "missing".into())),
+            Query(VersionQuery::default()),
             request(),
         )
         .await
@@ -401,6 +408,7 @@ mod tests {
         let error = sheet(
             State(state),
             Path(("missing".into(), "missing".into(), usize::MAX)),
+            Query(VersionQuery::default()),
             request(),
         )
         .await

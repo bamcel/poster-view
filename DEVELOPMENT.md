@@ -362,3 +362,25 @@ library. Grouping preferences are stored per user/library in SQLite and default 
 only groups with at least two visible members replace cards. Search and metadata/
 artwork filters show individual titles, and selection mode also expands groups.
 No playback engine, original-media URL, or watch state is changed by collections.
+
+## Native video versions
+
+Movie and episode files with a shared basename and explicit delivery suffix (for
+example `John Wick - Original.mkv`, `John Wick - Streamable.mp4`, and
+`John Wick - UHD.mkv`) group into one title on the next library scan. Grouping
+stays within a directory and episode identity; theatrical/extended/director cuts
+are not guessed as interchangeable. Existing primary catalog identity is retained.
+Each catalog file carries `version_id` (its relative path) and `version_name`.
+
+Playback info, source sessions, subtitle/font resources and timeline previews
+accept an optional `version_id` selected only from that title's catalog files.
+Existing library-root/path authorization still applies. Detail/player selectors
+show available versions; audio, subtitles, chapters and probes belong to the
+selected physical file. Original playback still serves the same source bytes.
+
+The existing per-user watch JSON saves the current version alongside its position,
+audio/subtitle indices and subtitle delay. Resume selects that version first.
+An explicit different version begins at zero and discards incompatible indices;
+missing remembered files fall back with a notice. Series language preferences may
+still match tracks by characteristics. No database migration or media rewrite is
+needed; older clients without a version use the default catalog file.
