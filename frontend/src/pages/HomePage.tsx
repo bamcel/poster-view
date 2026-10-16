@@ -11,7 +11,7 @@ import {useQueries, useQuery} from "@tanstack/react-query";
 import LibraryPosterStrip from "../components/LibraryPosterStrip";
 import {nativeLibraries, type NativeLibrary} from "../api/nativeLibraries";
 import DashboardPage from "./DashboardPage";
-import HomeDiscovery, {FeaturedTitle} from "../components/HomeDiscovery";
+import HomeDiscovery, {FeaturedTitle} from "../components/HomeExperience";
 import {nativeCatalogView} from "../lib/nativeCatalogView";
 import {groupHomeTitles} from "../lib/homeTitleGroups";
 
@@ -34,7 +34,7 @@ function LibraryHome(){
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
  const featured=!term&&titles.length>0;
  return <main className="relative h-full overflow-y-auto pb-8">
-  <header className={featured?"absolute inset-x-0 top-0 z-10 px-5 pt-5 sm:px-8 md:px-12":"mb-3 flex flex-col gap-7 px-5 pt-5 sm:px-8 md:gap-10 md:px-12"}>
+  <header className="mb-3 flex flex-col gap-7 px-5 pt-5 sm:px-8 md:gap-10 md:px-12">
    <h1 className={featured?"sr-only":"order-2 text-2xl font-semibold text-white"}>{term?"Search results":"My Media"}</h1>
   <div role="search" className="order-1 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
    <div className="relative col-start-2 mx-auto w-full max-w-[21rem]">
