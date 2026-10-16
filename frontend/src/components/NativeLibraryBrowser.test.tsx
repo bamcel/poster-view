@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import NativeLibraryBrowser from "./NativeLibraryBrowser";
+import {collectionsApi} from "../features/collections/client";
+vi.mock("../features/collections/client",async original=>{const module=await original<typeof import("../features/collections/client")>();module.collectionsApi.list=vi.fn(async()=>[]);module.collectionsApi.preferences=vi.fn(async()=>({group_collections:false}));module.collectionsApi.setPreferences=vi.fn(async(_id,input)=>input);return module;});
 vi.mock("../lib/artworkPlugin",()=>({useArtworkPlugin:vi.fn(()=>({data:{enabled:true}}))}));
 vi.mock("../lib/libraryDisplay",()=>({useTrackingOverlays:()=>[true,vi.fn(),{coloredEffect:"both",coloredTitle:true}]}));
 vi.mock("./ArtworkPanel", () => ({default: ({serverId, item}: {serverId:number;item:import("../types").ItemDetail}) => <div data-testid="shared-artwork" data-server={serverId} data-item={item.id} data-seasons={item.seasons.map(s=>s.id).join(",")}>Shared artwork lookup</div>}));
@@ -97,6 +99,8 @@ function mount(url = "/", selectedLibrary = library) {
   );
 }
 beforeEach(() => {
+  vi.mocked(collectionsApi.list).mockResolvedValue([]);
+  vi.mocked(collectionsApi.preferences).mockResolvedValue({group_collections:false});
   vi.mocked(nativeLibraries.summaries).mockImplementation(id=>nativeLibraries.catalog(id));
   vi.mocked(nativeLibraries.item).mockImplementation(async (_library,id)=>{const result=vi.mocked(nativeLibraries.catalog).mock.results.at(-1);const entries=await result?.value as NativeCatalogEntry[];const entry=entries?.find(entry=>entry.id===id);if(!entry)throw new Error("Missing test item");return entry;});
   HTMLDialogElement.prototype.showModal = function () {
@@ -128,6 +132,56 @@ function alphabeticalTitles(sorttitle?: string): NativeCatalogEntry[] {
     metadata: { title, ...(title.startsWith("The ") && sorttitle != null ? {sorttitle} : {}) },
   }));
 }
+it("retains selected titles while filtering and clears selection with Escape",async()=>{
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue(alphabeticalTitles());
+  mount();
+  fireEvent.click(await screen.findByRole("button",{name:"Select Blue Box"}));
+  fireEvent.change(screen.getByRole("textbox",{name:"Search titles"}),{target:{value:"Dandadan"}});
+  expect(screen.getByRole("toolbar",{name:"Library selection"}).textContent).toContain("1 selected (1 hidden by filters)");
+  fireEvent.click(screen.getByRole("button",{name:"Select all visible"}));
+  expect(screen.getByRole("toolbar").textContent).toContain("2 selected");
+  fireEvent.keyDown(window,{key:"Escape"});
+  expect(screen.queryByRole("toolbar",{name:"Library selection"})).toBeNull();
+});
+it("keeps the duplicate-add result visible after clearing the library selection",async()=>{
+ const collection={id:"group",title:"Anime Collection",overview:"",ordering:"release" as const,revision:1,created_at:"",updated_at:"",members:[{library_id:library.id,item_id:series.id,library_name:library.name,entry:series}]};
+ vi.mocked(collectionsApi.list).mockResolvedValue([collection]);
+ const add=vi.spyOn(collectionsApi,"addMembers").mockResolvedValue({collection,added:0,existing:1});
+ mount();
+ fireEvent.click(await screen.findByRole("button",{name:"Select Example Series"}));
+ fireEvent.click(screen.getByRole("button",{name:"Add to collection…"}));
+ fireEvent.click(await screen.findByLabelText(/Anime Collection/));
+ fireEvent.click(screen.getByRole("button",{name:"Add titles"}));
+ expect((await within(screen.getByRole("dialog",{name:"Add to collection"})).findByRole("status")).textContent).toContain("0 added, 1 already included");
+ expect(screen.getByRole("dialog",{name:"Add to collection"})).toBeTruthy();
+ expect(screen.queryByRole("toolbar",{name:"Library selection"})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Done"}));
+ expect(screen.queryByRole("dialog",{name:"Add to collection"})).toBeNull();
+ add.mockRestore();
+});
+
+it("groups collection members only when enabled and restores individual search matches",async()=>{
+  const entries=alphabeticalTitles();
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue(entries);
+  vi.mocked(collectionsApi.preferences).mockResolvedValue({group_collections:true});
+  vi.mocked(collectionsApi.list).mockResolvedValue([{id:"group",title:"Anime Collection",overview:"",ordering:"release",revision:1,created_at:"",updated_at:"",members:entries.slice(0,2).map(entry=>({library_id:library.id,item_id:entry.id,library_name:library.name,entry}))}]);
+  mount();
+  await screen.findByRole("link",{name:/Anime Collection/});
+  expect(screen.queryByRole("button",{name:"Select Dandadan"})).toBeNull();
+  fireEvent.change(screen.getByRole("textbox",{name:"Search titles"}),{target:{value:"Dandadan"}});
+  expect(screen.getByRole("button",{name:"Select Dandadan"})).toBeTruthy();
+  expect(screen.queryByRole("link",{name:/Anime Collection/})).toBeNull();
+});
+it("saves grouping preference to the library account preference endpoint",async()=>{
+  mount();
+  await screen.findByRole("button",{name:"Select Example Series"});
+  fireEvent.click(screen.getByRole("button",{name:"Library preferences"}));
+  const checkbox=await screen.findByRole("checkbox",{name:"Group titles into collections"});
+  await waitFor(()=>expect((checkbox as HTMLInputElement).disabled).toBe(false));
+  fireEvent.click(checkbox);
+  await waitFor(()=>expect(collectionsApi.setPreferences).toHaveBeenCalledWith(library.id,{group_collections:true}));
+  await waitFor(()=>expect((checkbox as HTMLInputElement).checked).toBe(true));
+});
 it.each(["anime", "shows", "movies", "books"] as const)("sorts %s titles after The while keeping the displayed title", async (library_type) => {
   const kind = library_type === "books" ? "book_series" : library_type === "movies" ? "movie" : "series";
   vi.mocked(nativeLibraries.catalog).mockResolvedValue(alphabeticalTitles().map(entry => ({...entry, kind})));
@@ -710,4 +764,71 @@ it("filters missing banners independently of landscape and backdrop artwork",asy
  expect(screen.getByText("Needs banner")).toBeTruthy();
  fireEvent.change(screen.getByLabelText("Filter by artwork"),{target:{value:"all"}});
  expect(screen.getByText("Has banner")).toBeTruthy();
+});
+
+function expectDocumentOrder(...elements: Element[]) {
+ for(let index=1;index<elements.length;index++) {
+  expect(elements[index-1].compareDocumentPosition(elements[index]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ }
+}
+
+it.each(["movie","season","episode"] as const)("orders %s detail content from synopsis through people and About to media information",async kind=>{
+ const base=kind==="season"?season:kind==="episode"?episode:{...series,kind:"movie"};
+ const selected={...base,metadata:{...base.metadata,plot:"Selected title synopsis",characters:[{name:"Story Character"}],credits:[{name:"Screen Actor",role:"Lead",category:"cast"}]},files:[{path:"selected-title.mkv",size:1024,extension:"mkv"}]};
+ const sibling={...episode,id:"next",title:"Next Episode",path:`${season.path}/S01E02.mkv`,metadata:{season:1,episode:2}};
+ const records=kind==="movie"?[selected]:[series,season,episode,sibling].map(entry=>entry.id===selected.id?selected:entry);
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue(records);
+ mount(`/?native_library=native&native_item=${selected.id}`,{...library,library_type:kind==="movie"?"movies":"shows"});
+ const characterHeading=await screen.findByRole("heading",{name:"Characters"});
+ const castHeading=screen.getByRole("heading",{name:"Cast and crew"});
+ const aboutHeading=screen.getByRole("heading",{name:"About"});
+ const mediaHeading=screen.getByRole("heading",{name:kind==="episode"?"Media Info":"Media information"});
+ const synopsis=screen.getAllByText("Selected title synopsis")[0];
+ const related=kind==="season"?[screen.getByRole("heading",{name:"Episodes"})]:kind==="episode"?[screen.getByRole("heading",{name:"More from Season 1"})]:[];
+ expectDocumentOrder(synopsis,...related,characterHeading,castHeading,aboutHeading,mediaHeading);
+ expect(screen.getByText("Story Character")).toBeTruthy();
+ expect(screen.getByText("Screen Actor")).toBeTruthy();
+ expect(screen.getByText("selected-title.mkv")).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Edit Metadata"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Edit Images"})).toBeTruthy();
+});
+
+it("keeps anime seasons, character profiles, original and dub casts in their canonical detail order",async()=>{
+ const anime={...series,metadata:{...series.metadata,plot:"Anime layout synopsis",country_of_origin:"JP",voice_cast_schema:1,characters:[{name:"Story Character",biography:"A character biography"}],voice_cast:[{name:"Original Actor",language:"Japanese",role:"Lead"},{name:"Dub Actor",language:"English",role:"Lead"}],credits:[{name:"Production Director",role:"Director",category:"crew"}]},files:[{path:"series-media.mkv",size:1024,extension:"mkv"}]};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([anime,season,episode]);
+ mount("/?native_library=native&native_item=show");
+ const japanese=await screen.findByRole("heading",{name:"Japanese Cast"});
+ expectDocumentOrder(screen.getAllByText("Anime layout synopsis")[0],screen.getByRole("heading",{name:"Seasons"}),screen.getByRole("heading",{name:"Characters"}),japanese,screen.getByRole("heading",{name:"English Cast"}),screen.getByRole("heading",{name:"About"}),screen.getByRole("heading",{name:"Media information"}));
+ expect(screen.queryByRole("heading",{name:"Cast and crew"})).toBeNull();
+ expect(screen.getByText("Original Actor")).toBeTruthy();
+ expect(screen.getByText("Dub Actor")).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Edit dub credits for English Cast"})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Preview Story Character"}));
+ expect(screen.getByRole("region",{name:"Profile of Story Character"})).toBeTruthy();
+});
+
+it.each(["series","movie","season","episode"] as const)("preserves the About visibility policy for a missing %s",async kind=>{
+ const base=kind==="season"?season:kind==="episode"?episode:{...series,kind};
+ const selected={...base,metadata:{...base.metadata,missing:true,plot:"Missing layout synopsis"}};
+ const records=kind==="series"||kind==="movie"?[selected]:[series,season,episode].map(entry=>entry.id===selected.id?selected:entry);
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue(records);
+ mount(`/?native_library=native&native_item=${selected.id}`,{...library,library_type:"shows"});
+ await screen.findAllByText("Missing layout synopsis");
+ expect(!!screen.queryByRole("heading",{name:"About"})).toBe(kind==="series");
+});
+
+it("keeps book volume navigation and metadata controls before character details without a video About section",async()=>{
+ const root={...series,kind:"book_series",metadata:{plot:"Book layout synopsis",publisher:"Viz",year:2020,volumes:2,characters:[{name:"Book Character"}],credits:[{name:"Book Author",category:"cast"}]}};
+ const volume={...series,id:"volume",kind:"book",path:`${series.path}/Volume 1.cbz`,parent_path:series.path,title:"Volume One",metadata:{volume:1}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([root,volume]);
+ mount("/?native_library=native&native_item=show",{...library,library_type:"books"});
+ const volumes=await screen.findByRole("heading",{name:"Volumes"});
+ expectDocumentOrder(screen.getAllByText("Book layout synopsis")[0],volumes,screen.getByRole("heading",{name:"Characters"}));
+ expect(screen.getByRole("textbox",{name:"Search volumes and chapters"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:/Read Volume One/})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Fetch Metadata"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Identify"})).toBeTruthy();
+ expect(screen.getByRole("button",{name:"Edit Metadata"})).toBeTruthy();
+ expect(screen.queryByRole("heading",{name:"About"})).toBeNull();
+ expect(screen.queryByRole("heading",{name:"Cast and crew"})).toBeNull();
 });

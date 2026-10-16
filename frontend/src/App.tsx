@@ -13,6 +13,8 @@ const ItemDetailPage = lazy(() => import("./pages/ItemDetailPage"));
 const SeasonDetailPage = lazy(() => import("./pages/SeasonDetailPage"));
 const PlayerPage = lazy(() => import("./features/playback/PlayerPage"));
 const VirtualTvPage = lazy(() => import("./features/virtual-tv/VirtualTvPage"));
+const CollectionsPage = lazy(() => import("./features/collections/CollectionsPage"));
+const CollectionPage = lazy(() => import("./features/collections/CollectionPage"));
 const VirtualTvPlayer = lazy(() => import("./features/virtual-tv/VirtualTvPlayer"));
 const ReaderPage = lazy(() => import("./pages/ReaderPage"));
 
@@ -30,6 +32,8 @@ export default function App() {
             <Route path="/reader/:bookId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
             <Route element={<Layout />}>
               <Route path="/" element={<HomePage />} />
+              <Route path="/collections" element={<Suspense fallback={<p role="status" className="p-8">Loading collections…</p>}><CollectionsPage /></Suspense>} />
+              <Route path="/collections/:id" element={<Suspense fallback={<p role="status" className="p-8">Loading collection…</p>}><CollectionPage /></Suspense>} />
               <Route path="/virtual-tv" element={<Suspense fallback={<p className="p-8">Loading guide…</p>}><VirtualTvPage /></Suspense>} />
               <Route path="/media/:libraryId" element={<DashboardPage />} />
               <Route path="/media/:libraryId/:itemSlug" element={<DashboardPage />} />

@@ -9,6 +9,7 @@ use tower_http::{
 
 mod access;
 mod auth;
+mod collections;
 mod config;
 mod episode_order;
 mod error;

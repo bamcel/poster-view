@@ -11,7 +11,7 @@ import {nativeLibraries} from "../api/nativeLibraries";
 // App chrome: contextual media/settings navigation and account controls.
 
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { ArrowLeft, LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, MoreHorizontal, Menu, X, } from "lucide-react";
+import { LibraryBig, ArrowLeft, LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, MoreHorizontal, Menu, X, } from "lucide-react";
 import { Logo } from "./ui";
 import { api } from "../api/client";
 import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -133,6 +133,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
             </NavLink>
           ))}
           {!settingsOpen && <>
+          {!preview&&<NavLink to="/collections" className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${isActive?"bg-elevated text-white":"text-muted hover:bg-input-hover hover:text-white"}`}><LibraryBig className="size-[18px]"/>Collections</NavLink>}
           {<><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Media</h2>{libraries.data?.map(library=>{const Icon=library.library_type==="books"?BookOpen:library.library_type==="movies"?Film:Tv;return <NavLink key={library.id} onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={preview ? `/media/${encodeURIComponent(library.id)}` : libraryPath(library,libraries.data??[])} className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${(preview ? previewPath === `/media/${encodeURIComponent(library.id)}` : isActive) ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/><span className="truncate">{library.name}</span></NavLink>;})}</>}
           {!preview&&virtualTvSettings.data?.enabled&&<NavLink to="/virtual-tv" className={({isActive})=>`mt-3 flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${isActive?"bg-elevated text-white":"text-muted hover:bg-input-hover hover:text-white"}`}><Tv className="size-[18px]"/>Virtual TV</NavLink>}
           </>}

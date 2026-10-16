@@ -1,6 +1,7 @@
 import AnimatedArtwork from "../components/AnimatedArtwork";
 import {connectedBackdropUrl} from "../lib/backdropFraming";
 import DetailSynopsis from "../components/DetailSynopsis";
+import { LibraryDetailHero, LibraryDetailSection } from "../components/LibraryDetailLayout";
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "../lib/libraryNavigation";
 import { useQuery } from "@tanstack/react-query";
@@ -83,30 +84,28 @@ export default function SeasonDetailPage() {
       <div data-testid="season-backdrop-overlay" className="pointer-events-none absolute inset-0 -z-10" style={{ backgroundImage: backdropOverlayGradients(overlayStrength).desktop }} />
     </>}
     <div ref={scroller} className="h-full overflow-y-auto">
-    <div className="px-4 pb-4 pt-5 sm:px-6 lg:px-10">
+    <div className="px-4 pt-5 sm:px-6 lg:px-10">
       <div>
         <nav className="mb-4 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3" aria-label="Season navigation">
           <Link aria-label="Back to series" className="grid size-10 place-items-center rounded-full border border-border bg-black/20 text-muted hover:text-white" to={seriesUrl}><ArrowLeft className="size-4" /></Link>
           <div role="search" className="relative mx-auto w-full max-w-[21rem]"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" /><input aria-label="Search episodes" placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm" /></div>
         </nav>
-        {seasonQ.isPending ? <div role="status" className="flex min-h-64 items-center justify-center gap-3 text-muted"><Layers3 className="size-6 animate-pulse" />Loading season…</div> : seasonQ.isError ? <div role="alert" className="rounded-2xl border border-danger/30 bg-base/80 p-8"><h1 className="text-xl font-semibold">Unable to load this season</h1><p className="mt-2 text-muted">{seasonQ.error.message}</p><button className="mt-4 text-accent" onClick={() => void seasonQ.refetch()}>Try again</button></div> : season && <div className="flex flex-row items-start gap-5 sm:gap-8 lg:gap-9">
-          <div className="aspect-[2/3] w-28 shrink-0 overflow-hidden rounded-xl shadow-2xl shadow-black/50 sm:w-[25%] sm:max-w-[328px]"><Artwork src={imageUrl(serverId, season.poster || series?.seasons.find(s => s.id === season.id)?.poster || series?.poster)} alt={`${season.title} poster`} /></div>
-          <div className="min-w-0 flex-1 pt-2">
+        {seasonQ.isPending ? <div role="status" className="flex min-h-64 items-center justify-center gap-3 text-muted"><Layers3 className="size-6 animate-pulse" />Loading season…</div> : seasonQ.isError ? <div role="alert" className="rounded-2xl border border-danger/30 bg-base/80 p-8"><h1 className="text-xl font-semibold">Unable to load this season</h1><p className="mt-2 text-muted">{seasonQ.error.message}</p><button className="mt-4 text-accent" onClick={() => void seasonQ.refetch()}>Try again</button></div> : season && <LibraryDetailHero
+          artwork={<Artwork src={imageUrl(serverId, season.poster || series?.seasons.find(s => s.id === season.id)?.poster || series?.poster)} alt={`${season.title} poster`} />}
+          synopsis={<DetailSynopsis lines={8} key={season.id} text={season.summary || series?.summary} />}
+        >
             <Link to={seriesUrl} className="text-xl font-semibold text-white hover:text-accent sm:text-3xl">{series?.logo ? <img src={imageUrl(serverId, series.logo)} alt={series.title} className="max-h-24 max-w-full object-contain object-left sm:max-w-[400px]" /> : series?.title || "Series"}</Link>
 
             <h1 className="mt-3 text-xl font-semibold leading-tight sm:text-2xl">{season.title}</h1>
             <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-white/75">{season.index === 0 && <span>Specials</span>}{period && <span>{period}</span>}<span className="media-detail-pill inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5"><Layers3 className="size-3.5" />{episodes.length} {episodes.length === 1 ? "episode" : "episodes"}</span></div>
             <div className="mt-4"><button aria-label="Refresh season" title="Refresh season" disabled={seasonQ.isFetching} className="rounded-full border border-white/15 p-2.5 text-white/70 hover:bg-white/10 disabled:opacity-40" onClick={() => { void seasonQ.refetch(); void seriesQ.refetch(); }} data-icon-button="true"><RefreshCw className={`size-4 ${seasonQ.isFetching ? "animate-spin" : ""}`} /></button></div>
-            <div className="hidden sm:block"><DetailSynopsis lines={8} key={season.id} text={season.summary || series?.summary} /></div>
-          </div>
-        </div>}
-        {season && <div className="sm:hidden"><DetailSynopsis lines={8} key={season.id} text={season.summary || series?.summary} /></div>}
+        </LibraryDetailHero>}
       </div>
     </div>
-    {season && <section aria-labelledby="season-episodes-title" className="px-4 pb-12 pt-6 sm:px-6 lg:px-10">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4"><div><h2 id="season-episodes-title" className="text-xl font-semibold">Episodes</h2></div><div className="flex flex-wrap gap-3">{(series?.seasons.length ?? 0) > 1 && <label className="sr-only" htmlFor="season-picker">Select season</label>}{(series?.seasons.length ?? 0) > 1 && <SeasonPicker seasons={series!.seasons} current={seasonId} serverId={serverId} seriesId={seriesId} suffix={suffix} />}</div></div>
+    {season && <div className="px-4 pb-10 sm:px-6 lg:px-10"><LibraryDetailSection labelledBy="season-episodes-title">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-4"><div><h2 id="season-episodes-title" className="text-xl font-semibold">Episodes</h2></div><div className="flex flex-wrap gap-3">{(series?.seasons.length ?? 0) > 1 && <label className="sr-only" htmlFor="season-picker">Select season</label>}{(series?.seasons.length ?? 0) > 1 && <SeasonPicker seasons={series!.seasons} current={seasonId} serverId={serverId} seriesId={seriesId} suffix={suffix} />}</div></div>
       {!episodes.length ? <div className="rounded-2xl border border-dashed border-border py-16 text-center"><Film className="mx-auto mb-3 size-9 text-faint" /><h3>No episodes available</h3><p className="mt-2 text-sm text-muted">Episodes will appear here once your media server has indexed them.</p></div> : !filtered.length ? <p role="status" className="py-12 text-center text-muted">No episodes match “{search}”.</p> : <div className="space-y-5">{filtered.map(episode => <EpisodeCard key={`${season.id}:${episode.id}`} episode={episode} serverId={serverId} />)}</div>}
-    </section>}
+    </LibraryDetailSection></div>}
   </div></div>;
 }
 

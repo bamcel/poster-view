@@ -1,3 +1,4 @@
+import {LibraryDetailSection} from "./LibraryDetailLayout";
 import {Film, AudioLines, Captions, Paperclip} from "lucide-react";
 import type {NativeCatalogEntry} from "../api/nativeLibraries";
 
@@ -37,11 +38,11 @@ function StreamCard({stream}:{stream:Record<string,unknown>}) {
  </article>;
 }
 export default function EpisodeMediaInfo({files}:{files:NativeCatalogEntry["files"]}) {
- return <section className="mt-8" aria-label="Media information"><h2 className="mb-4 text-xl font-semibold">Media Info</h2>
+ return <LibraryDetailSection label="Media information"><h2 className="mb-4 text-xl font-semibold">Media Info</h2>
  {files.map(file=><div key={file.path} className="mb-6">
   <p className="break-all text-sm">{file.path}</p><p className="mb-4 mt-1 text-[13px] text-muted">{file.extension.toUpperCase()} · {(file.size/1024/1024).toFixed(1)} MB</p>
   <div className="flex items-stretch gap-3 overflow-x-auto pb-3">{file.media_info?.streams?.map((stream,index)=><StreamCard key={index} stream={stream}/>)}</div>
   {!file.media_info?.streams?.length&&<p className="text-sm text-muted">Track information is not available. Scan library files to collect media information.</p>}
  </div>)}
- </section>;
+ </LibraryDetailSection>;
 }

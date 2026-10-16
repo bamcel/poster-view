@@ -305,6 +305,7 @@ impl ServerStore {
             "year",
             "plot",
             "premiered",
+            "release_date",
             "aired",
             "rating",
             "userrating",

@@ -758,6 +758,7 @@ mod tests {
         assert_eq!(store.list_history(None, None, None, None).unwrap().len(), 2);
     }
 }
+mod collections;
 mod native;
 mod users;
 

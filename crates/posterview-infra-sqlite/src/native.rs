@@ -150,6 +150,17 @@ INSERT INTO schema_migrations(version,name) VALUES(2,'native_scan_options_and_ar
     )?;
     tx.commit()?;
     migrate_youtube(db)?;
+    let tx = db.unchecked_transaction()?;
+    let collections_applied: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=4)",
+        [],
+        |row| row.get(0),
+    )?;
+    if !collections_applied {
+        tx.execute_batch(crate::collections::SCHEMA)?;
+        tx.execute("INSERT INTO schema_migrations(version,name) VALUES(4,'collections_and_library_grouping')", [])?;
+    }
+    tx.commit()?;
     Ok(())
 }
 

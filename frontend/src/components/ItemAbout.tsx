@@ -1,3 +1,4 @@
+import {LibraryDetailSection} from "./LibraryDetailLayout";
 import { ExternalLink, Info } from "lucide-react";
 import type { ItemDetail } from "../types";
 
@@ -32,10 +33,10 @@ export function providerLinks(item: ItemDetail) {
 export default function ItemAbout({ item }: { item: ItemDetail }) {
   const links = providerLinks(item);
   const groups = [["Genres", item.genres ?? []], ["Tags", item.tags ?? []], ["Studios", item.studios ?? []]] as const;
-  return <section aria-labelledby="item-about-title" className="mt-10">
+  return <LibraryDetailSection labelledBy="item-about-title">
     <h2 id="item-about-title" className="mb-5 flex items-center gap-2 text-lg font-semibold"><Info className="size-4 text-muted" aria-hidden="true" />About</h2>
     <dl className="space-y-5">{groups.map(([label, values]) => <div key={label}><dt className="mb-2 text-xs font-semibold text-muted">{label}</dt><dd className="flex flex-wrap gap-2">{values.length ? values.map(value => <span key={value} className="media-detail-pill max-w-full break-words rounded-lg border px-2.5 py-1 text-xs leading-relaxed">{value}</span>) : <span className="text-xs text-faint">Not provided</span>}</dd></div>)}
       <div><dt className="mb-2 text-xs font-semibold text-muted">Links</dt><dd className="flex flex-wrap gap-2">{links.length ? links.map(link => <a key={link.label} href={link.href} target="_blank" rel="noopener noreferrer" className="media-detail-pill inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs leading-relaxed transition-colors">{link.label}<ExternalLink className="size-3" aria-hidden="true" /></a>) : <span className="text-xs text-faint">No provider links available</span>}</dd></div>
     </dl>
-  </section>;
+  </LibraryDetailSection>;
 }

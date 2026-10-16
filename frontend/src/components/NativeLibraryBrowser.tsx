@@ -1,4 +1,10 @@
+import LibraryDetailLayout, {LibraryDetailHero, LibraryDetailSection} from "./LibraryDetailLayout";
 import CharacterHoverCard from "./CharacterHoverCard";
+import LibrarySelection, {useLibrarySelection} from "../features/collections/LibrarySelection";
+import {collectionsApi,useCollections,useCollectionAccount} from "../features/collections/client";
+import {groupLibraryTitles} from "../features/collections/grouping";
+import CollectionCard from "../features/collections/CollectionCard";
+import CollectionMembershipDialog from "../features/collections/CollectionMembershipDialog";
 import {sizedArtwork} from "../lib/artworkSizes";
 import {compareEpisodeOrder,placedSpecials} from "../lib/episodeOrder";
 import { nativeArtworkVersion } from "../lib/nativeArtworkCache";
@@ -27,7 +33,6 @@ import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "../lib/libraryNavigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft,
   Database,
   Film,
   Images,
@@ -247,6 +252,13 @@ export default function NativeLibraryBrowser({
   library: NativeLibrary;
 }) {
   const isAdmin=useIsAdmin();
+  const collectionAccount=useCollectionAccount();
+  const collections=useCollections(library.id);
+  const collectionPreference=useQuery({queryKey:["collections",collectionAccount,"preferences",library.id],queryFn:()=>collectionsApi.preferences(library.id)});
+  const [collectionError,setCollectionError]=useState("");
+  const [savingCollectionPreference,setSavingCollectionPreference]=useState(false);
+  const [membershipOpen,setMembershipOpen]=useState(false);
+  useEffect(()=>setMembershipOpen(false),[collectionAccount,library.id]);
   const { enabled: backdropView } = useBackdropView(library.id);
   const [, , bookDisplay] = useTrackingOverlays(library.library_type === "books");
   const {hoverOnly}=useAnimatedArtworkPreference(library.id);
@@ -400,6 +412,21 @@ export default function NativeLibraryBrowser({
           ? (number(b.metadata.year) ?? 0) - (number(a.metadata.year) ?? 0)
           : (number(a.metadata.year) ?? 0) - (number(b.metadata.year) ?? 0),
     );
+  const selectable=visible.filter(entry=>["movie","series"].includes(entry.kind)&&entry.available&&entry.metadata.missing!==true);
+  const selection=useLibrarySelection(`${collectionAccount}:${library.id}`,selectable.map(entry=>entry.id),isAdmin&&!selected);
+  const groupEnabled=collectionPreference.data?.group_collections===true&&!search.trim()&&artFilter==="all"&&metadataFilter==="all"&&!selection.active;
+  const grouped=groupEnabled?groupLibraryTitles(visible,collections.data??[],library.id):{collections:[],entries:visible};
+  const gridItems=[...grouped.entries.map(entry=>({entry,collection:undefined})),...grouped.collections.map(collection=>({entry:undefined,collection}))].sort((a,b)=>{
+    const aTitle=a.entry?.title??a.collection!.title,bTitle=b.entry?.title??b.collection!.title;
+    if(sort==="title")return titleSortKey(aTitle,a.entry?.metadata.sorttitle).localeCompare(titleSortKey(bTitle,b.entry?.metadata.sorttitle));
+    const year=(item:typeof a)=>{if(item.entry)return number(item.entry.metadata.year)??0;const years=item.collection!.members.map(member=>number(member.entry.metadata.year)).filter((year):year is number=>year!=null);return years.length?Math.min(...years):0;};
+    return sort==="newest"?year(b)-year(a):year(a)-year(b);
+  });
+  const saveGrouping=async(value:boolean)=>{
+    setSavingCollectionPreference(true);setCollectionError("");
+    try{const result=await collectionsApi.setPreferences(library.id,{group_collections:value});client.setQueryData(["collections",collectionAccount,"preferences",library.id],result);}
+    catch(error){setCollectionError((error as Error).message);}finally{setSavingCollectionPreference(false);}
+  };
   const updated = () => {
     if(editor) void client.invalidateQueries({queryKey:["item-detail0",0,`native:${library.id}:${editor.id}`]});
     void client.invalidateQueries({ queryKey: ["native-catalog", library.id] });
@@ -538,19 +565,28 @@ export default function NativeLibraryBrowser({
                   </label>
               </LibraryPopup>
               <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style} editorStyle>
-                <div className="space-y-7"><LibraryViewPreferences library={library.id}/>
+                <div className="space-y-7">
+                {library.library_type!=="books"&&<label className="flex items-center justify-between gap-3 text-sm">Group titles into collections<input type="checkbox" checked={collectionPreference.data?.group_collections===true} disabled={collectionPreference.isPending||savingCollectionPreference} onChange={event=>void saveGrouping(event.target.checked)}/></label>}
+                {isAdmin&&library.library_type!=="books"&&<button type="button" className="rounded-full border border-border px-3 py-2 text-sm" onClick={event=>{event.currentTarget.closest("dialog")?.close();selection.start();}}>Select titles</button>}
+                {collectionError&&<p role="alert" className="text-sm text-danger">{collectionError}</p>}
+                <LibraryViewPreferences library={library.id}/>
                 <ArtworkPreferences library={library.id}/>{library.library_type === "books" && <BookPreferences/>}{library.library_type === "anime" && <AnimePreferences library={library.id}/>} {(["shows","movies"].includes(library.library_type))&&<VideoPreferences library={library.id}/>}</div>
               </LibraryPopup>
             </div>
             {status.data?.status === "scanning" && status.data.show_progress !== false ? <aside aria-label="Library scan progress" className="w-full min-w-0 lg:ml-auto lg:max-w-80"><NativeScanProgress status={status.data} compact/></aside> : <div aria-hidden="true" className="hidden lg:block"/>}
           </div>
           <div className="scrollbar-hidden relative z-10 min-h-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6 lg:px-8">
+            {collectionPreference.data?.group_collections&&collections.isError&&<p role="alert" className="mb-3 text-sm text-muted">Collections could not be loaded. Showing individual titles. <button type="button" className="underline" onClick={()=>void collections.refetch()}>Retry collections</button></p>}
+            {selection.active&&<LibrarySelection count={selection.ids.size} hidden={selection.hidden} onAll={selection.selectAll} onClear={selection.clear} onAdd={()=>setMembershipOpen(true)}/>}
             <div className="mb-4 flex items-center justify-between text-xs text-faint">
-              <span>{visible.length} titles</span>
+              <span>{grouped.collections.length?`${grouped.entries.length} titles · ${grouped.collections.length} collections`:`${visible.length} titles`}</span>
             </div>
             <div className={backdropView ? backdropGrid : posterGrid}>
-              {visible.map((entry) => (
+              {gridItems.map(({entry,collection}) => collection?<CollectionCard key={`collection-${collection.id}`} collection={collection} backdropView={backdropView}/>:entry&&(
                 <PosterCard
+                  selected={selection.ids.has(entry.id)}
+                  selectionMode={selection.active}
+                  onSelect={isAdmin&&selectable.some(item=>item.id===entry.id)?range=>selection.toggle(entry.id,range):undefined}
                   animationOnHover={hoverOnly}
                   key={entry.id}
                   coloredEffect={library.library_type === "books" && String(entry.metadata.edition ?? "").trim().toLowerCase() === "colored" ? bookDisplay.coloredEffect : "off"}
@@ -590,6 +626,7 @@ export default function NativeLibraryBrowser({
           </div>
         </>
       )}
+      {membershipOpen&&isAdmin&&<CollectionMembershipDialog members={[...selection.ids].map(item_id=>({library_id:library.id,item_id}))} onClose={()=>setMembershipOpen(false)} onSaved={()=>{selection.clear();}}/>}
       {isAdmin && editEntry && (editor?.kind === "artwork" ? (
         artworkEnabled && <div className="pointer-events-none fixed inset-0 z-50 bg-transparent">
           <section aria-label={`Artwork for ${editEntry.title}`} className="pointer-events-auto ml-auto h-full w-full max-w-md shadow-2xl" onClick={event => event.stopPropagation()}>
@@ -679,7 +716,6 @@ function NativeDetail({
   const bookUnit = children.length > 0 && children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapter" : "Volume";
   const isSeries = entry.kind === "series" || entry.kind === "season";
   const isEpisode = entry.kind === "episode";
-  const isPosterDetail = isSeries || isBookSeries || entry.kind === "movie";
   const playable = entry.available && ["episode","movie"].includes(entry.kind) && entry.files.length>0;
   const siblings=isEpisode?entries.filter(sibling=>sibling.available&&sibling.kind==="episode"&&sibling.parent_path===entry.parent_path&&sibling.id!==entry.id&&showMissingEntry(library,sibling)).sort((a,b)=>(number(a.metadata.episode)??0)-(number(b.metadata.episode)??0)):[];
   const streams=entry.files[0]?.media_info?.streams??[];
@@ -768,45 +804,21 @@ function NativeDetail({
           </div>
         </LibraryBackdrop>
       )}
-      <div className={`media-detail ${isEpisode?"episode-detail":""} scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain`}>
-        <div className="relative min-h-full">
-          <div className="absolute inset-x-5 top-5 z-10 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
-            <button onClick={back} aria-label="Back" className="grid place-items-center" data-icon-button="true">
-              <ArrowLeft className="size-5" />
-            </button>
-            {(isBookSeries || entry.kind === "season") && <div role="search" className="relative mx-auto w-full max-w-[21rem]">
+      <LibraryDetailLayout
+        back={back}
+        landscape={isEpisode}
+        toolbar={(isBookSeries || entry.kind === "season") && <div role="search" className="relative mx-auto w-full max-w-[21rem]">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
               <input aria-label={isBookSeries ? "Search volumes and chapters" : "Search episodes"} placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm" style={{backgroundColor:translucentPanelColor("--color-surface-2",panelSolidity(),panelOverlay()),backdropFilter:`blur(${backdropBlur()}px)`}} />
             </div>}
-          </div>
-          <div className="relative z-[1] px-4 pb-8 pt-20 sm:px-6 sm:pb-10 lg:px-10 lg:pt-20">
-            <div
-              className={
-                isPosterDetail
-                  ? "flex flex-row items-start gap-5 sm:gap-8 lg:gap-9"
-                  : isEpisode ? "flex flex-col items-start gap-6 md:flex-row md:gap-9" : "flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6"
-              }
-            >
-              <div
-                className={
-                  isPosterDetail
-                    ? "w-28 shrink-0 sm:w-[25%] sm:max-w-[328px]"
-                    : isEpisode
-                      ? "w-full shrink-0 md:w-[38%] md:max-w-[520px]"
-                      : "w-40 shrink-0 min-[390px]:w-44 sm:w-48 lg:w-56"
-                }
-              >
-                <div
-                  className={`relative ${isEpisode ? "aspect-video" : "aspect-[2/3]"} overflow-hidden rounded-xl bg-surface-2 shadow-2xl shadow-black/50 ring-1 ring-white/10`}
-                >
-                  <Artwork src={poster} width={isEpisode ? 1280 : 640} alt={entry.title} />
+        hero={<LibraryDetailHero landscape={isEpisode}
+          artwork={<>
+            <Artwork src={poster} width={isEpisode ? 1280 : 640} alt={entry.title} />
                   {coloredBook && poster && ["shimmer","both"].includes(bookDisplay.coloredEffect) && <span aria-hidden="true" className="poster-colored-shimmer pointer-events-none absolute inset-0"/>}
                   {coloredBook && ["badge","both"].includes(bookDisplay.coloredEffect) && <span aria-label="Colored edition" className="poster-colored-badge pointer-events-none absolute bottom-2 right-2 rounded-md px-2 py-1 text-[10px] font-bold tracking-wider shadow">COLORED</span>}
-                </div>
-              </div>
-              <div
-                className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isPosterDetail || isEpisode ? "text-left" : "text-center sm:text-left"}`}
-              >
+          </>}
+          synopsis={<DetailSynopsis text={overview} lines={isEpisode?3:8}/>}
+        >
                 <div className="flex flex-wrap items-center gap-3">
                 {isEpisode ? (<><button onClick={()=>series&&open(series)} disabled={!series} className="block text-left" aria-label={series?`Open ${series.title}`:undefined}>{logo?<AnimatedArtwork src={logo} width={640} alt={series?.title??entry.title} className="max-h-20 max-w-[240px] object-contain object-left"/>:<span className="text-2xl font-semibold">{series?.title??"Episode"}</span>}</button><div className="mt-4 flex flex-wrap items-center gap-3"><h1 className="text-[17px] font-medium leading-snug">S{String(entry.metadata.season??parent?.metadata.season??1)}:E{String(entry.metadata.episode??"")} - {entry.title}</h1><AdminOnly><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button></AdminOnly>{artworkPlugin.data?.enabled!==false&&<AdminOnly><button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button></AdminOnly>}<AdminOnly><button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching ? "animate-spin" : ""}`} /></button></AdminOnly></div></>) : logo ? (
                   <AnimatedArtwork
@@ -821,12 +833,12 @@ function NativeDetail({
                     {entry.metadata.missing === true && <span className="ml-3 inline-flex align-middle rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 text-xs text-amber-200">Missing</span>}
                   </h1>
                 )}
-                {isPosterDetail&&<div data-testid="detail-actions" className="flex flex-wrap items-center gap-3">
+                {!isEpisode&&<div data-testid="detail-actions" className="flex flex-wrap items-center gap-3">
                   <AdminOnly><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button></AdminOnly>
                   {artworkPlugin.data?.enabled!==false&&<AdminOnly><button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button></AdminOnly>}
                   <AdminOnly><button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching?"animate-spin":""}`}/></button></AdminOnly>
-                  {isBookSeries&&<AdminOnly><button aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")} className="episode-inline-action"><Database className="size-4"/></button></AdminOnly>}
-                  {isPosterDetail&&<AdminOnly><button aria-label="Identify" title="Identify" onClick={()=>edit("identify")} className="episode-inline-action"><Fingerprint className="size-4"/></button></AdminOnly>}
+                  {entry.kind.startsWith("book")&&<AdminOnly><button aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")} className="episode-inline-action"><Database className="size-4"/></button></AdminOnly>}
+                  {["series","season","movie","book_series","book"].includes(entry.kind)&&<AdminOnly><button aria-label="Identify" title="Identify" onClick={()=>edit("identify")} className="episode-inline-action"><Fingerprint className="size-4"/></button></AdminOnly>}
                 </div>}
                 </div>
                 {entry.kind === "season" && series && (
@@ -840,55 +852,13 @@ function NativeDetail({
                 {isBookSeries ? <p className="mt-2 text-sm text-white/70">{children.filter(e=>e.metadata.missing!==true).length} {children.filter(e=>e.metadata.missing!==true).length === 1 ? bookUnit : `${bookUnit}s`}</p> : isEpisode ? <div aria-label="Title information" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">{detail.rating!=null&&<span>★ {detail.rating.toFixed(1)}</span>}{typeof entry.metadata.aired==="string"&&entry.metadata.aired&&<span>{new Date(`${entry.metadata.aired.slice(0,10)}T12:00:00Z`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric",timeZone:"UTC"})}</span>}{entry.metadata.runtime!=null&&<span>{String(entry.metadata.runtime)}m</span>}{detail.content_rating&&<span className="rounded border border-white/40 px-1.5 text-xs">{detail.content_rating}</span>}</div> : <TitleMetadata item={detail} />}
                 {entry.kind.startsWith("book") && <BookSeriesMetadata unit={isBookSeries ? bookUnit : entry.metadata.chapter!=null && entry.metadata.volume==null ? "Chapter" : "Volume"} metadata={entry.metadata} count={isBookSeries ? children.filter(e=>e.metadata.missing!==true).length : 1}/>}
                 {isEpisode&&episodeTracks.length>0&&<dl aria-label="Episode media tracks" className="mt-4 flex flex-wrap gap-x-6 gap-y-3 text-sm">{episodeTracks.map(track=><div key={track.type} className="flex items-baseline gap-2"><dt className="font-medium capitalize">{track.type==="subtitle"?"Subtitles":track.type}</dt><dd className="text-muted">{track.values.join(" · ")}</dd></div>)}</dl>}
-                {!isEpisode&&!isPosterDetail&&<div
-                  data-testid="detail-actions"
-                  className="mt-4 flex flex-wrap items-center gap-2"
-                >
-                  {!isEpisode&&<AdminOnly><button
-                    className={detailActionClass}
-                    aria-label="Edit Metadata"
-                    title="Edit Metadata"
-                    onClick={() => edit("metadata")}
-                   data-icon-button="true">
-                    <Pencil className="size-4" />
-                  </button></AdminOnly>}
-                  <AdminOnly><button
-                    className={detailActionClass}
-                    aria-label="Refresh"
-                    title="Refresh"
-                    disabled={fetching}
-                    onClick={refresh}
-                   data-icon-button="true">
-                    <RefreshCw
-                      className={`size-4 ${fetching ? "animate-spin" : ""}`}
-                    />
-                  </button></AdminOnly>
-                  {!isEpisode&&artworkPlugin.data?.enabled !== false && <AdminOnly><button
-                    className={detailActionClass}
-                    aria-label="Edit Images"
-                    title="Edit Images"
-                    onClick={() => edit("artwork")}
-                   data-icon-button="true">
-                    <Images className="size-4" />
-                  </button></AdminOnly>}
-                  {entry.kind.startsWith("book") && <AdminOnly><button className={detailActionClass} aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")} data-icon-button="true"><Database className="size-4"/></button></AdminOnly>}
-                  {["series","movie","book_series","book"].includes(entry.kind) && <AdminOnly><button className={detailActionClass} aria-label="Identify" title="Identify" onClick={()=>edit("identify")} data-icon-button="true"><Fingerprint className="size-4"/></button></AdminOnly>}
-                </div>}
                 {playable&&<NativePlaybackActions library={library.id} item={entry.id}/>}
                 {(isSeries||entry.kind==="season")&&<NativeSeriesPlay library={library.id} path={entry.path} entries={entries} includeIds={[...inlineSpecials]} specialsInSeasons={library.options?.show_specials_in_seasons===true}/>}
-                <div className={isPosterDetail ? "hidden sm:block" : "text-left"}>
-                  <DetailSynopsis text={overview} lines={isPosterDetail ? 8 : 3} />
-                </div>
-              </div>
-            </div>
-            {isPosterDetail && (
-              <div className="sm:hidden">
-                <DetailSynopsis text={overview} lines={isPosterDetail ? 8 : 3} />
-              </div>
-            )}
+        </LibraryDetailHero>}
+        related={<>
             {children.some((e) => e.kind !== "episode" && showMissingEntry(library,e)) && (
-              <section className="mt-10">
-                <div className="mb-3">
+              <LibraryDetailSection>
+                <div className="mb-4">
                 <h2 className="text-xl font-semibold">
                   {entry.kind === "series" ? "Seasons" : children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapters" : "Volumes"}
                 </h2>
@@ -912,11 +882,11 @@ function NativeDetail({
                       />
                     ))}
                 </div>
-              </section>
+              </LibraryDetailSection>
             )}
             {children.some((e) => e.kind === "episode" && showMissingEntry(library,e)) && (
-              <section className="mt-10">
-                <h2 className="mb-6 text-xl font-semibold">Episodes</h2>
+              <LibraryDetailSection>
+                <h2 className="mb-4 text-xl font-semibold">Episodes</h2>
                 <div className="space-y-5">
                   {children
                     .filter(
@@ -965,13 +935,14 @@ function NativeDetail({
                       </article>
                     ))}
                 </div>
-              </section>
+              </LibraryDetailSection>
             )}
-            {isEpisode&&siblings.length>0&&<section className="mt-10"><h2 className="mb-4 text-xl font-semibold">More from {parent?.title??`Season ${entry.metadata.season??1}`}</h2><div className="flex gap-5 overflow-x-auto pb-3">{siblings.map(sibling=><button key={sibling.id} aria-label={`Open episode ${sibling.metadata.episode??""}: ${sibling.title}`} onClick={()=>open(sibling)} className="group w-60 shrink-0 text-left sm:w-64"><div className="aspect-video overflow-hidden rounded-lg bg-surface-2"><Artwork src={picture(library,sibling,"thumb")} width={640} alt={`${sibling.title} episode still`}/></div><p className="mt-2 truncate text-sm font-medium">{String(sibling.metadata.episode??"")}. {sibling.title}</p></button>)}</div></section>}
-            {entry.metadata.missing!==true && entry.kind !== "series" && !entry.kind.startsWith("book") && <ItemAbout item={detail} />}
+            {isEpisode&&siblings.length>0&&<LibraryDetailSection><h2 className="mb-4 text-xl font-semibold">More from {parent?.title??`Season ${entry.metadata.season??1}`}</h2><div className="flex gap-5 overflow-x-auto pb-3">{siblings.map(sibling=><button key={sibling.id} aria-label={`Open episode ${sibling.metadata.episode??""}: ${sibling.title}`} onClick={()=>open(sibling)} className="group w-60 shrink-0 text-left sm:w-64"><div className="aspect-video overflow-hidden rounded-lg bg-surface-2"><Artwork src={picture(library,sibling,"thumb")} width={640} alt={`${sibling.title} episode still`}/></div><p className="mt-2 truncate text-sm font-medium">{String(sibling.metadata.episode??"")}. {sibling.title}</p></button>)}</div></LibraryDetailSection>}
+        </>}
+        people={<>
             {(library.library_type !== "anime" || animePreferences.characters) && Array.isArray(entry.metadata.characters) &&
               entry.metadata.characters.length > 0 && (
-                <section className="mt-8">
+                <LibraryDetailSection>
                   <h2 className="mb-4 text-xl font-semibold">Characters</h2>
                   <PeopleRow label="characters">
                     {orderedCharacters(entry.metadata.characters, portraitImages).map((character, i) => (
@@ -982,20 +953,20 @@ function NativeDetail({
                       </CharacterHoverCard>
                     ))}
                   </PeopleRow>
-                </section>
+                </LibraryDetailSection>
               )}
 
             {isAdmin && editingDubs && library.library_type==="anime" && <Modal backdrop={picture(library,entry,"backdrop")} title="Edit Dub Credits" onClose={()=>setEditingDubs(false)}><AnimeDubEditor library={library} entry={entry} onSaved={()=>{setEditingDubs(false);void dubClient.invalidateQueries({queryKey:["native-catalog",library.id]});}}/></Modal>}
-            {animePreferences.casts && voiceCast?.groups.filter((_,index)=> index===0 ? animePreferences.original || (voiceCast.groups.length===1 && animePreferences.dub) : animePreferences.dub).map(group => <section key={group.title} className="mt-8">
+            {animePreferences.casts && voiceCast?.groups.filter((_,index)=> index===0 ? animePreferences.original || (voiceCast.groups.length===1 && animePreferences.dub) : animePreferences.dub).map(group => <LibraryDetailSection key={group.title}>
               <div className="mb-4 flex items-center gap-3"><h2 className="text-xl font-semibold">{group.title}</h2><AdminOnly><button aria-label={`Edit dub credits for ${group.title}`} title="Edit dub credits" className="rounded-full border border-border p-2 text-muted hover:text-white" onClick={()=>setEditingDubs(true)} data-icon-button="true"><Pencil className="size-4"/></button></AdminOnly></div>
               {group.cast.length ? <PeopleRow label={group.title}>{group.cast.map((person, i) => <div key={i} className="w-48 shrink-0 rounded-xl p-4">
                 <PersonPortrait person={person} images={portraitImages} />
                 <p className="text-sm font-medium">{String(person.name ?? "")}</p>
                 <p className="mt-1 text-xs text-muted">{String(person.role ?? "")}</p>
               </div>)}</PeopleRow> : <p className="text-sm text-muted">{group.empty}</p>}
-            </section>)}
+            </LibraryDetailSection>)}
             {library.library_type !== "anime" && library.library_type !== "books" && credits.length > 0 && (
-              <section className="mt-8">
+              <LibraryDetailSection>
                 <h2 className="mb-4 text-xl font-semibold">Cast and crew</h2>
                 <PeopleRow label="cast and crew">
                   {credits.map((credit, i) => (
@@ -1013,10 +984,13 @@ function NativeDetail({
                     </div>
                   ))}
                 </PeopleRow>
-              </section>
+              </LibraryDetailSection>
             )}
+        </>}
+        about={(entry.kind==="series"||entry.metadata.missing!==true)&&!entry.kind.startsWith("book")&&<ItemAbout item={detail}/>}
+        media={<>
             {entry.files.length > 0 && (isEpisode ? <EpisodeMediaInfo files={entry.files}/> : (
-              <section className="mt-8">
+              <LibraryDetailSection>
                 <h2 className="mb-4 text-xl font-semibold">
                   Media information
                 </h2>
@@ -1038,12 +1012,10 @@ function NativeDetail({
                     </p>
                   </div>
                 ))}
-              </section>
+              </LibraryDetailSection>
             ))}
-            {entry.kind === "series" && <ItemAbout item={detail} />}
-          </div>
-        </div>
-      </div>
+        </>}
+      />
     </>
   );
 }

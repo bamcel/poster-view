@@ -6,6 +6,7 @@ import AnimatedArtwork from "../components/AnimatedArtwork";
 import {connectedBackdropUrl} from "../lib/backdropFraming";
 import { detailActionClass } from "../lib/detailActions";
 import DetailSynopsis from "../components/DetailSynopsis";
+import { LibraryDetailHero, LibraryDetailSection } from "../components/LibraryDetailLayout";
 // Item detail: a cinematic hero (blurred backdrop, large poster, metadata) with
 // a seasons row, and the ThePosterDB panel docked on the right for swapping art.
 
@@ -159,7 +160,7 @@ export default function ItemDetailPage() {
         </div></LibraryBackdrop>)}
 
       {/* Left: hero + seasons */}
-      <div className={`${isSeries ? "media-detail " : ""}scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain`}>
+      <div className="media-detail scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain">
         {/* min-h-full lets this wrapper be at least a viewport tall but grow to
             the full scrolled content height. The darkening layer below is
             absolute inset-0 against THIS wrapper, so it covers every season row
@@ -177,7 +178,7 @@ export default function ItemDetailPage() {
             <ArrowLeft className="size-5" />
           </button>
 
-          <div className="relative z-[1] px-4 pb-8 pt-16 sm:px-6 sm:pb-10 lg:px-10 lg:pt-20">
+          <div className="relative z-[1] px-4 pb-8 pt-20 sm:px-6 sm:pb-10 lg:px-10">
             {detailQ.isLoading && <Spinner label="Loading…" />}
             {detailQ.isError && (
               <EmptyState title="Couldn't load this title">
@@ -187,31 +188,17 @@ export default function ItemDetailPage() {
 
             {item && (
               <>
-                <div className={isSeries ? "flex flex-row items-start gap-5 sm:gap-8 lg:gap-9" : "flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6"}>
-                  {/* Poster */}
-                  <div className={isSeries ? "w-28 shrink-0 sm:w-[25%] sm:max-w-[328px]" : "w-40 shrink-0 min-[390px]:w-44 sm:w-48 lg:w-56"}>
-                    <div className="aspect-[2/3] overflow-hidden rounded-xl bg-surface-2 shadow-2xl shadow-black/50 ring-1 ring-white/10">
-                      {poster ? (
-                        <img
-                          src={poster}
-                          alt={item.title}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : null}
-                    </div>
-                  </div>
-
-                  {/* Metadata — a text-shadow (not just the gradient) keeps this
-                    legible over a vivid/bright backdrop image, since the exact
-                    gradient fade point can't account for every image. */}
-                  <div className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries ? "text-left" : "text-center sm:text-left"}`}>
+                <LibraryDetailHero
+                  artwork={poster ? <img src={poster} alt={item.title} className="h-full w-full object-cover" /> : null}
+                  synopsis={<DetailSynopsis lines={8} key={item.id} text={mediaDescription(metadataQ.data?.plot) || item.summary} />}
+                >
                     <div className="flex flex-col gap-4">
                       <div className="min-w-0">
                         {logo ? (
                           <img
                             src={logo}
                             alt={item.title}
-                            className={isSeries ? "max-h-24 max-w-full object-contain object-left sm:max-w-[400px]" : "mx-auto max-h-24 max-w-full object-contain sm:mx-0 sm:max-h-28 sm:object-left"}
+                            className="max-h-24 max-w-full object-contain object-left sm:max-w-[400px]"
                           />
                         ) : (
                           <h1 className="text-3xl font-bold leading-tight sm:text-4xl">
@@ -231,6 +218,7 @@ export default function ItemDetailPage() {
                         </p>}
                       </div>
                       <div data-testid="detail-actions" className="flex flex-wrap items-center gap-2">
+                        {item.type === "book" && <button className="rounded-full bg-accent px-5 py-2 text-sm font-semibold text-base hover:bg-accent-hover" onClick={()=>navigate(`/read/${serverId}/${encodeURIComponent(item.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`)}>Read Book</button>}
                         {metadataQ.data && (
                           <AdminOnly><button
                             type="button"
@@ -259,12 +247,6 @@ export default function ItemDetailPage() {
                       </div>
                     </div>
 
-                    {!isSeries && !metadataQ.data && item.summary && (
-                      <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/80">
-                        {item.summary}
-                      </p>
-                    )}
-                    {isSeries && <div className="hidden sm:block"><DetailSynopsis lines={8} key={item.id} text={item.summary} /></div>}
                     {metadataQ.data && (
                       <section className="mt-4 max-w-2xl text-left [text-shadow:0_2px_12px_rgba(0,0,0,0.8)]">
                         <div className="flex flex-wrap items-center gap-2">
@@ -288,17 +270,13 @@ export default function ItemDetailPage() {
                             </span>
                           )}
                         </div>
-                        {metadataQ.data.plot && <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-white/75">{mediaDescription(metadataQ.data.plot)}</p>}
                       </section>
                     )}
-                  </div>
-                </div>
-
-                {isSeries && <div className="sm:hidden"><DetailSynopsis lines={8} key={item.id} text={item.summary} /></div>}
+                </LibraryDetailHero>
 
                 {/* Seasons */}
                 {item.seasons.length > 0 && (
-                  <section className="mt-10">
+                  <LibraryDetailSection>
                     <h2 className="mb-3 text-xl font-semibold">Seasons</h2>
                     <div className="-mx-2 -mt-2 flex gap-5 overflow-x-auto px-2 pb-3 pt-2 [&>div]:w-[150px] [&>div]:shrink-0 sm:[&>div]:w-[180px]">
                       {item.seasons.map((s) => (
@@ -319,15 +297,13 @@ export default function ItemDetailPage() {
                         />
                       ))}
                     </div>
-                  </section>
+                  </LibraryDetailSection>
                 )}
 
-                {item.type === "book" && <button className="mt-5 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-base hover:bg-accent-hover" onClick={()=>navigate(`/read/${serverId}/${encodeURIComponent(item.id)}?${new URLSearchParams({return:window.location.pathname+window.location.search})}`)}>Read Book</button>}
-                {item.type === "movie" && <ItemAbout item={item} />}
                 {/* Volume cards open the reader; nested folders keep their detail pages. */}
                 {item.members.length > 0 && (
-                  <section className="mt-10">
-                    <h2 className="mb-4 text-lg font-semibold">
+                  <LibraryDetailSection>
+                    <h2 className="mb-3 text-xl font-semibold">
                       {item.type === "folder"
                         ? "Volumes"
                         : "Titles in this collection"}
@@ -352,9 +328,9 @@ export default function ItemDetailPage() {
                         />
                       ))}
                     </div>
-                  </section>
+                  </LibraryDetailSection>
                 )}
-                {item.type === "show" && <ItemAbout item={item} />}
+                {(item.type === "show" || item.type === "movie") && <ItemAbout item={item} />}
               </>
             )}
           </div>

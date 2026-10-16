@@ -155,7 +155,10 @@ fn item_allowed(
     Ok(false)
 }
 
-fn catalog_allowed(user: &UserAccount, catalog: &[NativeCatalogEntry]) -> HashSet<String> {
+pub(crate) fn catalog_allowed(
+    user: &UserAccount,
+    catalog: &[NativeCatalogEntry],
+) -> HashSet<String> {
     let by_path: HashMap<_, _> = catalog
         .iter()
         .map(|entry| (entry.path.as_str(), entry))
@@ -227,6 +230,10 @@ pub(crate) fn authorize_request(
     let personal_write = get || *method == Method::PUT;
     let allowed = match p.as_slice() {
         ["api", "auth", "activity"] => *method == Method::POST,
+        ["api", "collections"] | ["api", "collections", _] => get,
+        ["api", "collections", "preferences", library] => {
+            personal_write && library_allowed(user, library)
+        }
         ["api", "plugins", "virtual-tv"] | ["api", "virtual-tv", "channels"] => get,
         ["api", "virtual-tv", "channels", _, "guide"] => get,
         ["api", "virtual-tv", "channels", _, "artwork", _, _] => get,

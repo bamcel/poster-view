@@ -209,6 +209,15 @@ otherwise only a leading "The" is ignored. This is a display-time sorting key,
 so displayed titles and NFO files are unchanged. Native catalog cards use
 `metadata.sorttitle`; connected book info uses `sort_title`.
 
+Library detail pages share `components/LibraryDetailLayout.tsx`: the hero owns
+portrait/episode-landscape geometry and responsive synopsis placement; sections
+share vertical spacing. Native detail composition fixes the order to related
+content, people (including anime characters and voice casts), About, then media
+information. Callers retain type-specific metadata, actions, visibility rules,
+queries and artwork components. Connected-server item/season pages reuse the
+same hero and section primitives; their provider navigation and reading controls
+remain with the page.
+
 ## Dividing cross-layer work
 
 Assign exact files and interfaces before concurrent edits. The main agent owns
@@ -330,3 +339,26 @@ Native migration 3 extends library types without changing existing catalog IDs.
 and watch controls. `native_scan.rs` reads the YouTube NFO extension. YouTube
 libraries skip TV-provider enrichment and missing-episode generation. See
 [setup, metadata, and runtime requirements](docs/ytdl.md).
+
+## Native Collections
+
+Curated collections live independently of scan-owned catalog hierarchy. Shared DTOs
+are in `posterview-contracts/src/collections.rs`, transactional storage and migration
+4 in `posterview-infra-sqlite`, and HTTP projections in `apps/server/src/collections.rs`.
+The feature router is protected by normal authentication. Reads project only permitted
+library/rating members; empty hidden collections return 404 and partial collections
+omit unrestricted overview text. Artwork is derived from permitted member artwork.
+
+Admins create collections and add/remove/reorder movie or series members. Member
+identity is `(library_id,item_id)`; scans preserve membership while IDs remain stable.
+Duplicate additions are idempotent and report added/existing counts. Edits/additions
+use optimistic revisions and reject stale writes with 409. Deleting a collection
+never removes media. Ordering is release date (unknown last), sort title, or custom.
+
+Frontend ownership is `frontend/src/features/collections/`, with lazy `/collections`
+and `/collections/:id` pages. Library grids add admin multi-selection, including
+Shift ranges, Ctrl/Cmd+A, and Escape. Selections survive filtering within the same
+library. Grouping preferences are stored per user/library in SQLite and default off;
+only groups with at least two visible members replace cards. Search and metadata/
+artwork filters show individual titles, and selection mode also expands groups.
+No playback engine, original-media URL, or watch state is changed by collections.

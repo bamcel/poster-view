@@ -19,6 +19,7 @@ use posterview_contracts::ApiErrorResponse;
 pub(crate) fn protected(auth: AuthState) -> Router<AppState> {
     Router::new()
         .merge(crate::users::routes())
+        .merge(crate::collections::routes())
         .merge(crate::ytdl::routes())
         .merge(crate::virtual_tv::routes())
         .merge(playback::routes())
