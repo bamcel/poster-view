@@ -196,3 +196,40 @@ it("tests hardware on request and displays availability and setup help",async()=
  expect(screen.getByText("Configure NVIDIA GPU access.")).toBeTruthy();
  expect(apiRequest).toHaveBeenCalledWith("/playback/capabilities");
 });
+
+
+it("switches direct mode without discarding custom encoding preferences",async()=>{
+ const custom:YtdlSettings={...settings,video_codec:"hevc",audio_codec:"opus",container:"webm",convert:true,hardware_backend:"nvenc",crf:19};
+ vi.mocked(ytdl.configuration).mockResolvedValue({settings:custom,dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}});
+ mount();await screen.findByLabelText("Download mode");
+ expect((screen.getByLabelText("Download mode") as HTMLSelectElement).value).toBe("custom");
+ fireEvent.change(screen.getByLabelText("Download mode"),{target:{value:"direct"}});
+ for(const label of ["Video codec","Audio codec","Container","Maximum frame rate","Convert to selected codecs","Encoding device","Encoding quality"])expect(screen.queryByLabelText(label)).toBeNull();
+ for(const label of ["Quality","If quality is unavailable","Download subtitles","Include chapters","Download thumbnail","Subtitle languages"])expect(screen.getByLabelText(label)).toBeTruthy();
+ expect(screen.getByText("Example: abc123.mkv")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...custom,download_mode:"direct"}));
+ await screen.findByText("Configuration saved.");
+ fireEvent.change(screen.getByLabelText("Download mode"),{target:{value:"custom"}});
+ expect((screen.getByLabelText("Video codec") as HTMLSelectElement).value).toBe("hevc");
+ expect((screen.getByLabelText("Audio codec") as HTMLSelectElement).value).toBe("opus");
+ expect((screen.getByLabelText("Container") as HTMLSelectElement).value).toBe("webm");
+ expect((screen.getByLabelText("Encoding device") as HTMLSelectElement).value).toBe("nvenc");
+ expect((screen.getByLabelText("Encoding quality") as HTMLInputElement).value).toBe("19");
+});
+
+it("queues direct mode even with incompatible retained custom GPU settings",async()=>{
+ const custom:YtdlSettings={...settings,convert:true,hardware_backend:"nvenc"};
+ vi.mocked(ytdl.configuration).mockResolvedValue({settings:custom,dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}});
+ vi.mocked(ytdl.inspect).mockResolvedValue({id:"a",title:"Video",description:"",channel:"Channel",channel_id:"ch",kind:"video",formats:[],entries:[{id:"a",url:"https://www.youtube.com/watch?v=a",title:"Video a",description:"",channel:"Channel",channel_id:"ch",duration:120,upload_date:"20260101",thumbnail:null,playlist_id:"",playlist_title:"",playlist_index:null}]});
+ mount();await screen.findByLabelText("Download mode");
+ expect((screen.getByRole("button",{name:"Save configuration"}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.change(screen.getByLabelText("Download mode"),{target:{value:"direct"}});
+ expect(screen.queryByRole("alert")).toBeNull();
+ expect((screen.getByRole("button",{name:"Save configuration"}) as HTMLButtonElement).disabled).toBe(false);
+ fireEvent.click(screen.getByRole("button",{name:"Downloads"}));
+ fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/watch?v=a"}});
+ fireEvent.click(screen.getByRole("button",{name:"Fetch Info"}));
+ fireEvent.click(await screen.findByRole("button",{name:"Download 1 selected"}));
+ await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/watch?v=a",["a"],{...custom,download_mode:"direct"}));
+});

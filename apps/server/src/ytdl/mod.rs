@@ -19,6 +19,7 @@ static ACTIVE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<St
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct Settings {
+    pub download_mode: String,
     pub enabled: bool,
     pub library_id: String,
     pub directory: String,
@@ -46,6 +47,7 @@ fn legacy_filename_convention() -> String {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            download_mode: "custom".into(),
             enabled: false,
             library_id: String::new(),
             directory: String::new(),
@@ -65,6 +67,21 @@ impl Default for Settings {
             chapters: true,
             thumbnail: true,
         }
+    }
+}
+impl Settings {
+    /// Preserve custom preferences while direct downloads always copy source streams.
+    fn effective(&self) -> Self {
+        let mut settings = self.clone();
+        if settings.download_mode == "direct" {
+            settings.convert = false;
+            settings.video_codec = "auto".into();
+            settings.audio_codec = "auto".into();
+            settings.container = "mkv".into();
+            settings.hardware_backend = "cpu".into();
+            settings.max_fps = 240;
+        }
+        settings
     }
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -138,6 +155,11 @@ async fn settings_save(
     Ok(Json(settings))
 }
 fn validate_settings(state: &AppState, s: &Settings) -> Result<PathBuf, HttpError> {
+    if !["direct", "custom"].contains(&s.download_mode.as_str()) {
+        return Err(err("Invalid download mode."));
+    }
+    let effective = s.effective();
+    let s = &effective;
     if !["auto", "h264", "hevc", "vp9", "av1"].contains(&s.video_codec.as_str())
         || !["auto", "aac", "opus"].contains(&s.audio_codec.as_str())
         || !["mp4", "mkv", "webm"].contains(&s.container.as_str())

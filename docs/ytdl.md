@@ -8,6 +8,17 @@ after completion. Browsing, playback, resume, and watch history use normal libra
 permissions. Non-administrators cannot configure, inspect, queue, cancel, or retry
 downloads through the API.
 
+## Download modes
+
+The **Downloads** section after Filename convention offers **Direct download**
+and **Custom download**. Direct downloads use the selected quality and fallback,
+keep the original video/audio codecs, and merge streams into MKV without
+re-encoding. Metadata, subtitles, chapters, and thumbnails remain configurable.
+Custom downloads expose the existing codec, container, frame-rate, conversion,
+and encoding-device options. Switching modes preserves custom preferences.
+Existing configurations default to Custom to retain their behavior. The saved
+mode also applies to subscription checks and queued settings snapshots.
+
 ## Setup
 
 1. In the plugin popup, select a writable existing directory under the media mount

@@ -534,7 +534,12 @@ pub(super) fn record_stream_progress(job: &mut Job, stream_progress: Option<f64>
     if job.total_videos > 0 {
         if let Some(percent) = stream_progress {
             let aggregate = (job.completed_videos as f64
-                + percent / 100.0 * if job.settings.convert { 0.5 } else { 0.95 })
+                + percent / 100.0
+                    * if job.settings.effective().convert {
+                        0.5
+                    } else {
+                        0.95
+                    })
                 / job.total_videos as f64
                 * 100.0;
             job.progress = Some(job.progress.unwrap_or(0.0).max(aggregate));
@@ -765,6 +770,9 @@ async fn cancellable(
     }
 }
 pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
+    let mut effective_job = job.clone();
+    effective_job.settings = job.settings.effective();
+    let job = &effective_job;
     if !super::load::<Settings>(state, "plugin-ytdl")?.enabled {
         return Err(err("YTDL plugin is disabled."));
     }
@@ -1286,6 +1294,39 @@ mod tests {
             .collect::<Vec<_>>();
         formats.push(json!({"vcodec":"none","acodec":"mp4a.40.2"}));
         json!({"id":"fixture","formats":formats})
+    }
+    #[test]
+    fn direct_download_uses_quality_without_custom_codec_filters_or_encoding() {
+        let custom = Settings {
+            download_mode: "direct".into(),
+            quality: Some(1440),
+            convert: true,
+            video_codec: "hevc".into(),
+            audio_codec: "aac".into(),
+            hardware_backend: "nvenc".into(),
+            container: "webm".into(),
+            ..Default::default()
+        };
+        let direct = custom.effective();
+        assert!(!direct.convert);
+        assert_eq!(direct.container, "mkv");
+        assert_eq!(direct.hardware_backend, "cpu");
+        assert_eq!(direct.video_codec, "auto");
+        assert_eq!(direct.audio_codec, "auto");
+        assert!(format(&direct).contains("[height=1440]"));
+        assert!(!format(&direct).contains("vcodec"));
+        assert_eq!(
+            choose_quality(&direct, &quality_fixture(&[720, 1440, 2160])),
+            QualityChoice::Height(1440)
+        );
+        assert!(custom.convert);
+        assert_eq!(custom.video_codec, "hevc");
+        let mut restored = custom.clone();
+        restored.download_mode = "custom".into();
+        assert!(restored.effective().convert);
+        assert_eq!(restored.effective().hardware_backend, "nvenc");
+        let legacy: Settings = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(legacy.download_mode, "custom");
     }
     #[test]
     fn exact_highest_and_nearest_quality_are_distinct() {
