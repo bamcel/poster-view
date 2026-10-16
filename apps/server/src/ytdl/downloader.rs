@@ -715,7 +715,8 @@ async fn cancellable(
                                 record_stream_progress(job, stream_progress);
                                 job.speed = value["speed"]
                                     .as_f64()
-                                    .map(|s| format!("{:.1} KiB/s", s / 1024.0));
+                                    .filter(|speed| speed.is_finite() && *speed >= 0.0)
+                                    .map(download_speed);
                                 job.eta = value["eta"].as_f64().map(|s| format!("{s:.0}s"));
                             }
                             let _ = super::save(&progress_state, "plugin-ytdl-jobs", &jobs);
@@ -931,43 +932,62 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             } else {
                 job.settings.container.as_str()
             };
-            let mut command = base();
-            command.args([
-                "--newline",
-                "--progress",
-                "--progress-delta",
-                "1",
-                "--progress-template",
-                "download:PVPROGRESS:%(progress)j",
-            ]);
-            command
-                .args([
-                    "--no-playlist",
-                    "--no-overwrites",
-                    "--format",
-                    &format(&download_settings),
-                    "--merge-output-format",
-                    download_container,
-                    "--remux-video",
-                    download_container,
-                    "--output",
-                ])
-                .arg(template);
-            if job.settings.thumbnail {
-                command.args(["--write-thumbnail", "--convert-thumbnails", "jpg"]);
-            }
-            if job.settings.subtitles {
+            for attempt in 0..2 {
+                let mut command = base();
+                command.arg("--check-formats");
                 command.args([
-                    "--write-subs",
-                    "--sub-langs",
-                    &job.settings.subtitle_languages.join(","),
+                    "--newline",
+                    "--progress",
+                    "--progress-delta",
+                    "1",
+                    "--progress-template",
+                    "download:PVPROGRESS:%(progress)j",
                 ]);
+                command
+                    .args([
+                        "--no-playlist",
+                        "--no-overwrites",
+                        "--format",
+                        &format(&download_settings),
+                        "--merge-output-format",
+                        download_container,
+                        "--remux-video",
+                        download_container,
+                        "--output",
+                    ])
+                    .arg(&template);
+                if job.settings.thumbnail {
+                    command.args(["--write-thumbnail", "--convert-thumbnails", "jpg"]);
+                }
+                if job.settings.subtitles {
+                    command.args([
+                        "--write-subs",
+                        "--sub-langs",
+                        &job.settings.subtitle_languages.join(","),
+                    ]);
+                }
+                if job.settings.chapters {
+                    command.arg("--embed-chapters");
+                }
+                command.args(["--", &url]);
+                match cancellable(state, job, command, None).await {
+                    Ok(()) => break,
+                    Err(error) if media_forbidden(&error.detail) && attempt == 0 => {
+                        if cancelled(state, &job.id).await {
+                            return Err(err("Download cancelled."));
+                        }
+                        // Re-run extraction instead of retrying the same rejected signed URL.
+                        tokio::time::sleep(Duration::from_secs(3)).await;
+                    }
+                    Err(error) if media_forbidden(&error.detail) => {
+                        return Err(err(format!(
+                            "YouTube rejected the video stream (HTTP 403) after a fresh extraction retry. Completed videos are kept. This can require an updated yt-dlp or YouTube access verification. Details: {}",
+                            error.detail
+                        )));
+                    }
+                    Err(error) => return Err(error),
+                }
             }
-            if job.settings.chapters {
-                command.arg("--embed-chapters");
-            }
-            command.args(["--", &url]);
-            cancellable(state, job, command, None).await?;
             let source = stage.path().join(format!("{id}.{download_container}"));
             let source = if job.settings.convert {
                 update(state, &job.id, "processing", None, None).await?;
@@ -1013,6 +1033,16 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
         ))
     };
     update(state, &job.id, "completed", skipped_summary, Some(100.0)).await
+}
+fn media_forbidden(detail: &str) -> bool {
+    detail.contains("unable to download video data") && detail.contains("HTTP Error 403")
+}
+fn download_speed(bytes_per_second: f64) -> String {
+    if bytes_per_second >= 1_000_000.0 {
+        format!("{:.1} MB/s", bytes_per_second / 1_000_000.0)
+    } else {
+        format!("{:.1} KB/s", bytes_per_second / 1_000.0)
+    }
 }
 fn upload_modified_time(info: &Value) -> Option<std::time::SystemTime> {
     info["timestamp"]
@@ -1062,6 +1092,26 @@ fn publish_with_modified(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_media_403_triggers_fresh_extraction_retry() {
+        assert!(media_forbidden(
+            "ERROR: unable to download video data: HTTP Error 403: Forbidden"
+        ));
+        assert!(!media_forbidden(
+            "ERROR: HTTP Error 403: Forbidden downloading subtitles"
+        ));
+        assert!(!media_forbidden("Download cancelled."));
+        assert!(!media_forbidden(
+            "ERROR: unable to download video data: HTTP Error 404"
+        ));
+    }
+    #[test]
+    fn download_speed_uses_readable_decimal_units() {
+        assert_eq!(download_speed(42_955.3 * 1024.0), "44.0 MB/s");
+        assert_eq!(download_speed(1_000_000.0), "1.0 MB/s");
+        assert_eq!(download_speed(512_000.0), "512.0 KB/s");
+        assert_eq!(download_speed(0.0), "0.0 KB/s");
+    }
     fn progress_fixture() -> Job {
         Job {
             id: "progress-fixture".into(),
