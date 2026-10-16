@@ -26,9 +26,9 @@ beforeEach(() => {vi.clearAllMocks(); vi.mocked(nativeLibraries.summaries).mockR
 afterEach(cleanup);
 
 it("resolves summary-only episodes without fetching the full catalog or starting playback", async () => {
-  setup(); await waitFor(() => expect(screen.getByRole("button", {name: "Play from beginning"}).hasAttribute("disabled")).toBe(false));
+  setup(); await waitFor(() => expect(screen.getByRole("button", {name: "Play"}).hasAttribute("disabled")).toBe(false));
   expect(nativeLibraries.catalog).not.toHaveBeenCalled(); expect(screen.getByRole("status").textContent).toBe("/");
-  fireEvent.click(screen.getByRole("button", {name: "Play from beginning"})); await waitFor(() => expect(screen.getByRole("status").textContent).toBe("/play/native/library/one?return=%2F&start=0"));
+  fireEvent.click(screen.getByRole("button", {name: "Play"})); await waitFor(() => expect(screen.getByRole("status").textContent).toBe("/play/native/library/one?return=%2F&start=0"));
 });
 it("shows adjacent restart and continue buttons for history and resumes the correct episode", async () => {
   vi.mocked(watchApi.continue).mockResolvedValue([continued(two)]); setup();
@@ -44,7 +44,7 @@ it("restarts at S1E1 without touching saved watch state", async () => {
 });
 it("does not navigate when no playable episodes are available", async () => {
   vi.mocked(nativeLibraries.summaries).mockResolvedValue([series]); vi.mocked(nativeLibraries.catalog).mockResolvedValue([series]); setup();
-  await waitFor(() => expect(screen.getByRole("button", {name: "Play from beginning"}).hasAttribute("disabled")).toBe(false)); fireEvent.click(screen.getByRole("button", {name: "Play from beginning"}));
+  await waitFor(() => expect(screen.getByRole("button", {name: "Play"}).hasAttribute("disabled")).toBe(false)); fireEvent.click(screen.getByRole("button", {name: "Play"}));
   expect((await screen.findByRole("alert")).textContent).toBe("No playable episodes are available."); expect(screen.getByRole("status").textContent).toBe("/");
 });
 it("allows retry after a failed history request", async () => {
@@ -59,7 +59,7 @@ it("ignores pending playback completion after title changes", async () => {
   const client = new QueryClient({defaultOptions: {queries: {retry: false, gcTime: 0}}});
   const content = (item: HomeTitle) => <QueryClientProvider client={client}><MemoryRouter><SeriesBannerPlay title={item}/><Destination/></MemoryRouter></QueryClientProvider>;
   const view = render(content(title));
-  await waitFor(() => expect(screen.getByRole("button", {name: "Play from beginning"}).hasAttribute("disabled")).toBe(false)); fireEvent.click(screen.getByRole("button", {name: "Play from beginning"}));
+  await waitFor(() => expect(screen.getByRole("button", {name: "Play"}).hasAttribute("disabled")).toBe(false)); fireEvent.click(screen.getByRole("button", {name: "Play"}));
   view.rerender(content({...title, entry: {...series, id: "other", path: "/other"}}));
-  resolve([series, one]); await waitFor(() => expect(screen.getByRole("button", {name: "Play from beginning"}).hasAttribute("disabled")).toBe(false)); expect(screen.getByRole("status").textContent).toBe("/");
+  resolve([series, one]); await waitFor(() => expect(screen.getByRole("button", {name: "Play"}).hasAttribute("disabled")).toBe(false)); expect(screen.getByRole("status").textContent).toBe("/");
 });

@@ -53,7 +53,7 @@ export default function SeriesBannerPlay({title, variant = "banner", onInteracti
   };
   if (!allowed) return null;
   return <>
-    <button type="button" className={variant === "preview" ? "pv-discovery-hover-play" : "pv-home-action pv-home-action-primary"} disabled={loading || busy} onClick={() => void play(false)}><Play aria-hidden="true" size={18}/>{error || failed ? "Retry playback" : variant === "banner" || choice?.history ? "Play from beginning" : "Play"}</button>
+    <button type="button" className={variant === "preview" ? "pv-discovery-hover-play" : "pv-home-action pv-home-action-primary"} disabled={loading || busy} onClick={() => void play(false)}><Play aria-hidden="true" size={18}/>{error || failed ? "Retry playback" : choice?.history ? "Play from beginning" : "Play"}</button>
     {choice?.history && <button type="button" title="Continue where you left off" className={variant === "preview" ? "pv-discovery-hover-play" : "pv-home-action"} disabled={busy} onClick={() => void play(true)}>Resume</button>}
     {error && <span role="alert" className="pv-series-preview-error">{error}</span>}
   </>;

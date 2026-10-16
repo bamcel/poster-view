@@ -8,7 +8,7 @@ import HomePage from "./HomePage";
 import {nativeLibraries} from "../api/nativeLibraries";
 import {watchApi} from "../features/playback/api/watch";
 vi.mock("../features/playback/api/watch",()=>({watchApi:{continue:vi.fn(),state:vi.fn()}}));
-vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(),catalog:vi.fn(),summaries:vi.fn(),artworkUrl:vi.fn()}}));
+vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(),catalog:vi.fn(),summaries:vi.fn(),artworkUrl:vi.fn(),scan:vi.fn(),refresh:vi.fn()}}));
 vi.mock("../components/SeriesBannerPlay",()=>({default:({title}:{title:{entry:{title:string}}})=><button aria-label={`Play ${title.entry.title}`}>Play</button>}));
 vi.mock("../components/HomeBackground",()=>({default:({libraries}:{libraries:{id:string}[]})=><div data-testid="home-background-libraries" data-libraries={libraries.map(library=>library.id).join(",")}/>}));
 vi.mock("../components/LibraryPosterStrip",()=>({default:({library}:{library:string})=><div data-testid={`collage-${library}`}>Shared collage</div>}));
@@ -180,4 +180,35 @@ it("excludes denied libraries and replaces a banner when library access changes"
  expect([...banner.querySelectorAll("img")].some(image=>image.src.includes("/anime/"))).toBe(false);
  rendered.rerender(view([]));
  expect(screen.queryByRole("region",{name:"Featured title"})).toBeNull();
+});
+
+it.each(["Scan Library Files","Refresh Metadata"])("offers admin library action %s without navigating",async action=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"films",name:"Films",library_type:"movies"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ vi.mocked(nativeLibraries.scan).mockResolvedValue();vi.mocked(nativeLibraries.refresh).mockResolvedValue();
+ mount();const tile=await screen.findByRole("link",{name:"Open Films"});
+ fireEvent.contextMenu(tile);
+ fireEvent.click(await screen.findByRole("menuitem",{name:action}));
+ if(action==="Scan Library Files")await screen.findByText("Scan requested for Films.");
+ else await screen.findByText("Metadata refresh requested for Films.");
+ expect(screen.queryByText("Opened library page")).toBeNull();
+ if(action==="Scan Library Files"){expect(nativeLibraries.scan).toHaveBeenCalledWith("films");expect(nativeLibraries.refresh).not.toHaveBeenCalled();}
+ else {expect(nativeLibraries.refresh).toHaveBeenCalledWith("films",{replaceMetadata:false,replaceImages:false});expect(nativeLibraries.scan).not.toHaveBeenCalled();}
+});
+it("does not expose library management context menus to viewers",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"films",name:"Films",library_type:"movies"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ const session:AuthSession={authenticated:true,user:{id:"viewer",username:"viewer",display_name:"Viewer",role:"user",enabled:true,revision:1,created_at:"",permissions:{all_libraries:true,library_ids:[],max_movie_rating:null,max_tv_rating:null,allow_unrated:false}}};
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><AuthSessionContext.Provider value={session}><MemoryRouter><HomePage/></MemoryRouter></AuthSessionContext.Provider></QueryClientProvider>);
+ fireEvent.contextMenu(await screen.findByRole("link",{name:"Open Films"}));
+ expect(screen.queryByRole("menu")).toBeNull();expect(screen.queryByRole("menuitem",{name:"Scan Library Files"})).toBeNull();
+ expect(nativeLibraries.scan).not.toHaveBeenCalled();expect(nativeLibraries.refresh).not.toHaveBeenCalled();
+});
+
+it("opens library actions with Shift+F10 and closes them with Escape",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"films",name:"Films",library_type:"movies"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ mount();const tile=await screen.findByRole("link",{name:"Open Films"});tile.focus();
+ fireEvent.keyDown(tile,{key:"F10",shiftKey:true});
+ const menu=await screen.findByRole("menu");
+ expect(within(menu).getByRole("menuitem",{name:"Scan Library Files"})).toBeTruthy();
+ fireEvent.keyDown(menu,{key:"Escape"});
+ expect(screen.queryByRole("menu")).toBeNull();expect(nativeLibraries.scan).not.toHaveBeenCalled();
 });

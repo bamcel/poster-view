@@ -1,5 +1,6 @@
+import CardActionMenu from "../components/CardActionMenu";
 import HomeBackground from "../components/HomeBackground";
-import {AuthSessionContext} from "../lib/authContext";
+import {AuthSessionContext,useIsAdmin} from "../lib/authContext";
 import HomeMediaRow from "../components/HomeMediaRow";
 import {nativeArtworkVersion} from "../lib/nativeArtworkCache";
 import ContinueWatching from "../features/playback/components/ContinueWatching";
@@ -12,7 +13,7 @@ import {useContext,useEffect,useState} from "react";
 import {createPortal} from "react-dom";
 import {HeaderSearchTarget} from "../lib/headerSearch";
 import {Search, X, Film} from "lucide-react";
-import {useQueries, useQuery} from "@tanstack/react-query";
+import {useQueries, useQuery,useQueryClient} from "@tanstack/react-query";
 import LibraryPosterStrip from "../components/LibraryPosterStrip";
 import {nativeLibraries, type NativeLibrary} from "../api/nativeLibraries";
 import DashboardPage from "./DashboardPage";
@@ -21,11 +22,16 @@ import {catalogQueryOptions, catalogView} from "../lib/nativeCatalogQueries";
 import {groupHomeTitles} from "../lib/homeTitleGroups";
 
 function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:NativeLibrary[]}) {
- const prefetchCatalog=useCatalogPrefetch();
- return <Link onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={libraryPath(library,libraries)} aria-label={`Open ${library.name}`} className="pv-home-landscape-card pv-home-library-card group block rounded-xl text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
+ const prefetchCatalog=useCatalogPrefetch(),client=useQueryClient(),isAdmin=useIsAdmin();
+ const invalidate=()=>Promise.all([client.invalidateQueries({queryKey:["native-scan",library.id]}),client.invalidateQueries({queryKey:["native-catalog",library.id]})]);
+ const tile=<Link onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={libraryPath(library,libraries)} aria-label={`Open ${library.name}`} className="pv-home-landscape-card pv-home-library-card group block rounded-xl text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
   <div className="overflow-hidden rounded-md transition-transform duration-200 group-hover:scale-[1.03]"><LibraryPosterStrip library={library.id}/></div>
   <h3 className="mt-2 text-sm font-medium text-white group-hover:text-accent">{library.name}</h3>
  </Link>;
+ return isAdmin?<CardActionMenu label={`${library.name} library actions`} actions={[
+  {label:"Scan Library Files",onSelect:async()=>{await nativeLibraries.scan(library.id);await invalidate();},success:`Scan requested for ${library.name}.`},
+  {label:"Refresh Metadata",onSelect:async()=>{await nativeLibraries.refresh(library.id,{replaceMetadata:false,replaceImages:false});await invalidate();},success:`Metadata refresh requested for ${library.name}.`}
+ ]}>{tile}</CardActionMenu>:tile;
 }
 function LibraryHome(){
  const searchTarget=useContext(HeaderSearchTarget);

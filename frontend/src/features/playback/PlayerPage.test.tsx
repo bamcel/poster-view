@@ -752,3 +752,48 @@ it("offers source recovery rather than forcing copied AAC 7.1 after an Auto nati
  expect(video.getAttribute("src")).toBe(source);expect(hlsState.instances).toHaveLength(0);
  expect(screen.queryByText(/Recovering with a lossless stream/)).toBeNull();
 });
+
+
+describe("Virtual TV shared player",()=>{
+ it("provides original audio and subtitle controls without personal watch history",async()=>{
+  const onEnded=vi.fn(),onReturnLive=vi.fn();
+  browserAudio=audioList([{language:"jpn",enabled:true},{language:"eng",enabled:false}]);
+  vi.mocked(playbackApi.info).mockResolvedValue({...info,versions:[{id:"one",name:"Original"},{id:"two",name:"Alternate"}],tracks:[...info.tracks,{index:4,kind:"subtitle",codec:"hdmv_pgs_subtitle",subtitle_format:"pgs",language:"en",url:"/channel-subtitles.sup"}]});
+  vi.mocked(playbackApi.create).mockResolvedValue({...session,position_seconds:125});
+  render(<MemoryRouter><PlayerPage virtualTv={{channelId:"channel",libraryId:"anime",itemId:"one",programId:"program",positionSeconds:120,onEnded,onReturnLive}}/></MemoryRouter>);
+  const video=await ready();
+  expect(video.currentTime).toBe(125);
+  expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({virtual_channel_id:"channel",position_seconds:120}));
+  fireEvent.click(screen.getByRole("button",{name:"Audio"}));
+  fireEvent.click(screen.getByRole("button",{name:/English.*AAC/i}));
+  expect(browserAudio[1].enabled).toBe(true);
+  fireEvent.click(screen.getByRole("button",{name:"Subtitles"}));
+  expect(screen.getByRole("dialog",{name:"Subtitles"})).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:/English/}));
+  await waitFor(()=>expect(bitmap.construct).toHaveBeenCalledWith("pgs",expect.objectContaining({video,subUrl:"/channel-subtitles.sup"})));
+  fireEvent.click(screen.getByRole("button",{name:"Subtitles"}));
+  fireEvent.click(screen.getByRole("button",{name:"Off"}));
+  fireEvent.click(screen.getByRole("button",{name:"Return to live"}));expect(onReturnLive).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("button",{name:"Next episode"})).toBeNull();
+  expect(screen.queryByRole("combobox",{name:"Version"})).toBeNull();
+  fireEvent.ended(video);expect(onEnded).toHaveBeenCalledOnce();
+  expect(watchApi.state).not.toHaveBeenCalled();expect(watchApi.begin).not.toHaveBeenCalled();expect(watchApi.progress).not.toHaveBeenCalled();expect(watchApi.seriesTracks).not.toHaveBeenCalled();expect(watchApi.saveSeriesTracks).not.toHaveBeenCalled();
+ });
+});
+
+
+it("serializes Virtual TV program transitions behind delivery teardown",async()=>{
+ let finishStop!:()=>void;
+ const stopped=new Promise<void>(resolve=>{finishStop=resolve;});
+ const props={channelId:"channel",libraryId:"anime",itemId:"one",programId:"first",positionSeconds:120,onEnded:vi.fn(),onReturnLive:vi.fn()};
+ const tree=(programId:string)=><MemoryRouter><PlayerPage virtualTv={{...props,programId}}/></MemoryRouter>;
+ const view=render(tree("first"));await ready();
+ vi.mocked(playbackApi.stop).mockReturnValueOnce(stopped);
+ view.rerender(tree("second"));
+ await waitFor(()=>expect(playbackApi.stop).toHaveBeenCalledWith(session.id));
+ await act(async()=>{});expect(playbackApi.create).toHaveBeenCalledTimes(1);
+ await act(async()=>{finishStop();});
+ await waitFor(()=>expect(playbackApi.create).toHaveBeenCalledTimes(2));
+ expect(playbackApi.create).toHaveBeenLastCalledWith("anime","one",expect.objectContaining({virtual_channel_id:"channel"}));
+ expect(watchApi.begin).not.toHaveBeenCalled();expect(watchApi.progress).not.toHaveBeenCalled();
+});

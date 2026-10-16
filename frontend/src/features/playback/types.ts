@@ -52,6 +52,7 @@ export interface PlaybackDiagnostics {
   fps?:number|null; speed?:number|null; buffered_seconds?:number|null;
 }
 export interface WatchState {
+  continue_dismissed?: boolean;
   version_id?: string | null;
   position_seconds:number; duration_seconds:number; watched:boolean; play_count:number;
   last_played_at:string|null; audio_index:number|null; subtitle_index:number|null;
@@ -77,4 +78,4 @@ export const defaultPlaybackPreferences: PlaybackPreferences = {
 };
 
 export interface WatchRules {minimum_percentage:number;maximum_percentage:number;minimum_duration_seconds:number}
-export interface ContinueItem {library_id:string;library_name:string;item_id:string;title:string;kind:string;entry:NativeCatalogEntry;state:WatchState}
+export interface ContinueItem {series_item_id?:string|null;library_id:string;library_name:string;item_id:string;title:string;kind:string;entry:NativeCatalogEntry;state:WatchState}

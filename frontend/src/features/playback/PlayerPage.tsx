@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import subtitleFallbackFont from "jassub/dist/default.woff2?url";
 import { ArrowLeft, Check, ChevronRight, CircleHelp, Gauge, ListVideo, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, RotateCw, Settings2, SkipBack, SkipForward, Subtitles, Volume2, VolumeX, X } from "lucide-react";
-import { defaultPlaybackPreferences, playbackApi, type PlaybackInfo, type PlaybackPreferences, type PlaybackSession } from "./api/playback";
+import { defaultPlaybackPreferences, playbackApi, type PlaybackInfo, type PlaybackPreferences, type PlaybackSession, type WatchState } from "./api/playback";
 import { audioDeliveryAllowed,automaticStreamCopyAllowed,losslessAudioAllowed,originalAudioSupported, playbackCapabilities, playbackTime, safePlayerReturn, selectTracks, trackLabel } from "./lib/playback";
 import {attachSegmentedPlayback} from "./lib/hlsDelivery";
 import {createPlaybackSeekQueue} from "./lib/seekQueue";
@@ -36,13 +36,21 @@ const bitmapSubtitle=(track?:{subtitle_format?:string})=>track?.subtitle_format=
 const unsupportedImage=(track?:{subtitle_format?:string;codec:string})=>imageSubtitle(track)&&!bitmapSubtitle(track);
 const errorMessage=(error:unknown)=>error instanceof Error?error.message:"Unable to play this video.";
 
-export default function PlayerPage() {
-  const {libraryId="",itemId=""}=useParams();
-  const routeKey=`${libraryId}\u0000${itemId}`;
+export interface VirtualTvPlayback {
+  channelId:string; libraryId:string; itemId:string; programId:string; positionSeconds:number;
+  channelName?:string; onEnded:()=>void; onReturnLive:()=>void;
+}
+
+export default function PlayerPage({virtualTv}:{virtualTv?:VirtualTvPlayback}={}) {
+  const route=useParams();
+  const libraryId=virtualTv?.libraryId??route.libraryId??"",itemId=virtualTv?.itemId??route.itemId??"";
+  const channelId=virtualTv?.channelId;
+  const live=useRef(virtualTv);live.current=virtualTv;
+  const routeKey=`${libraryId}\u0000${itemId}`+(channelId?`\u0000${channelId}\u0000${virtualTv?.programId??""}`:"");
   const activeRoute=useRef(routeKey);activeRoute.current=routeKey;
   const navigate=useNavigate(), [params]=useSearchParams();
-  const returnPath=safePlayerReturn(params.get("return"));
-  const requestedVersion=params.get("version_id")||undefined;
+  const returnPath=channelId?"/virtual-tv":safePlayerReturn(params.get("return"));
+  const requestedVersion=channelId?undefined:params.get("version_id")||undefined;
   const root=useRef<HTMLDivElement>(null), video=useRef<HTMLVideoElement>(null);
   const heldCanvas=useRef<HTMLCanvasElement>(null);
   const [heldFrame,setHeldFrame]=useState(false),[hasVideoFrame,setHasVideoFrame]=useState(false);
@@ -104,7 +112,7 @@ export default function PlayerPage() {
   const replayRef=useRef<(position?:number,autoplay?:boolean)=>Promise<void>>(async()=>{});
   const failureRef=useRef<(message:string)=>void>(()=>{});
   const report=useCallback((isEnded=false,keepalive=false,seeking=false,previousRoute=false)=>{
-    if(!watchSession.current||(!ready.current&&!pendingSeek.current)||(!previousRoute&&activeRoute.current!==routeKey))return Promise.resolve();
+    if(channelId||!watchSession.current||(!ready.current&&!pendingSeek.current)||(!previousRoute&&activeRoute.current!==routeKey))return Promise.resolve();
     const completion=completedReport.current?.routeKey===routeKey&&completedReport.current.generation===requestGeneration.current?completedReport.current:null;
     const payload={session_id:watchSession.current,sequence:++sequence.current,position_seconds:sourcePosition.current,paused:video.current?.paused??true,ended:isEnded||!!completion,seeking:seeking||!!pendingSeek.current,...(!keepalive&&current.current?{playback_session_id:current.current.id}:{}),audio_index:selected.current.audio,subtitle_index:selected.current.subtitle,subtitle_delay_seconds:subtitleDelayRef.current,version_id:infoRef.current?.version_id};
     const saving=watchApi.progress(libraryId,itemId,payload,keepalive).then(()=>{
@@ -113,7 +121,7 @@ export default function PlayerPage() {
     }).catch(error=>{if(mounted.current&&activeRoute.current===routeKey&&payload.session_id===watchSession.current&&payload.sequence===sequence.current)setWatchError(`Watch progress could not be saved: ${errorMessage(error)}`);});
     if(completion)completion.promise=Promise.all([completion.promise,saving]).then(()=>{});
     return trackWatchReport(routeKey,saving);
-  },[libraryId,itemId,routeKey]);
+  },[libraryId,itemId,routeKey,channelId]);
   const interact=useCallback(()=>{
     pausedInactivity.current.interact(Date.now());
     controls.current.lastActive=Date.now();controls.current.visible=true;setVisible(true);
@@ -249,15 +257,17 @@ export default function PlayerPage() {
       // seeks and explicit Original keep the same native delivery.
       const copiedStartup=!previous&&policy.delivery==="auto"&&policy.quality===0&&["mkv","matroska"].includes(data.container?.toLowerCase()??"")&&data.tracks.some(track=>track.kind==="video"&&track.codec.toLowerCase()==="hevc")&&automaticStreamCopyAllowed(data,caps,choice.audio);
       const requireCopy=losslessFallback||copiedStartup;
-      const creating=playbackApi.create(libraryId,itemId,{version_id:data.version_id,position_seconds:target,audio_index:choice.audio,subtitle_index:choice.subtitle<0?null:choice.subtitle,...caps,audio_codecs:audioCodecs,direct_only:policy.delivery==="original",force_remux:policy.delivery==="stream"||requireCopy,max_height:q.height,max_bitrate:q.bitrate,bandwidth_limit_bps:policy.budget});
+      const creating=playbackApi.create(libraryId,itemId,{version_id:data.version_id,position_seconds:target,audio_index:choice.audio,subtitle_index:choice.subtitle<0?null:choice.subtitle,...caps,audio_codecs:audioCodecs,direct_only:policy.delivery==="original",force_remux:policy.delivery==="stream"||requireCopy,max_height:q.height,max_bitrate:q.bitrate,bandwidth_limit_bps:policy.budget,...(channelId?{virtual_channel_id:channelId}:{})});
       const allocation=creating.then(async created=>{if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)await playbackApi.stop(created.id).catch(()=>{});}).catch(()=>{});
       pendingAllocation.current=allocation;void allocation.finally(()=>{if(pendingAllocation.current===allocation)pendingAllocation.current=undefined;});
       const created=await creating;
       if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)return;
       if(requireCopy&&created.method!=="remux"){void playbackApi.stop(created.id).catch(()=>{});throw new Error("The server could not start this video with lossless stream copying.");}
-      seekQueue.current.reset(created);attachSource(created,target,generation);
+      const actualTarget=channelId?(created.position_seconds??target):target;
+      if(channelId){sourcePosition.current=actualTarget;pendingSeek.current={generation,target:actualTarget};setPosition(actualTarget);}
+      seekQueue.current.reset(created);attachSource(created,actualTarget,generation);
     }catch(error){if(mounted.current&&activeRoute.current===routeKey&&generation===requestGeneration.current){setLoading(false);setError(errorMessage(error));}}
-  },[libraryId,itemId,routeKey,report,attachSource,terminalError]);
+  },[libraryId,itemId,routeKey,report,attachSource,terminalError,channelId]);
   const reposition=useCallback(async(target:number,audioIndex?:number,playOverride?:boolean)=>{
     const element=video.current,owned=current.current;if(!element||!owned||activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;
     heldVideo.current.capture(element);
@@ -319,7 +329,8 @@ export default function PlayerPage() {
       try{
         await waitForWatchReports(routeKey,controller.signal);
         if(!isCurrent())return;
-        const [prefs,state,series]=await Promise.all([watchApi.preferences(controller.signal),watchApi.state(libraryId,itemId,controller.signal),watchApi.seriesTracks(libraryId,itemId,controller.signal).catch(()=>({}))]);
+        const emptyState:WatchState={session_id:null,version:0,position_seconds:0,duration_seconds:0,watched:false,play_count:0,last_played_at:null,audio_index:null,subtitle_index:null};
+        const [prefs,state,series]=await Promise.all([watchApi.preferences(controller.signal),channelId?Promise.resolve(emptyState):watchApi.state(libraryId,itemId,controller.signal),channelId?Promise.resolve({}):watchApi.seriesTracks(libraryId,itemId,controller.signal).catch(()=>({}))]);
         let missingSavedVersion=false;
         let data:PlaybackInfo;
         try{data=await playbackApi.info(libraryId,itemId,controller.signal,requestedVersion??state.version_id??undefined);}
@@ -327,6 +338,7 @@ export default function PlayerPage() {
           if(requestedVersion||!state.version_id||!(error instanceof ApiError)||![400,404].includes(error.status))throw error;
           data=await playbackApi.info(libraryId,itemId,controller.signal);missingSavedVersion=true;
         }
+        if(channelId)data={...data,next:null};
         const matchingVersion=!missingSavedVersion&&(state.version_id?state.version_id===data.version_id:!requestedVersion);
         const trackState=matchingVersion?state:{...state,audio_index:null,subtitle_index:null};
         if(!isCurrent()||!video.current)return;
@@ -341,14 +353,14 @@ export default function PlayerPage() {
         selected.current={audio:tracks.audio,subtitle:tracks.subtitle};
         setInfo(data);setPreferences(prefs);setAudio(tracks.audio);setSubtitle(tracks.subtitle);
         if(messages.length)setNotice(messages.join(" "));
-        const watch=await watchApi.begin(libraryId,itemId,infoRef.current?.version_id);if(!isCurrent())return;
+        const watch=channelId?{session_id:`virtual-tv:${routeKey}`,state}:await watchApi.begin(libraryId,itemId,infoRef.current?.version_id);if(!isCurrent())return;
         if(!watch.session_id)throw new Error("Watch tracking could not be initialized. Try again.");
         subtitleDelayRef.current=matchingVersion?subtitleDelay(watch.state.subtitle_delay_seconds):0;setSubtitleDelaySeconds(subtitleDelayRef.current);
         watchSession.current=watch.session_id;sequence.current=0;initializedRoute.current=routeKey;setInitializing(false);
-        const initial=startFromBeginning||!matchingVersion?0:Math.max(0,watch.state.position_seconds-prefs.resume_rewind_seconds);
+        const initial=channelId?live.current?.positionSeconds??0:startFromBeginning||!matchingVersion?0:Math.max(0,watch.state.position_seconds-prefs.resume_rewind_seconds);
         await start(initial);
       }catch(error){if(isCurrent()){controller.abort();setLoading(false);setError(errorMessage(error));}}
-  },[libraryId,itemId,routeKey,startFromBeginning,requestedVersion,start]);
+  },[libraryId,itemId,routeKey,startFromBeginning,requestedVersion,start,channelId]);
   const retryPlayback=()=>{
     if(initializedRoute.current===routeKey&&watchSession.current&&infoRef.current&&capability.current)void start(sourcePosition.current);
     else void initializeItem();
@@ -539,6 +551,7 @@ export default function PlayerPage() {
     interact();const delay=subtitleDelay(value);subtitleDelayRef.current=delay;setSubtitleDelaySeconds(delay);void report();
   };
   const rememberSeriesChoice=(kind:"audio"|"subtitle",index:number)=>{
+    if(channelId)return;
     const data=infoRef.current,prefs=prefsRef.current;
     if(!data?.series_title||prefs.remember_series_tracks===false)return;
     const track=data.tracks.find(track=>track.index===index&&track.kind===kind);
@@ -633,6 +646,7 @@ export default function PlayerPage() {
   };
   const end=()=>{
     if(!ready.current||!ownsMedia()||pendingSeek.current)return;
+    if(channelId){live.current?.onEnded();return;}
     const duration=infoRef.current?.duration_seconds??0;
     const actualPosition=(video.current?.currentTime??0)+(current.current?.offset_seconds??0);
     if(duration>0&&actualPosition<duration-3){terminalError("Playback ended before the original file finished. Retry playback.");return;}
@@ -654,7 +668,7 @@ export default function PlayerPage() {
       if(completion)await completion.promise;
       if(!isCurrent())return;
       watchSession.current="";
-      const watch=await watchApi.begin(libraryId,itemId,infoRef.current?.version_id);
+      const watch=channelId?{session_id:`virtual-tv:${routeKey}`} :await watchApi.begin(libraryId,itemId,infoRef.current?.version_id);
       if(!isCurrent())return;
       if(!watch.session_id)throw new Error("Watch tracking could not be initialized. Try again.");
       watchSession.current=watch.session_id;sequence.current=0;completedReport.current=null;initializedRoute.current=routeKey;setInitializing(false);
@@ -732,8 +746,8 @@ export default function PlayerPage() {
   return <div className={`pv-player ${visible||menu||watchPrompt||!playing?"controls-visible":"controls-hidden"}`} ref={root} style={{"--subtitle-scale":preferences.subtitle_size/100,...subtitleAppearanceVariables(preferences)} as React.CSSProperties} onPointerMove={interact} onKeyDownCapture={interact} onPointerDown={()=>{controls.current.focus=false;interact();}} onFocusCapture={event=>{controls.current.focus=event.target instanceof HTMLElement&&event.target.matches(":focus-visible");setVisible(true);}} onBlurCapture={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))controls.current.focus=false;}}>
     <div className="pv-video-stage" inert={watchPrompt||pendingInitialization}><video ref={video} playsInline preload="metadata" poster={hasVideoFrame?undefined:info?.poster_url??undefined} onClick={toggle} onDoubleClick={()=>void toggleFullscreen()} onPlay={mediaPlay} onPause={mediaPause} onWaiting={mediaWaiting} onPlaying={mediaPlaying} onLoadedData={()=>updatePosition()} onCanPlay={()=>updatePosition()} onTimeUpdate={()=>{updatePosition();progressEvent();}} onProgress={progressEvent} onEnded={end} onError={mediaError} onSeeked={()=>{if(updatePosition())report(false,false,true);}} aria-label={title}/><canvas ref={heldCanvas} className="pv-held-frame" hidden={!heldFrame} aria-hidden="true"/></div>
     <div className="pv-player-header pv-controls" inert={watchPrompt} aria-hidden={!visible&&playing&&!menu}>
-      <button className="pv-icon" aria-label="Back to media" onClick={exit} title="Back"><ArrowLeft/></button>
-      <div className="pv-header-tools" inert={pendingInitialization}><button className="pv-icon" aria-label={muted?"Unmute":"Mute"} onClick={()=>setMuted(value=>!value)}>{muted||volume===0?<VolumeX/>:<Volume2/>}</button><input className="pv-volume" aria-label="Volume" type="range" min="0" max="1" step="0.01" value={muted?0:volume} onChange={event=>{setVolume(Number(event.target.value));setMuted(false);}}/>
+      <button className="pv-icon" aria-label={channelId?"Back to guide":"Back to media"} onClick={exit} title="Back"><ArrowLeft/></button>
+      <div className="pv-header-tools" inert={pendingInitialization}>{channelId&&<button className="pv-button" onClick={()=>live.current?.onReturnLive()}>Return to live</button>}<button className="pv-icon" aria-label={muted?"Unmute":"Mute"} onClick={()=>setMuted(value=>!value)}>{muted||volume===0?<VolumeX/>:<Volume2/>}</button><input className="pv-volume" aria-label="Volume" type="range" min="0" max="1" step="0.01" value={muted?0:volume} onChange={event=>{setVolume(Number(event.target.value));setMuted(false);}}/>
         {pipAvailable&&<button className="pv-icon" aria-label={pip?"Exit picture in picture":"Picture in picture"} onClick={()=>void togglePip()}><PictureInPicture2/></button>}
         <button className="pv-icon" aria-label={fullscreen?"Exit fullscreen":"Fullscreen"} onClick={()=>void toggleFullscreen()}>{fullscreen?<Minimize/>:<Maximize/>}</button>
       </div>
@@ -748,7 +762,7 @@ export default function PlayerPage() {
     {menu&&!pendingInitialization&&<div className="pv-player-menu" inert={watchPrompt} role="dialog" aria-label={menu==="next"?"Up next":`${menu[0].toUpperCase()}${menu.slice(1)}`}>
       <header><h2>{menu==="next"?"Up Next":menu[0].toUpperCase()+menu.slice(1)}</h2><button className="pv-icon" aria-label="Close menu" onClick={()=>setMenu(null)}><X/></button></header>
       {menu==="audio"&&<div className="pv-option-list">{info?.tracks.filter(track=>track.kind==="audio").map(track=><button key={track.index} aria-pressed={audio===track.index} disabled={!ready.current||!current.current||!audioSelectable(track.index)} onClick={()=>changeTrack("audio",track.index)}><span>{trackLabel(track)}</span>{audio===track.index&&<Check size={18}/>}</button>)}{audioHelp&&<p className="pv-menu-help">{audioHelp}</p>}<p className="pv-menu-help">Native audio is preferred. Other tracks require a permitted lossless stream or audio conversion.</p></div>}
-      {menu==="subtitles"&&<div className="pv-option-list"><button aria-pressed={subtitle===-1} onClick={()=>changeTrack("subtitle",-1)}>Off{subtitle===-1&&<Check size={18}/>}</button>{info?.tracks.filter(track=>track.kind==="subtitle").map(track=><button key={track.index} aria-pressed={subtitle===track.index} disabled={unsupportedImage(track)} onClick={()=>changeTrack("subtitle",track.index)}><span>{trackLabel(track)}</span>{subtitle===track.index&&<Check size={18}/>}</button>)}<fieldset className="pv-subtitle-timing"><legend>Subtitle timing</legend><label>Delay (seconds)<input aria-label="Subtitle delay (seconds)" type="number" min="-60" max="60" step="0.25" value={subtitleDelaySeconds} onChange={event=>{if(event.target.value!==""&&Number.isFinite(event.target.valueAsNumber))changeSubtitleDelay(event.target.valueAsNumber);}}/></label><div><button className="pv-button" onClick={()=>changeSubtitleDelay(subtitleDelaySeconds-0.25)}>Earlier 0.25s</button><button className="pv-button" onClick={()=>changeSubtitleDelay(0)}>Reset timing</button><button className="pv-button" onClick={()=>changeSubtitleDelay(subtitleDelaySeconds+0.25)}>Later 0.25s</button></div><p>Positive values display subtitles later. Saved for this video in your profile.</p></fieldset><p className="pv-menu-help">Text, ASS, PGS and VobSub subtitles render in your browser. Other bitmap formats are unavailable. Browser overlays may be omitted from picture in picture.</p>{selectedSubtitle?.subtitle_format==="ass"&&<p className="pv-menu-help">ASS styling uses embedded fonts. Picture in picture may omit styled subtitles.</p>}</div>}
+      {menu==="subtitles"&&<div className="pv-option-list"><button aria-pressed={subtitle===-1} onClick={()=>changeTrack("subtitle",-1)}>Off{subtitle===-1&&<Check size={18}/>}</button>{info?.tracks.filter(track=>track.kind==="subtitle").map(track=><button key={track.index} aria-pressed={subtitle===track.index} disabled={unsupportedImage(track)} onClick={()=>changeTrack("subtitle",track.index)}><span>{trackLabel(track)}</span>{subtitle===track.index&&<Check size={18}/>}</button>)}<fieldset className="pv-subtitle-timing"><legend>Subtitle timing</legend><label>Delay (seconds)<input aria-label="Subtitle delay (seconds)" type="number" min="-60" max="60" step="0.25" value={subtitleDelaySeconds} onChange={event=>{if(event.target.value!==""&&Number.isFinite(event.target.valueAsNumber))changeSubtitleDelay(event.target.valueAsNumber);}}/></label><div><button className="pv-button" onClick={()=>changeSubtitleDelay(subtitleDelaySeconds-0.25)}>Earlier 0.25s</button><button className="pv-button" onClick={()=>changeSubtitleDelay(0)}>Reset timing</button><button className="pv-button" onClick={()=>changeSubtitleDelay(subtitleDelaySeconds+0.25)}>Later 0.25s</button></div><p>{channelId?"Positive values display subtitles later. Applies to the current channel playback.":"Positive values display subtitles later. Saved for this video in your profile."}</p></fieldset><p className="pv-menu-help">Text, ASS, PGS and VobSub subtitles render in your browser. Other bitmap formats are unavailable. Browser overlays may be omitted from picture in picture.</p>{selectedSubtitle?.subtitle_format==="ass"&&<p className="pv-menu-help">ASS styling uses embedded fonts. Picture in picture may omit styled subtitles.</p>}</div>}
       {menu==="quality"&&<div className="pv-option-list"><button aria-pressed={delivery==="auto"&&quality===0} onClick={()=>changeQuality("auto")}>Auto · direct playback first</button><button aria-pressed={delivery==="original"} onClick={()=>changeQuality("original")}>Original · direct only</button><button disabled={!info||!losslessAudioAllowed(info,capability.current,audio)} aria-pressed={delivery==="stream"} onClick={()=>changeQuality("stream")}>Direct Stream · lossless</button>{qualityChoices.slice(1).map((choice,index)=><button key={choice.label} disabled={info?.conversion_allowed!==true||!capability.current?.hls_supported} aria-pressed={delivery==="auto"&&quality===index+1} onClick={()=>changeQuality("auto",index+1)}>{choice.label}</button>)}<p className="pv-menu-help">Quality changes affect this temporary playback stream. Video conversion must be enabled in the server playback settings. Direct Stream copies video and audio.</p>{info?.bandwidth_adaptation_allowed&&<p className="pv-menu-help">Auto can reduce bitrate after sustained slow HLS downloads. Original-file downloads are not measured automatically.</p>}</div>}
       {menu==="speed"&&<div className="pv-option-list">{[0.5,0.75,1,1.25,1.5,1.75,2].map(value=><button key={value} aria-pressed={speed===value} onClick={()=>{setSpeed(value);setMenu(null);}}>{value===1?"Normal":`${value}×`}{speed===value&&<Check size={18}/>}</button>)}</div>}
       {menu==="chapters"&&<div className="pv-option-list">{chapters.map((chapter,index)=><button key={chapter.start_seconds} aria-current={activeChapter?.start_seconds===chapter.start_seconds?"true":undefined} onClick={()=>{seek(chapter.start_seconds);setMenu(null);}}><span>{chapter.title||`Chapter ${index+1}`}</span><time>{playbackTime(chapter.start_seconds)}</time></button>)}</div>}
@@ -756,8 +770,8 @@ export default function PlayerPage() {
       {menu==="next"&&info?.next&&<div className="pv-option-list"><button onClick={()=>next()}>{info.next.title}<ChevronRight/></button></div>}
     </div>}
     <div className="pv-player-bottom pv-controls" inert={watchPrompt||pendingInitialization} aria-hidden={!visible&&playing&&!menu}>
-      <div className="pv-title-row"><div><p className="pv-series-title">{info?.series_title}</p><h1>{title}</h1></div><div className="pv-menu-buttons">
-        {(info?.versions?.length??0)>1&&<label className="pv-button">Version <select aria-label="Version" disabled={initializing||loading||pendingInitialization||!ready.current} value={info?.version_id??""} onChange={async event=>{const version=event.target.value;await report();const next=new URLSearchParams(params);next.set("version_id",version);next.set("start","0");navigate(`?${next.toString()}`,{replace:true});}}>{info?.versions?.map(version=><option key={version.id} value={version.id}>{version.name}</option>)}</select></label>}
+      <div className="pv-title-row"><div><p className="pv-series-title">{[virtualTv?.channelName,info?.series_title].filter(Boolean).join(" · ")}</p><h1>{title}</h1></div><div className="pv-menu-buttons">
+        {!channelId&&(info?.versions?.length??0)>1&&<label className="pv-button">Version <select aria-label="Version" disabled={initializing||loading||pendingInitialization||!ready.current} value={info?.version_id??""} onChange={async event=>{const version=event.target.value;await report();const next=new URLSearchParams(params);next.set("version_id",version);next.set("start","0");navigate(`?${next.toString()}`,{replace:true});}}>{info?.versions?.map(version=><option key={version.id} value={version.id}>{version.name}</option>)}</select></label>}
         {info?.tracks.some(track=>track.kind==="audio")&&<button className="pv-button" aria-label="Audio" aria-expanded={menu==="audio"} onClick={()=>toggleMenu("audio")}><Volume2/> <span>Audio</span></button>}
         {info?.tracks.some(track=>track.kind==="subtitle")&&<button className="pv-button" aria-label="Subtitles" aria-expanded={menu==="subtitles"} onClick={()=>toggleMenu("subtitles")}><Subtitles/> <span>Subtitles</span></button>}
         <button className="pv-button" aria-label="Playback quality" aria-expanded={menu==="quality"} onClick={()=>toggleMenu("quality")}><Settings2/><span>{delivery==="original"?"Original":delivery==="stream"?"Direct Stream":quality===0?"Auto":qualityChoices[quality].label}</span></button>

@@ -642,8 +642,13 @@ async fn channel_image(
         user,
         program.library_id,
         program.item_id,
+        ArtworkPurpose::Thumbnail,
     )
     .await
+}
+enum ArtworkPurpose {
+    Thumbnail,
+    Backdrop,
 }
 async fn program_thumbnail(
     state: AppState,
@@ -652,6 +657,7 @@ async fn program_thumbnail(
     user: UserAccount,
     library: String,
     item: String,
+    purpose: ArtworkPurpose,
 ) -> Result<(StatusCode, HeaderMap, Vec<u8>), HttpError> {
     let selected = record
         .candidates
@@ -667,11 +673,18 @@ async fn program_thumbnail(
     if let Some(series) = selected.series_id.clone() {
         sources.push(series);
     }
+    let kinds: &[&str] = match purpose {
+        ArtworkPurpose::Thumbnail => &["thumb", "landscape", "poster", "backdrop"],
+        ArtworkPurpose::Backdrop => {
+            sources.reverse();
+            &["backdrop"]
+        }
+    };
     for item in sources {
         if !crate::access::allows_item(&state, &user, &library, &item) {
             continue;
         }
-        for kind in ["thumb", "landscape", "poster", "backdrop"] {
+        for &kind in kinds {
             if store
                 .native_artwork(&library, &item, kind)
                 .map_err(storage)?
@@ -682,10 +695,7 @@ async fn program_thumbnail(
             match crate::native::artwork(
                 State(state.clone()),
                 Path((library.clone(), item.clone(), kind.into())),
-                axum::extract::Query(HashMap::from([
-                    ("width".into(), "320".into()),
-                    ("still".into(), "1".into()),
-                ])),
+                axum::extract::Query(HashMap::from([("still".into(), "1".into())])),
                 headers.clone(),
             )
             .await
@@ -791,8 +801,14 @@ async fn artwork(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path((id, library, item)): Path<(String, String, String)>,
+    axum::extract::Query(query): axum::extract::Query<HashMap<String, String>>,
 ) -> Result<(StatusCode, HeaderMap, Vec<u8>), HttpError> {
     let user = state.auth.request_user(&headers)?;
     let record = authorized(&state, &user, &id)?;
-    program_thumbnail(state, headers, record, user, library, item).await
+    let purpose = if query.get("kind").is_some_and(|kind| kind == "backdrop") {
+        ArtworkPurpose::Backdrop
+    } else {
+        ArtworkPurpose::Thumbnail
+    };
+    program_thumbnail(state, headers, record, user, library, item, purpose).await
 }

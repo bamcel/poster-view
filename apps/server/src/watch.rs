@@ -43,6 +43,7 @@ pub(crate) struct WatchState {
     pub position_seconds: f64,
     pub duration_seconds: f64,
     pub watched: bool,
+    pub continue_dismissed: bool,
     pub play_count: u64,
     pub last_played_at: Option<String>,
     pub audio_index: Option<i64>,
@@ -263,6 +264,7 @@ pub(crate) struct ContinueItem {
     pub library_id: String,
     pub library_name: String,
     pub item_id: String,
+    pub series_item_id: Option<String>,
     pub title: String,
     pub kind: String,
     pub entry: NativeCatalogEntry,
@@ -368,6 +370,39 @@ impl WatchStore {
         duration: f64,
     ) -> Result<WatchState, HttpError> {
         Self::state(&self.db()?, user, library, item, duration)
+    }
+    fn dismiss_continue(&self, user: &str, library: &str, item: &str) -> Result<(), HttpError> {
+        let mut db = self.db()?;
+        let tx = db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(failure)?;
+        let raw: Option<String> = tx
+            .query_row(
+                "SELECT state_json FROM video_watch WHERE user=?1 AND library=?2 AND item=?3",
+                params![user, library, item],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(failure)?;
+        // Keep unknown/private JSON fields and all playback/history values intact.
+        let mut value = match raw {
+            Some(raw) => serde_json::from_str::<serde_json::Value>(&raw).map_err(failure)?,
+            None => serde_json::to_value(WatchState::default()).map_err(failure)?,
+        };
+        let active: Option<String> = tx
+            .query_row(
+                "SELECT active_session FROM video_watch WHERE user=?1 AND library=?2 AND item=?3",
+                params![user, library, item],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(failure)?
+            .flatten();
+        value["continue_dismissed"] = serde_json::json!(true);
+        value["_continue_dismissed_session"] = serde_json::json!(active);
+        tx.execute("INSERT INTO video_watch(user,library,item,state_json) VALUES(?1,?2,?3,?4) ON CONFLICT(user,library,item) DO UPDATE SET state_json=excluded.state_json", params![user,library,item,value.to_string()]).map_err(failure)?;
+        tx.commit().map_err(failure)?;
+        Ok(())
     }
     #[cfg(test)]
     pub(crate) fn begin_at(
@@ -569,8 +604,25 @@ impl WatchStore {
         if let Some(delay) = input.subtitle_delay_seconds {
             state.subtitle_delay_seconds = delay;
         }
+        let dismissed_session = serde_json::from_str::<serde_json::Value>(&raw_state)
+            .map_err(failure)?["_continue_dismissed_session"]
+            .as_str()
+            .map(str::to_owned);
+        // Only genuinely watching in a newly opened player restores a dismissed card.
+        // Existing players, paused reports and seeks must not undo the user's action.
+        if credited > 0.0
+            && !input.paused
+            && dismissed_session.as_deref() != Some(input.session_id.as_str())
+        {
+            state.continue_dismissed = false;
+        }
         state.version += 1;
         let mut stored_state = serde_json::to_value(&state).map_err(failure)?;
+        if state.continue_dismissed {
+            if let Some(session) = dismissed_session {
+                stored_state["_continue_dismissed_session"] = serde_json::json!(session);
+            }
+        }
         if let Some(session) = reset_session.filter(|s| s == &input.session_id) {
             stored_state["_track_reset_session"] = serde_json::json!(session);
         }
@@ -984,6 +1036,55 @@ pub(crate) async fn set_state(
     .await
     .map_err(failure)?
 }
+pub(crate) async fn dismiss_continue(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((library, item)): Path<(String, String)>,
+) -> Result<StatusCode, HttpError> {
+    let user = state.auth.request_user(&headers)?;
+    tokio::task::spawn_blocking(move || {
+        crate::access::require_item(&state, &user, &library, &item)?;
+        video(&state, &library, &item)?;
+        store(&state).dismiss_continue(&user.id, &library, &item)?;
+        Ok(StatusCode::NO_CONTENT)
+    })
+    .await
+    .map_err(failure)?
+}
+fn series_item_id(
+    catalog: &ServerStore,
+    library: &str,
+    entry: &NativeCatalogEntry,
+) -> Result<Option<String>, HttpError> {
+    if entry.kind != "episode" {
+        return Ok(None);
+    }
+    let Some(parent) = entry
+        .parent_path
+        .as_deref()
+        .map(|path| catalog.native_catalog_path(library, path))
+        .transpose()
+        .map_err(failure)?
+        .flatten()
+    else {
+        return Ok(None);
+    };
+    if parent.kind == "series" {
+        return Ok(Some(parent.id));
+    }
+    if parent.kind != "season" {
+        return Ok(None);
+    }
+    Ok(parent
+        .parent_path
+        .as_deref()
+        .map(|path| catalog.native_catalog_path(library, path))
+        .transpose()
+        .map_err(failure)?
+        .flatten()
+        .filter(|series| series.kind == "series")
+        .map(|series| series.id))
+}
 pub(crate) async fn continue_watching(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1017,7 +1118,8 @@ pub(crate) async fn continue_watching(
             }
             saved.duration_seconds =
                 resolved_duration(&watch_store, &user.id, &library_id, &entry)?;
-            if saved.position_seconds <= 0.0
+            if saved.continue_dismissed
+                || saved.position_seconds <= 0.0
                 || (saved.duration_seconds > 0.0
                     && saved.position_seconds >= saved.duration_seconds)
             {
@@ -1026,7 +1128,10 @@ pub(crate) async fn continue_watching(
             // Home cards need identification/artwork, not full ffprobe dumps or NFO source XML.
             entry.files.clear();
             entry.nfo_xml = None;
+            let series_item_id = series_item_id(&catalog, &library_id, &entry)?
+                .filter(|id| crate::access::allows_item(&state, &user, &library_id, id));
             result.push(ContinueItem {
+                series_item_id,
                 library_id,
                 library_name: lib.name.clone(),
                 item_id,
@@ -1081,7 +1186,10 @@ pub(crate) async fn history(
             // Home cards need identification/artwork, not full ffprobe dumps or NFO source XML.
             entry.files.clear();
             entry.nfo_xml = None;
+            let series_item_id = series_item_id(&catalog, &library_id, &entry)?
+                .filter(|id| crate::access::allows_item(&state, &user, &library_id, id));
             result.push(ContinueItem {
+                series_item_id,
                 library_id,
                 library_name: lib.name.clone(),
                 item_id,
@@ -1188,6 +1296,10 @@ pub(crate) fn routes() -> axum::Router<AppState> {
         )
         .route("/api/watch/continue", axum::routing::get(continue_watching))
         .route(
+            "/api/watch/native/{library}/{item}/continue",
+            axum::routing::delete(dismiss_continue),
+        )
+        .route(
             "/api/watch/libraries/{library}/rules",
             axum::routing::get(get_rules).put(save_rules),
         )
@@ -1219,6 +1331,237 @@ mod tests {
             subtitle_index: None,
             subtitle_delay_seconds: None,
         }
+    }
+    #[test]
+    fn continue_dismissal_is_personal_preserves_resume_and_requires_new_viewing() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = WatchStore::new(temp.path().join("watch.sqlite"));
+        let first = store.begin_at("one", "l", "i", 1000.0, 0).unwrap();
+        let mut report = input(&first.session_id, 0, 60.0);
+        report.audio_index = Some(Some(3));
+        report.subtitle_index = Some(Some(7));
+        let before = store
+            .report_at("one", "l", "i", 1000.0, report, 30_000)
+            .unwrap();
+        store.dismiss_continue("one", "l", "i").unwrap();
+        let hidden = store.get("one", "l", "i", 1000.0).unwrap();
+        assert!(hidden.continue_dismissed);
+        assert_eq!(
+            (
+                hidden.position_seconds,
+                hidden.audio_index,
+                hidden.subtitle_index,
+                hidden.watched,
+                hidden.play_count,
+                hidden.last_played_at
+            ),
+            (
+                before.position_seconds,
+                before.audio_index,
+                before.subtitle_index,
+                before.watched,
+                before.play_count,
+                before.last_played_at
+            )
+        );
+        assert!(
+            !store
+                .get("two", "l", "i", 1000.0)
+                .unwrap()
+                .continue_dismissed
+        );
+        assert_eq!(store.recent("one").unwrap().len(), 1);
+        let stale = store
+            .report_at(
+                "one",
+                "l",
+                "i",
+                1000.0,
+                input(&first.session_id, 1, 70.0),
+                40_000,
+            )
+            .unwrap();
+        assert!(stale.continue_dismissed);
+        // A paused or seeking report in a new session is still not viewing.
+        let next = store.begin_at("one", "l", "i", 1000.0, 50_000).unwrap();
+        assert!(next.state.continue_dismissed);
+        let mut paused = input(&next.session_id, 0, 75.0);
+        paused.paused = true;
+        assert!(
+            store
+                .report_at("one", "l", "i", 1000.0, paused, 60_000)
+                .unwrap()
+                .continue_dismissed
+        );
+        let mut seeking = input(&next.session_id, 1, 400.0);
+        seeking.seeking = true;
+        assert!(
+            store
+                .report_at("one", "l", "i", 1000.0, seeking, 70_000)
+                .unwrap()
+                .continue_dismissed
+        );
+        let viewed = store
+            .report_at(
+                "one",
+                "l",
+                "i",
+                1000.0,
+                input(&next.session_id, 2, 410.0),
+                80_000,
+            )
+            .unwrap();
+        assert!(!viewed.continue_dismissed);
+        assert_eq!(viewed.position_seconds, 410.0);
+        // Legacy JSON has no dismissal flag.
+        assert!(
+            !serde_json::from_str::<WatchState>("{}")
+                .unwrap()
+                .continue_dismissed
+        );
+    }
+    #[tokio::test]
+    async fn continue_removal_filters_only_continue_and_resolves_series() {
+        use posterview_contracts::native::{AnimeContent, NativeLibraryInput, NativeLibraryType};
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let db = ServerStore::new(state.runtime.data_dir());
+        let lib = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "TV".into(),
+                    library_type: NativeLibraryType::Shows,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["TV".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let entry = |path: &str, kind: &str, parent: Option<&str>| NativeCatalogEntry {
+            id: String::new(),
+            title: path.into(),
+            kind: kind.into(),
+            path: path.into(),
+            parent_path: parent.map(str::to_owned),
+            metadata: serde_json::json!({"runtime":20}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(
+            &lib.id,
+            lib.revision,
+            &[
+                entry("TV/Show", "series", None),
+                entry("TV/Show/S01", "season", Some("TV/Show")),
+                entry("TV/Show/S01/E01.mkv", "episode", Some("TV/Show/S01")),
+                entry("TV/Show/E02.mkv", "episode", Some("TV/Show")),
+                entry("TV/Movie.mkv", "movie", None),
+            ],
+        )
+        .unwrap();
+        let catalog = db.native_catalog(&lib.id).unwrap();
+        let series = catalog.iter().find(|e| e.kind == "series").unwrap();
+        let episode = catalog
+            .iter()
+            .find(|e| e.path.ends_with("E01.mkv"))
+            .unwrap();
+        let user = state.auth.request_user(&HeaderMap::new()).unwrap();
+        let watch = store(&state);
+        for e in catalog
+            .iter()
+            .filter(|e| e.kind == "episode" || e.kind == "movie")
+        {
+            let session = watch.begin_at(&user.id, &lib.id, &e.id, 1200.0, 0).unwrap();
+            watch
+                .report_at(
+                    &user.id,
+                    &lib.id,
+                    &e.id,
+                    1200.0,
+                    input(&session.session_id, 0, 60.0),
+                    30_000,
+                )
+                .unwrap();
+        }
+        let items = continue_watching(State(state.clone()), HeaderMap::new())
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(items.len(), 3);
+        for item in &items {
+            assert_eq!(
+                item.series_item_id.as_deref(),
+                if item.kind == "episode" {
+                    Some(series.id.as_str())
+                } else {
+                    None
+                }
+            );
+        }
+        assert_eq!(
+            dismiss_continue(
+                State(state.clone()),
+                HeaderMap::new(),
+                Path((lib.id.clone(), episode.id.clone()))
+            )
+            .await
+            .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            continue_watching(State(state.clone()), HeaderMap::new())
+                .await
+                .unwrap()
+                .0
+                .len(),
+            2
+        );
+        let history = history(State(state.clone()), HeaderMap::new())
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(history.len(), 3);
+        assert!(
+            history
+                .iter()
+                .find(|item| item.item_id == episode.id)
+                .unwrap()
+                .state
+                .continue_dismissed
+        );
+        assert!(
+            dismiss_continue(
+                State(state.clone()),
+                HeaderMap::new(),
+                Path((lib.id.clone(), "unknown".into()))
+            )
+            .await
+            .is_err()
+        );
+        let mut protected = state;
+        protected.auth = crate::AuthState::for_tests("continue-test-token");
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::COOKIE,
+            "posterview_session=invalid".parse().unwrap(),
+        );
+        assert_eq!(
+            dismiss_continue(
+                State(protected),
+                headers,
+                Path((lib.id, episode.id.clone()))
+            )
+            .await
+            .unwrap_err()
+            .status,
+            StatusCode::UNAUTHORIZED
+        );
     }
     #[test]
     fn resume_pins_version_and_tracks_and_version_change_resets_timeline() {

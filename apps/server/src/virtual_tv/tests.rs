@@ -151,7 +151,7 @@ async fn default_channel_image_prefers_current_video_thumbnail_over_poster() {
         ("poster", image::Rgb([0_u8, 0, 255])),
     ] {
         let relative = format!("Movies/{kind}.png");
-        image::RgbImage::from_pixel(32, 16, color)
+        image::RgbImage::from_pixel(1280, 720, color)
             .save(temp.path().join("media").join(&relative))
             .unwrap();
         ServerStore::new(state.runtime.data_dir())
@@ -184,6 +184,8 @@ async fn default_channel_image_prefers_current_video_thumbnail_over_poster() {
     let (_, _, bytes) = channel_image(State(state), HeaderMap::new(), Path(channel.id))
         .await
         .unwrap();
+    assert_eq!(image::load_from_memory(&bytes).unwrap().width(), 1280);
+    assert_eq!(image::load_from_memory(&bytes).unwrap().height(), 720);
     let pixel = image::load_from_memory(&bytes)
         .unwrap()
         .to_rgb8()
@@ -252,7 +254,8 @@ async fn selected_program_uses_its_own_thumbnail_and_rejects_items_outside_chann
     let (_, _, bytes) = artwork(
         State(state.clone()),
         HeaderMap::new(),
-        Path((channel.id.clone(), library.clone(), item.id)),
+        Path((channel.id.clone(), library.clone(), item.id.clone())),
+        axum::extract::Query(HashMap::new()),
     )
     .await
     .unwrap();
@@ -262,11 +265,50 @@ async fn selected_program_uses_its_own_thumbnail_and_rejects_items_outside_chann
         .get_pixel(0, 0)
         .0;
     assert!(pixel[1] > 200 && pixel[0] < 20);
+    let backdrop_query =
+        || axum::extract::Query(HashMap::from([("kind".into(), "backdrop".into())]));
+    assert!(
+        artwork(
+            State(state.clone()),
+            HeaderMap::new(),
+            Path((channel.id.clone(), library.clone(), item.id.clone())),
+            backdrop_query(),
+        )
+        .await
+        .is_err(),
+        "A thumbnail must not be used as the guide backdrop"
+    );
+    image::RgbImage::from_pixel(1280, 720, image::Rgb([0_u8, 0, 255]))
+        .save(temp.path().join("media/Movies/second-backdrop.png"))
+        .unwrap();
+    store
+        .save_native_artwork(
+            &library,
+            &item.id,
+            &posterview_contracts::native::NativeArtwork {
+                kind: "backdrop".into(),
+                path: "Movies/second-backdrop.png".into(),
+                source: "local".into(),
+            },
+        )
+        .unwrap();
+    let (_, _, bytes) = artwork(
+        State(state.clone()),
+        HeaderMap::new(),
+        Path((channel.id.clone(), library.clone(), item.id)),
+        backdrop_query(),
+    )
+    .await
+    .unwrap();
+    let backdrop = image::load_from_memory(&bytes).unwrap().to_rgb8();
+    assert_eq!(backdrop.dimensions(), (1280, 720));
+    assert!(backdrop.get_pixel(0, 0).0[2] > 200);
     assert!(
         artwork(
             State(state),
             HeaderMap::new(),
-            Path((channel.id, library, "outside-channel".into()))
+            Path((channel.id, library, "outside-channel".into())),
+            axum::extract::Query(HashMap::from([("kind".into(), "backdrop".into())])),
         )
         .await
         .is_err()
@@ -392,7 +434,8 @@ async fn viewer_routes_hide_mixed_channels_and_reject_management_and_artwork() {
         artwork(
             State(state.clone()),
             headers.clone(),
-            Path((channel.id.clone(), library.clone(), "unknown".into()))
+            Path((channel.id.clone(), library.clone(), "unknown".into())),
+            axum::extract::Query(HashMap::from([("kind".into(), "backdrop".into())])),
         )
         .await
         .is_err()

@@ -13,6 +13,7 @@ export const watchApi={
   progress:(library:string,item:string,body:Record<string,unknown>,keepalive=false)=>apiRequest<WatchState>(`${itemUrl(library,item)}/progress`,{method:"PUT",body:JSON.stringify(body),keepalive}),
   mark:(library:string,item:string,watched:boolean)=>apiRequest<WatchState>(itemUrl(library,item),{method:"PUT",body:JSON.stringify({watched})}),
   history:()=>apiRequest<ContinueItem[]>("/watch/history"),
+  dismissContinue:(library:string,item:string)=>apiRequest<void>(`${itemUrl(library,item)}/continue`,{method:"DELETE"}),
   continue:()=>apiRequest<ContinueItem[]>("/watch/continue"),
   states:(library:string)=>apiRequest<Record<string,WatchState>>(`/watch/libraries/${encodeURIComponent(library)}/states`),
   preferences:(signal?:AbortSignal)=>apiRequest<PlaybackPreferences>("/playback/preferences",{signal}),

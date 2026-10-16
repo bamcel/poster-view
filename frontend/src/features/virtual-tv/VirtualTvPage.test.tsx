@@ -8,10 +8,12 @@ import {nativeLibraries,type NativeCatalogEntry} from "../../api/nativeLibraries
 import VirtualTvPage from "./VirtualTvPage";
 import {virtualTv,type Channel} from "./client";
 
+vi.mock("./LiveChannelPreview",()=>({default:({channelId}:{channelId:string})=><video aria-label={`Live preview ${channelId}`}/>}));
 vi.mock("./client",()=>({virtualTv:{settings:vi.fn(),channels:vi.fn(),guide:vi.fn(),save:vi.fn(),remove:vi.fn()}}));
 vi.mock("../../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(),summaries:vi.fn()}}));
 const channel:Channel={id:"comedy",name:"Comedy",number:2,library_ids:["tv"],show_ids:[],movie_ids:[],genres:[],order:"random_shows",start_at:"2026-01-01T00:00:00Z",revision:1};
 beforeEach(()=>{
+ localStorage.clear();
  vi.mocked(virtualTv.settings).mockResolvedValue({enabled:true});
  vi.mocked(virtualTv.channels).mockResolvedValue([channel]);
  vi.mocked(virtualTv.guide).mockResolvedValue([{id:"program",library_id:"tv",item_id:"episode",title:"Pilot",series_title:"Example show",season:1,episode:1,starts_at:new Date(Date.now()-60000).toISOString(),ends_at:new Date(Date.now()+60000).toISOString(),artwork_url:"/api/virtual-tv/program/artwork"}]);
@@ -161,4 +163,40 @@ it("uses a clean image fallback for unavailable thumbnails",async()=>{
  fireEvent.error(image);
  expect(screen.queryByRole("img",{name:"Pilot thumbnail"})).toBeNull();
  expect(screen.getByLabelText("Program image unavailable")).toBeTruthy();
+});
+
+it("keeps optional live previews off until enabled and disables them for future programs",async()=>{
+ const now=Date.now();
+ vi.mocked(virtualTv.guide).mockResolvedValue([
+  {id:"current",library_id:"tv",item_id:"episode",title:"Current",series_title:"Example show",season:1,episode:1,starts_at:new Date(now-60000).toISOString(),ends_at:new Date(now+60000).toISOString(),artwork_url:"/current.jpg"},
+  {id:"future",library_id:"tv",item_id:"next",title:"Future",series_title:"Example show",season:1,episode:2,starts_at:new Date(now+60000).toISOString(),ends_at:new Date(now+3600000).toISOString(),artwork_url:"/future.jpg"}
+ ]);
+ mount();fireEvent.click(await screen.findByRole("button",{name:"Preferences"}));
+ await screen.findByRole("dialog",{name:"Virtual TV preferences"});
+ expect(screen.queryByLabelText("Live preview comedy")).toBeNull();
+ fireEvent.click(screen.getByRole("checkbox",{name:"Live preview"}));
+ expect(screen.getByLabelText("Live preview comedy")).toBeTruthy();
+ expect(localStorage.getItem("posterview-virtual-tv-live-preview")).toBe("true");
+ fireEvent.click(screen.getByRole("button",{name:/^Close$/}));
+ fireEvent.click(screen.getByRole("button",{name:/Comedy: Future,/}));
+ expect(screen.queryByLabelText("Live preview comedy")).toBeNull();
+ expect(screen.getByAltText("Future thumbnail").getAttribute("src")).toBe("/future.jpg");
+ fireEvent.click(screen.getByRole("button",{name:/Select channel 2 Comedy/}));
+ expect(screen.getByLabelText("Live preview comedy")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Preferences"}));
+ fireEvent.click(screen.getByRole("checkbox",{name:"Live preview"}));
+ expect(screen.queryByLabelText("Live preview comedy")).toBeNull();
+});
+it("uses the selected program backdrop rather than its preview thumbnail",async()=>{
+ const now=Date.now();
+ vi.mocked(virtualTv.guide).mockResolvedValue([
+  {id:"current",library_id:"tv",item_id:"episode",title:"Current",series_title:"Example show",season:1,episode:1,starts_at:new Date(now-60000).toISOString(),ends_at:new Date(now+60000).toISOString(),artwork_url:"/current-art"},
+  {id:"future",library_id:"tv",item_id:"next",title:"Future",series_title:"Example show",season:1,episode:2,starts_at:new Date(now+60000).toISOString(),ends_at:new Date(now+3600000).toISOString(),artwork_url:"/future-art"}
+ ]);
+ mount();await screen.findByAltText("Current thumbnail");
+ const page=screen.getByRole("heading",{name:/^Virtual TV$/}).closest(".vtv-page") as HTMLElement;
+ expect(page.style.backgroundImage).toContain("/current-art?kind=backdrop");
+ fireEvent.click(screen.getByRole("button",{name:/Comedy: Future,/}));
+ expect(page.style.backgroundImage).toContain("/future-art?kind=backdrop");
+ expect(screen.getByAltText("Future thumbnail").getAttribute("src")).toBe("/future-art");
 });
