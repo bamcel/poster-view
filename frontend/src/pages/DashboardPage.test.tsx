@@ -5,7 +5,7 @@ import {afterEach,expect,it,vi} from "vitest";
 import {useSearchParams} from "../lib/libraryNavigation";
 import DashboardPage from "./DashboardPage";
 import {nativeLibraries,defaultNativeOptions,type NativeLibrary} from "../api/nativeLibraries";
-vi.mock("../api/nativeLibraries",async original=>({...await original<typeof import("../api/nativeLibraries")>(),nativeLibraries:{list:vi.fn(),status:vi.fn(),catalog:vi.fn(async()=>[])}}));
+vi.mock("../api/nativeLibraries",async original=>({...await original<typeof import("../api/nativeLibraries")>(),nativeLibraries:{list:vi.fn(),status:vi.fn(),catalog:vi.fn(async()=>[]),summaries:vi.fn((id:string)=>nativeLibraries.catalog(id))}}));
 vi.mock("../components/NativeLibraryBrowser",()=>({default:({library}:{library:NativeLibrary})=>{const [params,setParams]=useSearchParams();return <><p>Catalog {library.name}</p><span data-testid="selected">{params.get("native_item")}</span><button onClick={()=>setParams(previous=>{const next=new URLSearchParams(previous);next.delete("native_item");return next;})}>Back</button></>;}}));
 const library:NativeLibrary={id:"anime",name:"Anime",library_type:"anime",anime_content:"both",paths:["Anime"],revision:1,created_at:"",updated_at:"",options:{...defaultNativeOptions}};
 function Location(){const location=useLocation();return <output>{location.pathname}{location.search}</output>;}
@@ -47,10 +47,10 @@ it("keeps a cached series page visible when background refresh fails",async()=>{
  vi.mocked(nativeLibraries.catalog).mockRejectedValue(new Error("Refresh unavailable"));
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
  client.setQueryData(["native-libraries"],[library]);
- client.setQueryData(["native-catalog",library.id],[{id:"dragon",title:"Dragon Ball",kind:"series",path:"Anime/Dragon Ball",parent_path:null,available:true,files:[],metadata:{},artwork:[],nfo_path:null,revision:1}],{updatedAt:Date.now()-6*60_000});
+ client.setQueryData(["native-catalog",library.id,"summary"],[{id:"dragon",title:"Dragon Ball",kind:"series",path:"Anime/Dragon Ball",parent_path:null,available:true,files:[],metadata:{},artwork:[],nfo_path:null,revision:1}],{updatedAt:Date.now()-6*60_000});
  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/media/Anime/Dragon-Ball"]}><Routes><Route path="/media/:libraryId/:itemSlug" element={<DashboardPage/>}/></Routes></MemoryRouter></QueryClientProvider>);
  expect(screen.getByTestId("selected").textContent).toBe("dragon");
- await waitFor(()=>expect(client.getQueryState(["native-catalog",library.id])?.status).toBe("error"));
+ await waitFor(()=>expect(client.getQueryState(["native-catalog",library.id,"summary"])?.status).toBe("error"));
  expect(screen.getByText("Catalog Anime")).toBeTruthy();
  expect(screen.getByTestId("selected").textContent).toBe("dragon");
 });

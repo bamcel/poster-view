@@ -8,7 +8,7 @@ export default function NativeSeriesPlay({library,path,entries,includeIds=[],spe
   const navigate=useNavigate(),location=useLocation();
   const query=useQuery({queryKey:["continue-watching"],queryFn:watchApi.continue,retry:false,staleTime:0});
   const states=useQuery({queryKey:["watch-library-states",library],queryFn:()=>watchApi.states(library),retry:false,staleTime:0});
-  const episodes=entries.filter(e=>e.kind==="episode"&&e.available&&e.metadata.missing!==true&&e.files.length&&(e.path.startsWith(path+"/")||includeIds.includes(e.id))).sort((a,b)=>compareEpisodeOrder(a,b,specialsInSeasons));
+  const episodes=entries.filter(e=>e.kind==="episode"&&e.available&&e.metadata.missing!==true&&(e.files.length>0||e.metadata._has_files===true)&&(e.path.startsWith(path+"/")||includeIds.includes(e.id))).sort((a,b)=>compareEpisodeOrder(a,b,specialsInSeasons));
   const continued=query.data?.find(item=>item.library_id===library&&episodes.some(e=>e.id===item.item_id));
   const episode=episodes.find(e=>e.id===continued?.item_id)??episodes.find(e=>!states.data?.[e.id]?.watched)??episodes[0];
   if(!episode)return null;

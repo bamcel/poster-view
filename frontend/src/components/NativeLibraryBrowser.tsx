@@ -54,7 +54,7 @@ import LibraryPopup from "./LibraryPopup";
 import ArtworkPreferences, {animatedArtworkEnabled,useAnimatedArtworkPreference} from "./ArtworkPreferences";
 import AnimePreferences, {useAnimePreferences} from "./AnimePreferences";
 import { animeVoiceGroups, orderedCharacters, voiceName } from "../lib/nativeVoiceCast";
-import { nativeCatalogView } from "../lib/nativeCatalogView";
+import {catalogQueryOptions, useCatalogDetails} from "../lib/nativeCatalogQueries";
 import DashboardBackdrop from "./DashboardBackdrop";
 import TitleMetadata from "./TitleMetadata";
 import ItemAbout from "./ItemAbout";
@@ -263,8 +263,7 @@ export default function NativeLibraryBrowser({
       q.state.data?.status === "scanning" ? 2000 : library.options?.real_time_monitor ? 5000 : false,
   });
   const catalog = useQuery({
-    queryKey: ["native-catalog", library.id],
-    queryFn: () => nativeLibraries.catalog(library.id),
+    ...catalogQueryOptions(library),
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
     refetchInterval: status.data?.status === "scanning" ? 5000 : false,
@@ -318,10 +317,8 @@ export default function NativeLibraryBrowser({
       void client.invalidateQueries({queryKey: ["native-catalog", library.id]});
     }
   }, [status.data?.status, status.data?.count, client, library.id]);
-  const view = useMemo(
-    () => nativeCatalogView(catalog.data ?? []),
-    [catalog.data],
-  );
+  const details=useCatalogDetails(library,catalog.data,[params.get("native_library")===library.id?params.get("native_item")??undefined:undefined,editor?.id]);
+  const view = details.view;
   const entries = view.entries;
   const requested =
     params.get("native_library") === library.id
@@ -374,7 +371,7 @@ export default function NativeLibraryBrowser({
   const refresh = async () => {
     if(refreshingArtwork)return;
     setRefreshingArtwork(true);setRefreshError("");
-    try {if(selected){const result=await nativeLibraries.refreshArtwork(library.id,selected.id);setRefreshError(result.warnings.join(" · "));}await catalog.refetch();}
+    try {if(selected){const result=await nativeLibraries.refreshArtwork(library.id,selected.id);setRefreshError(result.warnings.join(" · "));}await Promise.all([catalog.refetch(),details.refetch()]);}
     catch(error){setRefreshError((error as Error).message);}
     finally {setRefreshingArtwork(false);}
   };
@@ -408,7 +405,7 @@ export default function NativeLibraryBrowser({
     void client.invalidateQueries({ queryKey: ["native-catalog", library.id] });
     setEditor(null);
   };
-  const editEntry = editor && entries.find((e) => e.id === editor.id);
+  const editEntry = editor && details.isReady(editor.id) && entries.find((e) => e.id === editor.id);
   let posterEntry=editEntry || undefined;
   const posterParents=new Set<string>();
   while(posterEntry?.parent_path&&!posterParents.has(posterEntry.path)){
@@ -470,9 +467,10 @@ export default function NativeLibraryBrowser({
           {catalog.error.message} <button onClick={()=>void catalog.refetch()}>Retry</button>
         </p>
       )}
+      {details.error && <p role="alert" className="relative z-10 px-6 py-2 text-danger">{details.error.message} <button onClick={()=>void details.refetch()}>Retry</button></p>}
+      {editor && !editEntry && details.pending && <p role="status" className="p-8 text-muted">Loading editor…</p>}
       {refreshError && <p role="alert" className="relative z-10 px-6 py-2 text-sm text-danger">{refreshError}</p>}
-      {selected ? (
-        <NativeDetail
+      {selected ? (details.isReady(selected.id) ? <NativeDetail
           key={selected.id}
           library={library}
           entry={selected}
@@ -484,7 +482,7 @@ export default function NativeLibraryBrowser({
           edit={(kind, id = selected.id) => setEditor({ id, kind })}
           showBackdrop={showBackdrop}
           overlay={overlay}
-        />
+        /> : <p role="status" className="p-8 text-muted">Loading title…</p>
       ) : (
         <>
           <div className="relative z-30 grid shrink-0 items-center gap-3 border-b border-border px-4 py-3 sm:px-6 lg:grid-cols-[1fr_auto_1fr] lg:px-8">

@@ -2,7 +2,7 @@ import {useParams} from "../lib/libraryNavigation";
 import {useEffect, useContext, useMemo} from "react";
 import {useNavigate, LibraryNavigationContext} from "../lib/libraryNavigation";
 import {libraryPath, itemPath, resolveNamed, resolveNumbered} from "../lib/mediaPaths";
-import {nativeCatalogView} from "../lib/nativeCatalogView";
+import {catalogQueryOptions, catalogView} from "../lib/nativeCatalogQueries";
 import {createSearchParams, type SetURLSearchParams} from "react-router-dom";
 import {useQuery} from "@tanstack/react-query";
 import {useSearchParams} from "../lib/libraryNavigation";
@@ -20,8 +20,8 @@ export default function DashboardPage() {
  const library=resolveNamed(libraryId??params.get("native_library")??undefined,libraries.data??[])
    ?? (!libraryId ? libraries.data?.find(l=>l.id===localStorage.getItem("posterview.manualLibraryTab")) ?? libraries.data?.[0] : undefined);
 
- const catalog=useQuery({queryKey:["native-catalog",library?.id],queryFn:()=>nativeLibraries.catalog(library!.id),enabled:!!library&&!preview,staleTime:5*60_000,gcTime:30*60_000});
- const view=useMemo(()=>nativeCatalogView(catalog.data??[]),[catalog.data]);
+ const catalog=useQuery({...catalogQueryOptions(library??{id:"",library_type:"movies"}),enabled:!!library&&!preview});
+ const view=useMemo(()=>catalogView(catalog.data),[catalog.data]);
  const entries=view.entries;
  const series=seasonSlug ? resolveNamed(itemSlug,entries.filter(entry=>entry.kind==="series")) : undefined;
  const season=series ? resolveNumbered(seasonSlug,entries.filter(entry=>entry.kind==="season"&&entry.parent_path===series.path)) : undefined;

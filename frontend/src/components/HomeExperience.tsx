@@ -12,7 +12,7 @@ import "./HomeExperience.css";
 
 const details=({library,entry}:HomeTitle)=>`/media/${encodeURIComponent(library.id)}?native_library=${encodeURIComponent(library.id)}&native_item=${encodeURIComponent(entry.id)}&from=home`;
 const play=({library,entry}:HomeTitle)=>`/play/native/${encodeURIComponent(library.id)}/${encodeURIComponent(entry.id)}?return=%2F`;
-const playable=({entry}:HomeTitle)=>entry.available&&entry.metadata.missing!==true&&entry.kind==="movie"&&entry.files.length>0;
+const playable=({entry}:HomeTitle)=>entry.available&&entry.metadata.missing!==true&&entry.kind==="movie"&&(entry.files.length>0||entry.metadata._has_files===true);
 function numeric(value:unknown){if(typeof value!=="number"&&(typeof value!=="string"||!value.trim()))return;const n=Number(value);return Number.isFinite(n)?n:undefined;}
 function genres({entry}:HomeTitle){return Array.isArray(entry.metadata.genres)?[...new Set(entry.metadata.genres.filter((v):v is string=>typeof v==="string"&&!!v.trim()).map(v=>v.trim()))]:[];}
 function Artwork({title,hero=false}:{title:HomeTitle;hero?:boolean}){

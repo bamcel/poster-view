@@ -86,6 +86,19 @@ it("renders a saved overlay on static artwork without replacing its image",()=>{
  expect(view.container.querySelector('img[aria-hidden="true"]')).toBeTruthy();
 });
 
+it("sizes nested logo overlays by their displayed percentage and preserves source versions",()=>{
+ const logo="/api/native/libraries/library/items/item/artwork/logo?v=7&width=1920";
+ const overlay=encodeURIComponent(JSON.stringify({logo,x:15,y:72,width:20,opacity:100}));
+ const view=render(<AnimatedArtwork src={`${src}&width=480&logoOverlay=${overlay}`} alt="Poster"/>);
+ const logoImage=()=>view.container.querySelector('img[aria-hidden="true"]') as HTMLImageElement;
+ expect(logoImage().getAttribute("src")).toBe("/api/native/libraries/library/items/item/artwork/logo?v=7&width=96");
+ visible(true);
+ expect(screen.getByLabelText("Poster").getAttribute("src")).toContain("format=webm");
+ expect(screen.getByLabelText("Poster").getAttribute("src")).not.toContain("width=");
+ view.rerender(<AnimatedArtwork src={`${src}&width=480&logoOverlay=${overlay}`} width={1280} alt="Poster"/>);
+ expect(logoImage().getAttribute("src")).toBe("/api/native/libraries/library/items/item/artwork/logo?v=7&width=320");
+});
+
 it("applies backdrop framing to static images and animated video inside a clipped boundary",()=>{
  const framing=encodeURIComponent(JSON.stringify({x:25,y:70,zoom:150,fit:"contain"}));
  const view=render(<AnimatedArtwork src={`/backdrop.jpg?backdropEdit=${framing}`} alt="Framed backdrop" fill/>);

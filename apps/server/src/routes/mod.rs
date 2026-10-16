@@ -54,6 +54,10 @@ pub(crate) fn protected(auth: AuthState) -> Router<AppState> {
             axum::routing::post(native::refresh_library),
         )
         .route("/api/native/libraries/{id}/items", get(native::catalog))
+        .route(
+            "/api/native/libraries/{id}/summaries",
+            get(native::summaries),
+        )
         .route("/api/native/libraries/{id}/previews", get(native::previews))
         .route(
             "/api/native/libraries/{library}/items/{item}/metadata/preview",
@@ -81,7 +85,7 @@ pub(crate) fn protected(auth: AuthState) -> Router<AppState> {
         )
         .route(
             "/api/native/libraries/{library}/items/{item}",
-            axum::routing::put(native::edit_item),
+            get(native::catalog_item).put(native::edit_item),
         )
         .route(
             "/api/native/libraries/{library}/items/{item}/artwork/{kind}",

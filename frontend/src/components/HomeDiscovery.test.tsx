@@ -107,3 +107,9 @@ it("bounds a discovery row and scrolls by page with reduced motion respected", (
   expect(scrollBy).toHaveBeenCalledWith({left: 400, behavior: "instant"});
   delete (HTMLElement.prototype as {scrollBy?: unknown}).scrollBy;
 });
+
+it("keeps Play available for a movie summary without a media file payload",()=>{
+ const movie=title("Summary movie",{_has_files:true});movie.entry.files=[];
+ render(<MemoryRouter><FeaturedTitle titles={[movie]}/></MemoryRouter>);
+ expect(screen.getByRole("link",{name:/Play/}).getAttribute("href")).toContain("/play/native/");
+});

@@ -65,6 +65,15 @@ Shared fixtures now come from `test_support.rs`, not native scan tests. Feature
 routers return `Router<AppState>`; central composition applies authentication
 once. Keep only health, authentication and login-backdrop endpoints public.
 
+Video-library browsing uses `GET /api/native/libraries/{id}/summaries`, a compact
+relational projection with navigation, filtering, artwork, ratings and a
+`metadata._has_files` playback flag. It does not deserialize scan snapshots or
+include files, NFO text, cast or provider payloads. `GET .../items/{item}` expands
+the selected title or editor; the original full `GET .../items` contract remains
+available for editing workflows, books and YouTube. Query keys retain the
+`native-catalog` library prefix so scans and edits invalidate summaries and full
+records together. Library-strip previews use a separate thin database query.
+
 Existing crates already supply the necessary dependency boundaries. No new crate
 was added. Further extraction should identify a reusable interface or concrete
 ownership/dependency problem first.

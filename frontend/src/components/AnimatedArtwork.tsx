@@ -19,6 +19,7 @@ export default function AnimatedArtwork({src, alt, className, onError, format: o
   useEffect(()=>{if(!new URLSearchParams(src.split("?")[1]??"").has("backdropKey"))return;const refresh=()=>refreshFraming(v=>v+1);window.addEventListener(backdropFramingEvent,refresh);window.addEventListener("storage",refresh);return()=>{window.removeEventListener(backdropFramingEvent,refresh);window.removeEventListener("storage",refresh);};},[src]);
   const framing=framingFromUrl(src);
   const source=backdropMediaUrl(src);
+  const requestedWidth=width ?? (Number(new URLSearchParams(source.split("?")[1] ?? "").get("width")) || undefined);
   // Resized variants are static. Keep the original GIF/WebM for active playback.
   const [mediaPath,mediaQuery]=source.split("?");
   const animationQuery=mediaQuery?.split("&").filter(part=>!/^width=/.test(part)).join("&");
@@ -68,6 +69,6 @@ export default function AnimatedArtwork({src, alt, className, onError, format: o
   const mediaClass = fill ? "absolute inset-0 h-full w-full object-cover object-top" : "h-full w-full max-h-[inherit] max-w-[inherit] [object-fit:inherit] [object-position:inherit]";
   return <div ref={element} className={className} style={fill ? {position: "absolute", inset: 0, overflow: "hidden"} : overlay || framing ? {position:"relative",overflow:"hidden"} : undefined}>
     {animated && !play && fallback === mediaSrc ? <span className="sr-only">{alt}: animated preview paused</span> : format === "webm" && play ? <video ref={video} src={originalSrc} poster={fallback} aria-label={alt} className={mediaClass} style={mediaStyle} autoPlay loop muted playsInline preload="auto" onError={()=>setFailed(true)}/> : <img src={format === "gif" && play ? originalSrc : fallback} alt={alt} className={mediaClass} style={mediaStyle} loading={visible ? "eager" : "lazy"} draggable={false} onError={onError}/>}
-    {overlay && <img src={width ? sizedArtwork(overlay.logo,width) : overlay.logo} alt="" aria-hidden="true" className="pointer-events-none absolute" style={{left:`${overlay.x}%`,top:`${overlay.y}%`,width:`${overlay.width}%`,opacity:overlay.opacity/100}}/>}
+    {overlay && <img src={requestedWidth ? sizedArtwork(overlay.logo,requestedWidth * overlay.width / 100) : overlay.logo} alt="" aria-hidden="true" className="pointer-events-none absolute" style={{left:`${overlay.x}%`,top:`${overlay.y}%`,width:`${overlay.width}%`,opacity:overlay.opacity/100}}/>}
   </div>;
 }

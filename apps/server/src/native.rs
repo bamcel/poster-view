@@ -202,6 +202,35 @@ pub(crate) async fn catalog(
     .map(Json)
     .map_err(error)
 }
+/// Navigation, filtering and discovery use compact records, never media/NFO snapshots.
+pub(crate) async fn summaries(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<NativeCatalogEntry>>, HttpError> {
+    library(&state, &id).await?;
+    let store = store(&state);
+    tokio::task::spawn_blocking(move || store.native_catalog_summaries(&id))
+        .await
+        .map_err(|_| HttpError::bad_request("Catalog summary request interrupted."))?
+        .map(Json)
+        .map_err(error)
+}
+
+/// Fetch full metadata and files only for the title or editor being opened.
+pub(crate) async fn catalog_item(
+    State(state): State<AppState>,
+    Path((id, item)): Path<(String, String)>,
+) -> Result<Json<NativeCatalogEntry>, HttpError> {
+    library(&state, &id).await?;
+    let store = store(&state);
+    tokio::task::spawn_blocking(move || store.native_catalog_item(&id, &item))
+        .await
+        .map_err(|_| HttpError::bad_request("Title request interrupted."))?
+        .map_err(error)?
+        .map(Json)
+        .ok_or_else(HttpError::not_found)
+}
+
 pub(crate) async fn refresh_artwork(
     State(state): State<AppState>,
     Path((id, item)): Path<(String, String)>,
@@ -269,21 +298,14 @@ pub(crate) async fn previews(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     let youtube = library(&state, &id).await?.library_type == NativeLibraryType::Youtube;
-    let Json(entries) = catalog(State(state), Path(id)).await?;
-    let previews = entries.into_iter().filter_map(|entry| {
-        if !entry.available { return None; }
-        if youtube {
-            let kind = entry.artwork.iter().find(|art| art.kind == "thumb")
-                .or_else(|| entry.artwork.iter().find(|art| art.kind == "poster"))?;
-            if entry.kind != "episode" { return None; }
-            Some(serde_json::json!({"id":entry.id,"title":entry.title,"revision":entry.revision,"artwork_version":serde_json::json!([kind.path,kind.source,entry.metadata.get("_artwork_cache_revision")]).to_string(),"artwork_kind":kind.kind}))
-        } else if ["series", "movie", "book", "book_series"].contains(&entry.kind.as_str())
-            && entry.artwork.iter().any(|art| art.kind == "poster") {
-            Some(serde_json::json!({"id":entry.id,"title":entry.title,"revision":entry.revision}))
-        } else { None }
-    }).collect();
-    Ok(Json(serde_json::Value::Array(previews)))
+    let store = store(&state);
+    tokio::task::spawn_blocking(move || store.native_catalog_previews(&id, youtube))
+        .await
+        .map_err(|_| HttpError::bad_request("Library preview request interrupted."))?
+        .map(|rows| Json(serde_json::Value::Array(rows)))
+        .map_err(error)
 }
+
 fn suppress_previous_identity(metadata: &mut serde_json::Value, previous: &serde_json::Value) {
     if let Some(discarded) = previous["_identify_discarded"].as_object() {
         for (field, hashes) in discarded {
@@ -1525,6 +1547,90 @@ pub(crate) mod scan_tests {
     use crate::test_support::state;
     use posterview_contracts::native::{AnimeContent, NativeLibraryOptions, NativeLibraryType};
     use std::fs;
+    #[tokio::test]
+    async fn compact_catalog_keeps_navigation_and_expands_only_requested_title() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let db = store(&state);
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec![String::new()],
+                    revision: None,
+                    options: NativeLibraryOptions::default(),
+                },
+            )
+            .unwrap();
+        let entry = NativeCatalogEntry {
+            id: String::new(),
+            path: "Movie.mkv".into(),
+            kind: "movie".into(),
+            parent_path: None,
+            title: "Movie".into(),
+            metadata: serde_json::json!({"plot":"Synopsis", "year":2024,"mpaa":"PG", "credits":[{"biography":"a".repeat(50_000)}]}),
+            artwork: vec![posterview_contracts::native::NativeArtwork {
+                kind: "poster".into(),
+                path: "poster.jpg".into(),
+                source: "local".into(),
+            }],
+            files: vec![
+                serde_json::json!({"path":"Movie.mkv","size":100,"extension":"mkv","media_info":{"streams":[{"codec_name":"h264"}]}}),
+            ],
+            nfo_path: Some("Movie.nfo".into()),
+            nfo_xml: Some("<movie/>".into()),
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
+        let summary = summaries(State(state.clone()), Path(library.id.clone()))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0].metadata["plot"], "Synopsis");
+        assert_eq!(summary[0].metadata["_has_files"], true);
+        assert!(summary[0].metadata.get("credits").is_none());
+        assert!(summary[0].files.is_empty());
+        assert!(summary[0].nfo_xml.is_none());
+        let full = catalog_item(
+            State(state.clone()),
+            Path((library.id.clone(), summary[0].id.clone())),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(
+            full.metadata["credits"][0]["biography"]
+                .as_str()
+                .unwrap()
+                .len(),
+            50_000
+        );
+        assert_eq!(full.files.len(), 1);
+        assert_eq!(full.nfo_path.as_deref(), Some("Movie.nfo"));
+        assert!(
+            serde_json::to_vec(&summary).unwrap().len() * 10
+                < serde_json::to_vec(&full).unwrap().len()
+        );
+        let previews = previews(State(state.clone()), Path(library.id.clone()))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(previews[0]["id"], summary[0].id);
+        assert_eq!(
+            catalog_item(State(state), Path((library.id, "not-found".into())))
+                .await
+                .unwrap_err()
+                .status,
+            StatusCode::NOT_FOUND
+        );
+    }
+
     #[tokio::test]
     async fn sized_artwork_is_conditional_versioned_and_preserves_originals() {
         use axum::{

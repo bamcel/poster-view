@@ -14,12 +14,12 @@ import LibraryPosterStrip from "../components/LibraryPosterStrip";
 import {nativeLibraries, type NativeLibrary} from "../api/nativeLibraries";
 import DashboardPage from "./DashboardPage";
 import HomeDiscovery, {FeaturedTitle} from "../components/HomeExperience";
-import {nativeCatalogView} from "../lib/nativeCatalogView";
+import {catalogQueryOptions, catalogView} from "../lib/nativeCatalogQueries";
 import {groupHomeTitles} from "../lib/homeTitleGroups";
 
 function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:NativeLibrary[]}) {
  const prefetchCatalog=useCatalogPrefetch();
- return <Link onMouseEnter={()=>prefetchCatalog(library.id)} onFocus={()=>prefetchCatalog(library.id)} to={libraryPath(library,libraries)} aria-label={`Open ${library.name}`} className="group block rounded-xl text-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
+ return <Link onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={libraryPath(library,libraries)} aria-label={`Open ${library.name}`} className="group block rounded-xl text-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
   <div className="overflow-hidden rounded-md transition-transform duration-200 group-hover:scale-[1.03]"><LibraryPosterStrip library={library.id}/></div>
   <h2 className="mt-2 text-sm font-semibold text-white group-hover:text-accent">{library.name}</h2>
  </Link>;
@@ -30,8 +30,8 @@ function LibraryHome(){
  const [search,setSearch]=useState("");
  useEffect(()=>{const reset=()=>setSearch("");window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
  const term=search.trim().toLocaleLowerCase();
- const catalogs=useQueries({queries:(libraries.data??[]).map(library=>({queryKey:["native-catalog",library.id],queryFn:()=>nativeLibraries.catalog(library.id),enabled:!!term||!["books","youtube"].includes(library.library_type),staleTime:5*60_000,gcTime:30*60_000}))});
- const titles=term?[]:groupHomeTitles(catalogs.flatMap((catalog,index)=>nativeCatalogView(catalog.data??[]).entries.filter(entry=>entry.metadata.missing!==true&&["movie","series"].includes(entry.kind)).map(entry=>({entry,library:libraries.data![index]}))));
+ const catalogs=useQueries({queries:(libraries.data??[]).map(library=>({...catalogQueryOptions(library),enabled:!!term||!["books","youtube"].includes(library.library_type),staleTime:5*60_000,gcTime:30*60_000}))});
+ const titles=term?[]:groupHomeTitles(catalogs.flatMap((catalog,index)=>catalogView(catalog.data).entries.filter(entry=>entry.metadata.missing!==true&&["movie","series"].includes(entry.kind)).map(entry=>({entry,library:libraries.data![index]}))));
  const results=term?groupHomeTitles(catalogs.flatMap((catalog,index)=>(catalog.data??[]).filter(entry=>entry.available&&entry.kind!=="season"&&[entry.title,entry.metadata.originaltitle].some(value=>typeof value==="string"&&value.toLocaleLowerCase().includes(term))).map(entry=>({entry,library:libraries.data![index]})))):[];
  const sections=[{name:"Movies",kinds:["movie"]},{name:"Series",kinds:["series"]},{name:"Episodes",kinds:["episode"]},{name:"Books",kinds:["book","book_series"]}].map(section=>({...section,results:results.filter(({entry})=>section.kinds.includes(entry.kind))})).filter(section=>section.results.length>0);
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));

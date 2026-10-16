@@ -38,3 +38,9 @@ it("does not offer invalid playback and renders nothing for empty discoveries",(
   const movie=title("No files");movie.entry.files=[];const view=render(<MemoryRouter><FeaturedTitle titles={[movie]}/></MemoryRouter>);
   expect(screen.queryByRole("link",{name:/^Play /})).toBeNull();view.rerender(<MemoryRouter><FeaturedTitle titles={[]}/><HomeExperience titles={[]}/></MemoryRouter>);expect(screen.queryByRole("region")).toBeNull();
 });
+
+it("preserves movie playback actions from lightweight summaries",()=>{
+ const movie=title("Summary movie",{_has_files:true});movie.entry.files=[];
+ render(<MemoryRouter><FeaturedTitle titles={[movie]}/></MemoryRouter>);
+ expect(screen.getByRole("link",{name:"Play Summary movie"}).getAttribute("href")).toContain("/play/native/movie%20library/Summary%20movie");
+});

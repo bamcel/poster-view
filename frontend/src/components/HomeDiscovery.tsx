@@ -14,7 +14,7 @@ function detailUrl({entry, library}: HomeTitle) {
 }
 
 function playable({entry}: HomeTitle) {
-  return entry.available && entry.kind === "movie" && entry.files.length > 0;
+  return entry.available && entry.kind === "movie" && (entry.files.length > 0 || entry.metadata._has_files === true);
 }
 
 function playUrl({entry, library}: HomeTitle) {

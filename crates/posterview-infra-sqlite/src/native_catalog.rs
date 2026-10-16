@@ -261,6 +261,190 @@ impl ServerStore {
     pub fn native_catalog(&self, library: &str) -> Result<Vec<NativeCatalogEntry>, StoreError> {
         self.native_catalog_scoped(library, None)
     }
+    /// Navigation and card metadata without decoding scan snapshots, files or credits.
+    pub fn native_catalog_summaries(
+        &self,
+        library: &str,
+    ) -> Result<Vec<NativeCatalogEntry>, StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction()?;
+        let mut statement = tx.prepare(
+            "SELECT s.item_id,s.relative_path,i.kind,p.relative_path,i.title,s.available,i.revision,
+                    EXISTS(SELECT 1 FROM catalog_item_files f WHERE f.item_id=s.item_id)
+             FROM native_catalog_sources s JOIN catalog_items i ON i.id=s.item_id
+             LEFT JOIN native_catalog_sources p ON p.library_id=s.library_id AND p.item_id=i.parent_id
+             WHERE s.library_id=?1 ORDER BY i.sort_title,i.title",
+        )?;
+        let mut entries = statement
+            .query_map([library], |row| {
+                Ok(NativeCatalogEntry {
+                    id: row.get(0)?,
+                    path: row.get(1)?,
+                    kind: row.get(2)?,
+                    parent_path: row.get(3)?,
+                    title: row.get(4)?,
+                    available: row.get(5)?,
+                    revision: row.get(6)?,
+                    metadata: json!({"_title_locked":false,"_has_files":row.get::<_, bool>(7)?}),
+                    artwork: Vec::new(),
+                    files: Vec::new(),
+                    nfo_path: None,
+                    nfo_xml: None,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let indices: std::collections::HashMap<_, _> = entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| (entry.id.clone(), index))
+            .collect();
+        let selected_fields = json!([
+            "title",
+            "sorttitle",
+            "originaltitle",
+            "year",
+            "plot",
+            "premiered",
+            "aired",
+            "rating",
+            "userrating",
+            "runtime",
+            "duration",
+            "season",
+            "episode",
+            "displayseason",
+            "displayepisode",
+            "identifiers",
+            "mpaa",
+            "content_rating",
+            "certification",
+            "adult",
+            "missing",
+            "edition",
+            "volume",
+            "chapter",
+            "genres",
+            "studios",
+            "tags",
+            "status",
+            "season_count",
+            "episode_count",
+            "expected_episode_count",
+            "expected_thumb_url",
+            "airs_before_season",
+            "airs_before_episode",
+            "airs_after_season",
+            "posteredit",
+            "poseredit",
+            "backdropedit",
+            "_artwork_cache_revision",
+            "publishers",
+            "publisher",
+            "tagline",
+            "country",
+            "countries",
+            "language",
+            "languages",
+            "dateadded"
+        ])
+        .to_string();
+        let mut fields = tx.prepare(
+            "SELECT f.item_id,f.field,f.value_json,f.locked FROM catalog_metadata_fields f
+             JOIN native_catalog_sources s ON s.item_id=f.item_id
+             WHERE s.library_id=?1 AND f.field IN (SELECT value FROM json_each(?2))",
+        )?;
+        for row in fields.query_map(params![library, selected_fields], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, bool>(3)?,
+            ))
+        })? {
+            let (id, field, value, locked) = row?;
+            if let Some(index) = indices.get(&id) {
+                let entry = &mut entries[*index];
+                let value: Value =
+                    serde_json::from_str(&value).map_err(|_| invalid("Invalid metadata value."))?;
+                if field == "title" {
+                    entry.metadata["_title_locked"] = json!(locked);
+                    if let Some(title) = value.as_str() {
+                        entry.title = title.into();
+                    }
+                }
+                entry.metadata[&field] = value;
+            }
+        }
+        let mut artwork = tx.prepare(
+            "SELECT a.item_id,a.kind,a.path,a.source FROM catalog_artwork a
+             JOIN native_catalog_sources s ON s.item_id=a.item_id
+             WHERE s.library_id=?1 ORDER BY a.kind",
+        )?;
+        for row in artwork.query_map([library], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                NativeArtwork {
+                    kind: row.get(1)?,
+                    path: row.get(2)?,
+                    source: row.get(3)?,
+                },
+            ))
+        })? {
+            let (id, image) = row?;
+            if let Some(index) = indices.get(&id) {
+                entries[*index].artwork.push(image);
+            }
+        }
+        Ok(entries)
+    }
+
+    /// Thin library-strip records. The selected image identity survives metadata-only edits.
+    pub fn native_catalog_previews(
+        &self,
+        library: &str,
+        youtube: bool,
+    ) -> Result<Vec<Value>, StoreError> {
+        let db = self.connection()?;
+        let mut statement = db.prepare(
+            "SELECT i.id,i.title,i.revision,a.kind,a.path,a.source,m.value_json
+             FROM native_catalog_sources s JOIN catalog_items i ON i.id=s.item_id
+             JOIN catalog_artwork a ON a.item_id=i.id AND a.kind=CASE
+               WHEN ?2 AND EXISTS(SELECT 1 FROM catalog_artwork t WHERE t.item_id=i.id AND t.kind='thumb')
+               THEN 'thumb' ELSE 'poster' END
+             LEFT JOIN catalog_metadata_fields m ON m.item_id=i.id AND m.field='_artwork_cache_revision'
+             WHERE s.library_id=?1 AND s.available=1
+               AND ((?2 AND i.kind='episode') OR (NOT ?2 AND i.kind IN ('series','movie','book','book_series')))
+             ORDER BY i.sort_title,i.title",
+        )?;
+        let rows = statement.query_map(params![library, youtube], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+            ))
+        })?;
+        let mut previews = Vec::new();
+        for row in rows {
+            let (id, title, revision, kind, path, source, marker) = row?;
+            let marker = marker
+                .map(|value| serde_json::from_str::<Value>(&value))
+                .transpose()
+                .map_err(|_| invalid("Invalid metadata value."))?;
+            let mut preview = json!({
+                "id":id,"title":title,"revision":revision,
+                "artwork_version":json!([path,source,marker]).to_string()
+            });
+            if youtube {
+                preview["artwork_kind"] = json!(kind);
+            }
+            previews.push(preview);
+        }
+        Ok(previews)
+    }
     pub fn native_available_count(&self, library: &str) -> Result<usize, StoreError> {
         self.connection()?
             .query_row(
@@ -1118,6 +1302,239 @@ fn project_metadata(
 mod tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryInput, NativeLibraryType};
+
+    #[test]
+    fn lightweight_reads_preserve_hierarchy_security_and_ignore_snapshots() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Anime".into(),
+                    library_type: NativeLibraryType::Anime,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Anime".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let entry = |path: &str, kind: &str, parent: Option<&str>| NativeCatalogEntry {
+            id: String::new(),
+            path: path.into(),
+            kind: kind.into(),
+            parent_path: parent.map(str::to_owned),
+            title: path.into(),
+            metadata: json!({"title":path,"mpaa":"TV-MA","adult":true,
+                "season":1,"episode":2,"identifiers":{"tvdb":"123"},"posteredit":{"enabled":true},
+                "credits":[{"name":"Actor","category":"cast"}],"characters":[{"name":"Character"}],
+                "provider_payload":{"large":"x".repeat(100_000)}}),
+            artwork: vec![
+                NativeArtwork {
+                    kind: "poster".into(),
+                    path: format!("{path}/poster.jpg"),
+                    source: "local".into(),
+                },
+                NativeArtwork {
+                    kind: "clearlogo".into(),
+                    path: format!("{path}/logo.png"),
+                    source: "local".into(),
+                },
+            ],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        let mut episode = entry(
+            "Anime/Show/Season 1/Episode.mkv",
+            "episode",
+            Some("Anime/Show/Season 1"),
+        );
+        episode.files =
+            vec![json!({"path":episode.path,"media_info":{"heavy":"x".repeat(100_000)}})];
+        let entries = vec![
+            entry("Anime/Show", "series", None),
+            entry("Anime/Show/Season 1", "season", Some("Anime/Show")),
+            episode,
+            entry("Anime/Unavailable", "movie", None),
+        ];
+        db.ingest_native_catalog(&library.id, library.revision, &entries)
+            .unwrap();
+        let root = db
+            .native_catalog_path(&library.id, "Anime/Show")
+            .unwrap()
+            .unwrap();
+        db.edit_native_entry(
+            &library.id,
+            &root.id,
+            root.revision,
+            &json!({"title":"Manual title","plot":"Updated synopsis","_title_locked":true}),
+        )
+        .unwrap();
+        let expected = db
+            .native_catalog_item(&library.id, &root.id)
+            .unwrap()
+            .unwrap();
+        // Both structurally invalid and huge snapshots must be irrelevant to thin reads.
+        let connection = db.connection().unwrap();
+        connection
+            .execute(
+                "UPDATE native_catalog_sources SET snapshot_json=?2 WHERE library_id=?1",
+                params![library.id, json!({"huge":"x".repeat(200_000)}).to_string()],
+            )
+            .unwrap();
+        connection.execute("UPDATE native_catalog_sources SET snapshot_json='{}',available=0 WHERE library_id=?1 AND relative_path='Anime/Unavailable'",[&library.id]).unwrap();
+        assert!(db.native_catalog(&library.id).is_err());
+        let summaries = db.native_catalog_summaries(&library.id).unwrap();
+        assert_eq!(summaries.len(), 4);
+        let actual = summaries.iter().find(|entry| entry.id == root.id).unwrap();
+        assert_eq!(actual.title, "Manual title");
+        assert_eq!(actual.revision, expected.revision);
+        assert_eq!(actual.metadata["_title_locked"], true);
+        assert_eq!(actual.metadata["_has_files"], false);
+        assert_eq!(actual.metadata["mpaa"], "TV-MA");
+        assert_eq!(actual.metadata["adult"], true);
+        assert_eq!(actual.metadata["plot"], "Updated synopsis");
+        assert_eq!(actual.metadata["identifiers"], json!({"tvdb":"123"}));
+        assert_eq!(actual.metadata["posteredit"], json!({"enabled":true}));
+        assert!(actual.metadata.get("credits").is_none());
+        assert!(actual.metadata.get("characters").is_none());
+        assert!(actual.metadata.get("provider_payload").is_none());
+        assert_eq!(actual.artwork.len(), 2);
+        assert!(actual.files.is_empty());
+        assert!(actual.nfo_path.is_none() && actual.nfo_xml.is_none());
+        let episode = summaries
+            .iter()
+            .find(|entry| entry.kind == "episode")
+            .unwrap();
+        assert_eq!(episode.parent_path.as_deref(), Some("Anime/Show/Season 1"));
+        assert_eq!(episode.metadata["season"], 1);
+        assert_eq!(episode.metadata["episode"], 2);
+        assert_eq!(episode.metadata["_has_files"], true);
+        assert!(episode.files.is_empty());
+        assert!(
+            !summaries
+                .iter()
+                .find(|entry| entry.path == "Anime/Unavailable")
+                .unwrap()
+                .available
+        );
+        let previews = db.native_catalog_previews(&library.id, false).unwrap();
+        assert_eq!(previews.len(), 1);
+        assert_eq!(previews[0]["id"], actual.id);
+        assert_eq!(previews[0]["title"], actual.title);
+        assert_eq!(previews[0]["revision"], actual.revision);
+        assert!(previews[0].get("artwork_kind").is_none());
+        assert!(db.native_catalog_summaries("unknown").unwrap().is_empty());
+        assert!(
+            db.native_catalog_previews("unknown", false)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn thin_youtube_previews_prefer_thumbnails_and_keep_image_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Videos".into(),
+                    library_type: NativeLibraryType::Youtube,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Videos".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let entry = |name: &str, thumb: bool| NativeCatalogEntry {
+            id: String::new(),
+            path: format!("Videos/{name}.mp4"),
+            kind: "episode".into(),
+            parent_path: None,
+            title: name.into(),
+            metadata: json!({"title":name}),
+            artwork: vec![NativeArtwork {
+                kind: if thumb { "thumb" } else { "poster" }.into(),
+                path: format!("Videos/{name}.jpg"),
+                source: "local".into(),
+            }],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(
+            &library.id,
+            library.revision,
+            &[entry("Thumbnail", true), entry("Poster", false)],
+        )
+        .unwrap();
+        let thumbnail = db
+            .native_catalog(&library.id)
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.title == "Thumbnail")
+            .unwrap();
+        db.save_native_artwork(
+            &library.id,
+            &thumbnail.id,
+            &NativeArtwork {
+                kind: "poster".into(),
+                path: "Videos/other.jpg".into(),
+                source: "manual".into(),
+            },
+        )
+        .unwrap();
+        let expected = db
+            .native_catalog_item(&library.id, &thumbnail.id)
+            .unwrap()
+            .unwrap();
+        db.connection()
+            .unwrap()
+            .execute(
+                "UPDATE native_catalog_sources SET snapshot_json='{}' WHERE library_id=?1",
+                [&library.id],
+            )
+            .unwrap();
+        let previews = db.native_catalog_previews(&library.id, true).unwrap();
+        assert_eq!(previews.len(), 2);
+        let thumbnail = previews
+            .iter()
+            .find(|preview| preview["id"] == expected.id)
+            .unwrap();
+        assert_eq!(thumbnail["artwork_kind"], "thumb");
+        assert_eq!(
+            thumbnail["artwork_version"],
+            json!([
+                "Videos/Thumbnail.jpg",
+                "local",
+                expected.metadata.get("_artwork_cache_revision")
+            ])
+            .to_string()
+        );
+        assert_eq!(
+            previews
+                .iter()
+                .find(|preview| preview["title"] == "Poster")
+                .unwrap()["artwork_kind"],
+            "poster"
+        );
+        assert!(
+            db.native_catalog_previews(&library.id, false)
+                .unwrap()
+                .is_empty()
+        );
+    }
     #[test]
     fn special_placement_nfo_clear_and_manual_clear_survive_provider_scans() {
         let temp = tempfile::tempdir().unwrap();

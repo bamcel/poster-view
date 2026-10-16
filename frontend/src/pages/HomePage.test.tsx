@@ -6,10 +6,10 @@ import HomePage from "./HomePage";
 import {nativeLibraries} from "../api/nativeLibraries";
 import {watchApi} from "../features/playback/api/watch";
 vi.mock("../features/playback/api/watch",()=>({watchApi:{continue:vi.fn(),state:vi.fn()}}));
-vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(),catalog:vi.fn(),artworkUrl:vi.fn()}}));
+vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(),catalog:vi.fn(),summaries:vi.fn(),artworkUrl:vi.fn()}}));
 vi.mock("../components/LibraryPosterStrip",()=>({default:({library}:{library:string})=><div data-testid={`collage-${library}`}>Shared collage</div>}));
 vi.mock("./DashboardPage",()=>({default:()=> <div>Legacy library</div>}));
-beforeEach(()=>{vi.resetAllMocks();HTMLDialogElement.prototype.showModal=vi.fn(function(this:HTMLDialogElement){this.setAttribute("open","");});HTMLDialogElement.prototype.close=vi.fn(function(this:HTMLDialogElement){this.removeAttribute("open");});vi.mocked(nativeLibraries.catalog).mockResolvedValue([]);vi.mocked(watchApi.continue).mockResolvedValue([]);vi.mocked(nativeLibraries.artworkUrl).mockImplementation((library,item,kind)=>`/art/${library}/${item}/${kind}`);});
+beforeEach(()=>{vi.resetAllMocks();vi.mocked(nativeLibraries.summaries).mockImplementation(id=>nativeLibraries.catalog(id));HTMLDialogElement.prototype.showModal=vi.fn(function(this:HTMLDialogElement){this.setAttribute("open","");});HTMLDialogElement.prototype.close=vi.fn(function(this:HTMLDialogElement){this.removeAttribute("open");});vi.mocked(nativeLibraries.catalog).mockResolvedValue([]);vi.mocked(watchApi.continue).mockResolvedValue([]);vi.mocked(nativeLibraries.artworkUrl).mockImplementation((library,item,kind)=>`/art/${library}/${item}/${kind}`);});
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 function mount(path="/"){
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});

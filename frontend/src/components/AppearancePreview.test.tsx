@@ -7,7 +7,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { LibraryBackdrop, Link, useNavigate, useParams, useSearchParams } from "../lib/libraryNavigation";
 import AppearancePreview from "./AppearancePreview";
 
-vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(async()=>[{id:"anime",name:"Anime",library_type:"anime"}]),catalog:vi.fn(async()=>[] )}}));
+vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(async()=>[{id:"anime",name:"Anime",library_type:"anime"}]),catalog:vi.fn(async()=>[] ),summaries:vi.fn(async()=>[]),item:vi.fn()}}));
 vi.mock("./LibraryPosterStrip",()=>({default:()=> <div>Library collage</div>}));
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [], selectedId: null, setSelectedId: vi.fn() }) }));
 let measure: () => void;

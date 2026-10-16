@@ -19,6 +19,8 @@ vi.mock("../api/nativeLibraries", async (original) => ({
   nativeLibraries: {
     status: vi.fn(),
     catalog: vi.fn(),
+    summaries: vi.fn(),
+    item: vi.fn(),
     editItem: vi.fn(),
     refreshArtwork: vi.fn(),
     scanFolder: vi.fn(async()=>undefined),
@@ -95,6 +97,8 @@ function mount(url = "/", selectedLibrary = library) {
   );
 }
 beforeEach(() => {
+  vi.mocked(nativeLibraries.summaries).mockImplementation(id=>nativeLibraries.catalog(id));
+  vi.mocked(nativeLibraries.item).mockImplementation(async (_library,id)=>{const result=vi.mocked(nativeLibraries.catalog).mock.results.at(-1);const entries=await result?.value as NativeCatalogEntry[];const entry=entries?.find(entry=>entry.id===id);if(!entry)throw new Error("Missing test item");return entry;});
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute("open", "");
   };
@@ -144,14 +148,14 @@ it("browses series, seasons and episodes with detail views rather than editors",
   fireEvent.click(
     await screen.findByRole("button", { name: /Open Example Series/ }),
   );
-  expect(screen.getByRole("heading", { name: "Example Series" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Example Series" })).toBeTruthy();
   expect(screen.getAllByText("Series synopsis").length).toBeGreaterThan(0);
   expect(screen.getByLabelText("Title information")).toBeTruthy();
   expect(screen.queryByText("Save metadata")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /Open Season 1/ }));
-  expect(screen.getByRole("heading", { name: "Episodes" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Episodes" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Open First Episode" }));
-  expect(screen.getByRole("heading", { name: "S1:E1 - First Episode" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "S1:E1 - First Episode" })).toBeTruthy();
   expect(screen.getByText("Episode synopsis")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(screen.getByRole("heading", { name: "Season 1" })).toBeTruthy();
@@ -251,9 +255,9 @@ it("keeps artwork URLs stable when only catalog metadata revisions change", asyn
   const poster = () => document.querySelector<HTMLImageElement>('img[src^="/art/native/show/poster?"]')?.getAttribute("src");
   const original = poster();
   expect(original).toBeTruthy();
-  client.setQueryData(["native-catalog", library.id], [{...series, revision: 99}]);
+  client.setQueryData(["native-catalog", library.id,"summary"], [{...series, revision: 99}]);
   await waitFor(() => expect(poster()).toBe(original));
-  client.setQueryData(["native-catalog", library.id], [{...series, artwork: [{kind: "poster", path: "replacement.jpg", source: "local"}]}]);
+  client.setQueryData(["native-catalog", library.id,"summary"], [{...series, artwork: [{kind: "poster", path: "replacement.jpg", source: "local"}]}]);
   await waitFor(() => expect(poster()).not.toBe(original));
 });
 
@@ -467,20 +471,20 @@ it("offers series actions without delete and opens missing episodes",async()=>{
  for(const name of ["Edit Metadata","Edit Images","Identify","Remove Identification","Refresh Metadata","Scan library files","View Missing Episodes"])expect(screen.getByRole("menuitem",{name})).toBeTruthy();
  expect(screen.queryByRole("menuitem",{name:"Delete"})).toBeNull();
  fireEvent.click(screen.getByRole("menuitem",{name:"View Missing Episodes"}));
- expect(screen.getByRole("dialog",{name:"Missing Episodes"})).toBeTruthy();
+ expect(await screen.findByRole("dialog",{name:"Missing Episodes"})).toBeTruthy();
 });
 it("confirms identification removal and preserves other fields",async()=>{
  mount();fireEvent.contextMenu(await screen.findByTitle("Example Series · right-click for options"));
  fireEvent.click(screen.getByRole("menuitem",{name:"Remove Identification"}));
  expect(nativeLibraries.editItem).not.toHaveBeenCalled();
- fireEvent.click(screen.getByRole("button",{name:"Remove identification"}));
+ fireEvent.click(await screen.findByRole("button",{name:"Remove identification"}));
  await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",expect.objectContaining({id:"show"}),{identifiers:{}}));
 });
 
 it("offers refresh modes and sends explicit replacement choices",async()=>{
  mount();fireEvent.contextMenu(await screen.findByTitle("Example Series · right-click for options"));
  fireEvent.click(screen.getByRole("menuitem",{name:"Refresh Metadata"}));
- expect((screen.getByLabelText("Refresh mode") as HTMLSelectElement).value).toBe("replace");
+ expect((await screen.findByLabelText("Refresh mode") as HTMLSelectElement).value).toBe("replace");
  expect((screen.getByRole("switch",{name:"Replace existing video preview thumbnails"}) as HTMLInputElement).disabled).toBe(true);
  fireEvent.change(screen.getByLabelText("Refresh mode"),{target:{value:"missing"}});
  fireEvent.click(screen.getByRole("switch",{name:"Replace existing images"}));
@@ -533,7 +537,7 @@ it("edits an episode NFO directly from its season row without navigating",async(
  vi.mocked(nativeLibraries.editItem).mockResolvedValue({entry:episode,warnings:[]});
  mount("/?native_library=native&native_item=season");
  fireEvent.click(await screen.findByRole("button",{name:"Edit NFO metadata for First Episode"}));
- expect((screen.getByLabelText("Title") as HTMLInputElement).value).toBe("First Episode");
+ expect((await screen.findByLabelText("Title") as HTMLInputElement).value).toBe("First Episode");
  fireEvent.change(screen.getByLabelText("Title"),{target:{value:"Edited episode title"}});
  fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
  await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",episode,{title:"Edited episode title"}));
@@ -631,4 +635,66 @@ it("opens a quick character profile from the anime character row",async()=>{
  fireEvent.click(await screen.findByRole("button",{name:"Preview Maomao"}));
  expect(screen.getByRole("region",{name:"Profile of Maomao"})).toBeTruthy();
  expect(screen.getByText(/A curious apothecary/)).toBeTruthy();
+});
+
+it("loads video summaries without fetching full records until a title is opened",async()=>{
+ vi.mocked(nativeLibraries.catalog).mockClear();
+ vi.mocked(nativeLibraries.summaries).mockResolvedValue([series,season,episode]);
+ vi.mocked(nativeLibraries.item).mockImplementation(async (_library,id)=>[series,season,episode].find(entry=>entry.id===id)!);
+ const errors=vi.spyOn(console,"error");
+ mount();
+ fireEvent.click(await screen.findByRole("button",{name:/Open Example Series/}));
+ await screen.findByRole("heading",{name:"Example Series"});
+ expect(nativeLibraries.item).toHaveBeenCalledTimes(1);
+ expect(nativeLibraries.item).toHaveBeenCalledWith(library.id,series.id);
+ fireEvent.click(screen.getByRole("button",{name:/Open Season 1/}));
+ await screen.findByRole("heading",{name:"Episodes"});
+ expect(nativeLibraries.item).toHaveBeenCalledTimes(2);
+ expect(nativeLibraries.item).not.toHaveBeenCalledWith(library.id,episode.id);
+ fireEvent.click(screen.getByRole("button",{name:"Back"}));
+ await screen.findByRole("heading",{name:"Example Series"});
+ fireEvent.click(screen.getByRole("button",{name:"Back"}));
+ await screen.findByRole("button",{name:/Open Example Series/});
+ expect(nativeLibraries.catalog).not.toHaveBeenCalled();
+ expect(nativeLibraries.summaries).toHaveBeenCalledTimes(1);
+ expect(errors).not.toHaveBeenCalled();
+ errors.mockRestore();
+});
+it("fetches a movie's complete media files before showing detail",async()=>{
+ const summary={...series,kind:"movie",metadata:{...series.metadata,_has_files:true}};
+ const movie={...summary,revision:7,files:[{path:"movie.mkv",size:1234,extension:"mkv"}],metadata:{...series.metadata,plot:"Full movie synopsis"}};
+ vi.mocked(nativeLibraries.summaries).mockResolvedValue([summary]);
+ let resolve!:(entry:NativeCatalogEntry)=>void;
+ vi.mocked(nativeLibraries.item).mockReturnValue(new Promise(done=>{resolve=done;}));
+ mount("/?native_library=native&native_item=show",{...library,library_type:"movies"});
+ await screen.findByText("Loading title…");
+ expect(screen.queryByRole("heading",{name:movie.title})).toBeNull();
+ resolve(movie);
+ expect(await screen.findByText("movie.mkv")).toBeTruthy();
+ expect(screen.getAllByText("Full movie synopsis").length).toBeGreaterThan(0);
+});
+it("does not open a metadata editor with incomplete summary metadata",async()=>{
+ vi.mocked(nativeLibraries.summaries).mockResolvedValue([series]);
+ let resolve!:(entry:NativeCatalogEntry)=>void;
+ vi.mocked(nativeLibraries.item).mockReturnValue(new Promise(done=>{resolve=done;}));
+ mount();
+ fireEvent.contextMenu(await screen.findByTitle("Example Series · right-click for options"));
+ expect(nativeLibraries.item).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole("menuitem",{name:"Edit Metadata"}));
+ expect(await screen.findByText("Loading editor…")).toBeTruthy();
+ expect(screen.queryByLabelText("Title")).toBeNull();
+ resolve({...series,revision:23,metadata:{...series.metadata,title:"Complete metadata title",credits:[{name:"A credit"}]}});
+ expect((await screen.findByLabelText("Title") as HTMLInputElement).value).toBe("Complete metadata title");
+});
+
+it("keeps cached full title details visible when its background refresh fails",async()=>{
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ client.setQueryData(["native-catalog",library.id,"summary"],[series,season,episode]);
+ client.setQueryData(["native-catalog",library.id,"item",series.id],series,{updatedAt:Date.now()-6*60_000});
+ vi.mocked(nativeLibraries.item).mockRejectedValue(new Error("Detail refresh unavailable"));
+ render(<MemoryRouter initialEntries={["/?native_library=native&native_item=show"]}><QueryClientProvider client={client}><NativeLibraryBrowser library={library}/></QueryClientProvider></MemoryRouter>);
+ expect(screen.getByRole("heading",{name:series.title})).toBeTruthy();
+ await screen.findByText("Detail refresh unavailable");
+ expect(screen.getByRole("heading",{name:series.title})).toBeTruthy();
+ expect(screen.getByRole("button",{name:/Open Season 1/})).toBeTruthy();
 });

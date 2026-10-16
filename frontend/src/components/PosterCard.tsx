@@ -108,6 +108,7 @@ export default function PosterCard({
       >
         {image && !failed ? (
           <AnimatedArtwork
+            width={backdropView ? 640 : 480}
             active={!animationOnHover || hovered || focused}
             src={image}
             alt={title}

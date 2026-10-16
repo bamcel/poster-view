@@ -3,6 +3,13 @@ import { afterEach, expect, it, vi } from "vitest";
 import PosterCard from "./PosterCard";
 
 afterEach(cleanup);
+it("requests appropriately sized poster and landscape artwork",()=>{
+ const image="/api/native/libraries/library/items/item/artwork/poster?v=2";
+ const view=render(<PosterCard title="Movie" image={image}/>);
+ expect(screen.getByAltText("Movie").getAttribute("src")).toBe(`${image}&width=480`);
+ view.rerender(<PosterCard title="Movie" image={image} backdropView/>);
+ expect(screen.getByAltText("Movie").getAttribute("src")).toBe(`${image}&width=640`);
+});
 it("colors title text independently from the badge", () => {
   const { rerender } = render(<PosterCard title="Colored Title" coloredTitle />);
   expect(screen.getByText("Colored Title").classList.contains("poster-colored-title")).toBe(true);

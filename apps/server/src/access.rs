@@ -147,7 +147,9 @@ fn item_allowed(
         entry.kind.as_str(),
         "folder" | "series" | "season" | "book_series"
     ) {
-        let catalog = store.native_catalog(library).map_err(|_| denied())?;
+        let catalog = store
+            .native_catalog_summaries(library)
+            .map_err(|_| denied())?;
         return Ok(catalog_allowed(user, &catalog).contains(item));
     }
     Ok(false)
@@ -236,8 +238,16 @@ pub(crate) fn authorize_request(
             "native",
             "libraries",
             library,
-            "items" | "previews" | "scan",
+            "items" | "summaries" | "previews" | "scan",
         ] => get && library_allowed(user, library),
+        ["api", "native", "libraries", library, "items", item] => {
+            get && item_allowed(
+                &ServerStore::new(auth.data_dir().ok_or_else(denied)?),
+                user,
+                library,
+                item,
+            )?
+        }
         [
             "api",
             "native",
@@ -328,7 +338,7 @@ pub(crate) async fn filter_response(
                 "native",
                 "libraries",
                 _,
-                "items" | "previews" | "scan"
+                "items" | "summaries" | "previews" | "scan"
             ]
             | ["api", "plugins", "artwork"]
     );
@@ -353,12 +363,23 @@ pub(crate) async fn filter_response(
                     .is_some_and(|id| library_allowed(user, id))
             });
         }
-        ["api", "native", "libraries", library, "items" | "previews"] => {
+        [
+            "api",
+            "native",
+            "libraries",
+            library,
+            kind @ ("items" | "summaries" | "previews"),
+        ] => {
             let Some(dir) = auth.data_dir() else {
                 return denied().into_response();
             };
             let store = ServerStore::new(dir);
-            let Ok(catalog) = store.native_catalog(library) else {
+            let catalog = if *kind == "items" {
+                store.native_catalog(library)
+            } else {
+                store.native_catalog_summaries(library)
+            };
+            let Ok(catalog) = catalog else {
                 return denied().into_response();
             };
             let allowed = catalog_allowed(user, &catalog);
@@ -488,6 +509,61 @@ mod tests {
         assert!(!permitted.contains("adult"));
         parent.metadata = serde_json::json!({"mpaa":"TV-MA"});
         assert!(catalog_allowed(&user, &[parent, child, sibling]).is_empty());
+    }
+    #[test]
+    fn restricted_container_access_uses_compact_policy_records() {
+        use posterview_contracts::native::{AnimeContent, NativeLibraryInput, NativeLibraryType};
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let store = ServerStore::new(state.runtime.data_dir());
+        let library = store
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Shows".into(),
+                    library_type: NativeLibraryType::Shows,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Shows".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let mut parent = item("series", serde_json::json!({}));
+        parent.path = "Shows/Example".into();
+        let mut safe = item("episode", serde_json::json!({"mpaa":"TV-PG"}));
+        safe.path = "Shows/Example/safe.mkv".into();
+        safe.parent_path = Some(parent.path.clone());
+        let mut adult = safe.clone();
+        adult.path = "Shows/Example/adult.mkv".into();
+        adult.metadata = serde_json::json!({"mpaa":"TV-MA"});
+        let mut unrelated = parent.clone();
+        unrelated.path = "Shows/Unrelated".into();
+        store
+            .ingest_native_catalog(
+                &library.id,
+                library.revision,
+                &[parent, safe, adult, unrelated],
+            )
+            .unwrap();
+        let root = store
+            .native_catalog_path(&library.id, "Shows/Example")
+            .unwrap()
+            .unwrap();
+        let blocked = store
+            .native_catalog_path(&library.id, "Shows/Example/adult.mkv")
+            .unwrap()
+            .unwrap();
+        // A broken unrelated scan snapshot cannot make a valid navigation
+        // container unavailable or force full-library hydration for policy checks.
+        rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).unwrap()
+            .execute("UPDATE native_catalog_sources SET snapshot_json='{}' WHERE library_id=?1 AND relative_path='Shows/Unrelated'",[&library.id]).unwrap();
+        assert!(store.native_catalog(&library.id).is_err());
+        let mut viewer = user();
+        viewer.permissions.library_ids = vec![library.id.clone()];
+        viewer.permissions.allow_unrated = false;
+        assert!(item_allowed(&store, &viewer, &library.id, &root.id).unwrap());
+        assert!(!item_allowed(&store, &viewer, &library.id, &blocked.id).unwrap());
     }
     #[test]
     fn viewer_can_clear_own_saved_track_selections() {
@@ -802,6 +878,9 @@ mod tests {
                 library.id, adult_id
             ),
             format!("/api/native/libraries/{}/items", hidden.id),
+            format!("/api/native/libraries/{}/summaries", hidden.id),
+            format!("/api/native/libraries/{}/items/{adult_id}", library.id),
+            format!("/api/native/libraries/{}/items/{safe_id}", hidden.id),
         ] {
             let response = app
                 .clone()
@@ -820,6 +899,10 @@ mod tests {
             ("/api/native/libraries".to_owned(), library.id.as_str()),
             (
                 format!("/api/native/libraries/{}/items", library.id),
+                safe_id.as_str(),
+            ),
+            (
+                format!("/api/native/libraries/{}/summaries", library.id),
                 safe_id.as_str(),
             ),
         ] {
@@ -843,6 +926,34 @@ mod tests {
             let rows: Vec<Value> = serde_json::from_slice(&bytes).unwrap();
             assert_eq!(rows.len(), 1);
             assert_eq!(rows[0]["id"], expected);
+        }
+        for (uri, expected) in [
+            (
+                format!("/api/native/libraries/{}/items/{safe_id}", library.id),
+                StatusCode::OK,
+            ),
+            (
+                format!("/api/native/libraries/{}/items/not-found", library.id),
+                StatusCode::FORBIDDEN,
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(uri)
+                        .header(header::COOKIE, cookie.clone())
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+            if expected == StatusCode::OK {
+                let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+                let entry: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(entry["id"], safe_id);
+            }
         }
         let response = app
             .oneshot(

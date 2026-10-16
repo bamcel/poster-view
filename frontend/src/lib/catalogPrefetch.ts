@@ -1,9 +1,10 @@
 import {useCallback} from "react";
 import {useQueryClient} from "@tanstack/react-query";
-import {nativeLibraries} from "../api/nativeLibraries";
+import type {NativeLibraryType} from "../api/nativeLibraries";
+import {catalogQueryOptions} from "./nativeCatalogQueries";
 export function useCatalogPrefetch(){
  const client=useQueryClient();
- return useCallback((id:string)=>{
-  void client.prefetchQuery({queryKey:["native-catalog",id],queryFn:()=>nativeLibraries.catalog(id),staleTime:5*60_000,gcTime:30*60_000});
+ return useCallback((id:string,library_type:NativeLibraryType="movies")=>{
+  void client.prefetchQuery(catalogQueryOptions({id,library_type}));
  },[client]);
 }

@@ -28,3 +28,10 @@ describe("series playback selection",()=>{
  });
  it("offers the first episode for a rewatch when all episodes are played",async()=>{vi.mocked(watchApi.states).mockResolvedValue(Object.fromEntries(entries.map(entry=>[entry.id,state])));setup();await waitFor(()=>expect(screen.getByRole("button",{name:"Play"})).toBeTruthy());fireEvent.click(screen.getByRole("button",{name:"Play"}));expect(screen.getByText("Playing episode-1")).toBeTruthy();});
 });
+
+it("selects a playable episode from summaries without downloading full media records",async()=>{
+ const summaries=entries.map(entry=>({...entry,files:[],metadata:{...entry.metadata,_has_files:true}}));
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><Routes><Route path="/" element={<NativeSeriesPlay library="anime" path="anime/show" entries={summaries}/>}/><Route path="/play/native/:libraryId/:itemId" element={<Destination/>}/></Routes></MemoryRouter></QueryClientProvider>);
+ fireEvent.click(await screen.findByRole("button",{name:"Play"}));
+ expect(screen.getByText("Playing episode-1")).toBeTruthy();
+});
