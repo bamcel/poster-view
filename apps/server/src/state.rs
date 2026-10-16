@@ -8,6 +8,8 @@ use std::{path::PathBuf, sync::Arc};
 
 #[derive(Clone)]
 pub(crate) struct AppState {
+    pub(crate) artwork_variants: crate::native_artwork_variants::ArtworkVariants,
+    pub(crate) artwork_generation_notify: Arc<tokio::sync::Notify>,
     pub(crate) ytdl_lock: Arc<tokio::sync::Mutex<()>>,
     pub(crate) ytdl_notify: Arc<tokio::sync::Notify>,
     pub(crate) active_native_scans: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
@@ -23,6 +25,10 @@ pub(crate) struct AppState {
 impl AppState {
     pub(crate) fn new(runtime: Arc<Runtime>, auth: AuthState, media_dir: PathBuf) -> Self {
         Self {
+            artwork_variants: crate::native_artwork_variants::ArtworkVariants::new(
+                runtime.data_dir(),
+            ),
+            artwork_generation_notify: Default::default(),
             ytdl_lock: Default::default(),
             ytdl_notify: Default::default(),
             active_native_scans: Default::default(),

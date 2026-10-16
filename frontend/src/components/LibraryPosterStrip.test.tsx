@@ -15,6 +15,7 @@ it("slides continuously right and wraps without a waiting interval",async()=>{
  await act(async()=>{});
  const images=Array.from(screen.getByLabelText("Library poster preview").querySelectorAll("img"));
  const sources=images.map(image=>image.src);
+ expect(sources.every(source=>new URL(source).searchParams.get("width")==="192")).toBe(true);
  act(()=>callback(0));act(()=>callback(100));
  expect(screen.getByLabelText("Library poster preview").firstElementChild?.getAttribute("style")).toContain("-598px");
  for(let time=200;time<=5100;time+=100)act(()=>callback(time));

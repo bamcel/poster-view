@@ -18,6 +18,11 @@ it("features a title with landscape art and uses existing encoded playback and d
   featured.entry.artwork = [{kind: "backdrop", path: "backdrop.jpg", source: "local"}];
   render(<MemoryRouter><FeaturedTitle titles={[title("Without artwork"), featured]}/></MemoryRouter>);
   const region = screen.getByRole("region", {name: "Featured title"});
+  const image = region.querySelector("img")!;
+  expect(image.getAttribute("src")).toContain("&width=1920");
+  expect(image.getAttribute("srcset")).toContain("&width=1280 1280w");
+  expect(image.getAttribute("srcset")).toContain("&width=1920 1920w");
+  expect(image.getAttribute("sizes")).toBe("100vw");
   expect(within(region).getByRole("heading", {name: "movie/one"})).toBeTruthy();
   expect(within(region).getByText("An actual synopsis")).toBeTruthy();
   expect(within(region).getByRole("link", {name: "Play movie/one"}).getAttribute("href")).toBe("/play/native/movie%20library/movie%2Fone?return=%2F");
@@ -66,6 +71,8 @@ it("removes broken artwork while preserving the title and its actions", () => {
   const view = render(<MemoryRouter><HomeDiscovery titles={[item]}/></MemoryRouter>);
   const image = view.container.querySelector("img")!;
   expect(image.getAttribute("src")).toContain("/artwork/poster?v=");
+  expect(image.getAttribute("src")).toContain("&width=480");
+  expect(image.getAttribute("srcset")).toContain("&width=320 320w");
   fireEvent.error(image);
   expect(view.container.querySelector("img")).toBeNull();
   expect(screen.getByRole("link", {name: "Open Missing art in Movies"})).toBeTruthy();

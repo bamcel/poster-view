@@ -1,3 +1,4 @@
+import {sizedArtwork} from "../lib/artworkSizes";
 import {useEffect, useId, useMemo, useRef, useState} from "react";
 import {useQuery} from "@tanstack/react-query";
 import {Film, Play, X} from "lucide-react";
@@ -78,7 +79,7 @@ export default function HomeQuickView({title, onClose}: {title: HomeTitle; onClo
   }} className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-3xl overflow-y-auto rounded-2xl border border-border bg-surface p-0 text-white shadow-2xl backdrop:bg-black/75 backdrop:backdrop-blur-sm">
     <div className="relative">
       <div className="relative aspect-[16/7] max-h-[30dvh] w-full overflow-hidden bg-elevated">
-        {artwork && !failedArtwork ? <img src={artwork} alt="" onError={() => setFailedArtwork(true)} className="h-full w-full object-cover"/> : <div className="grid h-full place-items-center text-faint"><Film aria-hidden="true" className="size-20 opacity-25"/></div>}
+        {artwork && !failedArtwork ? <img src={sizedArtwork(artwork,1280)} alt="" onError={() => setFailedArtwork(true)} className="h-full w-full object-cover"/> : <div className="grid h-full place-items-center text-faint"><Film aria-hidden="true" className="size-20 opacity-25"/></div>}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"/>
       </div>
       <button ref={close} type="button" aria-label="Close quick view" onClick={onClose} className="absolute right-4 top-4 grid size-11 place-items-center rounded-full border border-white/20 bg-black/70 text-[#fff] hover:bg-black focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"><X aria-hidden="true" className="size-5"/></button>

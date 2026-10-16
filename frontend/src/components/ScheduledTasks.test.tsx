@@ -30,6 +30,27 @@ it("allows cleanup when only obsolete records are eligible",async()=>{
  expect(screen.getByText(/3 obsolete records/)).toBeTruthy();
 });
 
+it("runs artwork backfill and allows changing its daily schedule without cleanup controls",async()=>{
+ const artwork:MaintenanceTask={...task,id:"artwork",title:"Optimize Artwork",description:"Generate display sizes",enabled:true,interval_days:1};
+ vi.mocked(apiRequest).mockImplementation(async (url,options)=>{
+  if(url.endsWith("run"))return {files:4,bytes:0,result:"Generated 4 optimized artwork images. Original artwork was preserved."};
+  if(options?.method==="PUT")return [{...artwork,enabled:false,interval_days:3}];
+  return [artwork];
+ });
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><ScheduledTasks/></QueryClientProvider>);
+ fireEvent.click(await screen.findByRole("button",{name:"Run now"}));
+ await waitFor(()=>expect(apiRequest).toHaveBeenCalledWith("/tasks/artwork/run",{method:"POST"}));
+ expect(await screen.findByText(/Generated 4 optimized artwork images/)).toBeTruthy();
+ expect(screen.queryByLabelText("Optimize Artwork retention days")).toBeNull();
+ expect(screen.queryByRole("button",{name:"Review cleanup"})).toBeNull();
+ fireEvent.click(screen.getByRole("checkbox",{name:"Enable schedule for Optimize Artwork"}));
+ fireEvent.change(screen.getByLabelText("Optimize Artwork interval days"),{target:{value:"3"}});
+ fireEvent.click(screen.getByRole("button",{name:"Save task"}));
+ await waitFor(()=>expect(apiRequest).toHaveBeenCalledWith("/tasks/artwork",expect.objectContaining({method:"PUT",body:expect.any(String)})));
+ const saved=vi.mocked(apiRequest).mock.calls.find(([url,options])=>url==="/tasks/artwork"&&options?.method==="PUT");
+ expect(JSON.parse(String(saved?.[1]?.body))).toMatchObject({enabled:false,interval_days:3});
+});
+
 it("clears automatic provider caches only after confirmation",async()=>{
  vi.mocked(apiRequest).mockImplementation(async url=>url.endsWith("provider-cache")?{files:0,bytes:0,result:"Provider cache cleared."}:[task]);
  const confirm=vi.spyOn(window,"confirm").mockReturnValue(false);

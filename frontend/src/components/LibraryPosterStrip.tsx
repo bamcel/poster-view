@@ -1,3 +1,4 @@
+import {sizedArtwork} from "../lib/artworkSizes";
 import {useEffect, useRef, useState} from "react";
 import {useQuery} from "@tanstack/react-query";
 import {Folder} from "lucide-react";
@@ -56,6 +57,6 @@ export default function LibraryPosterStrip({library}: {library:string}) {
   return()=>{stopped=true;cancelAnimationFrame(frame);observer?.disconnect();};
  },[visible,reduced,cycleLength,items]);
  return <div ref={ref} className="overflow-hidden" aria-label="Library poster preview">
-  {items.length ? <div ref={track} className="flex will-change-transform" style={{transform:`translate3d(${-25*cycleLength}%,0,0)`}}>{Array.from({length:cycleLength*2},(_,slot)=>{const item=items[slot%items.length];const src=nativeLibraries.artworkUrl(library,item.id,item.artwork_kind??"poster")+`?v=${encodeURIComponent(item.artwork_version??String(item.revision))}`;return <div key={slot} className="w-1/4 shrink-0 px-px"><img src={src} alt={slot<cycleLength?item.title:""} loading="eager" decoding="async" className="aspect-[2/3] w-full object-cover [backface-visibility:hidden]"/><div aria-hidden="true" className="relative h-10 overflow-hidden"><img src={src} alt="" className="w-full -scale-y-100 opacity-30 [backface-visibility:hidden]"/><div className="absolute inset-0 bg-gradient-to-b from-transparent to-window"/></div></div>;})}</div> : <div className="flex aspect-[3/1.5] items-center justify-center bg-base/30 text-faint"><Folder className="size-12"/></div>}
+  {items.length ? <div ref={track} className="flex will-change-transform" style={{transform:`translate3d(${-25*cycleLength}%,0,0)`}}>{Array.from({length:cycleLength*2},(_,slot)=>{const item=items[slot%items.length];const src=sizedArtwork(nativeLibraries.artworkUrl(library,item.id,item.artwork_kind??"poster")+`?v=${encodeURIComponent(item.artwork_version??String(item.revision))}`,192);return <div key={slot} className="w-1/4 shrink-0 px-px"><img src={src} alt={slot<cycleLength?item.title:""} loading="eager" decoding="async" className="aspect-[2/3] w-full object-cover [backface-visibility:hidden]"/><div aria-hidden="true" className="relative h-10 overflow-hidden"><img src={src} alt="" className="w-full -scale-y-100 opacity-30 [backface-visibility:hidden]"/><div className="absolute inset-0 bg-gradient-to-b from-transparent to-window"/></div></div>;})}</div> : <div className="flex aspect-[3/1.5] items-center justify-center bg-base/30 text-faint"><Folder className="size-12"/></div>}
  </div>;
 }

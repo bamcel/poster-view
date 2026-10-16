@@ -817,6 +817,7 @@ async fn run_scan_scoped_mode(
         count
     };
     crate::spawn_backdrop_refresh(&state);
+    crate::native_artwork_jobs::request(&state);
     Ok(posterview_contracts::native::NativeScanStatus {
         progress: None,
         status: if warnings.is_empty() {
@@ -1151,6 +1152,7 @@ pub(crate) async fn apply_panel_artwork(
     .await
     .map_err(|_| HttpError::bad_request("Artwork save interrupted."))??;
     crate::spawn_backdrop_refresh(&state);
+    crate::native_artwork_jobs::request(&state);
     Ok(result)
 }
 
@@ -1226,8 +1228,76 @@ pub(crate) async fn upload_artwork(
         return Ok(StatusCode::NO_CONTENT);
     }
     crate::spawn_backdrop_refresh(&state);
+    crate::native_artwork_jobs::request(&state);
     Ok(StatusCode::NO_CONTENT)
 }
+pub(crate) fn artwork_source(
+    state: &AppState,
+    art: &posterview_contracts::native::NativeArtwork,
+    still: bool,
+) -> Result<std::path::PathBuf, HttpError> {
+    let path = if let Some(name) = art.path.strip_prefix("@managed/") {
+        let (id, ext) = name.rsplit_once('.').ok_or_else(HttpError::not_found)?;
+        if uuid::Uuid::parse_str(id).is_err()
+            || !["jpg", "png", "webp", "gif", "webm"].contains(&ext)
+        {
+            return Err(HttpError::not_found());
+        }
+        state.runtime.data_dir().join("native-artwork").join(
+            if still && ["gif", "webm"].contains(&ext) {
+                format!("{id}.still.png")
+            } else {
+                name.to_string()
+            },
+        )
+    } else {
+        let root = state.metadata.directory("", true)?;
+        let path = root.join(&art.path);
+        let parent = path.parent().ok_or_else(HttpError::not_found)?;
+        let rel = parent
+            .strip_prefix(&root)
+            .map_err(|_| HttpError::not_found())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        state.metadata.directory(&rel, true)?;
+        if std::fs::symlink_metadata(&path)
+            .map_err(|_| HttpError::not_found())?
+            .is_symlink()
+            || !path
+                .canonicalize()
+                .map_err(|_| HttpError::not_found())?
+                .starts_with(root)
+        {
+            return Err(HttpError::not_found());
+        }
+        path
+    };
+    Ok(path)
+}
+
+pub(crate) fn artwork_variant_source(
+    state: &AppState,
+    source: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    if !source
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("webm"))
+    {
+        return Ok(source.to_path_buf());
+    }
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(source)
+        .map_err(|e| e.to_string())?
+        .take(20 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > 20 * 1024 * 1024 {
+        return Err("Artwork exceeds 20 MB.".into());
+    }
+    crate::native_animation::local_path(state, source, &bytes, true)
+}
+
 pub(crate) async fn artwork(
     State(state): State<AppState>,
     Path((library, item, kind)): Path<(String, String, String)>,
@@ -1239,43 +1309,33 @@ pub(crate) async fn artwork(
             .native_artwork(&library, &item, &kind)
             .map_err(error)?
             .ok_or_else(HttpError::not_found)?;
-        let path = if let Some(name) = art.path.strip_prefix("@managed/") {
-            let (id, ext) = name.rsplit_once('.').ok_or_else(HttpError::not_found)?;
-            if uuid::Uuid::parse_str(id).is_err()
-                || !["jpg", "png", "webp", "gif", "webm"].contains(&ext)
+        let still = options.get("still").is_some_and(|s| s == "1");
+        let path = artwork_source(&state, &art, still)?;
+        let width = options
+            .get("width")
+            .map(|value| {
+                value
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|width| crate::native_artwork_variants::WIDTHS.contains(width))
+                    .ok_or_else(|| HttpError::bad_request("Unsupported artwork width."))
+            })
+            .transpose()?;
+        // Playing animation stays original. Static previews may use optimized variants.
+        let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+        let animated =
+            extension.eq_ignore_ascii_case("gif") || extension.eq_ignore_ascii_case("webm");
+        let variant = width.filter(|_| still || !animated).and_then(|width| {
+            match artwork_variant_source(&state, &path)
+                .and_then(|source| state.artwork_variants.generate(&source, width))
             {
-                return Err(HttpError::not_found());
+                Ok(path) => path,
+                Err(error) => {
+                    tracing::debug!(%error, "Artwork variant unavailable; serving original");
+                    None
+                }
             }
-            state.runtime.data_dir().join("native-artwork").join(
-                if options.get("still").is_some_and(|s| s == "1") && ["gif", "webm"].contains(&ext)
-                {
-                    format!("{id}.still.png")
-                } else {
-                    name.to_string()
-                },
-            )
-        } else {
-            let root = state.metadata.directory("", true)?;
-            let path = root.join(&art.path);
-            let parent = path.parent().ok_or_else(HttpError::not_found)?;
-            let rel = parent
-                .strip_prefix(&root)
-                .map_err(|_| HttpError::not_found())?
-                .to_string_lossy()
-                .replace('\\', "/");
-            state.metadata.directory(&rel, true)?;
-            if std::fs::symlink_metadata(&path)
-                .map_err(|_| HttpError::not_found())?
-                .is_symlink()
-                || !path
-                    .canonicalize()
-                    .map_err(|_| HttpError::not_found())?
-                    .starts_with(root)
-            {
-                return Err(HttpError::not_found());
-            }
-            path
-        };
+        });
         let metadata = std::fs::metadata(&path).map_err(|_| HttpError::not_found())?;
         if metadata.len() > 20 * 1024 * 1024 {
             return Err(HttpError::bad_request("Artwork exceeds 20 MB."));
@@ -1289,12 +1349,17 @@ pub(crate) async fn artwork(
             .unwrap_or_default();
         let mut identity = std::hash::DefaultHasher::new();
         std::hash::Hash::hash(&art.path, &mut identity);
+        // Include the selected fingerprint: a sidecar may change between lookup
+        // and the metadata read above. Its old variant must not tag new bytes.
+        std::hash::Hash::hash(&variant, &mut identity);
         let tag = format!(
-            "W/\"{}-{}-{}-{}\"",
+            "W/\"{}-{}-{}-{}-{:?}-{}\"",
             std::hash::Hasher::finish(&identity),
             metadata.len(),
             modified,
-            options.get("still").is_some_and(|value| value == "1")
+            still,
+            width,
+            variant.is_some()
         );
         let etag = axum::http::HeaderValue::from_str(&tag).ok();
         if request_headers
@@ -1316,14 +1381,20 @@ pub(crate) async fn artwork(
                 return Ok((StatusCode::NOT_MODIFIED, headers, Vec::new()));
             }
         }
-        let read_path = if !art.path.starts_with("@managed/") {
+        let optimized = variant.is_some();
+        let read_path = if let Some(variant) = variant {
+            variant
+        } else if !art.path.starts_with("@managed/") {
             crate::native_artwork::managed_local_copy(&state, &path)
                 .map_err(HttpError::bad_request)?
         } else {
             path.clone()
         };
         let mut bytes = std::fs::read(&read_path).map_err(|_| HttpError::not_found())?;
-        if !art.path.starts_with("@managed/") && crate::native_animation::is_animated(&bytes) {
+        if !optimized
+            && !art.path.starts_with("@managed/")
+            && crate::native_animation::is_animated(&bytes)
+        {
             bytes = crate::native_animation::local(
                 &state,
                 &path,
@@ -1454,6 +1525,132 @@ pub(crate) mod scan_tests {
     use crate::test_support::state;
     use posterview_contracts::native::{AnimeContent, NativeLibraryOptions, NativeLibraryType};
     use std::fs;
+    #[tokio::test]
+    async fn sized_artwork_is_conditional_versioned_and_preserves_originals() {
+        use axum::{
+            extract::Query,
+            http::{HeaderMap, header},
+        };
+        use posterview_contracts::native::{NativeArtwork, NativeCatalogEntry};
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let source = temp.path().join("media/poster.png");
+        image::DynamicImage::new_rgba8(800, 1200)
+            .save(&source)
+            .unwrap();
+        let original = fs::read(&source).unwrap();
+        let db = store(&state);
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec![String::new()],
+                    revision: None,
+                    options: NativeLibraryOptions::default(),
+                },
+            )
+            .unwrap();
+        db.ingest_native_catalog(
+            &library.id,
+            library.revision,
+            &[NativeCatalogEntry {
+                id: String::new(),
+                path: "movie.mkv".into(),
+                kind: "movie".into(),
+                parent_path: None,
+                title: "Movie".into(),
+                metadata: serde_json::json!({}),
+                artwork: vec![NativeArtwork {
+                    kind: "poster".into(),
+                    path: "poster.png".into(),
+                    source: "local".into(),
+                }],
+                files: vec![],
+                nfo_path: None,
+                nfo_xml: None,
+                available: true,
+                revision: 1,
+            }],
+        )
+        .unwrap();
+        let entry = db.native_catalog(&library.id).unwrap().remove(0);
+        let target = (library.id, entry.id, "poster".into());
+        let width = |value: &str| {
+            Query(std::collections::HashMap::from([(
+                "width".into(),
+                value.into(),
+            )]))
+        };
+        let (status, headers, bytes) = artwork(
+            State(state.clone()),
+            Path(target.clone()),
+            width("320"),
+            HeaderMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, StatusCode::OK);
+        let resized = image::load_from_memory(&bytes).unwrap();
+        assert_eq!((resized.width(), resized.height()), (320, 480));
+        assert_eq!(fs::read(&source).unwrap(), original);
+        let mut conditional = HeaderMap::new();
+        conditional.insert(header::IF_NONE_MATCH, headers[header::ETAG].clone());
+        let (status, _, bytes) = artwork(
+            State(state.clone()),
+            Path(target.clone()),
+            width("320"),
+            conditional.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, StatusCode::NOT_MODIFIED);
+        assert!(bytes.is_empty());
+        let (status, _, bytes) = artwork(
+            State(state.clone()),
+            Path(target.clone()),
+            width("480"),
+            conditional.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(image::load_from_memory(&bytes).unwrap().width(), 480);
+        let (_, _, bytes) = artwork(
+            State(state.clone()),
+            Path(target.clone()),
+            Query(Default::default()),
+            HeaderMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(bytes, original);
+        assert_eq!(
+            artwork(
+                State(state.clone()),
+                Path(target.clone()),
+                width("999999"),
+                HeaderMap::new()
+            )
+            .await
+            .unwrap_err()
+            .status,
+            StatusCode::BAD_REQUEST
+        );
+        image::DynamicImage::new_rgb8(600, 600)
+            .save(&source)
+            .unwrap();
+        let (status, changed, bytes) =
+            artwork(State(state), Path(target), width("320"), conditional)
+                .await
+                .unwrap();
+        assert_eq!(status, StatusCode::OK);
+        assert_ne!(changed[header::ETAG], headers[header::ETAG]);
+        assert_eq!(image::load_from_memory(&bytes).unwrap().height(), 320);
+    }
+
     #[tokio::test]
     async fn overlay_only_edits_do_not_rewrite_nfo_or_artwork() {
         let temp = tempfile::tempdir().unwrap();

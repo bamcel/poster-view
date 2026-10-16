@@ -1,3 +1,4 @@
+import {sizedArtwork} from "../lib/artworkSizes";
 import {framingFromUrl,backdropFramingEvent,backdropMediaUrl} from "../lib/backdropFraming";
 import {useEffect, useRef, useState} from "react";
 
@@ -11,13 +12,18 @@ export function stillArtwork(src: string) {
 }
 
 /** Silent artwork plays only when visible, active, and motion is allowed. */
-export default function AnimatedArtwork({src, alt, className, onError, format: override, active = true, fill = false}: {
-  src: string; alt: string; className?: string; onError?: () => void; format?: string; active?: boolean; fill?: boolean;
+export default function AnimatedArtwork({src, alt, className, onError, format: override, active = true, fill = false, width}: {
+  src: string; alt: string; className?: string; onError?: () => void; format?: string; active?: boolean; fill?: boolean; width?: number;
 }) {
   const [,refreshFraming]=useState(0);
   useEffect(()=>{if(!new URLSearchParams(src.split("?")[1]??"").has("backdropKey"))return;const refresh=()=>refreshFraming(v=>v+1);window.addEventListener(backdropFramingEvent,refresh);window.addEventListener("storage",refresh);return()=>{window.removeEventListener(backdropFramingEvent,refresh);window.removeEventListener("storage",refresh);};},[src]);
   const framing=framingFromUrl(src);
-  const mediaSrc=backdropMediaUrl(src);
+  const source=backdropMediaUrl(src);
+  // Resized variants are static. Keep the original GIF/WebM for active playback.
+  const [mediaPath,mediaQuery]=source.split("?");
+  const animationQuery=mediaQuery?.split("&").filter(part=>!/^width=/.test(part)).join("&");
+  const originalSrc=mediaPath+(animationQuery?`?${animationQuery}`:"");
+  const mediaSrc=source;
   const mediaStyle=framing ? {objectFit:framing.fit,objectPosition:`${framing.x}% ${framing.y}%`,transform:`scale(${framing.zoom/100})`,transformOrigin:`${framing.x}% ${framing.y}%`} : undefined;
   const format=override ?? artworkFormat(src);
   const animated=format === "webm" || format === "gif";
@@ -46,7 +52,8 @@ export default function AnimatedArtwork({src, alt, className, onError, format: o
     if (!player) return;
     if (play) void player.play().catch(()=>{}); else player.pause();
   },[play,mediaSrc]);
-  const fallback=animated ? stillArtwork(mediaSrc) : mediaSrc;
+  const preview=animated ? stillArtwork(mediaSrc) : mediaSrc;
+  const fallback=width ? sizedArtwork(preview,width) : preview;
   let overlay: {logo:string;x:number;y:number;width:number;opacity:number} | undefined;
   try {
     const value = new URLSearchParams(src.split("?")[1] ?? "").get("logoOverlay");
@@ -57,10 +64,10 @@ export default function AnimatedArtwork({src, alt, className, onError, format: o
   } catch { /* Invalid placement leaves the original artwork visible. */ }
 
   if (!overlay && framing?.logo?.enabled) overlay={...framing.logo,logo:framing.logo.src};
-  if (!animated && !overlay && !framing) return <img src={mediaSrc} alt={alt} className={className} loading="lazy" draggable={false} onError={onError}/>;
+  if (!animated && !overlay && !framing) return <img src={fallback} alt={alt} className={className} loading="lazy" draggable={false} onError={onError}/>;
   const mediaClass = fill ? "absolute inset-0 h-full w-full object-cover object-top" : "h-full w-full max-h-[inherit] max-w-[inherit] [object-fit:inherit] [object-position:inherit]";
   return <div ref={element} className={className} style={fill ? {position: "absolute", inset: 0, overflow: "hidden"} : overlay || framing ? {position:"relative",overflow:"hidden"} : undefined}>
-    {animated && !play && fallback === mediaSrc ? <span className="sr-only">{alt}: animated preview paused</span> : format === "webm" && play ? <video ref={video} src={mediaSrc} poster={fallback} aria-label={alt} className={mediaClass} style={mediaStyle} autoPlay loop muted playsInline preload="auto" onError={()=>setFailed(true)}/> : <img src={format === "gif" && play ? mediaSrc : fallback} alt={alt} className={mediaClass} style={mediaStyle} loading={visible ? "eager" : "lazy"} draggable={false} onError={onError}/>}
-    {overlay && <img src={overlay.logo} alt="" aria-hidden="true" className="pointer-events-none absolute" style={{left:`${overlay.x}%`,top:`${overlay.y}%`,width:`${overlay.width}%`,opacity:overlay.opacity/100}}/>}
+    {animated && !play && fallback === mediaSrc ? <span className="sr-only">{alt}: animated preview paused</span> : format === "webm" && play ? <video ref={video} src={originalSrc} poster={fallback} aria-label={alt} className={mediaClass} style={mediaStyle} autoPlay loop muted playsInline preload="auto" onError={()=>setFailed(true)}/> : <img src={format === "gif" && play ? originalSrc : fallback} alt={alt} className={mediaClass} style={mediaStyle} loading={visible ? "eager" : "lazy"} draggable={false} onError={onError}/>}
+    {overlay && <img src={width ? sizedArtwork(overlay.logo,width) : overlay.logo} alt="" aria-hidden="true" className="pointer-events-none absolute" style={{left:`${overlay.x}%`,top:`${overlay.y}%`,width:`${overlay.width}%`,opacity:overlay.opacity/100}}/>}
   </div>;
 }

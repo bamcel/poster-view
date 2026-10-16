@@ -274,6 +274,20 @@ Artwork applies retain runtime/provider behavior. Legacy artwork history has
 been retired; older Python-era instructions requiring history recording on every
 apply no longer apply. See [native playback setup](docs/native-playback.md) for
 delivery policy, browser compatibility and optional hardware setup.
+
+Native artwork display requests accept a `width` of 96, 192, 320, 480, 640,
+1280 or 1920 pixels. Derived JPEG/WebP images live in appdata `artwork-variants/`;
+source artwork and editor/export requests remain unchanged. Variants preserve
+aspect ratio without upscaling and fit within 1920×1920 pixels. Source path, size
+and modification time version the cache. A single generation gate bounds image
+decoding; a busy generator or unsupported source falls back to the original.
+Playing GIF/WebM artwork remains animated; static previews can request `still=1`.
+Catalog scans, artwork uploads/applies and monitored sidecar updates coalesce
+background generation. The enabled daily **Optimize Artwork** scheduled task
+backfills existing artwork and removes obsolete cache files after seven days.
+It can also be run manually or disabled in Scheduled Tasks. Deleting the derived
+cache is safe; requested variants regenerate. Existing authenticated artwork
+revalidation and account access checks still apply.
 See [playback design and runtime comparison](docs/playback-design.md) for the
 direct-first decision, generation ownership, measured preparation costs and
 remaining GPU/large-file validation limits. Keep temporary encoding opt-in and

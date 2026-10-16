@@ -69,7 +69,8 @@ fn defaults() -> Vec<Task> {
     [
     ("cleanup","Data Cleanup","Remove hidden missing-file placeholders after retention, unused managed artwork, expired provider caches, obsolete library and sync records, deleted-file reader registrations and reading state, old local artwork mirrors, and abandoned temporary files. Shared artwork and media folders are preserved."),
     ("database","Optimize Database","Check database health, optimize query statistics, and checkpoint available WAL pages without an exclusive database rebuild."),
-].into_iter().map(|(id,title,description)|Task{id:id.into(),title:title.into(),description:description.into(),..Default::default()}).collect()
+    ("artwork","Optimize Artwork","Generate missing display sizes for library artwork in appdata. Original artwork and media folders are preserved."),
+].into_iter().map(|(id,title,description)|Task{id:id.into(),title:title.into(),description:description.into(),enabled:id=="artwork",interval_days:if id=="artwork" {1} else {7},..Default::default()}).collect()
 }
 fn load(state: &AppState) -> Result<Vec<Task>, HttpError> {
     let db = ServerStore::new(state.runtime.data_dir());
@@ -496,6 +497,7 @@ async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
                 if task.cleanup_cache {let cached=state.runtime.cleanup_provider_cache(true).map_err(bad)?;report.files+=cached.0;report.bytes+=cached.1;}
                 let candidates=candidates(&state,task)?;for file in candidates {let meta=std::fs::symlink_metadata(&file.path).map_err(bad)?;if meta.file_type().is_symlink()||!meta.is_file()||!old(&meta,task.retention_days){continue;}std::fs::remove_file(&file.path).map_err(bad)?;report.files+=1;report.bytes+=file.bytes;}report.result=format!("Removed {} obsolete records, {} hidden placeholders and {} unused files ({} bytes).",report.records,report.placeholders,report.files,report.bytes);Ok(report)},
             "database"=>{let db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;let health:String=db.query_row("PRAGMA quick_check",[],|r|r.get(0)).map_err(bad)?;if health!="ok"{return Err(bad(format!("Database check: {health}")));}db.execute_batch("PRAGMA optimize; PRAGMA wal_checkpoint(PASSIVE);").map_err(bad)?;Ok(Report{result:"Database health check passed; optimization and passive checkpoint completed.".into(),..Default::default()})},
+            "artwork"=>{let generated=crate::native_artwork_variants::backfill(&state).map_err(bad)?;Ok(Report{files:generated,result:format!("Generated {generated} optimized artwork images. Original artwork was preserved."),..Default::default()})},
             _=>Err(HttpError::not_found()),
         }})();
         task.last_run=now();task.last_result=match &result {Ok(r)=>r.result.clone(),Err(e)=>format!("Failed: {}",e.detail)};save(&state,&tasks)?;result
@@ -943,10 +945,19 @@ mod tests {
         assert!(candidates(&state, &task).is_ok());
     }
     #[tokio::test]
-    async fn schedules_are_disabled_by_default_validated_and_persisted() {
+    async fn schedules_have_compatible_defaults_and_persist_configuration() {
         let temp = tempfile::tempdir().unwrap();
         let state = crate::test_support::state(temp.path());
-        assert!(load(&state).unwrap().iter().all(|t| !t.enabled));
+        let initial = load(&state).unwrap();
+        assert!(
+            initial
+                .iter()
+                .filter(|t| t.id != "artwork")
+                .all(|t| !t.enabled)
+        );
+        let artwork = initial.iter().find(|t| t.id == "artwork").unwrap();
+        assert!(artwork.enabled);
+        assert_eq!(artwork.interval_days, 1);
         *state.running_maintenance_task.lock().unwrap() = Some("cleanup".into());
         let running = RunningTask(state.running_maintenance_task.clone());
         let tasks = list(State(state.clone())).await.unwrap().0;
@@ -979,6 +990,20 @@ mod tests {
             .unwrap();
         assert_eq!(load(&state).unwrap()[0].interval_days, 2);
         assert!(load(&state).unwrap()[0].enabled);
+        let mut artwork = load(&state)
+            .unwrap()
+            .into_iter()
+            .find(|t| t.id == "artwork")
+            .unwrap();
+        artwork.enabled = false;
+        artwork.interval_days = 3;
+        let _ = configure(State(state.clone()), Path("artwork".into()), Json(artwork))
+            .await
+            .unwrap();
+        let stored = load(&state).unwrap();
+        let artwork = stored.iter().find(|t| t.id == "artwork").unwrap();
+        assert!(!artwork.enabled);
+        assert_eq!(artwork.interval_days, 3);
         let report = execute(state.clone(), "database".into()).await.unwrap();
         assert!(report.result.contains("passed"));
         assert!(
@@ -990,6 +1015,84 @@ mod tests {
                 .last_run
                 > 0
         );
+    }
+    #[test]
+    fn old_saved_schedules_keep_configuration_and_gain_artwork_backfill() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        ServerStore::new(state.runtime.data_dir())
+            .set_setting("scheduled-tasks", r#"[{"id":"cleanup","enabled":true,"interval_days":12,"retention_days":45,"last_run":123,"last_result":"Previous result"},{"id":"database","enabled":false,"interval_days":9}]"#)
+            .unwrap();
+        let tasks = load(&state).unwrap();
+        let cleanup = tasks.iter().find(|t| t.id == "cleanup").unwrap();
+        assert!(cleanup.enabled);
+        assert_eq!(cleanup.interval_days, 12);
+        assert_eq!(cleanup.retention_days, 45);
+        assert_eq!(cleanup.last_run, 123);
+        assert_eq!(cleanup.last_result, "Previous result");
+        let database = tasks.iter().find(|t| t.id == "database").unwrap();
+        assert!(!database.enabled);
+        assert_eq!(database.interval_days, 9);
+        let artwork = tasks.iter().find(|t| t.id == "artwork").unwrap();
+        assert!(artwork.enabled);
+        assert_eq!(artwork.interval_days, 1);
+    }
+    #[tokio::test]
+    async fn artwork_task_generates_missing_variants_once_and_preserves_original() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let db = ServerStore::new(state.runtime.data_dir());
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into()],
+                    options: Default::default(),
+                    revision: None,
+                },
+            )
+            .unwrap();
+        let name = format!("{}.png", uuid::Uuid::new_v4());
+        let directory = state.runtime.data_dir().join("native-artwork");
+        std::fs::create_dir_all(&directory).unwrap();
+        let original = directory.join(&name);
+        image::RgbImage::from_pixel(32, 48, image::Rgb([100, 50, 20]))
+            .save(&original)
+            .unwrap();
+        let bytes = std::fs::read(&original).unwrap();
+        let entry = NativeCatalogEntry {
+            id: String::new(),
+            path: "Movies/Test.mkv".into(),
+            kind: "movie".into(),
+            parent_path: None,
+            title: "Test".into(),
+            metadata: serde_json::json!({}),
+            artwork: vec![NativeArtwork {
+                kind: "poster".into(),
+                path: format!("@managed/{name}"),
+                source: "manual".into(),
+            }],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
+        let report = execute(state.clone(), "artwork".into()).await.unwrap();
+        assert!(report.files > 0);
+        assert!(report.result.contains("Original artwork was preserved"));
+        assert_eq!(std::fs::read(&original).unwrap(), bytes);
+        let tasks = load(&state).unwrap();
+        let task = tasks.iter().find(|t| t.id == "artwork").unwrap();
+        assert!(task.last_run > 0);
+        assert_eq!(task.last_result, report.result);
+        assert_eq!(execute(state, "artwork".into()).await.unwrap().files, 0);
+        assert_eq!(std::fs::read(original).unwrap(), bytes);
     }
     #[tokio::test]
     async fn hidden_placeholders_and_unused_covers_are_cleaned_after_retention() {

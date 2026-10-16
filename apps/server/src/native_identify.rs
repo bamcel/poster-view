@@ -1063,6 +1063,7 @@ pub(crate) async fn apply(
             }
         }
     }
+    crate::native_artwork_jobs::request(&state);
     let (_, updated) = context(&state, &library, &item).await?;
     if updated.kind == "series" {
         db(&state)

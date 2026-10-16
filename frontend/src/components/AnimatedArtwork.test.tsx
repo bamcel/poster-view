@@ -17,6 +17,26 @@ beforeEach(()=>{
 afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();});
 const src="/api/native/libraries/library/items/item/artwork/poster?v=1&format=webm";
 function visible(value:boolean){act(()=>intersect([{isIntersecting:value} as IntersectionObserverEntry],{} as IntersectionObserver));}
+it("sizes static previews while keeping original video playback and a sized poster",()=>{
+  render(<AnimatedArtwork src={`${src}&width=320`} width={480} alt="Sized poster"/>);
+  expect(screen.getByAltText("Sized poster").getAttribute("src")).toBe(`${src}&still=1&width=480`);
+  visible(true);
+  const video=screen.getByLabelText("Sized poster") as HTMLVideoElement;
+  expect(video.getAttribute("src")).toBe(src);
+  expect(video.getAttribute("poster")).toBe(`${src}&still=1&width=480`);
+});
+it("restores original GIF playback from a sized card URL",()=>{
+  const gif=src.replace("format=webm","format=gif");
+  render(<AnimatedArtwork src={`${gif}&width=480`} alt="GIF poster"/>);
+  expect(screen.getByAltText("GIF poster").getAttribute("src")).toBe(`${gif}&width=480&still=1`);
+  visible(true);
+  expect(screen.getByAltText("GIF poster").getAttribute("src")).toBe(gif);
+});
+it("requests sized static artwork without changing its source version",()=>{
+  const staticSrc=src.replace("format=webm","format=png");
+  render(<AnimatedArtwork src={staticSrc} width={640} alt="Static sized poster"/>);
+  expect(screen.getByAltText("Static sized poster").getAttribute("src")).toBe(`${staticSrc}&width=640`);
+});
 it("loops muted video while visible and falls back when offscreen",()=>{
   render(<AnimatedArtwork src={src} alt="Poster"/>);
   expect(screen.getByAltText("Poster").getAttribute("src")).toContain("still=1");

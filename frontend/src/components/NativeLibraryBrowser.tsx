@@ -1,3 +1,4 @@
+import {sizedArtwork} from "../lib/artworkSizes";
 import {compareEpisodeOrder,placedSpecials} from "../lib/episodeOrder";
 import { nativeArtworkVersion } from "../lib/nativeArtworkCache";
 import AdminOnly from "./AdminOnly";
@@ -112,20 +113,26 @@ function picture(
     (kind === "thumb" ? artwork(library, entry, "landscape") : undefined)
   );
 }
+function sizedPicture(src: string | undefined,width: number) {
+  return src ? sizedArtwork(src,width) : undefined;
+}
 function Artwork({
   src,
   alt,
   className = "",
+  width = 480,
 }: {
   src?: string;
   alt: string;
   className?: string;
+  width?: number;
 }) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
   return src && !failed ? (
     <AnimatedArtwork
       src={src}
+      width={width}
       alt={alt}
       onError={() => setFailed(true)}
       className={`h-full w-full object-cover ${className}`}
@@ -214,7 +221,7 @@ function Modal({
       style={backdrop&&!metadata?{width:"min(80rem, calc(100vw - 2rem))",height:"min(85dvh, 52rem)"}:undefined}
       className={metadata ? "relative isolate m-auto h-[85dvh] max-h-[832px] w-[min(80rem,calc(100vw-2rem))] max-w-none overflow-hidden rounded-2xl border border-border bg-sidebar p-0 text-white backdrop:bg-black/70" : "relative isolate m-auto max-h-[90dvh] w-[min(80rem,calc(100vw-2rem))] max-w-none overflow-y-auto rounded-2xl border border-border bg-sidebar p-5 text-white backdrop:bg-black/70"}
     >
-      {backdrop&&<div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl"><img src={stillArtwork(backdrop)} alt="" className="h-full w-full scale-110 object-cover" style={{filter:`blur(${appearance.blur}px)`}} onError={event=>{event.currentTarget.style.visibility="hidden";}}/><div className="absolute inset-0 md:hidden" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).mobile}}/><div className="absolute inset-0 hidden md:block" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).desktop}}/></div>}
+      {backdrop&&<div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl"><img src={sizedArtwork(stillArtwork(backdrop),1280)} alt="" className="h-full w-full scale-110 object-cover" style={{filter:`blur(${appearance.blur}px)`}} onError={event=>{event.currentTarget.style.visibility="hidden";}}/><div className="absolute inset-0 md:hidden" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).mobile}}/><div className="absolute inset-0 hidden md:block" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).desktop}}/></div>}
       {title==="Identify"&&backdrop&&<div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 rounded-2xl bg-gradient-to-b from-black/10 via-black/25 to-black/50"/>}
       <header className={metadata ? "flex h-16 shrink-0 items-center gap-4 px-6 sm:px-8" : "mb-5 flex items-center justify-between gap-4"}>
         <h2 className={`text-lg font-semibold`}>{title}</h2>
@@ -416,6 +423,7 @@ export default function NativeLibraryBrowser({
         .filter((e) => e.available && !e.parent_path)
         .map((e) => picture(library, e, "backdrop"))
         .filter((url): url is string => !!url)
+        .map(url=>sizedArtwork(url,1920))
         .slice(0, 8),
     [catalog.data, library],
   );
@@ -425,6 +433,7 @@ export default function NativeLibraryBrowser({
         .filter((e) => e.available && !e.parent_path)
         .map((e) => picture(library, e, "poster"))
         .filter((url): url is string => !!url)
+        .map(url=>sizedArtwork(url,640))
         .slice(0, 8),
     [catalog.data, library],
   );
@@ -547,9 +556,9 @@ export default function NativeLibraryBrowser({
                   coloredEffect={library.library_type === "books" && String(entry.metadata.edition ?? "").trim().toLowerCase() === "colored" ? bookDisplay.coloredEffect : "off"}
                   coloredTitle={library.library_type === "books" && String(entry.metadata.edition ?? "").trim().toLowerCase() === "colored" && bookDisplay.coloredTitle}
                   title={entry.title}
-                  menuImage={entry.artwork.some(a=>a.kind==="poster-animated")?`${nativeLibraries.artworkUrl(library.id,entry.id,"poster-animated")}?v=${encodeURIComponent(nativeArtworkVersion(entry,"poster-animated"))}&format=${entry.artwork.find(a=>a.kind==="poster-animated")?.path.split(".").pop()?.toLowerCase()}&still=1`:picture(library,entry,"poster")}
+                  menuImage={sizedPicture(entry.artwork.some(a=>a.kind==="poster-animated")?`${nativeLibraries.artworkUrl(library.id,entry.id,"poster-animated")}?v=${encodeURIComponent(nativeArtworkVersion(entry,"poster-animated"))}&format=${entry.artwork.find(a=>a.kind==="poster-animated")?.path.split(".").pop()?.toLowerCase()}&still=1`:picture(library,entry,"poster"),480)}
                   backdropView={backdropView}
-                    image={(backdropView ? picture(library, entry, "backdrop") ?? picture(library, entry, "landscape") : undefined) ?? picture(library, entry, "poster")}
+                    image={sizedPicture((backdropView ? picture(library, entry, "backdrop") ?? picture(library, entry, "landscape") : undefined) ?? picture(library, entry, "poster"),backdropView ? 640 : 480)}
                   subtitle={String(entry.metadata.year ?? "")}
                   kind={
                     entry.kind === "series"
@@ -738,6 +747,7 @@ function NativeDetail({
           >
             <AnimatedArtwork
               src={backdrop}
+              width={1920}
               fill
               alt=""
               className="h-full w-full origin-top scale-[1.02] object-cover object-top"
@@ -788,7 +798,7 @@ function NativeDetail({
                 <div
                   className={`relative ${isEpisode ? "aspect-video" : "aspect-[2/3]"} overflow-hidden rounded-xl bg-surface-2 shadow-2xl shadow-black/50 ring-1 ring-white/10`}
                 >
-                  <Artwork src={poster} alt={entry.title} />
+                  <Artwork src={poster} width={isEpisode ? 1280 : 640} alt={entry.title} />
                   {coloredBook && poster && ["shimmer","both"].includes(bookDisplay.coloredEffect) && <span aria-hidden="true" className="poster-colored-shimmer pointer-events-none absolute inset-0"/>}
                   {coloredBook && ["badge","both"].includes(bookDisplay.coloredEffect) && <span aria-label="Colored edition" className="poster-colored-badge pointer-events-none absolute bottom-2 right-2 rounded-md px-2 py-1 text-[10px] font-bold tracking-wider shadow">COLORED</span>}
                 </div>
@@ -797,9 +807,10 @@ function NativeDetail({
                 className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries || isBookSeries || isEpisode ? "text-left" : "text-center sm:text-left"}`}
               >
                 <div className="flex flex-wrap items-center gap-3">
-                {isEpisode ? (<><button onClick={()=>series&&open(series)} disabled={!series} className="block text-left" aria-label={series?`Open ${series.title}`:undefined}>{logo?<AnimatedArtwork src={logo} alt={series?.title??entry.title} className="max-h-20 max-w-[240px] object-contain object-left"/>:<span className="text-2xl font-semibold">{series?.title??"Episode"}</span>}</button><div className="mt-4 flex flex-wrap items-center gap-3"><h1 className="text-[17px] font-medium leading-snug">S{String(entry.metadata.season??parent?.metadata.season??1)}:E{String(entry.metadata.episode??"")} - {entry.title}</h1><AdminOnly><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button></AdminOnly>{artworkPlugin.data?.enabled!==false&&<AdminOnly><button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button></AdminOnly>}<AdminOnly><button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching ? "animate-spin" : ""}`} /></button></AdminOnly></div></>) : logo ? (
+                {isEpisode ? (<><button onClick={()=>series&&open(series)} disabled={!series} className="block text-left" aria-label={series?`Open ${series.title}`:undefined}>{logo?<AnimatedArtwork src={logo} width={640} alt={series?.title??entry.title} className="max-h-20 max-w-[240px] object-contain object-left"/>:<span className="text-2xl font-semibold">{series?.title??"Episode"}</span>}</button><div className="mt-4 flex flex-wrap items-center gap-3"><h1 className="text-[17px] font-medium leading-snug">S{String(entry.metadata.season??parent?.metadata.season??1)}:E{String(entry.metadata.episode??"")} - {entry.title}</h1><AdminOnly><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button></AdminOnly>{artworkPlugin.data?.enabled!==false&&<AdminOnly><button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button></AdminOnly>}<AdminOnly><button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching ? "animate-spin" : ""}`} /></button></AdminOnly></div></>) : logo ? (
                   <AnimatedArtwork
                     src={logo}
+                    width={1280}
                     alt={entry.title}
                     className={isEpisode?"max-h-20 max-w-[240px] object-contain object-left":"max-h-24 max-w-full object-contain object-left sm:max-w-[400px]"}
                   />
@@ -893,7 +904,7 @@ function NativeDetail({
                         coloredTitle={library.library_type === "books" && String(child.metadata.edition ?? entry.metadata.edition ?? "").trim().toLowerCase() === "colored" && bookDisplay.coloredTitle}
                         title={child.title}
                         titleBadge={child.metadata.missing === true ? "Missing" : undefined}
-                        image={picture(library, child, "poster")}
+                        image={sizedPicture(picture(library, child, "poster"),480)}
                         kind={child.kind.startsWith("book") ? "book" : "show"}
                         openLabel={child.kind==="book" ? child.metadata.missing===true ? "Edit Images" : "Read" : "Open"}
                         onOpen={() => open(child)}
@@ -923,6 +934,7 @@ function NativeDetail({
                           className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-lg bg-base sm:w-64 lg:w-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
                           <Artwork
                             src={picture(library, episode, "thumb")}
+                            width={640}
                             alt={`${episode.title} episode still`}
                           />
                         </button>
@@ -954,7 +966,7 @@ function NativeDetail({
                 </div>
               </section>
             )}
-            {isEpisode&&siblings.length>0&&<section className="mt-10"><h2 className="mb-4 text-xl font-semibold">More from {parent?.title??`Season ${entry.metadata.season??1}`}</h2><div className="flex gap-5 overflow-x-auto pb-3">{siblings.map(sibling=><button key={sibling.id} aria-label={`Open episode ${sibling.metadata.episode??""}: ${sibling.title}`} onClick={()=>open(sibling)} className="group w-60 shrink-0 text-left sm:w-64"><div className="aspect-video overflow-hidden rounded-lg bg-surface-2"><Artwork src={picture(library,sibling,"thumb")} alt={`${sibling.title} episode still`}/></div><p className="mt-2 truncate text-sm font-medium">{String(sibling.metadata.episode??"")}. {sibling.title}</p></button>)}</div></section>}
+            {isEpisode&&siblings.length>0&&<section className="mt-10"><h2 className="mb-4 text-xl font-semibold">More from {parent?.title??`Season ${entry.metadata.season??1}`}</h2><div className="flex gap-5 overflow-x-auto pb-3">{siblings.map(sibling=><button key={sibling.id} aria-label={`Open episode ${sibling.metadata.episode??""}: ${sibling.title}`} onClick={()=>open(sibling)} className="group w-60 shrink-0 text-left sm:w-64"><div className="aspect-video overflow-hidden rounded-lg bg-surface-2"><Artwork src={picture(library,sibling,"thumb")} width={640} alt={`${sibling.title} episode still`}/></div><p className="mt-2 truncate text-sm font-medium">{String(sibling.metadata.episode??"")}. {sibling.title}</p></button>)}</div></section>}
             {entry.metadata.missing!==true && entry.kind !== "series" && !entry.kind.startsWith("book") && <ItemAbout item={detail} />}
             {(library.library_type !== "anime" || animePreferences.characters) && Array.isArray(entry.metadata.characters) &&
               entry.metadata.characters.length > 0 && (

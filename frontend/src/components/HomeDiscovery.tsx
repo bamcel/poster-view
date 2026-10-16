@@ -1,3 +1,4 @@
+import {sizedArtwork} from "../lib/artworkSizes";
 import {useEffect, useId, useMemo, useRef, useState} from "react";
 import {ChevronLeft, ChevronRight, Film, Info, Play} from "lucide-react";
 import {nativeLibraries, type NativeCatalogEntry, type NativeLibrary} from "../api/nativeLibraries";
@@ -41,7 +42,7 @@ function Artwork({title, hero = false}: {title: HomeTitle; hero?: boolean}) {
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [src]);
   if (!src || failed) return <div className="grid h-full w-full place-items-center bg-elevated text-faint"><Film aria-hidden="true" className={hero ? "size-20 opacity-20" : "size-10"}/></div>;
-  return <img src={src} alt="" loading={hero ? "eager" : "lazy"} className="h-full w-full object-cover" onError={() => setFailed(true)}/>;
+  return <img src={sizedArtwork(src,hero ? 1920 : 480)} srcSet={`${sizedArtwork(src,hero ? 1280 : 320)} ${hero ? 1280 : 320}w, ${sizedArtwork(src,hero ? 1920 : 480)} ${hero ? 1920 : 480}w`} sizes={hero ? "100vw" : "(min-width: 1024px) 192px, (min-width: 640px) 176px, 144px"} alt="" loading={hero ? "eager" : "lazy"} className="h-full w-full object-cover" onError={() => setFailed(true)}/>;
 }
 
 function QuickInfo({title,onQuickView,hero=false}: {title:HomeTitle;onQuickView?:(title:HomeTitle)=>void;hero?:boolean}) {

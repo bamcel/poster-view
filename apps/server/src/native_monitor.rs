@@ -186,12 +186,16 @@ pub(crate) fn refresh_artwork_files(
             return false;
         }
     }
-    files.iter().all(|path| {
+    let refreshed = files.iter().all(|path| {
         path.strip_prefix(&root).ok().is_some_and(|relative| {
             db.refresh_local_artwork(id, &relative.to_string_lossy().replace('\\', "/"))
                 .unwrap_or(false)
         })
-    })
+    });
+    if refreshed && !files.is_empty() {
+        crate::native_artwork_jobs::request(state);
+    }
+    refreshed
 }
 
 // Filter access/administrative noise before enqueueing; never turn watcher setup or

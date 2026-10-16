@@ -17,6 +17,8 @@ mod metadata;
 mod native;
 mod native_animation;
 mod native_artwork;
+mod native_artwork_jobs;
+mod native_artwork_variants;
 mod native_capture;
 mod native_identify;
 mod native_jikan;
@@ -82,6 +84,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
     native_monitor::start(state.clone());
     ytdl::start(state.clone());
     scheduled_tasks::start(state.clone());
+    native_artwork_jobs::start(state.clone());
     let index = ui_dir.join("index.html");
     let spa = ServeDir::new(ui_dir).fallback(ServeFile::new(index));
 

@@ -177,6 +177,16 @@ pub(crate) fn local(
     bytes: &[u8],
     still: bool,
 ) -> Result<Vec<u8>, String> {
+    fs::read(local_path(state, path, bytes, still)?).map_err(|e| e.to_string())
+}
+
+/// Reuse the validated animation cache when building display-size stills.
+pub(crate) fn local_path(
+    state: &AppState,
+    path: &Path,
+    bytes: &[u8],
+    still: bool,
+) -> Result<std::path::PathBuf, String> {
     use std::hash::{Hash, Hasher};
     static CACHE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _lock = CACHE_LOCK
@@ -195,7 +205,7 @@ pub(crate) fn local(
         fs::write(&frame, fallback).map_err(|e| e.to_string())?;
         fs::write(&original, clean).map_err(|e| e.to_string())?;
     }
-    fs::read(if still { frame } else { original }).map_err(|e| e.to_string())
+    Ok(if still { frame } else { original })
 }
 
 pub(crate) fn byte_range(range: &str, total: usize) -> Option<(usize, usize)> {
@@ -373,7 +383,7 @@ mod tests {
                 "-f",
                 "lavfi",
                 "-i",
-                "color=c=red:s=32x48:d=1",
+                "color=c=red:s=320x480:d=1",
                 "-f",
                 "lavfi",
                 "-i",
@@ -423,6 +433,14 @@ mod tests {
         assert_eq!(prepare(&cached).unwrap().0, cached);
         assert_eq!(local(&state, &input, &bytes, false).unwrap(), cached);
         assert_eq!(local(&state, &input, &bytes, true).unwrap(), still);
+        let frame = crate::native::artwork_variant_source(&state, &input).unwrap();
+        let optimized = state
+            .artwork_variants
+            .generate(&frame, 96)
+            .unwrap()
+            .unwrap();
+        let optimized = image::load_from_memory(&fs::read(optimized).unwrap()).unwrap();
+        assert_eq!((optimized.width(), optimized.height()), (96, 144));
         assert_eq!(fs::read(&input).unwrap(), bytes);
     }
 }
