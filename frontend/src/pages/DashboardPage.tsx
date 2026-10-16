@@ -53,7 +53,7 @@ export default function DashboardPage() {
  if(catalog.isError&&!catalog.data&&!preview)return <p role="alert" className="p-5 text-danger">{catalog.error.message}</p>;
  if(itemSlug&&!routeItem&&!catalog.isPending&&!preview)return <p className="p-5 text-muted">This title could not be found in {library?.name}.</p>;
  return <LibraryNavigationContext.Provider value={navigation}><div className="flex h-full min-h-0 flex-col">
-  {!effective.has("native_item")&&<header aria-label="Library header" className="relative z-20 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 bg-transparent px-4 pt-0 sm:px-6 md:flex-nowrap md:pt-4 lg:px-8">
+  {!effective.has("native_item")&&library?.library_type==="youtube"&&<header aria-label="Library header" className="relative z-20 flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 bg-transparent px-4 pt-0 sm:px-6 md:flex-nowrap md:pt-4 lg:px-8">
    <h1 className="py-3 text-xl font-semibold">{library?.name ?? "Media"}</h1>
 
   </header>}

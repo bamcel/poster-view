@@ -485,8 +485,8 @@ export default function NativeLibraryBrowser({
         /> : <p role="status" className="p-8 text-muted">Loading title…</p>
       ) : (
         <>
-          <div className="relative z-30 grid shrink-0 items-center gap-3 border-b border-border px-4 py-3 sm:px-6 lg:grid-cols-[1fr_auto_1fr] lg:px-8">
-            <div aria-hidden="true" className="hidden lg:block"/>
+          <div className="relative z-30 grid shrink-0 items-center gap-3 border-b border-border px-4 py-3 sm:grid-cols-[1fr_auto] sm:px-6 lg:grid-cols-[1fr_auto_1fr] lg:px-8">
+            <h1 className="min-w-0 truncate text-xl font-semibold">{library.name}</h1>
             <div className="flex items-center justify-center gap-2">
               <div className="relative w-[min(21rem,calc(100vw-10rem))]">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
