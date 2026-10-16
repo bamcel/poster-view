@@ -1512,9 +1512,8 @@ async fn native_provider_credentials_are_encrypted_and_not_returned() {
 async fn native_artwork_shared_upload_and_remove_routes_work_without_a_media_server() {
     use posterview_contracts::native::*;
     let directory = tempdir().unwrap();
-    let runtime = Arc::new(Runtime::new(directory.path()));
-    runtime.initialize().unwrap();
-    let db = posterview_infra_sqlite::ServerStore::new(directory.path());
+    let state = crate::test_support::state(directory.path());
+    let db = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
     let library = db
         .save_native_library(
             None,
@@ -1546,7 +1545,10 @@ async fn native_artwork_shared_upload_and_remove_routes_work_without_a_media_ser
         .unwrap();
     let entry = db.native_catalog(&library.id).unwrap().remove(0);
     let target = format!("native:{}:{}", library.id, entry.id);
-    let app = router(runtime, PathBuf::from("missing-ui"));
+    // Exercise the shared routes without unrelated production maintenance workers.
+    let app = crate::routes::system::public()
+        .merge(crate::routes::protected(state.auth.clone()))
+        .with_state(state);
     let mut image = std::io::Cursor::new(Vec::new());
     image::DynamicImage::new_rgba8(2, 2)
         .write_to(&mut image, image::ImageFormat::Png)
@@ -1564,7 +1566,9 @@ async fn native_artwork_shared_upload_and_remove_routes_work_without_a_media_ser
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     assert!(
         db.native_artwork(&library.id, &entry.id, "backdrop")
             .unwrap()
@@ -1582,7 +1586,9 @@ async fn native_artwork_shared_upload_and_remove_routes_work_without_a_media_ser
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     let response = app
         .clone()
         .oneshot(
@@ -1596,7 +1602,9 @@ async fn native_artwork_shared_upload_and_remove_routes_work_without_a_media_ser
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     assert!(
         db.native_artwork(&library.id, &entry.id, "backdrop")
             .unwrap()
