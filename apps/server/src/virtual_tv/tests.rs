@@ -4,6 +4,39 @@ use posterview_contracts::{
     native::{AnimeContent, NativeLibraryInput},
 };
 
+#[test]
+fn source_picker_excludes_misclassified_specials_seasons_and_trailers() {
+    let (_temp, state, library) = fixture();
+    let mut entry = ServerStore::new(state.runtime.data_dir())
+        .native_catalog(&library)
+        .unwrap()
+        .remove(0);
+    entry.kind = "series".into();
+    for path in [
+        "Anime/Show/Specials",
+        "Anime/Show/Season 1",
+        "Anime/Show/S00",
+        "Anime/Show/Extras",
+    ] {
+        entry.path = path.into();
+        assert!(!source_title(&entry), "{path}");
+    }
+    entry.path = "Anime/Show".into();
+    assert!(source_title(&entry));
+    entry.kind = "movie".into();
+    for path in [
+        "Anime/Show/Trailers/Trailer 1.mp4",
+        "Anime/Show/Specials/Bonus.mp4",
+        "Movies/Film/Film-trailer.mkv",
+    ] {
+        entry.path = path.into();
+        assert!(!source_title(&entry), "{path}");
+    }
+    entry.path = "Movies/Trailer Park Boys/Trailer Park Boys.mkv".into();
+    entry.title = "Trailer Park Boys".into();
+    assert!(source_title(&entry));
+}
+
 fn viewer(library_ids: Vec<String>) -> UserAccount {
     UserAccount {
         id: "viewer".into(),
@@ -18,6 +51,41 @@ fn viewer(library_ids: Vec<String>) -> UserAccount {
         revision: 1,
         created_at: String::new(),
     }
+}
+
+#[test]
+fn specials_require_valid_special_episode_info() {
+    let (_temp, state, library) = fixture();
+    let mut entry = ServerStore::new(state.runtime.data_dir())
+        .native_catalog(&library)
+        .unwrap()
+        .remove(0);
+    entry.kind = "episode".into();
+    entry.path = "Shows/Example/Specials/Bonus.mkv".into();
+    for metadata in [
+        json!({"season":0}),
+        json!({"season":0,"airs_before_episode":2}),
+        json!({"season":0,"airs_before_season":0}),
+        json!({"season":0,"airs_before_season":1,"airs_after_season":2}),
+        json!({"season":0,"airs_before_season":1,"airs_before_episode":-1}),
+    ] {
+        entry.metadata = metadata;
+        assert!(!source_title(&entry));
+    }
+    for metadata in [
+        json!({"season":0,"airs_before_season":1}),
+        json!({"season":0,"airs_before_season":1,"airs_before_episode":2}),
+        json!({"season":0,"airs_after_season":1}),
+    ] {
+        entry.metadata = metadata;
+        assert!(source_title(&entry));
+        assert!(special_placement(&entry).is_some());
+    }
+    entry.metadata = json!({});
+    assert!(!source_title(&entry)); // Legacy Specials path without season metadata.
+    entry.path = "Shows/Example/Season 1/Episode.mkv".into();
+    entry.metadata = json!({"season":1});
+    assert!(source_title(&entry));
 }
 fn input(library: &str) -> ChannelInput {
     ChannelInput {
@@ -69,6 +137,140 @@ fn fixture() -> (tempfile::TempDir, AppState, String) {
         .ingest_native_catalog(&library.id, library.revision, &[entry])
         .unwrap();
     (temp, state, library.id)
+}
+#[tokio::test]
+async fn default_channel_image_prefers_current_video_thumbnail_over_poster() {
+    let (temp, state, library) = fixture();
+    let item = ServerStore::new(state.runtime.data_dir())
+        .native_catalog(&library)
+        .unwrap()
+        .remove(0);
+    std::fs::create_dir_all(temp.path().join("media/Movies")).unwrap();
+    for (kind, color) in [
+        ("thumb", image::Rgb([255_u8, 0, 0])),
+        ("poster", image::Rgb([0_u8, 0, 255])),
+    ] {
+        let relative = format!("Movies/{kind}.png");
+        image::RgbImage::from_pixel(32, 16, color)
+            .save(temp.path().join("media").join(&relative))
+            .unwrap();
+        ServerStore::new(state.runtime.data_dir())
+            .save_native_artwork(
+                &library,
+                &item.id,
+                &posterview_contracts::native::NativeArtwork {
+                    kind: kind.into(),
+                    path: relative,
+                    source: "local".into(),
+                },
+            )
+            .unwrap();
+    }
+    let _ = save_settings(
+        State(state.clone()),
+        HeaderMap::new(),
+        Json(Settings { enabled: true }),
+    )
+    .await
+    .unwrap();
+    let channel = create(
+        State(state.clone()),
+        HeaderMap::new(),
+        Json(input(&library)),
+    )
+    .await
+    .unwrap()
+    .0;
+    let (_, _, bytes) = channel_image(State(state), HeaderMap::new(), Path(channel.id))
+        .await
+        .unwrap();
+    let pixel = image::load_from_memory(&bytes)
+        .unwrap()
+        .to_rgb8()
+        .get_pixel(0, 0)
+        .0;
+    assert!(pixel[0] > 200 && pixel[2] < 20);
+}
+
+#[tokio::test]
+async fn selected_program_uses_its_own_thumbnail_and_rejects_items_outside_channel() {
+    let (temp, state, library) = fixture();
+    let store = ServerStore::new(state.runtime.data_dir());
+    let first = store.native_catalog(&library).unwrap().remove(0);
+    let mut second = first.clone();
+    second.id = String::new();
+    second.path = "Movies/Second.mp4".into();
+    second.title = "Second film".into();
+    second.files =
+        vec![json!({"path":"Movies/Second.mp4","media_info":{"format":{"duration":"1800"}}})];
+    let revision = store
+        .native_libraries()
+        .unwrap()
+        .into_iter()
+        .find(|l| l.id == library)
+        .unwrap()
+        .revision;
+    store
+        .ingest_native_catalog(&library, revision, &[first, second])
+        .unwrap();
+    let item = store
+        .native_catalog(&library)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.title == "Second film")
+        .unwrap();
+    std::fs::create_dir_all(temp.path().join("media/Movies")).unwrap();
+    image::RgbImage::from_pixel(32, 16, image::Rgb([0_u8, 255, 0]))
+        .save(temp.path().join("media/Movies/second-thumb.png"))
+        .unwrap();
+    store
+        .save_native_artwork(
+            &library,
+            &item.id,
+            &posterview_contracts::native::NativeArtwork {
+                kind: "thumb".into(),
+                path: "Movies/second-thumb.png".into(),
+                source: "local".into(),
+            },
+        )
+        .unwrap();
+    let _ = save_settings(
+        State(state.clone()),
+        HeaderMap::new(),
+        Json(Settings { enabled: true }),
+    )
+    .await
+    .unwrap();
+    let channel = create(
+        State(state.clone()),
+        HeaderMap::new(),
+        Json(input(&library)),
+    )
+    .await
+    .unwrap()
+    .0;
+    let (_, _, bytes) = artwork(
+        State(state.clone()),
+        HeaderMap::new(),
+        Path((channel.id.clone(), library.clone(), item.id)),
+    )
+    .await
+    .unwrap();
+    let pixel = image::load_from_memory(&bytes)
+        .unwrap()
+        .to_rgb8()
+        .get_pixel(0, 0)
+        .0;
+    assert!(pixel[1] > 200 && pixel[0] < 20);
+    assert!(
+        artwork(
+            State(state),
+            HeaderMap::new(),
+            Path((channel.id, library, "outside-channel".into()))
+        )
+        .await
+        .is_err()
+    );
 }
 #[tokio::test]
 async fn durable_channel_uses_real_durations_and_requires_every_library() {

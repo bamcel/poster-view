@@ -236,6 +236,7 @@ pub(crate) fn authorize_request(
         }
         ["api", "plugins", "virtual-tv"] | ["api", "virtual-tv", "channels"] => get,
         ["api", "virtual-tv", "channels", _, "guide"] => get,
+        ["api", "virtual-tv", "channels", _, "image"] => get,
         ["api", "virtual-tv", "channels", _, "artwork", _, _] => get,
         ["api", "virtual-tv", "channels", _, "tune"] => *method == Method::POST,
         ["api", "appearance", "settings"]

@@ -47,6 +47,8 @@ pub(super) struct Channel {
     order: String,
     start_at: String,
     revision: u64,
+    #[serde(default)]
+    schedule_revision: Option<u64>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -86,6 +88,7 @@ pub(crate) fn routes() -> Router<AppState> {
         )
         .route("/api/virtual-tv/channels/{id}/guide", get(guide))
         .route("/api/virtual-tv/channels/{id}/tune", post(tune))
+        .route("/api/virtual-tv/channels/{id}/image", get(channel_image))
         .route(
             "/api/virtual-tv/channels/{id}/artwork/{library}/{item}",
             get(artwork),
@@ -258,6 +261,91 @@ fn number(value: &Value) -> Option<f64> {
         .or_else(|| value.as_str()?.parse().ok())
         .filter(|v| v.is_finite() && *v >= 1.0)
 }
+fn source_title(entry: &NativeCatalogEntry) -> bool {
+    let parts: Vec<_> = entry.path.split('/').collect();
+    let auxiliary = |part: &str| {
+        matches!(
+            part.to_ascii_lowercase().as_str(),
+            "extra"
+                | "extras"
+                | "trailer"
+                | "trailers"
+                | "featurettes"
+                | "behind the scenes"
+                | "deleted scenes"
+                | "interviews"
+                | "backdrop"
+                | "backdrops"
+        )
+    };
+    if parts.iter().any(|part| auxiliary(part)) {
+        return false;
+    }
+    static SEASON: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)^(?:.+?[ ._-]+)?(?:season|s)[ ._-]*\d{1,3}$").unwrap()
+    });
+    let season = |part: &str| {
+        part.eq_ignore_ascii_case("special")
+            || part.eq_ignore_ascii_case("specials")
+            || SEASON.is_match(part)
+    };
+    if entry.kind == "series" {
+        return !parts.last().is_some_and(|part| season(part));
+    }
+    if is_special(entry) && special_placement(entry).is_none() {
+        return false;
+    }
+    if entry.kind == "movie" {
+        static TRAILER: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+            regex::Regex::new(r"(?i)(?:^|[ ._-])trailer(?:[ ._-]*\d+)?$").unwrap()
+        });
+        let stem = std::path::Path::new(&entry.path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        return !parts
+            .iter()
+            .take(parts.len().saturating_sub(1))
+            .any(|part| season(part))
+            && !TRAILER.is_match(stem)
+            && !TRAILER.is_match(&entry.title)
+            && entry.metadata["extra_type"].is_null()
+            && entry.metadata["extratype"].is_null();
+    }
+    true
+}
+fn is_special(entry: &NativeCatalogEntry) -> bool {
+    if entry.kind != "episode" {
+        return false;
+    }
+    static ZERO: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)^(?:.+?[ ._-]+)?(?:season|s)[ ._-]*0{1,3}$").unwrap()
+    });
+    entry.metadata["season"].as_i64() == Some(0)
+        || entry.path.split('/').any(|part| {
+            part.eq_ignore_ascii_case("special")
+                || part.eq_ignore_ascii_case("specials")
+                || ZERO.is_match(part)
+        })
+}
+fn special_placement(entry: &NativeCatalogEntry) -> Option<(i64, i64, u8)> {
+    let positive = |key: &str| entry.metadata[key].as_i64().filter(|n| *n > 0);
+    match (
+        positive("airs_before_season"),
+        positive("airs_after_season"),
+    ) {
+        (Some(season), None)
+            if entry.metadata["airs_before_episode"].is_null()
+                || positive("airs_before_episode").is_some() =>
+        {
+            Some((season, positive("airs_before_episode").unwrap_or(1), 0))
+        }
+        (None, Some(season)) if entry.metadata["airs_before_episode"].is_null() => {
+            Some((season, i64::MAX, 2))
+        }
+        _ => None,
+    }
+}
 fn candidates(state: &AppState, channel: &Channel) -> Result<Vec<Candidate>, HttpError> {
     let store = ServerStore::new(state.runtime.data_dir());
     let libraries = store.native_libraries().map_err(storage)?;
@@ -276,6 +364,9 @@ fn candidates(state: &AppState, channel: &Channel) -> Result<Vec<Candidate>, Htt
         let entries = store.native_catalog(library).map_err(storage)?;
         let by_path: HashMap<_, _> = entries.iter().map(|e| (e.path.as_str(), e)).collect();
         for entry in &entries {
+            if !source_title(entry) {
+                continue;
+            }
             if entry.kind == "series" && channel.show_ids.contains(&entry.id) {
                 found_shows.insert(entry.id.clone());
             }
@@ -299,7 +390,7 @@ fn candidates(state: &AppState, channel: &Channel) -> Result<Vec<Candidate>, Htt
                 let Some(ancestor) = by_path.get(parent) else {
                     break;
                 };
-                if ancestor.kind == "series" {
+                if ancestor.kind == "series" && source_title(ancestor) {
                     series = Some(ancestor);
                     break;
                 }
@@ -350,8 +441,17 @@ fn candidates(state: &AppState, channel: &Channel) -> Result<Vec<Candidate>, Htt
                 title: entry.title.clone(),
                 series_title: series.map(|s| s.title.clone()),
                 series_id: series.map(|s| s.id.clone()),
-                season: entry.metadata["season"].as_i64(),
+                season: if is_special(entry) {
+                    Some(0)
+                } else {
+                    entry.metadata["season"].as_i64()
+                },
                 episode: entry.metadata["episode"].as_i64(),
+                placement: if is_special(entry) {
+                    special_placement(entry)
+                } else {
+                    None
+                },
                 duration_seconds,
                 artwork_url: None,
             });
@@ -422,6 +522,7 @@ fn validate(input: ChannelInput, id: String, revision: u64) -> Result<Channel, H
         order: input.order,
         start_at: input.start_at,
         revision,
+        schedule_revision: Some(revision),
     })
 }
 async fn create(
@@ -473,7 +574,7 @@ async fn update(
             detail: "Channel changed. Reload before saving.".into(),
         });
     }
-    let channel = validate(
+    let mut channel = validate(
         input,
         id.clone(),
         previous
@@ -488,11 +589,22 @@ async fn update(
     {
         return Err(HttpError::bad_request("Channel number is already in use."));
     }
-    let record = Record {
+    let mut record = Record {
         candidates: candidates(&state, &channel)?,
         channel: channel.clone(),
     };
     program_list(&record)?;
+    if channel.library_ids == previous.library_ids
+        && channel.show_ids == previous.show_ids
+        && channel.movie_ids == previous.movie_ids
+        && channel.genres == previous.genres
+        && channel.order == previous.order
+        && channel.start_at == previous.start_at
+        && record.candidates == doc.channels[index].candidates
+    {
+        channel.schedule_revision = Some(previous.schedule_revision.unwrap_or(previous.revision));
+    }
+    record.channel = channel.clone();
     doc.channels[index] = record;
     persist(&state, &doc)?;
     Ok(Json(channel))
@@ -512,6 +624,79 @@ async fn delete(
     }
     persist(&state, &doc)?;
     Ok(StatusCode::NO_CONTENT)
+}
+async fn channel_image(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), HttpError> {
+    let user = state.auth.request_user(&headers)?;
+    let record = authorized(&state, &user, &id)?;
+    let program = schedule::current_program(&record.channel, record.candidates.clone(), Utc::now())
+        .map_err(HttpError::bad_request)?
+        .ok_or_else(HttpError::not_found)?;
+    program_thumbnail(
+        state,
+        headers,
+        record,
+        user,
+        program.library_id,
+        program.item_id,
+    )
+    .await
+}
+async fn program_thumbnail(
+    state: AppState,
+    headers: HeaderMap,
+    record: Record,
+    user: UserAccount,
+    library: String,
+    item: String,
+) -> Result<(StatusCode, HeaderMap, Vec<u8>), HttpError> {
+    let selected = record
+        .candidates
+        .iter()
+        .find(|c| c.library_id == library && c.item_id == item)
+        .ok_or_else(HttpError::not_found)?;
+    if !item_available(&state, &user, &library, &item) {
+        return Err(HttpError::not_found());
+    }
+    crate::access::require_item(&state, &user, &library, &item)?;
+    let store = ServerStore::new(state.runtime.data_dir());
+    let mut sources = vec![item];
+    if let Some(series) = selected.series_id.clone() {
+        sources.push(series);
+    }
+    for item in sources {
+        if !crate::access::allows_item(&state, &user, &library, &item) {
+            continue;
+        }
+        for kind in ["thumb", "landscape", "poster", "backdrop"] {
+            if store
+                .native_artwork(&library, &item, kind)
+                .map_err(storage)?
+                .is_none()
+            {
+                continue;
+            }
+            match crate::native::artwork(
+                State(state.clone()),
+                Path((library.clone(), item.clone(), kind.into())),
+                axum::extract::Query(HashMap::from([
+                    ("width".into(), "320".into()),
+                    ("still".into(), "1".into()),
+                ])),
+                headers.clone(),
+            )
+            .await
+            {
+                Ok(result) => return Ok(result),
+                Err(error) if error.status == StatusCode::NOT_FOUND => continue,
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    Err(HttpError::not_found())
 }
 async fn guide(
     State(state): State<AppState>,
@@ -609,22 +794,5 @@ async fn artwork(
 ) -> Result<(StatusCode, HeaderMap, Vec<u8>), HttpError> {
     let user = state.auth.request_user(&headers)?;
     let record = authorized(&state, &user, &id)?;
-    if !record
-        .candidates
-        .iter()
-        .any(|c| c.library_id == library && c.item_id == item)
-    {
-        return Err(HttpError::not_found());
-    }
-    crate::access::require_item(&state, &user, &library, &item)?;
-    crate::native::artwork(
-        State(state),
-        Path((library, item, "poster".into())),
-        axum::extract::Query(HashMap::from([
-            ("width".into(), "320".into()),
-            ("still".into(), "1".into()),
-        ])),
-        headers,
-    )
-    .await
+    program_thumbnail(state, headers, record, user, library, item).await
 }

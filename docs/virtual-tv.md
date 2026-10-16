@@ -3,12 +3,22 @@
 Enable **Settings → Plugins → Virtual TV**. The Media sidebar and mobile navigation
 then include **Virtual TV**, with a three-hour program guide and local date/time
 navigation. Administrators create, edit and delete shared channels on that page.
+Use **Create channel** to add a channel, or **Edit channels** beside it to open
+the management list with Edit and Remove actions. Viewing uses the guide grid;
+each channel row includes Watch live, without a second program-card queue below.
+Selecting a guide program shows its details and thumbnail in the top preview.
+Selecting a channel shows its current program. Images come from library artwork;
+there is no separate static channel-image editor.
 ServerConnect remains unchanged; channel sources are native video libraries only.
 
 Choose one or more source libraries and optional shows, movies and genres. These
 filters combine with OR; with no filters, every playable video in those libraries
 is included. Book libraries are excluded. Selected videos require measured durations
 from a library scan; rounded runtime labels are not used for schedule timing.
+Special episodes are included only with valid Special Episode Info (airs during/
+before a season, optionally before an episode, or after a season). Unplaced specials
+are excluded, and ordered channels insert placed specials at their specified position.
+Re-save existing channels to refresh their stored special-placement metadata.
 
 Channels support sequential order, shuffle without repeats within a lineup cycle,
 and random show selection with each show's episodes in sequence. The start time is

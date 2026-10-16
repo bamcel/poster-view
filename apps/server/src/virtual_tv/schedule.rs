@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 const MAX_PROGRAMS: usize = 100_000;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(super) struct Candidate {
     pub library_id: String,
     pub item_id: String,
@@ -14,6 +14,8 @@ pub(super) struct Candidate {
     pub series_id: Option<String>,
     pub season: Option<i64>,
     pub episode: Option<i64>,
+    #[serde(default)]
+    pub placement: Option<(i64, i64, u8)>,
     pub duration_seconds: f64,
     pub artwork_url: Option<String>,
 }
@@ -38,7 +40,12 @@ struct Random(u64);
 impl Random {
     fn new(channel: &Channel) -> Self {
         let mut seed = 0xcbf29ce484222325_u64;
-        for byte in channel.id.bytes().chain(channel.revision.to_le_bytes()) {
+        for byte in channel.id.bytes().chain(
+            channel
+                .schedule_revision
+                .unwrap_or(channel.revision)
+                .to_le_bytes(),
+        ) {
             seed ^= u64::from(byte);
             seed = seed.wrapping_mul(0x100000001b3);
         }
@@ -58,7 +65,8 @@ fn ordered(channel: &Channel, mut candidates: Vec<Candidate>) -> Result<Vec<Cand
     candidates.sort_by(|a, b| {
         (
             a.series_title.as_deref().unwrap_or(&a.title),
-            a.season,
+            a.placement
+                .unwrap_or((a.season.unwrap_or(0), a.episode.unwrap_or(0), 1)),
             a.episode,
             &a.title,
             &a.library_id,
@@ -66,7 +74,8 @@ fn ordered(channel: &Channel, mut candidates: Vec<Candidate>) -> Result<Vec<Cand
         )
             .cmp(&(
                 b.series_title.as_deref().unwrap_or(&b.title),
-                b.season,
+                b.placement
+                    .unwrap_or((b.season.unwrap_or(0), b.episode.unwrap_or(0), 1)),
                 b.episode,
                 &b.title,
                 &b.library_id,
@@ -121,9 +130,10 @@ struct Cycle {
 
 fn prepare(
     channel: &Channel,
-    candidates: Vec<Candidate>,
+    mut candidates: Vec<Candidate>,
     now: DateTime<Utc>,
 ) -> Result<Cycle, String> {
+    candidates.retain(|item| item.season != Some(0) || item.placement.is_some());
     if candidates.is_empty() || candidates.len() > 10_000 {
         return Err("A Virtual TV channel must contain between 1 and 10,000 playable items".into());
     }
@@ -169,7 +179,11 @@ fn program(
     end: DateTime<Utc>,
 ) -> Program {
     Program {
-        id: format!("{}:{}:{cycle}:{index}", channel.id, channel.revision),
+        id: format!(
+            "{}:{}:{cycle}:{index}",
+            channel.id,
+            channel.schedule_revision.unwrap_or(channel.revision)
+        ),
         library_id: item.library_id.clone(),
         item_id: item.item_id.clone(),
         title: item.title.clone(),
@@ -281,6 +295,7 @@ mod tests {
             order: order.into(),
             start_at: "2020-01-01T00:00:00Z".into(),
             revision: 1,
+            schedule_revision: None,
         }
     }
 
@@ -293,6 +308,7 @@ mod tests {
             series_id: Some(show.into()),
             season: Some(1),
             episode: Some(episode),
+            placement: None,
             duration_seconds: 3600.0,
             artwork_url: None,
         }
@@ -302,6 +318,32 @@ mod tests {
         DateTime::parse_from_rfc3339("2026-10-16T00:30:00Z")
             .unwrap()
             .with_timezone(&Utc)
+    }
+
+    #[test]
+    fn unplaced_specials_are_ignored_and_placed_specials_follow_episode_order() {
+        let first = item("first", "A", 1);
+        let second = item("second", "A", 2);
+        let mut unplaced = item("unplaced", "A", 9);
+        unplaced.season = Some(0);
+        let mut placed = item("placed", "A", 1);
+        placed.season = Some(0);
+        placed.placement = Some((1, 2, 0));
+        let items = vec![second, unplaced, placed, first];
+        let ordered = ordered(&channel("sequential"), items.clone()).unwrap();
+        assert_eq!(
+            ordered
+                .iter()
+                .filter(|p| p.item_id != "unplaced")
+                .map(|p| p.item_id.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "placed", "second"]
+        );
+        for mode in ["sequential", "random", "random_shows"] {
+            let guide = generate(&channel(mode), items.clone(), now()).unwrap();
+            assert!(!guide.iter().any(|p| p.item_id == "unplaced"));
+            assert!(guide.iter().any(|p| p.item_id == "placed"));
+        }
     }
 
     #[test]
