@@ -64,7 +64,6 @@ function LandscapeRow({label,titles}:{label:string;titles:HomeTitle[]}){
     <div className="pv-home-landscape-track scrollbar-hidden" ref={row}>{titles.slice(0,20).map(title=><article className="pv-home-landscape-card" key={`${title.library.id}:${title.entry.id}`}>
       <DiscoveryHoverCard title={title}>
         <Link className="pv-home-card-link" to={details(title)} aria-label={`Open ${title.entry.title} in ${title.library.name}`}><div className="pv-home-landscape-art"><Artwork title={title}/></div><h3>{title.entry.title}</h3></Link>
-        <div className="pv-home-card-caption"><span>{title.library.name}</span><Link to={details(title)} aria-label={`More info about ${title.entry.title}`}><Info aria-hidden="true"/>Details</Link></div>
       </DiscoveryHoverCard>
     </article>)}</div>
   </section>;
