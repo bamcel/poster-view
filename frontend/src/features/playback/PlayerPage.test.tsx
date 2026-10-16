@@ -727,3 +727,28 @@ it("disables version switching until watch ownership is initialized",async()=>{
  await act(async()=>{begin({session_id:"watch-ready",state});});await ready();
  expect(screen.getByRole("combobox",{name:"Version"})).toHaveProperty("disabled",false);
 });
+
+it.each([0,300])("keeps HEVC AAC 7.1 Auto startup at %s native and preserves warm seeks",async savedPosition=>{
+ hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+ vi.mocked(playbackApi.info).mockResolvedValue({...info,container:"mkv",remux_allowed:true,conversion_allowed:true,audio_conversion_allowed:true,tracks:info.tracks.map(track=>track.kind==="video"?{...track,codec:"hevc"}:track.kind==="audio"?{...track,channels:8}:track)});
+ vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state:{...state,position_seconds:savedPosition}});
+ player();const video=await ready();const source=video.getAttribute("src"),loads=vi.mocked(video.load).mock.calls.length;
+ expect(playbackApi.create).toHaveBeenCalledTimes(1);
+ expect(playbackApi.create).toHaveBeenCalledWith("anime","one",expect.objectContaining({position_seconds:Math.max(0,savedPosition-5),force_remux:false,direct_only:false,max_height:0,max_bitrate:0,bandwidth_limit_bps:0,source_video_supported:true,hls_supported:true}));
+ expect(vi.mocked(playbackApi.create).mock.lastCall![2].force_transcode).toBeUndefined();
+ scrubTo(600);fireEvent.seeked(video);
+ expect(video.currentTime).toBe(600);expect(video.getAttribute("src")).toBe(source);
+ expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(video.load).toHaveBeenCalledTimes(loads);
+ expect(playbackApi.seek).not.toHaveBeenCalled();expect(hlsState.instances).toHaveLength(0);
+});
+it("offers source recovery rather than forcing copied AAC 7.1 after an Auto native seek stalls",async()=>{
+ vi.useFakeTimers({shouldAdvanceTime:true});hlsState.supported=true;vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+ vi.mocked(playbackApi.info).mockResolvedValue({...info,container:"mkv",remux_allowed:true,conversion_allowed:true,audio_conversion_allowed:true,tracks:info.tracks.map(track=>track.kind==="video"?{...track,codec:"hevc"}:track.kind==="audio"?{...track,channels:8}:track)});
+ player();const video=await ready();const source=video.getAttribute("src");
+ scrubTo(900);Object.defineProperty(video,"seeking",{value:true,configurable:true});
+ await act(async()=>{await vi.advanceTimersByTimeAsync(9000);});
+ expect(screen.getByRole("button",{name:"Recover current playback"})).toBeTruthy();
+ expect(playbackApi.create).toHaveBeenCalledTimes(1);expect(playbackApi.stop).not.toHaveBeenCalled();
+ expect(video.getAttribute("src")).toBe(source);expect(hlsState.instances).toHaveLength(0);
+ expect(screen.queryByText(/Recovering with a lossless stream/)).toBeNull();
+});

@@ -94,3 +94,11 @@ export function losslessAudioAllowed(info:PlaybackInfo,caps:DeliveryCapabilities
   const source=info.tracks.find(track=>track.kind==="video");
   return info.remux_allowed===true&&caps?.hls_supported===true&&caps.source_hls_video_supported!==false&&(!source||caps.hls_video_codecs.includes(source.codec))&&(index===null||caps.hls_audio_track_indexes.includes(index));
 }
+
+/** MIME support alone does not prove multichannel AAC can decode in fMP4/MSE.
+ * Prefer native delivery for automatic optimizations; explicit Direct Stream
+ * remains available without silently changing the source audio or video. */
+export function automaticStreamCopyAllowed(info:PlaybackInfo,caps:DeliveryCapabilities|undefined,index:number|null):boolean {
+  const audio=info.tracks.find(track=>track.kind==="audio"&&track.index===index);
+  return losslessAudioAllowed(info,caps,index)&&!(audio?.codec.toLowerCase()==="aac"&&(audio.channels??2)>2);
+}

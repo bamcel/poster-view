@@ -15,7 +15,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import subtitleFallbackFont from "jassub/dist/default.woff2?url";
 import { ArrowLeft, Check, ChevronRight, CircleHelp, Gauge, ListVideo, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, RotateCw, Settings2, SkipBack, SkipForward, Subtitles, Volume2, VolumeX, X } from "lucide-react";
 import { defaultPlaybackPreferences, playbackApi, type PlaybackInfo, type PlaybackPreferences, type PlaybackSession } from "./api/playback";
-import { audioDeliveryAllowed,losslessAudioAllowed,originalAudioSupported, playbackCapabilities, playbackTime, safePlayerReturn, selectTracks, trackLabel } from "./lib/playback";
+import { audioDeliveryAllowed,automaticStreamCopyAllowed,losslessAudioAllowed,originalAudioSupported, playbackCapabilities, playbackTime, safePlayerReturn, selectTracks, trackLabel } from "./lib/playback";
 import {attachSegmentedPlayback} from "./lib/hlsDelivery";
 import {createPlaybackSeekQueue} from "./lib/seekQueue";
 import {createBandwidthDetector,createFragmentTransferSampler} from "./lib/bandwidth";
@@ -244,8 +244,10 @@ export default function PlayerPage() {
       const q=qualityChoices[policy.quality]??qualityChoices[0];
       // Cold HEVC-in-Matroska starts can stall before native demuxers produce
       // metadata or frames, including Play at zero. Use the same permitted
-      // lossless startup as Resume; warm seeks and explicit Original stay native.
-      const copiedStartup=!previous&&policy.delivery==="auto"&&policy.quality===0&&["mkv","matroska"].includes(data.container?.toLowerCase()??"")&&data.tracks.some(track=>track.kind==="video"&&track.codec.toLowerCase()==="hevc")&&losslessAudioAllowed(data,caps,choice.audio);
+      // lossless startup as Resume when automatic copying is safe. Multichannel
+      // AAC stays native because MIME checks do not prove fMP4 decoding. Warm
+      // seeks and explicit Original keep the same native delivery.
+      const copiedStartup=!previous&&policy.delivery==="auto"&&policy.quality===0&&["mkv","matroska"].includes(data.container?.toLowerCase()??"")&&data.tracks.some(track=>track.kind==="video"&&track.codec.toLowerCase()==="hevc")&&automaticStreamCopyAllowed(data,caps,choice.audio);
       const requireCopy=losslessFallback||copiedStartup;
       const creating=playbackApi.create(libraryId,itemId,{version_id:data.version_id,position_seconds:target,audio_index:choice.audio,subtitle_index:choice.subtitle<0?null:choice.subtitle,...caps,audio_codecs:audioCodecs,direct_only:policy.delivery==="original",force_remux:policy.delivery==="stream"||requireCopy,max_height:q.height,max_bitrate:q.bitrate,bandwidth_limit_bps:policy.budget});
       const allocation=creating.then(async created=>{if(!mounted.current||activeRoute.current!==routeKey||generation!==requestGeneration.current)await playbackApi.stop(created.id).catch(()=>{});}).catch(()=>{});
@@ -700,7 +702,7 @@ export default function PlayerPage() {
       const seconds=target===undefined?30:8;
       if(frameStalled||Date.now()-nativeActivity.current.at>=seconds*1000){
         const policy=selectedDelivery.current,data=infoRef.current;
-        if(!nativeFallbackAttempted.current&&policy.delivery==="auto"&&policy.quality===0&&data&&losslessAudioAllowed(data,capability.current,selected.current.audio)){
+        if(!nativeFallbackAttempted.current&&policy.delivery==="auto"&&policy.quality===0&&data&&automaticStreamCopyAllowed(data,capability.current,selected.current.audio)){
           nativeFallbackAttempted.current=true;
           setNotice("The original-file playback stalled. Recovering with a lossless stream; video and audio remain unchanged.");
           void start(target??sourcePosition.current,playIntent.current,true);

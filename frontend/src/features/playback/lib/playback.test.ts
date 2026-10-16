@@ -1,6 +1,6 @@
 import { afterEach,describe, expect, it, vi } from "vitest";
 import {defaultPlaybackPreferences, type PlaybackInfo, type WatchState} from "../api/playback";
-import {audioDeliveryAllowed,losslessAudioAllowed,originalAudioSupported,playbackCapabilities, playbackTime, safePlayerReturn, selectTracks} from "./playback";
+import {audioDeliveryAllowed,automaticStreamCopyAllowed,losslessAudioAllowed,originalAudioSupported,playbackCapabilities, playbackTime, safePlayerReturn, selectTracks} from "./playback";
 const info:PlaybackInfo={title:"Episode",duration_seconds:1200,chapters:[],tracks:[{index:1,kind:"audio",codec:"aac",language:"jpn",default:true},{index:2,kind:"audio",codec:"aac",language:"eng"},{index:3,kind:"subtitle",codec:"ass",language:"eng",default:true},{index:4,kind:"subtitle",codec:"ass",language:"eng",forced:true},{index:5,kind:"subtitle",codec:"srt",language:"eng",hearing_impaired:true}]};
 const state:WatchState={session_id:null,version:0,position_seconds:200,duration_seconds:1200,watched:false,play_count:0,last_played_at:null,audio_index:null,subtitle_index:null};
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
@@ -97,4 +97,14 @@ it("bounds a stalled browser capability probe without discarding canPlayType evi
   await vi.advanceTimersByTimeAsync(1500);
   expect((await probing).source_video_supported).toBe(true);
   vi.useRealTimers();
+});
+
+it("keeps multichannel AAC native for automatic copy optimizations without restricting explicit copy",async()=>{
+ vi.stubGlobal("MediaSource",{isTypeSupported:()=>true});
+ const data:PlaybackInfo={...info,container:"mkv",remux_allowed:true,tracks:[{index:0,kind:"video",codec:"hevc",profile:"Main 10",bit_depth:10},{index:1,kind:"audio",codec:"aac",profile:"LC",channels:8}]};
+ const caps=await playbackCapabilities(data,{canPlayType:()=>"probably"} as unknown as HTMLVideoElement);
+ expect(losslessAudioAllowed(data,caps,1)).toBe(true);
+ expect(automaticStreamCopyAllowed(data,caps,1)).toBe(false);
+ expect(automaticStreamCopyAllowed({...data,tracks:data.tracks.map(t=>t.kind==="audio"?{...t,channels:2}:t)},caps,1)).toBe(true);
+ expect(automaticStreamCopyAllowed({...data,tracks:data.tracks.map(t=>t.kind==="audio"?{...t,channels:6,codec:"ac3"}:t)},caps,1)).toBe(true);
 });
