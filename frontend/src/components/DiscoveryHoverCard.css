@@ -13,3 +13,7 @@
 @keyframes pv-discovery-appear{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){.pv-discovery-hover-panel{animation:none}}
 @media(hover:none){.pv-discovery-preview-trigger{width:44px;height:44px}.pv-discovery-hover-actions a{min-height:44px}}
+.pv-discovery-hover-actions button{display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:8px 14px;border:1px solid var(--color-border);border-radius:99px;font-size:13px;font-weight:600;cursor:pointer}
+.pv-discovery-hover-actions button:disabled{opacity:.6;cursor:wait}.pv-discovery-hover-actions button.pv-discovery-hover-play{background:var(--color-accent);color:#101510;border-color:transparent}
+.pv-series-preview-options{flex-basis:100%;display:grid;gap:8px;padding-top:4px}.pv-series-preview-options p{margin:0 0 3px;font-size:13px;color:var(--color-muted)}.pv-series-preview-options button{justify-content:center;min-height:44px}.pv-series-preview-error{flex-basis:100%;font-size:12px;color:var(--color-muted)}
+.pv-series-preview-play:has(.pv-series-preview-options){flex-basis:100%;width:100%}

@@ -1,11 +1,14 @@
 import {act, cleanup, fireEvent, render, screen} from "@testing-library/react";
 import {MemoryRouter} from "react-router-dom";
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import {afterEach, beforeEach, expect, it, vi} from "vitest";
 import DiscoveryHoverCard from "./DiscoveryHoverCard";
 import type {HomeTitle} from "./HomeDiscovery";
 import type {NativeLibrary} from "../api/nativeLibraries";
+import {nativeLibraries} from "../api/nativeLibraries";
+import {watchApi} from "../features/playback/api/watch";
 const title = (name = "Sample"): HomeTitle => ({library: {id: "movie library", name: "Movies"} as NativeLibrary, entry: {id: name, title: name, path: "/movie", kind: "movie", parent_path: null, available: true, revision: 1, metadata: {year: 2025, mpaa: "PG", runtime: 92, rating: 8.2, genres: ["Drama"], plot: "A real synopsis"}, artwork: [], files: [{path: "movie.mkv", extension: "mkv", size: 1}], nfo_path: null}});
-function mount(item = title()) {return render(<MemoryRouter><DiscoveryHoverCard title={item}><a href="/details">Details {item.entry.title}</a></DiscoveryHoverCard></MemoryRouter>);}
+function mount(item = title()) {return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><DiscoveryHoverCard title={item}><a href="/details">Details {item.entry.title}</a></DiscoveryHoverCard></MemoryRouter></QueryClientProvider>);}
 const anchor = () => screen.getByRole("link", {name: "Details Sample"}).parentElement!;
 beforeEach(() => {vi.useFakeTimers(); vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({left: 900, top: 100, width: 260, height: 146, right: 1160, bottom: 246, x: 900, y: 100, toJSON() {}});});
 afterEach(() => {cleanup(); vi.useRealTimers(); vi.restoreAllMocks();});
@@ -61,4 +64,16 @@ it("keeps its own scrolling panel open but closes on an ancestor scroll", () => 
 });
 it("does not offer playback for a missing file marker", () => {
   const item = title(); item.entry.metadata.missing = true; mount(item); fireEvent.click(screen.getByRole("button", {name: "Preview Sample"})); expect(screen.queryByRole("link", {name: "Play Sample"})).toBeNull();
+});
+it("keeps a series preview open while playback history is loading",()=>{
+  const item=title();item.entry.kind="series";
+  vi.spyOn(nativeLibraries,"catalog").mockReturnValue(new Promise(()=>{}));
+  vi.spyOn(watchApi,"states").mockResolvedValue({});vi.spyOn(watchApi,"continue").mockResolvedValue([]);
+  mount(item);fireEvent.click(screen.getByRole("button",{name:"Preview Sample"}));
+  expect(nativeLibraries.catalog).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button",{name:"Play Sample"}));
+  fireEvent.mouseLeave(screen.getByRole("region",{name:"Preview of Sample"}));
+  act(()=>vi.advanceTimersByTime(1000));
+  expect(screen.getByRole("region",{name:"Preview of Sample"})).toBeTruthy();
+  fireEvent.keyDown(window,{key:"Escape"});expect(screen.queryByRole("region")).toBeNull();
 });
