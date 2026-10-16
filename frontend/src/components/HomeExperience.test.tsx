@@ -12,6 +12,10 @@ it("features scene artwork with real metadata and existing encoded routes",()=>{
   const hero=screen.getByRole("region",{name:"Featured title"});expect(within(hero).getByRole("heading",{name:"Movie/one"})).toBeTruthy();
   expect(within(hero).getByText("Movie · 2025 · PG-13 · Drama")).toBeTruthy();expect(within(hero).getByText("A journey home")).toBeTruthy();
   expect(within(hero).getByRole("link",{name:"Play Movie/one"}).getAttribute("href")).toBe("/play/native/movie%20library/Movie%2Fone?return=%2F");
+  const bannerImage=hero.querySelector("img")!;
+  expect(bannerImage.getAttribute("src")).toContain("/artwork/backdrop?");
+  expect(new URL(bannerImage.src).searchParams.has("width")).toBe(false);
+  expect(bannerImage.hasAttribute("srcset")).toBe(false);
   expect(within(hero).getByRole("link",{name:"More info about Movie/one"}).getAttribute("href")).toContain("native_item=Movie%2Fone&from=home");
 });
 it("prefers landscape art in rows and keeps accessible details if the image fails",()=>{
@@ -43,4 +47,11 @@ it("preserves movie playback actions from lightweight summaries",()=>{
  const movie=title("Summary movie",{_has_files:true});movie.entry.files=[];
  render(<MemoryRouter><FeaturedTitle titles={[movie]}/></MemoryRouter>);
  expect(screen.getByRole("link",{name:"Play Summary movie"}).getAttribute("href")).toContain("/play/native/movie%20library/Summary%20movie");
+});
+
+it("temporarily features the requested bright-backdrop series for contrast testing",()=>{
+ const first=title("First");first.entry.artwork=[{kind:"backdrop",path:"first.jpg",source:"local"}];
+ const series=title("More than a Married Couple, but Not Lovers.");series.entry.kind="series";series.entry.artwork=[{kind:"backdrop",path:"bright.jpg",source:"local"}];
+ render(<MemoryRouter><FeaturedTitle titles={[first,series]}/></MemoryRouter>);
+ expect(within(screen.getByRole("region",{name:"Featured title"})).getByRole("heading",{name:series.entry.title})).toBeTruthy();
 });

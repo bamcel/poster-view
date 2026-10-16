@@ -1,6 +1,7 @@
+import HomeMediaRow from "./HomeMediaRow";
 import { mediaDescription } from "../lib/mediaDescription";
-import {useEffect,useId,useMemo,useRef,useState} from "react";
-import {ChevronLeft,ChevronRight,Film,Info,Play} from "lucide-react";
+import {useEffect,useMemo,useState} from "react";
+import {Film,Info,Play} from "lucide-react";
 import {nativeLibraries} from "../api/nativeLibraries";
 import {Link} from "../lib/libraryNavigation";
 import {nativeArtworkVersion} from "../lib/nativeArtworkCache";
@@ -20,11 +21,13 @@ function Artwork({title,hero=false}:{title:HomeTitle;hero?:boolean}){
   const src=kind?stillArtwork(`${nativeLibraries.artworkUrl(title.library.id,title.entry.id,kind)}?v=${encodeURIComponent(nativeArtworkVersion(title.entry,kind))}`):undefined;
   const [failed,setFailed]=useState(false);
   useEffect(()=>setFailed(false),[src]);
-  return src&&!failed?<img src={sizedArtwork(src,hero?1920:640)} srcSet={hero?`${sizedArtwork(src,1280)} 1280w, ${sizedArtwork(src,1920)} 1920w`:`${sizedArtwork(src,320)} 320w, ${sizedArtwork(src,480)} 480w, ${sizedArtwork(src,640)} 640w`} sizes={hero?"100vw":"(min-width: 1200px) 20vw, (min-width: 900px) 25vw, (min-width: 600px) 33vw, 45vw"} alt="" loading={hero?"eager":"lazy"} decoding="async" onError={()=>setFailed(true)}/>:<div className="pv-home-art-fallback"><Film aria-hidden="true"/><span>{title.entry.title}</span></div>;
+  return src&&!failed?<img src={hero?src:sizedArtwork(src,640)} srcSet={hero?undefined:`${sizedArtwork(src,320)} 320w, ${sizedArtwork(src,480)} 480w, ${sizedArtwork(src,640)} 640w`} sizes={hero?"100vw":"(min-width: 1200px) 20vw, (min-width: 900px) 25vw, (min-width: 600px) 33vw, 45vw"} alt="" loading={hero?"eager":"lazy"} decoding="async" onError={()=>setFailed(true)}/>:<div className="pv-home-art-fallback"><Film aria-hidden="true"/><span>{title.entry.title}</span></div>;
 }
 
 export function FeaturedTitle({titles}:{titles:HomeTitle[]}){
-  const title=titles.find(title=>title.entry.artwork.some(art=>["backdrop","landscape","fanart"].includes(art.kind)))??titles[0];
+  // Temporary featured title for checking text contrast against bright artwork.
+  const contrastTitle=titles.find(({entry})=>entry.kind==="series"&&entry.title.toLocaleLowerCase().replace(/[^a-z0-9]+/g," ").trim()==="more than a married couple but not lovers"&&entry.artwork.some(art=>["backdrop","landscape","fanart"].includes(art.kind)));
+  const title=contrastTitle??titles.find(title=>title.entry.artwork.some(art=>["backdrop","landscape","fanart"].includes(art.kind)))??titles[0];
   if(!title)return null;
   const year=numeric(title.entry.metadata.year);
   const rating=typeof title.entry.metadata.mpaa==="string"?title.entry.metadata.mpaa.trim():"";
@@ -46,27 +49,11 @@ export function FeaturedTitle({titles}:{titles:HomeTitle[]}){
 }
 
 function LandscapeRow({label,titles}:{label:string;titles:HomeTitle[]}){
-  const heading=useId(),row=useRef<HTMLDivElement>(null);
-  const [edges,setEdges]=useState({left:false,right:false});
-  useEffect(()=>{
-    const element=row.current;if(!element)return;
-    const update=()=>setEdges({left:element.scrollLeft>1,right:element.scrollLeft+element.clientWidth<element.scrollWidth-1});
-    update();element.addEventListener("scroll",update);window.addEventListener("resize",update);
-    const observer=typeof ResizeObserver!=="undefined"?new ResizeObserver(update):undefined;observer?.observe(element);
-    return()=>{element.removeEventListener("scroll",update);window.removeEventListener("resize",update);observer?.disconnect();};
-  },[titles]);
-  const scroll=(direction:number)=>row.current?.scrollBy({left:row.current.clientWidth*.85*direction,behavior:window.matchMedia?.("(prefers-reduced-motion: reduce)").matches?"instant":"smooth"});
-  return <section className="pv-home-row" aria-labelledby={heading}>
-    <div className="pv-home-row-heading"><h2 id={heading}>{label}</h2>{(edges.left||edges.right)&&<div className="pv-home-row-arrows">
-      <button aria-label={`Scroll ${label} left`} disabled={!edges.left} onClick={()=>scroll(-1)}><ChevronLeft aria-hidden="true"/></button>
-      <button aria-label={`Scroll ${label} right`} disabled={!edges.right} onClick={()=>scroll(1)}><ChevronRight aria-hidden="true"/></button>
-    </div>}</div>
-    <div className="pv-home-landscape-track scrollbar-hidden" ref={row}>{titles.slice(0,20).map(title=><article className="pv-home-landscape-card" key={`${title.library.id}:${title.entry.id}`}>
+  return <HomeMediaRow label={label}>{titles.slice(0,20).map(title=><article className="pv-home-landscape-card" key={`${title.library.id}:${title.entry.id}`}>
       <DiscoveryHoverCard title={title}>
         <Link className="pv-home-card-link" to={details(title)} aria-label={`Open ${title.entry.title} in ${title.library.name}`}><div className="pv-home-landscape-art"><Artwork title={title}/></div><h3>{title.entry.title}</h3></Link>
       </DiscoveryHoverCard>
-    </article>)}</div>
-  </section>;
+    </article>)}</HomeMediaRow>;
 }
 
 export default function HomeExperience({titles}:{titles:HomeTitle[]}){

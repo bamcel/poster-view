@@ -12,10 +12,13 @@ vi.mock("./LibraryPosterStrip",()=>({default:()=> <div>Library collage</div>}));
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [], selectedId: null, setSelectedId: vi.fn() }) }));
 let measure: () => void;
 beforeEach(() => {
+  const measurements = new Set<() => void>();
+  measure = () => measurements.forEach(callback => callback());
   vi.stubGlobal("ResizeObserver", class {
-    constructor(callback: () => void) { measure = callback; }
+    callback: () => void;
+    constructor(callback: () => void) { this.callback = callback; measurements.add(callback); }
     observe() {}
-    disconnect() {}
+    disconnect() { measurements.delete(this.callback); }
   });
 });
 

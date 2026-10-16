@@ -57,7 +57,6 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
   const navigationItems = [
     { to: "/", label: "Home", icon: Home, end: true },
-    {to:"/history",label:"Watch history",icon:Film,end:true},
   ];
   useEffect(() => {
     const updateSolidity = (event: Event) => setPanelSolid((event as CustomEvent<number>).detail);
@@ -127,7 +126,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
               {label}
             </NavLink>
           ))}
-          {!settingsOpen && <><NavLink to="/history" className="flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted hover:text-white"><Film className="size-[18px]"/>Watch history</NavLink>
+          {!settingsOpen && <>
           {<><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Media</h2>{libraries.data?.map(library=>{const Icon=library.library_type==="books"?BookOpen:library.library_type==="movies"?Film:Tv;return <NavLink key={library.id} onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={preview ? `/media/${encodeURIComponent(library.id)}` : libraryPath(library,libraries.data??[])} className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${(preview ? previewPath === `/media/${encodeURIComponent(library.id)}` : isActive) ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/><span className="truncate">{library.name}</span></NavLink>;})}</>}
           </>}
 

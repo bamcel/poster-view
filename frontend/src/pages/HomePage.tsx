@@ -1,3 +1,4 @@
+import HomeMediaRow from "../components/HomeMediaRow";
 import {nativeArtworkVersion} from "../lib/nativeArtworkCache";
 import ContinueWatching from "../features/playback/components/ContinueWatching";
 import {useCatalogPrefetch} from "../lib/catalogPrefetch";
@@ -19,9 +20,9 @@ import {groupHomeTitles} from "../lib/homeTitleGroups";
 
 function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:NativeLibrary[]}) {
  const prefetchCatalog=useCatalogPrefetch();
- return <Link onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={libraryPath(library,libraries)} aria-label={`Open ${library.name}`} className="group block rounded-xl text-center focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
+ return <Link onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={libraryPath(library,libraries)} aria-label={`Open ${library.name}`} className="pv-home-landscape-card pv-home-library-card group block rounded-xl text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
   <div className="overflow-hidden rounded-md transition-transform duration-200 group-hover:scale-[1.03]"><LibraryPosterStrip library={library.id}/></div>
-  <h2 className="mt-2 text-sm font-semibold text-white group-hover:text-accent">{library.name}</h2>
+  <h3 className="mt-2 text-sm font-medium text-white group-hover:text-accent">{library.name}</h3>
  </Link>;
 }
 function LibraryHome(){
@@ -67,10 +68,9 @@ function LibraryHome(){
   </div>:<>
    <FeaturedTitle titles={titles}/>
    <div className="px-5 sm:px-8 md:px-12">
-   <section aria-label="My libraries" className="mt-8">
-    <h2 className="mb-4 text-xl font-semibold text-white">My Libraries</h2>
-    <div className="grid grid-cols-2 gap-x-5 gap-y-8 sm:grid-cols-3 lg:gap-x-7 lg:gap-y-10 xl:grid-cols-4 2xl:grid-cols-6">{libraries.data?.map(library=><LibraryTile key={library.id} library={library} libraries={libraries.data??[]}/>)}</div>
-   </section>
+   <div className="pv-home-library-section"><HomeMediaRow label="My Libraries" ariaLabel="My libraries">
+    {libraries.data?.map(library=><LibraryTile key={library.id} library={library} libraries={libraries.data??[]}/>)}
+   </HomeMediaRow></div>
    <ContinueWatching/>
    {catalogs.some((catalog,index)=>catalog.isPending&&!["books","youtube"].includes(libraries.data![index].library_type))&&<p role="status" className="mt-6 text-muted">Discovering your titles…</p>}
    {catalogs.map((catalog,index)=>catalog.error&&<p role="alert" key={libraries.data![index].id} className="mt-4 text-danger">Could not load discoveries from {libraries.data![index].name}: {catalog.error.message}</p>)}
