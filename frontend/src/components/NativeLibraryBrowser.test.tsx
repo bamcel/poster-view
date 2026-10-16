@@ -624,3 +624,11 @@ it("refreshes fresh catalog when the library count changes while away",async()=>
  first.unmount();vi.mocked(nativeLibraries.status).mockResolvedValue({status:"complete",count:4,warnings:[]});view();
  await waitFor(()=>expect(nativeLibraries.catalog).toHaveBeenCalledTimes(2));
 });
+
+it("opens a quick character profile from the anime character row",async()=>{
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series,metadata:{...series.metadata,characters:[{name:"Maomao",role:"MAIN",biography:"A curious apothecary.<br>Works at the palace."}]}}]);
+ mount("/?native_library=native&native_item=show");
+ fireEvent.click(await screen.findByRole("button",{name:"Preview Maomao"}));
+ expect(screen.getByRole("region",{name:"Profile of Maomao"})).toBeTruthy();
+ expect(screen.getByText(/A curious apothecary/)).toBeTruthy();
+});

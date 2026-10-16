@@ -1,0 +1,19 @@
+.pv-character-anchor{position:relative;min-width:0}
+.pv-character-trigger{position:absolute;right:7px;top:7px;display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid #ffffff40;border-radius:50%;background:#101318da;color:#fff;opacity:0;transition:opacity .15s;cursor:pointer}
+.pv-character-anchor:hover .pv-character-trigger,.pv-character-anchor:focus-within .pv-character-trigger{opacity:1}
+.pv-character-trigger:focus-visible,.pv-character-dismiss:focus-visible{outline:2px solid var(--color-accent,#9ac397);outline-offset:3px}
+.pv-character-panel{position:fixed;z-index:100;box-sizing:border-box;padding:22px;border:1px solid #ffffff24;border-radius:18px;background:var(--color-panel,#2c323e);color:#f4f5f7;box-shadow:0 20px 60px #0009;overflow:auto;overscroll-behavior:contain;animation:pv-character-appear .16s ease-out}
+.pv-character-dismiss{position:absolute;top:10px;right:10px;display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid #ffffff30;border-radius:50%;background:#111820c9;color:#fff;cursor:pointer}
+.pv-character-heading{display:flex;align-items:center;gap:18px;padding-right:16px}
+.pv-character-heading>div:last-child{min-width:0}
+.pv-character-portrait{flex:0 0 88px;width:88px;height:132px;border-radius:10px;overflow:hidden;background:#151920}
+.pv-character-portrait>div{width:100%!important;height:100%!important;aspect-ratio:auto!important;border-radius:0!important}
+.pv-character-portrait img{width:100%;height:100%;object-fit:cover}
+.pv-character-eyebrow{color:var(--color-muted,#bdc3cb);font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+.pv-character-heading h3{margin:6px 0;font-size:20px;font-weight:700;line-height:1.25;overflow-wrap:anywhere}
+.pv-character-role{margin:8px 0 0;color:var(--color-muted,#bdc3cb);font-size:12px;text-transform:capitalize}
+.pv-character-biography{margin:18px 0 0;white-space:pre-line;font-size:13px;line-height:1.65;color:#dce0e7;overflow-wrap:anywhere}
+.pv-character-empty{margin:18px 0 0;font-size:13px;color:var(--color-muted,#bdc3cb)}
+@media(hover:none){.pv-character-trigger{opacity:1}}
+@media(prefers-reduced-motion:reduce){.pv-character-panel{animation:none}.pv-character-trigger{transition:none}}
+@keyframes pv-character-appear{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}

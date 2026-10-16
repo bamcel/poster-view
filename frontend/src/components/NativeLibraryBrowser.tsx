@@ -1,3 +1,4 @@
+import CharacterHoverCard from "./CharacterHoverCard";
 import {sizedArtwork} from "../lib/artworkSizes";
 import {compareEpisodeOrder,placedSpecials} from "../lib/episodeOrder";
 import { nativeArtworkVersion } from "../lib/nativeArtworkCache";
@@ -974,19 +975,11 @@ function NativeDetail({
                   <h2 className="mb-4 text-xl font-semibold">Characters</h2>
                   <PeopleRow label="characters">
                     {orderedCharacters(entry.metadata.characters, portraitImages).map((character, i) => (
-                      <div
-                        key={i}
-                        className="w-48 shrink-0 rounded-xl p-4"
-                      >
+                      <CharacterHoverCard key={i} person={character} portrait={<PersonPortrait person={character} images={portraitImages} />}>
                         <PersonPortrait person={character} images={portraitImages} />
-                        <p className="text-sm font-medium">
-                          {String(character.name ?? "")}
-                        </p>
-                        <p className="mt-1 text-xs text-muted">
-                          {String(character.role ?? "")}
-                        </p>
-
-                      </div>
+                        <p className="text-sm font-medium">{String(character.name ?? "")}</p>
+                        <p className="mt-1 text-xs text-muted">{String(character.role ?? "")}</p>
+                      </CharacterHoverCard>
                     ))}
                   </PeopleRow>
                 </section>

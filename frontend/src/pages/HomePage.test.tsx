@@ -109,7 +109,7 @@ it("shows matching titles once per discovery and search row across libraries",as
  mount();
  const row=await screen.findByRole("region",{name:"Highly Rated"});
  await screen.findByRole("link",{name:"Open TV Series"});
- expect(within(row).getAllByRole("link",{name:`More info about ${series.title}`})).toHaveLength(1);
+ expect(within(row).getAllByRole("button",{name:`Preview ${series.title}`})).toHaveLength(1);
  expect(screen.getByTestId("collage-korean")).toBeTruthy();
  expect(screen.getByTestId("collage-tv")).toBeTruthy();
  fireEvent.change(screen.getByRole("textbox",{name:"Search all libraries"}),{target:{value:"Bon Appétit"}});
