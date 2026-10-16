@@ -6,7 +6,7 @@
 .pv-home-hero h2{font-size:clamp(30px,3.7vw,60px);font-weight:750;line-height:1.08;max-width:700px;text-wrap:balance;overflow-wrap:anywhere}
 .pv-home-hero-meta{margin-top:18px;color:#d8dce2;font-size:14px}.pv-home-hero-plot{white-space:pre-line;margin-top:18px;max-width:520px;line-height:1.6;font-size:16px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;color:#d8dce2}
 .pv-home-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:26px}.pv-home-action{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:44px;padding:10px 22px;border-radius:999px;background:#ffffff18;border:1px solid #ffffff40;color:#fff;font-size:14px;font-weight:650;backdrop-filter:blur(8px)}
-.pv-home-action svg{width:19px;height:19px}.pv-home-action:hover{background:#ffffff30}.pv-home-action-primary{background:var(--color-accent);color:#08150d;border-color:transparent}.pv-home-action-primary:hover{background:var(--color-accent-hover)}
+.pv-home-action svg{width:19px;height:19px}.pv-home-action:hover{background:#ffffff30}
 .pv-home-action:focus-visible,.pv-home-card-link:focus-visible,.pv-home-row-arrows button:focus-visible{outline:2px solid var(--color-accent);outline-offset:3px}
 .pv-home-discovery{container-type:inline-size;display:grid;gap:30px;margin-top:30px;min-width:0}.pv-home-row{min-width:0;--home-card-width:calc((100cqw - 32px)/5.2)}
 .pv-home-row-heading{display:flex;align-items:center;justify-content:space-between;min-height:36px;gap:12px;margin-bottom:10px}.pv-home-row-heading h2{font-size:20px;font-weight:650;color:var(--color-text)}

@@ -679,6 +679,7 @@ function NativeDetail({
   const bookUnit = children.length > 0 && children.some(e=>e.metadata.chapter!=null) && children.every(e=>e.metadata.volume==null) ? "Chapter" : "Volume";
   const isSeries = entry.kind === "series" || entry.kind === "season";
   const isEpisode = entry.kind === "episode";
+  const isPosterDetail = isSeries || isBookSeries || entry.kind === "movie";
   const playable = entry.available && ["episode","movie"].includes(entry.kind) && entry.files.length>0;
   const siblings=isEpisode?entries.filter(sibling=>sibling.available&&sibling.kind==="episode"&&sibling.parent_path===entry.parent_path&&sibling.id!==entry.id&&showMissingEntry(library,sibling)).sort((a,b)=>(number(a.metadata.episode)??0)-(number(b.metadata.episode)??0)):[];
   const streams=entry.files[0]?.media_info?.streams??[];
@@ -781,14 +782,14 @@ function NativeDetail({
           <div className="relative z-[1] px-4 pb-8 pt-20 sm:px-6 sm:pb-10 lg:px-10 lg:pt-20">
             <div
               className={
-                isSeries || isBookSeries
+                isPosterDetail
                   ? "flex flex-row items-start gap-5 sm:gap-8 lg:gap-9"
                   : isEpisode ? "flex flex-col items-start gap-6 md:flex-row md:gap-9" : "flex flex-col items-center gap-5 sm:flex-row sm:items-start sm:gap-6"
               }
             >
               <div
                 className={
-                  isSeries || isBookSeries
+                  isPosterDetail
                     ? "w-28 shrink-0 sm:w-[25%] sm:max-w-[328px]"
                     : isEpisode
                       ? "w-full shrink-0 md:w-[38%] md:max-w-[520px]"
@@ -804,7 +805,7 @@ function NativeDetail({
                 </div>
               </div>
               <div
-                className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isSeries || isBookSeries || isEpisode ? "text-left" : "text-center sm:text-left"}`}
+                className={`min-w-0 flex-1 pt-2 [text-shadow:0_2px_12px_rgba(0,0,0,0.8)] ${isPosterDetail || isEpisode ? "text-left" : "text-center sm:text-left"}`}
               >
                 <div className="flex flex-wrap items-center gap-3">
                 {isEpisode ? (<><button onClick={()=>series&&open(series)} disabled={!series} className="block text-left" aria-label={series?`Open ${series.title}`:undefined}>{logo?<AnimatedArtwork src={logo} width={640} alt={series?.title??entry.title} className="max-h-20 max-w-[240px] object-contain object-left"/>:<span className="text-2xl font-semibold">{series?.title??"Episode"}</span>}</button><div className="mt-4 flex flex-wrap items-center gap-3"><h1 className="text-[17px] font-medium leading-snug">S{String(entry.metadata.season??parent?.metadata.season??1)}:E{String(entry.metadata.episode??"")} - {entry.title}</h1><AdminOnly><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button></AdminOnly>{artworkPlugin.data?.enabled!==false&&<AdminOnly><button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button></AdminOnly>}<AdminOnly><button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching ? "animate-spin" : ""}`} /></button></AdminOnly></div></>) : logo ? (
@@ -820,12 +821,12 @@ function NativeDetail({
                     {entry.metadata.missing === true && <span className="ml-3 inline-flex align-middle rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 text-xs text-amber-200">Missing</span>}
                   </h1>
                 )}
-                {(isSeries || isBookSeries || entry.kind==="season")&&<div data-testid="detail-actions" className="flex flex-wrap items-center gap-3">
+                {isPosterDetail&&<div data-testid="detail-actions" className="flex flex-wrap items-center gap-3">
                   <AdminOnly><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button></AdminOnly>
                   {artworkPlugin.data?.enabled!==false&&<AdminOnly><button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button></AdminOnly>}
                   <AdminOnly><button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching?"animate-spin":""}`}/></button></AdminOnly>
                   {isBookSeries&&<AdminOnly><button aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")} className="episode-inline-action"><Database className="size-4"/></button></AdminOnly>}
-                  {(isSeries||isBookSeries)&&<AdminOnly><button aria-label="Identify" title="Identify" onClick={()=>edit("identify")} className="episode-inline-action"><Fingerprint className="size-4"/></button></AdminOnly>}
+                  {isPosterDetail&&<AdminOnly><button aria-label="Identify" title="Identify" onClick={()=>edit("identify")} className="episode-inline-action"><Fingerprint className="size-4"/></button></AdminOnly>}
                 </div>}
                 </div>
                 {entry.kind === "season" && series && (
@@ -839,7 +840,7 @@ function NativeDetail({
                 {isBookSeries ? <p className="mt-2 text-sm text-white/70">{children.filter(e=>e.metadata.missing!==true).length} {children.filter(e=>e.metadata.missing!==true).length === 1 ? bookUnit : `${bookUnit}s`}</p> : isEpisode ? <div aria-label="Title information" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">{detail.rating!=null&&<span>★ {detail.rating.toFixed(1)}</span>}{typeof entry.metadata.aired==="string"&&entry.metadata.aired&&<span>{new Date(`${entry.metadata.aired.slice(0,10)}T12:00:00Z`).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric",timeZone:"UTC"})}</span>}{entry.metadata.runtime!=null&&<span>{String(entry.metadata.runtime)}m</span>}{detail.content_rating&&<span className="rounded border border-white/40 px-1.5 text-xs">{detail.content_rating}</span>}</div> : <TitleMetadata item={detail} />}
                 {entry.kind.startsWith("book") && <BookSeriesMetadata unit={isBookSeries ? bookUnit : entry.metadata.chapter!=null && entry.metadata.volume==null ? "Chapter" : "Volume"} metadata={entry.metadata} count={isBookSeries ? children.filter(e=>e.metadata.missing!==true).length : 1}/>}
                 {isEpisode&&episodeTracks.length>0&&<dl aria-label="Episode media tracks" className="mt-4 flex flex-wrap gap-x-6 gap-y-3 text-sm">{episodeTracks.map(track=><div key={track.type} className="flex items-baseline gap-2"><dt className="font-medium capitalize">{track.type==="subtitle"?"Subtitles":track.type}</dt><dd className="text-muted">{track.values.join(" · ")}</dd></div>)}</dl>}
-                {!isEpisode&&!isSeries&&!isBookSeries&&entry.kind!=="season"&&<div
+                {!isEpisode&&!isPosterDetail&&<div
                   data-testid="detail-actions"
                   className="mt-4 flex flex-wrap items-center gap-2"
                 >
@@ -875,14 +876,14 @@ function NativeDetail({
                 </div>}
                 {playable&&<NativePlaybackActions library={library.id} item={entry.id}/>}
                 {(isSeries||entry.kind==="season")&&<NativeSeriesPlay library={library.id} path={entry.path} entries={entries} includeIds={[...inlineSpecials]} specialsInSeasons={library.options?.show_specials_in_seasons===true}/>}
-                <div className={isSeries || isBookSeries ? "hidden sm:block" : "text-left"}>
-                  <DetailSynopsis text={overview} lines={isSeries || isBookSeries || entry.kind==="season" ? 8 : 3} />
+                <div className={isPosterDetail ? "hidden sm:block" : "text-left"}>
+                  <DetailSynopsis text={overview} lines={isPosterDetail ? 8 : 3} />
                 </div>
               </div>
             </div>
-            {(isSeries || isBookSeries) && (
+            {isPosterDetail && (
               <div className="sm:hidden">
-                <DetailSynopsis text={overview} lines={isSeries || isBookSeries || entry.kind==="season" ? 8 : 3} />
+                <DetailSynopsis text={overview} lines={isPosterDetail ? 8 : 3} />
               </div>
             )}
             {children.some((e) => e.kind !== "episode" && showMissingEntry(library,e)) && (
