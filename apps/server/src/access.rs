@@ -227,6 +227,10 @@ pub(crate) fn authorize_request(
     let personal_write = get || *method == Method::PUT;
     let allowed = match p.as_slice() {
         ["api", "auth", "activity"] => *method == Method::POST,
+        ["api", "plugins", "virtual-tv"] | ["api", "virtual-tv", "channels"] => get,
+        ["api", "virtual-tv", "channels", _, "guide"] => get,
+        ["api", "virtual-tv", "channels", _, "artwork", _, _] => get,
+        ["api", "virtual-tv", "channels", _, "tune"] => *method == Method::POST,
         ["api", "appearance", "settings"]
         | ["api", "plugins", "artwork"]
         | ["api", "transcoding", "settings"]

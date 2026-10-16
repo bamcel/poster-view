@@ -65,6 +65,7 @@ pub(crate) struct Info {
 #[derive(Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct SessionInput {
+    pub(super) virtual_channel_id: Option<String>,
     pub(super) position_seconds: f64,
     pub(super) audio_index: Option<u32>,
     pub(super) subtitle_index: Option<u32>,
@@ -92,6 +93,8 @@ pub(crate) struct SessionInput {
 }
 #[derive(Clone, Serialize)]
 pub(crate) struct SessionResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) position_seconds: Option<f64>,
     pub(super) id: String,
     pub(super) method: String,
     pub(super) reason: String,

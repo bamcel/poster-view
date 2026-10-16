@@ -8,6 +8,7 @@ vi.mock("../lib/artworkPlugin", () => ({ useArtworkPlugin: () => ({ data: { enab
 vi.mock("./AniDBPlugin", () => ({ default: () => <button>AniDB</button> }));
 vi.mock("./OmdbPlugin", () => ({ default: () => <button>The Open Movie Database</button> }));
 vi.mock("../features/settings/ytdl/YtdlPlugin",()=>({default:()=> <button>YTDL</button>}));
+vi.mock("../features/virtual-tv/VirtualTvPlugin",()=>({default:()=> <button>Virtual TV</button>}));
 
 afterEach(cleanup);
 
@@ -21,6 +22,7 @@ it("shows retained plugins without requesting the retired Google Books configura
     expect(screen.getByRole("button", { name: "AniDB" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "The Open Movie Database" })).toBeTruthy();
     expect(screen.getByRole("button",{name:"YTDL"})).toBeTruthy();
+    expect(screen.getByRole("button",{name:"Virtual TV"})).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
   } finally {
     vi.unstubAllGlobals();

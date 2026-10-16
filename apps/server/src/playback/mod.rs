@@ -887,6 +887,7 @@ fn response(
         }
     });
     SessionResponse {
+        position_seconds: None,
         id: id.into(),
         method: plan.method.into(),
         reason: plan.reason.into(),
@@ -1072,9 +1073,13 @@ pub(crate) async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path((library, item)): Path<(String, String)>,
-    Json(input): Json<SessionInput>,
+    Json(mut input): Json<SessionInput>,
 ) -> Result<Json<SessionResponse>, HttpError> {
     let user = state.auth.request_user(&headers)?;
+    if let Some(channel) = &input.virtual_channel_id {
+        input.position_seconds =
+            crate::virtual_tv::live_position(&state, &user, channel, &library, &item)?;
+    }
     validate_request(&input)?;
     retire_idle(&state.playback).await;
     crate::access::require_item(&state, &user, &library, &item)?;
@@ -1173,7 +1178,22 @@ pub(crate) async fn create(
     }
     guard.preparation = None;
     match result {
-        Ok((response, producer)) => {
+        Ok((mut response, producer)) => {
+            if let Some(channel) = &guard.input.virtual_channel_id {
+                if let Err(error) = state
+                    .auth
+                    .request_user(&headers)
+                    .and_then(|user| crate::virtual_tv::require_channel(&state, &user, channel))
+                {
+                    drop(guard);
+                    if let Some(producer) = producer {
+                        producer.stop().await;
+                    }
+                    state.playback.stop_id(&id).await;
+                    return Err(error);
+                }
+                response.position_seconds = Some(guard.input.position_seconds);
+            }
             guard.next_generation = response
                 .generation
                 .checked_add(1)
@@ -1199,6 +1219,9 @@ async fn authorize_session(
     let session = session.lock().await;
     if session.owner != user.id {
         return Err(HttpError::not_found());
+    }
+    if let Some(channel) = &session.input.virtual_channel_id {
+        crate::virtual_tv::require_channel(state, user, channel)?;
     }
     crate::access::require_item(
         state,
@@ -1570,7 +1593,10 @@ pub(crate) async fn stop(
     headers: HeaderMap,
 ) -> Result<StatusCode, HttpError> {
     let user = state.auth.request_user(&headers)?;
-    authorize_session(&state, &id, &user).await?;
+    // Owners must be able to release resources after content access is revoked.
+    if handle(&state.playback, &id).await?.lock().await.owner != user.id {
+        return Err(HttpError::not_found());
+    }
     state.playback.stop_id(&id).await;
     Ok(StatusCode::NO_CONTENT)
 }

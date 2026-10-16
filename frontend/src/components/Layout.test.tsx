@@ -6,6 +6,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import AuthGate from "./AuthGate";
 import Layout from "./Layout";
 import { api } from "../api/client";
+import {virtualTv} from "../features/virtual-tv/client";
+vi.mock("../features/virtual-tv/client",()=>({virtualTv:{settings:vi.fn(async()=>({enabled:false}))}}));
 
 vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(async()=>[])}}));
 vi.mock("../features/settings/ytdl/client",()=>({ytdl:{jobs:vi.fn(async()=>[])}}));
@@ -14,6 +16,15 @@ function render(node:ReactNode){return rtlRender(<QueryClientProvider client={ne
 vi.mock("../api/client", () => ({ api: { authStatus: vi.fn() } }));
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [], selectedId: 7, setSelectedId: vi.fn() }) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); sessionStorage.clear();localStorage.clear(); });
+
+it.each([true,false])("shows the Virtual TV sidebar page only when enabled (%s)",async(enabled)=>{
+ vi.mocked(virtualTv.settings).mockResolvedValue({enabled});
+ vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
+ render(<MemoryRouter initialEntries={["/media/example"]}><AuthGate><Layout/></AuthGate></MemoryRouter>);
+ await screen.findByRole("link",{name:"Settings"});
+ await waitFor(()=>expect(screen.queryAllByRole("link",{name:"Virtual TV"}).length).toBe(enabled?2:0));
+ vi.mocked(virtualTv.settings).mockResolvedValue({enabled:false});
+});
 
 function CurrentLocation() {
   const location = useLocation();

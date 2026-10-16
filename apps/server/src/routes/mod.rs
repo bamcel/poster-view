@@ -20,6 +20,7 @@ pub(crate) fn protected(auth: AuthState) -> Router<AppState> {
     Router::new()
         .merge(crate::users::routes())
         .merge(crate::ytdl::routes())
+        .merge(crate::virtual_tv::routes())
         .merge(playback::routes())
         .merge(watch::routes())
         .route(

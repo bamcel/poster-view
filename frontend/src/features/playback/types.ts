@@ -21,6 +21,7 @@ export interface PlaybackInfo {
   next?: { library_id: string; item_id: string; title: string } | null;
 }
 export interface PlaybackSession {
+  position_seconds?: number;
   id: string; method: "direct" | "remux" | "audio_transcode" | "transcode"; reason: string;
   url: string; mime: string; offset_seconds: number; duration_seconds: number; encoder?: string | null;
   audio_index?: number | null;
@@ -29,6 +30,7 @@ export interface PlaybackSession {
   width?: number | null; height?: number | null; bitrate?: number | null;
 }
 export interface PlaybackRequest {
+  virtual_channel_id?: string;
   position_seconds: number; audio_index: number | null; subtitle_index: number | null;
   video_codecs: string[]; audio_codecs: string[]; containers: string[];
   native_audio_tracks?: boolean;

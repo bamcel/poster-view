@@ -7,6 +7,70 @@ use posterview_contracts::native::{
 };
 use serde_json::json;
 
+#[tokio::test]
+async fn virtual_tv_sessions_use_live_position_and_allow_cleanup_after_disable() {
+    use tower::ServiceExt;
+    let fixture = video_fixture(b"virtual-tv-original", original_mkv_probe()).await;
+    let channel = "virtual-channel";
+    ServerStore::new(fixture.state.runtime.data_dir()).set_setting("plugin-virtual-tv",&json!({
+        "enabled":true,"channels":[{"channel":{
+            "id":channel,"name":"Movies","number":1,"library_ids":[fixture.library],"show_ids":[],"movie_ids":[],"genres":[],"order":"sequential","start_at":(chrono::Utc::now()-chrono::Duration::seconds(10)).to_rfc3339(),"revision":1
+        },"candidates":[{
+            "library_id":fixture.library,"item_id":fixture.item,"title":"Original","series_title":null,"series_id":null,"season":null,"episode":null,"duration_seconds":120.0,"artwork_url":null
+        }]}]
+    }).to_string()).unwrap();
+    let mut request = original_mkv_input();
+    request.virtual_channel_id = Some(channel.into());
+    let session = create(
+        State(fixture.state.clone()),
+        HeaderMap::new(),
+        Path((fixture.library.clone(), fixture.item.clone())),
+        Json(request),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert!(session.position_seconds.unwrap() >= 10.0);
+    let response = crate::virtual_tv::routes()
+        .with_state(fixture.state.clone())
+        .oneshot(
+            axum::http::Request::builder()
+                .method("PUT")
+                .uri("/api/plugins/virtual-tv")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(r#"{"enabled":false}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let user = fixture.state.auth.request_user(&HeaderMap::new()).unwrap();
+    assert!(
+        authorize_session(&fixture.state, &session.id, &user)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        stop(
+            State(fixture.state.clone()),
+            Path(session.id.clone()),
+            HeaderMap::new()
+        )
+        .await
+        .unwrap(),
+        StatusCode::NO_CONTENT
+    );
+    assert!(
+        !fixture
+            .state
+            .playback
+            .sessions
+            .lock()
+            .await
+            .contains_key(&session.id)
+    );
+}
+
 struct VideoFixture {
     _directory: tempfile::TempDir,
     state: AppState,

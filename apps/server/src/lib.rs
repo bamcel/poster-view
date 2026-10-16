@@ -39,6 +39,7 @@ mod state;
 mod test_support;
 mod transcoding;
 mod users;
+mod virtual_tv;
 mod watch;
 mod workers;
 mod ytdl;

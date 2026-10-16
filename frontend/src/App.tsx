@@ -12,6 +12,8 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ItemDetailPage = lazy(() => import("./pages/ItemDetailPage"));
 const SeasonDetailPage = lazy(() => import("./pages/SeasonDetailPage"));
 const PlayerPage = lazy(() => import("./features/playback/PlayerPage"));
+const VirtualTvPage = lazy(() => import("./features/virtual-tv/VirtualTvPage"));
+const VirtualTvPlayer = lazy(() => import("./features/virtual-tv/VirtualTvPlayer"));
 const ReaderPage = lazy(() => import("./pages/ReaderPage"));
 
 export default function App() {
@@ -21,12 +23,14 @@ export default function App() {
         <ServerProvider>
           <ToastProvider>
             <Routes>
+            <Route path="/play/virtual-tv/:channelId" element={<Suspense fallback={<p className="p-8">Tuning in…</p>}><VirtualTvPlayer /></Suspense>} />
             <Route path="/play/native/:libraryId/:itemId" element={<Suspense fallback={<p className="p-8">Opening player…</p>}><PlayerPage /></Suspense>} />
             <Route path="/read/native/:libraryId/:itemId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
             <Route path="/read/:serverId/:itemId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
             <Route path="/reader/:bookId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
             <Route element={<Layout />}>
               <Route path="/" element={<HomePage />} />
+              <Route path="/virtual-tv" element={<Suspense fallback={<p className="p-8">Loading guide…</p>}><VirtualTvPage /></Suspense>} />
               <Route path="/media/:libraryId" element={<DashboardPage />} />
               <Route path="/media/:libraryId/:itemSlug" element={<DashboardPage />} />
               <Route path="/media/:libraryId/:itemSlug/:seasonSlug/:episodeSlug" element={<DashboardPage />} />

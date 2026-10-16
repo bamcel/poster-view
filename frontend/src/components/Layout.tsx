@@ -5,6 +5,7 @@ import DownloadStatus,{openDownloadsEvent} from "../features/settings/ytdl/Downl
 import {resetHomeNavigation} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
+import {virtualTv} from "../features/virtual-tv/client";
 import {useQuery,useQueryClient} from "@tanstack/react-query";
 import {nativeLibraries} from "../api/nativeLibraries";
 // App chrome: contextual media/settings navigation and account controls.
@@ -42,6 +43,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
     return()=>window.removeEventListener("keydown",escape);
   },[homeSearch,navigationOpen]);
   const artworkPlugin=useArtworkPlugin();
+  const virtualTvSettings=useQuery({queryKey:["virtual-tv-settings"],queryFn:virtualTv.settings,enabled:!preview});
   const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,enabled:true});
   const prefetchCatalog=useCatalogPrefetch();
   const previewNavigate = useLibraryNavigate();
@@ -132,6 +134,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           ))}
           {!settingsOpen && <>
           {<><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Media</h2>{libraries.data?.map(library=>{const Icon=library.library_type==="books"?BookOpen:library.library_type==="movies"?Film:Tv;return <NavLink key={library.id} onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={preview ? `/media/${encodeURIComponent(library.id)}` : libraryPath(library,libraries.data??[])} className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${(preview ? previewPath === `/media/${encodeURIComponent(library.id)}` : isActive) ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/><span className="truncate">{library.name}</span></NavLink>;})}</>}
+          {!preview&&virtualTvSettings.data?.enabled&&<NavLink to="/virtual-tv" className={({isActive})=>`mt-3 flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${isActive?"bg-elevated text-white":"text-muted hover:bg-input-hover hover:text-white"}`}><Tv className="size-[18px]"/>Virtual TV</NavLink>}
           </>}
 
           {settingsOpen && <><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Settings</h2>{[{section:"users",label:"Users",icon:KeyRound},{section:"",label:"Dashboard",icon:LayoutDashboard},{section:"plugins",label:"Plugins",icon:Server},...(artworkPlugin.data?.pinned?[{section:"artwork",label:"Artwork",icon:Image}]:[]),{section:"libraries",label:"Libraries",icon:HardDrive},{section:"sources",label:"Search Providers",icon:Image},{section:"playback",label:"Playback",icon:Server},{section:"reading",label:"Reading",icon:BookOpen},{section:"transcoding",label:"Transcoding",icon:Server},{section:"tasks",label:"Scheduled Tasks",icon:Database},{section:"appearance",label:"Appearance",icon:Palette},{section:"security",label:"Privacy / Security",icon:KeyRound}].filter(({section})=>isAdmin||section==="playback"||section==="reading").map(({section,label,icon:Icon})=><NavLink key={section} to={`/settings${section ? `/${section}` : ""}`} end className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${(preview ? previewPath === `/settings${section ? `/${section}` : ""}` : isActive) ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/>{label}</NavLink>)}</>}
@@ -193,6 +196,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
       {!preview && !settingsOpen && <details className="shrink-0 bg-sidebar px-4 py-2 md:hidden"><summary className="text-sm text-muted">Media</summary><nav className="flex flex-col gap-2 py-3">{libraries.data?.map(library=><NavLink key={library.id} onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={preview ? `/media/${encodeURIComponent(library.id)}` : libraryPath(library,libraries.data??[])} className="rounded-md bg-elevated px-3 py-2 text-sm">{library.name}</NavLink>)}</nav></details>}
       {!preview && settingsOpen && <div className="shrink-0 border-b border-border bg-sidebar px-4 py-2 md:hidden"><label className="flex items-center gap-3 text-sm text-muted">Settings<select aria-label="Settings page" value={location.pathname.split("/")[2]??""} onChange={event=>void previewNavigate(`/settings${event.target.value?`/${event.target.value}`:""}`)} className="min-w-0 flex-1 rounded-lg border border-border bg-input px-3 py-2 text-white">{[["users","Users"],["","Dashboard"],["plugins","Plugins"],...(artworkPlugin.data?.pinned?[["artwork","Artwork"]]:[]),["libraries","Libraries"],["sources","Search Providers"],["playback","Playback"],["reading","Reading"],["transcoding","Transcoding"],["tasks","Scheduled Tasks"],["appearance","Appearance"],["security","Privacy / Security"]].filter(([section])=>isAdmin||section==="playback"||section==="reading").map(([section,label])=><option key={section} value={section}>{label}</option>)}</select></label></div>}
 
+      {!preview&&!settingsOpen&&virtualTvSettings.data?.enabled&&<NavLink to="/virtual-tv" className="flex shrink-0 items-center gap-2 bg-sidebar px-4 py-2 text-sm md:hidden"><Tv className="size-4"/>Virtual TV</NavLink>}
       <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
         <HeaderSearchTarget.Provider value={homeSearch?searchTarget:null}>{children ?? <Outlet />}</HeaderSearchTarget.Provider>
       </main>

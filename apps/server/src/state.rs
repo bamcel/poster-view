@@ -21,6 +21,7 @@ pub(crate) struct AppState {
     pub(crate) metadata: Arc<MetadataStore>,
     pub(crate) reader: Arc<ReaderStore>,
     pub(crate) playback: Arc<PlaybackStore>,
+    pub(crate) virtual_tv: Arc<crate::virtual_tv::Store>,
 }
 impl AppState {
     pub(crate) fn new(runtime: Arc<Runtime>, auth: AuthState, media_dir: PathBuf) -> Self {
@@ -41,6 +42,7 @@ impl AppState {
             )),
             metadata: Arc::new(MetadataStore::new(media_dir)),
             playback: Arc::new(PlaybackStore::new(runtime.data_dir())),
+            virtual_tv: Default::default(),
             runtime,
             auth,
         }

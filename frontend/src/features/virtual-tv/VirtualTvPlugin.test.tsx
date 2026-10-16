@@ -1,0 +1,20 @@
+import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
+import {MemoryRouter} from "react-router-dom";
+import {afterEach,expect,it,vi} from "vitest";
+import VirtualTvPlugin from "./VirtualTvPlugin";
+import {virtualTv} from "./client";
+vi.mock("./client",()=>({virtualTv:{settings:vi.fn(),saveSettings:vi.fn()}}));
+afterEach(()=>{cleanup();vi.clearAllMocks();});
+it("enables Virtual TV and exposes channel management",async()=>{
+ vi.mocked(virtualTv.settings).mockResolvedValue({enabled:false});
+ vi.mocked(virtualTv.saveSettings).mockResolvedValue({enabled:true});
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><VirtualTvPlugin/></MemoryRouter></QueryClientProvider>);
+ await screen.findByText("Disabled");
+ fireEvent.click(screen.getByRole("button",{name:/Virtual TV/}));
+ fireEvent.click(screen.getByRole("checkbox",{name:"Enable Virtual TV"}));
+ await waitFor(()=>expect(virtualTv.saveSettings).toHaveBeenCalledWith({enabled:true},expect.anything()));
+ expect(screen.getByRole("link",{name:"Manage channels and guide"}).getAttribute("href")).toBe("/virtual-tv");
+ fireEvent.keyDown(window,{key:"Escape"});
+ expect(screen.queryByRole("dialog")).toBeNull();
+});
