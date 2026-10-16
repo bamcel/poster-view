@@ -28,7 +28,7 @@ interface Props {
   prefill?: { term: string; nonce: number };
   navigationTarget?: { provider: string; value: string; nonce: number };
   anilistMangaId?: string;
-  libraryType?: Library["type"];
+  libraryType?: Library["type"] | "anime";
   libraryTitle?: string;
   onReviewMetadata?: (metadata: NfoMetadata, sourceLabel: string) => void;
   onClose?: () => void;
@@ -54,6 +54,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
   const [otherSourcesOpen, setOtherSourcesOpen] = useState(false);
+
   const queryClient = useQueryClient();
   const toast = useToast();
 
@@ -73,7 +74,8 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   const providersQ = useQuery({ queryKey: ["artwork-providers"], queryFn: api.artworkProviders });
   const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
   const enabled = settingsQ.data?.enabled_providers ?? [];
-  const mediaKind = artworkMediaKind(item.type, libraryType, libraryTitle);
+  const mediaKind = artworkMediaKind(item.type, libraryType === "anime" ? "show" : libraryType, libraryTitle);
+  const animeLibrary = libraryType === "anime" || /\banime\b/i.test(libraryTitle ?? "");
   const defaultProvider = mediaKind === "book"
     ? settingsQ.data?.ereader_default_provider
     : settingsQ.data?.default_provider;
@@ -85,17 +87,17 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
     ...(enabled.includes("posterdb") ? [{ name: "posterdb", label: "ThePosterDB", configured: true, needs_key: false, enabled: true }] : []),
     ...(providersQ.data ?? []).filter((source) => source.enabled),
     { name: "manual", label: "Manual", configured: true, needs_key: false },
-  ];
+  ].filter((source) => mediaKind === "book" || (providerMatchesMediaKind(source.name, mediaKind)
+    && (!["anilist", "myanimelist"].includes(source.name) || animeLibrary)
+    && !["anilist-manga", "myanimelist-manga", "mangadex", "viz", "comicvine"].includes(source.name)));
   const primaryTabs = allTabs.filter((source) => providerMatchesMediaKind(source.name, mediaKind))
     .sort((left, right) => left.name === defaultProvider ? -1 : right.name === defaultProvider ? 1 : 0);
-  const otherKind = mediaKind === "book" ? "screen" : mediaKind === "screen" ? "book" : null;
-  const otherTabs = otherKind
-    ? allTabs.filter((source) => source.name !== "manual" && providerMatchesMediaKind(source.name, otherKind))
-    : [];
+
   const primaryProviderTabs = primaryTabs.filter((tab) => tab.name !== "manual");
   const manualTab = primaryTabs.find((tab) => tab.name === "manual");
   const removeTab = { name: "remove", label: "Remove", configured: true, needs_key: false };
   const compactTabs = [...allTabs, removeTab];
+  const otherTabs = mediaKind === "book" ? allTabs.filter((tab) => !providerMatchesMediaKind(tab.name, "book")) : [];
 
   useEffect(() => {
     const preferred = defaultProvider;
@@ -181,14 +183,9 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
               {primaryProviderTabs.map(sourceButton)}
               {manualTab && sourceButton(manualTab)}
               {sourceButton(removeTab)}
-              {otherTabs.length > 0 && <button type="button" aria-label="Show more artwork databases" aria-expanded={otherSourcesOpen} onClick={() => setOtherSourcesOpen((open) => !open)} className="flex items-center gap-1 rounded-full bg-surface-2 px-2 py-1 text-xs font-medium text-muted transition-colors hover:text-white">
-                <span>Show More</span>
-                <ChevronDown className={`size-4 transition-transform ${otherSourcesOpen ? "rotate-180" : ""}`} />
-              </button>}
+              {otherTabs.length > 0 && <button type="button" aria-label="Show more artwork databases" aria-expanded={otherSourcesOpen} onClick={() => setOtherSourcesOpen((open) => !open)} className="flex items-center gap-1 rounded-full bg-surface-2 px-2 py-1 text-xs font-medium text-muted hover:text-white">Show More<ChevronDown className={`size-4 ${otherSourcesOpen ? "rotate-180" : ""}`} /></button>}
             </div>
-            {otherSourcesOpen && otherTabs.length > 0 && <div className="mt-2 border-t border-border pt-2">
-              <div className="flex flex-wrap gap-1">{otherTabs.map(sourceButton)}</div>
-            </div>}
+            {otherSourcesOpen && otherTabs.length > 0 && <div className="mt-2 flex flex-wrap gap-1 border-t border-border pt-2">{otherTabs.map(sourceButton)}</div>}
           </div>
         ) : (
           <label className="block text-xs text-faint">

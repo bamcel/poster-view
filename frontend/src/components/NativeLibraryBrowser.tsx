@@ -593,7 +593,7 @@ export default function NativeLibraryBrowser({
       {isAdmin && editEntry && (editor?.kind === "artwork" ? (
         artworkEnabled && <div className="pointer-events-none fixed inset-0 z-50 bg-transparent">
           <section aria-label={`Artwork for ${editEntry.title}`} className="pointer-events-auto ml-auto h-full w-full max-w-md shadow-2xl" onClick={event => event.stopPropagation()}>
-            <ArtworkPanel serverId={0} item={nativeArtworkItem(library, editEntry, entries)} libraryTitle={library.name} libraryType={library.library_type === "books" ? "book" : library.library_type === "movies" ? "movie" : "show"} onClose={() => setEditor(null)} />
+            <ArtworkPanel serverId={0} item={nativeArtworkItem(library, editEntry, entries)} libraryTitle={library.name} libraryType={library.library_type === "anime" ? "anime" : library.library_type === "books" ? "book" : library.library_type === "movies" ? "movie" : "show"} onClose={() => setEditor(null)} />
           </section>
         </div>
       ) : editor && ["remove-identification","refresh-metadata","missing-files"].includes(editor.kind) ? (

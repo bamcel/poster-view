@@ -36,6 +36,10 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   vi.mocked(api.artworkProviders).mockResolvedValue([
     { name: "fanart", label: "Fanart.tv", configured: true, needs_key: true, enabled: true },
+    { name: "tvdb", label: "TheTVDB", configured: true, needs_key: true, enabled: true },
+    { name: "mediux", label: "MediUX", configured: true, needs_key: false, enabled: true },
+    { name: "anilist", label: "AniList", configured: true, needs_key: false, enabled: true },
+    { name: "myanimelist", label: "MyAnimeList", configured: true, needs_key: true, enabled: true },
     { name: "anilist-manga", label: "AniList Manga", configured: true, needs_key: false, enabled: true },
     { name: "mangadex", label: "MangaDex", configured: true, needs_key: false, enabled: true },
   ]);
@@ -55,7 +59,7 @@ afterEach(() => {
   client.clear();
 });
 
-function show(libraryType: Library["type"]) {
+function show(libraryType: Library["type"] | "anime") {
   return render(
     <QueryClientProvider client={client}>
       <ArtworkPanel serverId={1} item={item} libraryType={libraryType} />
@@ -64,7 +68,7 @@ function show(libraryType: Library["type"]) {
 }
 
 describe("ArtworkPanel cross-library databases", () => {
-  it.each([["movie", "MyAnimeList"], ["book", "MyAnimeList Manga"]] as const)("shows the matching MAL artwork source for %s", async (type, label) => {
+  it.each([["anime", "MyAnimeList"], ["book", "MyAnimeList Manga"]] as const)("shows the matching MAL artwork source for %s", async (type, label) => {
     vi.mocked(api.artworkProviders).mockResolvedValue([
       {name:"myanimelist",label:"MyAnimeList",configured:true,needs_key:true,enabled:true},
       {name:"myanimelist-manga",label:"MyAnimeList Manga",configured:true,needs_key:true,enabled:true},
@@ -73,33 +77,45 @@ describe("ArtworkPanel cross-library databases", () => {
     fireEvent.click(await screen.findByRole("button",{name:label}));
     expect(screen.getByText("Artwork browser")).toBeTruthy();
   });
-  it.each([
-    ["book", "AniList Manga", "ThePosterDB"],
-    ["movie", "ThePosterDB", "AniList Manga"],
-  ] as const)("expands the alternate databases for %s libraries", async (libraryType, primary, alternate) => {
-    show(libraryType);
-
-    expect(await screen.findByRole("button", { name: primary })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Manual" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: alternate })).toBeNull();
-
-    const toggle = screen.getByRole("button", { name: "Show more artwork databases" });
-    expect(toggle.textContent).toContain("Show More");
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(toggle);
-
-    expect(screen.getByRole("button", { name: alternate })).toBeTruthy();
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  it.each(["movie", "show", "anime"] as const)("hides book databases in %s libraries", async (type) => {
+    show(type);
+    await screen.findByRole("button", {name: "ThePosterDB"});
+    expect(screen.queryByRole("button", {name:"Show more artwork databases"})).toBeNull();
+    expect(screen.queryByRole("button", {name: "AniList Manga"})).toBeNull();
+    if(type !== "anime") {
+      expect(screen.queryByRole("button", {name:"AniList"})).toBeNull();
+      expect(screen.queryByRole("button", {name:"MyAnimeList"})).toBeNull();
+    }
+    for(const name of ["ThePosterDB", "TheTVDB", "Fanart.tv", "MediUX", "Manual"]){
+      expect(screen.getByRole("button", {name})).toBeTruthy();
+    }
+    fireEvent.click(screen.getByRole("switch", {name:"Compact artwork sources"}));
+    const options=screen.getAllByRole("option").map(option=>option.textContent);
+    expect(options).not.toContain("AniList Manga");
   });
-
-  it("places artwork removal between Manual and Show More", async () => {
+  it("offers all other enabled databases through Show More only for books", async () => {
+    show("book");
+    await screen.findByRole("button", {name:"AniList Manga"});
+    expect(screen.queryByRole("button", {name:"ThePosterDB"})).toBeNull();
+    const toggle=screen.getByRole("button", {name:"Show more artwork databases"});
+    fireEvent.click(toggle);
+    for(const name of ["ThePosterDB", "TheTVDB", "Fanart.tv", "MediUX", "AniList", "MyAnimeList"]){
+      expect(screen.getByRole("button", {name})).toBeTruthy();
+    }
+    fireEvent.click(screen.getByRole("button", {name:"Fanart.tv"}));
+    expect(screen.getByText("Artwork browser")).toBeTruthy();
+    fireEvent.click(screen.getByRole("switch", {name:"Compact artwork sources"}));
+    expect(screen.getByRole("option", {name:"ThePosterDB"})).toBeTruthy();
+  });
+  it("keeps artwork removal after Manual", async () => {
     show("book");
 
-    const manual = await screen.findByRole("button", { name: "Manual" });
+    await screen.findByRole("button", { name: "AniList Manga" });
+    const manual = screen.getByRole("button", { name: "Manual" });
     const remove = screen.getByRole("button", { name: "Remove" });
-    const showMore = await screen.findByRole("button", { name: "Show more artwork databases" });
+
     expect(manual.compareDocumentPosition(remove) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(remove.compareDocumentPosition(showMore) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
 
     fireEvent.click(remove);
     expect(screen.getByRole("heading", { name: "Remove artwork" })).toBeTruthy();
