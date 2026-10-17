@@ -1,3 +1,4 @@
+import {LibraryPageBack} from "../lib/libraryHeaderBack";
 import { mediaDescription } from "../lib/mediaDescription";
 import {useIsAdmin} from "../lib/authContext";
 import AdminOnly from "../components/AdminOnly";
@@ -169,14 +170,13 @@ export default function ItemDetailPage() {
             away, leaving multi-season shows showing the raw, undarkened backdrop
             at the bottom.) */}
         <div className="relative min-h-full">
-          {/* Back button */}
-          <button
+          <LibraryPageBack><button
             onClick={goBack}
             className="absolute left-5 top-5 z-10 grid size-9 place-items-center rounded-full bg-black/40 text-white backdrop-blur transition-colors hover:bg-black/70"
             aria-label="Back"
            data-icon-button="true">
             <ArrowLeft className="size-5" />
-          </button>
+          </button></LibraryPageBack>
 
           <div className="relative z-[1] px-4 pb-8 pt-20 sm:px-6 sm:pb-10 lg:px-10">
             {detailQ.isLoading && <Spinner label="Loading…" />}

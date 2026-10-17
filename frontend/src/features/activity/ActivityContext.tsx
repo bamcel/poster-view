@@ -11,16 +11,27 @@ type ActivityContextValue={items:ActivityItem[];dismiss:(id:string)=>void;clearF
 const Context=createContext<ActivityContextValue>({items:[],dismiss:()=>{},clearFinished:()=>{},publish:()=>{}});
 export const activityRunning=(item:ActivityItem)=>item.state==="running"||item.state==="queued";
 const signature=(item:ActivityItem)=>JSON.stringify(item);
+const dismissalKey=(scope:string)=>`posterview.activity.dismissed:${scope}`;
+function loadDismissed(scope:string):Feed["dismissed"]{
+ try{
+  const value:unknown=JSON.parse(localStorage.getItem(dismissalKey(scope))??"{}");
+  return value&&typeof value==="object"&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).filter(([,signature])=>typeof signature==="string").slice(-500)):{};
+ }catch{return {};}
+}
 function flatten(sources:Feed["sources"]):ActivityItem[]{return Object.entries(sources).flatMap(([source,items])=>items.slice(0,100).map(item=>({...item,id:`${source}:${item.id}`,progress:typeof item.progress==="number"&&Number.isFinite(item.progress)?Math.max(0,Math.min(100,item.progress)):null})));}
 export function ActivityProvider({children}:{children:ReactNode}){
  const user=useContext(AuthSessionContext)?.user,isAdmin=useIsAdmin();
  const scope=`${user?.id??"local"}:${user?.role??"admin"}`;
- const [feed,setFeed]=useState<Feed>(()=>({scope,sources:{},dismissed:{}}));
+ const [feed,setFeed]=useState<Feed>(()=>({scope,sources:{},dismissed:loadDismissed(scope)}));
  const [now,setNow]=useState(Date.now);
+ useEffect(()=>{
+  if(feed.scope!==scope)return;
+  try{localStorage.setItem(dismissalKey(scope),JSON.stringify(Object.fromEntries(Object.entries(feed.dismissed).slice(-500))));}catch{/* Dismissal still works in memory when storage is unavailable. */}
+ },[feed.dismissed,feed.scope,scope]);
  useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),30_000);return()=>clearInterval(timer);},[]);
  const publish=useCallback((source:string,items:readonly ActivityItem[])=>{
   setFeed(previous=>{
-   const value=previous.scope===scope?previous:{scope,sources:{},dismissed:{}};
+   const value=previous.scope===scope?previous:{scope,sources:{},dismissed:loadDismissed(scope)};
    if(JSON.stringify(value.sources[source]??[])===JSON.stringify(items))return value;
    const sources={...value.sources};if(items.length)sources[source]=items;else delete sources[source];
    return {...value,sources};

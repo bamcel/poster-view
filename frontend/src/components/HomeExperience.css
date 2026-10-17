@@ -34,3 +34,5 @@
 .pv-home-hero .pv-home-hero-content{padding-inline:52px}
 @media(hover:none){.pv-home-edge-arrow{opacity:1;pointer-events:auto;width:32px;height:48px}.pv-home-edge-previous{left:4px}.pv-home-edge-next{right:4px}.pv-home-hero .pv-home-hero-content{padding-inline:40px}}
 @media(prefers-reduced-motion:reduce){.pv-home-edge-arrow{transition:none}}
+
+.pv-home-library-grid{display:grid;grid-template-columns:repeat(auto-fill,var(--home-card-width));column-gap:8px;row-gap:24px;padding:4px 4px 12px}

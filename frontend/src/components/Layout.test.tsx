@@ -1,3 +1,4 @@
+import {LibraryPageBack} from "../lib/libraryHeaderBack";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import type {ReactNode} from "react";
 import { cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from "@testing-library/react";
@@ -172,4 +173,12 @@ it("returns from a library to the homepage using the header back button",async()
  fireEvent.click(back);
  await waitFor(()=>expect(screen.queryByRole("link",{name:"Back to homepage"})).toBeNull());
  expect(screen.getByText("/")).toBeTruthy();
+});
+
+it.each(["/media/Anime/title","/server/7/item/show","/server/7/series/show/season/one"])("keeps only the header Back link on %s",async path=>{
+ vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
+ render(<MemoryRouter initialEntries={[path]}><AuthGate><Layout><LibraryPageBack><button>Duplicate Back</button></LibraryPageBack><p>Library details</p></Layout></AuthGate></MemoryRouter>);
+ const back=await screen.findByRole("link",{name:"Back to homepage"});
+ expect(back.getAttribute("href")).toBe("/");
+ expect(screen.queryByRole("button",{name:"Duplicate Back"})).toBeNull();
 });

@@ -2,7 +2,7 @@ import {act,cleanup,renderHook} from "@testing-library/react";
 import {afterEach,expect,it,vi} from "vitest";
 import {ActivityProvider,useActivity} from "./ActivityContext";
 
-afterEach(()=>{cleanup();vi.useRealTimers();});
+afterEach(()=>{cleanup();localStorage.clear();vi.useRealTimers();});
 it("namespaces sources, prioritizes work, clamps progress and removes sources",()=>{
  const {result}=renderHook(useActivity,{wrapper:ActivityProvider});
  act(()=>result.current.publish("plugin",[
@@ -31,4 +31,15 @@ it("expires completed activities and allows changed failures to reappear",()=>{
  expect(result.current.items).toHaveLength(1);
  act(()=>vi.advanceTimersByTime(30*60_000));
  expect(result.current.items).toHaveLength(0);
+});
+
+it.each(["dismiss","clearFinished"] as const)("persists %s across remounts without hiding a newer result",action=>{
+ const task={id:"task",title:"Task",detail:"Completed",state:"completed" as const,updatedAt:Date.now()};
+ const first=renderHook(useActivity,{wrapper:ActivityProvider});
+ act(()=>first.result.current.publish("tasks",[task]));
+ act(()=>action==="dismiss"?first.result.current.dismiss("tasks:task"):first.result.current.clearFinished());
+ expect(first.result.current.items).toHaveLength(0);first.unmount();
+ const next=renderHook(useActivity,{wrapper:ActivityProvider});
+ act(()=>next.result.current.publish("tasks",[task]));expect(next.result.current.items).toHaveLength(0);
+ act(()=>next.result.current.publish("tasks",[{...task,updatedAt:task.updatedAt+1000}]));expect(next.result.current.items).toHaveLength(1);
 });

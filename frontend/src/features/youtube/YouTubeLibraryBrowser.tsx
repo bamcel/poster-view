@@ -1,3 +1,4 @@
+import {LibraryPageBack} from "../../lib/libraryHeaderBack";
 import ScrollingTitle from "../../components/ScrollingTitle";
 import {sizedArtwork} from "../../lib/artworkSizes";
 import "../../components/HomeExperience.css";
@@ -29,7 +30,7 @@ export default function YouTubeLibraryBrowser({ library }: { library: NativeLibr
   const source = metadata?.source_url && /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(metadata.source_url) ? metadata.source_url : undefined;
   const playlist = channel?.playlists.find(p => p.id === playlistId);
   return <section className="h-full overflow-y-auto px-5 py-6 sm:px-8 md:px-12"><div className="pv-youtube-catalog">
-    {(video || playlistId || (!single && channel)) && <button className="mb-5 flex items-center gap-2 text-muted hover:text-white" onClick={back}><ArrowLeft size={18}/>Back</button>}
+    {(video || playlistId || (!single && channel)) && <LibraryPageBack><button className="mb-5 flex items-center gap-2 text-muted hover:text-white" onClick={back}><ArrowLeft size={18}/>Back</button></LibraryPageBack>}
     <h1 className="mb-2 text-2xl font-bold">{video?.title ?? (playlistId ? playlistId === 'all' ? 'All Videos' : playlist?.title ?? playlistId : channel?.title ?? library.name)}</h1>
     <p className="mb-6 whitespace-pre-wrap text-muted">{video ? String(video.metadata.plot ?? '') : playlistId ? playlist?.description : channel?.description}</p>
     {video ? <div className="grid gap-6 md:grid-cols-2"><div>{thumbnail(video,1280)}</div><div><p>{metadata?.channel}</p><p className="mt-2 text-muted">{String(video.metadata.aired ?? '')}{metadata?.duration_seconds ? ` · ${Math.ceil(metadata.duration_seconds / 60)} min` : ''}</p><NativePlaybackActions library={library.id} item={video.id}/>{source && <a href={source} target="_blank" rel="noreferrer" className="mt-5 inline-flex items-center gap-2 text-accent">View on YouTube<ExternalLink size={16}/></a>}<dl className="mt-5 text-sm text-muted">{video.files.map(file => <div key={file.path}><dt>File</dt><dd className="break-all">{file.path}</dd><dt>Codec</dt><dd>{file.media_info?.streams?.map(s => String(s.codec_name ?? '')).filter(Boolean).join(', ') || 'Unknown'}</dd></div>)}</dl></div></div> : <div className="pv-home-row pv-youtube-grid">

@@ -1,3 +1,4 @@
+import {LibraryPageBack} from "../lib/libraryHeaderBack";
 import type {ReactNode} from "react";
 import {ArrowLeft} from "lucide-react";
 
@@ -30,8 +31,8 @@ export default function LibraryDetailLayout({back,toolbar,landscape=false,hero,r
   return <div className={`media-detail ${landscape?"episode-detail":""} scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain`}>
     <div className="relative min-h-full">
       <div className="absolute inset-x-5 top-5 z-10 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
-        <button onClick={back} aria-label="Back" className="grid place-items-center" data-icon-button="true"><ArrowLeft className="size-5"/></button>
-        {toolbar}
+        <LibraryPageBack><button onClick={back} aria-label="Back" className="grid place-items-center" data-icon-button="true"><ArrowLeft className="size-5"/></button></LibraryPageBack>
+        <div className="col-start-2">{toolbar}</div>
       </div>
       <div className="relative z-[1] px-4 pb-8 pt-20 sm:px-6 sm:pb-10 lg:px-10">
         {hero}

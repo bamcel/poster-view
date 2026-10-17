@@ -80,7 +80,7 @@ function LibraryHome(){
   </div>:<>
    {bannerLoading?<section className="pv-home-hero" aria-label="Loading featured title" aria-busy="true"><p role="status" className="pv-home-hero-content text-muted">Loading featured titles…</p></section>:<FeaturedTitle titles={titles}/>}
    <div className="px-5 sm:px-8 md:px-12">
-   <div className="pv-home-library-section"><HomeMediaRow label="My Libraries" ariaLabel="My libraries">
+   <div className="pv-home-library-section"><HomeMediaRow label="My Libraries" ariaLabel="My libraries" wrap>
     {libraries.data?.map(library=><LibraryTile key={library.id} library={library} libraries={libraries.data??[]}/>)}
    </HomeMediaRow></div>
    <ContinueWatching/>
