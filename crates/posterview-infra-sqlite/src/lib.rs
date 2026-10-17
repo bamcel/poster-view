@@ -465,6 +465,7 @@ fn is_secret_setting(key: &str) -> bool {
     matches!(
         key,
         "deviantart_client_id"
+            | "ytdl_authentication"
             | "deviantart_client_secret"
             | "mal_client_id"
             | "omdb_api_key"

@@ -6,7 +6,7 @@ import {YtdlPopup} from "./YtdlPlugin";
 import {ytdl,type YtdlSettings,type YtdlJob} from "./client";
 import {nativeLibraries,defaultNativeOptions} from "../../../api/nativeLibraries";
 vi.mock("../../../api/client",async original=>({...await original<typeof import("../../../api/client")>(),apiRequest:vi.fn()}));
-vi.mock("./client",async original=>({...await original<typeof import("./client")>(),ytdl:{configuration:vi.fn(),save:vi.fn(),inspect:vi.fn(),jobs:vi.fn(),submit:vi.fn(),action:vi.fn(),remove:vi.fn()}}));
+vi.mock("./client",async original=>({...await original<typeof import("./client")>(),ytdlCookies:{status:vi.fn().mockResolvedValue({configured:false,updated_at:null})},ytdl:{configuration:vi.fn(),save:vi.fn(),inspect:vi.fn(),jobs:vi.fn(),submit:vi.fn(),action:vi.fn(),remove:vi.fn()}}));
 vi.mock("../../../api/nativeLibraries",async original=>({...await original<typeof import("../../../api/nativeLibraries")>(),nativeLibraries:{list:vi.fn(),folders:vi.fn()}}));
 const settings:YtdlSettings={enabled:true,library_id:"",directory:"YouTube",video_codec:"auto",audio_codec:"auto",container:"mp4",max_height:1080,max_fps:60,fallback:"best",convert:false,subtitles:false,subtitle_languages:["en"],chapters:true,thumbnail:true};
 beforeEach(()=>{

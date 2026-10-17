@@ -1678,6 +1678,9 @@ async fn ytdl_routes_enforce_administrator_downloads() {
     for (method, path) in [
         ("GET", "/api/plugins/ytdl"),
         ("PUT", "/api/plugins/ytdl"),
+        ("GET", "/api/plugins/ytdl/cookies"),
+        ("PUT", "/api/plugins/ytdl/cookies"),
+        ("DELETE", "/api/plugins/ytdl/cookies"),
         ("POST", "/api/plugins/ytdl/inspect"),
         ("GET", "/api/plugins/ytdl/jobs"),
         ("POST", "/api/plugins/ytdl/jobs"),

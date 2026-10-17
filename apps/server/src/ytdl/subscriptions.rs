@@ -360,7 +360,7 @@ async fn discover_sources(
         let canonical = valid_playlist_url(url)?;
         return Ok((
             vec![Source {
-                info: downloader::inspect(&canonical).await?,
+                info: downloader::inspect(state, &canonical).await?,
                 url: canonical,
                 playlist: true,
             }],
@@ -370,7 +370,7 @@ async fn discover_sources(
     let mut sources = Vec::new();
     let mut errors = Vec::new();
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15 * 60);
-    let uploads = match downloader::inspect_channel_videos(url).await {
+    let uploads = match downloader::inspect_channel_videos(state, url).await {
         Ok(info) => Some(Source {
             url: url.into(),
             info,
@@ -381,7 +381,7 @@ async fn discover_sources(
             None
         }
     };
-    match downloader::inspect(url).await {
+    match downloader::inspect(state, url).await {
         Ok(info) => {
             let (urls, listing_errors) = playlist_urls(&info);
             errors.extend(listing_errors);
@@ -403,7 +403,8 @@ async fn discover_sources(
                     errors.push("Channel discovery exceeded its 15-minute check limit; remaining playlists will be checked next time.".into());
                     break;
                 }
-                let result = tokio::time::timeout(remaining, downloader::inspect(&playlist)).await;
+                let result =
+                    tokio::time::timeout(remaining, downloader::inspect(state, &playlist)).await;
                 match result {
                     Ok(Ok(info)) => sources.push(Source {
                         url: playlist.clone(),

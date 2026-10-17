@@ -1,4 +1,10 @@
 import {apiRequest} from "../../../api/client";
+export interface YtdlCookieStatus {configured:boolean;updated_at:string|null}
+export const ytdlCookies={
+ status:()=>apiRequest<YtdlCookieStatus>("/plugins/ytdl/cookies"),
+ save:(cookies:string)=>apiRequest<YtdlCookieStatus>("/plugins/ytdl/cookies",{method:"PUT",body:JSON.stringify({cookies})}),
+ remove:()=>apiRequest<YtdlCookieStatus>("/plugins/ytdl/cookies",{method:"DELETE"}),
+};
 export interface YtdlSettings {skip_existing?:boolean;download_mode?:"direct"|"custom";filename_convention?:"id"|"title"|"date_title"|"title_id"|"date_title_id";enabled:boolean;library_id:string;directory:string;video_codec:"auto"|"h264"|"hevc"|"vp9"|"av1";audio_codec:"auto"|"aac"|"opus";container:"mp4"|"mkv"|"webm";quality?:number|null;max_height:number;max_fps:number;fallback:"best"|"strict"|"highest"|"next_highest"|"next_lowest"|"skip";convert:boolean;crf?:number;hardware_backend?:"cpu"|"nvenc"|"qsv"|"vaapi";subtitles:boolean;subtitle_languages:string[];chapters:boolean;thumbnail:boolean}
 export interface YtdlEntry {kind?:"video"|"playlist";id:string;url:string;title:string;description:string;channel:string;channel_id:string;upload_date:string;duration:number|null;thumbnail:string|null;playlist_id:string|null;playlist_title:string|null;playlist_index:number|null}
 export interface YtdlInfo {id:string;title:string;description:string;channel:string;channel_id:string;kind:"video"|"playlist"|"channel";entries:YtdlEntry[];formats:{format_id:string;height:number|null;fps:number|null;vcodec:string;acodec:string;ext:string}[]}

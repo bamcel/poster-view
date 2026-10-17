@@ -158,9 +158,9 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     update(state, &job.id, "inspecting", None, None).await?;
     let source = async {
         if downloader::is_channel_url(&job.url) {
-            downloader::inspect_channel_videos(&job.url).await
+            downloader::inspect_channel_videos(state, &job.url).await
         } else {
-            downloader::inspect(&job.url).await
+            downloader::inspect(state, &job.url).await
         }
     };
     let mut inspection = tokio::select! {
@@ -190,7 +190,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             }
             let url = format!("https://www.youtube.com/playlist?list={playlist_id}");
             let parent = tokio::select! {
-                result = downloader::inspect(&url) => result?,
+                result = downloader::inspect(state, &url) => result?,
                 _ = downloader::await_cancel(state, job) => return Err(err("Metadata refresh cancelled.")),
             };
             merge_playlist(&local, &mut combined, &mut memberships, &parent);
@@ -424,7 +424,14 @@ mod tests {
             existing_target(temp.path(), &info).unwrap(),
             Some(target.clone())
         );
-        assert!(write_existing(&target, &info, &json!({"playlist_id":"PLfixture", "playlist_title":"Playlist", "playlist_index":4}), &Value::Null, &json!({"description":"Channel description"})).unwrap());
+        assert!(write_existing(
+            &target,
+            &info,
+            &json!({"playlist_id":"PLfixture", "playlist_title":"Playlist", "playlist_index":4}),
+            &Value::Null,
+            &json!({"description":"Channel description"})
+        )
+        .unwrap());
         assert_eq!(
             std::fs::read(target.join("Original filename.mp4")).unwrap(),
             b"existing low quality video"

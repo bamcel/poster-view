@@ -233,4 +233,26 @@ without stopping the remaining playlist. Retry failed videos uses only the
 failed video IDs with the job's original settings; system, filesystem, encoder
 and cancellation errors still stop the job. Completed-with-warnings is a finished
 state. New configurations skip existing media by default; existing configurations
-retain their previous setting. This does not add cookie authentication.
+retain their previous setting.
+
+## Optional YouTube authentication
+
+Administrators can import a Netscape-format `cookies.txt` export under YTDL →
+Settings → YouTube authentication. Export `youtube.com` cookies only (maximum
+1 MiB) from an account permitted to watch the restricted video. Selecting a file
+keeps it in the browser until Save cookies is pressed. Replace and Remove affect
+future authentication attempts; an already-running authenticated request finishes
+with its temporary copy. Retry failed videos after replacing expired cookies.
+
+Public requests always run without cookies. A recognized authentication-required
+error triggers at most one authenticated retry, for inspection, downloads, NFO
+refresh and subscriptions. Ordinary HTTP 403, rate limits and filesystem errors
+do not trigger authentication. Account cookies do not bypass YouTube account access
+requirements and authenticated requests remain associated with that account.
+
+The private cookie document is encrypted using PosterView's existing secret store,
+outside media and job settings. APIs expose only configured status and update time.
+An authenticated subprocess receives a restricted temporary cookie file that is
+deleted afterward. Authenticated errors are sanitized, and no cookies are returned
+in the UI, queue, NFO or settings responses. This feature does not read browser
+profiles or automatically sign in to YouTube.

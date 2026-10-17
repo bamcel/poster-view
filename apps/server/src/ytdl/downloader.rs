@@ -189,25 +189,60 @@ async fn bounded_read<R: tokio::io::AsyncRead + Unpin>(
         }
     }
 }
-async fn raw_inspect(url: &str) -> Result<Value, HttpError> {
+async fn raw_inspect(state: &AppState, url: &str) -> Result<Value, HttpError> {
     validate_url(url)?;
     let normalized = channel_playlists_url(url);
-    raw_inspect_direct(&normalized).await
+    raw_inspect_direct(state, &normalized).await
 }
-async fn raw_inspect_direct(url: &str) -> Result<Value, HttpError> {
+async fn raw_inspect_direct(state: &AppState, url: &str) -> Result<Value, HttpError> {
     validate_url(url)?;
     let _permit = INSPECTIONS.acquire().await.map_err(err)?;
-    let mut command = base();
-    command.args([
-        "--dump-single-json",
-        "--skip-download",
-        "--flat-playlist",
-        "--playlist-end",
-        "10000",
-        "--",
-        url,
-    ]);
-    serde_json::from_slice(&output(command, Duration::from_secs(180)).await?).map_err(err)
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
+    let mut cookies = None;
+    loop {
+        let mut command = base();
+        if let Some(file) = &cookies {
+            let file: &tempfile::NamedTempFile = file;
+            command.arg("--cookies").arg(file.path());
+        }
+        command.args([
+            "--dump-single-json",
+            "--skip-download",
+            "--flat-playlist",
+            "--playlist-end",
+            "10000",
+            "--",
+            url,
+        ]);
+        let result = output(
+            command,
+            deadline.saturating_duration_since(tokio::time::Instant::now()),
+        )
+        .await;
+        match result {
+            Ok(bytes) => {
+                return serde_json::from_slice(&bytes).map_err(|error| {
+                    if cookies.is_some() {
+                        err(super::cookies::redact(&error.to_string()))
+                    } else {
+                        err(error)
+                    }
+                });
+            }
+            Err(error)
+                if cookies.is_none() && super::cookies::authentication_required(&error.detail) =>
+            {
+                cookies = super::cookies::request_file(state).await?;
+                if cookies.is_none() {
+                    return Err(error);
+                }
+            }
+            Err(error) if cookies.is_some() => {
+                return Err(err(super::cookies::redact(&error.detail)));
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 pub(super) fn text(v: &Value, key: &str) -> String {
     v[key].as_str().unwrap_or_default().to_string()
@@ -230,11 +265,14 @@ fn entry(v: &Value, parent: &Value, index: usize) -> Value {
     };
     json!({"id":id,"url":url,"kind":kind,"title":text(v,"title"),"description":text(v,"description"),"channel":text(v,"channel"),"channel_id":text(v,"channel_id"),"upload_date":text(v,"upload_date"),"duration":v["duration"],"thumbnail":v["thumbnail"],"playlist_id":text(parent,"id"),"playlist_title":text(parent,"title"),"playlist_index":v["playlist_index"].as_u64().unwrap_or((index+1) as u64)})
 }
-pub(super) async fn inspect(url: &str) -> Result<Value, HttpError> {
-    let v = raw_inspect(url).await?;
+pub(super) async fn inspect(state: &AppState, url: &str) -> Result<Value, HttpError> {
+    let v = raw_inspect(state, url).await?;
     Ok(inspection_value(&v, url, false))
 }
-pub(super) async fn inspect_channel_videos(url: &str) -> Result<Value, HttpError> {
+pub(super) async fn inspect_channel_videos(
+    state: &AppState,
+    url: &str,
+) -> Result<Value, HttpError> {
     validate_url(url)?;
     if !is_channel_url(url) {
         return Err(err("Choose a channel URL."));
@@ -242,7 +280,7 @@ pub(super) async fn inspect_channel_videos(url: &str) -> Result<Value, HttpError
     let mut normalized = reqwest::Url::parse(&channel_playlists_url(url)).map_err(err)?;
     let path = normalized.path().trim_end_matches("/playlists").to_string();
     normalized.set_path(&format!("{path}/videos"));
-    let v = raw_inspect_direct(normalized.as_str()).await?;
+    let v = raw_inspect_direct(state, normalized.as_str()).await?;
     Ok(inspection_value(&v, url, true))
 }
 fn inspection_value(v: &Value, url: &str, channel_uploads: bool) -> Value {
@@ -272,7 +310,7 @@ pub(super) async fn job_raw_inspect(
     job: &Job,
     url: &str,
 ) -> Result<Value, HttpError> {
-    tokio::select! {result=raw_inspect(url)=>result,_=await_cancel(state,job)=>Err(err("Download cancelled."))}
+    tokio::select! {result=raw_inspect(state,url)=>result,_=await_cancel(state,job)=>Err(err("Download cancelled."))}
 }
 pub(super) async fn dependencies() -> Value {
     async fn version(program: &str, arg: &str) -> Option<String> {
@@ -869,9 +907,9 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     update(state, &job.id, "inspecting", None, None).await?;
     let inspect_source = async {
         if is_channel_url(&job.url) {
-            inspect_channel_videos(&job.url).await
+            inspect_channel_videos(state, &job.url).await
         } else {
-            inspect(&job.url).await
+            inspect(state, &job.url).await
         }
     };
     let inspection = tokio::select! {result=inspect_source=>result?,_=await_cancel(state,job)=>return Err(err("Download cancelled."))};
@@ -1041,9 +1079,15 @@ async fn run_inspection(
                 } else {
                     job.settings.container.as_str()
                 };
-                for attempt in 0..2 {
+                let mut cookies = None;
+                let mut stream_retry = false;
+                loop {
                     let mut command = base();
                     command.arg("--check-formats");
+                    if let Some(file) = &cookies {
+                        let file: &tempfile::NamedTempFile = file;
+                        command.arg("--cookies").arg(file.path());
+                    }
                     command.args([
                         "--newline",
                         "--progress",
@@ -1081,7 +1125,15 @@ async fn run_inspection(
                     command.args(["--", &url]);
                     match cancellable(state, job, command, None).await {
                         Ok(()) => break,
-                        Err(error) if media_forbidden(&error.detail) && attempt == 0 => {
+                        Err(error) if cookies.is_some() => {
+                            return Err(err(super::cookies::redact(&error.detail)));
+                        }
+                        Err(error) if super::cookies::authentication_required(&error.detail) => {
+                            cookies = super::cookies::request_file(state).await?;
+                            if cookies.is_none() { return Err(error); }
+                        }
+                        Err(error) if media_forbidden(&error.detail) && !stream_retry => {
+                            stream_retry = true;
                             if cancelled(state, &job.id).await {
                                 return Err(err("Download cancelled."));
                             }

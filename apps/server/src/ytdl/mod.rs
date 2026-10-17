@@ -1,4 +1,5 @@
 //! Administrator-owned YouTube downloads and durable queue.
+mod cookies;
 mod downloader;
 mod naming;
 mod nfo;
@@ -260,6 +261,7 @@ fn write_queue(state: &AppState, bytes: &[u8]) -> Result<(), HttpError> {
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/plugins/ytdl", get(settings_get).put(settings_save))
+        .merge(cookies::routes())
         .route("/api/plugins/ytdl/inspect", post(inspect))
         .route("/api/plugins/ytdl/jobs", get(jobs_get).post(jobs_create))
         .route("/api/plugins/ytdl/jobs/{id}", axum::routing::delete(remove))
@@ -353,10 +355,10 @@ struct InspectRequest {
     url: String,
 }
 async fn inspect(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(input): Json<InspectRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    downloader::inspect(&input.url).await.map(Json)
+    downloader::inspect(&state, &input.url).await.map(Json)
 }
 async fn jobs_get(State(state): State<AppState>) -> Result<Json<Vec<Job>>, HttpError> {
     let _lock = state.ytdl_lock.lock().await;
