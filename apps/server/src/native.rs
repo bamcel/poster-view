@@ -9,20 +9,7 @@ use posterview_contracts::native::{NativeLibrary, NativeLibraryInput, NativeLibr
 use posterview_infra_sqlite::{ServerStore, StoreError};
 
 fn error(e: StoreError) -> HttpError {
-    match e {
-        StoreError::RevisionConflict => HttpError {
-            status: StatusCode::CONFLICT,
-            detail: e.to_string(),
-        },
-        StoreError::Validation(message) => HttpError::bad_request(message),
-        _ => {
-            tracing::error!(%e, "native catalog persistence failed");
-            HttpError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                detail: "Unable to save the library.".into(),
-            }
-        }
-    }
+    HttpError::from(e)
 }
 
 pub(crate) async fn list(
@@ -1107,14 +1094,20 @@ async fn run_scan_scoped_mode(
                 },
             );
             let mut issues = Vec::new();
-            // File writes run concurrently; their database projections commit on this coordinator.
+            // File work finishes before bounded atomic database projection batches.
+            let mut records = Vec::new();
             for (entry, result) in results {
                 match result {
-                    Ok((path, xml)) => store(&write_state)
-                        .record_native_nfo(&id, &entry.id, &path, &xml)
-                        .map_err(error)?,
+                    Ok((path, xml)) => records.push((entry.id, path, xml)),
                     Err(e) => issues.push(format!("{}: NFO write failed: {e}", entry.title)),
                 }
+            }
+            for batch in records.chunks(100) {
+                // Already written sidecars still need their projection even if cancellation
+                // arrived during file work; finish these short database-only units.
+                store(&write_state)
+                    .record_native_nfos(&id, batch)
+                    .map_err(error)?;
             }
             Ok::<_, HttpError>(issues)
         })

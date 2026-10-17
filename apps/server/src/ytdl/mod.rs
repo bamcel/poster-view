@@ -213,7 +213,7 @@ fn load<T: serde::de::DeserializeOwned + Default>(
         // doing so could resurrect jobs that were removed from the new queue.
         let raw = ServerStore::new(state.runtime.data_dir())
             .get_setting(key)
-            .map_err(err)?;
+            .map_err(HttpError::from)?;
         let value = if raw.is_empty() {
             T::default()
         } else {
@@ -231,7 +231,7 @@ fn load<T: serde::de::DeserializeOwned + Default>(
     }
     let raw = ServerStore::new(state.runtime.data_dir())
         .get_setting(key)
-        .map_err(err)?;
+        .map_err(HttpError::from)?;
     if raw.is_empty() {
         Ok(T::default())
     } else {
@@ -244,7 +244,7 @@ fn save<T: Serialize>(state: &AppState, key: &str, value: &T) -> Result<(), Http
     }
     ServerStore::new(state.runtime.data_dir())
         .set_setting(key, &serde_json::to_string(value).map_err(err)?)
-        .map_err(err)
+        .map_err(HttpError::from)
 }
 fn write_queue(state: &AppState, bytes: &[u8]) -> Result<(), HttpError> {
     use std::io::Write;
@@ -614,7 +614,9 @@ pub(crate) fn start(state: AppState) {
                 let before = jobs.len();
                 clean_history(&mut jobs, chrono::Utc::now());
                 if jobs.len() != before {
-                    let _ = save(&cleanup_state, "plugin-ytdl-jobs", &jobs);
+                    if let Err(error) = save(&cleanup_state, "plugin-ytdl-jobs", &jobs) {
+                        tracing::error!(?error, "Download history cleanup could not be persisted");
+                    }
                 }
             }
         }
@@ -629,7 +631,12 @@ pub(crate) fn start(state: AppState) {
                 });
                 if interrupted {
                     recover(&mut jobs);
-                    let _ = save(&state, "plugin-ytdl-jobs", &jobs);
+                    if let Err(error) = save(&state, "plugin-ytdl-jobs", &jobs) {
+                        tracing::error!(
+                            ?error,
+                            "Interrupted download recovery could not be persisted"
+                        );
+                    }
                 }
             }
         }
@@ -646,7 +653,11 @@ pub(crate) fn start(state: AppState) {
                     active.insert(job.id.clone());
                 }
                 if let Err(e) = downloader::run(&state, &job).await {
-                    let _ = update(&state, &job.id, "failed", Some(e.detail), None).await;
+                    if let Err(error) =
+                        update(&state, &job.id, "failed", Some(e.detail), None).await
+                    {
+                        tracing::error!(job_id=%job.id, ?error, "Download failure could not be persisted");
+                    }
                 }
                 if let Ok(mut active) = ACTIVE.lock() {
                     active.remove(&job.id);

@@ -32,13 +32,96 @@ fn animation_blocked(
         |r| r.get(0),
     )?)
 }
+// Prepare immutable scan data before acquiring the SQLite writer. Catalog publication
+// remains atomic so readers never see a half-reconciled library.
+struct PreparedCatalogEntry {
+    snapshot: String,
+    artwork: String,
+    fields: Vec<(String, String, String)>,
+    streams: Vec<Vec<(i64, String, String)>>,
+    series_root: Option<String>,
+}
+
+fn prepare_catalog_entry(
+    entry: &NativeCatalogEntry,
+    series_paths: &[&str],
+) -> Result<PreparedCatalogEntry, StoreError> {
+    let mut snapshot = entry.clone();
+    snapshot.id.clear();
+    snapshot.nfo_xml = None;
+    let fields = entry
+        .metadata
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(field, value)| {
+            let placement_clear = value.is_null()
+                && [
+                    "airs_before_season",
+                    "airs_before_episode",
+                    "airs_after_season",
+                ]
+                .contains(&field.as_str())
+                && entry.metadata["_sources"][field] == "nfo";
+            if field.starts_with('_') || (value.is_null() && !placement_clear) {
+                return None;
+            }
+            Some((
+                field.clone(),
+                value.to_string(),
+                entry.metadata["_sources"][field]
+                    .as_str()
+                    .unwrap_or("filename")
+                    .to_owned(),
+            ))
+        })
+        .collect();
+    let mut streams = Vec::with_capacity(entry.files.len());
+    for file in &entry.files {
+        if file["path"].as_str().is_none() {
+            return Err(invalid("Missing file path."));
+        }
+        streams.push(
+            file["media_info"]["streams"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|stream| {
+                    let index = stream["index"].as_i64()?;
+                    let kind = stream["codec_type"].as_str()?;
+                    ["video", "audio", "subtitle"]
+                        .contains(&kind)
+                        .then(|| (index, kind.to_owned(), stream.to_string()))
+                })
+                .collect(),
+        );
+    }
+    Ok(PreparedCatalogEntry {
+        snapshot: serde_json::to_string(&snapshot).map_err(|_| invalid("Invalid snapshot."))?,
+        artwork: serde_json::to_string(&entry.artwork)
+            .map_err(|_| invalid("Invalid artwork records."))?,
+        fields,
+        streams,
+        series_root: series_paths
+            .iter()
+            .filter(|path| {
+                entry
+                    .path
+                    .strip_prefix(**path)
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+            })
+            .max_by_key(|path| path.len())
+            .map(|path| (*path).to_owned()),
+    })
+}
+
 impl ServerStore {
     pub fn request_artwork_refresh(&self, library: &str, path: &str) -> Result<(), StoreError> {
-        self.connection()?.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) SELECT item_id,'_identify_replace_artwork','true','manual',1 FROM native_catalog_sources WHERE library_id=?1 AND (relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/') ON CONFLICT(item_id,field) DO UPDATE SET value_json='true'",params![library,path])?;
+        self.write_connection()?.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) SELECT item_id,'_identify_replace_artwork','true','manual',1 FROM native_catalog_sources WHERE library_id=?1 AND (relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/') ON CONFLICT(item_id,field) DO UPDATE SET value_json='true'",params![library,path])?;
         Ok(())
     }
     pub fn reset_provider_checks(&self, library: &str, path: &str) -> Result<(), StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction()?;
         tx.execute("DELETE FROM catalog_metadata_fields WHERE field='_provider_check' AND item_id IN (SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND (relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/'))",params![library,path])?;
         tx.execute("UPDATE native_catalog_sources SET snapshot_json=json_remove(snapshot_json,'$.metadata._provider_check') WHERE library_id=?1 AND (relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/')",params![library,path])?;
@@ -49,7 +132,7 @@ impl ServerStore {
         Ok(self.connection()?.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources s WHERE s.library_id=?1 AND s.item_id=?2 AND json_extract(s.snapshot_json,'$.metadata.missing')=1)",params![library,item],|r|r.get(0))?)
     }
     pub fn cleanup_hidden_placeholders(&self, library: &str) -> Result<Vec<String>, StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction()?;
         let ids=tx.prepare("SELECT s.item_id FROM native_catalog_sources s WHERE s.library_id=?1 AND json_extract(s.snapshot_json,'$.metadata.missing')=1 AND instr(s.relative_path,'/@missing-')>0 AND NOT EXISTS(SELECT 1 FROM catalog_item_files f WHERE f.item_id=s.item_id)")?.query_map([library],|r|r.get::<_,String>(0))?.collect::<Result<Vec<_>,_>>()?;
         let mut references = Vec::new();
@@ -67,7 +150,7 @@ impl ServerStore {
         item: &str,
         art: &NativeArtwork,
     ) -> Result<(), StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction()?;
         if animation_blocked(&tx, item, art)? {
             return Ok(());
@@ -81,11 +164,12 @@ impl ServerStore {
         Ok(())
     }
     pub fn refresh_local_artwork(&self, library: &str, path: &str) -> Result<bool, StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction()?;
         let changed=tx.execute("UPDATE catalog_items SET revision=revision+1 WHERE id IN (SELECT a.item_id FROM catalog_artwork a JOIN native_catalog_sources s ON s.item_id=a.item_id WHERE s.library_id=?1 AND s.available=1 AND a.path=?2 AND a.source='local' AND a.locked=0)",params![library,path])?;
         tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) SELECT DISTINCT a.item_id,'_artwork_cache_revision',?3,'manual',1 FROM catalog_artwork a JOIN native_catalog_sources s ON s.item_id=a.item_id WHERE s.library_id=?1 AND s.available=1 AND a.path=?2 AND a.source='local' AND a.locked=0 ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,revision=revision+1", params![library,path,json!(uuid::Uuid::new_v4().to_string()).to_string()])?;
         tx.commit()?;
+        drop(db);
         if changed > 0 {
             self.set_setting(
                 &format!("native-artwork-revision:{library}"),
@@ -113,12 +197,39 @@ impl ServerStore {
         path: &str,
         xml: &str,
     ) -> Result<(), StoreError> {
-        let mut db = self.connection()?;
-        let tx = db.transaction()?;
-        tx.execute("INSERT INTO catalog_nfo_documents(id,relative_path,profile,parse_status,content_xml) VALUES(?1,?2,'local','parsed',?3) ON CONFLICT(relative_path) DO UPDATE SET content_xml=excluded.content_xml,revision=revision+1,parse_status='parsed'",params![uuid::Uuid::new_v4().to_string(),path,xml])?;
-        tx.execute("INSERT OR IGNORE INTO catalog_item_nfo SELECT ?1,id FROM catalog_nfo_documents WHERE relative_path=?2",params![item,path])?;
-        tx.execute("UPDATE native_catalog_sources SET snapshot_json=json_set(snapshot_json,'$.nfo_path',?1) WHERE library_id=?2 AND item_id=?3",params![path,library,item])?;
-        tx.execute("UPDATE catalog_metadata_fields SET value_json='false' WHERE item_id=?1 AND field='_identify_nfo_reset'",[item])?;
+        self.record_native_nfos(
+            library,
+            &[(item.to_owned(), path.to_owned(), xml.to_owned())],
+        )
+    }
+
+    /// Persist at most 100 completed sidecars atomically. Filesystem writes belong
+    /// outside this operation so a slow media disk cannot hold the database writer.
+    pub fn record_native_nfos(
+        &self,
+        library: &str,
+        records: &[(String, String, String)],
+    ) -> Result<(), StoreError> {
+        if records.len() > 100 {
+            return Err(invalid(
+                "NFO projection batches must contain at most 100 records.",
+            ));
+        }
+        if records.is_empty() {
+            return Ok(());
+        }
+        let mut db = self.write_connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        for (item, path, xml) in records {
+            let exists: bool = tx.prepare_cached("SELECT EXISTS(SELECT 1 FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2)")?.query_row(params![library,item], |row| row.get(0))?;
+            if !exists {
+                return Err(invalid("NFO item is not in this library."));
+            }
+            tx.prepare_cached("INSERT INTO catalog_nfo_documents(id,relative_path,profile,parse_status,content_xml) VALUES(?1,?2,'local','parsed',?3) ON CONFLICT(relative_path) DO UPDATE SET content_xml=excluded.content_xml,revision=revision+1,parse_status='parsed'")?.execute(params![uuid::Uuid::new_v4().to_string(),path,xml])?;
+            tx.prepare_cached("INSERT OR IGNORE INTO catalog_item_nfo SELECT ?1,id FROM catalog_nfo_documents WHERE relative_path=?2")?.execute(params![item,path])?;
+            tx.prepare_cached("UPDATE native_catalog_sources SET snapshot_json=json_set(snapshot_json,'$.nfo_path',?1) WHERE library_id=?2 AND item_id=?3")?.execute(params![path,library,item])?;
+            tx.prepare_cached("UPDATE catalog_metadata_fields SET value_json='false' WHERE item_id=?1 AND field='_identify_nfo_reset'")?.execute([item])?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -141,7 +252,7 @@ impl ServerStore {
         self.request_native_scan(library, false).map(|_| ())
     }
     pub fn request_native_scan(&self, library: &str, manual: bool) -> Result<bool, StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let exists: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM native_libraries WHERE id=?1)",
@@ -169,7 +280,7 @@ impl ServerStore {
         library: &str,
         status: &NativeScanStatus,
     ) -> Result<(), StoreError> {
-        self.connection()?.execute("UPDATE native_library_scans SET status_json=json_set(?1,'$.manual_queued',COALESCE(json_extract(status_json,'$.manual_queued'),0)) WHERE library_id=?2 AND json_extract(status_json,'$.status')='scanning'", params![serde_json::to_string(status).map_err(|_| invalid("Invalid status."))?, library])?;
+        self.write_connection()?.execute("UPDATE native_library_scans SET status_json=json_set(?1,'$.manual_queued',COALESCE(json_extract(status_json,'$.manual_queued'),0)) WHERE library_id=?2 AND json_extract(status_json,'$.status')='scanning'", params![serde_json::to_string(status).map_err(|_| invalid("Invalid status."))?, library])?;
         Ok(())
     }
     pub fn finish_native_scan(
@@ -177,7 +288,7 @@ impl ServerStore {
         library: &str,
         status: &NativeScanStatus,
     ) -> Result<(), StoreError> {
-        self.connection()?.execute(
+        self.write_connection()?.execute(
             "UPDATE native_library_scans SET status_json=json_set(?1,'$.manual_queued',COALESCE(json_extract(status_json,'$.manual_queued'),0)) WHERE library_id=?2",
             params![
                 serde_json::to_string(status).map_err(|_| invalid("Invalid status."))?,
@@ -194,7 +305,7 @@ impl ServerStore {
         library: &str,
         status: &NativeScanStatus,
     ) -> Result<bool, StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let queued=tx.query_row("SELECT COALESCE(json_extract(status_json,'$.manual_queued'),0) FROM native_library_scans WHERE library_id=?1",[library],|r|r.get::<_,bool>(0)).optional()?.unwrap_or(false);
         let value = if queued {
@@ -210,11 +321,11 @@ impl ServerStore {
         Ok(queued)
     }
     pub fn recover_native_scans(&self) -> Result<(), StoreError> {
-        self.connection()?.execute("UPDATE native_library_scans SET status_json=?1 WHERE json_extract(status_json,'$.status')='scanning'",[json!({"status":"interrupted","count":0,"warnings":["Scan interrupted by a restart. Scan again to continue."]}).to_string()])?;
+        self.write_connection()?.execute("UPDATE native_library_scans SET status_json=?1 WHERE json_extract(status_json,'$.status')='scanning'",[json!({"status":"interrupted","count":0,"warnings":["Scan interrupted by a restart. Scan again to continue."]}).to_string()])?;
         Ok(())
     }
     pub fn delete_native_library(&self, library: &str, revision: i64) -> Result<(), StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let current: Option<i64> = tx
             .query_row(
@@ -602,7 +713,16 @@ impl ServerStore {
         {
             return Err(invalid("Catalog entry is outside the scan scope."));
         }
-        let mut db = self.connection()?;
+        let series_paths: Vec<_> = entries
+            .iter()
+            .filter(|entry| entry.kind == "series")
+            .map(|entry| entry.path.as_str())
+            .collect();
+        let prepared = entries
+            .iter()
+            .map(|entry| prepare_catalog_entry(entry, &series_paths))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let current: i64 = tx.query_row(
             "SELECT revision FROM native_libraries WHERE id=?1",
@@ -614,7 +734,7 @@ impl ServerStore {
         }
         if let Some(scopes) = scopes {
             for scope in scopes {
-                tx.execute("UPDATE native_catalog_sources SET available=0 WHERE library_id=?1 AND (?2='' OR relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/')", params![library,scope])?;
+                tx.prepare_cached("UPDATE native_catalog_sources SET available=0 WHERE library_id=?1 AND (?2='' OR relative_path=?2 OR substr(relative_path,1,length(?2)+1)=?2||'/')")?.execute(params![library,scope])?;
             }
         } else {
             tx.execute(
@@ -623,7 +743,7 @@ impl ServerStore {
             )?;
         }
         let cleared_hidden:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM settings WHERE key=?1 AND value_enc='true') AND COALESCE((SELECT json_extract(options_json,'$.show_missing_files')=0 FROM native_libraries WHERE id=?2),0)",params![format!("missing-cleaned:{library}"),library],|r|r.get(0))?;
-        for entry in entries {
+        for (entry, prepared) in entries.iter().zip(&prepared) {
             if cleared_hidden && entry.metadata["missing"] == true {
                 continue;
             }
@@ -646,8 +766,8 @@ impl ServerStore {
                     let path = format!("{parent}/@missing-{key}-{n}");
                     let id:Option<String> = tx.query_row("SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,path],|r|r.get(0)).optional()?;
                     if let Some(id) = &id {
-                        tx.execute("DELETE FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,path])?;
-                        tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0",[id])?;
+                        tx.prepare_cached("DELETE FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2")?.execute(params![library,path])?;
+                        tx.prepare_cached("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0")?.execute([id])?;
                     }
                     id
                 } else {
@@ -660,13 +780,7 @@ impl ServerStore {
                 let root = if entry.kind == "season" {
                     entry.parent_path.as_deref()
                 } else {
-                    entries
-                        .iter()
-                        .filter(|e| {
-                            e.kind == "series" && entry.path.starts_with(&format!("{}/", e.path))
-                        })
-                        .max_by_key(|e| e.path.len())
-                        .map(|e| e.path.as_str())
+                    prepared.series_root.as_deref()
                 };
                 let found: Option<(String, String)> = if let (Some(root), Some(season)) =
                     (root, entry.metadata["season"].as_u64())
@@ -676,8 +790,8 @@ impl ServerStore {
                     None
                 };
                 if let Some((id, path)) = found {
-                    tx.execute("DELETE FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2",params![library,path])?;
-                    tx.execute("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0",[&id])?;
+                    tx.prepare_cached("DELETE FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2")?.execute(params![library,path])?;
+                    tx.prepare_cached("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0")?.execute([&id])?;
                     Some(id)
                 } else {
                     None
@@ -686,33 +800,14 @@ impl ServerStore {
                 existing
             };
             let id = existing.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            let mut snapshot = entry.clone();
-            snapshot.id = id.clone();
-            snapshot.nfo_xml = None;
-            tx.execute("INSERT INTO catalog_items(id,kind,title) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET revision=revision+1",params![id,entry.kind,entry.title])?;
+            tx.prepare_cached("INSERT INTO catalog_items(id,kind,title) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET revision=revision+1")?.execute(params![id,entry.kind,entry.title])?;
             tx.execute(
                 "INSERT OR IGNORE INTO native_library_items VALUES(?1,?2)",
                 params![library, id],
             )?;
-            tx.execute("INSERT INTO native_catalog_sources VALUES(?1,?2,?3,?4,1) ON CONFLICT(library_id,relative_path) DO UPDATE SET snapshot_json=excluded.snapshot_json,available=1",params![library,entry.path,id,serde_json::to_string(&snapshot).map_err(|_|invalid("Invalid snapshot."))?])?;
-            if let Some(fields) = entry.metadata.as_object() {
-                for (field, value) in fields {
-                    let placement_clear = value.is_null()
-                        && [
-                            "airs_before_season",
-                            "airs_before_episode",
-                            "airs_after_season",
-                        ]
-                        .contains(&field.as_str())
-                        && entry.metadata["_sources"][field] == "nfo";
-                    if field.starts_with('_') || (value.is_null() && !placement_clear) {
-                        continue;
-                    }
-                    let source = entry.metadata["_sources"][field]
-                        .as_str()
-                        .unwrap_or("filename");
-                    tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=revision+1 WHERE locked=0 AND source<>'server' AND (source<>'manual' OR field='title') AND (excluded.source='nfo' OR source<>'nfo' OR (field='voice_cast' AND excluded.source='anilist') OR json_type(value_json)='null' OR value_json IN ('[]','{}') OR (json_type(value_json)='text' AND trim(json_extract(value_json,'$'))=''))",params![id,field,value.to_string(),source])?;
-                }
+            tx.prepare_cached("INSERT INTO native_catalog_sources VALUES(?1,?2,?3,json_set(?4,'$.id',?3),1) ON CONFLICT(library_id,relative_path) DO UPDATE SET snapshot_json=excluded.snapshot_json,available=1")?.execute(params![library,entry.path,id,prepared.snapshot])?;
+            for (field, value, source) in &prepared.fields {
+                tx.prepare_cached("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=revision+1 WHERE locked=0 AND source<>'server' AND (source<>'manual' OR field='title') AND (excluded.source='nfo' OR source<>'nfo' OR (field='voice_cast' AND excluded.source='anilist') OR json_type(value_json)='null' OR value_json IN ('[]','{}') OR (json_type(value_json)='text' AND trim(json_extract(value_json,'$'))=''))")?.execute(params![id,field,value,source])?;
             }
             let effective: Value = {
                 let mut fields = tx.prepare(
@@ -728,45 +823,41 @@ impl ServerStore {
                 }
                 values
             };
-            tx.execute("UPDATE catalog_items SET title=?1,original_title=?2,sort_title=?3,synopsis=?4,year=?5 WHERE id=?6",params![effective["title"].as_str().unwrap_or(&entry.title),effective["originaltitle"].as_str(),effective["sorttitle"].as_str(),effective["plot"].as_str(),effective["year"].as_i64(),id])?;
+            tx.prepare_cached("UPDATE catalog_items SET title=?1,original_title=?2,sort_title=?3,synopsis=?4,year=?5 WHERE id=?6")?.execute(params![effective["title"].as_str().unwrap_or(&entry.title),effective["originaltitle"].as_str(),effective["sorttitle"].as_str(),effective["plot"].as_str(),effective["year"].as_i64(),id])?;
             project_metadata(&tx, &id, &effective)?;
-            tx.execute("DELETE FROM catalog_artwork WHERE item_id=?1 AND locked=0 AND NOT EXISTS(SELECT 1 FROM json_each(?2) a WHERE json_extract(a.value,'$.kind')=catalog_artwork.kind AND json_extract(a.value,'$.path')=catalog_artwork.path)",params![id,serde_json::to_string(&entry.artwork).map_err(|_|invalid("Invalid artwork records."))?])?;
+            tx.prepare_cached("DELETE FROM catalog_artwork WHERE item_id=?1 AND locked=0 AND NOT EXISTS(SELECT 1 FROM json_each(?2) a WHERE json_extract(a.value,'$.kind')=catalog_artwork.kind AND json_extract(a.value,'$.path')=catalog_artwork.path)")?.execute(params![id,prepared.artwork])?;
             for art in &entry.artwork {
                 if animation_blocked(&tx, &id, art)? {
                     continue;
                 }
-                tx.execute("INSERT INTO catalog_artwork VALUES(?1,?2,?3,?4,0) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source=excluded.source,locked=CASE WHEN excluded.source='local' THEN 0 ELSE locked END WHERE excluded.source='local' OR (locked=0 AND source<>'local')",params![id,art.kind,art.path,art.source])?;
+                tx.prepare_cached("INSERT INTO catalog_artwork VALUES(?1,?2,?3,?4,0) ON CONFLICT(item_id,kind) DO UPDATE SET path=excluded.path,source=excluded.source,locked=CASE WHEN excluded.source='local' THEN 0 ELSE locked END WHERE excluded.source='local' OR (locked=0 AND source<>'local')")?.execute(params![id,art.kind,art.path,art.source])?;
             }
-            tx.execute("DELETE FROM catalog_item_files WHERE item_id=?1", [&id])?;
-            for file in &entry.files {
+            tx.prepare_cached("DELETE FROM catalog_item_files WHERE item_id=?1")?
+                .execute([&id])?;
+            for (file, streams) in entry.files.iter().zip(&prepared.streams) {
                 let path = file["path"]
                     .as_str()
                     .ok_or_else(|| invalid("Missing file path."))?;
-                tx.execute("INSERT INTO catalog_files(id,relative_path,size_bytes,modified_at) VALUES(?1,?2,?3,?4) ON CONFLICT(relative_path) DO UPDATE SET size_bytes=excluded.size_bytes,modified_at=excluded.modified_at,available=1",params![uuid::Uuid::new_v4().to_string(),path,file["size"].as_i64(),file["modified"].as_str()])?;
-                tx.execute("INSERT INTO catalog_item_files SELECT ?1,id FROM catalog_files WHERE relative_path=?2",params![id,path])?;
-                if let Some(streams) = file["media_info"]["streams"].as_array() {
-                    tx.execute("DELETE FROM catalog_media_streams WHERE file_id=(SELECT id FROM catalog_files WHERE relative_path=?1)",[path])?;
-                    for stream in streams {
-                        if let (Some(index), Some(kind)) =
-                            (stream["index"].as_i64(), stream["codec_type"].as_str())
-                            && ["video", "audio", "subtitle"].contains(&kind)
-                        {
-                            tx.execute("INSERT INTO catalog_media_streams SELECT id,?1,?2,?3 FROM catalog_files WHERE relative_path=?4",params![index,kind,stream.to_string(),path])?;
-                        }
+                tx.prepare_cached("INSERT INTO catalog_files(id,relative_path,size_bytes,modified_at) VALUES(?1,?2,?3,?4) ON CONFLICT(relative_path) DO UPDATE SET size_bytes=excluded.size_bytes,modified_at=excluded.modified_at,available=1")?.execute(params![uuid::Uuid::new_v4().to_string(),path,file["size"].as_i64(),file["modified"].as_str()])?;
+                tx.prepare_cached("INSERT INTO catalog_item_files SELECT ?1,id FROM catalog_files WHERE relative_path=?2")?.execute(params![id,path])?;
+                if file["media_info"]["streams"].is_array() {
+                    tx.prepare_cached("DELETE FROM catalog_media_streams WHERE file_id=(SELECT id FROM catalog_files WHERE relative_path=?1)")?.execute([path])?;
+                    for (index, kind, value) in streams {
+                        tx.prepare_cached("INSERT INTO catalog_media_streams SELECT id,?1,?2,?3 FROM catalog_files WHERE relative_path=?4")?.execute(params![index,kind,value,path])?;
                     }
                 }
             }
             if let Some(path) = &entry.nfo_path {
-                tx.execute("INSERT INTO catalog_nfo_documents(id,relative_path,profile,parse_status) VALUES(?1,?2,?3,'parsed') ON CONFLICT(relative_path) DO UPDATE SET revision=revision+1,parse_status='parsed'",params![uuid::Uuid::new_v4().to_string(),path,if entry.kind.starts_with("book") {"posterview-book"} else {"video"}])?;
+                tx.prepare_cached("INSERT INTO catalog_nfo_documents(id,relative_path,profile,parse_status) VALUES(?1,?2,?3,'parsed') ON CONFLICT(relative_path) DO UPDATE SET revision=revision+1,parse_status='parsed'")?.execute(params![uuid::Uuid::new_v4().to_string(),path,if entry.kind.starts_with("book") {"posterview-book"} else {"video"}])?;
                 tx.execute(
                     "UPDATE catalog_nfo_documents SET content_xml=?1 WHERE relative_path=?2",
                     params![entry.nfo_xml, path],
                 )?;
-                tx.execute("INSERT OR IGNORE INTO catalog_item_nfo SELECT ?1,id FROM catalog_nfo_documents WHERE relative_path=?2",params![id,path])?;
+                tx.prepare_cached("INSERT OR IGNORE INTO catalog_item_nfo SELECT ?1,id FROM catalog_nfo_documents WHERE relative_path=?2")?.execute(params![id,path])?;
             }
         }
         for entry in entries {
-            tx.execute("UPDATE catalog_items SET parent_id=(SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2) WHERE id=(SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?3)",params![library,entry.parent_path,entry.path])?;
+            tx.prepare_cached("UPDATE catalog_items SET parent_id=(SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2) WHERE id=(SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?3)")?.execute(params![library,entry.parent_path,entry.path])?;
         }
         tx.commit()?;
         Ok(())
@@ -817,7 +908,7 @@ impl ServerStore {
                 ));
             }
         }
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let current:Option<i64>=tx.query_row("SELECT i.revision FROM catalog_items i JOIN native_catalog_sources s ON s.item_id=i.id WHERE s.library_id=?1 AND i.id=?2",params![library,item],|r|r.get(0)).optional()?;
         if current != Some(revision) {
@@ -906,7 +997,7 @@ impl ServerStore {
         item: &str,
         kind: &str,
     ) -> Result<(), StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction()?;
         let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2)",params![library,item],|r|r.get(0))?;
         if !exists {
@@ -934,7 +1025,7 @@ impl ServerStore {
         item: &str,
         art: &NativeArtwork,
     ) -> Result<(), StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction()?;
         let exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2)",params![library,item],|r|r.get(0))?;
         if !exists {
@@ -977,7 +1068,7 @@ impl ServerStore {
         Ok(())
     }
     pub fn finish_identification_artwork(&self, item: &str) -> Result<(), StoreError> {
-        self.connection()?.execute("UPDATE catalog_metadata_fields SET value_json='false' WHERE item_id=?1 AND field='_identify_replace_artwork'",[item])?;
+        self.write_connection()?.execute("UPDATE catalog_metadata_fields SET value_json='false' WHERE item_id=?1 AND field='_identify_replace_artwork'",[item])?;
         Ok(())
     }
     pub fn identification_value_hash(value: &Value) -> String {
@@ -1017,7 +1108,7 @@ impl ServerStore {
         identifiers: &Value,
         replacement: Option<&Value>,
     ) -> Result<(), StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let current:Option<i64>=tx.query_row("SELECT i.revision FROM catalog_items i JOIN native_catalog_sources s ON s.item_id=i.id WHERE s.library_id=?1 AND i.id=?2 AND s.available=1",params![library,item],|r|r.get(0)).optional()?;
         if current != Some(revision) {
@@ -1301,6 +1392,105 @@ fn project_metadata(
 mod tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryInput, NativeLibraryType};
+
+    #[test]
+    fn catalog_preparation_and_nfo_batches_preserve_atomic_projection() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let entry = NativeCatalogEntry {
+            id: "untrusted-scan-id".into(),
+            path: "Movies/Film".into(),
+            kind: "movie".into(),
+            parent_path: None,
+            title: "Film".into(),
+            metadata: json!({"title":"Film","plot":"Overview"}),
+            artwork: vec![],
+            files: vec![
+                json!({"path":"Movies/Film/movie.mkv","media_info":{"streams":[
+                    {"index":0,"codec_type":"video","codec_name":"h264"},
+                    {"index":1,"codec_type":"audio","codec_name":"flac"},
+                    {"index":2,"codec_type":"attachment"}
+                ]}}),
+            ],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
+            .unwrap();
+        let saved = db
+            .native_catalog_path(&library.id, &entry.path)
+            .unwrap()
+            .unwrap();
+        assert_ne!(saved.id, entry.id);
+        let rows: i64 = db
+            .connection()
+            .unwrap()
+            .query_row("SELECT count(*) FROM catalog_media_streams", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 2);
+        let records = vec![(
+            saved.id.clone(),
+            "Movies/Film/movie.nfo".into(),
+            "<movie>initial</movie>".into(),
+        )];
+        db.record_native_nfos(&library.id, &records).unwrap();
+        assert_eq!(
+            db.native_nfo_content(&records[0].1).unwrap().as_deref(),
+            Some(records[0].2.as_str())
+        );
+        let invalid = vec![
+            (saved.id.clone(), records[0].1.clone(), "replacement".into()),
+            ("not-in-library".into(), "unknown.nfo".into(), "bad".into()),
+        ];
+        assert!(db.record_native_nfos(&library.id, &invalid).is_err());
+        assert_eq!(
+            db.native_nfo_content(&records[0].1).unwrap().as_deref(),
+            Some(records[0].2.as_str())
+        );
+        assert!(
+            db.record_native_nfos(&library.id, &vec![records[0].clone(); 101])
+                .is_err()
+        );
+        let mut malformed = entry.clone();
+        malformed.files.push(json!({"size":123}));
+        assert!(
+            db.ingest_native_catalog(&library.id, library.revision, &[malformed])
+                .is_err()
+        );
+        assert!(
+            db.native_catalog_path(&library.id, &entry.path)
+                .unwrap()
+                .unwrap()
+                .available
+        );
+        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
+        assert_eq!(
+            db.native_catalog_path(&library.id, &saved.path)
+                .unwrap()
+                .unwrap()
+                .id,
+            saved.id
+        );
+    }
 
     #[test]
     fn lightweight_reads_preserve_hierarchy_security_and_ignore_snapshots() {

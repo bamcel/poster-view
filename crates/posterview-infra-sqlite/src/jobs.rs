@@ -147,7 +147,7 @@ impl ServerStore {
             return Err(invalid("Invalid job retry limit."));
         }
         let payload = json(&spec.payload, 8 * 1024 * 1024)?;
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute("DELETE FROM background_jobs WHERE status IN ('completed','failed','cancelled') AND id NOT IN (SELECT id FROM background_jobs WHERE status IN ('completed','failed','cancelled') ORDER BY updated_at DESC,id LIMIT 200)", [])?;
         let existing=tx.query_row(&format!("SELECT {COLUMNS} FROM background_jobs WHERE kind=?1 AND dedupe_key=?2 AND status='queued'"),params![spec.kind,spec.dedupe_key],record).optional()?;
@@ -184,7 +184,7 @@ impl ServerStore {
         &self,
         now: i64,
     ) -> Result<Option<BackgroundJobRecord>, StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let id:Option<String>=tx.query_row("SELECT id FROM background_jobs j WHERE status='queued' AND available_at<=?1 AND NOT EXISTS(SELECT 1 FROM background_jobs busy WHERE busy.resource_key=j.resource_key AND busy.status IN ('running','cancelling')) ORDER BY created_at,id LIMIT 1",[now],|r|r.get(0)).optional()?;
         let Some(id) = id else { return Ok(None) };
@@ -222,7 +222,7 @@ impl ServerStore {
             .as_ref()
             .map(|v| json(v, 1024 * 1024))
             .transpose()?;
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let current = get(&tx, id)?;
         let Some(current) = current.filter(|j| {
@@ -257,7 +257,7 @@ impl ServerStore {
         id: &str,
         now: i64,
     ) -> Result<Option<BackgroundJobRecord>, StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute("UPDATE background_jobs SET status=CASE status WHEN 'queued' THEN 'cancelled' ELSE 'cancelling' END,updated_at=?2 WHERE id=?1 AND status IN ('queued','running')",params![id,now])?;
         let result = get(&tx, id)?;
@@ -269,7 +269,7 @@ impl ServerStore {
         id: &str,
         now: i64,
     ) -> Result<Option<BackgroundJobRecord>, StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         if let Some(job) = get(&tx, id)? {
             if matches!(job.status.as_str(), "failed" | "cancelled") {
@@ -292,7 +292,7 @@ impl ServerStore {
         Ok(result)
     }
     pub fn recover_background_jobs(&self, now: i64) -> Result<usize, StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         // Recover deterministically, respecting a follow-up already queued for this dedupe key.
         let jobs = {
@@ -344,7 +344,7 @@ impl ServerStore {
             return Err(invalid("Invalid checkpoint fields."));
         }
         let value = json(&checkpoint.value, 16 * 1024 * 1024)?;
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let valid:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM background_jobs WHERE id=?1 AND lease=?2 AND status IN ('running','cancelling'))",params![id,lease],|r|r.get(0))?;
         if !valid {

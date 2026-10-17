@@ -156,7 +156,7 @@ impl ServerStore {
         locks: &[String],
     ) -> Result<Option<CollectionRecord>, StoreError> {
         validate_locks(locks)?;
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let Some(mut record) = read(&tx, id)? else {
             return Ok(None);
@@ -187,7 +187,7 @@ impl ServerStore {
             locks: locks.to_vec(),
             members: members.to_vec(),
         };
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let result = apply_metadata(&tx, &update)?;
         tx.commit()?;
@@ -202,7 +202,7 @@ impl ServerStore {
         lease: &str,
         update: &CollectionMetadataUpdate,
     ) -> Result<Option<CollectionRecord>, StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let receipt: Option<Option<String>> = tx
             .query_row(
@@ -271,7 +271,7 @@ impl ServerStore {
         members: &[CollectionMemberRef],
     ) -> Result<CollectionRecord, StoreError> {
         validate(title, overview, ordering)?;
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let id = uuid::Uuid::new_v4().to_string();
         tx.execute(
@@ -295,7 +295,7 @@ impl ServerStore {
         members: &[CollectionMemberRef],
     ) -> Result<Option<CollectionRecord>, StoreError> {
         validate(title, overview, ordering)?;
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let Some(record) = read(&tx, id)? else {
             return Ok(None);
@@ -314,7 +314,7 @@ impl ServerStore {
 
     pub fn delete_collection(&self, id: &str) -> Result<bool, StoreError> {
         Ok(self
-            .connection()?
+            .write_connection()?
             .execute("DELETE FROM collections WHERE id=?1", [id])?
             > 0)
     }
@@ -325,7 +325,7 @@ impl ServerStore {
         revision: i64,
         members: &[CollectionMemberRef],
     ) -> Result<Option<(CollectionRecord, usize, usize)>, StoreError> {
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let Some(record) = read(&tx, id)? else {
             return Ok(None);
@@ -354,7 +354,7 @@ impl ServerStore {
         library: &str,
         grouped: bool,
     ) -> Result<(), StoreError> {
-        self.connection()?.execute("INSERT INTO collection_library_preferences(user_id,library_id,grouped) VALUES(?1,?2,?3) ON CONFLICT(user_id,library_id) DO UPDATE SET grouped=excluded.grouped",params![user,library,grouped])?;
+        self.write_connection()?.execute("INSERT INTO collection_library_preferences(user_id,library_id,grouped) VALUES(?1,?2,?3) ON CONFLICT(user_id,library_id) DO UPDATE SET grouped=excluded.grouped",params![user,library,grouped])?;
         Ok(())
     }
 }

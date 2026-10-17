@@ -76,20 +76,7 @@ struct Preference {
 }
 
 fn error(error: StoreError) -> HttpError {
-    match error {
-        StoreError::Validation(detail) => HttpError::bad_request(detail),
-        StoreError::RevisionConflict => HttpError {
-            status: StatusCode::CONFLICT,
-            detail: "Collection changed. Reload before saving.".into(),
-        },
-        error => {
-            tracing::error!(%error, "Collection storage failed");
-            HttpError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                detail: "Unable to load or save collections.".into(),
-            }
-        }
-    }
+    HttpError::from(error)
 }
 async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, HttpError> + Send + 'static,

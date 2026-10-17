@@ -42,18 +42,45 @@ impl HttpError {
     }
 }
 
-impl From<RuntimeError> for HttpError {
-    fn from(error: RuntimeError) -> Self {
-        tracing::error!(%error, "request failed");
-        if matches!(
-            error,
-            RuntimeError::Store(posterview_infra_sqlite::StoreError::CredentialDecryption)
-        ) {
+impl From<posterview_infra_sqlite::StoreError> for HttpError {
+    fn from(error: posterview_infra_sqlite::StoreError) -> Self {
+        use posterview_infra_sqlite::StoreError;
+        let retryable = matches!(&error, StoreError::WriteUnavailable)
+            || matches!(&error, StoreError::Database(rusqlite::Error::SqliteFailure(code, _)) if matches!(code.code, rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked));
+        if retryable {
+            tracing::warn!("Database write admission or SQLite lock timed out");
             return Self {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                detail: error.to_string(),
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                detail: "Database writes are busy. Please retry shortly.".into(),
             };
         }
+        match error {
+            StoreError::Validation(detail) => Self::bad_request(detail),
+            StoreError::RevisionConflict => Self {
+                status: StatusCode::CONFLICT,
+                detail: "Library changed since it was opened. Reload before saving.".into(),
+            },
+            StoreError::CredentialDecryption => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                detail: error.to_string(),
+            },
+            _ => {
+                tracing::error!(%error, "Database operation failed");
+                Self {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    detail: "Database operation failed. Please retry.".into(),
+                }
+            }
+        }
+    }
+}
+
+impl From<RuntimeError> for HttpError {
+    fn from(error: RuntimeError) -> Self {
+        if let RuntimeError::Store(error) = error {
+            return Self::from(error);
+        }
+        tracing::error!(%error, "request failed");
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             detail: "Internal server error".to_owned(),
@@ -76,6 +103,29 @@ impl IntoResponse for HttpError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn write_admission_and_sqlite_locks_are_retryable_without_leaking_database_details() {
+        use posterview_infra_sqlite::StoreError;
+        let busy = StoreError::Database(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+            Some("private/database/path".into()),
+        ));
+        for error in [StoreError::WriteUnavailable, busy] {
+            let response = HttpError::from(error);
+            assert_eq!(response.status, StatusCode::SERVICE_UNAVAILABLE);
+            assert!(!response.detail.contains("private"));
+            assert!(response.detail.contains("retry"));
+        }
+        assert_eq!(
+            HttpError::from(StoreError::RevisionConflict).status,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            HttpError::from(StoreError::Validation("Invalid setting".into())).status,
+            StatusCode::BAD_REQUEST
+        );
+    }
 
     #[test]
     fn credential_errors_include_recovery_guidance_without_exposing_other_errors() {

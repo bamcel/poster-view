@@ -25,6 +25,85 @@ fn now() -> u64 {
 fn bad(e: impl std::fmt::Display) -> HttpError {
     HttpError::bad_request(e.to_string())
 }
+fn storage(error: impl Into<posterview_infra_sqlite::StoreError>) -> HttpError {
+    HttpError::from(error.into())
+}
+fn operational(error: impl std::fmt::Display) -> HttpError {
+    tracing::error!(%error, "maintenance operation failed");
+    HttpError {
+        status: axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        detail: "Maintenance operation failed. Please try again.".into(),
+    }
+}
+enum SettingGuard {
+    LibraryAbsent(String),
+    ItemAbsent { library: String, item: String },
+}
+struct SettingChange {
+    key: String,
+    original: String,
+    replacement: Option<String>,
+    records: usize,
+    prerequisites: Vec<SettingGuard>,
+}
+const WRITE_BATCH_SIZE: usize = 128;
+
+// Compare the observed value before writing: scans/downloads can refresh these keys
+// while maintenance prepares its changes without holding SQLite's writer lock.
+fn apply_setting_changes(
+    store: &ServerStore,
+    changes: &[SettingChange],
+) -> Result<usize, HttpError> {
+    apply_setting_changes_checked(store, changes, || Ok(()))
+}
+fn apply_setting_changes_checked(
+    store: &ServerStore,
+    changes: &[SettingChange],
+    check: impl Fn() -> Result<(), HttpError>,
+) -> Result<usize, HttpError> {
+    let mut count = 0;
+    for batch in changes.chunks(WRITE_BATCH_SIZE) {
+        check()?;
+        let mut db = store.write_connection().map_err(storage)?;
+        let tx = db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        for change in batch {
+            let mut current = true;
+            for guard in &change.prerequisites {
+                let exists = match guard {
+                    SettingGuard::LibraryAbsent(library) => tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM native_libraries WHERE id=?1)", [library], |r| r.get::<_,bool>(0)),
+                    SettingGuard::ItemAbsent { library, item } => tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM native_library_items WHERE library_id=?1 AND item_id=?2)",
+                        rusqlite::params![library,item], |r| r.get::<_,bool>(0)),
+                }.map_err(storage)?;
+                if exists {
+                    current = false;
+                    break;
+                }
+            }
+            if !current {
+                continue;
+            }
+            let affected = if let Some(value) = &change.replacement {
+                tx.execute(
+                    "UPDATE settings SET value_enc=?1 WHERE key=?2 AND value_enc=?3",
+                    rusqlite::params![value, change.key, change.original],
+                )
+            } else {
+                tx.execute(
+                    "DELETE FROM settings WHERE key=?1 AND value_enc=?2",
+                    rusqlite::params![change.key, change.original],
+                )
+            }
+            .map_err(storage)?;
+            count += affected * change.records;
+        }
+        tx.commit().map_err(storage)?;
+    }
+    Ok(count)
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct Task {
@@ -74,7 +153,7 @@ fn defaults() -> Vec<Task> {
 }
 fn load(state: &AppState) -> Result<Vec<Task>, HttpError> {
     let db = ServerStore::new(state.runtime.data_dir());
-    let saved = db.get_setting("scheduled-tasks").map_err(bad)?;
+    let saved = db.get_setting("scheduled-tasks").map_err(storage)?;
     let saved: Vec<Task> = serde_json::from_str(&saved).unwrap_or_default();
     Ok(defaults()
         .into_iter()
@@ -100,9 +179,9 @@ fn save(state: &AppState, tasks: &[Task]) -> Result<(), HttpError> {
     ServerStore::new(state.runtime.data_dir())
         .set_setting(
             "scheduled-tasks",
-            &serde_json::to_string(tasks).map_err(bad)?,
+            &serde_json::to_string(tasks).map_err(operational)?,
         )
-        .map_err(bad)
+        .map_err(storage)
 }
 pub(crate) async fn list(State(state): State<AppState>) -> Result<Json<Vec<Task>>, HttpError> {
     tokio::task::spawn_blocking(move || {
@@ -114,7 +193,7 @@ pub(crate) async fn list(State(state): State<AppState>) -> Result<Json<Vec<Task>
         Ok(Json(tasks))
     })
     .await
-    .map_err(bad)?
+    .map_err(operational)?
 }
 pub(crate) async fn configure(
     State(state): State<AppState>,
@@ -148,7 +227,7 @@ pub(crate) async fn configure(
         Ok(Json(tasks))
     })
     .await
-    .map_err(bad)?
+    .map_err(operational)?
 }
 #[derive(Serialize, Deserialize, Default)]
 pub(crate) struct Report {
@@ -163,24 +242,25 @@ struct Candidate {
     bytes: u64,
 }
 fn references(directory: &FsPath) -> Result<HashSet<String>, HttpError> {
-    let db = rusqlite::Connection::open(directory.join("posterview.db")).map_err(bad)?;
-    db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;
+    let db = ServerStore::new(directory)
+        .read_connection()
+        .map_err(storage)?;
     let names = db
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-        .map_err(bad)?
+        .map_err(storage)?
         .query_map([], |r| r.get::<_, String>(0))
-        .map_err(bad)?
+        .map_err(storage)?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(bad)?;
+        .map_err(storage)?;
     let mut refs = HashSet::new();
     for name in names {
         let name = name.replace('"', "\"\"");
         let mut statement = db
             .prepare(&format!("SELECT * FROM \"{name}\""))
-            .map_err(bad)?;
+            .map_err(storage)?;
         let columns = statement.column_count();
-        let mut rows = statement.query([]).map_err(bad)?;
-        while let Some(row) = rows.next().map_err(bad)? {
+        let mut rows = statement.query([]).map_err(storage)?;
+        while let Some(row) = rows.next().map_err(storage)? {
             for column in 0..columns {
                 if let Ok(rusqlite::types::ValueRef::Text(text)) = row.get_ref(column) {
                     for token in String::from_utf8_lossy(text)
@@ -215,24 +295,24 @@ fn hidden_libraries(state: &AppState, task: &Task) -> Result<Vec<(String, u64, u
     let mut result = Vec::new();
     for library in db
         .native_libraries()
-        .map_err(bad)?
+        .map_err(storage)?
         .into_iter()
         .filter(|l| !l.options.show_missing_files)
     {
         let key = format!("missing-hidden-since:{}", library.id);
         let since = db
             .get_setting(&key)
-            .map_err(bad)?
+            .map_err(storage)?
             .parse::<u64>()
             .ok()
             .unwrap_or_else(now);
-        if db.get_setting(&key).map_err(bad)?.is_empty() {
-            db.set_setting(&key, &since.to_string()).map_err(bad)?;
+        if db.get_setting(&key).map_err(storage)?.is_empty() {
+            db.set_setting(&key, &since.to_string()).map_err(storage)?;
         }
         if now().saturating_sub(since) >= task.retention_days * 86400 {
             let count = db
                 .native_catalog(&library.id)
-                .map_err(bad)?
+                .map_err(storage)?
                 .iter()
                 .filter(|e| {
                     e.metadata["missing"] == true
@@ -248,28 +328,38 @@ fn hidden_libraries(state: &AppState, task: &Task) -> Result<Vec<(String, u64, u
     Ok(result)
 }
 
-// Work on one consistent catalog snapshot; only known disposable setting keys are touched.
+// Prepare disposable changes from a read snapshot; acquire the writer only for bounded batches.
 fn cleanup_records(state: &AppState, task: &Task, apply: bool) -> Result<usize, HttpError> {
+    cleanup_records_checked(state, task, apply, &None)
+}
+fn cleanup_records_checked(
+    state: &AppState,
+    task: &Task,
+    apply: bool,
+    context: &Option<crate::jobs::JobContext>,
+) -> Result<usize, HttpError> {
+    check_job(context)?;
     if !state.active_native_scans.lock().unwrap().is_empty() {
         return Err(bad(
             "Wait for library scans to finish before cleaning data.",
         ));
     }
-    let mut db =
-        rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;
-    db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;
+    let store = ServerStore::new(state.runtime.data_dir());
+    let mut db = store.read_connection().map_err(storage)?;
     let tx = db
-        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(bad)?;
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
+        .map_err(storage)?;
     let rows = tx
         .prepare("SELECT key,value_enc FROM settings")
-        .map_err(bad)?
+        .map_err(storage)?
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-        .map_err(bad)?
+        .map_err(storage)?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(bad)?;
+        .map_err(storage)?;
     let mut count = 0;
+    let mut changes = Vec::new();
     for (key, raw) in rows {
+        check_job(context)?;
         let value = serde_json::from_str::<serde_json::Value>(&raw).ok();
         let expected = key.strip_prefix("expected-episodes:");
         let anidb = key
@@ -293,7 +383,7 @@ fn cleanup_records(state: &AppState, task: &Task, apply: bool) -> Result<usize, 
                 [id],
                 |r| r.get::<_, bool>(0),
             )
-            .map_err(bad)?
+            .map_err(storage)?
         } else {
             false
         };
@@ -305,10 +395,18 @@ fn cleanup_records(state: &AppState, task: &Task, apply: bool) -> Result<usize, 
                 .is_some_and(|at| now().saturating_sub(at) >= task.retention_days * 86400);
         if (task.cleanup_records && removed) || expired {
             count += 1;
-            if apply {
-                tx.execute("DELETE FROM settings WHERE key=?1", [&key])
-                    .map_err(bad)?;
-            }
+            let prerequisites = if removed {
+                vec![SettingGuard::LibraryAbsent(library.unwrap().to_owned())]
+            } else {
+                Vec::new()
+            };
+            changes.push(SettingChange {
+                key,
+                original: raw,
+                replacement: None,
+                records: 1,
+                prerequisites,
+            });
             continue;
         }
         if !task.cleanup_records
@@ -321,17 +419,29 @@ fn cleanup_records(state: &AppState, task: &Task, apply: bool) -> Result<usize, 
             continue;
         };
         let mut removed_items = 0;
+        let mut prerequisites = Vec::new();
         for field in ["items", "pending", "mirror_links"] {
             if let Some(map) = value[field].as_object_mut() {
                 let mut obsolete = Vec::new();
                 for item in map.keys() {
-                    let exists = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_items WHERE library_id=?1 AND item_id=?2)", rusqlite::params![library.unwrap(), if field == "mirror_links" { item.split_once(':').map(|(_,id)|id).unwrap_or(item) } else { item }], |r| r.get::<_,bool>(0)).map_err(bad)?;
+                    let exists = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_items WHERE library_id=?1 AND item_id=?2)", rusqlite::params![library.unwrap(), if field == "mirror_links" { item.split_once(':').map(|(_,id)|id).unwrap_or(item) } else { item }], |r| r.get::<_,bool>(0)).map_err(storage)?;
                     if !exists {
                         obsolete.push(item.clone());
                     }
                 }
                 removed_items += obsolete.len();
                 for item in obsolete {
+                    prerequisites.push(SettingGuard::ItemAbsent {
+                        library: library.unwrap().to_owned(),
+                        item: if field == "mirror_links" {
+                            item.split_once(':')
+                                .map(|(_, id)| id)
+                                .unwrap_or(&item)
+                                .to_owned()
+                        } else {
+                            item.clone()
+                        },
+                    });
                     map.remove(&item);
                 }
             }
@@ -340,30 +450,39 @@ fn cleanup_records(state: &AppState, task: &Task, apply: bool) -> Result<usize, 
             for changes in destinations.values_mut().filter_map(|v| v.as_object_mut()) {
                 let mut obsolete = Vec::new();
                 for item in changes.keys() {
-                    let exists = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_items WHERE library_id=?1 AND item_id=?2)", rusqlite::params![library.unwrap(),item], |r|r.get::<_,bool>(0)).map_err(bad)?;
+                    let exists = tx.query_row("SELECT EXISTS(SELECT 1 FROM native_library_items WHERE library_id=?1 AND item_id=?2)", rusqlite::params![library.unwrap(),item], |r|r.get::<_,bool>(0)).map_err(storage)?;
                     if !exists {
                         obsolete.push(item.clone());
                     }
                 }
                 removed_items += obsolete.len();
                 for item in obsolete {
+                    prerequisites.push(SettingGuard::ItemAbsent {
+                        library: library.unwrap().to_owned(),
+                        item: item.clone(),
+                    });
                     changes.remove(&item);
                 }
             }
         }
         count += removed_items;
-        if apply && removed_items > 0 {
-            tx.execute(
-                "UPDATE settings SET value_enc=?1 WHERE key=?2",
-                rusqlite::params![value.to_string(), key],
-            )
-            .map_err(bad)?;
+        if removed_items > 0 {
+            changes.push(SettingChange {
+                key,
+                original: raw,
+                replacement: Some(value.to_string()),
+                records: removed_items,
+                prerequisites,
+            });
         }
     }
+    tx.commit().map_err(storage)?;
+    drop(db);
     if apply {
-        tx.commit().map_err(bad)?;
+        apply_setting_changes_checked(&store, &changes, || check_job(context))
+    } else {
+        Ok(count)
     }
-    Ok(count)
 }
 
 fn candidates(state: &AppState, task: &Task) -> Result<Vec<Candidate>, HttpError> {
@@ -375,7 +494,7 @@ fn candidates(state: &AppState, task: &Task) -> Result<Vec<Candidate>, HttpError
     }
     let refs = references(state.runtime.data_dir())?;
     let saved: BTreeMap<String, u64> =
-        serde_json::from_str(&db.get_setting("cleanup-unreferenced").map_err(bad)?)
+        serde_json::from_str(&db.get_setting("cleanup-unreferenced").map_err(storage)?)
             .unwrap_or_default();
     let mut unreferenced = BTreeMap::new();
     let mut result = Vec::new();
@@ -396,8 +515,8 @@ fn candidates(state: &AppState, task: &Task) -> Result<Vec<Candidate>, HttpError
             Err(e) => return Err(bad(e)),
         };
         for file in files {
-            let file = file.map_err(bad)?;
-            let meta = file.file_type().map_err(bad)?;
+            let file = file.map_err(operational)?;
+            let meta = file.file_type().map_err(operational)?;
             if !meta.is_file() || meta.is_symlink() {
                 continue;
             }
@@ -414,7 +533,7 @@ fn candidates(state: &AppState, task: &Task) -> Result<Vec<Candidate>, HttpError
             {
                 continue;
             }
-            let meta = file.metadata().map_err(bad)?;
+            let meta = file.metadata().map_err(operational)?;
             let past_grace = if referenced && !temp {
                 use std::hash::{Hash, Hasher};
                 let mut hash = std::collections::hash_map::DefaultHasher::new();
@@ -437,9 +556,9 @@ fn candidates(state: &AppState, task: &Task) -> Result<Vec<Candidate>, HttpError
     if task.cleanup_artwork {
         db.set_setting(
             "cleanup-unreferenced",
-            &serde_json::to_string(&unreferenced).map_err(bad)?,
+            &serde_json::to_string(&unreferenced).map_err(operational)?,
         )
-        .map_err(bad)?;
+        .map_err(storage)?;
     }
     Ok(result)
 }
@@ -451,7 +570,10 @@ pub(crate) async fn preview(State(state): State<AppState>) -> Result<Json<Report
             .unwrap();
         let files = candidates(&state, &task)?;
         let cached = if task.cleanup_cache {
-            state.runtime.cleanup_provider_cache(false).map_err(bad)?
+            state
+                .runtime
+                .cleanup_provider_cache(false)
+                .map_err(operational)?
         } else {
             (0, 0)
         };
@@ -472,7 +594,7 @@ pub(crate) async fn preview(State(state): State<AppState>) -> Result<Json<Report
         }))
     })
     .await
-    .map_err(bad)?
+    .map_err(operational)?
 }
 #[cfg(test)]
 async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
@@ -511,24 +633,24 @@ async fn execute_with_context(
         let _running = RunningTask(state.running_maintenance_task.clone());
         let mut tasks=load(&state)?;let task=tasks.iter_mut().find(|t|t.id==id).ok_or_else(HttpError::not_found)?;
         let result=(||->Result<Report,HttpError>{check_job(&context)?; match id.as_str() {
-            "cleanup"=>{let db=ServerStore::new(state.runtime.data_dir());let mut report=Report{records:cleanup_records(&state,task,true)? + if task.cleanup_reader {check_job(&context)?;state.reader.cleanup_orphans(true)?} else {0},..Default::default()};
+            "cleanup"=>{let db=ServerStore::new(state.runtime.data_dir());let mut report=Report{records:cleanup_records_checked(&state,task,true,&context)? + if task.cleanup_reader {check_job(&context)?;state.reader.cleanup_orphans(true)?} else {0},..Default::default()};
                 for (library,since,count) in hidden_libraries(&state,task)? {
                     check_job(&context)?;
-                    let removed=db.cleanup_hidden_placeholders(&library).map_err(bad)?;report.placeholders+=count;
-                    let mut grace:BTreeMap<String,u64>=serde_json::from_str(&db.get_setting("cleanup-unreferenced").map_err(bad)?).unwrap_or_default();
+                    let removed=db.cleanup_hidden_placeholders(&library).map_err(storage)?;report.placeholders+=count;
+                    let mut grace:BTreeMap<String,u64>=serde_json::from_str(&db.get_setting("cleanup-unreferenced").map_err(storage)?).unwrap_or_default();
                     for reference in removed {for name in reference.split(|c:char|!c.is_ascii_alphanumeric()&&!"._-".contains(c)) {if !name.contains('.') {continue;}use std::hash::{Hash,Hasher};let mut hash=std::collections::hash_map::DefaultHasher::new();name.hash(&mut hash);grace.insert(format!("{:016x}",hash.finish()),since);
                         if name.ends_with(".gif")||name.ends_with(".webm") {let still=format!("{}.still.png",name.rsplit_once('.').unwrap().0);let mut hash=std::collections::hash_map::DefaultHasher::new();still.hash(&mut hash);grace.insert(format!("{:016x}",hash.finish()),since);}
-                    }}db.set_setting("cleanup-unreferenced",&serde_json::to_string(&grace).map_err(bad)?).map_err(bad)?;
+                    }}db.set_setting("cleanup-unreferenced",&serde_json::to_string(&grace).map_err(operational)?).map_err(storage)?;
                 }
-                check_job(&context)?; if task.cleanup_cache {let cached=state.runtime.cleanup_provider_cache(true).map_err(bad)?;report.files+=cached.0;report.bytes+=cached.1;}
-                check_job(&context)?;let candidates=candidates(&state,task)?;for file in candidates {check_job(&context)?;let meta=std::fs::symlink_metadata(&file.path).map_err(bad)?;if meta.file_type().is_symlink()||!meta.is_file()||!old(&meta,task.retention_days){continue;}std::fs::remove_file(&file.path).map_err(bad)?;report.files+=1;report.bytes+=file.bytes;}report.result=format!("Removed {} obsolete records, {} hidden placeholders and {} unused files ({} bytes).",report.records,report.placeholders,report.files,report.bytes);Ok(report)},
-            "database"=>{let db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;let health:String=db.query_row("PRAGMA quick_check",[],|r|r.get(0)).map_err(bad)?;if health!="ok"{return Err(bad(format!("Database check: {health}")));}check_job(&context)?;db.execute_batch("PRAGMA optimize; PRAGMA wal_checkpoint(PASSIVE);").map_err(bad)?;Ok(Report{result:"Database health check passed; optimization and passive checkpoint completed.".into(),..Default::default()})},
-            "artwork"=>{check_job(&context)?;let generated=crate::native_artwork_variants::backfill_checked(&state, || check_job(&context).map_err(|error| error.detail)).map_err(bad)?;Ok(Report{files:generated,result:format!("Generated {generated} optimized artwork images. Original artwork was preserved."),..Default::default()})},
+                check_job(&context)?; if task.cleanup_cache {let cached=state.runtime.cleanup_provider_cache(true).map_err(HttpError::from)?;report.files+=cached.0;report.bytes+=cached.1;}
+                check_job(&context)?;let candidates=candidates(&state,task)?;for file in candidates {check_job(&context)?;let meta=std::fs::symlink_metadata(&file.path).map_err(operational)?;if meta.file_type().is_symlink()||!meta.is_file()||!old(&meta,task.retention_days){continue;}std::fs::remove_file(&file.path).map_err(operational)?;report.files+=1;report.bytes+=file.bytes;}report.result=format!("Removed {} obsolete records, {} hidden placeholders and {} unused files ({} bytes).",report.records,report.placeholders,report.files,report.bytes);Ok(report)},
+            "database"=>{let store=ServerStore::new(state.runtime.data_dir());let db=store.read_connection().map_err(storage)?;let health:String=db.query_row("PRAGMA quick_check",[],|r|r.get(0)).map_err(storage)?;if health!="ok"{return Err(operational(format!("Database check: {health}")));}drop(db);check_job(&context)?;let db=store.write_connection().map_err(storage)?;db.execute_batch("PRAGMA optimize; PRAGMA wal_checkpoint(PASSIVE);").map_err(storage)?;Ok(Report{result:"Database health check passed; optimization and passive checkpoint completed.".into(),..Default::default()})},
+            "artwork"=>{check_job(&context)?;let generated=crate::native_artwork_variants::backfill_checked(&state, || check_job(&context).map_err(|error| error.detail)).map_err(operational)?;Ok(Report{files:generated,result:format!("Generated {generated} optimized artwork images. Original artwork was preserved."),..Default::default()})},
             _=>Err(HttpError::not_found()),
         }})();
         let result=result.and_then(|report| {check_job(&context)?;Ok(report)});
-        task.last_run=now();task.last_result=match &result {Ok(r)=>r.result.clone(),Err(_) if check_job(&context).is_err()=>"Cancelled.".into(),Err(e)=>format!("Failed: {}",e.detail)};save(&state,&tasks)?;result
-    }).await.map_err(bad)?
+        task.last_run=now();task.last_result=match &result {Ok(r)=>r.result.clone(),Err(_) if check_job(&context).is_err()=>"Cancelled.".into(),Err(e)=>format!("Failed: {}",e.detail)};if let Err(save_error)=save(&state,&tasks) { if result.is_ok() { return Err(save_error); } tracing::error!(status=%save_error.status,"Maintenance outcome could not be persisted"); } result
+    }).await.map_err(operational)?
 }
 pub(crate) async fn clear_provider_cache(
     State(state): State<AppState>,
@@ -540,13 +662,18 @@ pub(crate) async fn clear_provider_cache(
         .map_err(|_| bad("Wait for the current maintenance task to finish."))?;
     tokio::task::spawn_blocking(move || {
         let _guard = guard;
-        state.runtime.clear_all_artwork_caches().map_err(bad)?;
-        let db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;
-        db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;
-        let keys=db.prepare("SELECT key FROM settings WHERE key LIKE 'expected-episodes:%' OR key LIKE 'native_anidb_%'").map_err(bad)?.query_map([],|r|r.get::<_,String>(0)).map_err(bad)?.collect::<Result<Vec<_>,_>>().map_err(bad)?;
-        for key in keys {if key.starts_with("expected-episodes:") || key.strip_prefix("native_anidb_").is_some_and(|id|!id.is_empty()&&id.bytes().all(|b|b.is_ascii_digit())){db.execute("DELETE FROM settings WHERE key=?1",[key]).map_err(bad)?;}}
+        state.runtime.clear_all_artwork_caches().map_err(HttpError::from)?;
+        let store = ServerStore::new(state.runtime.data_dir());
+        let db = store.read_connection().map_err(storage)?;
+        let changes = db.prepare("SELECT key,value_enc FROM settings WHERE key LIKE 'expected-episodes:%' OR key LIKE 'native_anidb_%'").map_err(storage)?
+            .query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).map_err(storage)?
+            .collect::<Result<Vec<_>,_>>().map_err(storage)?
+            .into_iter().filter(|(key,_)| key.starts_with("expected-episodes:") || key.strip_prefix("native_anidb_").is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())))
+            .map(|(key, original)| SettingChange { key, original, replacement: None, records: 1, prerequisites: Vec::new() }).collect::<Vec<_>>();
+        drop(db);
+        apply_setting_changes(&store, &changes)?;
         Ok(Json(Report{result:"Provider cache cleared. Results and images will be downloaded again when needed.".into(),..Default::default()}))
-    }).await.map_err(bad)?
+    }).await.map_err(operational)?
 }
 
 pub(crate) async fn run(
@@ -555,7 +682,9 @@ pub(crate) async fn run(
 ) -> Result<Json<Report>, HttpError> {
     let job = enqueue_task(&state, id).await?;
     let result = crate::jobs::wait(&state, &job.id).await?;
-    serde_json::from_value(result).map(Json).map_err(bad)
+    serde_json::from_value(result)
+        .map(Json)
+        .map_err(operational)
 }
 async fn enqueue_task(
     state: &AppState,
@@ -569,7 +698,7 @@ async fn enqueue_task(
             .ok_or_else(HttpError::not_found)?;
         let existing = ServerStore::new(copy.runtime.data_dir())
             .background_jobs()
-            .map_err(bad)?
+            .map_err(storage)?
             .into_iter()
             .find(|job| {
                 job.kind == "maintenance"
@@ -579,7 +708,7 @@ async fn enqueue_task(
         Ok::<_, HttpError>((task, existing))
     })
     .await
-    .map_err(bad)??;
+    .map_err(operational)??;
     if let Some(existing) = existing {
         return Ok(existing);
     }
@@ -606,25 +735,21 @@ pub(crate) async fn execute_background_job(
         .ok_or_else(|| bad("Invalid maintenance task."))?
         .to_owned();
     let report = execute_with_context(state, id, Some(context)).await?;
-    serde_json::to_value(report).map_err(bad)
+    serde_json::to_value(report).map_err(operational)
 }
 pub(crate) fn retire_artwork_history(state: &AppState) -> Result<(), HttpError> {
     let store = ServerStore::new(state.runtime.data_dir());
-    if store.get_setting("artwork-history-retired").map_err(bad)? == "true" {
+    if store
+        .get_setting("artwork-history-retired")
+        .map_err(storage)?
+        == "true"
+    {
         return Ok(());
     }
-    let mut db =
-        rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;
-    db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;
-    let tx = db.transaction().map_err(bad)?;
-    tx.execute(
-        "DELETE FROM catalog_artwork WHERE kind LIKE '%-previous'",
-        [],
-    )
-    .map_err(bad)?;
-    let snapshots = tx
+    let db = store.read_connection().map_err(storage)?;
+    let snapshots = db
         .prepare("SELECT library_id,item_id,snapshot_json FROM native_catalog_sources")
-        .map_err(bad)?
+        .map_err(storage)?
         .query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -632,9 +757,10 @@ pub(crate) fn retire_artwork_history(state: &AppState) -> Result<(), HttpError> 
                 r.get::<_, String>(2)?,
             ))
         })
-        .map_err(bad)?
+        .map_err(storage)?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(bad)?;
+        .map_err(storage)?;
+    let mut updates = Vec::new();
     for (library, item, raw) in snapshots {
         let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw) else {
             continue;
@@ -643,17 +769,18 @@ pub(crate) fn retire_artwork_history(state: &AppState) -> Result<(), HttpError> 
             let before = art.len();
             art.retain(|a| !a["kind"].as_str().is_some_and(|k| k.ends_with("-previous")));
             if art.len() != before {
-                tx.execute("UPDATE native_catalog_sources SET snapshot_json=?1 WHERE library_id=?2 AND item_id=?3",rusqlite::params![value.to_string(),library,item]).map_err(bad)?;
+                updates.push((library, item, raw, value.to_string()));
             }
         }
     }
-    let sync = tx
+    let sync = db
         .prepare("SELECT key,value_enc FROM settings WHERE key LIKE 'native-server-sync:%'")
-        .map_err(bad)?
+        .map_err(storage)?
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-        .map_err(bad)?
+        .map_err(storage)?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(bad)?;
+        .map_err(storage)?;
+    let mut changes = Vec::new();
     for (key, raw) in sync {
         let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw) else {
             continue;
@@ -667,23 +794,51 @@ pub(crate) fn retire_artwork_history(state: &AppState) -> Result<(), HttpError> 
             }
         }
         if changed {
-            tx.execute(
-                "UPDATE settings SET value_enc=?1 WHERE key=?2",
-                rusqlite::params![value.to_string(), key],
-            )
-            .map_err(bad)?;
+            changes.push(SettingChange {
+                key,
+                original: raw,
+                replacement: Some(value.to_string()),
+                records: 1,
+                prerequisites: Vec::new(),
+            });
         }
     }
-    tx.execute(
-        "DELETE FROM settings WHERE key IN ('history_purge_days','history_max_entries')",
-        [],
-    )
-    .map_err(bad)?;
-    tx.commit().map_err(bad)?;
-    state.runtime.discard_artwork_history().map_err(bad)?;
+    drop(db);
+    for batch in updates.chunks(WRITE_BATCH_SIZE) {
+        let mut db = store.write_connection().map_err(storage)?;
+        let tx = db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        for (library, item, raw, replacement) in batch {
+            tx.execute("UPDATE native_catalog_sources SET snapshot_json=?1 WHERE library_id=?2 AND item_id=?3 AND snapshot_json=?4",rusqlite::params![replacement,library,item,raw]).map_err(storage)?;
+        }
+        tx.commit().map_err(storage)?;
+    }
+    apply_setting_changes(&store, &changes)?;
+    {
+        let mut db = store.write_connection().map_err(storage)?;
+        let tx = db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        tx.execute(
+            "DELETE FROM catalog_artwork WHERE kind LIKE '%-previous'",
+            [],
+        )
+        .map_err(storage)?;
+        tx.execute(
+            "DELETE FROM settings WHERE key IN ('history_purge_days','history_max_entries')",
+            [],
+        )
+        .map_err(storage)?;
+        tx.commit().map_err(storage)?;
+    }
+    state
+        .runtime
+        .discard_artwork_history()
+        .map_err(HttpError::from)?;
     store
         .set_setting("artwork-history-retired", "true")
-        .map_err(bad)?;
+        .map_err(storage)?;
     Ok(())
 }
 
@@ -780,6 +935,120 @@ mod tests {
                 .0
                 .iter()
                 .all(|task| !task.running)
+        );
+    }
+    #[test]
+    fn prepared_cleanup_preserves_concurrently_refreshed_values_and_batches() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let store = ServerStore::new(state.runtime.data_dir());
+        let mut changes = Vec::new();
+        for i in 0..WRITE_BATCH_SIZE + 2 {
+            let key = format!("cleanup-test:{i}");
+            store.set_setting(&key, "observed").unwrap();
+            changes.push(SettingChange {
+                key,
+                original: "observed".into(),
+                replacement: None,
+                records: 1,
+                prerequisites: Vec::new(),
+            });
+        }
+        store.set_setting(&changes[0].key, "refreshed").unwrap();
+        assert_eq!(
+            apply_setting_changes(&store, &changes).unwrap(),
+            WRITE_BATCH_SIZE + 1
+        );
+        assert_eq!(store.get_setting(&changes[0].key).unwrap(), "refreshed");
+        assert!(
+            store
+                .get_setting(&changes[WRITE_BATCH_SIZE].key)
+                .unwrap()
+                .is_empty()
+        );
+        let stale = SettingChange {
+            key: changes[0].key.clone(),
+            original: "observed".into(),
+            replacement: Some("stale".into()),
+            records: 4,
+            prerequisites: Vec::new(),
+        };
+        assert_eq!(apply_setting_changes(&store, &[stale]).unwrap(), 0);
+        assert_eq!(store.get_setting(&changes[0].key).unwrap(), "refreshed");
+    }
+    #[test]
+    fn prepared_cleanup_rechecks_catalog_guards_after_concurrent_scan() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let store = ServerStore::new(state.runtime.data_dir());
+        let original = r#"{"items":{"restored":{}}}"#;
+        store
+            .set_setting("native-server-sync:restored-library", original)
+            .unwrap();
+        store
+            .set_setting("native-server-sync:orphan", "{}")
+            .unwrap();
+        let changes = [
+            SettingChange {
+                key: "native-server-sync:restored-library".into(),
+                original: original.into(),
+                replacement: Some("{}".into()),
+                records: 1,
+                prerequisites: vec![SettingGuard::ItemAbsent {
+                    library: "restored-library".into(),
+                    item: "restored".into(),
+                }],
+            },
+            SettingChange {
+                key: "native-server-sync:orphan".into(),
+                original: "{}".into(),
+                replacement: None,
+                records: 1,
+                prerequisites: vec![SettingGuard::LibraryAbsent("restored-library".into())],
+            },
+        ];
+        // A scan restores catalog entries after maintenance's read snapshot,
+        // without changing the sync setting bytes that CAS alone validates.
+        {
+            let db = store.write_connection().unwrap();
+            db.execute("INSERT INTO native_libraries(id,name,library_type,anime_content) VALUES('restored-library','Restored','movies','both')", []).unwrap();
+            db.execute(
+                "INSERT INTO catalog_items(id,kind,title) VALUES('restored','movie','Restored')",
+                [],
+            )
+            .unwrap();
+            db.execute("INSERT INTO native_library_items(library_id,item_id) VALUES('restored-library','restored')", []).unwrap();
+        }
+        assert_eq!(apply_setting_changes(&store, &changes).unwrap(), 0);
+        assert_eq!(
+            store
+                .get_setting("native-server-sync:restored-library")
+                .unwrap(),
+            original
+        );
+        assert_eq!(
+            store.get_setting("native-server-sync:orphan").unwrap(),
+            "{}"
+        );
+        {
+            let db = store.write_connection().unwrap();
+            db.execute(
+                "DELETE FROM native_libraries WHERE id='restored-library'",
+                [],
+            )
+            .unwrap();
+        }
+        assert_eq!(apply_setting_changes(&store, &changes).unwrap(), 2);
+    }
+    #[test]
+    fn maintenance_operational_failures_are_not_client_validation_errors() {
+        assert_eq!(
+            operational("database is locked").status,
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(
+            bad("invalid interval").status,
+            axum::http::StatusCode::BAD_REQUEST
         );
     }
     #[test]

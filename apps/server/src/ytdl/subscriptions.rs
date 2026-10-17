@@ -170,10 +170,19 @@ async fn remove(
     let _lock = state.ytdl_lock.lock().await;
     let mut all: Vec<Subscription> = load(&state, KEY)?;
     all.retain(|s| s.id != id);
-    save(&state, KEY, &all)?;
     let mut cursors: std::collections::HashMap<String, String> = load(&state, CURSOR_KEY)?;
     cursors.remove(&id);
-    save(&state, CURSOR_KEY, &cursors)?;
+    // The subscription and its continuation checkpoint are one logical delete.
+    // Serialize before acquiring the shared database writer transaction.
+    super::ServerStore::new(state.runtime.data_dir())
+        .set_settings(&[
+            (KEY.into(), serde_json::to_string(&all).map_err(err)?),
+            (
+                CURSOR_KEY.into(),
+                serde_json::to_string(&cursors).map_err(err)?,
+            ),
+        ])
+        .map_err(HttpError::from)?;
     Ok(Json(serde_json::json!({"deleted":true})))
 }
 struct Checking(String);
@@ -959,6 +968,25 @@ mod tests {
         schedule.enabled = false;
         assert!(next_check(&schedule, Utc::now()).unwrap().is_none());
     }
+    #[tokio::test]
+    async fn removing_subscription_also_removes_only_its_cursor() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let cursors = std::collections::HashMap::from([
+            ("removed".to_string(), "playlist-a".to_string()),
+            ("kept".to_string(), "playlist-b".to_string()),
+        ]);
+        save(&state, CURSOR_KEY, &cursors).unwrap();
+        let Json(result) = remove(State(state.clone()), Path("removed".into()))
+            .await
+            .unwrap();
+        assert_eq!(result["deleted"], true);
+        let restored: std::collections::HashMap<String, String> = load(&state, CURSOR_KEY).unwrap();
+        assert!(!restored.contains_key("removed"));
+        assert_eq!(restored.get("kept").map(String::as_str), Some("playlist-b"));
+        assert!(load::<Vec<Subscription>>(&state, KEY).unwrap().is_empty());
+    }
+
     #[test]
     fn subscriptions_survive_persistence() {
         let temp = tempfile::tempdir().unwrap();

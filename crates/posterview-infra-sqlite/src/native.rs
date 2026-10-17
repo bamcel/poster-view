@@ -343,7 +343,7 @@ impl ServerStore {
         if title.trim().is_empty() {
             return Err(StoreError::Validation("A title is required.".into()));
         }
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let (library_type, content): (String, String) = tx.query_row(
             "SELECT library_type,anime_content FROM native_libraries WHERE id=?1",
@@ -391,7 +391,7 @@ impl ServerStore {
                 "An observation needs a field and a non-manual source.".into(),
             ));
         }
-        let db = self.connection()?;
+        let db = self.write_connection()?;
         let changed=db.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=catalog_metadata_fields.revision+1,updated_at=datetime('now') WHERE catalog_metadata_fields.locked=0 AND catalog_metadata_fields.source<>'manual'",params![item,field,value.to_string(),source])?;
         Ok(changed > 0)
     }
@@ -409,7 +409,7 @@ impl ServerStore {
                 "A metadata field is required.".into(),
             ));
         }
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let revision: Option<i64> = tx
             .query_row(
@@ -457,7 +457,7 @@ impl ServerStore {
         input: &NativeLibraryInput,
     ) -> Result<NativeLibrary, StoreError> {
         validate(input)?;
-        let mut db = self.connection()?;
+        let mut db = self.write_connection()?;
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let id = id
             .map(str::to_owned)

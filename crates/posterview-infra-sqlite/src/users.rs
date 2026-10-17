@@ -134,12 +134,20 @@ impl ServerStore {
             .filter(|user| user.enabled && user.revision == revision))
     }
     pub fn bootstrap_user(&self, username: &str, password: &str) -> Result<(), StoreError> {
-        let c = self.connection()?;
-        let count: i64 = c.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))?;
-        if count == 0 {
-            let hash = hash_password(password)?;
-            c.execute("INSERT OR IGNORE INTO users(id,username,display_name,password_hash,role,enabled,permissions) VALUES (?1,?1,?1,?2,'admin',1,?3)",params![username,hash,serde_json::to_string(&UserPermissions{all_libraries:true,allow_unrated:true,..Default::default()}).unwrap()])?;
+        let count: i64 = self
+            .connection()?
+            .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))?;
+        if count != 0 {
+            return Ok(());
         }
+        let hash = hash_password(password)?;
+        let mut c = self.write_connection()?;
+        let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let count: i64 = tx.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))?;
+        if count == 0 {
+            tx.execute("INSERT OR IGNORE INTO users(id,username,display_name,password_hash,role,enabled,permissions) VALUES (?1,?1,?1,?2,'admin',1,?3)",params![username,hash,serde_json::to_string(&UserPermissions{all_libraries:true,allow_unrated:true,..Default::default()}).unwrap()])?;
+        }
+        tx.commit()?;
         Ok(())
     }
     pub fn create_first_admin(
@@ -160,7 +168,7 @@ impl ServerStore {
         )?;
         let hash = hash_password(&input.password)?;
         let id = legacy_id;
-        let mut connection = self.connection()?;
+        let mut connection = self.write_connection()?;
         let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let count: i64 = tx.query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))?;
         if count != 0 {
@@ -181,7 +189,7 @@ impl ServerStore {
         )?;
         let hash = hash_password(&input.password)?;
         let id = uuid::Uuid::new_v4().to_string();
-        let c = self.connection()?;
+        let c = self.write_connection()?;
         c.execute("INSERT INTO users(id,username,display_name,password_hash,role,enabled,permissions) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![id,input.username.trim(),input.display_name.trim(),hash,if input.role==UserRole::Admin{"admin"}else{"user"},input.enabled,serde_json::to_string(&input.permissions).unwrap()]).map_err(user_write_error)?;
         self.user(&id)?
             .ok_or_else(|| StoreError::Validation("Account not found.".into()))
@@ -198,7 +206,7 @@ impl ServerStore {
             &input.permissions,
         )?;
         let password = input.password.as_deref().map(hash_password).transpose()?;
-        let mut c = self.connection()?;
+        let mut c = self.write_connection()?;
         let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let existing = tx
             .query_row(&format!("{SELECT} WHERE id=?1"), [id], account)
@@ -219,7 +227,7 @@ impl ServerStore {
         self.user(id)
     }
     pub fn delete_user(&self, id: &str) -> Result<bool, StoreError> {
-        let mut c = self.connection()?;
+        let mut c = self.write_connection()?;
         let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let existing = tx
             .query_row(&format!("{SELECT} WHERE id=?1"), [id], account)

@@ -89,17 +89,7 @@ fn cancelled() -> HttpError {
     }
 }
 fn storage_error(error: StoreError) -> HttpError {
-    match error {
-        StoreError::Validation(detail) => HttpError::bad_request(detail),
-        StoreError::RevisionConflict => HttpError {
-            status: StatusCode::CONFLICT,
-            detail: "Background task changed. Reload and retry.".into(),
-        },
-        _ => {
-            tracing::error!(%error,"background task storage failed");
-            internal()
-        }
-    }
+    HttpError::from(error)
 }
 async fn db<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, StoreError> + Send + 'static,

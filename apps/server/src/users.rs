@@ -24,20 +24,7 @@ fn admin(state: &AppState, headers: &HeaderMap) -> Result<(), HttpError> {
     Ok(())
 }
 fn error(error: StoreError) -> HttpError {
-    match error {
-        StoreError::Validation(detail) => HttpError::bad_request(detail),
-        StoreError::RevisionConflict => HttpError {
-            status: StatusCode::CONFLICT,
-            detail: "Account changed. Reload before saving.".into(),
-        },
-        error => {
-            tracing::error!(%error,"account storage failed");
-            HttpError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                detail: "Could not save account.".into(),
-            }
-        }
-    }
+    HttpError::from(error)
 }
 async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T, StoreError> + Send + 'static,

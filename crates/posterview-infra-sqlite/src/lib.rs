@@ -44,6 +44,8 @@ CREATE INDEX IF NOT EXISTS idx_apply_history_recent
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("Database writes are busy. Please retry shortly.")]
+    WriteUnavailable,
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
     #[error("secret key error: {0}")]
@@ -94,8 +96,8 @@ impl ServerStore {
         if let Some(parent) = self.db_path.parent() {
             fs::create_dir_all(parent)?;
         }
+        let connection = self.write_connection()?;
         self.cipher()?;
-        let connection = self.connection()?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.execute_batch(SCHEMA)?;
         migrate(&connection)?;
@@ -131,7 +133,7 @@ impl ServerStore {
 
     pub fn create_server(&self, input: &ServerCreate) -> Result<Server, StoreError> {
         let cipher = self.cipher()?;
-        let mut connection = self.connection()?;
+        let mut connection = self.write_connection()?;
         let transaction = connection.transaction()?;
         if input.is_default {
             transaction.execute("UPDATE media_servers SET is_default = 0", [])?;
@@ -175,7 +177,7 @@ impl ServerStore {
             return Ok(None);
         }
         let cipher = self.cipher()?;
-        let mut connection = self.connection()?;
+        let mut connection = self.write_connection()?;
         let transaction = connection.transaction()?;
         if input.is_default == Some(true) {
             transaction.execute("UPDATE media_servers SET is_default = 0", [])?;
@@ -212,7 +214,7 @@ impl ServerStore {
 
     pub fn delete_server(&self, id: i64) -> Result<bool, StoreError> {
         Ok(self
-            .connection()?
+            .write_connection()?
             .execute("DELETE FROM media_servers WHERE id = ?1", [id])?
             > 0)
     }
@@ -267,7 +269,7 @@ impl ServerStore {
         } else {
             value.to_owned()
         };
-        self.connection()?.execute(
+        self.write_connection()?.execute(
             "INSERT INTO settings (key, value_enc) VALUES (?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value_enc = excluded.value_enc",
             params![key, stored],
@@ -286,7 +288,7 @@ impl ServerStore {
         content_type: &str,
         provider: &str,
     ) -> Result<i64, StoreError> {
-        let connection = self.connection()?;
+        let connection = self.write_connection()?;
         connection.execute(
             "INSERT INTO apply_history
              (server_id, item_id, item_title, target, file_path, content_type, provider)
@@ -342,7 +344,7 @@ impl ServerStore {
     }
 
     pub fn prune_history(&self, keep: i64) -> Result<Vec<String>, StoreError> {
-        let mut connection = self.connection()?;
+        let mut connection = self.write_connection()?;
         let transaction = connection.transaction()?;
         let stale = {
             let mut statement = transaction.prepare(
@@ -363,7 +365,7 @@ impl ServerStore {
     }
 
     pub fn purge_history(&self, days: i64) -> Result<Vec<String>, StoreError> {
-        let mut connection = self.connection()?;
+        let mut connection = self.write_connection()?;
         let transaction = connection.transaction()?;
         let stale = {
             let (query, argument) = if days > 0 {
@@ -393,9 +395,50 @@ impl ServerStore {
     }
 
     fn connection(&self) -> Result<Connection, StoreError> {
-        let connection = Connection::open(&self.db_path)?;
-        connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")?;
-        Ok(connection)
+        open_connection(&self.db_path)
+    }
+
+    /// Readers do not wait in the application writer queue.
+    pub fn read_connection(&self) -> Result<Connection, StoreError> {
+        let db = open_connection(&self.db_path)?;
+        db.pragma_update(None, "query_only", true)?;
+        Ok(db)
+    }
+
+    /// Hold only around a short database write unit, never external work.
+    pub fn write_connection(&self) -> Result<writes::WriteConnection, StoreError> {
+        writes::open(&self.db_path)
+    }
+
+    /// Atomically persist a bounded group of settings, preparing encryption before admission.
+    pub fn set_settings(&self, values: &[(String, String)]) -> Result<(), StoreError> {
+        if values.len() > 128 {
+            return Err(StoreError::Validation(
+                "Too many settings in one write batch.".into(),
+            ));
+        }
+        if values.is_empty() {
+            return Ok(());
+        }
+        let mut prepared = Vec::with_capacity(values.len());
+        for (key, value) in values {
+            let value = if is_secret_setting(key) {
+                self.cipher()?.encrypt(value.as_bytes())
+            } else {
+                value.clone()
+            };
+            prepared.push((key, value));
+        }
+        let mut db = self.write_connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        {
+            let mut statement = tx.prepare_cached("INSERT INTO settings(key,value_enc) VALUES(?1,?2) ON CONFLICT(key) DO UPDATE SET value_enc=excluded.value_enc")?;
+            for (key, value) in prepared {
+                statement.execute(params![key, value])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     fn cipher(&self) -> Result<Fernet, StoreError> {
@@ -765,3 +808,12 @@ mod native;
 mod users;
 
 mod native_catalog;
+
+fn open_connection(path: &Path) -> Result<Connection, StoreError> {
+    let connection = Connection::open(path)?;
+    connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")?;
+    Ok(connection)
+}
+
+mod writes;
+pub use writes::WriteConnection;

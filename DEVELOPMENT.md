@@ -469,3 +469,31 @@ To integrate another durable task, add a bounded executor to the dispatch and
 enqueue a version-compatible payload with a stable resource and deduplication
 key. A status-only plugin adapter does not make its task durable. YouTube keeps
 its existing specialized download queue and recovery behavior.
+
+
+### SQLite write coordination
+
+The main `posterview.db` uses process-wide admission keyed by the resolved database
+path (`posterview-infra-sqlite/src/writes.rs`). Separate `ServerStore` instances
+share a FIFO writer queue; different database files do not block each other.
+The queue permits 128 waiting writers and waits up to five seconds. SQLite's
+five-second busy timeout still handles external processes. Admission timeout,
+queue overload, and SQLite busy/locked errors return a safe HTTP 503 through the
+shared storage-error mapper. Validation remains 400 and revision conflicts 409.
+Failed mutations are never automatically replayed by the coordinator.
+
+Store mutators use `write_connection`; hold it only for a database-only unit,
+release it before filesystem/network work, and never acquire a second writer
+while holding it. Maintenance uses `read_connection` (query-only) for preparation
+and `write_connection` for bounded batches. Ordinary catalog reads remain
+independent. Reader/watch databases retain their separate storage lifecycles.
+
+Catalog JSON, stream projections and series lookup are prepared before acquiring
+the writer. Catalog publication stays atomic to preserve availability and parent
+relationships. Completed NFO files project in batches of at most 100; settings
+batch atomically in groups of at most 128. Maintenance prepares changes before
+writing and compares both original values and catalog prerequisites in each batch
+so concurrent scans or configuration edits are preserved. Download subscriptions
+and cursors delete atomically. The specialized download queue remains a JSON file;
+progress samples coalesce to one write per second plus a final EOF flush, with
+persistence failures propagated rather than silently ignored.

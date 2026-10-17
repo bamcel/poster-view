@@ -551,7 +551,7 @@ pub(super) fn record_stream_progress(job: &mut Job, stream_progress: Option<f64>
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct EncodingProgress {
     seconds: Option<f64>,
     speed: Option<f64>,
@@ -642,6 +642,63 @@ pub(super) async fn video_progress(
     super::save(state, "plugin-ytdl-jobs", &jobs)
 }
 
+fn progress_flush_due(last: Option<tokio::time::Instant>, now: tokio::time::Instant) -> bool {
+    last.is_none_or(|last| now.duration_since(last) >= Duration::from_secs(1))
+}
+
+async fn persist_progress(
+    state: &AppState,
+    id: &str,
+    encoding: &EncodingProgress,
+    duration: Option<Option<f64>>,
+    download: Option<&Value>,
+) -> Result<(), HttpError> {
+    let guard = state.ytdl_lock.clone().lock_owned().await;
+    let state = state.clone();
+    let id = id.to_owned();
+    let encoding = encoding.clone();
+    let download = download.cloned();
+    tokio::task::spawn_blocking(move || {
+        // Keep the queue lock until the atomic file replacement has settled,
+        // including if the async reader is cancelled while this write runs.
+        let _guard = guard;
+        let mut jobs = super::load::<Vec<Job>>(&state, "plugin-ytdl-jobs")?;
+        let Some(job) = jobs.iter_mut().find(|job| {
+            job.id == id
+                && if duration.is_some() {
+                    job.status == "processing"
+                } else {
+                    job.status == "downloading"
+                }
+        }) else {
+            return Ok(());
+        };
+        if let Some(duration) = duration {
+            encoding.record(job, duration);
+        } else if let Some(value) = download {
+            let total = value["total_bytes"]
+                .as_f64()
+                .or_else(|| value["total_bytes_estimate"].as_f64());
+            let percent = total.filter(|total| *total > 0.0).and_then(|total| {
+                value["downloaded_bytes"]
+                    .as_f64()
+                    .map(|bytes| (100.0 * bytes / total).clamp(0.0, 100.0))
+            });
+            record_stream_progress(job, percent);
+            job.speed = value["speed"]
+                .as_f64()
+                .filter(|speed| speed.is_finite() && *speed >= 0.0)
+                .map(download_speed);
+            job.eta = value["eta"]
+                .as_f64()
+                .map(|seconds| format!("{seconds:.0}s"));
+        }
+        super::save(&state, "plugin-ytdl-jobs", &jobs)
+    })
+    .await
+    .map_err(err)?
+}
+
 async fn cancellable(
     state: &AppState,
     job: &Job,
@@ -678,71 +735,90 @@ async fn cancellable(
     let progress_state = state.clone();
     let id = job.id.clone();
     let stdout = child.stdout.take();
-    let progress_reader = tokio::spawn(async move {
+    let mut progress_reader = Some(tokio::spawn(async move {
         if let Some(stdout) = stdout {
             let mut lines = BufReader::new(stdout).lines();
             let mut encoding = EncodingProgress::default();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(duration) = encoding_duration {
-                    if encoding.line(&line) {
-                        let _lock = progress_state.ytdl_lock.lock().await;
-                        if let Ok(mut jobs) =
-                            super::load::<Vec<Job>>(&progress_state, "plugin-ytdl-jobs")
-                        {
-                            if let Some(job) = jobs
-                                .iter_mut()
-                                .find(|j| j.id == id && j.status == "processing")
-                            {
-                                encoding.record(job, duration);
-                            }
-                            let _ = super::save(&progress_state, "plugin-ytdl-jobs", &jobs);
-                        }
+            let mut latest_download = None;
+            let mut dirty = false;
+            let mut last_flush = None;
+            while let Some(line) = lines.next_line().await.map_err(err)? {
+                let changed = if encoding_duration.is_some() {
+                    encoding.line(&line)
+                } else if let Some(data) = line.strip_prefix("PVPROGRESS:") {
+                    if let Ok(value) = serde_json::from_str::<Value>(data) {
+                        latest_download = Some(value);
+                        true
+                    } else {
+                        false
                     }
-                } else if let Some(data) = line.strip_prefix("PVPROGRESS:")
-                    && let Ok(value) = serde_json::from_str::<Value>(data)
-                {
-                    let _lock = progress_state.ytdl_lock.lock().await;
-                    if let Ok(mut jobs) =
-                        super::load::<Vec<Job>>(&progress_state, "plugin-ytdl-jobs")
-                    {
-                        if let Some(job) = jobs
-                            .iter_mut()
-                            .find(|j| j.id == id && j.status != "cancelled")
-                        {
-                            let total = value["total_bytes"]
-                                .as_f64()
-                                .or_else(|| value["total_bytes_estimate"].as_f64());
-                            let stream_progress = total.filter(|t| *t > 0.0).and_then(|t| {
-                                value["downloaded_bytes"]
-                                    .as_f64()
-                                    .map(|n| (100.0 * n / t).clamp(0.0, 100.0))
-                            });
-                            record_stream_progress(job, stream_progress);
-                            job.speed = value["speed"]
-                                .as_f64()
-                                .filter(|speed| speed.is_finite() && *speed >= 0.0)
-                                .map(download_speed);
-                            job.eta = value["eta"].as_f64().map(|s| format!("{s:.0}s"));
-                        }
-                        let _ = super::save(&progress_state, "plugin-ytdl-jobs", &jobs);
-                    }
+                } else {
+                    false
+                };
+                dirty |= changed;
+                let now = tokio::time::Instant::now();
+                if dirty && progress_flush_due(last_flush, now) {
+                    persist_progress(
+                        &progress_state,
+                        &id,
+                        &encoding,
+                        encoding_duration,
+                        latest_download.as_ref(),
+                    )
+                    .await?;
+                    last_flush = Some(now);
+                    dirty = false;
                 }
             }
+            // EOF is a durable boundary even when the final sample arrived
+            // inside the coalescing window.
+            if dirty {
+                persist_progress(
+                    &progress_state,
+                    &id,
+                    &encoding,
+                    encoding_duration,
+                    latest_download.as_ref(),
+                )
+                .await?;
+            }
         }
-    });
+        Ok::<_, HttpError>(())
+    }));
     let deadline = tokio::time::Instant::now() + Duration::from_secs(24 * 3600);
     loop {
+        if progress_reader
+            .as_ref()
+            .is_some_and(|reader| reader.is_finished())
+        {
+            let outcome = progress_reader
+                .take()
+                .unwrap()
+                .await
+                .map_err(err)
+                .and_then(|outcome| outcome);
+            if let Err(error) = outcome {
+                drop(tree);
+                let _ = child.wait().await;
+                reader.abort();
+                return Err(error);
+            }
+        }
         if cancelled(state, &job.id).await || tokio::time::Instant::now() > deadline {
             drop(tree);
             let _ = child.wait().await;
             reader.abort();
-            progress_reader.abort();
+            if let Some(reader) = progress_reader.take() {
+                reader.abort();
+            }
             return Err(err("Download cancelled or timed out."));
         }
         if let Some(status) = child.try_wait().map_err(err)? {
             tree.0 = None;
             let message = reader.await.unwrap_or_default();
-            let _ = progress_reader.await;
+            if let Some(reader) = progress_reader.take() {
+                reader.await.map_err(err)??;
+            }
             if status.success() {
                 if encoding_duration.is_some() {
                     // Some FFmpeg versions report the last frame's start time,
@@ -1316,6 +1392,79 @@ mod tests {
             assert!(job.speed.as_ref().unwrap().contains("50.0s encoded"));
         }
     }
+    #[test]
+    fn progress_samples_are_coalesced_within_one_second() {
+        let start = tokio::time::Instant::now();
+        assert!(progress_flush_due(None, start));
+        assert!(!progress_flush_due(
+            Some(start),
+            start + Duration::from_millis(999)
+        ));
+        assert!(progress_flush_due(
+            Some(start),
+            start + Duration::from_secs(1)
+        ));
+    }
+
+    #[tokio::test]
+    async fn pending_progress_preserves_cancelled_and_removed_jobs() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let mut job = progress_fixture();
+        job.status = "cancelled".into();
+        super::super::save(&state, "plugin-ytdl-jobs", &vec![job.clone()]).unwrap();
+        let sample = json!({"downloaded_bytes": 100, "total_bytes": 100});
+        persist_progress(
+            &state,
+            &job.id,
+            &EncodingProgress::default(),
+            None,
+            Some(&sample),
+        )
+        .await
+        .unwrap();
+        let saved: Vec<Job> = super::super::load(&state, "plugin-ytdl-jobs").unwrap();
+        assert_eq!(saved[0].status, "cancelled");
+        assert_eq!(saved[0].progress, job.progress);
+        super::super::save(&state, "plugin-ytdl-jobs", &Vec::<Job>::new()).unwrap();
+        persist_progress(
+            &state,
+            &job.id,
+            &EncodingProgress::default(),
+            None,
+            Some(&sample),
+        )
+        .await
+        .unwrap();
+        assert!(
+            super::super::load::<Vec<Job>>(&state, "plugin-ytdl-jobs")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn progress_storage_errors_are_returned() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        std::fs::write(
+            state.runtime.data_dir().join("ytdl-jobs.json"),
+            b"invalid queue",
+        )
+        .unwrap();
+        assert!(
+            persist_progress(
+                &state,
+                "fixture",
+                &EncodingProgress::default(),
+                None,
+                Some(&json!({}))
+            )
+            .await
+            .is_err()
+        );
+    }
+
     #[tokio::test]
     async fn ffmpeg_fixture_persists_encoding_progress() {
         if !std::process::Command::new("ffmpeg")
