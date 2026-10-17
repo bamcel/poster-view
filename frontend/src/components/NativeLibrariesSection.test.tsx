@@ -192,13 +192,13 @@ it("creates YouTube library with channel hierarchy and local NFO defaults", asyn
  fireEvent.change(screen.getByLabelText("Name"),{target:{value:"Creators"}});
  fireEvent.change(screen.getByLabelText("Library type"),{target:{value:"youtube"}});
  expect(screen.queryByLabelText("YouTube content")).toBeNull();
- fireEvent.change(screen.getByLabelText("Channel URLs or IDs"),{target:{value:"@first\n@second"}});
+ expect(screen.queryByLabelText("Channel URLs or IDs")).toBeNull();
  fireEvent.click(screen.getByRole("button",{name:"Next"}));
  fireEvent.click(await screen.findByRole("checkbox",{name:"Shows"}));
  fireEvent.click(screen.getByRole("button",{name:"Select Folders"}));
  fireEvent.click(screen.getByRole("button",{name:/Review/}));
  fireEvent.click(screen.getByRole("button",{name:"Create library"}));
- await waitFor(()=>expect(nativeLibraries.save).toHaveBeenCalledWith(expect.objectContaining({library_type:"youtube",options:expect.objectContaining({youtube_mode:"multiple_channels",youtube_channels:["@first","@second"],read_nfo:true,save_nfo:true,fetch_missing:false,show_missing_files:false,metadata_providers:{},image_providers:{}})}),undefined));
+ await waitFor(()=>expect(nativeLibraries.save).toHaveBeenCalledWith(expect.objectContaining({library_type:"youtube",options:expect.objectContaining({youtube_mode:"multiple_channels",youtube_channels:[],read_nfo:true,save_nfo:true,fetch_missing:false,show_missing_files:false,metadata_providers:{},image_providers:{}})}),undefined));
 });
 
 it("resets pending folder edits without changing the library's existing roots",async()=>{
@@ -254,4 +254,13 @@ it("keeps embedded folder checkboxes in sync when removing an existing root",asy
  fireEvent.click(screen.getByRole("button",{name:"Select Folders"}));
  expect(screen.queryByRole("button",{name:"Remove /media/Shows"})).toBeNull();
  expect(screen.getByText("1 folders selected")).toBeTruthy();
+});
+
+it("hides unused channel references when editing YouTube without dropping saved values",async()=>{
+ const library={...saved,library_type:"youtube" as const,options:{...defaultNativeOptions,youtube_channels:["@existing"]}};
+ mount(<LibraryDialog library={library} onClose={vi.fn()} onSaved={vi.fn()}/>);
+ expect(screen.queryByLabelText("Channel URLs or IDs")).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:/Review/}));
+ fireEvent.click(screen.getByRole("button",{name:"Save library"}));
+ await waitFor(()=>expect(nativeLibraries.save).toHaveBeenCalledWith(expect.objectContaining({options:expect.objectContaining({youtube_channels:["@existing"]})}),saved.id));
 });
