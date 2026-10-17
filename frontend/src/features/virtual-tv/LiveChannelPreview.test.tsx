@@ -1,4 +1,4 @@
-import {act,cleanup,fireEvent,render} from "@testing-library/react";
+import {act,cleanup,fireEvent,render,screen} from "@testing-library/react";
 import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import {apiRequest} from "../../api/client";
 import {playbackApi,defaultPlaybackPreferences} from "../playback/api/playback";
@@ -35,7 +35,7 @@ it("uses enabled default text subtitles locally without requesting an encode",as
  expect(playbackApi.create).toHaveBeenCalledWith("lib","episode",expect.objectContaining({subtitle_index:null,direct_only:true}));
  view.unmount();expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview-subtitles");vi.unstubAllGlobals();
 });
-afterEach(async()=>{cleanup();await act(async()=>{await Promise.resolve();await Promise.resolve();});vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();delete (HTMLTrackElement.prototype as unknown as {track?:unknown}).track;});
+afterEach(async()=>{cleanup();localStorage.clear();await act(async()=>{await Promise.resolve();await Promise.resolve();});vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();delete (HTMLTrackElement.prototype as unknown as {track?:unknown}).track;});
 const start=async()=>{await act(async()=>{await vi.advanceTimersByTimeAsync(2000);});};
 it("keeps subtitles off when the viewer disables them",async()=>{
  vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,subtitle_mode:"off"});
@@ -70,4 +70,59 @@ it("stops when decoding never becomes ready",async()=>{render(<LiveChannelPrevie
 it("lets full playback await explicit preview teardown and treats a denied heartbeat as fatal",async()=>{
  const view=render(<LiveChannelPreview {...props}/>);await start();await act(async()=>{await stopLivePreviews();});expect(playbackApi.stop).toHaveBeenCalledTimes(1);view.unmount();
  vi.mocked(playbackApi.heartbeat).mockRejectedValueOnce(new Error("Access revoked"));render(<LiveChannelPreview {...props}/>);await start();await act(async()=>{await vi.advanceTimersByTimeAsync(10_000);});expect(playbackApi.stop).toHaveBeenCalledTimes(2);expect(props.onReady).toHaveBeenLastCalledWith(false);
+});
+
+it("rechecks decoded frames and recovers after seeking without another playing event",async()=>{
+ const view=render(<LiveChannelPreview {...props}/>);const video=view.container.querySelector("video")!;
+ let frame!:VideoFrameRequestCallback;
+ Object.defineProperty(video,"requestVideoFrameCallback",{value:vi.fn(callback=>{frame=callback;return 1;})});
+ Object.defineProperty(video,"cancelVideoFrameCallback",{value:vi.fn()});
+ Object.defineProperty(video,"readyState",{configurable:true,value:1});
+ Object.defineProperty(video,"videoWidth",{value:1920});
+ await start();fireEvent.playing(video);
+ act(()=>frame(0,{} as VideoFrameCallbackMetadata));
+ expect(video.requestVideoFrameCallback).toHaveBeenCalledTimes(2);
+ expect(props.onReady).not.toHaveBeenCalledWith(true);
+ Object.defineProperty(video,"readyState",{value:2});
+ act(()=>frame(0,{} as VideoFrameCallbackMetadata));
+ expect(props.onReady).toHaveBeenLastCalledWith(true);
+ fireEvent.seeking(video);expect(props.onReady).toHaveBeenLastCalledWith(false);
+ fireEvent.seeked(video);act(()=>frame(0,{} as VideoFrameCallbackMetadata));
+ expect(props.onReady).toHaveBeenLastCalledWith(true);
+ fireEvent.waiting(video);fireEvent.canPlay(video);act(()=>frame(0,{} as VideoFrameCallbackMetadata));
+ expect(props.onReady).toHaveBeenLastCalledWith(true);
+ await act(async()=>{await vi.advanceTimersByTimeAsync(15_000);});
+ expect(playbackApi.stop).not.toHaveBeenCalled();
+});
+it("does not rewind live playback when metadata reloads during recovery",async()=>{
+ const view=render(<LiveChannelPreview {...props}/>);const video=view.container.querySelector("video")!;
+ await start();fireEvent.loadedMetadata(video);expect(video.currentTime).toBe(120);
+ video.currentTime=145;fireEvent.loadedMetadata(video);expect(video.currentTime).toBe(145);
+ expect(video.parentElement?.className).toBe("vtv-live-layer");
+});
+
+it("starts muted and remembers the sound toggle across preview replacements",async()=>{
+ const view=render(<LiveChannelPreview {...props}/>);await start();const video=view.container.querySelector("video")!;
+ expect(video.muted).toBe(true);
+ fireEvent.click(screen.getByRole("button",{name:"Unmute live preview"}));
+ expect(video.muted).toBe(false);
+ expect(screen.getByRole("button",{name:"Mute live preview"}).getAttribute("aria-pressed")).toBe("true");
+ expect(localStorage.getItem("posterview-virtual-tv-preview-muted")).toBe("false");
+ view.unmount();
+ const next=render(<LiveChannelPreview {...props} channelId="next"/>);await start();
+ expect(next.container.querySelector("video")!.muted).toBe(false);
+ fireEvent.click(screen.getByRole("button",{name:"Mute live preview"}));
+ expect(next.container.querySelector("video")!.muted).toBe(true);
+ expect(localStorage.getItem("posterview-virtual-tv-preview-muted")).toBe("true");
+});
+it("falls back to silent autoplay when the browser blocks remembered sound",async()=>{
+ localStorage.setItem("posterview-virtual-tv-preview-muted","false");
+ const denied=new DOMException("Gesture required","NotAllowedError");
+ vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce(denied).mockResolvedValue();
+ const view=render(<LiveChannelPreview {...props}/>);await start();const video=view.container.querySelector("video")!;
+ await act(async()=>{fireEvent.loadedMetadata(video);await Promise.resolve();});
+ expect(video.muted).toBe(true);expect(playbackApi.stop).not.toHaveBeenCalled();
+ expect(localStorage.getItem("posterview-virtual-tv-preview-muted")).toBe("false");
+ fireEvent.click(screen.getByRole("button",{name:"Unmute live preview"}));
+ expect(video.muted).toBe(false);
 });

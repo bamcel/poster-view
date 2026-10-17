@@ -1,3 +1,4 @@
+import {Mic,MicOff} from "lucide-react";
 import {useEffect,useRef,useState} from "react";
 import {apiRequest} from "../../api/client";
 import {playbackApi,defaultPlaybackPreferences} from "../playback/api/playback";
@@ -14,14 +15,25 @@ let previousPreview:Promise<void>=Promise.resolve();
 let stopCurrentPreview:(()=>void)|undefined;
 export const waitForLivePreviewTeardown=()=>previousPreview;
 export function stopLivePreviews():Promise<void>{stopCurrentPreview?.();return previousPreview;}
+const soundPreference="posterview-virtual-tv-preview-muted";
+function initialMuted(){try{return localStorage.getItem(soundPreference)!=="false";}catch{return true;}}
 interface Props {channelId:string;programId:string;endsAt:string;onReady:(ready:boolean)=>void}
 interface Tune {library_id:string;item_id:string;program_id:string;position_seconds:number;ends_at:string}
 export default function LiveChannelPreview({channelId,programId,endsAt,onReady}:Props){
  const video=useRef<HTMLVideoElement>(null),ready=useRef(onReady);ready.current=onReady;
+ const [muted,setMuted]=useState(initialMuted);
+ const mutedRef=useRef(muted);mutedRef.current=muted;
+ useEffect(()=>{if(video.current)video.current.muted=muted;},[muted]);
+ const toggleSound=()=>{
+  const next=!muted;setMuted(next);mutedRef.current=next;
+  try{localStorage.setItem(soundPreference,String(next));}catch{/* Sound remains usable when storage is unavailable. */}
+  if(video.current){video.current.muted=next;if(!next)void video.current.play().catch(()=>{setMuted(true);});}
+ };
  const [visibilityEpoch,setVisibilityEpoch]=useState(0);
  useEffect(()=>{const resume=()=>{if(!document.hidden)setVisibilityEpoch(value=>value+1);};document.addEventListener("visibilitychange",resume);return()=>document.removeEventListener("visibilitychange",resume);},[]);
  useEffect(()=>{
   const element=video.current!;let active=true,session:PlaybackSession|undefined,engine:ReturnType<typeof attachSegmentedPlayback>|undefined;
+  let initialSeekApplied=false;
   let frame:number|undefined,heartbeat:ReturnType<typeof setInterval>|undefined,startup:ReturnType<typeof setTimeout>|undefined;
   let release!:()=>void;const predecessor=previousPreview;previousPreview=new Promise<void>(resolve=>{release=resolve;});
   const controller=new AbortController();let starting:Promise<void>=Promise.resolve(),stopping=false;
@@ -39,22 +51,30 @@ export default function LiveChannelPreview({channelId,programId,endsAt,onReady}:
    void Promise.all([predecessor,starting]).then(async()=>{if(session)await playbackApi.stop(session.id,true);}).catch(()=>{}).finally(release);
   };
   const decoded=()=>{
-   if(!alive()||element.readyState<2||element.videoWidth<=0)return;
-   clearTimeout(startup);ready.current(true);
+   frame=undefined;
+   if(!alive())return;
+   if(element.readyState>=2&&element.videoWidth>0&&!element.seeking){clearTimeout(startup);ready.current(true);}
+   else {ready.current(false);if(element.requestVideoFrameCallback)frame=element.requestVideoFrameCallback(decoded);}
   };
   const playing=()=>{
    if(!alive())return;
    if(element.requestVideoFrameCallback){if(frame!==undefined)element.cancelVideoFrameCallback?.(frame);frame=element.requestVideoFrameCallback(decoded);}
    else decoded();
   };
-  const waiting=()=>{ready.current(false);if(frame!==undefined)element.cancelVideoFrameCallback?.(frame);clearTimeout(startup);startup=setTimeout(stop,15_000);};
+  const waiting=()=>{ready.current(false);if(frame!==undefined)element.cancelVideoFrameCallback?.(frame);frame=undefined;clearTimeout(startup);startup=setTimeout(stop,15_000);};
   const metadata=()=>{
    if(!alive()||!session)return;
-   element.currentTime=Math.max(0,(session.position_seconds??0)-session.offset_seconds);
-   void element.play().catch(stop);
+   if(!initialSeekApplied){initialSeekApplied=true;element.currentTime=Math.max(0,(session.position_seconds??0)-session.offset_seconds);}
+   void element.play().catch(error=>{
+    // Browsers may block remembered audible autoplay on a fresh visit. Keep
+    // the preference, but play silently until the viewer clicks the control.
+    if(alive()&&!element.muted&&error?.name==="NotAllowedError"){
+     element.muted=true;setMuted(true);void element.play().catch(stop);
+    }else stop();
+   });
   };
   const visibility=()=>{if(document.hidden)stop();};
-  element.addEventListener("loadedmetadata",metadata);element.addEventListener("playing",playing);element.addEventListener("waiting",waiting);element.addEventListener("error",stop);element.addEventListener("ended",stop);document.addEventListener("visibilitychange",visibility);
+  element.addEventListener("loadedmetadata",metadata);element.addEventListener("playing",playing);element.addEventListener("loadeddata",playing);element.addEventListener("canplay",playing);element.addEventListener("seeked",playing);element.addEventListener("seeking",waiting);element.addEventListener("waiting",waiting);element.addEventListener("error",stop);element.addEventListener("ended",stop);document.addEventListener("visibilitychange",visibility);
   ready.current(false);
   const boundary=setTimeout(stop,Math.min(2_147_483_647,Math.max(0,Date.parse(endsAt)-Date.now())));
   const debounce=setTimeout(()=>{
@@ -70,7 +90,7 @@ export default function LiveChannelPreview({channelId,programId,endsAt,onReady}:
     const copy=automaticStreamCopyAllowed(info,caps,tracks.audio)&&(!caps.containers.includes(info.container?.toLowerCase()??"")||caps.source_video_supported===false||["mkv","matroska"].includes(info.container?.toLowerCase()??""));
     session=await playbackApi.create(tune.library_id,tune.item_id,{...caps,version_id:info.version_id,virtual_channel_id:channelId,position_seconds:tune.position_seconds,audio_index:tracks.audio,subtitle_index:null,direct_only:!copy,force_remux:copy});
     if(!alive()||!["direct","remux"].includes(session.method)){stop();return;}
-    session.position_seconds??=tune.position_seconds;element.muted=true;
+    session.position_seconds??=tune.position_seconds;element.muted=mutedRef.current;
     if(session.method==="remux")engine=attachSegmentedPlayback(element,session,{fatal:stop,isCurrent:alive},Math.max(0,session.position_seconds-session.offset_seconds));else element.src=session.url;
     // Render locally so subtitles never turn a lightweight preview into an encode.
     const selected=info.tracks.find(track=>track.kind==="subtitle"&&track.index===tracks.subtitle);
@@ -97,7 +117,7 @@ export default function LiveChannelPreview({channelId,programId,endsAt,onReady}:
    })().catch(stop);
   },2000);
   stopCurrentPreview=stop;
-  return()=>{stop();element.removeEventListener("loadedmetadata",metadata);element.removeEventListener("playing",playing);element.removeEventListener("waiting",waiting);element.removeEventListener("error",stop);element.removeEventListener("ended",stop);document.removeEventListener("visibilitychange",visibility);};
+  return()=>{stop();element.removeEventListener("loadedmetadata",metadata);element.removeEventListener("playing",playing);element.removeEventListener("loadeddata",playing);element.removeEventListener("canplay",playing);element.removeEventListener("seeked",playing);element.removeEventListener("seeking",waiting);element.removeEventListener("waiting",waiting);element.removeEventListener("error",stop);element.removeEventListener("ended",stop);document.removeEventListener("visibilitychange",visibility);};
  },[channelId,programId,endsAt,visibilityEpoch]);
- return <video ref={video} className="vtv-live-video" muted playsInline autoPlay aria-label="Live channel preview"/>;
+ return <div className="vtv-live-layer"><video ref={video} className="vtv-live-video" muted={muted} playsInline autoPlay aria-label="Live channel preview"/><button type="button" className="vtv-preview-sound" aria-label={muted?"Unmute live preview":"Mute live preview"} aria-pressed={!muted} title={muted?"Turn preview sound on":"Mute preview sound"} onClick={event=>{event.stopPropagation();toggleSound();}}>{muted?<MicOff size={18} aria-hidden="true"/>:<Mic size={18} aria-hidden="true"/>}</button></div>;
 }
