@@ -3,7 +3,7 @@ import {LibraryPageBack} from "../lib/libraryHeaderBack";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import type {ReactNode} from "react";
 import { cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, Link } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import AuthGate from "./AuthGate";
 import Layout from "./Layout";
@@ -160,19 +160,19 @@ it("does not offer the retired headline artwork preference",async()=>{
 it("returns from a library to the homepage using the header back button",async()=>{
  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
  render(<MemoryRouter initialEntries={["/media/Anime"]}><AuthGate><Layout><CurrentLocation/></Layout></AuthGate></MemoryRouter>);
- const back=await screen.findByRole("link",{name:"Back to homepage"});
+ const back=await screen.findByRole("link",{name:"Back"});
  expect(back.getAttribute("href")).toBe("/");
  expect(back.className).toContain("size-11");
  fireEvent.click(back);
- await waitFor(()=>expect(screen.queryByRole("link",{name:"Back to homepage"})).toBeNull());
+ await waitFor(()=>expect(screen.queryByRole("link",{name:"Back"})).toBeNull());
  expect(screen.getByText("/")).toBeTruthy();
 });
 
 it.each(["/media/Anime/title","/server/7/item/show","/server/7/series/show/season/one"])("keeps only the header Back link on %s",async path=>{
  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
  render(<MemoryRouter initialEntries={[path]}><AuthGate><Layout><LibraryPageBack><button>Duplicate Back</button></LibraryPageBack><p>Library details</p></Layout></AuthGate></MemoryRouter>);
- const back=await screen.findByRole("link",{name:"Back to homepage"});
- expect(back.getAttribute("href")).toBe("/");
+ const back=await screen.findByRole("link",{name:"Back"});
+ expect(back.getAttribute("href")).not.toBe(path);
  expect(screen.queryByRole("button",{name:"Duplicate Back"})).toBeNull();
 });
 
@@ -183,4 +183,26 @@ it("places library search in the same header as navigation and account controls"
  expect(within(screen.getByRole("banner")).getByRole("textbox",{name:"Search episodes"})).toBe(input);
  expect(screen.getAllByRole("textbox",{name:"Search episodes"})).toHaveLength(1);
  fireEvent.change(input,{target:{value:"Maomao"}});expect((input as HTMLInputElement).value).toBe("Maomao");
+});
+
+it("retraces library, series and season navigation including the original query",async()=>{
+ vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
+ render(<MemoryRouter initialEntries={["/media/TV-Series?search=wick"]}><AuthGate><Layout><CurrentLocation/><Link to="/media/TV-Series/Show">Open series</Link><Link to="/media/TV-Series/Show/Season-01">Open season</Link></Layout></AuthGate></MemoryRouter>);
+ fireEvent.click(await screen.findByRole("link",{name:"Open series"}));
+ await waitFor(()=>expect(screen.getByRole("link",{name:"Back"}).getAttribute("href")).toBe("/media/TV-Series?search=wick"));
+ fireEvent.click(screen.getByRole("link",{name:"Open season"}));
+ await waitFor(()=>expect(screen.getByRole("link",{name:"Back"}).getAttribute("href")).toBe("/media/TV-Series/Show"));
+ fireEvent.click(screen.getByRole("link",{name:"Back"}));
+ await waitFor(()=>expect(screen.getByText("/media/TV-Series/Show")).toBeTruthy());
+ fireEvent.click(screen.getByRole("link",{name:"Back"}));
+ await waitFor(()=>expect(screen.getByRole("link",{name:"Back"}).getAttribute("href")).toBe("/"));
+});
+
+it("falls back to the parent series when a season is opened directly",async()=>{
+ vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
+ render(<MemoryRouter initialEntries={["/media/TV-Series/Show/Season-01"]}><AuthGate><Layout><CurrentLocation/></Layout></AuthGate></MemoryRouter>);
+ fireEvent.click(await screen.findByRole("link",{name:"Back"}));
+ await waitFor(()=>expect(screen.getByText("/media/TV-Series/Show")).toBeTruthy());
+ fireEvent.click(screen.getByRole("link",{name:"Back"}));
+ await waitFor(()=>expect(screen.getByText("/media/TV-Series")).toBeTruthy());
 });
