@@ -54,3 +54,32 @@ it("runs hardware checks on demand and displays actual probe results",async()=>{
   expect(screen.getByLabelText("Hardware encoder results").textContent).toContain("av1_nvencAV1Unavailable");
   client.clear();
 });
+
+
+it("links configuration areas without discarding edits",async()=>{
+  vi.mocked(apiRequest).mockResolvedValue(settings);
+  const client=mount();
+  fireEvent.click(await screen.findByRole("switch",{name:"Allow audio-only transcoding"}));
+  for(const name of ["Delivery","Hardware","Encoding","Resources"]){
+    const link=screen.getByRole("link",{name});
+    expect(document.querySelector(link.getAttribute("href")!)).not.toBeNull();
+  }
+  fireEvent.click(screen.getByRole("link",{name:"Hardware"}));
+  expect((screen.getByRole("switch",{name:"Allow audio-only transcoding"}) as HTMLInputElement).checked).toBe(true);
+  expect(vi.mocked(apiRequest).mock.calls.some(([,options])=>options?.method==="PUT")).toBe(false);
+  client.clear();
+});
+
+it("preserves a dirty draft on refetch and discards to the saved baseline",async()=>{
+  vi.mocked(apiRequest).mockResolvedValue(settings);
+  const client=mount();
+  const toggle=await screen.findByRole("switch",{name:"Allow audio-only transcoding"});
+  fireEvent.click(toggle);
+  expect(screen.getByText("Unsaved changes")).toBeTruthy();
+  client.setQueryData(["transcoding-settings"],{...settings,max_concurrent:4});
+  await waitFor(()=>expect((toggle as HTMLInputElement).checked).toBe(true));
+  fireEvent.click(screen.getByRole("button",{name:"Discard"}));
+  expect((toggle as HTMLInputElement).checked).toBe(false);
+  expect(screen.getByText("All changes saved")).toBeTruthy();
+  client.clear();
+});

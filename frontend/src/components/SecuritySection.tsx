@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type SecuritySettings } from "../api/client";
 import { remembersUsername, setRememberUsername } from "../lib/rememberUsername";
 import { reportSettingsSave } from "../lib/settingsSaveStatus";
+
+import { useUnsavedSettings } from "../features/settings/useUnsavedSettings";
+import { SETTINGS_BUTTON } from "./SettingsPageFrame";
 
 const LOCAL_BYPASS_WARNING_HIDDEN_KEY = "posterview.localBypassWarningHidden";
 
@@ -36,26 +39,33 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
     setWarningHidden(false);
   };
 
-  const initialRender = useRef(true);
-  useEffect(() => {
-    if (initialRender.current) {
-      initialRender.current = false;
-      return;
-    }
-    const timer = window.setTimeout(async () => {
-      setSaving(true); setError(""); reportSettingsSave("saving");
-      try {
-        const saved = await api.saveSecuritySettings({ idle_timeout_minutes: autoSignOut ? Number(minutes) : null, local_network_bypass: bypass, login_backdrop_enabled: backdrop });
-        client.setQueryData(["security-settings"], saved);
-        reportSettingsSave("saved");
-        window.dispatchEvent(new Event("posterview:security-changed"));
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Could not save settings.");
-        reportSettingsSave("error");
-      } finally { setSaving(false); }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [autoSignOut, backdrop, bypass, client, minutes]);
+  const [saved, setSaved] = useState(initial);
+  const [savedNotice, setSavedNotice] = useState(false);
+  const timeout = autoSignOut ? Number(minutes) : null;
+  const valid = !autoSignOut || (minutes.trim() !== "" && Number.isInteger(timeout) && timeout! >= 1 && timeout! <= 1440);
+  const dirty = timeout !== saved.idle_timeout_minutes || bypass !== saved.local_network_bypass || backdrop !== saved.login_backdrop_enabled;
+  useUnsavedSettings(dirty);
+  const discard = () => {
+    setAutoSignOut(saved.idle_timeout_minutes !== null);
+    setMinutes(String(saved.idle_timeout_minutes ?? 30));
+    setBypass(saved.local_network_bypass);
+    setBackdrop(saved.login_backdrop_enabled);
+    setError(""); setSavedNotice(false);
+  };
+  const save = async () => {
+    if (!dirty || !valid || saving) return;
+    setSaving(true); setError(""); setSavedNotice(false); reportSettingsSave("saving");
+    try {
+      const value = await api.saveSecuritySettings({ idle_timeout_minutes: timeout, local_network_bypass: bypass, login_backdrop_enabled: backdrop });
+      client.setQueryData(["security-settings"], value);
+      setSaved(value); setSavedNotice(true);
+      reportSettingsSave("saved");
+      window.dispatchEvent(new Event("posterview:security-changed"));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save settings.");
+      reportSettingsSave("error");
+    } finally { setSaving(false); }
+  };
 
   return <div className="max-w-3xl space-y-5">
     <div>
@@ -66,7 +76,7 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
         setRemember(event.target.checked);
         setRememberUsername(event.target.checked);
       }} />Remember Username On This Browser</label>
-      <p className="text-xs leading-5 text-faint">Remembers your username on this browser only. Turning this off clears it. Your password is never saved in browser storage.</p>
+      <p className="text-xs leading-5 text-faint">Saved automatically on this browser. Remembers your username on this browser only. Turning this off clears it. Your password is never saved in browser storage.</p>
     </fieldset>
 <fieldset disabled={saving} className="space-y-3 rounded-xl border border-border bg-window p-5"><legend className="px-2 text-sm font-semibold">Session · All users</legend>
       <label className="flex items-center gap-2 text-sm font-medium"><input className="accent-accent" type="checkbox" checked={autoSignOut} onChange={(event) => setAutoSignOut(event.target.checked)} />Automatically Sign Out When Inactive</label>
@@ -93,6 +103,12 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
       <p className="text-xs leading-5 text-faint">Uses the direct connection’s private, loopback, or link-local IP address—not the hostname or forwarded headers. Auto sign-out does not lock password-free local access. Turn this off to require a password again. Your existing password is preserved.</p>
     </fieldset>
     </div>
+    <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
+      <button type="button" className={SETTINGS_BUTTON} disabled={!dirty || !valid || saving} onClick={() => void save()}>{saving ? "Saving…" : "Save changes"}</button>
+      <button type="button" className={SETTINGS_BUTTON} disabled={!dirty || saving} onClick={discard}>Discard</button>
+      <p role="status" className="text-xs text-muted">{dirty ? "Unsaved server settings" : savedNotice ? "Changes saved" : "Server settings are saved explicitly"}</p>
+    </div>
+    {!valid && <p role="alert" className="text-sm text-red-400">Enter a whole number from 1 to 1440 minutes.</p>}
     {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
   </div>;
 }

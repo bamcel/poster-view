@@ -1,4 +1,7 @@
+import {confirmUnsavedSettings} from "../features/settings/useUnsavedSettings";
 import {LibraryHeaderBackContext,useLibraryHeaderBack} from "../lib/libraryHeaderBack";
+import SettingsNavigation from "../features/settings/SettingsNavigation";
+import {settingsPath as settingsPagePath,visibleSettingsPages} from "../features/settings/navigation";
 import GlobalActivityStatus from "../features/activity/GlobalActivityStatus";
 import {HeaderBackdropContext,headerBackdropStyle} from "../lib/headerBackdrop";
 import {useCatalogPrefetch} from "../lib/catalogPrefetch";
@@ -13,7 +16,7 @@ import {nativeLibraries} from "../api/nativeLibraries";
 // App chrome: contextual media/settings navigation and account controls.
 
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LibraryBig, ArrowLeft, LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, MoreHorizontal, } from "lucide-react";
+import { LibraryBig, ArrowLeft, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, MoreHorizontal, } from "lucide-react";
 import { Logo } from "./ui";
 import { api } from "../api/client";
 import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -132,7 +135,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           {!preview&&virtualTvSettings.data?.enabled&&<NavLink to="/virtual-tv" className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${isActive?"bg-elevated text-white":"text-muted hover:bg-input-hover hover:text-white"}`}><Tv className="size-[18px]"/>Virtual TV</NavLink>}
           </>}
 
-          {settingsOpen && <><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Settings</h2>{[{section:"users",label:"Users",icon:KeyRound},{section:"",label:"Dashboard",icon:LayoutDashboard},{section:"plugins",label:"Plugins",icon:Server},...(artworkPlugin.data?.pinned?[{section:"artwork",label:"Artwork",icon:Image}]:[]),{section:"libraries",label:"Libraries",icon:HardDrive},{section:"sources",label:"Search Providers",icon:Image},{section:"playback",label:"Playback",icon:Server},{section:"reading",label:"Reading",icon:BookOpen},{section:"transcoding",label:"Transcoding",icon:Server},{section:"tasks",label:"Scheduled Tasks",icon:Database},{section:"appearance",label:"Appearance",icon:Palette},{section:"security",label:"Privacy / Security",icon:KeyRound}].filter(({section})=>isAdmin||section==="playback"||section==="reading").map(({section,label,icon:Icon})=><NavLink key={section} to={`/settings${section ? `/${section}` : ""}`} end className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${(preview ? previewPath === `/settings${section ? `/${section}` : ""}` : isActive) ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/>{label}</NavLink>)}</>}
+          {settingsOpen && <SettingsNavigation admin={isAdmin} pinned={!!artworkPlugin.data?.pinned} previewPath={preview?previewPath:undefined}/>}
 
         </nav>
 
@@ -188,7 +191,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
         </div>
       </header>
       {!preview && !settingsOpen && <details className="shrink-0 bg-sidebar px-4 py-2 md:hidden"><summary className="text-sm text-muted">Media</summary><nav className="flex flex-col gap-2 py-3">{libraries.data?.map(library=><NavLink key={library.id} onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={preview ? `/media/${encodeURIComponent(library.id)}` : libraryPath(library,libraries.data??[])} className="rounded-md bg-elevated px-3 py-2 text-sm">{library.name}</NavLink>)}</nav></details>}
-      {!preview && settingsOpen && <div className="shrink-0 border-b border-border bg-sidebar px-4 py-2 md:hidden"><label className="flex items-center gap-3 text-sm text-muted">Settings<select aria-label="Settings page" value={location.pathname.split("/")[2]??""} onChange={event=>void previewNavigate(`/settings${event.target.value?`/${event.target.value}`:""}`)} className="min-w-0 flex-1 rounded-lg border border-border bg-input px-3 py-2 text-white">{[["users","Users"],["","Dashboard"],["plugins","Plugins"],...(artworkPlugin.data?.pinned?[["artwork","Artwork"]]:[]),["libraries","Libraries"],["sources","Search Providers"],["playback","Playback"],["reading","Reading"],["transcoding","Transcoding"],["tasks","Scheduled Tasks"],["appearance","Appearance"],["security","Privacy / Security"]].filter(([section])=>isAdmin||section==="playback"||section==="reading").map(([section,label])=><option key={section} value={section}>{label}</option>)}</select></label></div>}
+      {!preview && settingsOpen && <div className="shrink-0 border-b border-border bg-sidebar px-4 py-2 md:hidden"><label className="flex items-center gap-3 text-sm text-muted">Settings<select aria-label="Settings page" value={location.pathname.split("/")[2]??""} onChange={event=>{if(confirmUnsavedSettings())void previewNavigate(settingsPagePath(event.target.value));else event.target.value=location.pathname.split("/")[2]??"";}} className="min-w-0 flex-1 rounded-lg border border-border bg-input px-3 py-2 text-white">{[...new Set(visibleSettingsPages(isAdmin,!!artworkPlugin.data?.pinned).map(page=>page.group))].map(group=><optgroup key={group} label={group}>{visibleSettingsPages(isAdmin,!!artworkPlugin.data?.pinned).filter(page=>page.group===group).map(page=><option key={page.id} value={page.id}>{page.title}</option>)}</optgroup>)}</select></label></div>}
 
       {!preview&&!settingsOpen&&virtualTvSettings.data?.enabled&&<NavLink to="/virtual-tv" className="flex shrink-0 items-center gap-2 bg-sidebar px-4 py-2 text-sm md:hidden"><Tv className="size-4"/>Virtual TV</NavLink>}
       <main className="min-h-0 min-w-0 flex-1 overflow-hidden">

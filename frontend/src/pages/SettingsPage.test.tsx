@@ -195,7 +195,7 @@ it("persists and resets Dashboard appearance controls", () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings/appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
 
-  expect(screen.getByRole("heading", { name: "Layout & Backgrounds" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Backgrounds & Panels" })).toBeTruthy();
   const backdropSwitch = screen.getByRole("switch", { name: "Show Backdrops" });
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(backdropSwitch);
@@ -263,7 +263,7 @@ it("keeps each provider test result inside its own card", async () => {
   client.clear();
 });
 
-it("saves TMDB credentials on blur and tests the saved connection", async () => {
+it("explicitly saves TMDB credentials and tests the saved connection", async () => {
   const settings = await api.getArtworkSettings();
   vi.mocked(api.setArtworkSettings).mockResolvedValue({ ...settings, tmdb_configured: true });
   vi.mocked(api.testArtworkProvider).mockResolvedValue({ ok: true, message: "TMDB API connection succeeded." });
@@ -274,6 +274,8 @@ it("saves TMDB credentials on blur and tests the saved connection", async () => 
   const input = region.getByLabelText("TMDB API Read Access Token or API key");
   fireEvent.change(input, { target: { value: "  example.token  " } });
   fireEvent.blur(input);
+  expect(api.setArtworkSettings).not.toHaveBeenCalled();
+  fireEvent.click(region.getByRole("button", { name: "Save credentials" }));
   await waitFor(() => expect(api.setArtworkSettings).toHaveBeenCalledWith({ tmdb_access_token: "example.token" }));
   await waitFor(() => expect((input as HTMLInputElement).value).toBe(""));
   fireEvent.click(region.getByRole("button", { name: "Test Connection" }));
@@ -292,7 +294,7 @@ it("opens Artwork plugin settings with unpinned defaults and shared provider acc
  expect((await screen.findByRole("switch",{name:"Enable Artwork"}) as HTMLInputElement).checked).toBe(true);
  expect((screen.getByRole("switch",{name:"Pin to Settings"}) as HTMLInputElement).checked).toBe(false);
  expect((screen.getByRole("switch",{name:"Enable PosterEdit"}) as HTMLInputElement).checked).toBe(true);
- expect(screen.getByRole("link",{name:"Manage Search Providers"}).getAttribute("href")).toBe("/settings/sources");
+ expect(screen.getByRole("link",{name:"Manage metadata & artwork providers"}).getAttribute("href")).toBe("/settings/sources");
  client.clear();
 });
 
@@ -309,7 +311,7 @@ it.each(["/settings/transcoding", "/settings?tab=transcoding"])("opens playback 
   const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
   render(<MemoryRouter initialEntries={[path]}><QueryClientProvider client={client}><SettingsPage/><Location/></QueryClientProvider></MemoryRouter>);
   await waitFor(()=>expect(screen.getByLabelText("Current settings location").textContent).toBe("/settings/transcoding"));
-  expect(await screen.findByRole("heading",{name:"Transcoding"})).toBeTruthy();
+  expect(await screen.findByRole("heading",{name:"Playback & transcoding"})).toBeTruthy();
   await waitFor(()=>expect(vi.mocked(apiRequest)).toHaveBeenCalledWith("/transcoding/settings"));
   expect(vi.mocked(apiRequest).mock.calls.some(([url])=>url==="/playback/capabilities")).toBe(false);
   client.clear();

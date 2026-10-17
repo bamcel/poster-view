@@ -49,8 +49,8 @@ it("offers separate Playback preferences and Transcoding policy in navigation",a
   vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
   render(<MemoryRouter initialEntries={["/settings/playback"]}><AuthGate><Layout/></AuthGate></MemoryRouter>);
   expect(await screen.findByRole("link",{name:"Playback"})).toBeTruthy();
-  expect(screen.getByRole("link",{name:"Transcoding"}).getAttribute("href")).toBe("/settings/transcoding");
-  expect(screen.getByRole("option",{name:"Transcoding"})).toBeTruthy();
+  expect(screen.getByRole("link",{name:"Playback & transcoding"}).getAttribute("href")).toBe("/settings/transcoding");
+  expect(screen.getByRole("option",{name:"Playback & transcoding"})).toBeTruthy();
 });
 
 it.each([true, false])("shows Sign out only when password_required is true (%s)", async (required) => {
@@ -88,13 +88,13 @@ it("returns to the PosterView dashboard instead of a server catalog", async () =
   );
 
   await screen.findByText("/server/7/item/classroom?return_library=novels");
-  expect(screen.queryByRole("link", {name:"Dashboard"})).toBeNull();
+  expect(screen.queryByRole("link", {name:"Overview"})).toBeNull();
   fireEvent.click(screen.getByRole("link", {name: "Settings"}));
   await screen.findByText("/settings");
-  expect(screen.getByRole("link", {name:"Dashboard"})).toBeTruthy();
+  expect(screen.getByRole("link", {name:"Overview"})).toBeTruthy();
   fireEvent.click(screen.getAllByRole("link", {name:"Home"})[0]);
   expect(await screen.findByText("/")).toBeTruthy();
-  expect(screen.queryByRole("link", {name:"Dashboard"})).toBeNull();
+  expect(screen.queryByRole("link", {name:"Overview"})).toBeNull();
 });
 
 it("makes both PosterView logos link to the Dashboard root", async () => {
@@ -127,7 +127,7 @@ it("shows user navigation without administrator controls",async()=>{
   expect(await screen.findByRole("link",{name:"Playback"})).toBeTruthy();
   expect(screen.getByRole("link",{name:"Reading"})).toBeTruthy();
   for(const label of ["Users","Plugins","Artwork","Dashboard","Search Providers","Scheduled Tasks","Appearance","Privacy / Security"])expect(screen.queryByRole("link",{name:label})).toBeNull();
-  expect(screen.queryByRole("link",{name:"Transcoding"})).toBeNull();
+  expect(screen.queryByRole("link",{name:"Playback & transcoding"})).toBeNull();
   expect(screen.queryByRole("link",{name:"Libraries"})).toBeNull();
   expect(screen.getByRole("link",{name:"Settings"}).getAttribute("href")).toBe("/settings/playback");
   fireEvent.click(screen.getByLabelText("Profile"));

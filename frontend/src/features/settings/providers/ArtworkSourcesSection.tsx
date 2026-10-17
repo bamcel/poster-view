@@ -1,3 +1,4 @@
+import { useUnsavedSettings } from "../useUnsavedSettings";
 import { compactInputCls } from "../formStyles";
 import { SETTINGS_BUTTON } from "../../../components/SettingsPageFrame";
 import { useEffect, useState, type ReactNode } from "react";
@@ -32,6 +33,7 @@ export default function ArtworkSourcesSection() {
 
 function TmdbCredentialsFields() {
   const [token, setToken] = useState("");
+  useUnsavedSettings(!!token);
   const client = useQueryClient();
   const toast = useToast();
   const settings = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
@@ -51,17 +53,20 @@ function TmdbCredentialsFields() {
       toast.push("error", error.message);
     },
   });
-  return <ProviderConnection id="tmdb" name="TMDB" description="Movie and TV metadata" status={settings.isError ? "Configuration unavailable" : save.isPending ? "Savingâ€¦" : providerStatus(settings.data?.tmdb_configured, test.isPending, test.data, test.error)} setupUrl="https://www.themoviedb.org/settings/api">
+  return <ProviderConnection id="tmdb" name="TMDB" description="Movie and TV metadata" status={settings.isError ? "Configuration unavailable" : save.isPending ? "Saving…" : providerStatus(settings.data?.tmdb_configured, test.isPending, test.data, test.error)} setupUrl="https://www.themoviedb.org/settings/api">
     <form onSubmit={event => { event.preventDefault(); if (token.trim() && !save.isPending) save.mutate(token.trim()); }}>
     <p className="mt-1 text-xs text-faint">Used for movie and TV metadata and artwork. Save new credentials before testing the connection.</p>
-    <p className="mt-2 text-xs text-muted" role="status">{save.isPending ? "Savingâ€¦" : settings.isLoading ? "Checking configurationâ€¦" : settings.isError ? "Unable to load configuration." : settings.data?.tmdb_configured ? "Token saved" : "Not configured"}</p>
+    <p className="mt-2 text-xs text-muted" role="status">{save.isPending ? "Saving…" : settings.isLoading ? "Checking configuration…" : settings.isError ? "Unable to load configuration." : settings.data?.tmdb_configured ? "Token saved" : "Not configured"}</p>
     <div className="mt-3 flex flex-wrap items-end gap-3">
       <label className="min-w-0 flex-1 text-xs font-medium text-muted">TMDB API Read Access Token or API key
-        <input type="password" autoComplete="off" className={`${compactInputCls} mt-1 w-full`} value={token} disabled={save.isPending} onBlur={() => { if (token.trim() && !save.isPending) save.mutate(token.trim()); }} onChange={event => { setToken(event.target.value); save.reset(); test.reset(); }} placeholder={settings.data?.tmdb_configured ? "Leave blank to keep saved token" : "Paste API Read Access Token"} />
+        <input type="password" autoComplete="off" className={`${compactInputCls} mt-1 w-full`} value={token} disabled={save.isPending} onChange={event => { setToken(event.target.value); save.reset(); test.reset(); }} placeholder={settings.data?.tmdb_configured ? "Leave blank to keep saved token" : "Paste API Read Access Token"} />
       </label>
-      <button type="button" className={SETTINGS_BUTTON} disabled={!settings.data?.tmdb_configured || test.isPending || save.isPending || !!token.trim()} onClick={() => test.mutate()}>{test.isPending ? "Testingâ€¦" : "Test Connection"}</button>
+      <button type="submit" className={SETTINGS_BUTTON} disabled={!token.trim() || save.isPending}>{save.isPending ? "Saving…" : "Save credentials"}</button>
+      <button type="button" className={SETTINGS_BUTTON} disabled={!token || save.isPending} onClick={() => { setToken(""); save.reset(); }}>Discard</button>
+      <button type="button" className={SETTINGS_BUTTON} disabled={!settings.data?.tmdb_configured || test.isPending || save.isPending || !!token.trim()} onClick={() => test.mutate()}>{test.isPending ? "Testing…" : "Test Connection"}</button>
     </div>
-    <p className="mt-2 text-xs text-faint">Accepts a TMDB API Read Access Token or a v3 API key. Changes save automatically when you leave the field.</p>
+    {save.isSuccess && <p role="status" className="mt-2 text-xs text-accent">Credentials saved.</p>}
+    <p className="mt-2 text-xs text-faint">Accepts a TMDB API Read Access Token or a v3 API key. Choose Save credentials to apply changes. Blank fields keep saved credentials.</p>
     {test.data && <p role="status" className={`mt-2 text-sm ${test.data.ok ? "text-green-400" : "text-red-400"}`}>{test.data.message}</p>}
     {test.isError && <p role="alert" className="mt-2 text-sm text-red-400">{test.error.message}</p>}
     {save.isError && <p role="alert" className="mt-2 text-sm text-red-400">{save.error.message}</p>}
@@ -145,6 +150,7 @@ function ArtworkCredentialsFields() {
   const [tvdbKey, setTvdbKey] = useState("");
   const [tvdbPin, setTvdbPin] = useState("");
   const [comicvine, setComicvine] = useState("");
+  useUnsavedSettings(!!password || !!fanart || !!tvdbKey || !!tvdbPin || !!comicvine || email !== (statusQ.data?.email ?? ""));
 
   useEffect(() => {
     if (statusQ.data?.email) setEmail(statusQ.data.email);
@@ -160,6 +166,7 @@ function ArtworkCredentialsFields() {
         tvdb_pin: tvdbPin || undefined,
       });
     },
+    onMutate: () => reportSettingsSave("saving"),
     onSuccess: (_, kind) => {
       queryClient.invalidateQueries({ queryKey: ["posterdb-status"] });
       queryClient.invalidateQueries({ queryKey: ["artwork-settings"] });
@@ -195,8 +202,9 @@ function ArtworkCredentialsFields() {
         <Field label="Email / username">
           <input
             className={compactInputCls}
+            disabled={saveMut.isPending}
             value={email}
-            onChange={(e) => { setEmail(e.target.value); loginMut.reset(); }}
+            onChange={(e) => { setEmail(e.target.value); loginMut.reset(); saveMut.reset(); }}
             placeholder="you@example.com"
           />
         </Field>
@@ -204,18 +212,20 @@ function ArtworkCredentialsFields() {
           <input
             className={compactInputCls}
             type="password"
+            disabled={saveMut.isPending}
             value={password}
-            onChange={(e) => { setPassword(e.target.value); loginMut.reset(); }}
-            placeholder={configured ? "â€¢â€¢â€¢â€¢â€¢â€¢" : ""}
-            onBlur={() => { if (password && email.trim()) saveMut.mutate("posterdb"); }}
+            onChange={(e) => { setPassword(e.target.value); loginMut.reset(); saveMut.reset(); }}
+            placeholder={configured ? "••••••" : ""}
           />
         </Field>
       </div>
 
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button type="button" className={SETTINGS_BUTTON} disabled={saveMut.isPending || !password || !email.trim()} onClick={() => saveMut.mutate("posterdb")}>Save credentials</button>
+        <button type="button" className={SETTINGS_BUTTON} disabled={saveMut.isPending || (!password && email === (statusQ.data?.email ?? ""))} onClick={() => { setEmail(statusQ.data?.email ?? ""); setPassword(""); saveMut.reset(); }}>Discard</button>
         <button
           onClick={() => loginMut.mutate()}
-          disabled={loginMut.isPending || !configured}
+          disabled={loginMut.isPending || !configured || saveMut.isPending || !!password || email !== (statusQ.data?.email ?? "")}
           className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
         >
           {loginMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
@@ -227,21 +237,26 @@ function ArtworkCredentialsFields() {
           </span>
         )}
       </div>
+      {saveMut.variables === "posterdb" && saveMut.isError && <p role="alert" className="text-sm text-danger">{saveMut.error.message}</p>}
+      {saveMut.variables === "posterdb" && saveMut.isSuccess && <p role="status" className="text-xs text-accent">Credentials saved.</p>}
       <ProviderFeedback name="ThePosterDB" pending={loginMut.isPending} error={loginMut.error?.message}
         result={loginMut.data ? { ok: loginMut.data.logged_in, message: loginMut.data.message } : statusQ.data?.message ? { ok: statusQ.data.logged_in, message: statusQ.data.message } : undefined} />
       </ProviderConnection>
         <FanartTvdbFields
           fanart={fanart}
-          setFanart={setFanart}
+          setFanart={value => { setFanart(value); saveMut.reset(); }}
           tvdbKey={tvdbKey}
-          setTvdbKey={setTvdbKey}
+          setTvdbKey={value => { setTvdbKey(value); saveMut.reset(); }}
           tvdbPin={tvdbPin}
-          setTvdbPin={setTvdbPin}
+          setTvdbPin={value => { setTvdbPin(value); saveMut.reset(); }}
           comicvine={comicvine}
-          setComicvine={setComicvine}
+          setComicvine={value => { setComicvine(value); saveMut.reset(); }}
           configured={settingsQ.data}
           configurationError={settingsQ.isError}
-          onAutoSave={(kind) => saveMut.mutate(kind)}
+          onSave={(kind) => saveMut.mutate(kind)}
+          saving={saveMut.isPending}
+          savedKind={saveMut.isSuccess ? saveMut.variables : undefined}
+          saveError={saveMut.isError ? saveMut.error.message : undefined}
         />
     </>
   );
@@ -258,7 +273,7 @@ function FanartTvdbFields({
   setComicvine,
   configured: cfg,
   configurationError,
-  onAutoSave,
+  onSave, saving, savedKind, saveError,
 }: {
   fanart: string;
   setFanart: (value: string) => void;
@@ -270,7 +285,10 @@ function FanartTvdbFields({
   setComicvine: (value: string) => void;
   configured?: { fanart_configured: boolean; tvdb_configured: boolean; comicvine_configured: boolean };
   configurationError: boolean;
-  onAutoSave: (kind: "fanart" | "tvdb" | "comicvine") => void;
+  saving: boolean;
+  savedKind?: string;
+  saveError?: string;
+  onSave: (kind: "fanart" | "tvdb" | "comicvine") => void;
 }) {
 
   const fanartTestMut = useMutation({
@@ -291,20 +309,26 @@ function FanartTvdbFields({
 
   return (
     <>
+      {saveError && <p role="alert" className="text-sm text-danger">{saveError}</p>}
       <ProviderConnection id="fanart" name="Fanart.tv" description="Artwork" status={configurationError ? "Configuration unavailable" : providerStatus(cfg?.fanart_configured, fanartTestMut.isPending, fanartTestMut.data, fanartTestMut.error)} setupUrl="https://fanart.tv/get-an-api-key/">
         <Field label="Fanart.tv API Key">
           <input
             className={compactInputCls}
             type="password"
+            disabled={saving}
             value={fanart}
             onChange={(e) => { setFanart(e.target.value); fanartTestMut.reset(); }}
-            placeholder={cfg?.fanart_configured ? "â€¢â€¢â€¢â€¢â€¢â€¢" : "your Fanart.tv personal API Key"}
-            onBlur={() => { if (fanart) onAutoSave("fanart"); }}
+            placeholder={cfg?.fanart_configured ? "••••••" : "your Fanart.tv personal API Key"}
           />
         </Field>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" className={SETTINGS_BUTTON} disabled={saving || !(!!fanart)} onClick={() => onSave("fanart")}>Save credentials</button>
+          <button type="button" className={SETTINGS_BUTTON} disabled={saving || !(!!fanart)} onClick={() => { setFanart(""); }}>Discard</button>
+          {savedKind === "fanart" && <span role="status" className="text-xs text-accent">Credentials saved.</span>}
+        </div>
         <button
           onClick={() => fanartTestMut.mutate()}
-          disabled={fanartTestMut.isPending || (!fanart && !cfg?.fanart_configured)}
+          disabled={saving || !!fanart || fanartTestMut.isPending || !cfg?.fanart_configured}
           className={`${SETTINGS_BUTTON} mt-2`}
         >
           {fanartTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
@@ -319,25 +343,30 @@ function FanartTvdbFields({
             <input
               className={compactInputCls}
               type="password"
+              disabled={saving}
               value={tvdbKey}
               onChange={(e) => { setTvdbKey(e.target.value); tvdbTestMut.reset(); }}
-              placeholder={cfg?.tvdb_configured ? "â€¢â€¢â€¢â€¢â€¢â€¢" : "TheTVDB v4 API Key"}
-              onBlur={() => { if (tvdbKey) onAutoSave("tvdb"); }}
+              placeholder={cfg?.tvdb_configured ? "••••••" : "TheTVDB v4 API Key"}
             />
           </Field>
           <Field label="TheTVDB Subscriber PIN (Optional)">
             <input
               className={compactInputCls}
+              disabled={saving}
               value={tvdbPin}
               onChange={(e) => { setTvdbPin(e.target.value); tvdbTestMut.reset(); }}
               placeholder="only for user-supported keys"
-              onBlur={() => { if (tvdbPin) onAutoSave("tvdb"); }}
             />
           </Field>
         </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" className={SETTINGS_BUTTON} disabled={saving || !(!!tvdbKey || !!tvdbPin)} onClick={() => onSave("tvdb")}>Save credentials</button>
+          <button type="button" className={SETTINGS_BUTTON} disabled={saving || !(!!tvdbKey || !!tvdbPin)} onClick={() => { setTvdbKey(""); setTvdbPin(""); }}>Discard</button>
+          {savedKind === "tvdb" && <span role="status" className="text-xs text-accent">Credentials saved.</span>}
+        </div>
         <button
           onClick={() => tvdbTestMut.mutate()}
-          disabled={tvdbTestMut.isPending || (!tvdbKey && !cfg?.tvdb_configured)}
+          disabled={saving || !!tvdbKey || !!tvdbPin || tvdbTestMut.isPending || !cfg?.tvdb_configured}
           className={`${SETTINGS_BUTTON} mt-2`}
         >
           {tvdbTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
@@ -347,9 +376,14 @@ function FanartTvdbFields({
       </ProviderConnection>
       <ProviderConnection id="comicvine" name="ComicVine" description="Comics metadata" status={configurationError ? "Configuration unavailable" : providerStatus(cfg?.comicvine_configured, comicvineTestMut.isPending, comicvineTestMut.data, comicvineTestMut.error)} setupUrl="https://comicvine.gamespot.com/api/">
         <Field label="ComicVine API Key">
-          <input className={compactInputCls} type="password" value={comicvine} onChange={(e) => { setComicvine(e.target.value); comicvineTestMut.reset(); }} placeholder={cfg?.comicvine_configured ? "â€¢â€¢â€¢â€¢â€¢â€¢" : "your ComicVine API Key"} onBlur={() => { if (comicvine) onAutoSave("comicvine"); }} />
+          <input className={compactInputCls} type="password" disabled={saving} value={comicvine} onChange={(e) => { setComicvine(e.target.value); comicvineTestMut.reset(); }} placeholder={cfg?.comicvine_configured ? "••••••" : "your ComicVine API Key"} />
         </Field>
-        <button onClick={() => comicvineTestMut.mutate()} disabled={comicvineTestMut.isPending || (!comicvine && !cfg?.comicvine_configured)} className={`${SETTINGS_BUTTON} mt-2`}>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" className={SETTINGS_BUTTON} disabled={saving || !(!!comicvine)} onClick={() => onSave("comicvine")}>Save credentials</button>
+          <button type="button" className={SETTINGS_BUTTON} disabled={saving || !(!!comicvine)} onClick={() => { setComicvine(""); }}>Discard</button>
+          {savedKind === "comicvine" && <span role="status" className="text-xs text-accent">Credentials saved.</span>}
+        </div>
+        <button onClick={() => comicvineTestMut.mutate()} disabled={saving || !!comicvine || comicvineTestMut.isPending || !cfg?.comicvine_configured} className={`${SETTINGS_BUTTON} mt-2`}>
           {comicvineTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test Connection
         </button>
         <ProviderFeedback name="ComicVine" pending={comicvineTestMut.isPending} result={comicvineTestMut.data} error={comicvineTestMut.error?.message} />
@@ -365,7 +399,7 @@ function ProviderFeedback({ name, pending, result, error }: {
   if (!pending && !result && !error) return null;
   const failed = !pending && (Boolean(error) || result?.ok === false);
   return <p role="status" aria-live="polite" aria-atomic="true" className={`mt-3 break-words text-sm ${failed ? "text-danger" : "text-accent"}`}>
-    <span className="font-medium">{name}: {pending ? "Testing connectionâ€¦" : failed ? "Connection failed. " : "Connection successful. "}</span>
+    <span className="font-medium">{name}: {pending ? "Testing connection…" : failed ? "Connection failed. " : "Connection successful. "}</span>
     {!pending && (error || result?.message)}
   </p>;
 }

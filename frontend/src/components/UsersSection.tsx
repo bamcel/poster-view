@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type UserAccount, type UserInput, type UserRole } from "../api/client";
 import { nativeLibraries } from "../api/nativeLibraries";
@@ -23,6 +23,54 @@ function newUser(): UserInput {
       max_playback_streams: 5,
     },
   };
+}
+
+function UserDialog({ title, busy, onClose, children }: {
+  title: string; busy: boolean; onClose: () => void; children: ReactNode;
+}) {
+  const dialog = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  const pending = useRef(busy);
+  pending.current = busy;
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const focusable = () => Array.from(dialog.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]',
+    ) ?? []);
+    (dialog.current?.querySelector<HTMLElement>("input") ?? dialog.current)?.focus();
+    function keydown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!pending.current) close.current();
+      }
+      if (event.key === "Tab") {
+        const elements = focusable();
+        const first = elements[0];
+        const last = elements[elements.length - 1];
+        if (!first) { event.preventDefault(); dialog.current?.focus(); }
+        else if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
+          event.preventDefault(); last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault(); first.focus();
+        }
+      }
+    }
+    document.addEventListener("keydown", keydown);
+    return () => {
+      document.removeEventListener("keydown", keydown);
+      document.body.style.overflow = previousOverflow;
+      if (previous?.isConnected) previous.focus();
+    };
+  }, []);
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+    <div ref={dialog} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}
+      className="settings-user-dialog flex max-h-[90dvh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
+      {children}
+    </div>
+  </div>;
 }
 
 export default function UsersSection() {
@@ -115,7 +163,7 @@ export default function UsersSection() {
         </button>
       </div>
       {users.error && <p role="alert">{users.error.message}</p>}
-      {error && <p role="alert" className="text-danger">{error}</p>}
+      {error && editing === undefined && !deleting && <p role="alert" className="text-danger">{error}</p>}
       {notice && <p role="status" className="text-accent">{notice}</p>}
       {users.isPending && <p>Loading users…</p>}
       <div className="rounded-lg border border-border bg-elevated p-4 text-sm text-muted">
@@ -146,17 +194,29 @@ export default function UsersSection() {
         ))}
       </div>
       {deleting && (
-        <section role="dialog" aria-label="Delete user" className="rounded-xl border border-danger p-5">
+        <UserDialog title="Delete user" busy={busy} onClose={() => { setDeleting(null); setError(""); }}>
+          <header className="border-b border-border p-5"><h2 className="text-xl font-semibold">Delete user</h2></header>
+          <div className="overflow-y-auto p-5">
+          {error && <p role="alert" className="mb-4 text-danger">{error}</p>}
           <p>Delete {deleting.display_name}? Their account will be removed and they will lose access.</p>
-          <div className="mt-4 flex gap-3">
-            <button disabled={busy} onClick={() => void remove()} className="rounded-lg bg-danger px-4 py-2">Confirm deletion</button>
-            <button disabled={busy} onClick={() => setDeleting(null)}>Cancel deletion</button>
           </div>
-        </section>
+          <footer className="flex shrink-0 gap-3 border-t border-border p-5">
+            <button disabled={busy} onClick={() => void remove()} className="rounded-lg bg-danger px-4 py-2">Confirm deletion</button>
+            <button disabled={busy} onClick={() => { setDeleting(null); setError(""); }}>Cancel deletion</button>
+          </footer>
+        </UserDialog>
       )}
       {editing !== undefined && (
-        <form onSubmit={save} className="space-y-5 rounded-xl border border-border bg-surface p-5">
-          <h2 className="text-xl font-semibold">{editing ? `Edit ${editing.display_name}` : "Create user"}</h2>
+        <UserDialog title={editing ? `Edit ${editing.display_name}` : "Create user"} busy={busy} onClose={() => { setEditing(undefined); setError(""); }}>
+        <form onSubmit={save} className="flex min-h-0 flex-col">
+          <header className="flex shrink-0 items-start justify-between gap-4 border-b border-border p-5">
+            <div><h2 className="text-xl font-semibold">{editing ? `Edit ${editing.display_name}` : "Create user"}</h2>
+              <p className="mt-1 text-sm text-muted">Server account · Changes apply to this user on every device.</p></div>
+            <button type="button" disabled={busy} aria-label="Close user editor" className="rounded-lg border border-border px-3 py-2" onClick={() => { setEditing(undefined); setError(""); }}>×</button>
+          </header>
+          <div className="min-h-0 space-y-5 overflow-y-auto p-5">
+          {error && <p role="alert" className="text-danger">{error}</p>}
+          <h3 className="font-semibold">Account details</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-2">
               Username
@@ -253,13 +313,15 @@ export default function UsersSection() {
               </fieldset>
             </>
           )}
-          <div className="flex gap-4">
+          </div>
+          <footer className="flex shrink-0 items-center justify-end gap-4 border-t border-border p-5">
             <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-2 font-medium text-black">
               {busy ? "Saving…" : "Save user"}
             </button>
             <button type="button" disabled={busy} onClick={() => { setEditing(undefined); setError(""); }}>Cancel</button>
-          </div>
+          </footer>
         </form>
+        </UserDialog>
       )}
     </div>
   );

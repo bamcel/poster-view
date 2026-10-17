@@ -109,3 +109,34 @@ it("requires deletion confirmation and reports last administrator protection", a
   fireEvent.click(screen.getByRole("button", { name: "Confirm deletion" }));
   expect((await screen.findByRole("alert")).textContent).toContain("Keep one enabled administrator.");
 });
+
+
+it("opens a modal editor, traps keyboard focus and restores the triggering control", async () => {
+  mount();
+  const edit = await screen.findByRole("button", { name: "Edit Viewer" });
+  edit.focus();
+  fireEvent.click(edit);
+  const dialog = screen.getByRole("dialog", { name: "Edit Viewer" });
+  expect(dialog.getAttribute("aria-modal")).toBe("true");
+  expect(document.activeElement).toBe(screen.getByLabelText("Username"));
+  const cancel = screen.getByRole("button", { name: /^Cancel$/ });
+  cancel.focus();
+  fireEvent.keyDown(cancel, { key: "Tab" });
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close user editor" }));
+  fireEvent.keyDown(dialog, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(edit);
+  expect(api.updateUser).not.toHaveBeenCalled();
+});
+
+it("keeps save failures inside the editor and closes without saving", async () => {
+  vi.mocked(api.updateUser).mockRejectedValueOnce(new Error("Revision changed."));
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Edit Viewer" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save user" }));
+  const alert = await screen.findByRole("alert");
+  expect(screen.getByRole("dialog").contains(alert)).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Close user editor" }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+});

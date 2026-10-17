@@ -63,3 +63,19 @@ it("reports a failed clear and allows retry",async()=>{
   fireEvent.click(await screen.findByRole("button",{name:"Clear saved track selections"}));expect(await screen.findByRole("alert")).toHaveProperty("textContent","Reset failed");
   expect((screen.getByRole("button",{name:"Clear saved track selections"}) as HTMLButtonElement).disabled).toBe(false);
 });
+
+it("retains edited language text on background updates and discards without saving",async()=>{
+  vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+  render(<QueryClientProvider client={client}><PlaybackPreferences/></QueryClientProvider>);
+  const audio=await screen.findByLabelText("Preferred audio languages") as HTMLInputElement;
+  const original=audio.value;
+  fireEvent.change(audio,{target:{value:"ja, ko"}});
+  client.setQueryData(["playback-preferences"],{...defaultPlaybackPreferences,skip_back_seconds:20});
+  await waitFor(()=>expect(audio.value).toBe("ja, ko"));
+  fireEvent.click(screen.getByRole("button",{name:"Discard"}));
+  expect(audio.value).toBe(original);
+  expect(watchApi.savePreferences).not.toHaveBeenCalled();
+  expect(screen.getByText("All changes saved")).toBeTruthy();
+  client.clear();
+});

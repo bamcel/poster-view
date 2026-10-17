@@ -16,7 +16,7 @@ const active=(status:string)=>!["completed","completed_with_warnings","failed","
 export default function YtdlPlugin(){
  const [open,setOpen]=useState(false);
  const config=useQuery({queryKey:configKey,queryFn:ytdl.configuration});
- return <><PluginCard title="YTDL" description="Download YouTube videos and playlists with local descriptions, artwork, and NFO metadata." branding={<Video className="size-12 text-red-500"/>} status={config.data?config.data.settings.enabled?"Enabled · Administrator downloads":"Disabled":"Configure YouTube downloads"} onClick={()=>setOpen(true)}/>{open&&<YtdlPopup onClose={()=>setOpen(false)}/>}</>;
+ return <><PluginCard title="YTDL" description="Download YouTube videos and playlists with local descriptions, artwork, and NFO metadata." coverSrc="/plugins/ytdl-cover.svg" branding={<Video className="size-12 text-red-500"/>} status={config.data?config.data.settings.enabled?"Enabled · Administrator downloads":"Disabled":"Configure YouTube downloads"} onClick={()=>setOpen(true)}/>{open&&<YtdlPopup onClose={()=>setOpen(false)}/>}</>;
 }
 export function YtdlPopup({onClose,initialTab="Download"}:{onClose:()=>void;initialTab?:string}){
  const dialog=useRef<HTMLDialogElement>(null),client=useQueryClient();

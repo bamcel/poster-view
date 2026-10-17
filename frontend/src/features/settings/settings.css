@@ -1,0 +1,22 @@
+.settings-page-header { border-bottom: 1px solid var(--color-border, #ffffff26); padding-bottom: 20px; }
+.settings-scope { border: 1px solid var(--color-border, #ffffff26); border-radius: 6px; padding: 3px 8px; }
+.settings-search { padding: 10px 12px; width: 100%; border: 1px solid var(--color-border, #ffffff26); border-radius: 9px; background: var(--color-input, #171c23); font-size: 13px; }
+.settings-search-results { position: absolute; z-index: 40; top: calc(100% + 8px); inset-inline: 0; max-height: 320px; overflow: auto; border: 1px solid var(--color-border, #ffffff26); border-radius: 10px; background: var(--color-sidebar, #171c23); box-shadow: 0 12px 40px #0007; }
+.settings-search-results a { display: block; padding: 12px; font-size: 13px; }
+.settings-search-results a:hover,.settings-search-results a:focus-visible { background: var(--color-elevated, #252d38); }
+.settings-search-results span { display: block; margin-top: 3px; font-size: 11px; opacity: .7; }
+.settings-content fieldset.rounded-xl,.settings-content .bg-window.rounded-xl { border: 1px solid var(--color-border, #ffffff26); border-radius: 12px; background: color-mix(in srgb, var(--color-sidebar, #171c23) 94%, transparent); padding: 22px; }
+.settings-content legend { font-size: 14px; font-weight: 600; }
+.settings-panel { border: 1px solid var(--color-border, #ffffff26); border-radius: 12px; background: var(--color-sidebar, #171c23); padding: 22px; }
+.settings-panel > header { margin-bottom: 18px; }.settings-panel h2 { font-size: 14px; font-weight: 600; }.settings-panel > header p { margin-top: 5px; font-size: 13px; color: var(--color-muted, #acb4bf); }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-block: 14px; border-bottom: 1px solid var(--color-border, #ffffff26); }.settings-row:last-child { border: 0; }
+.settings-actions { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; margin-top: 20px; background: var(--color-sidebar, #171c23); border-top: 1px solid var(--color-border, #ffffff26); }
+.settings-content [id] { scroll-margin-top: 16px; }
+.settings-content input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]),.settings-content select,.settings-content textarea { border-radius: 8px; font-size: 13px; }
+.settings-content input[type=checkbox],.settings-content input[type=radio] { accent-color: var(--color-accent); }
+.settings-content input:focus-visible,.settings-content select:focus-visible,.settings-content textarea:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.settings-content button { border-radius: 8px; }
+.settings-section-navigation { position: sticky; top: 0; z-index: 5; padding: 10px 0; background: var(--color-sidebar, #171c23); border-bottom: 1px solid var(--color-border, #ffffff26); }
+.settings-section-navigation a { border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+.settings-section-navigation a:hover,.settings-section-navigation a:focus-visible { background: var(--color-elevated, #252d38); color: var(--color-accent); }
+@media(max-width:640px) { .settings-content fieldset.rounded-xl,.settings-content .bg-window.rounded-xl { padding: 16px; } }

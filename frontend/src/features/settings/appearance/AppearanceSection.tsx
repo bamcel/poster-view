@@ -188,8 +188,8 @@ export default function AppearanceSection({preview=false}: {preview?:boolean}) {
   return (
     <div ref={splitRef} className="h-full min-h-0 min-w-0" style={split ? { display: "grid", gridTemplateColumns: `minmax(0, ${settingsWidth}fr) 12px minmax(0, ${100 - settingsWidth}fr)` } : undefined}>
     <section className="h-full min-h-0 min-w-0 overflow-y-auto pr-2">
-      <div className="min-h-full w-full"><div className="mb-4 flex justify-end">        <button type="button" aria-pressed={split} onClick={() => setSplitView(value => !value)} className="hidden shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-medium hover:bg-button-hover xl:flex"><Columns2 className="size-4" />Split View</button></div>
-        <div>
+      <div className="min-h-full w-full"><nav aria-label="Appearance sections" className="settings-section-navigation mb-4 flex flex-wrap gap-2">{[["theme","Theme"],["backgrounds","Backgrounds & Panels"],["advanced","Advanced"]].map(([id,label])=><a key={id} href={`#appearance-${id}`} className={SETTINGS_BUTTON}>{label}</a>)}</nav><p className="mb-4 text-xs text-muted">Appearance changes save automatically for all users. Custom color previews are saved with Save custom theme.</p><div className="mb-4 flex justify-end">        <button type="button" aria-pressed={split} onClick={() => setSplitView(value => !value)} className="hidden shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-medium hover:bg-button-hover xl:flex"><Columns2 className="size-4" />Split View</button></div>
+        <div id="appearance-theme" className="scroll-mt-4">
           <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
             <Palette className="size-5 text-accent" /> Theme
           </h2>
@@ -203,9 +203,9 @@ export default function AppearanceSection({preview=false}: {preview?:boolean}) {
           </div>
           </div>
         </div>
-<div className="mt-8 border-t border-border pt-6">        <div className="mb-1 flex items-center justify-between gap-3">
+<div id="appearance-backgrounds" className="scroll-mt-4 mt-8 border-t border-border pt-6">        <div className="mb-1 flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <LayoutDashboard className="size-5 text-accent" /> Layout &amp; Backgrounds
+          <LayoutDashboard className="size-5 text-accent" /> Backgrounds &amp; Panels
         </h2>
 
         </div>
@@ -227,7 +227,7 @@ export default function AppearanceSection({preview=false}: {preview?:boolean}) {
           <button type="button" onClick={resetDashboard} className={`${SETTINGS_BUTTON} mt-4`}>Reset to default</button>
         </div>
 
-</div><div className="mt-8 border-t border-border pt-6"><h2 className="text-lg font-semibold">Colors</h2><p className="mb-3 mt-1 text-sm text-muted">Preview colors and save them as a custom theme.</p><div className="rounded-xl border border-border bg-window p-5">          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+</div><div id="appearance-advanced" className="scroll-mt-4 mt-8 border-t border-border pt-6"><h2 className="text-lg font-semibold">Colors</h2><p className="mb-3 mt-1 text-sm text-muted">Preview colors and save them as a custom theme.</p><div className="rounded-xl border border-border bg-window p-5">          <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <ColorLabelPicker theme={previewColors} selected={selectedColor} onSelect={setSelectedColor} />
             <div className="text-xs font-semibold text-muted">
               {THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)?.label}
@@ -241,8 +241,8 @@ export default function AppearanceSection({preview=false}: {preview?:boolean}) {
           <p className="mt-1 text-sm text-faint">Save your color changes as a named theme. Expand Advanced to edit theme JSON.</p>
           <details className="group mt-4 rounded-xl border border-border bg-panel">
             <summary aria-label="Toggle JSON Editor" className="flex h-10 cursor-pointer list-none items-center justify-between gap-3 px-4 text-sm font-semibold text-muted outline-none marker:hidden hover:text-white focus-visible:text-white">
-              <span>Advanced Â· JSON Editor</span>
-              <span className="text-faint transition-transform group-open:rotate-180">âŒ„</span>
+              <span>Advanced · JSON Editor</span>
+              <span className="text-faint transition-transform group-open:rotate-180">⌄</span>
             </summary>
             <div className="border-t border-border p-4">
               <p className="text-sm text-faint">Edit or paste a complete PosterView theme definition.</p>
@@ -309,7 +309,7 @@ function ThemePicker({ themes, selected, onSelect }: { themes: AppTheme[]; selec
         <summary aria-label="Select theme" className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-input px-3 text-sm font-normal text-white outline-none marker:hidden focus-visible:border-accent">
           <ThemePaletteIcon theme={selectedTheme} />
           <span className="min-w-0 flex-1 truncate">{selectedTheme.name}</span>
-          <span className="text-faint transition-transform group-open:rotate-180">âŒ„</span>
+          <span className="text-faint transition-transform group-open:rotate-180">⌄</span>
         </summary>
         <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-sidebar p-1 shadow-2xl">
           {themes.map((theme) => (

@@ -22,6 +22,8 @@ it("saves timeout and local bypass with a reverse-proxy warning", async () => {
   expect(localStorage.getItem("posterview.localBypassWarningHidden")).toBe("true");
   fireEvent.click(screen.getByRole("button", { name: "Show warning" }));
   expect(screen.getByText(/A reverse proxy or Docker networking/)).toBeTruthy();
+  expect(api.saveSecuritySettings).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await waitFor(() => expect(api.saveSecuritySettings).toHaveBeenCalledWith({ idle_timeout_minutes: 10, local_network_bypass: true, login_backdrop_enabled: true }));
   rememberUsername("curator");
   expect(initialUsername()).toBe("curator");
@@ -29,5 +31,17 @@ it("saves timeout and local bypass with a reverse-proxy warning", async () => {
   expect(initialUsername()).toBe("");
   expect(localStorage.getItem("posterview.savedUsername")).toBeNull();
   expect(client.getQueryData(["security-settings"])).toEqual({ idle_timeout_minutes: 10, local_network_bypass: true, login_backdrop_enabled: true });
+  client.clear();
+});
+it("discards server drafts and prevents invalid idle timeouts from being saved", async () => {
+  vi.mocked(api.securitySettings).mockResolvedValue({ idle_timeout_minutes: null, local_network_bypass: false, login_backdrop_enabled: true });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><SecuritySection /></QueryClientProvider>);
+  fireEvent.click(await screen.findByLabelText("Automatically Sign Out When Inactive"));
+  fireEvent.change(screen.getByLabelText("Minutes Of Inactivity"), { target: { value: "0" } });
+  expect((screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+  expect((screen.getByLabelText("Automatically Sign Out When Inactive") as HTMLInputElement).checked).toBe(false);
+  expect(api.saveSecuritySettings).not.toHaveBeenCalled();
   client.clear();
 });
