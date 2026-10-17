@@ -165,7 +165,7 @@ pub(super) fn folder_names(
     if !super::downloader::valid_id(channel_id) || !super::downloader::valid_id(video_id) {
         return Err(err("Invalid YouTube identity."));
     }
-    let channels = root.join("channels");
+    let channels = root.to_path_buf();
     let channel = folder_component(&channels, channel_id, channel_name, true)?;
     let video = folder_component(&channels.join(&channel), video_id, video_title, false)?;
     Ok((channel, video))
@@ -286,7 +286,7 @@ mod tests {
             folder_names(root, "UCid", "vid", "A: Channel", "CON").unwrap(),
             ("A Channel".into(), "_CON".into())
         );
-        let channel = root.join("channels/A Channel");
+        let channel = root.join("A Channel");
         let video = channel.join("Original title");
         std::fs::create_dir_all(&video).unwrap();
         std::fs::write(
@@ -306,8 +306,8 @@ mod tests {
                 .1,
             "Original title (2)"
         );
-        std::fs::create_dir_all(root.join("channels/Unidentified")).unwrap();
-        std::fs::write(root.join("channels/Unidentified/file"), "keep").unwrap();
+        std::fs::create_dir_all(root.join("Unidentified")).unwrap();
+        std::fs::write(root.join("Unidentified/file"), "keep").unwrap();
         assert_eq!(
             folder_names(root, "other", "new", "Unidentified", "...").unwrap(),
             ("Unidentified (2)".into(), "Untitled video".into())
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn legacy_folders_are_reused_but_conflicting_nfos_are_preserved() {
         let temp = tempfile::tempdir().unwrap();
-        let channel = temp.path().join("channels/UClegacy");
+        let channel = temp.path().join("UClegacy");
         let video = channel.join("legacy");
         std::fs::create_dir_all(&video).unwrap();
         assert_eq!(
@@ -332,7 +332,7 @@ mod tests {
     fn symbolic_links_are_not_followed() {
         let temp = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
-        let channel = temp.path().join("channels/Channel");
+        let channel = temp.path().join("Channel");
         std::fs::create_dir_all(&channel).unwrap();
         std::os::unix::fs::symlink(outside.path(), channel.join("Video")).unwrap();
         assert_eq!(
@@ -348,12 +348,12 @@ mod tests {
     fn symbolic_links_are_not_followed_on_windows() {
         let temp = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
-        let channels = temp.path().join("channels");
+        let channels = temp.path().join("selected-root");
         // Creating symlinks requires Windows developer mode or elevation.
         if std::os::windows::fs::symlink_dir(outside.path(), &channels).is_err() {
             return;
         }
-        assert!(folder_names(temp.path(), "channel", "video", "Channel", "Video").is_err());
+        assert!(folder_names(&channels, "channel", "video", "Channel", "Video").is_err());
         assert!(video_identity(&channels).is_err());
     }
     #[test]

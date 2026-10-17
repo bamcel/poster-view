@@ -114,7 +114,6 @@ export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer
   const [rulesChanged,setRulesChanged]=useState(false);
   const createdLibrary=useRef<NativeLibrary|null>(null);
   const [step, setStep] = useState(0);
-  const [browseFolders, setBrowseFolders] = useState(false);
   const [discard, setDiscard] = useState(false);
   const dialog = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLElement>(null);
@@ -168,9 +167,8 @@ export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer
             {draft.library_type === "anime" && <label className="block text-sm text-muted">Anime content<select aria-label="Anime content" aria-describedby="anime-content-help" className={`${INPUT} mt-2`} value={draft.anime_content} onChange={e => setDraft({ ...draft, anime_content: e.target.value as NativeLibraryInput["anime_content"] })}><option value="both">Mixed</option><option value="shows">Shows only</option><option value="movies">Movies only</option></select><span id="anime-content-help" className="mt-2 block text-xs text-faint">Anime is a dedicated library type. Each title will retain its movie or series identity.</span></label>}
             {draft.library_type === "books" && <p className="rounded-xl bg-window p-4 text-sm text-muted">Your existing book reader and custom NFO metadata tools remain available. Native scanning preserves custom book NFO fields and identifies supported book files.</p>}
           </div>}
-          {step === 1 && <div className="space-y-4"><div><h3 className="font-medium text-white">Media folders</h3><p className="mt-1 text-sm text-muted">Open the folder browser to select media roots. You can choose multiple folders and review them here before saving.</p></div>
-            <button type="button" className={`${BUTTON} flex items-center gap-2`} onClick={()=>setBrowseFolders(true)}><FolderPlus className="size-4"/>Browse folders</button>
-            {browseFolders&&<FolderBrowser initial="" title="Select Media Folders" selected={draft.paths} onClose={()=>setBrowseFolders(false)} onSelect={path=>{setDraft(previous=>({...previous,paths:[...new Set([...previous.paths,path])]}));setBrowseFolders(false);}} onSelectMany={paths=>{setDraft(previous=>({...previous,paths}));setBrowseFolders(false);}}/>}
+          {step === 1 && <div className="space-y-4"><div><h3 className="font-medium text-white">Media folders</h3><p className="mt-1 text-sm text-muted">Select media roots below. You can choose multiple folders and review them here before saving.</p></div>
+            <FolderBrowser inline initial="" title="Select Media Folders" selected={draft.paths} onClose={()=>{}} onSelect={path=>setDraft(previous=>({...previous,paths:[...new Set([...previous.paths,path])]}))} onSelectMany={paths=>setDraft(previous=>({...previous,paths}))}/>
             <div className="rounded-xl bg-window p-4"><p className="mb-2 text-sm font-medium text-white">{draft.paths.length} folders selected</p><ul className="space-y-1">{draft.paths.map(selected => <li key={selected} className="flex items-center justify-between gap-2 text-xs text-muted"><span className="break-all">{displayPath(selected)}</span><button className="shrink-0 rounded-lg p-2 hover:text-danger" aria-label={`Remove ${displayPath(selected)}`} onClick={() => toggle(selected)} data-icon-button="true"><X className="size-4" /></button></li>)}</ul></div>
             {overlap(draft.paths) && <p role="alert" className="text-sm text-danger">Selected folders overlap. Select a parent folder or its children, rather than both.</p>}
             {draft.paths.length > 32 && <p role="alert" className="text-sm text-danger">Choose at most 32 folders.</p>}

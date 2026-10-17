@@ -52,7 +52,7 @@ export default function GlobalActivityStatus() {
   const first = items[index];
   const move=(offset:number)=>{if(items.length>1)setSelectedId(items[(index+offset+items.length)%items.length].id);};
   const percent = first ? percentage(first) : null;
-  return <section aria-label="Activity status" className="flex h-24 min-w-0 flex-col rounded-xl border border-white/10 bg-elevated px-3 py-1" onKeyDown={event=>{if(items.length>1&&(event.key==="ArrowLeft"||event.key==="ArrowRight")){event.preventDefault();move(event.key==="ArrowLeft"?-1:1);}}}>
+  return <section aria-label="Activity status" className="flex h-24 min-w-0 flex-col rounded-xl border border-white/10 bg-transparent px-3 py-1" onKeyDown={event=>{if(items.length>1&&(event.key==="ArrowLeft"||event.key==="ArrowRight")){event.preventDefault();move(event.key==="ArrowLeft"?-1:1);}}}>
     <div className="flex h-4 shrink-0 items-center justify-between gap-1 text-xs font-semibold text-muted"><h2>Status</h2>{first&&<span className="min-w-0 truncate text-[10px] font-normal">{stateLabel(first)}</span>}{percent!==null && <span aria-hidden="true">{percent}%</span>}</div>
     <div className="min-h-0 flex-1 overflow-hidden">{!first?<p className="py-3 text-xs text-faint">No current activity</p>:<div className="flex h-full transition-transform duration-300 ease-out motion-reduce:transition-none" style={{transform:`translateX(-${index*100}%)`}}>{items.map((item,itemIndex)=><div key={item.id} aria-hidden={itemIndex!==index} inert={itemIndex!==index} className="h-full w-full min-w-0 shrink-0"><ActivityRow item={item} dismiss={dismiss} showPercent={false}/></div>)}</div>}</div>
     <div className="flex h-4 shrink-0 items-center justify-between gap-1">

@@ -136,7 +136,7 @@ channels or videos with identical names receive a numeric folder suffix such as
 ` (2)`; filename convention remains a separate setting:
 
 ```text
-<download-directory>/channels/<channel-name>/
+<download-directory>/<channel-name>/
   tvshow.nfo
   <video-title>/
     2026-01-02 - Example video [<video-id>].mp4

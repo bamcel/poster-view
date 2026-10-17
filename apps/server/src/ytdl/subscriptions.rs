@@ -433,7 +433,7 @@ async fn discover_sources(
 type MediaIndex = std::collections::HashMap<String, Result<Option<std::path::PathBuf>, String>>;
 fn media_index(root: &std::path::Path) -> Result<MediaIndex, HttpError> {
     let mut index = std::collections::HashMap::new();
-    let channels = root.join("channels");
+    let channels = root.to_path_buf();
     let metadata = match std::fs::symlink_metadata(&channels) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(index),
@@ -767,7 +767,7 @@ mod tests {
             &mut errors
         ));
         assert_eq!(jobs.len(), 3);
-        let channel = temp.path().join("channels/UCchannel");
+        let channel = temp.path().join("UCchannel");
         let target = channel.join("shared");
         std::fs::create_dir_all(&target).unwrap();
         let media = target.join("Readable [shared].mp4");
@@ -1064,7 +1064,7 @@ mod tests {
     #[test]
     fn readable_folders_use_nfo_identity_and_report_duplicate_ids() {
         let temp = tempfile::tempdir().unwrap();
-        let folder = temp.path().join("channels/Readable Channel/Readable Video");
+        let folder = temp.path().join("Readable Channel/Readable Video");
         std::fs::create_dir_all(&folder).unwrap();
         let media = folder.join("Readable Video.mkv");
         std::fs::write(&media, "original").unwrap();
@@ -1080,7 +1080,7 @@ mod tests {
         );
         assert!(!index.contains_key("Readable Video"));
         assert!(downloaded(temp.path(), "video123"));
-        let duplicate = temp.path().join("channels/Another Channel/Another Title");
+        let duplicate = temp.path().join("Another Channel/Another Title");
         std::fs::create_dir_all(&duplicate).unwrap();
         std::fs::write(duplicate.join("another.mkv"), "original").unwrap();
         std::fs::write(
@@ -1093,7 +1093,7 @@ mod tests {
     #[test]
     fn readable_folders_without_identity_are_not_video_ids() {
         let temp = tempfile::tempdir().unwrap();
-        let folder = temp.path().join("channels/Readable Channel/Title");
+        let folder = temp.path().join("Readable Channel/Title");
         std::fs::create_dir_all(&folder).unwrap();
         std::fs::write(folder.join("video.mkv"), "original").unwrap();
         assert!(media_index(temp.path()).unwrap().is_empty());
@@ -1101,7 +1101,7 @@ mod tests {
     #[test]
     fn downloaded_detection_preserves_named_files() {
         let temp = tempfile::tempdir().unwrap();
-        let folder = temp.path().join("channels/UCcreator/vid");
+        let folder = temp.path().join("UCcreator/vid");
         std::fs::create_dir_all(&folder).unwrap();
         std::fs::write(folder.join("Readable [vid].mkv"), "original").unwrap();
         assert!(downloaded(temp.path(), "vid"));

@@ -967,9 +967,9 @@ async fn run_inspection(
                 &text(&info, "channel"),
                 &text(&info, "title"),
             )?;
-            let channel_relative = format!("channels/{channel_folder}");
+            let channel_relative = channel_folder.clone();
             let mut folder = job.settings.directory.clone();
-            for part in ["channels", channel_folder.as_str(), video_folder.as_str()] {
+            for part in [channel_folder.as_str(), video_folder.as_str()] {
                 let parent = state.metadata.directory(&folder, true)?;
                 let next = parent.join(part);
                 if !next.exists() {
@@ -1310,7 +1310,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let state = crate::test_support::state(temp.path());
         let destination = temp.path().join("media/downloads");
-        let video = destination.join("channels/UCfixture/fixture");
+        let video = destination.join("UCfixture/fixture");
         std::fs::create_dir_all(&video).unwrap();
         let nfo = "<episodedetails><title>Keep title</title><youtube><video_id>fixture</video_id></youtube></episodedetails>";
         std::fs::write(video.join("low-quality.nfo"), nfo).unwrap();

@@ -39,7 +39,7 @@ fn merge_playlist(
 
 /// Index only the plugin's channel/video layout, without creating missing paths.
 pub(super) fn local_videos(root: &Path) -> Result<HashSet<String>, HttpError> {
-    let channels = root.join("channels");
+    let channels = root.to_path_buf();
     if !channels.try_exists().map_err(err)? {
         return Ok(HashSet::new());
     }
@@ -111,7 +111,7 @@ fn existing_target(root: &Path, info: &Value) -> Result<Option<PathBuf>, HttpErr
         &text(info, "channel"),
         &text(info, "title"),
     )?;
-    let target = root.join("channels").join(channel).join(video);
+    let target = root.join(channel).join(video);
     if !target.try_exists().map_err(err)? {
         return Ok(None);
     }
@@ -362,7 +362,7 @@ mod tests {
     }
 
     fn fixture(root: &Path) -> PathBuf {
-        let target = root.join("channels/Original channel/Original video");
+        let target = root.join("Original channel/Original video");
         std::fs::create_dir_all(&target).unwrap();
         std::fs::write(
             target.parent().unwrap().join("tvshow.nfo"),

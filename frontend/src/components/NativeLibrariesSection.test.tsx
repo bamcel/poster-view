@@ -31,7 +31,8 @@ it("creates an Anime library with multiple media folders and no remote-server im
   fireEvent.change(screen.getByLabelText("Library type"), { target: { value: "anime" } });
   expect((screen.getByLabelText("Anime content") as HTMLSelectElement).value).toBe("both");
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
-  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
+  expect(screen.queryByRole("button",{name:"Browse folders"})).toBeNull();
+  expect(screen.getByRole("region",{name:"Select Media Folders"})).toBeTruthy();
   fireEvent.click(await screen.findByRole("checkbox", { name: "Shows" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Movies" }));
   fireEvent.click(screen.getByRole("button", { name: "Select Folders" }));
@@ -47,7 +48,6 @@ it("keeps selected folders across navigation and prevents overlapping roots", as
   mount(<LibraryDialog onClose={vi.fn()} onSaved={vi.fn()} />);
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "TV" } });
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
-  fireEvent.click(screen.getByRole("button", { name: "Browse folders" }));
   fireEvent.click(await screen.findByRole("checkbox", { name: "Shows" }));
   fireEvent.doubleClick(screen.getByRole("button",{name:"Open folder Shows"}));
   fireEvent.click(await screen.findByRole("checkbox", { name: "Season 1" }));
@@ -194,7 +194,6 @@ it("creates YouTube library with channel hierarchy and local NFO defaults", asyn
  expect(screen.queryByLabelText("YouTube content")).toBeNull();
  fireEvent.change(screen.getByLabelText("Channel URLs or IDs"),{target:{value:"@first\n@second"}});
  fireEvent.click(screen.getByRole("button",{name:"Next"}));
- fireEvent.click(screen.getByRole("button",{name:"Browse folders"}));
  fireEvent.click(await screen.findByRole("checkbox",{name:"Shows"}));
  fireEvent.click(screen.getByRole("button",{name:"Select Folders"}));
  fireEvent.click(screen.getByRole("button",{name:/Review/}));
@@ -202,12 +201,11 @@ it("creates YouTube library with channel hierarchy and local NFO defaults", asyn
  await waitFor(()=>expect(nativeLibraries.save).toHaveBeenCalledWith(expect.objectContaining({library_type:"youtube",options:expect.objectContaining({youtube_mode:"multiple_channels",youtube_channels:["@first","@second"],read_nfo:true,save_nfo:true,fetch_missing:false,show_missing_files:false,metadata_providers:{},image_providers:{}})}),undefined));
 });
 
-it("cancels folder edits without changing the library's existing roots",async()=>{
+it("resets pending folder edits without changing the library's existing roots",async()=>{
  mount(<LibraryDialog library={saved} onClose={vi.fn()} onSaved={vi.fn()}/>);
  fireEvent.click(screen.getByRole("button",{name:/Folders/}));
- fireEvent.click(screen.getByRole("button",{name:"Browse folders"}));
  fireEvent.click(await screen.findByRole("checkbox",{name:"Shows"}));
- fireEvent.click(screen.getByRole("button",{name:"Cancel"}));
+ fireEvent.click(screen.getByRole("button",{name:"Reset selection"}));
  expect(screen.getByRole("dialog",{name:"Edit library"})).toBeTruthy();
  expect(screen.getByText("2 folders selected")).toBeTruthy();
 });
@@ -244,4 +242,16 @@ it("suggests one generic YouTube library name without replacing custom names",()
  mount(<LibraryDialog onClose={()=>{}} onSaved={()=>{}}/>);
  fireEvent.change(screen.getByLabelText("Library type"),{target:{value:"youtube"}});
  expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("YouTube");
+});
+
+it("keeps embedded folder checkboxes in sync when removing an existing root",async()=>{
+ mount(<LibraryDialog library={saved} onClose={vi.fn()} onSaved={vi.fn()}/>);
+ fireEvent.click(screen.getByRole("button",{name:/Folders/}));
+ const shows=await screen.findByRole("checkbox",{name:"Shows"});
+ expect((shows as HTMLInputElement).checked).toBe(true);
+ fireEvent.click(screen.getByRole("button",{name:"Remove /media/Shows"}));
+ expect((shows as HTMLInputElement).checked).toBe(false);
+ fireEvent.click(screen.getByRole("button",{name:"Select Folders"}));
+ expect(screen.queryByRole("button",{name:"Remove /media/Shows"})).toBeNull();
+ expect(screen.getByText("1 folders selected")).toBeTruthy();
 });
