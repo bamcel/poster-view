@@ -1,4 +1,4 @@
-import {createContext,useCallback,useContext,useEffect,useMemo,useState,type ReactNode} from "react";
+import {createContext,useCallback,useContext,useEffect,useMemo,useRef,useState,type ReactNode} from "react";
 import {AuthSessionContext,useIsAdmin} from "../../lib/authContext";
 
 export interface ActivityItem {
@@ -48,6 +48,16 @@ export function ActivityProvider({children}:{children:ReactNode}){
   const item=flatten(previous.sources).find(item=>item.id===id);
   return item&&!activityRunning(item)?{...previous,dismissed:{...previous.dismissed,[id]:signature(item)}}:previous;
  }),[scope]);
+ const completedTimers=useRef(new Map<string,{signature:string;timer:ReturnType<typeof setTimeout>}>());
+ useEffect(()=>{
+  const timers=completedTimers.current;
+  const completed=new Map(items.filter(item=>item.state==="completed").map(item=>[item.id,signature(item)]));
+  for(const [id,entry] of timers)if(completed.get(id)!==entry.signature){clearTimeout(entry.timer);timers.delete(id);}
+  for(const [id,result] of completed)if(!timers.has(id)){
+   timers.set(id,{signature:result,timer:setTimeout(()=>{timers.delete(id);dismiss(id);},10_000)});
+  }
+ },[items,dismiss]);
+ useEffect(()=>{const timers=completedTimers.current;return()=>{for(const entry of timers.values())clearTimeout(entry.timer);timers.clear();};},[scope]);
  const clearFinished=useCallback(()=>setFeed(previous=>{
   if(previous.scope!==scope)return previous;
   const dismissed={...previous.dismissed};for(const item of flatten(previous.sources))if(!activityRunning(item))dismissed[item.id]=signature(item);

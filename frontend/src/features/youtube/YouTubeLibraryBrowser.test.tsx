@@ -1,0 +1,19 @@
+import {cleanup,fireEvent,render,screen} from "@testing-library/react";
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
+import {MemoryRouter} from "react-router-dom";
+import {afterEach,expect,it,vi} from "vitest";
+import YouTubeLibraryBrowser from "./YouTubeLibraryBrowser";
+import {nativeLibraries,type NativeLibrary,type NativeCatalogEntry} from "../../api/nativeLibraries";
+vi.mock("../../api/nativeLibraries",()=>({nativeLibraries:{catalog:vi.fn(),artworkUrl:()=>"/api/native/libraries/youtube/items/video/artwork/thumb"}}));
+vi.mock("../playback/components/NativePlaybackActions",()=>({default:()=>null}));
+afterEach(cleanup);
+const video:NativeCatalogEntry={id:"video",path:"channel/video.mp4",kind:"episode",parent_path:"channel",title:"Camping video",available:true,revision:1,files:[],nfo_path:null,artwork:[{kind:"thumb",path:"thumb.jpg",source:"local"}],metadata:{youtube:{channel_id:"channel",channel:"Outdoor Boys",playlists:[{id:"camping",title:"Camping"}]}}};
+it.each(["single_channel","multiple_channels"] as const)("shows channels before playlists for saved %s libraries",async youtube_mode=>{
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([video]);
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><YouTubeLibraryBrowser library={{id:"youtube",name:"YouTube",options:{youtube_mode}} as NativeLibrary}/></MemoryRouter></QueryClientProvider>);
+ const channel=await screen.findByRole("button",{name:"Outdoor Boys 1 videos"});
+ expect(screen.queryByRole("button",{name:"Camping 1 videos"})).toBeNull();
+ expect(new URL(channel.querySelector("img")!.src).searchParams.get("width")).toBe("640");
+ fireEvent.click(channel);fireEvent.click(await screen.findByRole("button",{name:"Camping 1 videos"}));
+ expect(await screen.findByRole("button",{name:"Camping video"})).toBeTruthy();
+});

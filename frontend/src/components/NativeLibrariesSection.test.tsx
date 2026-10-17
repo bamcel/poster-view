@@ -191,7 +191,7 @@ it("creates YouTube library with channel hierarchy and local NFO defaults", asyn
  mount(<LibraryDialog onClose={()=>{}} onSaved={()=>{}}/>);
  fireEvent.change(screen.getByLabelText("Name"),{target:{value:"Creators"}});
  fireEvent.change(screen.getByLabelText("Library type"),{target:{value:"youtube"}});
- fireEvent.change(screen.getByLabelText("YouTube content"),{target:{value:"multiple_channels"}});
+ expect(screen.queryByLabelText("YouTube content")).toBeNull();
  fireEvent.change(screen.getByLabelText("Channel URLs or IDs"),{target:{value:"@first\n@second"}});
  fireEvent.click(screen.getByRole("button",{name:"Next"}));
  fireEvent.click(screen.getByRole("button",{name:"Browse folders"}));
@@ -239,4 +239,9 @@ it("prevents creating a library with invalid draft playback thresholds",async()=
  fireEvent.click(screen.getByRole("button",{name:/Advanced/}));fireEvent.change(screen.getByLabelText("Maximum resume percentage"),{target:{value:"1"}});
  fireEvent.click(screen.getByRole("button",{name:/Review/}));expect((screen.getByRole("button",{name:"Create library"}) as HTMLButtonElement).disabled).toBe(true);
  expect(nativeLibraries.save).not.toHaveBeenCalled();
+});
+it("suggests one generic YouTube library name without replacing custom names",()=>{
+ mount(<LibraryDialog onClose={()=>{}} onSaved={()=>{}}/>);
+ fireEvent.change(screen.getByLabelText("Library type"),{target:{value:"youtube"}});
+ expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("YouTube");
 });

@@ -3,6 +3,37 @@ import {afterEach,expect,it,vi} from "vitest";
 import {ActivityProvider,useActivity} from "./ActivityContext";
 
 afterEach(()=>{cleanup();localStorage.clear();vi.useRealTimers();});
+it("auto-dismisses completions independently without restarting timers on polling and persists them",()=>{
+ vi.useFakeTimers();
+ const first=renderHook(useActivity,{wrapper:ActivityProvider});
+ const done={id:"one",title:"One",detail:"Ready",state:"completed" as const,updatedAt:Date.now()};
+ const second={...done,id:"two",title:"Two"};
+ const failure={...done,id:"failed",state:"failed" as const};
+ act(()=>first.result.current.publish("tasks",[done,failure]));
+ act(()=>vi.advanceTimersByTime(5000));
+ act(()=>first.result.current.publish("tasks",[done,second,failure]));
+ act(()=>vi.advanceTimersByTime(4999));
+ expect(first.result.current.items).toHaveLength(3);
+ act(()=>vi.advanceTimersByTime(1));
+ expect(first.result.current.items.map(item=>item.id)).toEqual(["tasks:failed","tasks:two"]);
+ act(()=>vi.advanceTimersByTime(5000));
+ expect(first.result.current.items.map(item=>item.id)).toEqual(["tasks:failed"]);
+ first.unmount();
+ const next=renderHook(useActivity,{wrapper:ActivityProvider});
+ act(()=>next.result.current.publish("tasks",[done,second,failure]));
+ expect(next.result.current.items.map(item=>item.id)).toEqual(["tasks:failed"]);
+});
+
+it("does not auto-dismiss a task that restarts before its completion timer expires",()=>{
+ vi.useFakeTimers();
+ const {result}=renderHook(useActivity,{wrapper:ActivityProvider});
+ const task={id:"one",title:"One",detail:"Ready",state:"completed" as const,updatedAt:Date.now()};
+ act(()=>result.current.publish("tasks",[task]));
+ act(()=>vi.advanceTimersByTime(5000));
+ act(()=>result.current.publish("tasks",[{...task,state:"running"}]));
+ act(()=>vi.advanceTimersByTime(10000));
+ expect(result.current.items[0].state).toBe("running");
+});
 it("namespaces sources, prioritizes work, clamps progress and removes sources",()=>{
  const {result}=renderHook(useActivity,{wrapper:ActivityProvider});
  act(()=>result.current.publish("plugin",[
