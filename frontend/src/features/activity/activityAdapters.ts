@@ -25,7 +25,9 @@ export function scanActivity(library:Pick<NativeLibrary,"id"|"name">,status:Nati
  // Completed scans do not expose a timestamp. Do not resurrect old results.
  if(!running&&!queued&&!failed)return [];
  const progress=status.progress;
- return [{id:`scan:${library.id}`,title:`${library.name} library`,detail:queued?"Scan queued":failed?"Library scan failed. Open library settings for details.":phases[progress?.phase??""]??"Starting library scan",state:queued?"queued":failed?"failed":"running",progress:running&&progress?.total&&progress.total>0?percent(progress.processed/progress.total*100):null,href:"/settings/libraries",adminOnly:true}];
+ const phase=phases[progress?.phase??""]??"Starting library scan";
+ const detail=progress?.phase==="metadata"?`${phase} · ${progress.processed}${progress.total!==null?` / ${progress.total}`:""} tasks processed`:phase;
+ return [{id:`scan:${library.id}`,title:`${library.name} library`,detail:queued?"Scan queued":failed?"Library scan failed. Open library settings for details.":detail,state:queued?"queued":failed?"failed":"running",progress:running&&progress?.total&&progress.total>0?percent(progress.processed/progress.total*100):null,href:"/settings/libraries",adminOnly:true}];
 }
 export function taskActivities(tasks:MaintenanceTask[],now=Date.now()):ActivityItem[]{
  return tasks.flatMap(task=>{

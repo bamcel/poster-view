@@ -2,6 +2,13 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import NativeScanProgress from "./NativeScanProgress";
 afterEach(cleanup);
+it("shows actual metadata work without a catalog-sized or invented denominator",()=>{
+ const view=render(<NativeScanProgress status={{status:"scanning",count:2558,warnings:[],progress:{phase:"metadata",processed:15,total:null,current:"Anime/Example"}}}/>);
+ expect(screen.getByText("15 metadata tasks processed · checking remaining work…")).toBeTruthy();
+ expect(screen.getByRole("progressbar").hasAttribute("aria-valuenow")).toBe(false);
+ view.rerender(<NativeScanProgress status={{status:"scanning",count:2558,warnings:[],progress:{phase:"metadata",processed:16,total:20,current:"Anime/Example"}}}/>);
+ expect(screen.getByText("16 / 20 metadata tasks processed · 80%")).toBeTruthy();
+});
 it("shows discovery without inventing a percentage, then live reading counts", () => {
   const view = render(<NativeScanProgress status={{status: "scanning", count: 0, warnings: [], progress: {phase: "discovering", processed: 20, total: null, current: "Anime/Example.mkv"}}} />);
   expect(screen.getByText("20 files found")).toBeTruthy();

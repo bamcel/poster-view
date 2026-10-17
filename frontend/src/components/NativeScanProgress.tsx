@@ -10,7 +10,7 @@ export default function NativeScanProgress({status, compact = false}: {status: N
   return <div className={`${compact ? "space-y-1" : "space-y-2"} min-w-0 text-xs text-muted`} title={compact ? progress?.current : undefined}>
     <p role="status" className="flex items-center gap-2">{busy && <Loader2 aria-hidden="true" className="size-3.5 shrink-0 animate-spin text-accent" />}{busy ? phases[progress?.phase ?? ""] ?? "Starting scan…" : status.status.replaceAll("_", " ")} · {status.count} items</p>
     {busy && progress && <>
-      <p>{progress.total !== null ? `${progress.processed} / ${progress.total} ${["metadata","capturing"].includes(progress.phase) ? "items" : "files"} processed${percent !== undefined ? ` · ${percent}%` : ""}` : progress.phase === "discovering" ? `${progress.processed} files found` : "Writing library changes…"}</p>
+      <p>{progress.total !== null ? `${progress.processed} / ${progress.total} ${progress.phase==="metadata"?"metadata tasks":progress.phase==="capturing"?"items":"files"} processed${percent !== undefined ? ` · ${percent}%` : ""}` : progress.phase === "discovering" ? `${progress.processed} files found` : progress.phase==="metadata"?`${progress.processed} metadata tasks processed · checking remaining work…`:"Writing library changes…"}</p>
       <div role="progressbar" aria-label={phases[progress.phase] ?? "Library scan"} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} className="h-1.5 overflow-hidden rounded-full bg-base">
         <div className={`h-full rounded-full bg-accent transition-all ${percent === undefined ? "w-1/3 animate-pulse" : ""}`} style={percent === undefined ? undefined : {width: `${percent}%`}} />
       </div>

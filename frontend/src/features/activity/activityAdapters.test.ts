@@ -4,6 +4,11 @@ import type {MaintenanceTask} from "../../components/ScheduledTasks";
 import type {YtdlJob} from "../settings/ytdl/client";
 import {scanActivity,taskActivities,unavailableActivity,youtubeActivities} from "./activityAdapters";
 const now=Date.parse("2026-10-16T12:00:00Z");
+it("reports actual metadata task counts while future work is unresolved",()=>{
+ const item=scanActivity({id:"anime",name:"Anime"},{status:"scanning",count:2558,warnings:[],progress:{phase:"metadata",processed:15,total:null,current:""}})[0];
+ expect(item.detail).toBe("Fetching metadata and artwork · 15 tasks processed");
+ expect(item.progress).toBeNull();
+});
 const job=(patch:Partial<YtdlJob>={}):YtdlJob=>({id:"download",title:"Example video",status:"downloading",progress:40,created_at:new Date(now-60000).toISOString(),url:"https://example.org/video",speed:null,eta:null,error:null,settings:{} as YtdlJob["settings"],...patch});
 const scan=(patch:Partial<NativeScanStatus>={}):NativeScanStatus=>({status:"scanning",count:20,warnings:[],...patch});
 const task=(patch:Partial<MaintenanceTask>={}):MaintenanceTask=>({id:"cleanup",title:"Cleanup",description:"",enabled:true,interval_days:1,retention_days:1,cleanup_artwork:false,cleanup_cache:false,cleanup_temporary:false,last_run:(now-60000)/1000,last_result:"Completed",...patch});

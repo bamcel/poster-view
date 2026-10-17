@@ -142,6 +142,10 @@ pub(crate) async fn status(
         if status.status == "scanning" && !active_scans.lock().unwrap().contains(&id) {
             status.status = "interrupted".into();
             status.progress = None;
+        } else if status.status == "scanning" {
+            if let Some(live) = crate::native_progress::current(&state, &id) {
+                status = live;
+            }
         }
         let mut value = serde_json::json!(status);
         value["manual_queued"] = serde_json::json!(store.manual_scan_queued(&id)?);
@@ -368,6 +372,7 @@ async fn start_scan_with_refresh(
     let db = store(&state);
     let scan_id = id.clone();
     let active_scans = state.active_native_scans.clone();
+    let live_progress = state.native_scan_progress.clone();
     let started = tokio::task::spawn_blocking(move || {
         let initial = db.native_scan_status(&scan_id)?.status == "not_scanned";
         let started = db.request_native_scan(&scan_id, manual)?;
@@ -376,7 +381,7 @@ async fn start_scan_with_refresh(
             if manual || initial { "true" } else { "false" },
         )?;
         Ok::<_, posterview_infra_sqlite::StoreError>(
-            started.then(|| ActiveNativeScan::new(active_scans, scan_id)),
+            started.then(|| ActiveNativeScan::new(active_scans, live_progress, scan_id)),
         )
     })
     .await
@@ -390,6 +395,7 @@ async fn start_scan_with_refresh(
         let mut scopes = scopes;
         let mut force_metadata = force_metadata;
         loop {
+            crate::native_progress::clear(&state, &id);
             let pending_key = format!("native-force-metadata:{id}");
             if store(&state).get_setting(&pending_key).unwrap_or_default() == "true" {
                 force_metadata = true;
@@ -433,20 +439,30 @@ async fn start_scan_with_refresh(
 // including unwinding or cancellation, so maintenance only waits for live scans.
 pub(crate) struct ActiveNativeScan(
     std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    crate::native_progress::LiveProgress,
     String,
 );
 impl ActiveNativeScan {
     pub(crate) fn new(
         active: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+        progress: crate::native_progress::LiveProgress,
         id: String,
     ) -> Self {
         active.lock().unwrap().insert(id.clone());
-        Self(active, id)
+        progress
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
+        Self(active, progress, id)
     }
 }
 impl Drop for ActiveNativeScan {
     fn drop(&mut self) {
-        self.0.lock().unwrap().remove(&self.1);
+        self.0.lock().unwrap().remove(&self.2);
+        self.1
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.2);
     }
 }
 fn in_scope(path: &str, scopes: Option<&[String]>) -> bool {
@@ -2488,7 +2504,7 @@ pub(crate) mod scan_tests {
             .unwrap();
         db.begin_native_scan(&library.id).unwrap();
         let (entries, _) = crate::native_scan::collect(&state, &library).unwrap();
-        let status = db.native_scan_status(&library.id).unwrap();
+        let status = crate::native_progress::current(&state, &library.id).unwrap();
         assert_eq!(status.status, "scanning");
         assert_eq!(status.count, entries.len());
         let progress = status.progress.as_ref().unwrap();
@@ -2510,6 +2526,67 @@ pub(crate) mod scan_tests {
             db.native_scan_status(&library.id).unwrap().status,
             "complete"
         );
+    }
+    #[tokio::test]
+    async fn scan_status_uses_live_progress_preserves_queue_and_cleans_worker_snapshots() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let db = store(&state);
+        let library=db.save_native_library(None,&serde_json::from_value::<NativeLibraryInput>(serde_json::json!({"name":"Anime","library_type":"anime","anime_content":"both","paths":["Anime"]})).unwrap()).unwrap();
+        db.begin_native_scan(&library.id).unwrap();
+        let worker = ActiveNativeScan::new(
+            state.active_native_scans.clone(),
+            state.native_scan_progress.clone(),
+            library.id.clone(),
+        );
+        let mut reporter = crate::native_progress::Reporter::new(&state, &library.id);
+        reporter.report("metadata", 3, Some(4), 2000, "Anime/Example", true);
+        assert!(!db.request_native_scan(&library.id, true).unwrap());
+        let response = status(State(state.clone()), Path(library.id.clone()))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(response["progress"]["processed"], 3);
+        assert_eq!(response["progress"]["total"], 4);
+        assert_eq!(response["count"], 2000);
+        assert_eq!(response["manual_queued"], true);
+        assert!(
+            db.native_scan_status(&library.id)
+                .unwrap()
+                .progress
+                .is_none()
+        );
+        db.finish_native_scan(
+            &library.id,
+            &posterview_contracts::native::NativeScanStatus {
+                status: "complete".into(),
+                count: 2000,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let response = status(State(state.clone()), Path(library.id.clone()))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(response["status"], "complete");
+        assert!(response["progress"].is_null());
+        drop(worker);
+        assert!(crate::native_progress::current(&state, &library.id).is_none());
+        db.request_native_scan(&library.id, false).unwrap();
+        let worker = ActiveNativeScan::new(
+            state.active_native_scans.clone(),
+            state.native_scan_progress.clone(),
+            library.id.clone(),
+        );
+        reporter.report("metadata", 1, None, 2, "Another pass", true);
+        drop(worker);
+        let response = status(State(state.clone()), Path(library.id.clone()))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(response["status"], "interrupted");
+        assert!(response["progress"].is_null());
     }
     #[tokio::test]
     async fn saves_encoded_artwork_sidecars_and_reads_them_on_rescan() {

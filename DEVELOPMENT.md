@@ -385,6 +385,24 @@ missing remembered files fall back with a notice. Series language preferences ma
 still match tracks by characteristics. No database migration or media rewrite is
 needed; older clients without a version use the default catalog file.
 
+### Scan enrichment and live progress
+
+`native_progress::Reporter` publishes lightweight snapshots in AppState, outside
+SQLite's single-writer path. The scan-status endpoint overlays those snapshots
+only for a live scanning worker; persisted completion/failure remains authoritative.
+Worker guards clear snapshots on completion, cancellation, and queued restarts.
+Snapshots intentionally do not survive a process restart; existing interrupted-scan
+handling still applies. No schema or scan-status JSON changes are required.
+
+Metadata work counts exclude complete, unavailable, missing, disabled-provider,
+and valid cooldown entries. Parent series, seasons, and episodes retain dependency
+ordering. Totals remain unknown until parent identifiers resolve child eligibility;
+the UI shows actual processed tasks instead of an invented catalog-sized percentage.
+AniList pagination requests only unfinished connections. Supplementary Jikan
+characters/staff fetches have independent gap detection and successful/empty checks,
+with manual-field preservation, cached merges, and existing rate limits/backoff.
+Enriching unchanged media still enables the normal sidecar persistence path.
+
 ### Collection metadata
 
 Collection pages expose administrator-only Identify, Refresh metadata, and Field

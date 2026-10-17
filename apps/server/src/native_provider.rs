@@ -55,7 +55,18 @@ fn needs_voice_cast(entry: &NativeCatalogEntry, library: &NativeLibrary) -> bool
             .metadata_providers
             .get(&entry.kind)
             .is_none_or(|providers| providers.iter().any(|p| p == "anilist"))
-        && entry.metadata["voice_cast_schema"] != 3
+        && !matches!(
+            entry.metadata["_sources"]["voice_cast"].as_str(),
+            Some("manual" | "nfo")
+        )
+        && (entry.metadata["voice_cast_schema"] != 3
+            || !entry.metadata["voice_cast"].is_array()
+            || incomplete_anilist_lists(&entry.metadata["anilist_data"]))
+}
+fn incomplete_anilist_lists(data: &Value) -> bool {
+    ["characters", "staff"]
+        .iter()
+        .any(|field| data[field]["pageInfo"]["hasNextPage"] == true)
 }
 fn anilist_voice_cast(data: &Value) -> Value {
     let mut cast = Vec::new();
@@ -150,6 +161,11 @@ pub(crate) fn merge_credit_portraits(metadata: &mut Value, incoming: &Value) {
 }
 fn fill(entry: &mut NativeCatalogEntry, field: &str, value: Value, source: &str) {
     if missing(&value)
+        || (field == "voice_cast"
+            && matches!(
+                entry.metadata["_sources"][field].as_str(),
+                Some("manual" | "nfo")
+            ))
         || (SPECIAL_PLACEMENT_FIELDS.contains(&field)
             && SPECIAL_PLACEMENT_FIELDS.iter().any(|key| {
                 matches!(
@@ -349,12 +365,7 @@ pub(super) async fn anilist(
         }
         let gate = crate::workers::provider("anilist").await;
         drop(gate);
-        let query = "query($id:Int,$type:MediaType,$page:Int){Media(id:$id,type:$type){characters(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}} voiceActors{id languageV2 name{full} image{large}} voiceActorRoles{dubGroup roleNotes voiceActor{id languageV2 name{full} image{large}}}}} staff(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}}}";
-        let query = if manga {
-            "query($id:Int,$type:MediaType,$page:Int){Media(id:$id,type:$type){characters(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}}}}}}"
-        } else {
-            query
-        };
+        let query = anilist_connection_query(media, manga);
         let result = match client
             .post("https://graphql.anilist.co")
             .json(&json!({"query":query,"variables":{"id":selected,"type":media_type,"page":page}}))
@@ -390,6 +401,20 @@ pub(super) async fn anilist(
         }
     }
     Ok(body)
+}
+fn anilist_connection_query(media: &Value, manga: bool) -> String {
+    let mut connections = String::new();
+    if media["characters"]["pageInfo"]["hasNextPage"] == true {
+        connections.push_str("characters(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} description image{large}}");
+        if !manga {
+            connections.push_str(" voiceActors{id languageV2 name{full} image{large}} voiceActorRoles{dubGroup roleNotes voiceActor{id languageV2 name{full} image{large}}}");
+        }
+        connections.push_str("}}");
+    }
+    if !manga && media["staff"]["pageInfo"]["hasNextPage"] == true {
+        connections.push_str(" staff(page:$page,perPage:100){pageInfo{hasNextPage} edges{role node{id name{full} image{large}}}}");
+    }
+    format!("query($id:Int,$type:MediaType,$page:Int){{Media(id:$id,type:$type){{{connections}}}}}")
 }
 fn merge_anilist_page(media: &mut Value, next: &Value) -> Result<(), String> {
     for field in ["characters", "staff"] {
@@ -642,6 +667,31 @@ fn check_identity(
     let mut identity = json!({"title":search_title(entry),"kind":entry.kind,"ids":entry.metadata["identifiers"],
         "year":entry.metadata["year"],"season":entry.metadata["season"],"episode":entry.metadata["episode"],
         "parent":parent.and_then(|p|parents.get(p)),"options":library.options});
+    let essential = if entry.kind == "season" {
+        vec!["title"]
+    } else {
+        vec!["title", "plot"]
+    };
+    let missing_fields = essential
+        .into_iter()
+        .filter(|field| missing(&entry.metadata[*field]))
+        .collect::<Vec<_>>();
+    let portraits = if needs_credit_portraits(entry) {
+        entry.metadata["credits"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|credit| credit["category"] == "cast" && missing(&credit["image"]))
+            .map(|credit| credit["name"].clone())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    identity["work_schema"] = json!(2);
+    identity["work"] = json!({"missing_fields":missing_fields,"images":missing_images(entry, library),
+        "voice_schema":entry.metadata["voice_cast_schema"],"voice_cast":needs_voice_cast(entry, library),
+        "book_characters":needs_book_characters(entry, library),"portraits":portraits,
+        "special_placement":needs_special_placement(entry, library),"partial_lists":incomplete_anilist_lists(&entry.metadata["anilist_data"])});
     if entry.kind == "episode" && entry.metadata["season"].as_u64() == Some(0) {
         identity["special_placement_schema"] = json!(1);
     }
@@ -653,6 +703,65 @@ fn check_identity(
 fn recently_checked(entry: &NativeCatalogEntry, identity: &Value, now: i64) -> bool {
     let checked = &entry.metadata["_provider_check"];
     checked["identity"] == *identity && checked["until"].as_i64().is_some_and(|until| until > now)
+}
+fn needs_primary_work(entry: &NativeCatalogEntry, library: &NativeLibrary) -> bool {
+    let metadata_enabled = entry.metadata["_identify_source"] == "tvdb"
+        || library
+            .options
+            .metadata_providers
+            .get(&entry.kind)
+            .is_none_or(|providers| !providers.is_empty());
+    let images_enabled = entry.metadata["_identify_replace_artwork"] == true
+        || library
+            .options
+            .image_providers
+            .get(&entry.kind)
+            .is_none_or(|providers| !providers.is_empty());
+    (metadata_enabled
+        && (!metadata_complete(entry)
+            || needs_voice_cast(entry, library)
+            || needs_book_characters(entry, library)
+            || needs_credit_portraits(entry)
+            || needs_special_placement(entry, library)))
+        || (images_enabled && !missing_images(entry, library).is_empty())
+}
+fn eligible_entry(entry: &NativeCatalogEntry) -> bool {
+    entry.available
+        && entry.metadata["missing"] != true
+        && matches!(
+            entry.kind.as_str(),
+            "series" | "book_series" | "movie" | "season" | "episode"
+        )
+}
+fn needs_enrichment(
+    entry: &NativeCatalogEntry,
+    library: &NativeLibrary,
+    parents: &BTreeMap<String, Value>,
+    now: i64,
+) -> bool {
+    eligible_entry(entry)
+        && ((needs_primary_work(entry, library)
+            && !recently_checked(entry, &check_identity(entry, library, parents), now))
+            || crate::native_jikan::needs_enrichment(entry, library))
+}
+fn enrichment_tier(entry: &NativeCatalogEntry) -> usize {
+    match entry.kind.as_str() {
+        "series" | "book_series" | "movie" => 0,
+        "season" => 1,
+        _ => 2,
+    }
+}
+fn parent_metadata(entries: &[NativeCatalogEntry]) -> BTreeMap<String, Value> {
+    entries
+        .iter()
+        .filter(|entry| entry.kind == "series")
+        .map(|entry| {
+            (
+                entry.path.clone(),
+                json!({"identifiers":entry.metadata["identifiers"]}),
+            )
+        })
+        .collect()
 }
 
 pub(crate) async fn enrich(
@@ -689,40 +798,45 @@ pub(crate) async fn enrich(
     };
     let service = std::sync::Arc::new(posterview_infra_artwork::ArtworkService::default());
     let blocked = std::sync::Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new()));
-    let total = entries.iter().filter(|e| e.kind != "book").count();
     let mut completed = 0;
     let mut progress = crate::native_progress::Reporter::new(state, &library.id);
-    progress.report("metadata", 0, Some(total), entries.len(), "", true);
+    progress.report("metadata", 0, None, entries.len(), "", true);
     for tier in 0..3 {
         let context = std::sync::Arc::new(EnrichmentContext {
             client: client.clone(),
             token: token.clone(),
             service: service.clone(),
-            parents: entries
-                .iter()
-                .filter(|e| e.kind == "series")
-                .map(|e| {
-                    (
-                        e.path.clone(),
-                        json!({"identifiers": e.metadata["identifiers"]}),
-                    )
-                })
-                .collect(),
+            parents: parent_metadata(entries),
             blocked: blocked.clone(),
         });
+        // A newly identified parent can make child work eligible. Count only
+        // remaining real work after each dependency tier, including cache hits
+        // that the supplementary provider can apply without a network request.
+        let now = chrono::Utc::now().timestamp();
+        let total = completed
+            + entries
+                .iter()
+                .filter(|entry| {
+                    enrichment_tier(entry) >= tier
+                        && needs_enrichment(entry, library, &context.parents, now)
+                })
+                .count();
+        // Child cache identities depend on their resolved parent IDs. Until the
+        // parent tiers finish, an honest final denominator is not yet known.
+        let reported_total = (tier == 2).then_some(total);
+        progress.report(
+            "metadata",
+            completed,
+            reported_total,
+            entries.len(),
+            "",
+            true,
+        );
         let mut pending = entries
             .iter()
             .enumerate()
             .filter(|(_, e)| {
-                e.kind != "book"
-                    && e.metadata["missing"] != true
-                    && (e.metadata["_scan_unchanged"] != true
-                        || needs_special_placement(e, library))
-                    && match e.kind.as_str() {
-                        "series" | "book_series" | "movie" => tier == 0,
-                        "season" => tier == 1,
-                        _ => tier == 2,
-                    }
+                enrichment_tier(e) == tier && needs_enrichment(e, library, &context.parents, now)
             })
             .map(|(i, e)| (i, e.clone()))
             .collect::<Vec<_>>()
@@ -740,14 +854,23 @@ pub(crate) async fn enrich(
                     let mut entry = entry;
                     let mut warnings = Vec::new();
                     let identity = check_identity(&entry, &library, &context.parents);
-                    if !recently_checked(&entry, &identity, chrono::Utc::now().timestamp()) {
+                    let mut primary_delay = None;
+                    if needs_primary_work(&entry, &library) && !recently_checked(&entry, &identity, chrono::Utc::now().timestamp()) {
                         enrich_one(&state, &library, &mut entry, &mut warnings, &context).await;
-                        crate::native_jikan::enrich(&state, &library, &mut entry, &context.client, &mut warnings).await;
                         // Retry errors after one hour; successful checks with unavailable fields after one day.
                         let blocked = !context.blocked.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
                         let delay = if warnings.is_empty() && !blocked { 86_400 } else { 3_600 };
+                        primary_delay = Some(delay);
+                    }
+                    if crate::native_jikan::needs_enrichment(&entry, &library) {
+                        crate::native_jikan::enrich(&state, &library, &mut entry, &context.client, &mut warnings).await;
+                    }
+                    if let Some(delay) = primary_delay {
                         entry.metadata["_provider_check"] = json!({"identity":check_identity(&entry, &library, &context.parents),"until":chrono::Utc::now().timestamp()+delay});
                     }
+                    // Sidecar persistence must include enrichment of unchanged
+                    // media files, not only entries whose file stat changed.
+                    entry.metadata["_scan_unchanged"] = json!(false);
                     (index, entry, warnings)
                 });
             }
@@ -763,7 +886,7 @@ pub(crate) async fn enrich(
                     progress.report(
                         "metadata",
                         completed,
-                        Some(total),
+                        reported_total,
                         entries.len(),
                         &current,
                         completed == total,
@@ -775,6 +898,14 @@ pub(crate) async fn enrich(
             }
         }
     }
+    progress.report(
+        "metadata",
+        completed,
+        Some(completed),
+        entries.len(),
+        "",
+        true,
+    );
     let mut seen = std::collections::BTreeSet::new();
     warnings.retain(|warning| seen.insert(warning.clone()));
 }
@@ -800,13 +931,7 @@ async fn enrich_one(
     if entry.kind == "book" {
         return;
     }
-    if metadata_complete(entry)
-        && missing_images(entry, library).is_empty()
-        && !needs_voice_cast(entry, library)
-        && !needs_book_characters(entry, library)
-        && !needs_credit_portraits(entry)
-        && !needs_special_placement(entry, library)
-    {
+    if !needs_primary_work(entry, library) {
         return;
     }
     let default = if (library.library_type == NativeLibraryType::Anime
@@ -1144,7 +1269,10 @@ async fn enrich_one(
             fields["characters"] = json!(characters);
             if library.library_type != NativeLibraryType::Books {
                 fields["voice_cast"] = anilist_voice_cast(&data);
-                if entry.metadata["_sources"]["voice_cast"] != "manual" {
+                if !matches!(
+                    entry.metadata["_sources"]["voice_cast"].as_str(),
+                    Some("manual" | "nfo")
+                ) {
                     entry.metadata["voice_cast"] = fields["voice_cast"].clone();
                     entry.metadata["_sources"]["voice_cast"] = json!("anilist");
                 }
@@ -1441,6 +1569,7 @@ mod tests {
         library.library_type = NativeLibraryType::Anime;
         assert!(needs_voice_cast(&entry, &library));
         entry.metadata["voice_cast_schema"] = json!(3);
+        entry.metadata["voice_cast"] = json!([]);
         assert!(!needs_voice_cast(&entry, &library));
         entry.metadata["voice_cast_schema"] = Value::Null;
         entry.kind = "episode".into();
@@ -1585,6 +1714,110 @@ mod tests {
     }
 
     #[test]
+    fn metadata_work_counts_gaps_not_catalog_size_or_scan_flags() {
+        let mut configured = library();
+        configured.options.image_types.clear();
+        let mut gap = local_entry("episode");
+        gap.metadata["plot"] = Value::Null;
+        gap.metadata["_scan_unchanged"] = json!(true);
+        let mut unavailable = gap.clone();
+        unavailable.available = false;
+        let mut missing_item = gap.clone();
+        missing_item.metadata["missing"] = json!(true);
+        let mut cached = gap.clone();
+        let parents = BTreeMap::new();
+        cached.metadata["_provider_check"] =
+            json!({"identity":check_identity(&cached, &configured, &parents),"until":200});
+        let entries = [
+            local_entry("episode"),
+            gap,
+            unavailable,
+            missing_item,
+            cached,
+            local_entry("book"),
+        ];
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| needs_enrichment(entry, &configured, &parents, 100))
+                .count(),
+            1
+        );
+        assert!(needs_enrichment(&entries[1], &configured, &parents, 100));
+        configured
+            .options
+            .metadata_providers
+            .insert("episode".into(), vec![]);
+        configured
+            .options
+            .image_providers
+            .insert("episode".into(), vec![]);
+        assert!(!needs_enrichment(&entries[1], &configured, &parents, 100));
+    }
+
+    #[test]
+    fn missing_work_and_voice_schema_changes_invalidate_provider_cooldown() {
+        let mut configured = library();
+        configured.options.image_types.clear();
+        let mut entry = local_entry("series");
+        entry.metadata["voice_cast"] = json!([]);
+        entry.metadata["voice_cast_schema"] = json!(3);
+        let parents = BTreeMap::new();
+        let identity = check_identity(&entry, &configured, &parents);
+        entry.metadata["_provider_check"] = json!({"identity":identity,"until":200});
+        assert!(!needs_primary_work(&entry, &configured));
+        entry.metadata["plot"] = Value::Null;
+        assert!(!recently_checked(
+            &entry,
+            &check_identity(&entry, &configured, &parents),
+            100
+        ));
+        entry.metadata["plot"] = json!("Local overview");
+        entry.metadata["voice_cast_schema"] = json!(2);
+        entry.metadata["_scan_unchanged"] = json!(true);
+        assert!(needs_enrichment(&entry, &configured, &parents, 100));
+        entry.metadata["voice_cast_schema"] = json!(3);
+        entry.metadata["voice_cast"] = Value::Null;
+        assert!(needs_voice_cast(&entry, &configured));
+        for source in ["manual", "nfo"] {
+            entry.metadata["_sources"]["voice_cast"] = json!(source);
+            assert!(!needs_voice_cast(&entry, &configured));
+            entry.metadata["voice_cast"] = json!([]);
+            fill(
+                &mut entry,
+                "voice_cast",
+                json!([{"name":"Provider actor"}]),
+                "anilist",
+            );
+            assert_eq!(entry.metadata["voice_cast"], json!([]));
+        }
+    }
+
+    #[test]
+    fn anilist_followup_queries_only_include_unfinished_connections() {
+        let mut media = json!({"characters":{"pageInfo":{"hasNextPage":true}},"staff":{"pageInfo":{"hasNextPage":false}}});
+        let query = anilist_connection_query(&media, false);
+        assert!(query.contains("characters(page:"));
+        assert!(!query.contains("staff(page:"));
+        assert!(query.contains("voiceActorRoles"));
+        let manga = anilist_connection_query(&media, true);
+        assert!(!manga.contains("voiceActor"));
+        media["characters"]["pageInfo"]["hasNextPage"] = json!(false);
+        media["staff"]["pageInfo"]["hasNextPage"] = json!(true);
+        let query = anilist_connection_query(&media, false);
+        assert!(query.contains("staff(page:"));
+        assert!(!query.contains("characters(page:"));
+        let mut previous = json!({"characters":{"pageInfo":{"hasNextPage":false},"edges":[{"node":{"id":1}}]},"staff":{"pageInfo":{"hasNextPage":true},"edges":[]}});
+        merge_anilist_page(
+            &mut previous,
+            &json!({"staff":{"pageInfo":{"hasNextPage":false},"edges":[{"node":{"id":2}}]}}),
+        )
+        .unwrap();
+        assert_eq!(previous["characters"]["edges"].as_array().unwrap().len(), 1);
+        assert_eq!(previous["staff"]["edges"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
     fn optional_metadata_and_inapplicable_artwork_do_not_create_gaps() {
         let mut episode = local_entry("episode");
         episode.artwork.push(NativeArtwork {
@@ -1617,6 +1850,60 @@ mod tests {
         assert!(movie.metadata["genres"].is_null());
         assert!(movie.metadata["credits"].is_null());
     }
+    #[tokio::test]
+    async fn enrichment_progress_counts_only_real_work_and_reuses_completed_checks() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let mut library = library();
+        library.options.fetch_missing = true;
+        library.options.image_types.clear();
+        library
+            .options
+            .metadata_providers
+            .insert("series".into(), vec![]);
+        let cache = state.runtime.data_dir().join("jikan-cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(
+            cache.join("123-staff.json"),
+            serde_json::to_vec(
+                &json!({"fetched":chrono::Utc::now().timestamp(),"body":{"data":[]}}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let mut entries = vec![local_entry("episode"); 500];
+        let mut series = local_entry("series");
+        series.metadata["identifiers"] = json!({"mal":"123"});
+        series.metadata["_sources"] = json!({"voice_cast":"manual","characters":"manual"});
+        series.metadata["_scan_unchanged"] = json!(true);
+        entries.push(series);
+        let mut missing_entry = local_entry("episode");
+        missing_entry.metadata["missing"] = json!(true);
+        missing_entry.metadata["plot"] = Value::Null;
+        entries.push(missing_entry);
+        let mut warnings = Vec::new();
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            enrich(&state, &library, &mut entries, &mut warnings),
+        )
+        .await
+        .unwrap();
+        assert!(warnings.is_empty());
+        let live = crate::native_progress::current(&state, &library.id).unwrap();
+        assert_eq!(live.count, 502);
+        let progress = live.progress.unwrap();
+        assert_eq!(progress.processed, 1);
+        assert_eq!(progress.total, Some(1));
+        assert_eq!(entries[500].metadata["_scan_unchanged"], false);
+        enrich(&state, &library, &mut entries, &mut warnings).await;
+        let progress = crate::native_progress::current(&state, &library.id)
+            .unwrap()
+            .progress
+            .unwrap();
+        assert_eq!(progress.processed, 0);
+        assert_eq!(progress.total, Some(0));
+    }
+
     #[tokio::test]
     async fn local_episode_does_not_call_enabled_providers() {
         let mut episode = local_entry("episode");

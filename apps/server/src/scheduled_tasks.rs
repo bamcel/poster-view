@@ -926,6 +926,7 @@ mod tests {
         assert_eq!(status["status"], "interrupted");
         let scan = crate::native::ActiveNativeScan::new(
             state.active_native_scans.clone(),
+            state.native_scan_progress.clone(),
             library.id.clone(),
         );
         let status = crate::native::status(State(state.clone()), Path(library.id.clone()))
@@ -935,6 +936,7 @@ mod tests {
         assert_eq!(status["status"], "scanning");
         let second_scan = crate::native::ActiveNativeScan::new(
             state.active_native_scans.clone(),
+            state.native_scan_progress.clone(),
             "second".into(),
         );
         assert!(candidates(&state, &task).is_err());
