@@ -30,8 +30,8 @@
 .vtv-program-track { position: relative; flex: 1; min-width: 0; height: 58px; overflow: hidden; }
 .vtv-program { position: absolute; top: 0; bottom: 0; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); background: transparent; color: #ddd; padding: 0; text-align: left; overflow: hidden; min-width: 0; }
 .vtv-program > span { display: block; padding: 0 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.vtv-program:hover { background: rgba(255,255,255,.08); }
-.vtv-program-selected, .vtv-program-selected:hover { background: var(--color-accent); color: #151515; font-weight: 600; }
+.vtv-program:hover, .vtv-program-selected, .vtv-program-selected:hover { background: rgba(255,255,255,.08); }
+.vtv-program-selected { font-weight: 600; }
 .vtv-now-line { position: absolute; top: 0; bottom: 0; width: 1px; pointer-events: none; background: var(--color-accent, #8aa381); opacity: .45; }
 .vtv-page button:focus-visible, .vtv-page a:focus-visible { outline: 2px solid var(--color-accent, #8aa381); outline-offset: 3px; }
 @media (max-width: 700px) {
