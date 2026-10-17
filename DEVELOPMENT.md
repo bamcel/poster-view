@@ -422,9 +422,8 @@ changing existing collection IDs or members. Artwork URLs use provider originals
 and fall back to member artwork when missing. Restricted projections omit
 collection metadata when not every member is visible.
 
-Client-initiated metadata saves publish progress/results through the global
-activity feed. This status is local to the current browser session; it is not a
-durable background-job queue. Tests use provider response fixtures and isolated
+Collection metadata applications run through the durable background-job queue.
+Field-lock-only saves remain immediate browser operations. Tests use provider response fixtures and isolated
 stores; live credentialed provider calls are not part of the offline suite.
 
 ### Global activity status
@@ -444,3 +443,29 @@ open the source's detail UI. Active work comes first; finished entries may be
 dismissed. YouTube downloads, native library scans, and scheduled maintenance
 are integrated in `ActivitySources.tsx`. Scans without completion timestamps
 show current work/errors rather than resurrecting old completion messages.
+
+
+### Durable background jobs
+
+`apps/server/src/jobs.rs` owns worker lifecycle and dispatch; shared job contracts
+live in `posterview-contracts`, and SQLite migration 6 stores jobs, leases and
+per-entry checkpoints. Native scans, scheduled maintenance, automatic artwork
+generation, and collection metadata applications use this queue. Two workers
+claim work atomically and serialize jobs sharing a resource. Queued scan requests coalesce scopes and
+refresh flags. A request disconnect does not stop an accepted job.
+
+On startup, interrupted safe jobs return to the queue within their three-attempt
+budget. Transient execution failures back off before retrying. Scan checkpoints
+are reused only when their discovered inputs still match; changed inputs are
+processed again. Collection metadata and an application receipt commit in one
+transaction, preventing duplicate application after restart. Maintenance gets
+one automatic attempt because cleanup may modify files; interrupted maintenance
+requires an explicit retry. Cancellation stops new work and drains writes or
+provider work already underway before releasing ownership.
+
+Administrators can view, cancel, or retry tasks through `/api/jobs` and the global
+Status card. Payloads, leases, raw errors and filesystem paths are not exposed.
+To integrate another durable task, add a bounded executor to the dispatch and
+enqueue a version-compatible payload with a stable resource and deduplication
+key. A status-only plugin adapter does not make its task durable. YouTube keeps
+its existing specialized download queue and recovery behavior.

@@ -150,7 +150,7 @@ pub(crate) async fn configure(
     .await
     .map_err(bad)?
 }
-#[derive(Serialize, Default)]
+#[derive(Serialize, Deserialize, Default)]
 pub(crate) struct Report {
     files: usize,
     placeholders: usize,
@@ -474,33 +474,60 @@ pub(crate) async fn preview(State(state): State<AppState>) -> Result<Json<Report
     .await
     .map_err(bad)?
 }
+#[cfg(test)]
 async fn execute(state: AppState, id: String) -> Result<Report, HttpError> {
-    let guard = state
-        .maintenance_lock
-        .clone()
-        .try_lock_owned()
-        .map_err(|_| bad("A scheduled task is already running. Try again shortly."))?;
+    execute_with_context(state, id, None).await
+}
+fn check_job(context: &Option<crate::jobs::JobContext>) -> Result<(), HttpError> {
+    if let Some(context) = context {
+        context.check()?;
+    }
+    Ok(())
+}
+async fn execute_with_context(
+    state: AppState,
+    id: String,
+    context: Option<crate::jobs::JobContext>,
+) -> Result<Report, HttpError> {
+    check_job(&context)?;
+    let guard = if context.is_some() {
+        loop {
+            check_job(&context)?;
+            if let Ok(guard) = state.maintenance_lock.clone().try_lock_owned() {
+                break guard;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    } else {
+        state
+            .maintenance_lock
+            .clone()
+            .try_lock_owned()
+            .map_err(|_| bad("A scheduled task is already running. Try again shortly."))?
+    };
     tokio::task::spawn_blocking(move||{
         let _guard = guard;
         *state.running_maintenance_task.lock().unwrap() = Some(id.clone());
         let _running = RunningTask(state.running_maintenance_task.clone());
         let mut tasks=load(&state)?;let task=tasks.iter_mut().find(|t|t.id==id).ok_or_else(HttpError::not_found)?;
-        let result=(||->Result<Report,HttpError>{match id.as_str() {
-            "cleanup"=>{let db=ServerStore::new(state.runtime.data_dir());let mut report=Report{records:cleanup_records(&state,task,true)? + if task.cleanup_reader {state.reader.cleanup_orphans(true)?} else {0},..Default::default()};
+        let result=(||->Result<Report,HttpError>{check_job(&context)?; match id.as_str() {
+            "cleanup"=>{let db=ServerStore::new(state.runtime.data_dir());let mut report=Report{records:cleanup_records(&state,task,true)? + if task.cleanup_reader {check_job(&context)?;state.reader.cleanup_orphans(true)?} else {0},..Default::default()};
                 for (library,since,count) in hidden_libraries(&state,task)? {
+                    check_job(&context)?;
                     let removed=db.cleanup_hidden_placeholders(&library).map_err(bad)?;report.placeholders+=count;
                     let mut grace:BTreeMap<String,u64>=serde_json::from_str(&db.get_setting("cleanup-unreferenced").map_err(bad)?).unwrap_or_default();
                     for reference in removed {for name in reference.split(|c:char|!c.is_ascii_alphanumeric()&&!"._-".contains(c)) {if !name.contains('.') {continue;}use std::hash::{Hash,Hasher};let mut hash=std::collections::hash_map::DefaultHasher::new();name.hash(&mut hash);grace.insert(format!("{:016x}",hash.finish()),since);
                         if name.ends_with(".gif")||name.ends_with(".webm") {let still=format!("{}.still.png",name.rsplit_once('.').unwrap().0);let mut hash=std::collections::hash_map::DefaultHasher::new();still.hash(&mut hash);grace.insert(format!("{:016x}",hash.finish()),since);}
                     }}db.set_setting("cleanup-unreferenced",&serde_json::to_string(&grace).map_err(bad)?).map_err(bad)?;
                 }
-                if task.cleanup_cache {let cached=state.runtime.cleanup_provider_cache(true).map_err(bad)?;report.files+=cached.0;report.bytes+=cached.1;}
-                let candidates=candidates(&state,task)?;for file in candidates {let meta=std::fs::symlink_metadata(&file.path).map_err(bad)?;if meta.file_type().is_symlink()||!meta.is_file()||!old(&meta,task.retention_days){continue;}std::fs::remove_file(&file.path).map_err(bad)?;report.files+=1;report.bytes+=file.bytes;}report.result=format!("Removed {} obsolete records, {} hidden placeholders and {} unused files ({} bytes).",report.records,report.placeholders,report.files,report.bytes);Ok(report)},
-            "database"=>{let db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;let health:String=db.query_row("PRAGMA quick_check",[],|r|r.get(0)).map_err(bad)?;if health!="ok"{return Err(bad(format!("Database check: {health}")));}db.execute_batch("PRAGMA optimize; PRAGMA wal_checkpoint(PASSIVE);").map_err(bad)?;Ok(Report{result:"Database health check passed; optimization and passive checkpoint completed.".into(),..Default::default()})},
-            "artwork"=>{let generated=crate::native_artwork_variants::backfill(&state).map_err(bad)?;Ok(Report{files:generated,result:format!("Generated {generated} optimized artwork images. Original artwork was preserved."),..Default::default()})},
+                check_job(&context)?; if task.cleanup_cache {let cached=state.runtime.cleanup_provider_cache(true).map_err(bad)?;report.files+=cached.0;report.bytes+=cached.1;}
+                check_job(&context)?;let candidates=candidates(&state,task)?;for file in candidates {check_job(&context)?;let meta=std::fs::symlink_metadata(&file.path).map_err(bad)?;if meta.file_type().is_symlink()||!meta.is_file()||!old(&meta,task.retention_days){continue;}std::fs::remove_file(&file.path).map_err(bad)?;report.files+=1;report.bytes+=file.bytes;}report.result=format!("Removed {} obsolete records, {} hidden placeholders and {} unused files ({} bytes).",report.records,report.placeholders,report.files,report.bytes);Ok(report)},
+            "database"=>{let db=rusqlite::Connection::open(state.runtime.data_dir().join("posterview.db")).map_err(bad)?;db.busy_timeout(Duration::from_secs(5)).map_err(bad)?;let health:String=db.query_row("PRAGMA quick_check",[],|r|r.get(0)).map_err(bad)?;if health!="ok"{return Err(bad(format!("Database check: {health}")));}check_job(&context)?;db.execute_batch("PRAGMA optimize; PRAGMA wal_checkpoint(PASSIVE);").map_err(bad)?;Ok(Report{result:"Database health check passed; optimization and passive checkpoint completed.".into(),..Default::default()})},
+            "artwork"=>{check_job(&context)?;let generated=crate::native_artwork_variants::backfill_checked(&state, || check_job(&context).map_err(|error| error.detail)).map_err(bad)?;Ok(Report{files:generated,result:format!("Generated {generated} optimized artwork images. Original artwork was preserved."),..Default::default()})},
             _=>Err(HttpError::not_found()),
         }})();
-        task.last_run=now();task.last_result=match &result {Ok(r)=>r.result.clone(),Err(e)=>format!("Failed: {}",e.detail)};save(&state,&tasks)?;result
+        let result=result.and_then(|report| {check_job(&context)?;Ok(report)});
+        task.last_run=now();task.last_result=match &result {Ok(r)=>r.result.clone(),Err(_) if check_job(&context).is_err()=>"Cancelled.".into(),Err(e)=>format!("Failed: {}",e.detail)};save(&state,&tasks)?;result
     }).await.map_err(bad)?
 }
 pub(crate) async fn clear_provider_cache(
@@ -526,7 +553,60 @@ pub(crate) async fn run(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Report>, HttpError> {
-    execute(state, id).await.map(Json)
+    let job = enqueue_task(&state, id).await?;
+    let result = crate::jobs::wait(&state, &job.id).await?;
+    serde_json::from_value(result).map(Json).map_err(bad)
+}
+async fn enqueue_task(
+    state: &AppState,
+    id: String,
+) -> Result<posterview_contracts::jobs::BackgroundJobRecord, HttpError> {
+    let copy = state.clone();
+    let (task, existing) = tokio::task::spawn_blocking(move || {
+        let task = load(&copy)?
+            .into_iter()
+            .find(|task| task.id == id)
+            .ok_or_else(HttpError::not_found)?;
+        let existing = ServerStore::new(copy.runtime.data_dir())
+            .background_jobs()
+            .map_err(bad)?
+            .into_iter()
+            .find(|job| {
+                job.kind == "maintenance"
+                    && job.dedupe_key == task.id
+                    && matches!(job.status.as_str(), "queued" | "running" | "cancelling")
+            });
+        Ok::<_, HttpError>((task, existing))
+    })
+    .await
+    .map_err(bad)??;
+    if let Some(existing) = existing {
+        return Ok(existing);
+    }
+    crate::jobs::enqueue(
+        state,
+        posterview_contracts::jobs::BackgroundJobSpec {
+            kind: "maintenance".into(),
+            title: task.title,
+            resource_key: "maintenance".into(),
+            dedupe_key: task.id.clone(),
+            payload: serde_json::json!({"task_id":task.id}),
+            max_attempts: 1,
+        },
+    )
+    .await
+}
+pub(crate) async fn execute_background_job(
+    state: AppState,
+    context: crate::jobs::JobContext,
+) -> Result<serde_json::Value, HttpError> {
+    context.check()?;
+    let id = context.record.payload["task_id"]
+        .as_str()
+        .ok_or_else(|| bad("Invalid maintenance task."))?
+        .to_owned();
+    let report = execute_with_context(state, id, Some(context)).await?;
+    serde_json::to_value(report).map_err(bad)
 }
 pub(crate) fn retire_artwork_history(state: &AppState) -> Result<(), HttpError> {
     let store = ServerStore::new(state.runtime.data_dir());
@@ -618,7 +698,7 @@ pub(crate) fn start(state: AppState) {
                 for task in tasks {
                     if task.enabled
                         && now().saturating_sub(task.last_run) >= task.interval_days * 86400
-                        && let Err(e) = execute(state.clone(), task.id).await
+                        && let Err(e) = enqueue_task(&state, task.id).await
                     {
                         tracing::warn!(detail=%e.detail,"Scheduled task failed");
                     }
@@ -1160,5 +1240,97 @@ mod tests {
         db.ingest_native_catalog(&library.id, library.revision, &[entry])
             .unwrap();
         assert!(db.native_catalog(&library.id).unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod durable_tests {
+    use super::*;
+    use std::sync::{Arc, atomic::AtomicBool};
+    #[tokio::test]
+    async fn manual_run_keeps_report_shape_and_uses_nonreplaying_durable_job() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let report = run(State(state.clone()), Path("database".into()))
+            .await
+            .unwrap()
+            .0;
+        assert!(report.result.contains("passed"));
+        let value = serde_json::to_value(report).unwrap();
+        for key in ["files", "placeholders", "records", "bytes", "result"] {
+            assert!(value.get(key).is_some());
+        }
+        let jobs = ServerStore::new(state.runtime.data_dir())
+            .background_jobs()
+            .unwrap();
+        let job = jobs.iter().find(|job| job.kind == "maintenance").unwrap();
+        assert_eq!(job.status, "completed");
+        assert_eq!(job.max_attempts, 1);
+        assert_eq!(job.resource_key, "maintenance");
+        assert!(enqueue_task(&state, "invalid".into()).await.is_err());
+    }
+    #[tokio::test]
+    async fn cancellation_before_execution_preserves_task_and_retryable_checkpoint_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let store = ServerStore::new(state.runtime.data_dir());
+        store
+            .enqueue_background_job(
+                &posterview_contracts::jobs::BackgroundJobSpec {
+                    kind: "maintenance".into(),
+                    title: "Database".into(),
+                    resource_key: "maintenance".into(),
+                    dedupe_key: "database".into(),
+                    payload: serde_json::json!({"task_id":"database"}),
+                    max_attempts: 1,
+                },
+                0,
+            )
+            .unwrap();
+        let record = store.claim_background_job(0).unwrap().unwrap();
+        let context = crate::jobs::JobContext {
+            record,
+            cancelled: Arc::new(AtomicBool::new(true)),
+        };
+        assert!(
+            execute_background_job(state.clone(), context)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            load(&state)
+                .unwrap()
+                .iter()
+                .find(|task| task.id == "database")
+                .unwrap()
+                .last_run,
+            0
+        );
+        assert!(state.running_maintenance_task.lock().unwrap().is_none());
+    }
+    #[tokio::test]
+    async fn scheduler_enqueue_reuses_running_task_without_followup() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let store = ServerStore::new(state.runtime.data_dir());
+        let original = store
+            .enqueue_background_job(
+                &posterview_contracts::jobs::BackgroundJobSpec {
+                    kind: "maintenance".into(),
+                    title: "Database".into(),
+                    resource_key: "maintenance".into(),
+                    dedupe_key: "database".into(),
+                    payload: serde_json::json!({"task_id":"database"}),
+                    max_attempts: 1,
+                },
+                0,
+            )
+            .unwrap();
+        store.claim_background_job(0).unwrap();
+        assert_eq!(
+            enqueue_task(&state, "database".into()).await.unwrap().id,
+            original.id
+        );
+        assert_eq!(store.background_jobs().unwrap().len(), 1);
     }
 }

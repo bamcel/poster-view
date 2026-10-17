@@ -12,6 +12,17 @@ pub struct CollectionMetadata {
     pub locks: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CollectionMetadataUpdate {
+    pub id: String,
+    pub revision: i64,
+    pub metadata: CollectionMetadata,
+    pub title: String,
+    pub overview: String,
+    pub locks: Vec<String>,
+    pub members: Vec<CollectionMemberRef>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CollectionMemberRef {

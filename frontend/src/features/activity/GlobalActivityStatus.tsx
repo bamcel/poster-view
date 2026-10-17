@@ -2,6 +2,24 @@ import {useState} from "react";
 import {Link} from "react-router-dom";
 import {ChevronLeft, ChevronRight, X} from "lucide-react";
 import {useActivity, type ActivityItem} from "./ActivityContext";
+import {useQueryClient} from "@tanstack/react-query";
+import {durableJobs} from "../jobs/client";
+import {useIsAdmin} from "../../lib/authContext";
+
+function JobControl({item}:{item:ActivityItem}){
+ const client=useQueryClient(),admin=useIsAdmin();
+ const [pending,setPending]=useState(false),[error,setError]=useState(false);
+ if(!admin||!item.jobId||!item.canCancel&&!item.canRetry&&!item.cancelling)return null;
+ const action=async()=>{
+  if(pending)return;setPending(true);setError(false);
+  try{await (item.canCancel?durableJobs.cancel(item.jobId!):durableJobs.retry(item.jobId!));await client.invalidateQueries({queryKey:["durable-jobs"]});}
+  catch{setError(true);}finally{setPending(false);}
+ };
+ return <div className="mt-1 flex h-6 shrink-0 items-center gap-2 text-[10px]">
+  <button type="button" disabled={pending||item.cancelling} onClick={()=>void action()} className="rounded border border-white/15 px-2 py-1 text-muted hover:text-white disabled:opacity-50">{pending?"Updating…":item.cancelling?"Stopping…":item.canCancel?"Cancel":"Retry"}</button>
+  {error&&<span role="alert" className="truncate text-muted">Unable to update. Try again.</span>}
+ </div>;
+}
 
 const finished = (item:ActivityItem) => !["running", "queued"].includes(item.state);
 const percentage = (item:ActivityItem) => typeof item.progress === "number" && Number.isFinite(item.progress)
@@ -21,6 +39,7 @@ function ActivityRow({item, dismiss, showPercent=true}:{item:ActivityItem; dismi
           : <div className={className}>{content}</div>}
       {finished(item) && <button type="button" aria-label={`Dismiss ${item.title}`} onClick={()=>dismiss(item.id)} className="grid size-6 shrink-0 place-items-center rounded text-muted hover:bg-input-hover hover:text-white focus-visible:outline-2 focus-visible:outline-accent"><X size={13} aria-hidden="true"/></button>}
     </div>
+    {item.jobId&&<JobControl item={item}/>}
     <div className="mt-auto flex items-center justify-between gap-2 pt-2 text-[10px] text-muted"><span>{stateLabel(item)}</span>{showPercent && percent!==null && <span>{percent}%</span>}</div>
     <div className="mt-1 h-1 shrink-0">{(percent!==null || item.state==="running") && <div role="progressbar" aria-label={item.title} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent??undefined} className="h-1 overflow-hidden rounded-full bg-input"><div className={`h-full rounded-full bg-accent transition-[width] ${percent===null?"opacity-50":""}`} style={{width:percent===null?"30%":`${percent}%`}}/></div>}</div>
   </div>;

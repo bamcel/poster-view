@@ -15,6 +15,7 @@ use posterview_infra_sqlite::{ServerStore, StoreError};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 mod metadata;
+pub(crate) use metadata::execute_background_job;
 mod providers;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

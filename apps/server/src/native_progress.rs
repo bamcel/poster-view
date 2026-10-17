@@ -17,6 +17,7 @@ pub(crate) fn current(state: &AppState, library: &str) -> Option<NativeScanStatu
         .cloned()
 }
 
+#[cfg(test)]
 pub(crate) fn clear(state: &AppState, library: &str) {
     state
         .native_scan_progress

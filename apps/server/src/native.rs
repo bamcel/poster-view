@@ -147,8 +147,15 @@ pub(crate) async fn status(
                 status = live;
             }
         }
+        let queued = store.background_jobs()?.iter().any(|job| {
+            job.kind == "native_scan" && job.payload["library_id"] == id && job.status == "queued"
+        });
+        if queued && !active_scans.lock().unwrap().contains(&id) {
+            status.status = "scanning".into();
+            status.progress = None;
+        }
         let mut value = serde_json::json!(status);
-        value["manual_queued"] = serde_json::json!(store.manual_scan_queued(&id)?);
+        value["manual_queued"] = serde_json::json!(queued || store.manual_scan_queued(&id)?);
         value["artwork_revision"] =
             serde_json::json!(store.get_setting(&format!("native-artwork-revision:{id}"))?);
         value["show_progress"] =
@@ -364,77 +371,343 @@ async fn start_scan_with_refresh(
     force_metadata: bool,
 ) -> Result<(), HttpError> {
     let library = library(&state, &id).await?;
-    if force_metadata {
-        store(&state)
-            .set_setting(&format!("native-force-metadata:{id}"), "true")
-            .map_err(error)?;
-    }
+    crate::jobs::enqueue(&state,posterview_contracts::jobs::BackgroundJobSpec {
+        kind:"native_scan".into(),title:format!("{} library scan",library.name),
+        resource_key:format!("native:{id}"),dedupe_key:id.clone(),
+        payload:serde_json::json!({"library_id":id,"scopes":scopes,"manual":manual,"force_metadata":force_metadata}),max_attempts:3,
+    }).await?;
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScanJob {
+    library_id: String,
+    scopes: Option<Vec<String>>,
+    #[serde(default)]
+    manual: bool,
+    #[serde(default)]
+    force_metadata: bool,
+}
+pub(crate) async fn execute_background_job(
+    state: AppState,
+    context: crate::jobs::JobContext,
+) -> Result<serde_json::Value, HttpError> {
+    context.check()?;
+    let input: ScanJob = serde_json::from_value(context.record.payload.clone())
+        .map_err(|_| HttpError::bad_request("Invalid scan task."))?;
+    let mut library = library(&state, &input.library_id).await?;
+    let id = library.id.clone();
     let db = store(&state);
     let scan_id = id.clone();
-    let active_scans = state.active_native_scans.clone();
-    let live_progress = state.native_scan_progress.clone();
-    let started = tokio::task::spawn_blocking(move || {
+    let manual = input.manual;
+    tokio::task::spawn_blocking(move || {
         let initial = db.native_scan_status(&scan_id)?.status == "not_scanned";
-        let started = db.request_native_scan(&scan_id, manual)?;
+        // A prior interrupted attempt has no live owner. The durable job's
+        // exclusive resource claim is authoritative for this new attempt.
+        if db.native_scan_status(&scan_id)?.status == "scanning" {
+            db.finish_native_scan(
+                &scan_id,
+                &posterview_contracts::native::NativeScanStatus {
+                    status: "interrupted".into(),
+                    ..Default::default()
+                },
+            )?;
+        }
+        db.request_native_scan(&scan_id, false)?;
         db.set_setting(
             &format!("native-scan-visible:{scan_id}"),
             if manual || initial { "true" } else { "false" },
         )?;
-        Ok::<_, posterview_infra_sqlite::StoreError>(
-            started.then(|| ActiveNativeScan::new(active_scans, live_progress, scan_id)),
-        )
+        Ok::<_, posterview_infra_sqlite::StoreError>(())
     })
     .await
-    .map_err(|_| HttpError::bad_request("Scan request interrupted."))?
+    .map_err(|_| HttpError::bad_gateway("Scan preparation interrupted."))?
     .map_err(error)?;
-    let Some(active_scan) = started else {
-        return Ok(());
-    };
-    tokio::spawn(async move {
-        let _active_scan = active_scan;
-        let mut scopes = scopes;
-        let mut force_metadata = force_metadata;
-        loop {
-            crate::native_progress::clear(&state, &id);
-            let pending_key = format!("native-force-metadata:{id}");
-            if store(&state).get_setting(&pending_key).unwrap_or_default() == "true" {
-                force_metadata = true;
-                let _ = store(&state).set_setting(&pending_key, "");
-            }
-            let mut scan_library = library.clone();
-            let refresh = force_metadata;
-            if force_metadata {
-                scan_library.options.fetch_missing = true;
-                force_metadata = false;
-            }
-            let result = if refresh {
-                run_scan_scoped_mode(state.clone(), scan_library, scopes.take(), true).await
+    let _active = ActiveNativeScan::new(
+        state.active_native_scans.clone(),
+        state.native_scan_progress.clone(),
+        id.clone(),
+    );
+    if input.force_metadata {
+        library.options.fetch_missing = true;
+    }
+    let result =
+        run_scan_scoped_mode(state.clone(), library, input.scopes, input.force_metadata).await;
+    let cancelled = context.cancelled.load(std::sync::atomic::Ordering::Acquire);
+    let mut status = match &result {
+        Ok(status) if !cancelled => status.clone(),
+        _ => posterview_contracts::native::NativeScanStatus {
+            status: if cancelled { "cancelled" } else { "failed" }.into(),
+            count: 0,
+            progress: None,
+            warnings: if cancelled {
+                vec!["Scan cancelled at a safe checkpoint.".into()]
             } else {
-                run_scan_scoped(state.clone(), scan_library, scopes.take()).await
-            };
-            let status = match result {
-                Ok(status) => status,
-                Err(e) => posterview_contracts::native::NativeScanStatus {
-                    progress: None,
-                    status: "failed".into(),
-                    count: 0,
-                    warnings: vec![e.detail],
-                },
-            };
-            let db = store(&state);
-            let scan_id = id.clone();
-            if !tokio::task::spawn_blocking(move || {
-                db.finish_or_restart_native_scan(&scan_id, &status)
-            })
-            .await
-            .is_ok_and(|result| result.unwrap_or(false))
-            {
-                break;
-            }
+                vec!["Scan failed. Retry the task to resume completed metadata work.".into()]
+            },
+        },
+    };
+    let db = store(&state);
+    let scan_id = id;
+    tokio::task::spawn_blocking(move || {
+        if matches!(status.status.as_str(), "failed" | "cancelled") {
+            status.count = db.native_available_count(&scan_id)?;
         }
-    });
+        db.finish_native_scan(&scan_id, &status)
+    })
+    .await
+    .map_err(|_| HttpError::bad_gateway("Scan completion interrupted."))?
+    .map_err(error)?;
+    context.check()?;
+    serde_json::to_value(result?).map_err(|_| HttpError::bad_gateway("Scan result unavailable."))
+}
+
+pub(crate) fn check_scan_job(state: &AppState, library: &str) -> Result<(), HttpError> {
+    if let Some(context) = crate::jobs::native_context(state, library) {
+        context.check()?;
+    }
     Ok(())
 }
+fn scan_identity_seed<'a>(
+    entry: &'a posterview_contracts::native::NativeCatalogEntry,
+    previous: Option<&'a posterview_contracts::native::NativeCatalogEntry>,
+) -> Option<&'a serde_json::Value> {
+    previous
+        .and_then(|old| old.metadata.get("identifiers"))
+        .filter(|value| !value.is_null())
+        .or_else(|| entry.metadata.get("identifiers"))
+}
+pub(crate) fn scan_checkpoint_signature(
+    entry: &posterview_contracts::native::NativeCatalogEntry,
+    library: &NativeLibrary,
+) -> String {
+    let mut metadata = entry.metadata.clone();
+    if let Some(fields) = metadata.as_object_mut() {
+        fields.remove("_scan_unchanged");
+        fields.remove("_scan_checkpoint_restored");
+        // Catalog hydration adds provenance and an unlocked-title default. Neither
+        // changes the actual metadata being enriched after a restart.
+        fields.remove("_sources");
+        if fields
+            .get("_title_locked")
+            .is_none_or(|value| value == false)
+        {
+            fields.remove("_title_locked");
+        }
+    }
+    let mut artwork = entry
+        .artwork
+        .iter()
+        .map(|art| (&art.kind, &art.path, &art.source))
+        .collect::<Vec<_>>();
+    artwork.sort();
+    let input = serde_json::json!([
+        entry.path,
+        entry.kind,
+        entry.title,
+        metadata,
+        entry.files,
+        entry.nfo_xml,
+        artwork,
+        library.options,
+        library.revision
+    ])
+    .to_string();
+    let mut digest = std::collections::hash_map::DefaultHasher::new();
+    std::hash::Hasher::write(&mut digest, input.as_bytes());
+    format!("v1:{:016x}", std::hash::Hasher::finish(&digest))
+}
+
+#[cfg(test)]
+fn restore_scan_checkpoint(
+    library: &NativeLibrary,
+    entry: &mut posterview_contracts::native::NativeCatalogEntry,
+    saved: &posterview_contracts::jobs::JobCheckpoint,
+) -> bool {
+    let signature = scan_checkpoint_signature(entry, library);
+    restore_scan_checkpoint_with_signature(entry, saved, &signature)
+}
+pub(crate) fn restore_scan_checkpoint_with_signature(
+    entry: &mut posterview_contracts::native::NativeCatalogEntry,
+    saved: &posterview_contracts::jobs::JobCheckpoint,
+    signature: &str,
+) -> bool {
+    if saved.key != entry.path || saved.signature != signature {
+        return false;
+    }
+    let Ok(restored) = serde_json::from_value::<posterview_contracts::native::NativeCatalogEntry>(
+        saved.value.clone(),
+    ) else {
+        return false;
+    };
+    if restored.path != entry.path || restored.kind != entry.kind {
+        return false;
+    }
+    entry.title = restored.title;
+    entry.metadata = restored.metadata;
+    entry.artwork = restored.artwork;
+    entry.metadata["_scan_unchanged"] = serde_json::json!(false);
+    entry.metadata["_scan_checkpoint_restored"] = serde_json::json!(true);
+    true
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+    use posterview_contracts::{
+        jobs::JobCheckpoint,
+        native::{AnimeContent, NativeCatalogEntry, NativeLibraryOptions},
+    };
+    use serde_json::json;
+    fn fixture(root: &std::path::Path) -> (NativeLibrary, NativeCatalogEntry, JobCheckpoint) {
+        let state = crate::test_support::state(root);
+        let library = store(&state)
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Anime".into(),
+                    library_type: NativeLibraryType::Anime,
+                    anime_content: AnimeContent::Both,
+                    paths: vec![String::new()],
+                    revision: None,
+                    options: NativeLibraryOptions::default(),
+                },
+            )
+            .unwrap();
+        let entry = NativeCatalogEntry {
+            id: "current".into(),
+            path: "Show/episode.mkv".into(),
+            kind: "episode".into(),
+            parent_path: None,
+            title: "Local".into(),
+            metadata: json!({"title":"Local","_scan_unchanged":true,"_scan_signature":"artwork-stat-signature"}),
+            artwork: vec![],
+            files: vec![json!({"path":"Show/episode.mkv","size":10,"mtime_ns":"100"})],
+            nfo_path: None,
+            nfo_xml: Some("<episodedetails/>".into()),
+            available: true,
+            revision: 7,
+        };
+        let mut enriched = entry.clone();
+        enriched.id = "older-id".into();
+        enriched.revision = 1;
+        enriched.title = "Enriched".into();
+        enriched.metadata["plot"] = json!("Saved provider description");
+        let saved = JobCheckpoint {
+            key: entry.path.clone(),
+            signature: scan_checkpoint_signature(&entry, &library),
+            value: serde_json::to_value(enriched).unwrap(),
+        };
+        (library, entry, saved)
+    }
+    #[test]
+    fn valid_checkpoint_restores_enrichment_without_replacing_current_identity_or_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let (library, mut entry, saved) = fixture(temp.path());
+        let original_files = entry.files.clone();
+        assert!(restore_scan_checkpoint(&library, &mut entry, &saved));
+        assert_eq!(entry.title, "Enriched");
+        assert_eq!(entry.metadata["plot"], "Saved provider description");
+        assert_eq!(entry.id, "current");
+        assert_eq!(entry.revision, 7);
+        assert_eq!(entry.files, original_files);
+        assert_eq!(entry.metadata["_scan_checkpoint_restored"], true);
+        assert_eq!(entry.metadata["_scan_unchanged"], false);
+    }
+    #[test]
+    fn changed_media_metadata_artwork_options_and_library_revision_invalidate_saved_work() {
+        let temp = tempfile::tempdir().unwrap();
+        let (library, entry, saved) = fixture(temp.path());
+        let mut changed = entry.clone();
+        changed.files[0]["size"] = json!(20);
+        assert!(!restore_scan_checkpoint(&library, &mut changed, &saved));
+        let mut changed = entry.clone();
+        changed.metadata["title"] = json!("Manual edit");
+        assert!(!restore_scan_checkpoint(&library, &mut changed, &saved));
+        let mut changed = entry.clone();
+        changed.metadata["_scan_signature"] = json!("changed-artwork-stat");
+        assert!(!restore_scan_checkpoint(&library, &mut changed, &saved));
+        let mut changed_library = library.clone();
+        changed_library.options.fetch_missing = !changed_library.options.fetch_missing;
+        assert!(!restore_scan_checkpoint(
+            &changed_library,
+            &mut entry.clone(),
+            &saved
+        ));
+        let mut changed_library = library.clone();
+        changed_library.revision += 1;
+        assert!(!restore_scan_checkpoint(
+            &changed_library,
+            &mut entry.clone(),
+            &saved
+        ));
+        let mut invalid = saved;
+        invalid.value["path"] = json!("different.mkv");
+        assert!(!restore_scan_checkpoint(
+            &library,
+            &mut entry.clone(),
+            &invalid
+        ));
+    }
+    #[test]
+    fn newly_published_nfo_identifiers_keep_scan_seed_and_checkpoint_stable() {
+        let temp = tempfile::tempdir().unwrap();
+        let (library, mut entry, _) = fixture(temp.path());
+        entry.metadata["identifiers"] = json!({"tvdb":"123"});
+        let seed = scan_identity_seed(&entry, None).cloned();
+        let mut published = entry.clone();
+        published.metadata["_title_locked"] = json!(false);
+        published.metadata["_sources"] = json!({"identifiers":"database"});
+        assert_eq!(seed, scan_identity_seed(&entry, Some(&published)).cloned());
+        assert_eq!(
+            scan_checkpoint_signature(&entry, &library),
+            scan_checkpoint_signature(&published, &library)
+        );
+    }
+    #[test]
+    fn hydrated_artwork_order_does_not_invalidate_saved_work() {
+        let temp = tempfile::tempdir().unwrap();
+        let (library, mut entry, _) = fixture(temp.path());
+        entry.artwork = vec![
+            posterview_contracts::native::NativeArtwork {
+                kind: "poster".into(),
+                path: "poster.jpg".into(),
+                source: "local".into(),
+            },
+            posterview_contracts::native::NativeArtwork {
+                kind: "backdrop".into(),
+                path: "backdrop.jpg".into(),
+                source: "local".into(),
+            },
+        ];
+        let signature = scan_checkpoint_signature(&entry, &library);
+        entry.artwork.reverse();
+        assert_eq!(scan_checkpoint_signature(&entry, &library), signature);
+    }
+    #[test]
+    fn catalog_hydration_provenance_and_unlocked_default_preserve_checkpoint_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let (library, mut entry, saved) = fixture(temp.path());
+        // native_catalog_selected reconstructs metadata and adds _title_locked;
+        // rescanning carries fields forward with database provenance.
+        entry.metadata["_title_locked"] = json!(false);
+        entry.metadata["_sources"] = json!({"title":"database","_scan_signature":"database"});
+        assert_eq!(scan_checkpoint_signature(&entry, &library), saved.signature);
+        assert!(restore_scan_checkpoint(&library, &mut entry, &saved));
+        entry.metadata["_title_locked"] = json!(true);
+        assert_ne!(scan_checkpoint_signature(&entry, &library), saved.signature);
+    }
+    #[test]
+    fn ephemeral_scan_flags_do_not_change_checkpoint_identity() {
+        let temp = tempfile::tempdir().unwrap();
+        let (library, mut entry, saved) = fixture(temp.path());
+        entry.metadata["_scan_unchanged"] = json!(false);
+        entry.metadata["_scan_checkpoint_restored"] = json!(true);
+        assert_eq!(scan_checkpoint_signature(&entry, &library), saved.signature);
+    }
+}
+
 // A saved scan status can outlive its worker. Track worker lifetime separately,
 // including unwinding or cancellation, so maintenance only waits for live scans.
 pub(crate) struct ActiveNativeScan(
@@ -479,6 +752,7 @@ pub(crate) async fn run_scan(
 ) -> Result<posterview_contracts::native::NativeScanStatus, HttpError> {
     run_scan_scoped(state, library, None).await
 }
+#[cfg(test)]
 async fn run_scan_scoped(
     state: AppState,
     library: NativeLibrary,
@@ -545,9 +819,7 @@ async fn run_scan_scoped_mode(
             entry.nfo_xml,
             art,
             library.options,
-            existing
-                .get(&entry.path)
-                .map(|old| &old.metadata["identifiers"])
+            scan_identity_seed(entry, existing.get(&entry.path))
         ])
         .to_string();
         let mut digest = std::collections::hash_map::DefaultHasher::new();
@@ -687,6 +959,7 @@ async fn run_scan_scoped_mode(
     let db = store(&state);
     let local_library = library.clone();
     let local_scopes = scopes.clone();
+    check_scan_job(&state, &library.id)?;
     tokio::task::spawn_blocking(move || {
         db.ingest_native_catalog_scoped(
             &local_library.id,
@@ -708,9 +981,11 @@ async fn run_scan_scoped_mode(
     .map_err(|_| HttpError::bad_request("Local catalog save interrupted."))?
     .map_err(error)?;
     if library.library_type != NativeLibraryType::Youtube {
-        crate::native_provider::enrich(&state, &library, &mut entries, &mut warnings).await;
+        crate::native_provider::enrich(&state, &library, &mut entries, &mut warnings).await?;
     }
+    check_scan_job(&state, &library.id)?;
     crate::native_capture::fill_missing(&state, &library, &mut entries, &mut warnings).await;
+    check_scan_job(&state, &library.id)?;
     if library.library_type != NativeLibraryType::Youtube {
         crate::native_missing::reconcile_library(
             &state,
@@ -727,6 +1002,7 @@ async fn run_scan_scoped_mode(
     for entry in &mut entries {
         normalize_season_title(entry);
     }
+    check_scan_job(&state, &library.id)?;
     let unchanged_paths = entries
         .iter()
         .filter(|e| e.metadata["_scan_unchanged"] == true)
@@ -735,6 +1011,7 @@ async fn run_scan_scoped_mode(
     for entry in &mut entries {
         if let Some(fields) = entry.metadata.as_object_mut() {
             fields.remove("_scan_unchanged");
+            fields.remove("_scan_checkpoint_restored");
             fields.remove("_image_capture_attempted");
         }
     }
@@ -756,6 +1033,7 @@ async fn run_scan_scoped_mode(
     let mut progress = crate::native_progress::Reporter::new(&state, &library.id);
     progress.report("saving", 0, None, count, "", true);
     if library.options.save_artwork {
+        check_scan_job(&state, &library.id)?;
         let write_state = state.clone();
         let id = library.id.clone();
         let write_scopes = scopes.clone();
@@ -778,6 +1056,9 @@ async fn run_scan_scoped_mode(
                     |entry| {
                         let mut issues = Vec::new();
                         for art in &entry.artwork {
+                            if check_scan_job(&write_state, &id).is_err() {
+                                break;
+                            }
                             if let Err(e) =
                                 crate::native_artwork::write(&write_state, &entry, art, false)
                             {
@@ -797,6 +1078,7 @@ async fn run_scan_scoped_mode(
         );
     }
     if library.options.save_nfo {
+        check_scan_job(&state, &library.id)?;
         let write_state = state.clone();
         let id = library.id.clone();
         let write_scopes = scopes.clone();
@@ -817,6 +1099,9 @@ async fn run_scan_scoped_mode(
                     })
                     .collect(),
                 |entry| {
+                    if let Err(error) = check_scan_job(&write_state, &id) {
+                        return (entry, Err(error.detail));
+                    }
                     let result = crate::native_scan::write_nfo(&write_state, &entry);
                     (entry, result)
                 },
@@ -837,6 +1122,7 @@ async fn run_scan_scoped_mode(
         .map_err(|_| HttpError::bad_request("NFO write interrupted."))??;
         warnings.extend(issues);
     }
+    check_scan_job(&state, &library.id)?;
     if warnings.len() > 500 {
         warnings.truncate(500);
         warnings.push(
@@ -2409,7 +2695,11 @@ pub(crate) mod scan_tests {
         .await
         .unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while db.native_scan_status(&library.id).unwrap().status == "scanning" {
+            while db.background_jobs().unwrap().iter().any(|job| {
+                job.kind == "native_scan"
+                    && job.payload["library_id"] == library.id
+                    && matches!(job.status.as_str(), "queued" | "running" | "cancelling")
+            }) {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         })
@@ -3242,7 +3532,11 @@ pub(crate) mod scan_tests {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         start_scan(state.clone(), library.id.clone()).await.unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            while db.native_scan_status(&library.id).unwrap().status == "scanning" {
+            while db.background_jobs().unwrap().iter().any(|job| {
+                job.kind == "native_scan"
+                    && job.payload["library_id"] == library.id
+                    && matches!(job.status.as_str(), "queued" | "running" | "cancelling")
+            }) {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
         })

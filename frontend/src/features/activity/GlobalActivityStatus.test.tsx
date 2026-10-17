@@ -1,8 +1,11 @@
-import {cleanup, fireEvent, render, screen} from "@testing-library/react";
+import {act, cleanup, fireEvent, render, screen,waitFor} from "@testing-library/react";
+import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import {MemoryRouter} from "react-router-dom";
 import {afterEach, beforeEach, expect, it, vi} from "vitest";
 import {useActivity, type ActivityItem} from "./ActivityContext";
 import GlobalActivityStatus from "./GlobalActivityStatus";
+import {durableJobs} from "../jobs/client";
+vi.mock("../jobs/client",()=>({durableJobs:{cancel:vi.fn(),retry:vi.fn()}}));
 
 vi.mock("./ActivityContext", ()=>({useActivity:vi.fn()}));
 const dismiss=vi.fn(), clearFinished=vi.fn();
@@ -86,4 +89,28 @@ it("does not activate external links or unrelated events", ()=>{
   mount([{...running,event:"unrelated:event",href:"//other.example/"}]);
   expect(screen.queryByRole("link")).toBeNull();
   expect(screen.queryByRole("button")).toBeNull();
+});
+
+it("disables pending cancellation and reports safe errors before allowing retry",async()=>{
+ let reject!:(error:Error)=>void;
+ vi.mocked(durableJobs.cancel).mockReturnValue(new Promise((_,r)=>{reject=r;}));
+ vi.mocked(useActivity).mockReturnValue({items:[{...running,jobId:"job",canCancel:true}],dismiss,clearFinished,publish:vi.fn()});
+ const client=new QueryClient();
+ render(<QueryClientProvider client={client}><MemoryRouter><GlobalActivityStatus/></MemoryRouter></QueryClientProvider>);
+ fireEvent.click(screen.getByRole("button",{name:"Cancel"}));
+ expect(screen.getByRole("button",{name:"Updating…"}).hasAttribute("disabled")).toBe(true);
+ await act(async()=>reject(new Error("secret server path")));
+ expect(screen.getByRole("alert").textContent).toBe("Unable to update. Try again.");
+ expect(screen.queryByText(/secret/)).toBeNull();
+ expect(screen.getByRole("button",{name:"Cancel"}).hasAttribute("disabled")).toBe(false);
+ client.clear();
+});
+it("retries terminal jobs and invalidates the durable job query",async()=>{
+ vi.mocked(durableJobs.retry).mockResolvedValue({} as never);
+ vi.mocked(useActivity).mockReturnValue({items:[{...running,state:"failed",jobId:"failed",canRetry:true}],dismiss,clearFinished,publish:vi.fn()});
+ const client=new QueryClient(),invalidate=vi.spyOn(client,"invalidateQueries");
+ render(<QueryClientProvider client={client}><MemoryRouter><GlobalActivityStatus/></MemoryRouter></QueryClientProvider>);
+ fireEvent.click(screen.getByRole("button",{name:"Retry"}));
+ await waitFor(()=>expect(invalidate).toHaveBeenCalledWith({queryKey:["durable-jobs"]}));
+ expect(durableJobs.retry).toHaveBeenCalledWith("failed");client.clear();
 });

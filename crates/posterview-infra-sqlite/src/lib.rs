@@ -101,6 +101,7 @@ impl ServerStore {
         migrate(&connection)?;
         native::migrate(&connection)?;
         users::migrate(&connection)?;
+        jobs::migrate(&connection)?;
         Ok(())
     }
 
@@ -759,6 +760,7 @@ mod tests {
     }
 }
 mod collections;
+mod jobs;
 mod native;
 mod users;
 

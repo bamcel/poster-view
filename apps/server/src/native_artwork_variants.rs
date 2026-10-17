@@ -185,13 +185,19 @@ impl ArtworkVariants {
         Ok(Some(target.to_path_buf()))
     }
 
-    fn generate_all(&self, source: &Path) -> Result<usize, String> {
+    fn generate_all(
+        &self,
+        source: &Path,
+        check: &mut impl FnMut() -> Result<(), String>,
+    ) -> Result<usize, String> {
+        check()?;
         // Backfill is already on a dedicated worker. Wait here rather than
         // skipping widths if an on-demand request currently owns the decoder.
         let _guard = self
             .gate
             .lock()
             .map_err(|_| "Artwork generation interrupted.")?;
+        check()?;
         let missing = WIDTHS
             .into_iter()
             .filter(|width| self.cached(source, *width).is_none())
@@ -208,6 +214,7 @@ impl ArtworkVariants {
         };
         let mut generated = 0;
         for (width, target) in missing {
+            check()?;
             if self.publish(source, width, &target, &decoded)?.is_some() {
                 generated += 1;
             }
@@ -215,7 +222,12 @@ impl ArtworkVariants {
         Ok(generated)
     }
 
-    fn cleanup(&self, referenced: &HashSet<PathBuf>) -> Result<(), String> {
+    fn cleanup(
+        &self,
+        referenced: &HashSet<PathBuf>,
+        check: &mut impl FnMut() -> Result<(), String>,
+    ) -> Result<(), String> {
+        check()?;
         match fs::symlink_metadata(&self.directory) {
             Ok(metadata) if !metadata.file_type().is_dir() => {
                 return Err("Artwork variant cache must be an ordinary directory.".into());
@@ -230,6 +242,7 @@ impl ArtworkVariants {
             Err(error) => return Err(error.to_string()),
         };
         for entry in entries.flatten() {
+            check()?;
             let path = entry.path();
             let name = entry.file_name();
             let name = name.to_string_lossy();
@@ -263,18 +276,26 @@ impl ArtworkVariants {
     }
 }
 
-/// The scheduled task and scan hooks share the same bounded generation gate.
-pub(crate) fn backfill(state: &AppState) -> Result<usize, String> {
+/// Cancellation is cooperative between library reads, image decodes/resizes,
+/// and cache deletions. A partially generated cache remains reusable on retry.
+pub(crate) fn backfill_checked(
+    state: &AppState,
+    mut check: impl FnMut() -> Result<(), String>,
+) -> Result<usize, String> {
+    check()?;
     let store = ServerStore::new(state.runtime.data_dir());
     let mut sources = HashSet::new();
     let mut referenced = HashSet::new();
     let mut generated = 0;
     for library in store.native_libraries().map_err(|e| e.to_string())? {
+        check()?;
         for entry in store
             .native_catalog(&library.id)
             .map_err(|e| e.to_string())?
         {
+            check()?;
             for artwork in entry.artwork {
+                check()?;
                 if artwork.kind.ends_with("-previous") || artwork.kind.ends_with("-edit-original") {
                     continue;
                 }
@@ -303,16 +324,18 @@ pub(crate) fn backfill(state: &AppState) -> Result<usize, String> {
                         referenced.insert(path);
                     }
                 }
-                match state.artwork_variants.generate_all(&source) {
+                match state.artwork_variants.generate_all(&source, &mut check) {
                     Ok(count) => generated += count,
                     Err(error) => {
+                        check()?;
                         tracing::warn!(%error, "Could not optimize artwork; original remains available")
                     }
                 }
             }
         }
     }
-    state.artwork_variants.cleanup(&referenced)?;
+    check()?;
+    state.artwork_variants.cleanup(&referenced, &mut check)?;
     Ok(generated)
 }
 
@@ -438,12 +461,69 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_between_variants_preserves_finished_work_and_originals() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = source(dir.path(), 32, 48);
+        let cache = ArtworkVariants::new(dir.path());
+        let mut checks = 0;
+        let result = cache.generate_all(&path, &mut || {
+            checks += 1;
+            if checks > 3 {
+                Err("Cancelled".into())
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(result.unwrap_err(), "Cancelled");
+        assert!(cache.cached(&path, WIDTHS[0]).is_some());
+        assert!(cache.cached(&path, WIDTHS[1]).is_none());
+        assert!(path.is_file());
+        assert_eq!(
+            cache.generate_all(&path, &mut || Ok(())).unwrap(),
+            WIDTHS.len() - 1
+        );
+    }
+    #[test]
+    fn cancelled_backfill_and_cleanup_stop_before_modifying_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(dir.path());
+        assert_eq!(
+            backfill_checked(&state, || Err("Cancelled".into())).unwrap_err(),
+            "Cancelled"
+        );
+        let path = source(dir.path(), 32, 48);
+        let cache = ArtworkVariants::new(dir.path());
+        cache.generate_all(&path, &mut || Ok(())).unwrap();
+        let generated = cache.cached(&path, 96).unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&generated)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new()
+                    .set_modified(SystemTime::now() - Duration::from_secs(8 * 86400)),
+            )
+            .unwrap();
+        assert_eq!(
+            cache
+                .cleanup(&HashSet::new(), &mut || Err("Cancelled".into()))
+                .unwrap_err(),
+            "Cancelled"
+        );
+        assert!(generated.is_file());
+        assert!(path.is_file());
+    }
+
+    #[test]
     fn backfill_reuses_variants_and_cleanup_preserves_referenced_files_and_originals() {
         let dir = tempfile::tempdir().unwrap();
         let path = source(dir.path(), 32, 48);
         let cache = ArtworkVariants::new(dir.path());
-        assert_eq!(cache.generate_all(&path).unwrap(), WIDTHS.len());
-        assert_eq!(cache.generate_all(&path).unwrap(), 0);
+        assert_eq!(
+            cache.generate_all(&path, &mut || Ok(())).unwrap(),
+            WIDTHS.len()
+        );
+        assert_eq!(cache.generate_all(&path, &mut || Ok(())).unwrap(), 0);
         let keep = cache.cached(&path, 96).unwrap();
         let remove = cache.cached(&path, 192).unwrap();
         let old = SystemTime::now() - Duration::from_secs(8 * 86400);
@@ -457,7 +537,9 @@ mod tests {
                 .set_times(fs::FileTimes::new().set_modified(old))
                 .unwrap();
         }
-        cache.cleanup(&HashSet::from([keep.clone()])).unwrap();
+        cache
+            .cleanup(&HashSet::from([keep.clone()]), &mut || Ok(()))
+            .unwrap();
         assert!(keep.is_file());
         assert!(!remove.exists());
         assert!(path.is_file());

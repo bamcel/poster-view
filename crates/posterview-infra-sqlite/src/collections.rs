@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{ServerStore, StoreError};
 use posterview_contracts::collections::{
-    CollectionMemberRef, CollectionMetadata, CollectionRecord,
+    CollectionMemberRef, CollectionMetadata, CollectionMetadataUpdate, CollectionRecord,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
@@ -110,6 +110,44 @@ fn check_revision(record: &CollectionRecord, revision: i64) -> Result<(), StoreE
     Ok(())
 }
 
+fn apply_metadata(
+    db: &Connection,
+    update: &CollectionMetadataUpdate,
+) -> Result<Option<CollectionRecord>, StoreError> {
+    validate_locks(&update.locks)?;
+    let Some(record) = read(db, &update.id)? else {
+        return Ok(None);
+    };
+    check_revision(&record, update.revision)?;
+    let locked = |field: &str| update.locks.iter().any(|value| value == field);
+    let title = if locked("title") {
+        &record.title
+    } else {
+        &update.title
+    };
+    let overview = if locked("overview") {
+        &record.overview
+    } else {
+        &update.overview
+    };
+    validate(title, overview, &record.ordering)?;
+    let mut metadata = update.metadata.clone();
+    metadata.locks = update.locks.clone();
+    if locked("poster") {
+        metadata.poster_url = record.metadata.poster_url;
+    }
+    if locked("backdrop") {
+        metadata.backdrop_url = record.metadata.backdrop_url;
+    }
+    db.execute(
+        "UPDATE collections SET title=?2,overview=?3 WHERE id=?1",
+        params![update.id, title.trim(), overview],
+    )?;
+    insert_members(db, &update.id, &update.members)?;
+    save_metadata(db, &update.id, &metadata)?;
+    read(db, &update.id)
+}
+
 impl ServerStore {
     pub fn save_collection_metadata_locks(
         &self,
@@ -140,40 +178,67 @@ impl ServerStore {
         locks: &[String],
         members: &[CollectionMemberRef],
     ) -> Result<Option<CollectionRecord>, StoreError> {
-        validate_locks(locks)?;
+        let update = CollectionMetadataUpdate {
+            id: id.into(),
+            revision,
+            metadata: candidate.clone(),
+            title: text.0.into(),
+            overview: text.1.into(),
+            locks: locks.to_vec(),
+            members: members.to_vec(),
+        };
         let mut db = self.connection()?;
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let Some(record) = read(&tx, id)? else {
-            return Ok(None);
+        let result = apply_metadata(&tx, &update)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
+    /// Collection changes and their durable receipt commit together. A recovered
+    /// worker can safely replay this operation without applying metadata twice.
+    pub fn apply_collection_metadata_for_job(
+        &self,
+        job_id: &str,
+        lease: &str,
+        update: &CollectionMetadataUpdate,
+    ) -> Result<Option<CollectionRecord>, StoreError> {
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let receipt: Option<Option<String>> = tx
+            .query_row(
+                "SELECT result FROM background_jobs WHERE id=?1 AND lease=?2 AND status='running'",
+                params![job_id, lease],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(receipt) = receipt else {
+            return Err(StoreError::Validation(
+                "Background task cancelled or superseded.".into(),
+            ));
         };
-        check_revision(&record, revision)?;
-        let locked = |field: &str| locks.iter().any(|value| value == field);
-        let title = if locked("title") {
-            &record.title
-        } else {
-            text.0
-        };
-        let overview = if locked("overview") {
-            &record.overview
-        } else {
-            text.1
-        };
-        validate(title, overview, &record.ordering)?;
-        let mut metadata = candidate.clone();
-        metadata.locks = locks.to_vec();
-        if locked("poster") {
-            metadata.poster_url = record.metadata.poster_url;
+        if let Some(receipt) = receipt {
+            let receipt: serde_json::Value = serde_json::from_str(&receipt)
+                .map_err(|_| StoreError::Validation("Invalid background task receipt.".into()))?;
+            if let Some(applied_id) = receipt
+                .get("applied_collection_id")
+                .and_then(serde_json::Value::as_str)
+            {
+                if applied_id != update.id {
+                    return Err(StoreError::Validation(
+                        "Background task receipt does not match this collection.".into(),
+                    ));
+                }
+                let result = read(&tx, &update.id)?;
+                tx.commit()?;
+                return Ok(result);
+            }
         }
-        if locked("backdrop") {
-            metadata.backdrop_url = record.metadata.backdrop_url;
+        let result = apply_metadata(&tx, update)?;
+        if let Some(record) = &result {
+            let receipt =
+                serde_json::json!({"applied_collection_id":record.id,"revision":record.revision});
+            tx.execute("UPDATE background_jobs SET result=?2,updated_at=CAST(strftime('%s','now') AS INTEGER) WHERE id=?1", params![job_id, receipt.to_string()])?;
         }
-        tx.execute(
-            "UPDATE collections SET title=?2,overview=?3 WHERE id=?1",
-            params![id, title.trim(), overview],
-        )?;
-        insert_members(&tx, id, members)?;
-        save_metadata(&tx, id, &metadata)?;
-        let result = read(&tx, id)?;
         tx.commit()?;
         Ok(result)
     }
@@ -344,6 +409,147 @@ mod tests {
             })
             .collect();
         (dir, store, library.id, members)
+    }
+
+    fn metadata_job(
+        store: &ServerStore,
+        collection: &CollectionRecord,
+    ) -> posterview_contracts::jobs::BackgroundJobRecord {
+        let spec = posterview_contracts::jobs::BackgroundJobSpec {
+            kind: "collection_metadata".into(),
+            title: "Refresh collection".into(),
+            resource_key: format!("collection:{}", collection.id),
+            dedupe_key: collection.id.clone(),
+            payload: serde_json::json!({"collection_id":collection.id}),
+            max_attempts: 3,
+        };
+        store.enqueue_background_job(&spec, 100).unwrap();
+        store.claim_background_job(100).unwrap().unwrap()
+    }
+    fn metadata_update(
+        record: &CollectionRecord,
+        members: &[CollectionMemberRef],
+    ) -> CollectionMetadataUpdate {
+        CollectionMetadataUpdate {
+            id: record.id.clone(),
+            revision: record.revision,
+            metadata: CollectionMetadata {
+                provider: "tmdb".into(),
+                provider_id: "10".into(),
+                ..Default::default()
+            },
+            title: "Provider title".into(),
+            overview: "Provider overview".into(),
+            locks: vec![],
+            members: members.to_vec(),
+        }
+    }
+    #[test]
+    fn durable_metadata_receipt_survives_restart_without_applying_twice() {
+        let (_dir, store, _library, members) = fixture();
+        let collection = store
+            .create_collection("Original", "", "release", &members[..1])
+            .unwrap();
+        let job = metadata_job(&store, &collection);
+        let update = metadata_update(&collection, &members);
+        let applied = store
+            .apply_collection_metadata_for_job(&job.id, job.lease.as_deref().unwrap(), &update)
+            .unwrap()
+            .unwrap();
+        assert_eq!(applied.revision, 2);
+        assert_eq!(applied.members.len(), 2);
+        let receipt = store
+            .background_job(&job.id)
+            .unwrap()
+            .unwrap()
+            .result
+            .unwrap();
+        assert_eq!(receipt["applied_collection_id"], collection.id);
+        assert_eq!(receipt["revision"], 2);
+        assert_eq!(
+            store.background_job(&job.id).unwrap().unwrap().status,
+            "running"
+        );
+        // Simulate termination after the metadata transaction, before worker finish.
+        store.recover_background_jobs(101).unwrap();
+        let resumed = store.claim_background_job(101).unwrap().unwrap();
+        assert_ne!(resumed.lease, job.lease);
+        assert_eq!(resumed.result, Some(receipt));
+        let replay = store
+            .apply_collection_metadata_for_job(&job.id, resumed.lease.as_deref().unwrap(), &update)
+            .unwrap()
+            .unwrap();
+        assert_eq!(replay.revision, applied.revision);
+        assert_eq!(replay.title, "Provider title");
+        assert_eq!(replay.members, applied.members);
+    }
+    #[test]
+    fn durable_metadata_rejects_stale_leases_and_cancelling_jobs() {
+        let (_dir, store, _library, members) = fixture();
+        let collection = store
+            .create_collection("Original", "", "release", &members[..1])
+            .unwrap();
+        let job = metadata_job(&store, &collection);
+        let update = metadata_update(&collection, &members);
+        store.recover_background_jobs(101).unwrap();
+        let resumed = store.claim_background_job(101).unwrap().unwrap();
+        assert!(
+            store
+                .apply_collection_metadata_for_job(&job.id, job.lease.as_deref().unwrap(), &update)
+                .is_err()
+        );
+        store.request_background_job_cancel(&job.id, 102).unwrap();
+        assert!(
+            store
+                .apply_collection_metadata_for_job(
+                    &job.id,
+                    resumed.lease.as_deref().unwrap(),
+                    &update
+                )
+                .is_err()
+        );
+        let original = store.collection(&collection.id).unwrap().unwrap();
+        assert_eq!(original.title, "Original");
+        assert_eq!(original.revision, 1);
+        assert!(
+            store
+                .background_job(&job.id)
+                .unwrap()
+                .unwrap()
+                .result
+                .is_none()
+        );
+    }
+    #[test]
+    fn durable_metadata_invalid_member_rolls_back_changes_and_receipt() {
+        let (_dir, store, library, members) = fixture();
+        let collection = store
+            .create_collection("Original", "", "release", &members[..1])
+            .unwrap();
+        let job = metadata_job(&store, &collection);
+        let mut update = metadata_update(&collection, &members);
+        update.members.push(CollectionMemberRef {
+            library_id: library,
+            item_id: "missing".into(),
+        });
+        assert!(
+            store
+                .apply_collection_metadata_for_job(&job.id, job.lease.as_deref().unwrap(), &update)
+                .is_err()
+        );
+        let original = store.collection(&collection.id).unwrap().unwrap();
+        assert_eq!(original.title, "Original");
+        assert_eq!(original.overview, "");
+        assert_eq!(original.members, members[..1]);
+        assert_eq!(original.revision, 1);
+        assert!(
+            store
+                .background_job(&job.id)
+                .unwrap()
+                .unwrap()
+                .result
+                .is_none()
+        );
     }
 
     #[test]

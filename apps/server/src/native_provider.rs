@@ -1,4 +1,4 @@
-use crate::AppState;
+use crate::{AppState, HttpError};
 use posterview_contracts::native::{
     NativeArtwork, NativeCatalogEntry, NativeLibrary, NativeLibraryType,
 };
@@ -739,7 +739,8 @@ fn needs_enrichment(
     parents: &BTreeMap<String, Value>,
     now: i64,
 ) -> bool {
-    eligible_entry(entry)
+    entry.metadata["_scan_checkpoint_restored"] != true
+        && eligible_entry(entry)
         && ((needs_primary_work(entry, library)
             && !recently_checked(entry, &check_identity(entry, library, parents), now))
             || crate::native_jikan::needs_enrichment(entry, library))
@@ -764,15 +765,45 @@ fn parent_metadata(entries: &[NativeCatalogEntry]) -> BTreeMap<String, Value> {
         .collect()
 }
 
+fn checkpoint_signature(
+    entry: &NativeCatalogEntry,
+    library: &NativeLibrary,
+    parents: &BTreeMap<String, Value>,
+) -> String {
+    let input = json!([
+        crate::native::scan_checkpoint_signature(entry, library),
+        check_identity(entry, library, parents)["parent"]
+    ])
+    .to_string();
+    let mut digest = std::collections::hash_map::DefaultHasher::new();
+    std::hash::Hasher::write(&mut digest, input.as_bytes());
+    format!("v2:{:016x}", std::hash::Hasher::finish(&digest))
+}
+
 pub(crate) async fn enrich(
     state: &AppState,
     library: &NativeLibrary,
     entries: &mut [NativeCatalogEntry],
     warnings: &mut Vec<String>,
-) {
-    if !library.options.fetch_missing {
-        return;
+) -> Result<(), HttpError> {
+    let job_context = crate::jobs::native_context(state, &library.id);
+    if let Some(context) = &job_context {
+        context.check()?;
     }
+    if !library.options.fetch_missing {
+        return Ok(());
+    }
+    let signature_library = library.clone();
+    let checkpoints = if let Some(context) = &job_context {
+        context
+            .checkpoints(state)
+            .await?
+            .into_iter()
+            .map(|checkpoint| (checkpoint.key.clone(), checkpoint))
+            .collect::<BTreeMap<_, _>>()
+    } else {
+        BTreeMap::new()
+    };
     let mut configured = library.clone();
     if !crate::plugins::artwork_enabled(state) {
         configured.options.image_types.clear();
@@ -786,20 +817,21 @@ pub(crate) async fn enrich(
         Ok(client) => client,
         Err(_) => {
             warnings.push("Unable to create metadata client.".into());
-            return;
+            return Ok(());
         }
     };
     let token = match ServerStore::new(state.runtime.data_dir()).get_setting("tmdb_access_token") {
         Ok(token) => token,
         Err(error) => {
             warnings.push(error.to_string());
-            return;
+            return Ok(());
         }
     };
     let service = std::sync::Arc::new(posterview_infra_artwork::ArtworkService::default());
     let blocked = std::sync::Arc::new(std::sync::Mutex::new(std::collections::BTreeSet::new()));
     let mut completed = 0;
     let mut progress = crate::native_progress::Reporter::new(state, &library.id);
+    let mut failure = None;
     progress.report("metadata", 0, None, entries.len(), "", true);
     for tier in 0..3 {
         let context = std::sync::Arc::new(EnrichmentContext {
@@ -809,6 +841,25 @@ pub(crate) async fn enrich(
             parents: parent_metadata(entries),
             blocked: blocked.clone(),
         });
+        // Validate children only after their resolved parents are available.
+        // A parent's identification can change without changing a child's file.
+        let signatures = entries
+            .iter()
+            .map(|entry| checkpoint_signature(entry, &signature_library, &context.parents))
+            .collect::<Vec<_>>();
+        for (index, entry) in entries
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, entry)| enrichment_tier(entry) == tier)
+        {
+            if let Some(saved) = checkpoints.get(&entry.path) {
+                crate::native::restore_scan_checkpoint_with_signature(
+                    entry,
+                    saved,
+                    &signatures[index],
+                );
+            }
+        }
         // A newly identified parent can make child work eligible. Count only
         // remaining real work after each dependency tier, including cache hits
         // that the supplementary provider can apply without a network request.
@@ -844,25 +895,33 @@ pub(crate) async fn enrich(
         let mut jobs = tokio::task::JoinSet::new();
         loop {
             while jobs.len() < crate::workers::network_limit() {
+                if failure.is_some()
+                    || job_context
+                        .as_ref()
+                        .is_some_and(|context| context.check().is_err())
+                {
+                    break;
+                }
                 let Some((index, entry)) = pending.next() else {
                     break;
                 };
                 let state = state.clone();
                 let library = library.clone();
                 let context = context.clone();
+                let durable_context = job_context.clone();
                 jobs.spawn(async move {
                     let mut entry = entry;
                     let mut warnings = Vec::new();
                     let identity = check_identity(&entry, &library, &context.parents);
                     let mut primary_delay = None;
-                    if needs_primary_work(&entry, &library) && !recently_checked(&entry, &identity, chrono::Utc::now().timestamp()) {
+                    if durable_context.as_ref().is_none_or(|context|context.check().is_ok()) && needs_primary_work(&entry, &library) && !recently_checked(&entry, &identity, chrono::Utc::now().timestamp()) {
                         enrich_one(&state, &library, &mut entry, &mut warnings, &context).await;
                         // Retry errors after one hour; successful checks with unavailable fields after one day.
                         let blocked = !context.blocked.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
                         let delay = if warnings.is_empty() && !blocked { 86_400 } else { 3_600 };
                         primary_delay = Some(delay);
                     }
-                    if crate::native_jikan::needs_enrichment(&entry, &library) {
+                    if durable_context.as_ref().is_none_or(|context|context.check().is_ok()) && crate::native_jikan::needs_enrichment(&entry, &library) {
                         crate::native_jikan::enrich(&state, &library, &mut entry, &context.client, &mut warnings).await;
                     }
                     if let Some(delay) = primary_delay {
@@ -880,6 +939,34 @@ pub(crate) async fn enrich(
             completed += 1;
             match result {
                 Ok((index, entry, notices)) => {
+                    if let Some(context) = &job_context {
+                        match serde_json::to_value(&entry) {
+                            Ok(value) => {
+                                if let Err(error) = context
+                                    .checkpoint(
+                                        state,
+                                        posterview_contracts::jobs::JobCheckpoint {
+                                            key: entry.path.clone(),
+                                            signature: signatures[index].clone(),
+                                            value,
+                                        },
+                                    )
+                                    .await
+                                {
+                                    if failure.is_none() {
+                                        failure = Some(error);
+                                    }
+                                }
+                            }
+                            Err(_) => {
+                                if failure.is_none() {
+                                    failure = Some(HttpError::bad_gateway(
+                                        "Unable to save metadata checkpoint.",
+                                    ));
+                                }
+                            }
+                        }
+                    }
                     let current = entry.path.clone();
                     entries[index] = entry;
                     warnings.extend(notices);
@@ -894,8 +981,19 @@ pub(crate) async fn enrich(
                 }
                 Err(error) => {
                     warnings.push(format!("Metadata worker interrupted: {error}"));
+                    if job_context.is_some() && failure.is_none() {
+                        failure = Some(HttpError::bad_gateway(
+                            "Metadata worker interrupted. Saved work will be resumed.",
+                        ));
+                    }
                 }
             }
+        }
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        if let Some(context) = &job_context {
+            context.check()?;
         }
     }
     progress.report(
@@ -908,6 +1006,7 @@ pub(crate) async fn enrich(
     );
     let mut seen = std::collections::BTreeSet::new();
     warnings.retain(|warning| seen.insert(warning.clone()));
+    Ok(())
 }
 fn needs_book_characters(entry: &NativeCatalogEntry, library: &NativeLibrary) -> bool {
     entry.kind == "book_series"
@@ -984,6 +1083,11 @@ async fn enrich_one(
         .map(|p| (p.clone(), false))
         .chain(image_order.iter().map(|p| (p.clone(), true)))
     {
+        if crate::jobs::native_context(state, &library.id)
+            .is_some_and(|context| context.check().is_err())
+        {
+            return;
+        }
         if provider_name == "omdb" && !crate::native_provider_extra::omdb_enabled(state) {
             continue;
         }
@@ -1887,6 +1991,7 @@ mod tests {
             enrich(&state, &library, &mut entries, &mut warnings),
         )
         .await
+        .unwrap()
         .unwrap();
         assert!(warnings.is_empty());
         let live = crate::native_progress::current(&state, &library.id).unwrap();
@@ -1895,7 +2000,9 @@ mod tests {
         assert_eq!(progress.processed, 1);
         assert_eq!(progress.total, Some(1));
         assert_eq!(entries[500].metadata["_scan_unchanged"], false);
-        enrich(&state, &library, &mut entries, &mut warnings).await;
+        enrich(&state, &library, &mut entries, &mut warnings)
+            .await
+            .unwrap();
         let progress = crate::native_progress::current(&state, &library.id)
             .unwrap()
             .progress
@@ -1977,5 +2084,97 @@ mod tests {
         let mut dated = entry;
         dated.metadata["year"] = json!(2021);
         assert_eq!(select(&candidates, &dated, false).unwrap()["id"], 2);
+    }
+}
+
+#[cfg(test)]
+mod durable_checkpoint_parent_tests {
+    use super::*;
+    use posterview_contracts::{
+        jobs::JobCheckpoint,
+        native::{AnimeContent, NativeLibraryOptions, NativeLibraryType},
+    };
+    fn library() -> NativeLibrary {
+        NativeLibrary {
+            id: "library".into(),
+            name: "Anime".into(),
+            library_type: NativeLibraryType::Anime,
+            anime_content: AnimeContent::Both,
+            paths: vec![],
+            options: NativeLibraryOptions::default(),
+            revision: 1,
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+    fn entry(path: &str, kind: &str, parent: Option<&str>) -> NativeCatalogEntry {
+        NativeCatalogEntry {
+            id: path.into(),
+            path: path.into(),
+            kind: kind.into(),
+            parent_path: parent.map(str::to_owned),
+            title: "Local".into(),
+            metadata: json!({"title":"Local","season":1,"episode":1}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        }
+    }
+    #[test]
+    fn changed_parent_identity_invalidates_child_checkpoint() {
+        let library = library();
+        let child = entry("Show/episode.mkv", "episode", Some("Show"));
+        let old = BTreeMap::from([("Show".into(), json!({"identifiers":{"tvdb":"1"}}))]);
+        let new = BTreeMap::from([("Show".into(), json!({"identifiers":{"tvdb":"2"}}))]);
+        let saved = JobCheckpoint {
+            key: child.path.clone(),
+            signature: checkpoint_signature(&child, &library, &old),
+            value: serde_json::to_value(&child).unwrap(),
+        };
+        assert!(!crate::native::restore_scan_checkpoint_with_signature(
+            &mut child.clone(),
+            &saved,
+            &checkpoint_signature(&child, &library, &new)
+        ));
+        assert!(crate::native::restore_scan_checkpoint_with_signature(
+            &mut child.clone(),
+            &saved,
+            &checkpoint_signature(&child, &library, &old)
+        ));
+    }
+    #[test]
+    fn restored_parent_ids_allow_matching_child_checkpoint_replay() {
+        let library = library();
+        let mut parent = entry("Show", "series", None);
+        let child = entry("Show/episode.mkv", "episode", Some("Show"));
+        let mut resolved = parent.clone();
+        resolved.metadata["identifiers"] = json!({"tvdb":"1"});
+        let before = parent_metadata(&[parent.clone(), child.clone()]);
+        let resolved_parents = parent_metadata(&[resolved.clone(), child.clone()]);
+        let saved_parent = JobCheckpoint {
+            key: parent.path.clone(),
+            signature: checkpoint_signature(&parent, &library, &before),
+            value: serde_json::to_value(&resolved).unwrap(),
+        };
+        let saved_child = JobCheckpoint {
+            key: child.path.clone(),
+            signature: checkpoint_signature(&child, &library, &resolved_parents),
+            value: serde_json::to_value(&child).unwrap(),
+        };
+        let parent_signature = checkpoint_signature(&parent, &library, &before);
+        assert!(crate::native::restore_scan_checkpoint_with_signature(
+            &mut parent,
+            &saved_parent,
+            &parent_signature
+        ));
+        let current_parents = parent_metadata(&[parent, child.clone()]);
+        assert!(crate::native::restore_scan_checkpoint_with_signature(
+            &mut child.clone(),
+            &saved_child,
+            &checkpoint_signature(&child, &library, &current_parents)
+        ));
     }
 }

@@ -4,6 +4,7 @@ import {AuthSessionContext,useIsAdmin} from "../../lib/authContext";
 export interface ActivityItem {
  id:string;title:string;detail:string;state:"running"|"queued"|"completed"|"failed"|"warning";
  progress?:number|null;href?:string;event?:string;updatedAt?:number;adminOnly?:boolean;
+ jobId?:string;canCancel?:boolean;canRetry?:boolean;cancelling?:boolean;
 }
 type Feed={scope:string;sources:Record<string,readonly ActivityItem[]>;dismissed:Record<string,string>};
 type ActivityContextValue={items:ActivityItem[];dismiss:(id:string)=>void;clearFinished:()=>void;publish:(source:string,items:readonly ActivityItem[])=>void};

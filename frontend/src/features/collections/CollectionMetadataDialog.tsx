@@ -11,7 +11,7 @@ export default function CollectionMetadataDialog({collection,mode,onClose}:{coll
  const [searched,setSearched]=useState(false);
  const [provider,setProvider]=useState<"tmdb"|"tvdb">(collection.metadata?.provider==="tvdb"?"tvdb":"tmdb"),[query,setQuery]=useState(collection.title),[results,setResults]=useState<MetadataCandidate[]>([]),[preview,setPreview]=useState<Awaited<ReturnType<typeof collectionsApi.previewMetadata>>|null>(null),[locks,setLocks]=useState<string[]>(collection.metadata?.locks??[]),[addMembers,setAddMembers]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
  const dialog=useCollectionDialog(onClose,busy);
- const activity=(state:"running"|"completed"|"failed",detail:string)=>publish(`collection-metadata:${collection.id}`,[{id:collection.id,title:`${collection.title} metadata`,detail,state,adminOnly:true,href:`/collections/${encodeURIComponent(collection.id)}`,updatedAt:Date.now()}]);
+ const activity=(state:"running"|"completed"|"failed",detail:string)=>{if(mode==="locks")publish(`collection-metadata:${collection.id}`,[{id:collection.id,title:`${collection.title} field locks`,detail,state,adminOnly:true,href:`/collections/${encodeURIComponent(collection.id)}`,updatedAt:Date.now()}]);};
  const load=async(candidate:Pick<MetadataCandidate,"provider"|"provider_id">)=>{setBusy(true);setError("");try{setPreview(await collectionsApi.previewMetadata(collection.id,candidate));}catch{setError("Could not preview collection metadata. Please try again.");}finally{setBusy(false);}};
  useEffect(()=>{if(mode==="refresh"&&collection.metadata?.provider_id)void load({provider:collection.metadata.provider as "tmdb"|"tvdb",provider_id:collection.metadata.provider_id});},[]);
  const search=async()=>{setBusy(true);setError("");setPreview(null);try{setResults(await collectionsApi.searchMetadata(provider,query.trim()));setSearched(true);}catch{setError("Could not search this metadata provider. Please try again.");}finally{setBusy(false);}};
@@ -19,7 +19,9 @@ export default function CollectionMetadataDialog({collection,mode,onClose}:{coll
   if(mode==="locks")await collectionsApi.saveMetadataLocks(collection.id,{revision:collection.revision,locks});
   else if(preview)await collectionsApi.applyMetadata(collection.id,{revision:collection.revision,provider:preview.metadata.provider as "tmdb"|"tvdb",provider_id:preview.metadata.provider_id,locks,add_members:addMembers});
   else return;
-  await client.invalidateQueries({queryKey:["collections"]});activity("completed",mode==="locks"?"Field locks saved":"Collection metadata updated");onClose();
+  await client.invalidateQueries({queryKey:["collections"]});
+  if(mode!=="locks")await client.invalidateQueries({queryKey:["durable-jobs"]});
+  activity("completed","Field locks saved");onClose();
  }catch{setError("Could not save collection metadata. Refresh the collection and try again.");activity("failed","Collection metadata could not be updated");}finally{setBusy(false);}};
  return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"><section ref={dialog} role="dialog" aria-modal="true" aria-label={mode==="locks"?"Collection field locks":mode==="refresh"?"Refresh collection metadata":"Identify collection"} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-sidebar p-6">
   <h2 className="text-xl font-semibold">{mode==="locks"?"Field locks":mode==="refresh"?"Refresh metadata":"Identify collection"}</h2>

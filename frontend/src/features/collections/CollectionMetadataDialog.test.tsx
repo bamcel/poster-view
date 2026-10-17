@@ -20,7 +20,7 @@ it("previews identification and applies locks without adding matches by default"
  fireEvent.click(screen.getByRole("button",{name:"Apply metadata"}));
  await waitFor(()=>expect(onClose).toHaveBeenCalled());
  expect(collectionsApi.applyMetadata).toHaveBeenCalledWith("saga",{revision:4,provider:"tmdb",provider_id:"42",locks:["title","poster"],add_members:false});
- expect(publish).toHaveBeenLastCalledWith("collection-metadata:saga",[expect.objectContaining({state:"completed",adminOnly:true,href:"/collections/saga"})]);
+ expect(publish).not.toHaveBeenCalled();
 });
 it("refreshes the linked identity and adds local matches only when opted in",async()=>{
  mount("refresh");await screen.findByText("Provider description");
@@ -31,6 +31,7 @@ it("refreshes the linked identity and adds local matches only when opted in",asy
 it("saves field locks independently without provider requests",async()=>{
  mount("locks");fireEvent.click(screen.getByRole("checkbox",{name:"title"}));fireEvent.click(screen.getByRole("checkbox",{name:"backdrop"}));fireEvent.click(screen.getByRole("button",{name:"Save locks"}));
  await waitFor(()=>expect(collectionsApi.saveMetadataLocks).toHaveBeenCalledWith("saga",{revision:4,locks:["backdrop"]}));expect(collectionsApi.previewMetadata).not.toHaveBeenCalled();expect(collectionsApi.applyMetadata).not.toHaveBeenCalled();
+ await waitFor(()=>expect(publish).toHaveBeenLastCalledWith("collection-metadata:saga",[expect.objectContaining({title:"Local Saga field locks",state:"completed",detail:"Field locks saved"})]));
 });
 it("lets an admin review matched local titles before opting in",async()=>{
  vi.mocked(collectionsApi.previewMetadata).mockResolvedValue({metadata:candidate,matches:[{library_id:"movies",library_name:"Movies",item_id:"film",entry:{id:"film",title:"Local matching film"} as Collection["members"][number]["entry"]}],unmatched:1});
@@ -45,7 +46,11 @@ it("explains TVDB exact lookup and handles no results",async()=>{
  expect(screen.getByLabelText("List name, slug, or ID")).toBeTruthy();fireEvent.click(screen.getByRole("button",{name:"Search"}));
  expect(await screen.findByText("No matching collections found.")).toBeTruthy();expect(collectionsApi.searchMetadata).toHaveBeenCalledWith("tvdb","Local Saga");
 });
-it("keeps the dialog open and publishes persistent failure feedback when apply fails",async()=>{
+it("keeps safe inline failure feedback without duplicating the server-owned apply activity",async()=>{
  vi.mocked(collectionsApi.applyMetadata).mockRejectedValue(new Error("private/path"));mount("refresh");await screen.findByText("Provider description");fireEvent.click(screen.getByRole("button",{name:"Apply metadata"}));
- expect(await screen.findByRole("alert")).toHaveProperty("textContent","Could not save collection metadata. Refresh the collection and try again.");expect(onClose).not.toHaveBeenCalled();expect(publish).toHaveBeenLastCalledWith("collection-metadata:saga",[expect.objectContaining({state:"failed"})]);
+ expect(await screen.findByRole("alert")).toHaveProperty("textContent","Could not save collection metadata. Refresh the collection and try again.");expect(onClose).not.toHaveBeenCalled();expect(publish).not.toHaveBeenCalled();
+});
+it("keeps local failure status for synchronous field-lock updates",async()=>{
+ vi.mocked(collectionsApi.saveMetadataLocks).mockRejectedValue(new Error("private/path"));mount("locks");fireEvent.click(screen.getByRole("button",{name:"Save locks"}));
+ await screen.findByRole("alert");expect(onClose).not.toHaveBeenCalled();expect(publish).toHaveBeenLastCalledWith("collection-metadata:saga",[expect.objectContaining({state:"failed",title:"Local Saga field locks"})]);
 });

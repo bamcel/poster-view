@@ -13,6 +13,7 @@ mod collections;
 mod config;
 mod episode_order;
 mod error;
+mod jobs;
 mod login_backdrop;
 mod metadata;
 mod native;
@@ -83,6 +84,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         tracing::warn!(error=%error.detail,"Unable to remove legacy artwork history");
     }
     state.playback.start_cleanup();
+    jobs::start(state.clone());
     native_monitor::start(state.clone());
     ytdl::start(state.clone());
     scheduled_tasks::start(state.clone());

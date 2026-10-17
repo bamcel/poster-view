@@ -11,6 +11,40 @@ use std::{
 use xmltree::{Element, XMLNode};
 const MAX_FILES: usize = 50_000;
 const NFO_LIMIT: u64 = 4 * 1024 * 1024;
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+    #[test]
+    fn cancelled_discovery_stops_before_reading_a_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let record = serde_json::from_value(json!({
+            "id":"scan", "kind":"native_scan", "title":"Scan", "resource_key":"library:test", "dedupe_key":"test",
+            "payload":{"library_id":"test"}, "status":"running", "attempt":1, "max_attempts":3,
+            "available_at":0, "created_at":0, "updated_at":0, "error":null, "result":null, "lease":"lease", "checkpoint_count":0
+        })).unwrap();
+        let job = crate::jobs::JobContext {
+            record,
+            cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        };
+        let mut files = Vec::new();
+        let mut reporter = crate::native_progress::Reporter::new(&state, "test");
+        let error = walk(
+            &state,
+            temp.path(),
+            &temp.path().join("does-not-exist"),
+            &mut files,
+            0,
+            &mut reporter,
+            Some(&job),
+        )
+        .unwrap_err();
+        assert_eq!(error.status, axum::http::StatusCode::CONFLICT);
+        assert!(files.is_empty());
+        assert!(crate::native_progress::current(&state, "test").is_none());
+    }
+}
 fn bad(e: impl std::fmt::Display) -> HttpError {
     HttpError::bad_request(e.to_string())
 }
@@ -91,11 +125,18 @@ fn walk(
     files: &mut Vec<PathBuf>,
     depth: usize,
     progress: &mut crate::native_progress::Reporter,
+    job: Option<&crate::jobs::JobContext>,
 ) -> Result<(), HttpError> {
+    if let Some(job) = job {
+        job.check()?;
+    }
     if depth > 64 {
         return Err(bad("Folder nesting exceeds the scan limit."));
     }
     for child in fs::read_dir(dir).map_err(bad)? {
+        if let Some(job) = job {
+            job.check()?;
+        }
         let child = child.map_err(bad)?;
         let path = child.path();
         if child.file_name().to_string_lossy().starts_with('.') {
@@ -117,7 +158,7 @@ fn walk(
                 continue;
             }
             state.metadata.directory(&relative(root, &path)?, true)?;
-            walk(state, root, &path, files, depth + 1, progress)?;
+            walk(state, root, &path, files, depth + 1, progress, job)?;
         } else if kind.is_file() {
             checked_file(root, &path)?;
             progress.report(
@@ -555,6 +596,10 @@ pub(crate) fn collect_scoped(
     library: &NativeLibrary,
     scopes: Option<&[String]>,
 ) -> Result<(Vec<NativeCatalogEntry>, Vec<String>), HttpError> {
+    let job = crate::jobs::native_context(state, &library.id);
+    if let Some(job) = &job {
+        job.check()?;
+    }
     let root = state.metadata.directory("", true)?;
     let mut progress = crate::native_progress::Reporter::new(state, &library.id);
     progress.report("discovering", 0, None, 0, "", true);
@@ -569,6 +614,9 @@ pub(crate) fn collect_scoped(
         .map(|paths| paths.iter().map(|p| root.join(p)).collect::<Vec<_>>())
         .unwrap_or_else(|| scan_roots.clone());
     for target in targets {
+        if let Some(job) = &job {
+            job.check()?;
+        }
         if !scan_roots.iter().any(|dir| target.starts_with(dir)) {
             return Err(bad("Scan scope is outside the library roots."));
         }
@@ -579,7 +627,15 @@ pub(crate) fn collect_scoped(
                 checked_file(&root, &target)?;
                 files.push(target);
             }
-            Ok(_) => walk(state, &root, &target, &mut files, 0, &mut progress)?,
+            Ok(_) => walk(
+                state,
+                &root,
+                &target,
+                &mut files,
+                0,
+                &mut progress,
+                job.as_ref(),
+            )?,
         }
     }
     let mut series_directories = BTreeMap::<PathBuf, PathBuf>::new();
@@ -684,6 +740,9 @@ pub(crate) fn collect_scoped(
     let mut probes = if library.library_type != NativeLibraryType::Books {
         progress.report("inspecting", 0, Some(total), 0, "", true);
         crate::workers::parallel(files.clone(), |file| {
+            if job.as_ref().is_some_and(|job| job.check().is_err()) {
+                return (file, Err("Scan cancelled.".to_owned()));
+            }
             let cached = previous_files.get(&file).filter(|v| {
                 fs::metadata(&file).is_ok_and(|m| {
                     v["size"].as_u64() == Some(m.len())
@@ -721,8 +780,14 @@ pub(crate) fn collect_scoped(
     } else {
         BTreeMap::new()
     };
+    if let Some(job) = &job {
+        job.check()?;
+    }
     progress.report("reading", 0, Some(total), 0, "", true);
     for (index, file) in files.into_iter().enumerate() {
+        if let Some(job) = &job {
+            job.check()?;
+        }
         progress.report(
             "reading",
             index,

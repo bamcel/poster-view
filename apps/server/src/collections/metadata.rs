@@ -38,7 +38,7 @@ struct Selection {
     provider: String,
     provider_id: String,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Apply {
     revision: i64,
@@ -185,6 +185,55 @@ async fn apply(
     valid_revision(input.revision)?;
     valid_locks(&input.locks)?;
     require_collection(&state, &id, Some(input.revision)).await?;
+    let record = crate::jobs::enqueue(
+        &state,
+        posterview_contracts::jobs::BackgroundJobSpec {
+            kind: "collection_metadata".into(),
+            title: "Collection metadata".into(),
+            resource_key: format!("collection:{id}"),
+            dedupe_key: uuid::Uuid::new_v4().to_string(),
+            payload: serde_json::json!({"collection_id":id,"input":input}),
+            max_attempts: 3,
+        },
+    )
+    .await?;
+    crate::jobs::wait(&state, &record.id).await?;
+    let directory = state.runtime.data_dir().to_owned();
+    blocking(move || {
+        let store = ServerStore::new(directory);
+        let record = store
+            .collection(&id)
+            .map_err(error)?
+            .ok_or_else(HttpError::not_found)?;
+        project_one(&store, &user, record).map(Json)
+    })
+    .await
+}
+
+pub(crate) async fn execute_background_job(
+    state: AppState,
+    context: crate::jobs::JobContext,
+) -> Result<serde_json::Value, HttpError> {
+    context.check()?;
+    let id = context.record.payload["collection_id"]
+        .as_str()
+        .ok_or_else(|| HttpError::bad_request("Invalid collection task."))?
+        .to_owned();
+    let input: Apply = serde_json::from_value(context.record.payload["input"].clone())
+        .map_err(|_| HttpError::bad_request("Invalid collection task."))?;
+    selection(&input.provider, &input.provider_id)?;
+    valid_revision(input.revision)?;
+    valid_locks(&input.locks)?;
+    if let Some(receipt) = context
+        .record
+        .result
+        .as_ref()
+        .filter(|receipt| receipt["applied_collection_id"].as_str() == Some(id.as_str()))
+    {
+        return Ok(receipt.clone());
+    }
+    require_collection(&state, &id, Some(input.revision)).await?;
+    context.check()?;
     // Refetch the chosen provider record; never trust client-supplied metadata or memberships.
     let details = super::providers::details(&state, &input.provider, &input.provider_id).await?;
     let directory = state.runtime.data_dir().to_owned();
@@ -209,18 +258,26 @@ async fn apply(
             backdrop_url: details.metadata.backdrop_url,
             locks: input.locks.clone(),
         };
+        context.check()?;
+        let update = posterview_contracts::collections::CollectionMetadataUpdate {
+            id: id.clone(),
+            revision: input.revision,
+            metadata,
+            title: details.metadata.title,
+            overview: details.metadata.overview,
+            locks: input.locks,
+            members,
+        };
+        let lease = context
+            .record
+            .lease
+            .as_deref()
+            .ok_or_else(|| HttpError::bad_request("Invalid collection task lease."))?;
         let record = store
-            .apply_collection_metadata(
-                &id,
-                input.revision,
-                &metadata,
-                (&details.metadata.title, &details.metadata.overview),
-                &input.locks,
-                &members,
-            )
+            .apply_collection_metadata_for_job(&context.record.id, lease, &update)
             .map_err(error)?
             .ok_or_else(HttpError::not_found)?;
-        project_one(&store, &user, record).map(Json)
+        Ok(serde_json::json!({"applied_collection_id":record.id,"revision":record.revision}))
     })
     .await
 }
@@ -349,6 +406,76 @@ mod tests {
     };
     use serde_json::{Value, json};
     use tower::ServiceExt;
+
+    fn task_context(collection_id: &str, revision: i64) -> crate::jobs::JobContext {
+        crate::jobs::JobContext {
+            record: posterview_contracts::jobs::BackgroundJobRecord {
+                id: "test-task".into(),
+                kind: "collection_metadata".into(),
+                title: "Collection metadata".into(),
+                resource_key: format!("collection:{collection_id}"),
+                dedupe_key: "test-task".into(),
+                payload: json!({"collection_id":collection_id,"input":{"provider":"tmdb","provider_id":"42","revision":revision,"locks":[],"add_members":false}}),
+                status: "running".into(),
+                attempt: 1,
+                max_attempts: 3,
+                available_at: 0,
+                created_at: 0,
+                updated_at: 0,
+                error: None,
+                result: None,
+                lease: Some("test-lease".into()),
+                checkpoint_count: 0,
+            },
+            cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    #[tokio::test]
+    async fn recovered_apply_receipt_skips_stale_revision_and_provider_fetch() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let mut context = task_context("already-applied", 1);
+        let receipt = json!({"applied_collection_id":"already-applied","revision":2});
+        context.record.result = Some(receipt.clone());
+        assert_eq!(
+            execute_background_job(state, context).await.unwrap(),
+            receipt
+        );
+    }
+
+    #[tokio::test]
+    async fn worker_checks_cancellation_and_revision_before_provider_fetch() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let store = ServerStore::new(state.runtime.data_dir());
+        let collection = store
+            .create_collection("Local collection", "", "release", &[])
+            .unwrap();
+        let context = task_context(&collection.id, 99);
+        assert_eq!(
+            execute_background_job(state.clone(), context)
+                .await
+                .unwrap_err()
+                .status,
+            StatusCode::CONFLICT
+        );
+        let context = task_context(&collection.id, 1);
+        context
+            .cancelled
+            .store(true, std::sync::atomic::Ordering::Release);
+        assert_eq!(
+            execute_background_job(state, context)
+                .await
+                .unwrap_err()
+                .status,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            store.collection(&collection.id).unwrap().unwrap().revision,
+            1
+        );
+    }
 
     fn entry(path: &str, kind: &str, id: Value) -> NativeCatalogEntry {
         NativeCatalogEntry {
