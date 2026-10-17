@@ -1,3 +1,4 @@
+import {HeaderSearchTarget} from "../../lib/headerSearch";
 import {cleanup,fireEvent,render,screen} from "@testing-library/react";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import {MemoryRouter} from "react-router-dom";
@@ -52,4 +53,20 @@ it("preserves newest upload ordering for playlist videos using published timesta
  render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={["/?youtube_channel=channel&youtube_playlist=all"]}><YouTubeLibraryBrowser library={{id:"youtube",name:"YouTube"} as NativeLibrary}/></MemoryRouter></QueryClientProvider>);
  await screen.findByRole("button",{name:"Z newer"});
  expect(screen.getAllByRole("button").filter(button=>["A older","Z newer"].includes(button.textContent??"")).map(button=>button.textContent)).toEqual(["Z newer","A older"]);
+});
+
+it("places filter and preferences beside search in the shared header",async()=>{
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([video]);
+ const target=document.createElement("div");document.body.appendChild(target);
+ try{
+  render(<QueryClientProvider client={new QueryClient()}><MemoryRouter><HeaderSearchTarget.Provider value={target}><YouTubeLibraryBrowser library={{id:"youtube",name:"YouTube"} as NativeLibrary}/></HeaderSearchTarget.Provider></MemoryRouter></QueryClientProvider>);
+  const search=await screen.findByRole("textbox",{name:"Search titles"});
+  const filter=screen.getByRole("button",{name:"Filter and sort titles"});
+  const preferences=screen.getByRole("button",{name:"Library preferences"});
+  expect(target.contains(search)).toBe(true);
+  expect(target.contains(filter)).toBe(true);
+  expect(target.contains(preferences)).toBe(true);
+  expect(filter.parentElement).toBe(preferences.parentElement);
+  expect(filter.parentElement?.contains(search)).toBe(true);
+ }finally{cleanup();target.remove();}
 });

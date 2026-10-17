@@ -58,9 +58,10 @@ export default function YouTubeLibraryBrowser({ library }: { library: NativeLibr
     <div className="relative z-30 grid shrink-0 items-center gap-3 border-b border-border px-4 pb-3 pt-5 sm:grid-cols-[1fr_auto] sm:px-6 lg:grid-cols-[1fr_auto_1fr] lg:px-8">
       <h1 className="min-w-0 truncate text-xl font-semibold" title={title}>{title}</h1>
       {!video&&<div className="flex items-center justify-center gap-2">
-        <HeaderSearchControl><div className="relative w-full max-w-[21rem]"><SearchField aria-label="Search titles" value={search} onChange={event=>setSearch(event.target.value)}/></div></HeaderSearchControl>
+        <HeaderSearchControl><div className="flex w-full min-w-0 items-center justify-center gap-2"><div className="relative min-w-0 w-full max-w-[21rem]"><SearchField aria-label="Search titles" value={search} onChange={event=>setSearch(event.target.value)}/></div>
         <LibraryPopup title="Filters and sorting" label="Filter and sort titles" icon={<ListFilter className="size-4"/>} style={style} editorStyle><label className="block text-sm font-semibold">Sort by<select aria-label="Sort titles" value={sort} onChange={event=>setSort(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-white"><option value="title">Title A–Z</option><option value="reverse">Title Z–A</option><option value="newest">Newest date</option></select></label></LibraryPopup>
         <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style} editorStyle><LibraryViewPreferences library={library.id}/></LibraryPopup>
+        </div></HeaderSearchControl>
       </div>}
       <div aria-hidden="true" className="hidden lg:block"/>
     </div>

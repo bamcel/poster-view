@@ -516,9 +516,9 @@ export default function NativeLibraryBrowser({
           <div className="relative z-30 grid shrink-0 items-center gap-3 border-b border-border px-4 pb-3 pt-5 sm:grid-cols-[1fr_auto] sm:px-6 lg:grid-cols-[1fr_auto_1fr] lg:px-8">
             <h1 className="min-w-0 truncate text-xl font-semibold">{library.name}</h1>
             <div className="flex items-center justify-center gap-2">
-              <HeaderSearchControl><div className="relative w-full max-w-[21rem]">
+              <HeaderSearchControl><div className="flex w-full min-w-0 items-center justify-center gap-2"><div className="relative min-w-0 w-full max-w-[21rem]">
                 <SearchField aria-label="Search titles" value={search} onChange={e=>setSearch(e.target.value)}/>
-              </div></HeaderSearchControl>
+              </div>
               <LibraryPopup title="Filters and sorting" label="Filter and sort titles" icon={<ListFilter className="size-4"/>} style={style} editorStyle>
                   <h3 className="mb-3 text-sm font-semibold">Artwork</h3>
                   <label className="block text-xs text-muted">
@@ -565,6 +565,7 @@ export default function NativeLibraryBrowser({
                 <LibraryViewPreferences library={library.id}/>
                 <ArtworkPreferences library={library.id}/>{library.library_type === "books" && <BookPreferences/>}{library.library_type === "anime" && <AnimePreferences library={library.id}/>} {(["shows","movies"].includes(library.library_type))&&<VideoPreferences library={library.id}/>}</div>
               </LibraryPopup>
+              </div></HeaderSearchControl>
             </div>
             {status.data?.status === "scanning" && status.data.show_progress !== false ? <aside aria-label="Library scan progress" className="w-full min-w-0 lg:ml-auto lg:max-w-80"><NativeScanProgress status={status.data} compact/></aside> : <div aria-hidden="true" className="hidden lg:block"/>}
           </div>
