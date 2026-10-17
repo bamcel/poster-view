@@ -88,3 +88,47 @@ it("inherits media detail roles in every built-in theme and migrates old custom 
   expect(loadCustomThemes()[0].detailText).toBe("#FFFFFF");
   expect(document.documentElement.style.getPropertyValue("--color-detail-text")).toBe("#FFFFFF");
 });
+
+
+describe("independent accent roles", () => {
+  it("keeps legacy imports and stored themes inheriting the general accent", () => {
+    const legacy = JSON.parse(serializeTheme(getTheme("Everforest")));
+    legacy.name = "Legacy accents";
+    legacy.colors.Accent = "#123456";
+    delete legacy.colors["General Accent"];
+    delete legacy.colors["Media Detail Links"];
+    const theme = parseThemeJson(JSON.stringify(legacy));
+    expect(theme.accent).toBe("#123456");
+    expect(theme.detailLink).toBe("#123456");
+    expect(theme.sidebarAccent).toBeUndefined();
+    localStorage.setItem("posterview.customThemes", JSON.stringify([theme]));
+    expect(loadCustomThemes()).toEqual([theme]);
+    applyTheme({ ...theme, accent: "#ABCDEF" });
+    for (const role of ["sidebar-accent", "poster-outline", "selection-accent", "focus-accent", "link-accent"]) {
+      expect(document.documentElement.style.getPropertyValue(`--color-${role}`)).toBe("#ABCDEF");
+    }
+    expect(JSON.parse(serializeTheme(theme)).colors["Left Panel Accent"]).toBeUndefined();
+  });
+
+  it("round-trips independent overrides without changing other accent consumers", () => {
+    const theme = { ...getTheme("Everforest"), name: "Independent accents", sidebarAccent: "#123456", posterOutline: "#654321", selectionAccent: "#AABBCC", focusAccent: "#112233", linkAccent: "#445566" };
+    expect(parseThemeJson(serializeTheme(theme))).toEqual(theme);
+    saveCustomTheme(theme);
+    expect(loadCustomThemes()).toEqual([theme]);
+    const root = document.documentElement.style;
+    expect(root.getPropertyValue("--color-sidebar-accent")).toBe("#123456");
+    expect(root.getPropertyValue("--color-poster-outline")).toBe("#654321");
+    expect(root.getPropertyValue("--color-selection-accent")).toBe("#AABBCC");
+    expect(root.getPropertyValue("--color-focus-accent")).toBe("#112233");
+    expect(root.getPropertyValue("--color-link-accent")).toBe("#445566");
+    expect(root.getPropertyValue("--color-accent")).toBe(theme.accent);
+    applyTheme("Everforest");
+    expect(root.getPropertyValue("--color-poster-outline")).toBe(getTheme("Everforest").accent);
+  });
+
+  it("rejects malformed explicit role overrides", () => {
+    const json = JSON.parse(serializeTheme(getTheme("Everforest")));
+    json.colors["Poster Hover Outline"] = "red";
+    expect(() => parseThemeJson(JSON.stringify(json))).toThrow(/Poster Hover Outline/);
+  });
+});

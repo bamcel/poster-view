@@ -183,7 +183,9 @@ export default function AppearanceSection({preview=false}: {preview?:boolean}) {
   try {
     previewColors = parseThemeJson(themeJson);
   } catch { /* Keep the selected theme while JSON is incomplete. */ }
-  const selectedColorValue = previewColors[selectedColor];
+  const selectedColorValue = previewColors[selectedColor] ?? previewColors.accent;
+  const independentAccent=["sidebarAccent","posterOutline","selectionAccent","focusAccent","linkAccent"].includes(selectedColor);
+  const inheritAccent=()=>{const theme=parseThemeJson(themeJson);delete theme[selectedColor];setThemeJson(serializeTheme(theme));previewTheme(theme);setMessage("Previewing inherited general accent");};
 
   return (
     <div ref={splitRef} className="h-full min-h-0 min-w-0" style={split ? { display: "grid", gridTemplateColumns: `minmax(0, ${settingsWidth}fr) 12px minmax(0, ${100 - settingsWidth}fr)` } : undefined}>
@@ -232,9 +234,10 @@ export default function AppearanceSection({preview=false}: {preview?:boolean}) {
             <div className="text-xs font-semibold text-muted">
               {THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)?.label}
               <HexColorPicker label={THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)!.label} value={selectedColorValue} onChange={updateColor}/>
+              {independentAccent&&<div className="mt-2"><p className="text-xs text-muted">{previewColors[selectedColor]?"Custom color":"Inherits general accent"}</p><button type="button" className={`${SETTINGS_BUTTON} mt-2`} disabled={!previewColors[selectedColor]} onClick={inheritAccent}>Use general accent</button></div>}
             </div>
           </div>
-          <p className="mt-2 text-xs text-faint">Color changes preview immediately. Save them as a custom theme to keep them.</p>
+          <p className="mt-2 text-xs text-faint">General accent controls remaining highlights. Sidebar navigation, poster hover outlines, selected items, keyboard focus, and links can use independent colors. Color changes preview immediately; save a custom theme to keep them.</p>
 
         <div className="mt-4 border-t border-border pt-4">
           <h2 className="text-lg font-semibold">Custom Theme</h2>
@@ -333,7 +336,7 @@ function ColorLabelPicker({ theme, selected, onSelect }: { theme: AppTheme; sele
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, []);
-  const swatch = (key: ThemeColorKey) => <span aria-hidden="true" className="size-4 shrink-0 rounded-sm border border-border" style={{ backgroundColor: theme[key] }} />;
+  const swatch = (key: ThemeColorKey) => <span aria-hidden="true" className="size-4 shrink-0 rounded-sm border border-border" style={{ backgroundColor: theme[key] ?? theme.accent }} />;
   return <div className="min-w-0 text-xs font-semibold text-muted">
     <span>Color Label</span>
     <details ref={details} className="relative mt-2" onKeyDown={(event) => {

@@ -150,13 +150,13 @@ it("previews a palette color and saves it as a selectable custom theme", async (
   expect(themeEditor.style.fontSize).toBe("0.5625rem");
   expect(themeEditor.style.lineHeight).toBe("0.75rem");
 
-  fireEvent.click(screen.getByLabelText("Choose Accent color"));
-  expect(screen.getByLabelText("Accent HEX color")).toBeTruthy();
-  fireEvent.change(screen.getByLabelText("Accent HEX color"), { target: { value: "#ff3366" } });
+  fireEvent.click(screen.getByLabelText("Choose General Accent color"));
+  expect(screen.getByLabelText("General Accent HEX color")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("General Accent HEX color"), { target: { value: "#ff3366" } });
   fireEvent.click(screen.getByRole("button", {name:"Done"}));
   expect(document.documentElement.style.getPropertyValue("--color-accent")).toBe("#FF3366");
   fireEvent.click(screen.getByLabelText("Select Color Label"));
-  const accentOption = screen.getByRole("button", { name: /^Accent$/ });
+  const accentOption = screen.getByRole("button", { name: /^General Accent$/ });
   expect((accentOption.querySelector("span") as HTMLElement).style.backgroundColor).toBe("rgb(255, 51, 102)");
   fireEvent.click(screen.getByRole("button", { name: /^Border$/ }));
   expect(screen.getByLabelText("Choose Border color")).toBeTruthy();
@@ -189,6 +189,21 @@ it("restores the active settings tab from the URL", () => {
   expect(themeJsonToggle.closest("details")?.open).toBe(true);
   expect(screen.getByLabelText("JSON Editor")).toBeTruthy();
   client.clear();
+});
+
+it("previews an independent poster accent and restores general accent inheritance",()=>{
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<MemoryRouter initialEntries={["/settings/appearance"]}><QueryClientProvider client={client}><SettingsPage/></QueryClientProvider></MemoryRouter>);
+ fireEvent.click(screen.getByLabelText("Select Color Label"));
+ fireEvent.click(screen.getByRole("button",{name:"Poster Hover Outline"}));
+ fireEvent.click(screen.getByLabelText("Choose Poster Hover Outline color"));
+ fireEvent.change(screen.getByLabelText("Poster Hover Outline HEX color"),{target:{value:"#FF3366"}});
+ fireEvent.click(screen.getByRole("button",{name:"Done"}));
+ expect(document.documentElement.style.getPropertyValue("--color-poster-outline")).toBe("#FF3366");
+ expect(document.documentElement.style.getPropertyValue("--color-accent")).not.toBe("#FF3366");
+ fireEvent.click(screen.getByRole("button",{name:"Use general accent"}));
+ expect(document.documentElement.style.getPropertyValue("--color-poster-outline")).toBe(document.documentElement.style.getPropertyValue("--color-accent"));
+ client.clear();
 });
 
 it("persists and resets Dashboard appearance controls", () => {
@@ -232,7 +247,7 @@ it("groups existing providers without disable controls or new metadata providers
   expect(screen.queryByRole("group", {name:"eReader providers"})).toBeNull();
   expect(screen.queryByRole("combobox", {name:"Default provider"})).toBeNull();
   for (const name of ["AniList", "AniList Manga", "MediUX", "MangaDex", "VIZ"]) {
-    expect(screen.getByRole("button", { name: `Configure ${name}` })).toBeTruthy();
+    expect(screen.getByText(name,{exact:true}).closest("a")?.getAttribute("href")).toMatch(/^https:/);
   }
   expect(screen.getByRole("button", { name: "Configure TMDB" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Configure AniDB" })).toBeNull();
@@ -255,7 +270,7 @@ it("keeps each provider test result inside its own card", async () => {
   await waitFor(() => expect(within(fanart).getByRole("button", { name: "Test Connection" }).hasAttribute("disabled")).toBe(false));
   fireEvent.click(within(fanart).getByRole("button", { name: "Test Connection" }));
   expect(await within(fanart).findByText("fanart connected.", { exact: false })).toBeTruthy();
-  expect(within(fanart).getByRole("img", { name: "Fanart.tv connection verified" })).toBeTruthy();
+  expect(await within(fanart).findByRole("img", { name: "Fanart.tv connection verified" })).toBeTruthy();
   fireEvent.click(within(tvdb).getByRole("button", { name: "Test Connection" }));
   expect(await within(tvdb).findByText("TheTVDB rejected the credentials.", { exact: false })).toBeTruthy();
   expect(within(fanart).queryByText("TheTVDB rejected the credentials.", { exact: false })).toBeNull();

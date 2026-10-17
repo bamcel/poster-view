@@ -16,6 +16,11 @@ export interface AppTheme {
   subtle: string;
   disabled: string;
   accent: string;
+  sidebarAccent?: string;
+  posterOutline?: string;
+  selectionAccent?: string;
+  focusAccent?: string;
+  linkAccent?: string;
   accentHover: string;
   success: string;
   warning: string;
@@ -30,6 +35,11 @@ export interface AppTheme {
 
 export type ThemeColorKey = Exclude<keyof AppTheme, "name">;
 
+export const ACCENT_COLOR_KEYS = ["sidebarAccent", "posterOutline", "selectionAccent", "focusAccent", "linkAccent"] as const;
+function isAccentRole(key: ThemeColorKey) {
+  return (ACCENT_COLOR_KEYS as readonly string[]).includes(key);
+}
+
 const DETAIL_ROLES = { detailTitle: "text", detailText: "text", detailMetadata: "muted", detailLink: "accent", pillBackground: "text", pillBorder: "text", pillText: "muted" } as const;
 function detailDefaults(theme: Partial<AppTheme>) {
   return { detailTitle: theme.text ?? "#FFFFFF", detailText: theme.text ?? "#FFFFFF", detailMetadata: theme.muted ?? "#FFFFFF", detailLink: theme.accent ?? "#FFFFFF", pillBackground: "#FFFFFF", pillBorder: "#FFFFFF", pillText: theme.detailMetadata ?? theme.muted ?? "#FFFFFF" };
@@ -43,7 +53,12 @@ export const THEME_COLOR_OPTIONS: { key: ThemeColorKey; label: string }[] = [
   { key: "detailText", label: "Media Detail Text" },
   { key: "detailMetadata", label: "Media Detail Metadata" },
   { key: "detailLink", label: "Media Detail Links" },
-  { key: "accent", label: "Accent" },
+  { key: "accent", label: "General Accent" },
+  { key: "sidebarAccent", label: "Left Panel Accent" },
+  { key: "posterOutline", label: "Poster Hover Outline" },
+  { key: "selectionAccent", label: "Selection Accent" },
+  { key: "focusAccent", label: "Keyboard Focus Accent" },
+  { key: "linkAccent", label: "Link Accent" },
   { key: "accentHover", label: "Accent Hover" },
   { key: "border", label: "Border" },
   { key: "button", label: "Button" },
@@ -127,7 +142,8 @@ export function serializeTheme(theme: AppTheme) {
     {
       name: theme.name,
       colors: Object.fromEntries(
-        THEME_COLOR_OPTIONS.map(({ key, label }) => [label, theme[key].toUpperCase()]),
+        THEME_COLOR_OPTIONS.filter(({ key }) => !isAccentRole(key) || theme[key] !== undefined)
+          .map(({ key, label }) => [label, theme[key]!.toUpperCase()]),
       ),
     },
     null,
@@ -150,7 +166,8 @@ export function parseThemeJson(value: string): AppTheme {
   for (const { key, label } of THEME_COLOR_OPTIONS) {
     const inheritedRole = DETAIL_ROLES[key as keyof typeof DETAIL_ROLES];
     const inheritedLabel = THEME_COLOR_OPTIONS.find(option => option.key === inheritedRole)?.label;
-    const color = colors[label] ?? (key === "pillBackground" || key === "pillBorder" ? "#FFFFFF" : inheritedLabel ? colors[inheritedLabel] : undefined);
+    if (isAccentRole(key) && colors[label] === undefined) continue;
+    const color = colors[label] ?? (key === "accent" ? colors.Accent : undefined) ?? (key === "pillBackground" || key === "pillBorder" ? "#FFFFFF" : inheritedLabel ? (colors[inheritedLabel] ?? (inheritedRole === "accent" ? colors.Accent : undefined)) : undefined);
     if (typeof color !== "string" || !HEX_COLOR.test(color)) {
       throw new Error(`${label} must be a six-digit hex color, such as #BD93F9.`);
     }
@@ -192,7 +209,7 @@ function isAppTheme(value: unknown): value is AppTheme {
   return (
     typeof theme.name === "string" &&
     theme.name.trim().length > 0 &&
-    THEME_COLOR_OPTIONS.every(({ key }) => (key in DETAIL_ROLES && theme[key] === undefined) || (typeof theme[key] === "string" && HEX_COLOR.test(theme[key])))
+    THEME_COLOR_OPTIONS.every(({ key }) => ((key in DETAIL_ROLES || isAccentRole(key)) && theme[key] === undefined) || (typeof theme[key] === "string" && HEX_COLOR.test(theme[key])))
   );
 }
 
@@ -220,6 +237,11 @@ function applyThemeValues(theme: AppTheme) {
     "button-hover": theme.buttonHover, elevated: theme.selected, border: theme.border,
     "border-strong": theme.borderStrong, text: theme.text, muted: theme.muted,
     faint: theme.subtle, disabled: theme.disabled, accent: theme.accent,
+    "sidebar-accent": theme.sidebarAccent ?? theme.accent,
+    "poster-outline": theme.posterOutline ?? theme.accent,
+    "selection-accent": theme.selectionAccent ?? theme.accent,
+    "focus-accent": theme.focusAccent ?? theme.accent,
+    "link-accent": theme.linkAccent ?? theme.accent,
     "accent-hover": theme.accentHover, success: theme.success, warning: theme.warning,
   };
   for (const [token, value] of Object.entries(values)) root.style.setProperty(`--color-${token}`, value);

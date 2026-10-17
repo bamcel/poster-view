@@ -67,7 +67,7 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
     } finally { setSaving(false); }
   };
 
-  return <div className="max-w-3xl space-y-5">
+  return <div className="w-full space-y-5">
     <div>
       <p className="mt-0.5 text-xs leading-5 text-faint">Session and network settings apply to all users and persist after container restarts. Individual sign-in is always required while ordinary user accounts are enabled. Otherwise, the container’s Require Login option can allow password-free administrator access.</p></div>
     <div className="space-y-5">
@@ -103,7 +103,7 @@ function SecurityForm({ initial }: { initial: SecuritySettings }) {
       <p className="text-xs leading-5 text-faint">Uses the direct connection’s private, loopback, or link-local IP address—not the hostname or forwarded headers. Auto sign-out does not lock password-free local access. Turn this off to require a password again. Your existing password is preserved.</p>
     </fieldset>
     </div>
-    <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
+    <div className="settings-actions">
       <button type="button" className={SETTINGS_BUTTON} disabled={!dirty || !valid || saving} onClick={() => void save()}>{saving ? "Saving…" : "Save changes"}</button>
       <button type="button" className={SETTINGS_BUTTON} disabled={!dirty || saving} onClick={discard}>Discard</button>
       <p role="status" className="text-xs text-muted">{dirty ? "Unsaved server settings" : savedNotice ? "Changes saved" : "Server settings are saved explicitly"}</p>

@@ -40,6 +40,11 @@
   --color-faint: #6b7280;
   --color-accent: #21d07a;
   --color-accent-hover: #1bb86a;
+  --color-sidebar-accent: var(--color-accent);
+  --color-poster-outline: var(--color-accent);
+  --color-selection-accent: var(--color-accent);
+  --color-focus-accent: var(--color-accent);
+  --color-link-accent: var(--color-accent);
   --color-danger: #ef4444;
   --color-sidebar: #1b1e25;
   --color-input: #1d2028;
@@ -197,6 +202,16 @@ select {
 :where(input, select, textarea):focus-visible {
   outline: none;
 }
+
+/* Semantic accents keep independent theme roles separate from the general accent. */
+:is(button,a,summary,input,select,textarea,[tabindex]):focus-visible {
+  outline-color: var(--color-focus-accent) !important;
+}
+[class*="focus-visible:outline-accent"]:focus-visible {
+  outline-color: var(--color-focus-accent) !important;
+}
+a.text-accent { color: var(--color-link-accent); }
+a.hover\:text-accent:hover { color: var(--color-link-accent); }
 @media (max-width: 767px), (pointer: coarse) {
   :where(button, select, summary, a[aria-label]) { min-height: 44px; }
   :where(input:not([type="checkbox"]):not([type="radio"]):not([type="color"])) { min-height: 44px; }

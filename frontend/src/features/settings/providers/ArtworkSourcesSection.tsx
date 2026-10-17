@@ -3,29 +3,29 @@ import { compactInputCls } from "../formStyles";
 import { SETTINGS_BUTTON } from "../../../components/SettingsPageFrame";
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PlugZap, Loader2, CheckCircle2 } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import NativeProviderCredentials from "../../../components/NativeProviderCredentials";
 import { api } from "../../../api/client";
 import { useToast } from "../../../lib/toast";
-import ProviderConnection, { providerStatus } from "../../../components/ProviderConnection";
+import ProviderConnection, { providerStatus,TestConnectionButton } from "../../../components/ProviderConnection";
 import { reportSettingsSave } from "../../../lib/settingsSaveStatus";
 export default function ArtworkSourcesSection() {
   return (
-    <section className="space-y-4">
-      <p className="text-sm text-muted">Expand a provider to configure credentials or test its connection. Leave saved key fields blank to keep existing values. Default artwork providers are managed in the Artwork plugin.</p>
-      <div className="overflow-hidden rounded-xl border border-border">
+    <section className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted"><p>Manage connections here. Choose providers and their priority in each library.</p><a href="/settings/libraries" className="text-accent">Manage libraries →</a></div>
+      <section aria-labelledby="provider-accounts-heading" className="overflow-hidden rounded-xl border border-border bg-window"><header className="border-b border-border px-5 py-4"><h2 id="provider-accounts-heading" className="font-semibold">Accounts & API keys</h2><p className="mt-1 text-xs text-muted">Open a provider to configure or test its saved connection. Blank fields keep existing credentials.</p></header>
         <TmdbCredentialsFields />
         <ArtworkCredentialsFields />
+      </section>
+      <section aria-labelledby="automatic-providers-heading" className="rounded-xl border border-border bg-window p-5"><header className="mb-4"><h2 id="automatic-providers-heading" className="font-semibold">Ready to use</h2><p className="mt-1 text-xs text-muted">These sources work without an API key or account setup.</p></header><div className="grid gap-x-8 sm:grid-cols-2 xl:grid-cols-3">
         {[
           { id: "anilist", name: "AniList", description: "Anime artwork", url: "https://anilist.co" },
           { id: "anilist-manga", name: "AniList Manga", description: "Manga artwork and metadata", url: "https://anilist.co" },
           { id: "mediux", name: "MediUX", description: "Movie and TV artwork", url: "https://mediux.pro" },
           { id: "mangadex", name: "MangaDex", description: "Manga covers", url: "https://mangadex.org" },
           { id: "viz", name: "VIZ", description: "Manga covers", url: "https://www.viz.com" },
-        ].map(provider => <ProviderConnection key={provider.id} id={provider.id} name={provider.name} description={provider.description} status="No credentials required" setupUrl={provider.url} setupLabel="Visit provider">
-          <p className="text-sm text-muted">{provider.name} is available automatically. No account or API key is needed for searches.</p>
-        </ProviderConnection>)}
-      </div>
+        ].map(provider => <a key={provider.id} href={provider.url} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 border-b border-border py-4 text-sm hover:text-accent"><span><span className="font-medium">{provider.name}</span><span className="mt-1 block text-xs text-muted">{provider.description}</span></span><span aria-hidden="true" className="text-muted">↗</span></a>)}
+      </div></section>
 
     </section>
   );
@@ -63,7 +63,7 @@ function TmdbCredentialsFields() {
       </label>
       <button type="submit" className={SETTINGS_BUTTON} disabled={!token.trim() || save.isPending}>{save.isPending ? "Saving…" : "Save credentials"}</button>
       <button type="button" className={SETTINGS_BUTTON} disabled={!token || save.isPending} onClick={() => { setToken(""); save.reset(); }}>Discard</button>
-      <button type="button" className={SETTINGS_BUTTON} disabled={!settings.data?.tmdb_configured || test.isPending || save.isPending || !!token.trim()} onClick={() => test.mutate()}>{test.isPending ? "Testing…" : "Test Connection"}</button>
+      <TestConnectionButton pending={test.isPending} disabled={!settings.data?.tmdb_configured || save.isPending || !!token.trim()} onClick={() => test.mutate()}/>
     </div>
     {save.isSuccess && <p role="status" className="mt-2 text-xs text-accent">Credentials saved.</p>}
     <p className="mt-2 text-xs text-faint">Accepts a TMDB API Read Access Token or a v3 API key. Choose Save credentials to apply changes. Blank fields keep saved credentials.</p>
@@ -223,14 +223,7 @@ function ArtworkCredentialsFields() {
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button type="button" className={SETTINGS_BUTTON} disabled={saveMut.isPending || !password || !email.trim()} onClick={() => saveMut.mutate("posterdb")}>Save credentials</button>
         <button type="button" className={SETTINGS_BUTTON} disabled={saveMut.isPending || (!password && email === (statusQ.data?.email ?? ""))} onClick={() => { setEmail(statusQ.data?.email ?? ""); setPassword(""); saveMut.reset(); }}>Discard</button>
-        <button
-          onClick={() => loginMut.mutate()}
-          disabled={loginMut.isPending || !configured || saveMut.isPending || !!password || email !== (statusQ.data?.email ?? "")}
-          className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-white disabled:opacity-50"
-        >
-          {loginMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
-          Test Connection
-        </button>
+        <TestConnectionButton pending={loginMut.isPending} disabled={!configured || saveMut.isPending || !!password || email !== (statusQ.data?.email ?? "")} onClick={() => loginMut.mutate()}/>
         {statusQ.data?.logged_in && (
           <span className="flex items-center gap-1 text-sm text-accent">
             <CheckCircle2 className="size-4" /> Logged in
@@ -326,14 +319,7 @@ function FanartTvdbFields({
           <button type="button" className={SETTINGS_BUTTON} disabled={saving || !(!!fanart)} onClick={() => { setFanart(""); }}>Discard</button>
           {savedKind === "fanart" && <span role="status" className="text-xs text-accent">Credentials saved.</span>}
         </div>
-        <button
-          onClick={() => fanartTestMut.mutate()}
-          disabled={saving || !!fanart || fanartTestMut.isPending || !cfg?.fanart_configured}
-          className={`${SETTINGS_BUTTON} mt-2`}
-        >
-          {fanartTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
-          Test Connection
-        </button>
+        <TestConnectionButton pending={fanartTestMut.isPending} disabled={saving || !!fanart || !cfg?.fanart_configured} onClick={() => fanartTestMut.mutate()}/>
         <ProviderFeedback name="Fanart.tv" pending={fanartTestMut.isPending} result={fanartTestMut.data} error={fanartTestMut.error?.message} />
       </ProviderConnection>
 
@@ -364,14 +350,7 @@ function FanartTvdbFields({
           <button type="button" className={SETTINGS_BUTTON} disabled={saving || !(!!tvdbKey || !!tvdbPin)} onClick={() => { setTvdbKey(""); setTvdbPin(""); }}>Discard</button>
           {savedKind === "tvdb" && <span role="status" className="text-xs text-accent">Credentials saved.</span>}
         </div>
-        <button
-          onClick={() => tvdbTestMut.mutate()}
-          disabled={saving || !!tvdbKey || !!tvdbPin || tvdbTestMut.isPending || !cfg?.tvdb_configured}
-          className={`${SETTINGS_BUTTON} mt-2`}
-        >
-          {tvdbTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />}
-          Test Connection
-        </button>
+        <TestConnectionButton pending={tvdbTestMut.isPending} disabled={saving || !!tvdbKey || !!tvdbPin || !cfg?.tvdb_configured} onClick={() => tvdbTestMut.mutate()}/>
         <ProviderFeedback name="TheTVDB" pending={tvdbTestMut.isPending} result={tvdbTestMut.data} error={tvdbTestMut.error?.message} />
       </ProviderConnection>
       <ProviderConnection id="comicvine" name="ComicVine" description="Comics metadata" status={configurationError ? "Configuration unavailable" : providerStatus(cfg?.comicvine_configured, comicvineTestMut.isPending, comicvineTestMut.data, comicvineTestMut.error)} setupUrl="https://comicvine.gamespot.com/api/">
@@ -383,9 +362,7 @@ function FanartTvdbFields({
           <button type="button" className={SETTINGS_BUTTON} disabled={saving || !(!!comicvine)} onClick={() => { setComicvine(""); }}>Discard</button>
           {savedKind === "comicvine" && <span role="status" className="text-xs text-accent">Credentials saved.</span>}
         </div>
-        <button onClick={() => comicvineTestMut.mutate()} disabled={saving || !!comicvine || comicvineTestMut.isPending || !cfg?.comicvine_configured} className={`${SETTINGS_BUTTON} mt-2`}>
-          {comicvineTestMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <PlugZap className="size-4" />} Test Connection
-        </button>
+        <TestConnectionButton pending={comicvineTestMut.isPending} disabled={saving || !!comicvine || !cfg?.comicvine_configured} onClick={() => comicvineTestMut.mutate()}/>
         <ProviderFeedback name="ComicVine" pending={comicvineTestMut.isPending} result={comicvineTestMut.data} error={comicvineTestMut.error?.message} />
       </ProviderConnection>
       <NativeProviderCredentials />

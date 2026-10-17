@@ -23,3 +23,9 @@ configuration retains per-task saving and cleanup review. Credential management
 belongs to Metadata & artwork providers; library provider choices retain priority
 and selection settings. Artwork has a dedicated settings page as well as its
 plugin entry point. User create/edit and deletion use accessible focused dialogs.
+
+Appearance color labels include General Accent plus independent Left Panel Accent,
+Poster Hover Outline, Selection Accent, Keyboard Focus Accent and Link Accent.
+Unset roles inherit General Accent. Use general accent removes a role override;
+save the custom theme to persist it. Existing themes and older JSON using Accent
+remain compatible. Media detail link colors retain their separate existing role.

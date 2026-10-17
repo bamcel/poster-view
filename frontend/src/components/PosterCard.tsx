@@ -103,9 +103,9 @@ export default function PosterCard({
       <div
         className={`relative ${backdropView ? "aspect-[3/2]" : "aspect-[2/3]"} overflow-hidden rounded-xl bg-surface-2 ring-1 transition-all duration-150 ${
           onOpen
-            ? "group-hover:-translate-y-1 group-hover:ring-2 group-hover:ring-accent"
+            ? "group-hover:-translate-y-1 group-hover:ring-2 group-hover:ring-poster-outline"
             : ""
-        } ${selected ? "ring-2 ring-accent" : "ring-white/5"}`}
+        } ${selected ? "ring-2 ring-selection-accent" : "ring-white/5"}`}
       >
         {image && !failed ? (
           <AnimatedArtwork
@@ -176,7 +176,7 @@ export default function PosterCard({
       </button>
       {onSelect && <button type="button" aria-label={`Select ${title}`} aria-pressed={!!selected}
         onClick={event => { event.stopPropagation(); onSelect(event.shiftKey); }}
-        className={`absolute left-2 top-2 z-10 grid size-11 min-h-11 min-w-11 shrink-0 place-items-center rounded-full border shadow backdrop-blur-sm transition-opacity focus-visible:opacity-100 md:size-7 md:min-h-7 md:min-w-7 ${selected ? "border-accent bg-accent text-black" : "border-white/50 bg-white/20 text-white"} ${selectionMode || selected ? "opacity-100" : "opacity-0 group-hover/selection:opacity-100 group-focus-within/selection:opacity-100 [@media(hover:none)]:opacity-100"}`}>
+        className={`absolute left-2 top-2 z-10 grid size-11 min-h-11 min-w-11 shrink-0 place-items-center rounded-full border shadow backdrop-blur-sm transition-opacity focus-visible:opacity-100 md:size-7 md:min-h-7 md:min-w-7 ${selected ? "border-selection-accent bg-selection-accent text-black" : "border-white/50 bg-white/20 text-white"} ${selectionMode || selected ? "opacity-100" : "opacity-0 group-hover/selection:opacity-100 group-focus-within/selection:opacity-100 [@media(hover:none)]:opacity-100"}`}>
         {selected && <Check className="size-4" />}
       </button>}
       {menuOpen && (onRefresh || onEditMetadata || onScan || actions.length>0) && (
