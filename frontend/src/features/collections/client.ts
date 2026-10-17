@@ -14,7 +14,7 @@ export type CollectionInput = Pick<Collection,"title"|"overview"|"ordering"> & {
 const path=(id:string)=>`/collections/${encodeURIComponent(id)}`;
 export const collectionsApi={
  searchMetadata:(provider:"tmdb"|"tvdb",query:string)=>apiRequest<MetadataCandidate[]>(`/collections/metadata/search?provider=${provider}&query=${encodeURIComponent(query)}`),
- previewMetadata:(id:string,input:{provider:string;provider_id:string})=>apiRequest<MetadataPreview>(`${path(id)}/metadata/preview`,{method:"POST",body:JSON.stringify(input)}),
+ previewMetadata:(id:string,input:{provider:string;provider_id:string})=>apiRequest<MetadataPreview>(`${path(id)}/metadata/preview`,{method:"POST",body:JSON.stringify({provider:input.provider,provider_id:input.provider_id})}),
  applyMetadata:(id:string,input:{revision:number;provider:string;provider_id:string;locks:string[];add_members:boolean})=>apiRequest<Collection>(`${path(id)}/metadata/apply`,{method:"POST",body:JSON.stringify(input)}),
  saveMetadataLocks:(id:string,input:{revision:number;locks:string[]})=>apiRequest<Collection>(`${path(id)}/metadata/locks`,{method:"PUT",body:JSON.stringify(input)}),
  list:(libraryId?:string)=>apiRequest<Collection[]>(`/collections${libraryId?`?library_id=${encodeURIComponent(libraryId)}`:""}`),

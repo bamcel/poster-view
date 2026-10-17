@@ -23,3 +23,15 @@ it("does not display the previous account's cached collections during an account
  await waitFor(()=>expect(view.result.current.data?.[0].id).toBe("second"));
  expect(client.getQueryData(["collections","first","list","movies"])).toEqual([first]);
 });
+
+it.each(["tmdb","tvdb"])("sends only the strict preview selection when a full %s search result is selected",async provider=>{
+ const candidate={provider,provider_id:"404609",title:"John Wick Collection",overview:"Description",poster_url:"https://image.tmdb.org/t/p/original/poster.jpg",backdrop_url:"https://image.tmdb.org/t/p/original/backdrop.jpg"};
+ const preview={metadata:candidate,matches:[],unmatched:4};
+ const fetchMock=vi.spyOn(globalThis,"fetch").mockImplementation(async(_url,init)=>{
+  const selection=JSON.parse(String(init?.body));
+  if(Object.keys(selection).some(key=>!["provider","provider_id"].includes(key)))return new Response(JSON.stringify({detail:"Unknown selection field"}),{status:422});
+  return new Response(JSON.stringify(preview),{status:200});
+ });
+ await expect(collectionsApi.previewMetadata("john wick",candidate)).resolves.toEqual(preview);
+ expect(fetchMock).toHaveBeenCalledWith("/api/collections/john%20wick/metadata/preview",expect.objectContaining({method:"POST",body:JSON.stringify({provider,provider_id:"404609"})}));
+});
