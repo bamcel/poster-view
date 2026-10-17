@@ -17,19 +17,19 @@
 .vtv-guide-scroll { overflow-x: auto; padding-bottom: 10px; }
 .vtv-guide { min-width: 760px; }
 .vtv-row { display: flex; gap: 8px; margin-bottom: 7px; }
-.vtv-channel-heading, .vtv-channel { width: 136px; flex-shrink: 0; position: sticky; left: 0; z-index: 20; background: transparent; }
+.vtv-channel-heading, .vtv-channel { width: 136px; flex-shrink: 0; background: transparent; }
 .vtv-channel-heading { color: inherit; font-size: 12px; display: flex; align-items: center; padding-left: 40px; }
 .vtv-time-track { flex: 1; position: relative; height: 38px; }
 .vtv-time { position: absolute; top: 7px; font-size: 12px; padding-left: 5px; }
-.vtv-now { position: absolute; bottom: 0; padding: 0 3px; color: var(--color-accent, #8aa381); font-size: 9px; }
+.vtv-now { position: absolute; bottom: 0; transform: translateX(-50%); padding: 0 3px; color: var(--color-accent, #8aa381); font-size: 9px; }
 .vtv-channel { display: flex; align-items: center; gap: 8px; }
-.vtv-channel-button { width: 100px; flex-shrink: 0; height: 58px; background: transparent; border-radius: 8px; padding: 6px 8px; text-align: center; display: flex; flex-direction: column; justify-content: center; }
+.vtv-channel-button { width: 100px; flex-shrink: 0; height: 58px; background: transparent; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); padding: 6px 8px; text-align: center; display: flex; flex-direction: column; justify-content: center; }
 .vtv-channel-button:hover, .vtv-channel-button[aria-pressed="true"] { background: transparent; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
 .vtv-channel-number { width: 28px; flex-shrink: 0; text-align: center; font-size: 12px; color: inherit; background: transparent; }
 .vtv-channel-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; font-weight: 700; line-height: 1.2; }
-.vtv-program-track { position: relative; flex: 1; height: 58px; }
-.vtv-program { position: absolute; top: 0; bottom: 0; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); background: transparent; color: #ddd; padding: 0 15px; text-align: left; overflow: hidden; min-width: 0; }
-.vtv-program > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.vtv-program-track { position: relative; flex: 1; min-width: 0; height: 58px; overflow: hidden; }
+.vtv-program { position: absolute; top: 0; bottom: 0; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); background: transparent; color: #ddd; padding: 0; text-align: left; overflow: hidden; min-width: 0; }
+.vtv-program > span { display: block; padding: 0 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
 .vtv-program:hover { background: rgba(255,255,255,.08); }
 .vtv-program-selected, .vtv-program-selected:hover { background: var(--color-accent); color: #151515; font-weight: 600; }
 .vtv-now-line { position: absolute; top: 0; bottom: 0; width: 1px; pointer-events: none; background: var(--color-accent, #8aa381); opacity: .45; }
