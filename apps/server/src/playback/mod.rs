@@ -299,6 +299,9 @@ struct PendingPreparation {
 struct Session {
     playback_slot: Option<session_limits::Lease>,
     preparation: Option<PendingPreparation>,
+    // Replacement admission and retirement form one serial unit. A newer seek
+    // can cancel preparation immediately, then wait for its predecessor's slots.
+    delivery_change: Arc<Mutex<()>>,
     next_generation: u64,
     owner: String,
     source: Source,
@@ -1155,6 +1158,7 @@ pub(crate) async fn create(
     let session = Arc::new(Mutex::new(Session {
         playback_slot: Some(playback_slot),
         preparation: None,
+        delivery_change: Arc::new(Mutex::new(())),
         next_generation: 1,
         owner: user.id.clone(),
         source,
@@ -1419,7 +1423,11 @@ async fn seek_session(
     } else {
         None
     };
+    let delivery_change = session.delivery_change.clone();
     drop(session);
+    // Keep retiring FFmpeg jobs accounted for until they have actually stopped.
+    // Waiting seeks may supersede this request, but must not race its admission.
+    let _delivery_change = delivery_change.lock().await;
     if let Some(producer) = retire {
         producer.stop().await;
     }

@@ -46,3 +46,18 @@ it("maps scheduled tasks as indeterminate while running and recent completed or 
 it("uses a safe warning when a management status request fails",()=>{
  expect(unavailableActivity("scan:unavailable","Library scans")).toMatchObject({state:"warning",adminOnly:true,detail:"Status unavailable. Try again later."});
 });
+
+it("uses durable completion time across observation and reload for every terminal status",()=>{
+ for(const status of ["completed","completed_with_warnings","failed","cancelled","interrupted"]){
+  const jobs=[job({status,created_at:"2020-01-01",finished_at:new Date(now-1000).toISOString()})];
+  const observed=youtubeActivities(jobs,now,new Map([["download",now]]));
+  const reloaded=youtubeActivities(jobs,now+10000);
+  expect(observed).toEqual(reloaded);
+  expect(observed[0].updatedAt).toBe(now-1000);
+ }
+});
+it("uses the legacy fallback when completion time is missing or malformed",()=>{
+ for(const finished_at of [null,undefined,"invalid"]){
+  expect(youtubeActivities([job({status:"completed",finished_at})],now)[0].updatedAt).toBe(now-60000);
+ }
+});

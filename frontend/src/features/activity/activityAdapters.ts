@@ -10,7 +10,7 @@ const percent=(value:number|null|undefined)=>value==null||!Number.isFinite(value
 export const activeYoutubeJob=activeYtdlJob;
 export function youtubeActivities(jobs:YtdlJob[],now=Date.now(),completedAt:ReadonlyMap<string,number>=new Map()):ActivityItem[]{
  return jobs.flatMap(job=>{
-  const terminal=!activeYoutubeJob(job.status),at=completedAt.get(job.id)??Date.parse(job.created_at);
+  const terminal=!activeYoutubeJob(job.status),finished=Date.parse(job.finished_at??""),at=Number.isFinite(finished)&&finished>0?finished:completedAt.get(job.id)??Date.parse(job.created_at);
   if(terminal&&!recent(at,now))return [];
   const state:ActivityItem["state"]=job.status==="completed"?"completed":job.status==="completed_with_warnings"?"warning":job.status==="failed"||job.status==="interrupted"?"failed":job.status==="cancelled"?"warning":["queued","pending","waiting"].includes(job.status)?"queued":"running";
   const phase=job.metadata_only||job.status==="completed_with_warnings"?ytdlPhase(job):job.status==="processing"?"Encoding video":job.status==="downloading"?"Downloading video":job.status==="completed"?"Download completed":job.status==="failed"||job.status==="interrupted"?"Download failed. Open the download queue for details.":job.status==="cancelled"?"Download cancelled":state==="queued"?"Waiting in download queue":"Preparing download";

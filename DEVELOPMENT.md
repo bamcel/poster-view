@@ -497,3 +497,19 @@ so concurrent scans or configuration edits are preserved. Download subscriptions
 and cursors delete atomically. The specialized download queue remains a JSON file;
 progress samples coalesce to one write per second plus a final EOF flush, with
 persistence failures propagated rather than silently ignored.
+
+
+Background job claims first probe eligibility as readers, then attempt nonblocking
+writer admission and recheck eligibility transactionally. Idle or contended polls
+retry on the next worker wake without consuming attempts or competing with queued
+mutations. Actual mutation timeouts still return 503. Catalog ingest caches its
+hot statements and uses an internal SHA-256 projection fingerprint to avoid
+rebuilding unchanged relational metadata; legacy entries rebuild once. The
+fingerprint commits with the projection and is excluded from scan checkpoint
+identity. Manual/provider changes to projection inputs invalidate it naturally.
+
+Replacement playback seeks coordinate producer retirement and admission per
+session. New seeks cancel stale preparation immediately, then wait for retiring
+FFmpeg processes to release their slots. Original direct delivery bypasses this
+coordination. Download activity identity uses persisted `finished_at` so a finished
+item dismissed in Status stays dismissed after a browser refresh.

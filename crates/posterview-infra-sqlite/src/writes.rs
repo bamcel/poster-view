@@ -32,6 +32,15 @@ impl Drop for Permit {
     }
 }
 impl Queue {
+    fn try_acquire(self: &Arc<Self>) -> Option<Permit> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        // Opportunistic background polls must never overtake queued mutations.
+        if state.active || !state.waiting.is_empty() {
+            return None;
+        }
+        state.active = true;
+        Some(Permit(self.clone()))
+    }
     fn acquire(self: &Arc<Self>, timeout: Duration, capacity: usize) -> Result<Permit, StoreError> {
         let started = Instant::now();
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -119,6 +128,17 @@ pub(crate) fn open(path: &Path) -> Result<WriteConnection, StoreError> {
         connection,
         _permit: permit,
     })
+}
+
+pub(crate) fn try_open(path: &Path) -> Result<Option<WriteConnection>, StoreError> {
+    let Some(permit) = queue(path)?.try_acquire() else {
+        return Ok(None);
+    };
+    let connection = crate::open_connection(path)?;
+    Ok(Some(WriteConnection {
+        connection,
+        _permit: permit,
+    }))
 }
 
 #[cfg(test)]

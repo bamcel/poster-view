@@ -473,6 +473,7 @@ pub(crate) fn scan_checkpoint_signature(
     if let Some(fields) = metadata.as_object_mut() {
         fields.remove("_scan_unchanged");
         fields.remove("_scan_checkpoint_restored");
+        fields.remove("_relational_projection_hash");
         // Catalog hydration adds provenance and an unlocked-title default. Neither
         // changes the actual metadata being enriched after a restart.
         fields.remove("_sources");

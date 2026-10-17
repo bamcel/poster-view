@@ -410,6 +410,13 @@ impl ServerStore {
         writes::open(&self.db_path)
     }
 
+    /// Opportunistic admission for background polling; ordinary mutations use the bounded queue.
+    pub(crate) fn try_write_connection(
+        &self,
+    ) -> Result<Option<writes::WriteConnection>, StoreError> {
+        writes::try_open(&self.db_path)
+    }
+
     /// Atomically persist a bounded group of settings, preparing encryption before admission.
     pub fn set_settings(&self, values: &[(String, String)]) -> Result<(), StoreError> {
         if values.len() > 128 {

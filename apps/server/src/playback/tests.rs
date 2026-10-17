@@ -789,6 +789,11 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
     })
     .await
     .expect("Retired playback generation was not cleaned up.");
+    // Hold replacement admission until both requests have reserved generations.
+    // This forces the latest request to overlap the predecessor's retirement,
+    // including on hosts where stopping this tiny FFmpeg process is immediate.
+    let delivery_change = handle.lock().await.delivery_change.clone();
+    let delivery_held = delivery_change.lock().await;
     let a = seek(
         State(fixture.state.clone()),
         HeaderMap::new(),
@@ -809,7 +814,19 @@ async fn real_copy_track_promotion_seeks_and_stale_generations_preserve_source()
             audio_index: Some(1),
         }),
     );
-    let (a, b) = tokio::join!(a, b);
+    let release = async {
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while handle.lock().await.next_generation < 5 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("Concurrent seeks did not reserve their generations.");
+        drop(delivery_held);
+    };
+    let (a, b, ()) = tokio::join!(a, b, release);
+    assert_eq!(a.as_ref().err().unwrap().status, StatusCode::CONFLICT);
+    assert_eq!(b.as_ref().unwrap().0.generation, 4);
     assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
     assert_eq!(
         a.err().or_else(|| b.err()).unwrap().status,
@@ -1095,6 +1112,34 @@ async fn compatible_original_sessions_prefer_direct_and_never_start_playback_job
         fixture.state.playback.session_details(&response.id).await,
         Some((fixture.library.clone(), fixture.item.clone(), 180.0))
     );
+    // Original range delivery must not join the segmented replacement queue.
+    let handle = handle(&fixture.state.playback, &response.id).await.unwrap();
+    let delivery_change = handle.lock().await.delivery_change.clone();
+    let delivery_held = delivery_change.lock().await;
+    let seeked = tokio::time::timeout(
+        Duration::from_secs(2),
+        seek(
+            State(fixture.state.clone()),
+            HeaderMap::new(),
+            Path(response.id.clone()),
+            Json(SeekInput {
+                position_seconds: 120.0,
+                generation: 0,
+                audio_index: None,
+            }),
+        ),
+    )
+    .await
+    .expect("Original seeking waited for segmented replacement admission.")
+    .unwrap()
+    .0;
+    assert_eq!(seeked.method, "direct");
+    assert_eq!(seeked.generation, 0);
+    assert_eq!(seeked.url, response.url);
+    assert_eq!(handle.lock().await.position, 120.0);
+    assert_eq!(fixture.state.playback.producers.load(Ordering::Acquire), 0);
+    assert!(!fixture.state.playback.root.exists());
+    drop(delivery_held);
     let delivery = stream(
         State(fixture.state.clone()),
         Path(response.id.clone()),
@@ -1512,6 +1557,7 @@ async fn session_limit_is_bounded_and_expired_entries_release_slots() {
             Arc::new(Mutex::new(Session {
                 playback_slot: None,
                 preparation: None,
+                delivery_change: Arc::new(Mutex::new(())),
                 next_generation: 1,
                 owner: fixture
                     .state

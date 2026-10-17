@@ -184,14 +184,46 @@ impl ServerStore {
         &self,
         now: i64,
     ) -> Result<Option<BackgroundJobRecord>, StoreError> {
-        let mut db = self.write_connection()?;
-        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let id:Option<String>=tx.query_row("SELECT id FROM background_jobs j WHERE status='queued' AND available_at<=?1 AND NOT EXISTS(SELECT 1 FROM background_jobs busy WHERE busy.resource_key=j.resource_key AND busy.status IN ('running','cancelling')) ORDER BY created_at,id LIMIT 1",[now],|r|r.get(0)).optional()?;
-        let Some(id) = id else { return Ok(None) };
-        tx.execute("UPDATE background_jobs SET status='running',attempt=attempt+1,lease=?2,updated_at=?3 WHERE id=?1",params![id,uuid::Uuid::new_v4().to_string(),now])?;
-        let result = get(&tx, &id)?;
-        tx.commit()?;
-        Ok(result)
+        const READY: &str = "SELECT id FROM background_jobs j WHERE status='queued' AND available_at<=?1 AND NOT EXISTS(SELECT 1 FROM background_jobs busy WHERE busy.resource_key=j.resource_key AND busy.status IN ('running','cancelling')) ORDER BY created_at,id LIMIT 1";
+        // Idle workers are readers. Do not queue behind a long atomic catalog publish
+        // merely to discover that no job can be claimed.
+        let candidate: Option<String> = self
+            .connection()?
+            .query_row(READY, [now], |r| r.get(0))
+            .optional()?;
+        if candidate.is_none() {
+            return Ok(None);
+        }
+        let Some(mut db) = self.try_write_connection()? else {
+            return Ok(None);
+        };
+        // An external writer may bypass process admission. Poll again rather than
+        // blocking the worker or reporting expected claim contention as a failed mutation.
+        db.busy_timeout(std::time::Duration::ZERO)?;
+        let claim = (|| -> Result<Option<BackgroundJobRecord>, StoreError> {
+            let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            // Eligibility must be rechecked under the transaction: another worker
+            // can claim the candidate between the read probe and this admission.
+            let id: Option<String> = tx.query_row(READY, [now], |r| r.get(0)).optional()?;
+            let Some(id) = id else {
+                return Ok(None);
+            };
+            tx.execute("UPDATE background_jobs SET status='running',attempt=attempt+1,lease=?2,updated_at=?3 WHERE id=?1",params![id,uuid::Uuid::new_v4().to_string(),now])?;
+            let result = get(&tx, &id)?;
+            tx.commit()?;
+            Ok(result)
+        })();
+        match claim {
+            Err(StoreError::Database(rusqlite::Error::SqliteFailure(code, _)))
+                if matches!(
+                    code.code,
+                    rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                ) =>
+            {
+                Ok(None)
+            }
+            result => result,
+        }
     }
     pub fn background_jobs(&self) -> Result<Vec<BackgroundJobRecord>, StoreError> {
         let db = self.connection()?;
@@ -406,6 +438,31 @@ mod tests {
             retry_at: None,
         }
     }
+    #[test]
+    fn background_claims_do_not_wait_for_a_catalog_writer_and_retry_after_release() {
+        let (_dir, store) = store();
+        let writer = store.write_connection().unwrap();
+        assert!(store.claim_background_job(100).unwrap().is_none());
+        drop(writer);
+        let job = store.enqueue_background_job(&spec("work"), 100).unwrap();
+        let writer = store.write_connection().unwrap();
+        assert!(store.claim_background_job(100).unwrap().is_none());
+        assert_eq!(store.background_job(&job.id).unwrap().unwrap().attempt, 0);
+        drop(writer);
+        assert_eq!(store.claim_background_job(100).unwrap().unwrap().id, job.id);
+    }
+    #[test]
+    fn external_writer_contention_does_not_consume_a_job_attempt() {
+        let (dir, store) = store();
+        let job = store.enqueue_background_job(&spec("work"), 100).unwrap();
+        let external = Connection::open(dir.path().join("posterview.db")).unwrap();
+        external.execute_batch("BEGIN IMMEDIATE").unwrap();
+        assert!(store.claim_background_job(100).unwrap().is_none());
+        assert_eq!(store.background_job(&job.id).unwrap().unwrap().attempt, 0);
+        external.execute_batch("ROLLBACK").unwrap();
+        assert_eq!(store.claim_background_job(100).unwrap().unwrap().attempt, 1);
+    }
+
     #[test]
     fn migration_is_idempotent_and_enqueue_is_bounded() {
         let (_dir, s) = store();

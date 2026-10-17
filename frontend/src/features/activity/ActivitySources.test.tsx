@@ -1,4 +1,4 @@
-import {act,cleanup,render,screen,waitFor} from "@testing-library/react";
+import {act,cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
 import {QueryClient,QueryClientProvider,focusManager} from "@tanstack/react-query";
 import {afterEach,expect,it,vi} from "vitest";
 import type {AuthSession} from "../../api/client";
@@ -12,8 +12,8 @@ vi.mock("../../api/client",()=>({apiRequest:vi.fn()}));
 vi.mock("../../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(),status:vi.fn()}}));
 vi.mock("../settings/ytdl/client",()=>({ytdl:{jobs:vi.fn()}}));
 const viewer:AuthSession={authenticated:true,user:{id:"viewer",username:"viewer",display_name:"Viewer",role:"user",enabled:true,revision:1,created_at:"",permissions:{all_libraries:true,library_ids:[],max_movie_rating:null,max_tv_rating:null,allow_unrated:false}}};
-function ActivityProbe(){return <output data-testid="activities">{JSON.stringify(useActivity().items)}</output>;}
-afterEach(()=>{cleanup();focusManager.setFocused(undefined);vi.useRealTimers();vi.clearAllMocks();});
+function ActivityProbe(){const {items,clearFinished}=useActivity();return <><output data-testid="activities">{JSON.stringify(items)}</output><button onClick={clearFinished}>Dismiss finished</button></>;}
+afterEach(()=>{cleanup();localStorage.clear();focusManager.setFocused(undefined);vi.useRealTimers();vi.clearAllMocks();});
 it.each([false,true])("never queries or publishes management activity for viewers with cached admin data=%s",async cached=>{
  vi.useFakeTimers();
  const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity}}});
@@ -41,4 +41,28 @@ it("publishes durable jobs and suppresses duplicate active library and task entr
  expect(screen.getByTestId("activities").textContent).not.toContain("Legacy scan task");
  expect(screen.getByTestId("activities").textContent).not.toContain("Anime library");
  client.clear();
+});
+
+it("keeps observed completed downloads dismissed after a full remount",async()=>{
+ const now=Date.now(),created_at=new Date(now-3600000).toISOString();
+ const active={id:"finished-download",title:"Persistent completion",status:"downloading",progress:50,created_at,finished_at:null};
+ const completed={...active,status:"completed",progress:100,finished_at:new Date(now-1000).toISOString()};
+ vi.mocked(nativeLibraries.list).mockResolvedValue([]);
+ vi.mocked(ytdl.jobs).mockResolvedValue([active] as never);
+ vi.mocked(apiRequest).mockResolvedValue([]);
+ const mount=(client:QueryClient)=>render(<QueryClientProvider client={client}><ActivityProvider><ActivitySources/><ActivityProbe/></ActivityProvider></QueryClientProvider>);
+ const client=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity}}});
+ const first=mount(client);
+ await waitFor(()=>expect(screen.getByTestId("activities").textContent).toContain("Persistent completion"));
+ act(()=>client.setQueryData(["ytdl-jobs"],[completed]));
+ await waitFor(()=>expect(screen.getByTestId("activities").textContent).toContain('"state":"completed"'));
+ fireEvent.click(screen.getByRole("button",{name:"Dismiss finished"}));
+ await waitFor(()=>expect(screen.getByTestId("activities").textContent).toBe("[]"));
+ first.unmount();client.clear();
+ vi.mocked(ytdl.jobs).mockResolvedValue([completed] as never);
+ const reloaded=new QueryClient({defaultOptions:{queries:{retry:false,gcTime:Infinity}}});
+ mount(reloaded);
+ await waitFor(()=>expect(reloaded.getQueryData(["ytdl-jobs"])).toEqual([completed]));
+ expect(screen.getByTestId("activities").textContent).toBe("[]");
+ reloaded.clear();
 });
