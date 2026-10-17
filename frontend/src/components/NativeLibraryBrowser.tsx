@@ -1,3 +1,5 @@
+import SearchField from "./SearchField";
+import HeaderSearchControl from "./HeaderSearchControl";
 import LibraryDetailLayout, {LibraryDetailHero, LibraryDetailSection} from "./LibraryDetailLayout";
 import CharacterHoverCard from "./CharacterHoverCard";
 import LibrarySelection, {useLibrarySelection} from "../features/collections/LibrarySelection";
@@ -41,7 +43,6 @@ import {
   MoreHorizontal,
   Pencil,
   RefreshCw,
-  Search,
   UserRound,
   X,
 } from "lucide-react";
@@ -512,20 +513,12 @@ export default function NativeLibraryBrowser({
         /> : <p role="status" className="p-8 text-muted">Loading title…</p>
       ) : (
         <>
-          <div className="relative z-30 grid shrink-0 items-center gap-3 border-b border-border px-4 py-3 sm:grid-cols-[1fr_auto] sm:px-6 lg:grid-cols-[1fr_auto_1fr] lg:px-8">
+          <div className="relative z-30 grid shrink-0 items-center gap-3 border-b border-border px-4 pb-3 pt-5 sm:grid-cols-[1fr_auto] sm:px-6 lg:grid-cols-[1fr_auto_1fr] lg:px-8">
             <h1 className="min-w-0 truncate text-xl font-semibold">{library.name}</h1>
             <div className="flex items-center justify-center gap-2">
-              <div className="relative w-[min(21rem,calc(100vw-10rem))]">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
-                <input
-                  aria-label="Search titles"
-                  placeholder="Search"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"
-                  style={style}
-                />
-              </div>
+              <HeaderSearchControl><div className="relative w-full max-w-[21rem]">
+                <SearchField aria-label="Search titles" value={search} onChange={e=>setSearch(e.target.value)}/>
+              </div></HeaderSearchControl>
               <LibraryPopup title="Filters and sorting" label="Filter and sort titles" icon={<ListFilter className="size-4"/>} style={style} editorStyle>
                   <h3 className="mb-3 text-sm font-semibold">Artwork</h3>
                   <label className="block text-xs text-muted">
@@ -811,8 +804,7 @@ function NativeDetail({
         back={back}
         landscape={isEpisode}
         toolbar={(isBookSeries || entry.kind === "season") && <div role="search" className="relative mx-auto w-full max-w-[21rem]">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
-              <input aria-label={isBookSeries ? "Search volumes and chapters" : "Search episodes"} placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm" style={{backgroundColor:translucentPanelColor("--color-surface-2",panelSolidity(),panelOverlay()),backdropFilter:`blur(${backdropBlur()}px)`}} />
+              <SearchField aria-label={isBookSeries?"Search volumes and chapters":"Search episodes"} value={search} onChange={event=>setSearch(event.target.value)}/>
             </div>}
         hero={<LibraryDetailHero landscape={isEpisode}
           artwork={<>

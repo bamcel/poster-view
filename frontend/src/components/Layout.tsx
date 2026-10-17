@@ -1,7 +1,6 @@
 import {LibraryHeaderBackContext} from "../lib/libraryHeaderBack";
 import GlobalActivityStatus from "../features/activity/GlobalActivityStatus";
 import {HeaderBackdropContext,headerBackdropStyle} from "../lib/headerBackdrop";
-import {useHomepageNavigation} from "../lib/homepagePreferences";
 import {useCatalogPrefetch} from "../lib/catalogPrefetch";
 import {HeaderSearchTarget} from "../lib/headerSearch";
 import {openDownloadsEvent} from "../features/settings/ytdl/DownloadStatus";
@@ -14,7 +13,7 @@ import {nativeLibraries} from "../api/nativeLibraries";
 // App chrome: contextual media/settings navigation and account controls.
 
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LibraryBig, ArrowLeft, LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, MoreHorizontal, Menu, X, } from "lucide-react";
+import { LibraryBig, ArrowLeft, LayoutDashboard, Server, HardDrive, Image, Database, Palette, KeyRound, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, MoreHorizontal, } from "lucide-react";
 import { Logo } from "./ui";
 import { api } from "../api/client";
 import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -28,11 +27,8 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   const location = useLocation();
   const [searchTarget,setSearchTarget]=useState<HTMLDivElement|null>(null);
   const [headerBackdrop,setHeaderBackdrop]=useState<string|null>(null);
-  const libraryBack=/^\/media\//.test(preview?previewPath:location.pathname)||/^\/server\/[^/]+\/(item|series)\//.test(preview?previewPath:location.pathname);
+  const libraryBack=/^\/media\//.test(preview?previewPath:location.pathname)||/^\/server\/[^/]+\/(item|series)\//.test(preview?previewPath:location.pathname)||/^\/collections\/[^/]+/.test(preview?previewPath:location.pathname);
   const homeSearch=!preview&&location.pathname==="/"&&!new URLSearchParams(location.search).has("lib")&&!new URLSearchParams(location.search).has("native_library");
-  const [navigationOpen,setNavigationOpen]=useHomepageNavigation();
-  const navigationToggle=useRef<HTMLButtonElement>(null);
-  const navigationPanel=useRef<HTMLElement>(null);
   const preferencesMenu=useRef<HTMLDetailsElement>(null);
   useEffect(()=>{
     const close=(event:PointerEvent)=>{if(preferencesMenu.current&&!preferencesMenu.current.contains(event.target as Node))preferencesMenu.current.open=false;};
@@ -40,13 +36,6 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
     document.addEventListener("pointerdown",close);window.addEventListener("keydown",escape);
     return()=>{document.removeEventListener("pointerdown",close);window.removeEventListener("keydown",escape);};
   },[]);
-  useEffect(()=>{
-    if(!homeSearch||!navigationOpen)return;
-    navigationPanel.current?.querySelector<HTMLButtonElement>("button")?.focus();
-    const escape=(event:KeyboardEvent)=>{if(event.key==="Escape"&&!event.defaultPrevented){event.preventDefault();setNavigationOpen(false);navigationToggle.current?.focus();}};
-    window.addEventListener("keydown",escape);
-    return()=>window.removeEventListener("keydown",escape);
-  },[homeSearch,navigationOpen]);
   const artworkPlugin=useArtworkPlugin();
   const virtualTvSettings=useQuery({queryKey:["virtual-tv-settings"],queryFn:virtualTv.settings,enabled:!preview});
   const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,enabled:true});
@@ -107,12 +96,11 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
         if(href?.startsWith("/")) void previewNavigate(href);
       }}>
 
-      <aside ref={navigationPanel} id="app-navigation" aria-label={homeSearch?"Navigation":undefined} aria-hidden={homeSearch&&!navigationOpen?true:undefined} inert={homeSearch&&!navigationOpen}
-        className={homeSearch?`relative z-20 flex shrink-0 flex-col overflow-hidden transition-[width,padding] duration-200 motion-reduce:transition-none ${navigationOpen?"w-[min(18rem,42vw)] border-r border-border px-3 py-5":"w-0 p-0"}`:"relative z-20 hidden w-[14.75rem] shrink-0 flex-col overflow-hidden border-r border-border px-3 py-5 md:flex"}
+      <aside id="app-navigation" aria-label={homeSearch?"Navigation":undefined}
+        className={`relative z-20 shrink-0 flex-col overflow-hidden border-r border-border px-3 py-5 ${homeSearch?"flex w-[min(18rem,42vw)]":`hidden ${settingsOpen?"w-[min(18rem,42vw)]":"w-[14.75rem]"} md:flex`}`}
         style={{ backgroundColor: translucentPanelColor("--color-sidebar", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
       >
         <div className="mb-8 shrink-0 px-1">
-          {homeSearch&&<button type="button" aria-label="Close navigation" className="mb-3 ml-auto grid size-11 place-items-center rounded-lg text-muted hover:bg-input-hover hover:text-white focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>{setNavigationOpen(false);navigationToggle.current?.focus();}}><X size={20}/></button>}
           <NavLink to="/" aria-label="Go to Home" className="block w-fit">
             <Logo />
           </NavLink>
@@ -153,7 +141,6 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col" style={!preview&&location.pathname==="/virtual-tv"&&headerBackdrop?headerBackdropStyle(headerBackdrop):undefined}>
       <header className={`relative z-20 flex shrink-0 items-center gap-2 bg-transparent px-3 ${homeSearch?"min-h-14 flex-wrap sm:h-14 sm:flex-nowrap":"h-14"}`}>
         {libraryBack&&<NavLink to="/" aria-label="Back to homepage" title="Back to homepage" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white focus-visible:outline-2 focus-visible:outline-accent"><ArrowLeft className="size-[20px]" aria-hidden="true"/></NavLink>}
-        {homeSearch&&<button ref={navigationToggle} type="button" aria-label={navigationOpen?"Collapse navigation":"Open navigation"} aria-expanded={navigationOpen} aria-controls="app-navigation" className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white focus-visible:outline-2 focus-visible:outline-accent" onClick={()=>setNavigationOpen(!navigationOpen)}><Menu size={21}/></button>}
         <NavLink to="/" aria-label="Go to Home" className="mr-auto min-w-0 md:hidden">
           <Logo className="w-20 overflow-hidden [&>img]:max-w-full [&>img]:translate-y-[5px] sm:w-36" />
         </NavLink>
@@ -175,7 +162,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           ))}
 
         </nav>
-        <div ref={setSearchTarget} className={homeSearch?"order-last min-w-0 basis-full pb-2 sm:order-none sm:flex-1 sm:basis-auto sm:pb-0":"hidden"}/>
+        <div ref={setSearchTarget} className={homeSearch?"order-last min-w-0 basis-full pb-2 sm:order-none sm:flex-1 sm:basis-auto sm:pb-0":libraryBack?"flex min-w-0 flex-1 justify-center":"hidden"}/>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <details ref={preferencesMenu} className="relative">
             <summary aria-label="Preferences" title="Preferences" className="grid size-11 cursor-pointer list-none place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white [&::-webkit-details-marker]:hidden"><MoreHorizontal className="size-[20px]"/></summary>
@@ -204,7 +191,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
       {!preview&&!settingsOpen&&virtualTvSettings.data?.enabled&&<NavLink to="/virtual-tv" className="flex shrink-0 items-center gap-2 bg-sidebar px-4 py-2 text-sm md:hidden"><Tv className="size-4"/>Virtual TV</NavLink>}
       <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
-        <HeaderBackdropContext.Provider value={setHeaderBackdrop}><HeaderSearchTarget.Provider value={homeSearch?searchTarget:null}><LibraryHeaderBackContext.Provider value={libraryBack}>{children ?? <Outlet />}</LibraryHeaderBackContext.Provider></HeaderSearchTarget.Provider></HeaderBackdropContext.Provider>
+        <HeaderBackdropContext.Provider value={setHeaderBackdrop}><HeaderSearchTarget.Provider value={homeSearch||libraryBack?searchTarget:null}><LibraryHeaderBackContext.Provider value={libraryBack}>{children ?? <Outlet />}</LibraryHeaderBackContext.Provider></HeaderSearchTarget.Provider></HeaderBackdropContext.Provider>
       </main>
       {!preview&&isAdmin&&downloadsOpen&&<Suspense fallback={null}><DownloadQueuePopup initialTab="Queue" onClose={()=>setDownloadsOpen(false)}/></Suspense>}
       </div>

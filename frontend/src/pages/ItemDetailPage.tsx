@@ -1,4 +1,4 @@
-import {LibraryPageBack} from "../lib/libraryHeaderBack";
+import {LibraryHeaderBackContext,LibraryPageBack} from "../lib/libraryHeaderBack";
 import { mediaDescription } from "../lib/mediaDescription";
 import {useIsAdmin} from "../lib/authContext";
 import AdminOnly from "../components/AdminOnly";
@@ -11,7 +11,7 @@ import { LibraryDetailHero, LibraryDetailSection } from "../components/LibraryDe
 // Item detail: a cinematic hero (blurred backdrop, large poster, metadata) with
 // a seasons row, and the ThePosterDB panel docked on the right for swapping art.
 
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { useBookInfo } from "../lib/bookInfo";
 import { useTrackingOverlays } from "../lib/libraryDisplay";
 import { LibraryBackdrop } from "../lib/libraryNavigation";
@@ -36,6 +36,7 @@ function sentenceCaseMetadata(value: string): string {
 
 export default function ItemDetailPage() {
   const isAdmin=useIsAdmin();
+  const headerBack=useContext(LibraryHeaderBackContext);
   const artworkPlugin=useArtworkPlugin();
   const navigate = useNavigate();
   const { serverId: serverIdParam, itemId } = useParams();
@@ -178,7 +179,7 @@ export default function ItemDetailPage() {
             <ArrowLeft className="size-5" />
           </button></LibraryPageBack>
 
-          <div className="relative z-[1] px-4 pb-8 pt-20 sm:px-6 sm:pb-10 lg:px-10">
+          <div className={`relative z-[1] px-4 pb-8 ${headerBack?"pt-5":"pt-20"} sm:px-6 sm:pb-10 lg:px-10`}>
             {detailQ.isLoading && <Spinner label="Loading…" />}
             {detailQ.isError && (
               <EmptyState title="Couldn't load this title">

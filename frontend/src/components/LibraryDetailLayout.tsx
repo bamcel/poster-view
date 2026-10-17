@@ -1,5 +1,6 @@
-import {LibraryPageBack} from "../lib/libraryHeaderBack";
-import type {ReactNode} from "react";
+import HeaderSearchControl from "./HeaderSearchControl";
+import {LibraryHeaderBackContext,LibraryPageBack} from "../lib/libraryHeaderBack";
+import {useContext,type ReactNode} from "react";
 import {ArrowLeft} from "lucide-react";
 
 type HeroProps={artwork:ReactNode;children:ReactNode;synopsis?:ReactNode;landscape?:boolean};
@@ -28,13 +29,14 @@ type LayoutProps={back:()=>void;toolbar?:ReactNode;landscape?:boolean;hero:React
 
 // All library details keep the same order; absent feature slots render nothing.
 export default function LibraryDetailLayout({back,toolbar,landscape=false,hero,related,people,about,media}:LayoutProps){
+  const headerBack=useContext(LibraryHeaderBackContext);
   return <div className={`media-detail ${landscape?"episode-detail":""} scrollbar-hidden relative z-[1] h-full flex-1 overflow-y-auto overscroll-y-contain`}>
     <div className="relative min-h-full">
-      <div className="absolute inset-x-5 top-5 z-10 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
+      {headerBack?<HeaderSearchControl>{toolbar}</HeaderSearchControl>:<div className="absolute inset-x-5 top-5 z-10 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3">
         <LibraryPageBack><button onClick={back} aria-label="Back" className="grid place-items-center" data-icon-button="true"><ArrowLeft className="size-5"/></button></LibraryPageBack>
         <div className="col-start-2">{toolbar}</div>
-      </div>
-      <div className="relative z-[1] px-4 pb-8 pt-20 sm:px-6 sm:pb-10 lg:px-10">
+      </div>}
+      <div className={`relative z-[1] px-4 pb-8 ${headerBack?"pt-5":"pt-20"} sm:px-6 sm:pb-10 lg:px-10`}>
         {hero}
         {related}
         {people}

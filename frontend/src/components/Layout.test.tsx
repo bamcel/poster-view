@@ -1,3 +1,4 @@
+import HeaderSearchControl from "./HeaderSearchControl";
 import {LibraryPageBack} from "../lib/libraryHeaderBack";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import type {ReactNode} from "react";
@@ -32,24 +33,16 @@ function CurrentLocation() {
   return <p>{location.pathname}{location.search}</p>;
 }
 
-it("docks homepage navigation and remembers expanded or collapsed state",async()=>{
+it("keeps homepage navigation open without collapse controls or stored-state effects",async()=>{
  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
+ localStorage.setItem("posterview:homepage-navigation:local","collapsed");
  const mount=()=>render(<MemoryRouter><AuthGate><Layout><p>Homepage content</p></Layout></AuthGate></MemoryRouter>);
  const first=mount();
- const toggle=await screen.findByRole("button",{name:"Open navigation"});
- expect(toggle.getAttribute("aria-expanded")).toBe("false");
- fireEvent.click(toggle);
- const panel=screen.getByRole("complementary",{name:"Navigation"});
- expect(screen.queryByRole("dialog",{name:"Navigation"})).toBeNull();
- expect(screen.queryByRole("button",{name:"Dismiss navigation"})).toBeNull();
- expect(document.activeElement).toBe(within(panel).getByRole("button",{name:"Close navigation"}));
- first.unmount();
- const second=mount();
- expect((await screen.findByRole("button",{name:"Collapse navigation"})).getAttribute("aria-expanded")).toBe("true");
- fireEvent.keyDown(window,{key:"Escape"});
- expect(screen.getByRole("button",{name:"Open navigation"}).getAttribute("aria-expanded")).toBe("false");
- second.unmount();mount();
- expect((await screen.findByRole("button",{name:"Open navigation"})).getAttribute("aria-expanded")).toBe("false");
+ const panel=await screen.findByRole("complementary",{name:"Navigation"});
+ expect(within(panel).getByRole("link",{name:"Home"})).toBeTruthy();
+ expect(screen.queryByRole("button",{name:/Open navigation|Collapse navigation|Close navigation/})).toBeNull();
+ fireEvent.keyDown(window,{key:"Escape"});expect(screen.getByRole("complementary",{name:"Navigation"})).toBeTruthy();
+ first.unmount();mount();expect(await screen.findByRole("complementary",{name:"Navigation"})).toBeTruthy();
 });
 
 it("offers separate Playback preferences and Transcoding policy in navigation",async()=>{
@@ -181,4 +174,13 @@ it.each(["/media/Anime/title","/server/7/item/show","/server/7/series/show/seaso
  const back=await screen.findByRole("link",{name:"Back to homepage"});
  expect(back.getAttribute("href")).toBe("/");
  expect(screen.queryByRole("button",{name:"Duplicate Back"})).toBeNull();
+});
+
+it("places library search in the same header as navigation and account controls",async()=>{
+ vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
+ render(<MemoryRouter initialEntries={["/media/Anime/season"]}><AuthGate><Layout><HeaderSearchControl><input aria-label="Search episodes"/></HeaderSearchControl></Layout></AuthGate></MemoryRouter>);
+ const input=await screen.findByRole("textbox",{name:"Search episodes"});
+ expect(within(screen.getByRole("banner")).getByRole("textbox",{name:"Search episodes"})).toBe(input);
+ expect(screen.getAllByRole("textbox",{name:"Search episodes"})).toHaveLength(1);
+ fireEvent.change(input,{target:{value:"Maomao"}});expect((input as HTMLInputElement).value).toBe("Maomao");
 });

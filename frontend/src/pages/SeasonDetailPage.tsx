@@ -1,12 +1,15 @@
+import SearchField from "../components/SearchField";
+import HeaderSearchControl from "../components/HeaderSearchControl";
+import {HeaderSearchTarget} from "../lib/headerSearch";
 import {LibraryPageBack} from "../lib/libraryHeaderBack";
 import AnimatedArtwork from "../components/AnimatedArtwork";
 import {connectedBackdropUrl} from "../lib/backdropFraming";
 import DetailSynopsis from "../components/DetailSynopsis";
 import { LibraryDetailHero, LibraryDetailSection } from "../components/LibraryDetailLayout";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "../lib/libraryNavigation";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, CalendarDays, ChevronDown, Clock3, Film, Layers3, RefreshCw, Search } from "lucide-react";
+import { ArrowLeft, CalendarDays, ChevronDown, Clock3, Film, Layers3, RefreshCw } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import { seasonsApi, type EpisodeDetail } from "../api/seasons";
 import type { Season } from "../types";
@@ -48,6 +51,7 @@ function EpisodeCard({ episode, serverId }: { episode: EpisodeDetail; serverId: 
 }
 
 export default function SeasonDetailPage() {
+  const searchTarget=useContext(HeaderSearchTarget);
   const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
   const [overlayStrength, setOverlayStrength] = useState(backdropOverlay);
   useEffect(() => {
@@ -87,9 +91,9 @@ export default function SeasonDetailPage() {
     <div ref={scroller} className="h-full overflow-y-auto">
     <div className="px-4 pt-5 sm:px-6 lg:px-10">
       <div>
-        <nav className="mb-4 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3" aria-label="Season navigation">
+        <nav className={searchTarget?"contents":"mb-4 grid min-h-11 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-3"} aria-label="Season navigation">
           <LibraryPageBack><Link aria-label="Back to series" className="grid size-10 place-items-center rounded-full border border-border bg-black/20 text-muted hover:text-white" to={seriesUrl}><ArrowLeft className="size-4" /></Link></LibraryPageBack>
-          <div role="search" className="relative col-start-2 mx-auto w-full max-w-[21rem]"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" /><input aria-label="Search episodes" placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-3 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm" /></div>
+          <HeaderSearchControl><div role="search" className="relative col-start-2 mx-auto w-full max-w-[21rem]"><SearchField aria-label="Search episodes" value={search} onChange={event=>setSearch(event.target.value)}/></div></HeaderSearchControl>
         </nav>
         {seasonQ.isPending ? <div role="status" className="flex min-h-64 items-center justify-center gap-3 text-muted"><Layers3 className="size-6 animate-pulse" />Loading season…</div> : seasonQ.isError ? <div role="alert" className="rounded-2xl border border-danger/30 bg-base/80 p-8"><h1 className="text-xl font-semibold">Unable to load this season</h1><p className="mt-2 text-muted">{seasonQ.error.message}</p><button className="mt-4 text-accent" onClick={() => void seasonQ.refetch()}>Try again</button></div> : season && <LibraryDetailHero
           artwork={<Artwork src={imageUrl(serverId, season.poster || series?.seasons.find(s => s.id === season.id)?.poster || series?.poster)} alt={`${season.title} poster`} />}

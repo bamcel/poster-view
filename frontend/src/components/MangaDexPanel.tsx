@@ -1,7 +1,8 @@
+import SearchField from "./SearchField";
 import { invalidateArtworkItems } from "../lib/artworkTarget";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ExternalLink, Search } from "lucide-react";
+import { ArrowLeft, ExternalLink } from "lucide-react";
 import { api } from "../api/client";
 import type {
   ArtworkItem,
@@ -279,23 +280,22 @@ export default function MangaDexPanel({
               setRefresh((value) => value + 1);
             }}
           >
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
-            <input
+            <SearchField
               aria-label="Search MangaDex"
-              className="w-full rounded-lg border border-border bg-surface-2 py-2 pl-9 pr-9 text-sm outline-none focus:border-accent"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search"
-            />
-            <a
+
+        trailing={<a
               href={`https://mangadex.org/search?q=${encodeURIComponent(query.trim())}`}
               target="_blank"
               rel="noreferrer"
               title="Search MangaDex"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-faint transition-colors hover:text-white"
+              className="text-faint transition-colors hover:text-white"
             >
               <ExternalLink className="size-4" />
-            </a>
+            </a>}
+      />
           </form>
           {(search.isFetching || query.trim() !== debounced) && (
             <p role="status" className="text-sm text-muted">

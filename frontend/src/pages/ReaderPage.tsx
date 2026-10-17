@@ -1,3 +1,4 @@
+import SearchField from "../components/SearchField";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -1143,10 +1144,10 @@ export default function ReaderPage() {
                     }}
                     className="flex gap-2"
                   >
-                    <input
+                    <SearchField
                       autoFocus
                       aria-label="Search text"
-                      className={input}
+                      containerClassName="min-w-0 flex-1"
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                       maxLength={100}

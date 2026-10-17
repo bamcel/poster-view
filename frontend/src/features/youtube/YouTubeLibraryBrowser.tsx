@@ -29,7 +29,7 @@ export default function YouTubeLibraryBrowser({ library }: { library: NativeLibr
   const metadata = video ? youtubeMetadata(video) : undefined;
   const source = metadata?.source_url && /^https:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(metadata.source_url) ? metadata.source_url : undefined;
   const playlist = channel?.playlists.find(p => p.id === playlistId);
-  return <section className="h-full overflow-y-auto px-5 py-6 sm:px-8 md:px-12"><div className="pv-youtube-catalog">
+  return <section className="h-full overflow-y-auto px-5 pb-6 pt-5 sm:px-8 md:px-12"><div className="pv-youtube-catalog">
     {(video || playlistId || (!single && channel)) && <LibraryPageBack><button className="mb-5 flex items-center gap-2 text-muted hover:text-white" onClick={back}><ArrowLeft size={18}/>Back</button></LibraryPageBack>}
     <h1 className="mb-2 text-2xl font-bold">{video?.title ?? (playlistId ? playlistId === 'all' ? 'All Videos' : playlist?.title ?? playlistId : channel?.title ?? library.name)}</h1>
     <p className="mb-6 whitespace-pre-wrap text-muted">{video ? String(video.metadata.plot ?? '') : playlistId ? playlist?.description : channel?.description}</p>

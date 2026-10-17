@@ -1,3 +1,4 @@
+import SearchField from "../components/SearchField";
 import CardActionMenu from "../components/CardActionMenu";
 import HomeBackground from "../components/HomeBackground";
 import {AuthSessionContext,useIsAdmin} from "../lib/authContext";
@@ -12,7 +13,7 @@ import {Link, useSearchParams} from "../lib/libraryNavigation";
 import {useContext,useEffect,useState} from "react";
 import {createPortal} from "react-dom";
 import {HeaderSearchTarget} from "../lib/headerSearch";
-import {Search, X, Film} from "lucide-react";
+import {X, Film} from "lucide-react";
 import {useQueries, useQuery,useQueryClient} from "@tanstack/react-query";
 import LibraryPosterStrip from "../components/LibraryPosterStrip";
 import {nativeLibraries, type NativeLibrary} from "../api/nativeLibraries";
@@ -49,12 +50,11 @@ function LibraryHome(){
  const featured=!term&&(bannerLoading||titles.length>0);
  const searchControl=<div role="search" className="flex min-h-11 min-w-0 items-center">
    <div className="relative mx-auto w-full max-w-[21rem]">
-    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint"/>
-    <input aria-label="Search all libraries" placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} className="w-full rounded-full border border-border bg-input py-2 pl-9 pr-10 text-[16px] font-medium text-muted outline-none placeholder:text-muted focus:border-accent md:text-sm"/>
-    {search&&<button type="button" aria-label="Clear search" onClick={()=>setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white" data-icon-button="true"><X className="size-4"/></button>}
+    <SearchField aria-label="Search all libraries" placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} trailing={search&&<button type="button" aria-label="Clear search" onClick={()=>setSearch("")} className="text-muted hover:text-white" data-icon-button="true"><X className="size-4"/></button>}/>
+
    </div>
   </div>;
- return <main className="relative z-10 h-full overflow-y-auto pt-6 pb-8 sm:pt-8">
+ return <main className="relative z-10 h-full overflow-y-auto pt-5 pb-8">
   <HomeBackground libraries={libraries.data??[]}/>
   <div className="relative z-10 min-h-full">
   {searchTarget&&createPortal(searchControl,searchTarget)}
