@@ -1,7 +1,8 @@
+import {ACTION_BUTTON} from "../../../components/ui";
 import {useEffect,useRef,useState} from "react";
-import {createPortal} from "react-dom";
+import PopupPage from "../../../components/PopupPage";
 import {useMutation,useQuery,useQueryClient} from "@tanstack/react-query";
-import {Video,X} from "lucide-react";
+import {Video} from "lucide-react";
 
 import {useAutoSave} from "../../../lib/useAutoSave";
 import PluginCard from "../../../components/PluginCard";
@@ -12,7 +13,7 @@ import YtdlSettingsEditor,{invalidEncoding} from "./YtdlSettingsEditor";
 import YtdlActivity from "./YtdlActivity";
 import YtdlCookieSettings from "./YtdlCookieSettings";
 const input="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm";
-const button="rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50 hover:bg-elevated";
+const button=ACTION_BUTTON;
 const configKey=["plugin-ytdl"];
 const active=(status:string)=>!["completed","completed_with_warnings","failed","cancelled","interrupted"].includes(status);
 export default function YtdlPlugin(){
@@ -21,11 +22,11 @@ export default function YtdlPlugin(){
  return <><PluginCard title="YTDL" description="Download YouTube videos and playlists with local descriptions, artwork, and NFO metadata." coverSrc="/plugins/ytdl-cover.svg" branding={<Video className="size-12 text-red-500"/>} status={config.data?config.data.settings.enabled?"Enabled · Administrator downloads":"Disabled":"Configure YouTube downloads"} onClick={()=>setOpen(true)}/>{open&&<YtdlPopup onClose={()=>setOpen(false)}/>}</>;
 }
 export function YtdlPopup({onClose,initialTab="Download"}:{onClose:()=>void;initialTab?:string}){
- const dialog=useRef<HTMLDialogElement>(null),client=useQueryClient();
+ const client=useQueryClient();
  const config=useQuery({queryKey:configKey,queryFn:ytdl.configuration});
  const [draft,setDraft]=useState<YtdlSettings|null>(null),[override,setOverride]=useState<YtdlSettings|null>(null),[useOverride,setUseOverride]=useState(false);
  const [tab,setTab]=useState(({Queue:"Activity",Configuration:"Settings",Downloads:"Download"} as Record<string,string>)[initialTab]??initialTab),[url,setUrl]=useState(""),[selected,setSelected]=useState<string[]>([]),[operation,setOperation]=useState("download");
- useEffect(()=>{dialog.current?.showModal();},[]);
+
  const initialized=useRef(false);
  useEffect(()=>{if(config.data&&!initialized.current){initialized.current=true;setDraft({...config.data.settings,library_id:""});}},[config.data]);
  const jobs=useDownloadJobs(),restoredQueue=useRef(false);
@@ -41,7 +42,7 @@ export function YtdlPopup({onClose,initialTab="Download"}:{onClose:()=>void;init
  const error=config.error||save.error||inspect.error||submit.error||jobs.error||action.error||remove.error;
  const busy=submit.isPending||inspect.isPending;
  const canSubmit=!!effective?.enabled&&!!url.trim()&&!busy&&(metadataOnly?(!inspect.data||inspect.data.kind==="channel"||selected.length>0):!!inspect.data&&inspect.data.kind!=="channel"&&selected.length>0&&!invalidEncoding(effective));
- return createPortal(<dialog ref={dialog} aria-label="YTDL configuration" onCancel={onClose} className="fixed inset-0 m-auto max-h-[90dvh] w-[min(56rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-border bg-sidebar p-0 text-white shadow-2xl backdrop:bg-black/60"><div className="flex max-h-[90dvh] flex-col"><header className="shrink-0 border-b border-border p-6 pb-4"><div className="flex items-center justify-between"><h2 className="flex items-center gap-2 text-lg font-semibold"><Video className="size-6"/>YTDL</h2><button aria-label="Close YTDL" onClick={onClose} data-icon-button="true"><X className="size-5"/></button></div><p className="mt-2 text-xs text-muted">Administrator-only downloads. Jobs continue in the background when closed.</p><nav aria-label="YTDL sections" className="mt-4 flex flex-wrap gap-2">{["Download","Activity","Subscriptions","Settings"].map(name=><button key={name} aria-pressed={tab===name} className={`${button} ${tab===name?"text-accent":"text-muted"}`} onClick={()=>setTab(name)}>{name}</button>)}</nav></header><div className="min-h-0 overflow-y-auto p-6">
+ return <PopupPage title="YTDL" ariaLabel="YTDL configuration" closeLabel="Close YTDL" onClose={onClose} description="Administrator-only downloads. Jobs continue in the background when closed." navigation={<div className="flex flex-wrap gap-2">{["Download","Activity","Subscriptions","Settings"].map(name=><button key={name} aria-pressed={tab===name} className={`${button} ${tab===name?"text-accent":"text-muted"}`} onClick={()=>setTab(name)}>{name}</button>)}</div>} footer={<><p className="text-xs text-muted">{tab==="Settings"?"Valid changes save automatically.":tab==="Download"?"Configure media libraries separately in Library settings.":"Jobs continue in the background."}</p>{tab==="Download"?<button className={`${button} bg-accent text-black`} disabled={!canSubmit} onClick={()=>submit.mutate()}>{submit.isPending?"Queueing…":metadataOnly?"Refresh existing NFOs":`Download ${selected.length} selected`}</button>:<button className={button} onClick={onClose}>Done</button>}</>}>
  {config.isPending&&<p role="status">Loading configuration…</p>}
  {tab==="Subscriptions"&&<YtdlSubscriptions/>}
  {tab==="Activity"&&<YtdlActivity jobs={jobs.data??[]} loading={jobs.isPending} busy={action.isPending||remove.isPending} onRemove={id=>remove.mutate(id)} onAction={(id,operation)=>action.mutate({id,operation})}/>}
@@ -52,6 +53,6 @@ export function YtdlPopup({onClose,initialTab="Download"}:{onClose:()=>void;init
  {!metadataOnly&&invalidEncoding(effective)&&<p role="alert" className="text-sm text-danger">GPU encoding requires H.264, HEVC, or AV1. Change saved defaults or override this job.</p>}
  {inspect.data&&<><h3 className="font-semibold">{inspect.data.title}</h3><p className="text-sm text-muted">{inspect.data.channel}</p><p className="max-h-40 overflow-auto whitespace-pre-wrap text-sm text-muted">{inspect.data.description}</p>{inspect.data.formats.length>0&&<details><summary className="text-sm">Available source formats</summary><ul className="max-h-40 overflow-auto text-xs text-muted">{inspect.data.formats.map(format=><li key={format.format_id}>{format.height?`${format.height}p`:"Audio"} · {format.fps??"—"} fps · {format.vcodec} / {format.acodec} · {format.ext}</li>)}</ul></details>}<div className="flex gap-2"><button className={button} onClick={()=>setSelected(inspect.data!.entries.map(entry=>entry.id))}>Select all</button><button className={button} onClick={()=>setSelected([])}>Clear selection</button></div><ul className="max-h-80 divide-y divide-border overflow-auto">{inspect.data.entries.map((entry,index)=><li key={`${entry.id}-${index}`} className="py-3"><label className="flex items-start gap-3">{inspect.data!.kind==="channel"?<button aria-label={`Open playlist ${entry.title}`} className={button} onClick={()=>{setUrl(entry.url);inspect.mutate(entry.url);}}>Open playlist</button>:<input aria-label={`Select ${entry.title}`} type="checkbox" checked={selected.includes(entry.id)} onChange={event=>setSelected(previous=>event.target.checked?[...new Set([...previous,entry.id])]:previous.filter(id=>id!==entry.id))}/>}<span><span className="block text-sm">{entry.title}</span><span className="text-xs text-muted">{entry.playlist_title||entry.channel} · {entry.upload_date}{entry.duration!=null?` · ${Math.round(entry.duration/60)} min`:""}</span>{entry.description&&<span className="mt-1 line-clamp-2 block text-xs text-muted">{entry.description}</span>}</span></label></li>)}</ul></>}
  {!effective.enabled&&<p className="text-sm text-muted">Enable YTDL in Settings before inspecting or downloading.</p>}</div>}
- {error&&<p role="alert" className="mt-4 text-sm text-danger">{error.message}</p>}</div>
- {(tab==="Settings"||tab==="Download")&&<footer className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-sidebar px-6 py-4"><p className="text-xs text-muted">{tab==="Settings"?"Valid changes save automatically.":"Configure media libraries separately in Library settings."}</p>{tab==="Settings"?null:<button className={`${button} bg-accent text-black`} disabled={!canSubmit} onClick={()=>submit.mutate()}>{submit.isPending?"Queueing…":metadataOnly?"Refresh existing NFOs":`Download ${selected.length} selected`}</button>}</footer>}</div></dialog>,document.body);
+ {error&&<p role="alert" className="mt-4 text-sm text-danger">{error.message}</p>}
+ </PopupPage>;
 }

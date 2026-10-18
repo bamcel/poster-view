@@ -1,3 +1,4 @@
+import {ACTION_BUTTON} from "./ui";
 import SearchField from "./SearchField";
 import {X} from "lucide-react";
 import {useState,type ReactNode} from "react";
@@ -5,7 +6,7 @@ import {Link} from "react-router-dom";
 import {useIsAdmin} from "../lib/authContext";
 import {searchSettings,settingsPath} from "../features/settings/navigation";
 import "../features/settings/settings.css";
-export const SETTINGS_BUTTON="inline-flex items-center justify-center gap-2 rounded-full border border-border bg-input px-4 py-2.5 text-sm font-medium text-white transition-colors hover:border-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50";
+export const SETTINGS_BUTTON=ACTION_BUTTON;
 export function SettingsPanel({title,description,children,id}:{title:string;description?:string;children:ReactNode;id?:string}){return <section id={id} className="settings-panel"><header><h2>{title}</h2>{description&&<p>{description}</p>}</header>{children}</section>;}
 export function SettingRow({label,description,children}:{label:string;description?:string;children:ReactNode}){return <div className="settings-row"><div><span className="font-medium text-white">{label}</span>{description&&<p className="mt-1 text-sm text-muted">{description}</p>}</div><div>{children}</div></div>;}
 export function SettingsActions({dirty,saving,onDiscard,children}:{dirty:boolean;saving?:boolean;onDiscard:()=>void;children:ReactNode}){return <div className="settings-actions"><p role="status" className="text-sm text-muted">{saving?"Saving…":dirty?"Unsaved changes":"All changes saved"}</p><div className="flex gap-2"><button type="button" className={SETTINGS_BUTTON} disabled={!dirty||saving} onClick={onDiscard}>Discard</button>{children}</div></div>;}

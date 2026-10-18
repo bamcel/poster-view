@@ -1,3 +1,4 @@
+import PopupPage from "./PopupPage";
 import {useAutoSave} from "../lib/useAutoSave";
 import {defaultWatchRules,validWatchRules} from "../features/playback/components/LibraryWatchRules";
 import {watchApi,type WatchRules} from "../features/playback/api/watch";
@@ -103,7 +104,7 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
         {confirmDelete&&<div role="alertdialog" aria-label="Remove library confirmation" className="mt-3 rounded-xl border border-edge bg-base p-3"><p className="text-sm text-muted">Remove {library.name}? Media, NFO files, and local artwork will be kept.</p><div className="mt-3 flex gap-2"><button className={BUTTON} onClick={()=>{setConfirmDelete(false);setOpen(false);}}>Cancel</button><button className={`${BUTTON} text-danger`} disabled={busy} onClick={()=>remove.mutate()}>{remove.isPending?"Removing…":"Confirm removal"}</button></div></div>}
         {remove.error&&<p role="alert" className="mt-3 text-sm text-danger">{remove.error.message}</p>}
     </div>,document.body)}
-    {refreshing&&createPortal(<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"><section role="dialog" aria-modal="true" aria-label={`Refresh Metadata — ${library.name}`} className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-border bg-window"><header className="flex items-center justify-between p-6"><h2 className="font-semibold">Refresh Metadata — {library.name}</h2><button aria-label="Close metadata refresh" onClick={()=>setRefreshing(false)} data-icon-button="true"><X className="size-4"/></button></header><SeriesActionsDialog action="refresh-metadata" library={library} wholeLibrary entry={{id:"",path:"",kind:"series",parent_path:null,title:library.name,metadata:{},artwork:[],files:[],nfo_path:null,available:true,revision:0}} entries={[]} onSaved={()=>{setRefreshing(false);setOpen(true);setScanDetails(true);void client.invalidateQueries({queryKey:["native-scan",library.id]});void client.invalidateQueries({queryKey:["native-catalog",library.id]});}}/></section></div>,document.body)}
+    {refreshing&&<PopupPage title={`Refresh Metadata — ${library.name}`} onClose={()=>setRefreshing(false)}><SeriesActionsDialog action="refresh-metadata" library={library} wholeLibrary entry={{id:"",path:"",kind:"series",parent_path:null,title:library.name,metadata:{},artwork:[],files:[],nfo_path:null,available:true,revision:0}} entries={[]} onSaved={()=>{setRefreshing(false);setOpen(true);setScanDetails(true);void client.invalidateQueries({queryKey:["native-scan",library.id]});void client.invalidateQueries({queryKey:["native-catalog",library.id]});}}/></PopupPage>}
     {(scan.error||remove.error||status.error)&&<p role="alert" className="px-4 text-sm text-danger">{(scan.error||remove.error||status.error)?.message}</p>}
   </article>;
 }
@@ -127,7 +128,6 @@ export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer
   const createdLibrary=useRef<NativeLibrary|null>(null);
   const [step, setStep] = useState(0);
   const [discard, setDiscard] = useState(false);
-  const dialog = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLElement>(null);
   useEffect(() => { if (content.current) content.current.scrollTop = 0; }, [step]);
   const save = useMutation({ mutationFn: async () => {
@@ -146,29 +146,11 @@ export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial.current)||rulesChanged;
   const closeRef = useRef<() => void>(() => {});
   closeRef.current = () => { if (library||save.isPending) { onClose(); return; } if (dirty) { setDiscard(true); if(content.current)content.current.scrollTop=0; } else onClose(); };
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    dialog.current?.querySelector<HTMLElement>("input,button")?.focus();
-    const keydown = (event: KeyboardEvent) => {
-      if (event.target instanceof Element && event.target.closest("dialog")) return;
-      if (event.key === "Escape") { event.preventDefault(); closeRef.current(); }
-      if (event.key !== "Tab") return;
-      const focusable = [...(dialog.current?.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex="0"]') ?? [])];
-      const first = focusable[0], last = focusable.at(-1);
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-    };
-    document.addEventListener("keydown", keydown);
-    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", keydown); };
-  }, []);
   const toggle = (selected: string) => setDraft(previous => ({ ...previous, paths: previous.paths.includes(selected) ? previous.paths.filter(p => p !== selected) : [...previous.paths, selected] }));
   const pathsInvalid = draft.paths.length === 0 || draft.paths.length > 32 || overlap(draft.paths);
   const basicsInvalid = !draft.name.trim() || draft.name.trim().length > 120;
-  return createPortal(<div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 backdrop-blur-sm sm:p-6">
-    <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="library-dialog-title" className="flex h-full w-full max-w-5xl flex-col overflow-hidden border border-border bg-sidebar shadow-2xl sm:h-[min(760px,90dvh)] sm:rounded-2xl">
-      <header className="flex shrink-0 items-center gap-4 bg-sidebar px-6 py-4 sm:px-8"><div><h2 id="library-dialog-title" className="text-lg font-semibold text-white">{library ? "Edit library" : "Create library"}</h2><p className="mt-1 text-xs text-muted">PosterView library</p></div><button aria-label="Close library dialog" className="ml-auto shrink-0 grid size-9 place-items-center rounded-lg text-muted hover:bg-elevated hover:text-white disabled:opacity-50" onClick={onClose} data-icon-button="true"><X className="size-5" /></button></header>
-      <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+  return <PopupPage title={library ? "Edit library" : "Create library"} description="PosterView library" closeLabel="Close library dialog" onClose={() => closeRef.current()} portalContainer={portalContainer} bodyClassName="overflow-hidden p-0" footer={      <div className="flex w-full items-center justify-between gap-3"><button className={BUTTON} disabled={save.isPending} onClick={() => step ? setStep(draft.library_type === "books" && step === 6 ? 4 : step - 1) : closeRef.current()}>{step ? "Back" : "Cancel"}</button>{step < STEPS.length - 1 ? <button className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={save.isPending || (step === 0 ? basicsInvalid : pathsInvalid)} onClick={() => setStep(draft.library_type === "books" && step === 4 ? 6 : step + 1)}>Next</button> : library ? <button className={BUTTON} onClick={onClose}>Done</button> : <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={basicsInvalid || pathsInvalid || save.isPending || (!library&&draft.library_type!=="books"&&!validWatchRules(playbackRules))} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{save.isPending ? "Saving…" : library ? "Save library" : "Create library"}</button>}</div>}>
+      <div className="flex h-full min-h-0 flex-col sm:flex-row">
         <nav aria-label="Library setup sections" className="flex shrink-0 gap-2 overflow-x-auto bg-window border-b border-border p-3 sm:w-44 sm:shrink-0 sm:flex-col sm:border-b-0 sm:border-r">{STEPS.map((label,index)=>({label,index})).filter(({index})=>draft.library_type!=="books"||index!==5).map(({label,index},position) => <button key={label} aria-current={step === index ? "step" : undefined} disabled={save.isPending} onClick={() => setStep(index)} className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-sm ${step === index ? "bg-accent/15 text-accent" : "text-muted hover:bg-window"}`}><span className="text-xs opacity-60">{position + 1}</span>{label}</button>)}</nav>
         <main ref={content} className="min-h-0 flex-1 overflow-y-auto bg-sidebar p-6 sm:p-8">
           {discard && <div className="mb-5 rounded-xl border border-border bg-window p-4" role="alert"><p className="text-sm text-white">Discard your unsaved changes?</p><div className="mt-3 flex gap-2"><button className={BUTTON} onClick={() => setDiscard(false)}>Keep editing</button><button className={`${BUTTON} text-danger`} onClick={onClose}>Discard changes</button></div></div>}
@@ -191,7 +173,5 @@ export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer
           {save.error && <p role="alert" className="mt-5 text-sm text-danger">{save.error.message}</p>}
         </main>
       </div>
-      <footer className="flex shrink-0 items-center justify-between gap-3 bg-sidebar px-6 py-5 sm:px-8"><button className={BUTTON} disabled={save.isPending} onClick={() => step ? setStep(draft.library_type === "books" && step === 6 ? 4 : step - 1) : closeRef.current()}>{step ? "Back" : "Cancel"}</button>{step < STEPS.length - 1 ? <button className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={save.isPending || (step === 0 ? basicsInvalid : pathsInvalid)} onClick={() => setStep(draft.library_type === "books" && step === 4 ? 6 : step + 1)}>Next</button> : library ? <button className={BUTTON} onClick={onClose}>Done</button> : <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={basicsInvalid || pathsInvalid || save.isPending || (!library&&draft.library_type!=="books"&&!validWatchRules(playbackRules))} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{save.isPending ? "Saving…" : library ? "Save library" : "Create library"}</button>}</footer>
-    </div>
-  </div>, portalContainer ?? document.body);
+  </PopupPage>;
 }

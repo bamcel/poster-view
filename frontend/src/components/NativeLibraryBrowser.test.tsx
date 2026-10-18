@@ -249,6 +249,7 @@ it("searches all available titles and filters missing artwork", async () => {
   fireEvent.change(screen.getByLabelText("Search titles"), {
     target: { value: "" },
   });
+  fireEvent.click(screen.getByRole("button",{name:"Filter and sort titles"}));
   fireEvent.change(screen.getByLabelText("Filter by artwork"), {
     target: { value: "missing-poster" },
   });
@@ -761,6 +762,7 @@ it("filters missing banners independently of landscape and backdrop artwork",asy
   {...series,id:"without-banner",title:"Needs banner",path:"Anime/NeedsBanner",artwork:[{kind:"backdrop",path:"fanart.jpg",source:"local"},{kind:"landscape",path:"landscape.jpg",source:"local"}]},
  ]);
  mount();await screen.findByText("Has banner");
+ fireEvent.click(screen.getByRole("button",{name:"Filter and sort titles"}));
  fireEvent.change(screen.getByLabelText("Filter by artwork"),{target:{value:"missing-banner"}});
  expect(screen.queryByText("Has banner")).toBeNull();
  expect(screen.getByText("Needs banner")).toBeTruthy();

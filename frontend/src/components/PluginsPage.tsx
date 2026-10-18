@@ -7,10 +7,9 @@ import PluginCard from "./PluginCard";
 import {Link} from "../lib/libraryNavigation";
 import {Images} from "lucide-react";
 import {useArtworkPlugin,type ArtworkPluginSettings} from "../lib/artworkPlugin";
-import {useEffect,useRef} from "react";
 import {useMutation,useQueryClient} from "@tanstack/react-query";
-import {createPortal} from "react-dom";
-import {X} from "lucide-react";
+import PopupPage from "./PopupPage";
+import {ACTION_BUTTON} from "./ui";
 import {apiRequest} from "../api/client";
 import {DefaultArtworkSourcesFields} from "../features/settings/providers/ArtworkSourcesSection";
 type PluginPageProps={onClose:()=>void;artworkOpen?:boolean;onArtworkOpen:()=>void};
@@ -28,8 +27,8 @@ export function ArtworkPopup(props:{onClose:()=>void}){
  return isAdmin?<AdminArtworkPopup {...props}/>:null;
 }
 function AdminArtworkPopup({onClose}:{onClose:()=>void}){
- const dialog=useRef<HTMLDialogElement>(null);const settings=useArtworkPlugin();const client=useQueryClient();
+ const settings=useArtworkPlugin();const client=useQueryClient();
  const save=useMutation({mutationFn:(value:ArtworkPluginSettings)=>apiRequest<ArtworkPluginSettings>("/plugins/artwork",{method:"PUT",body:JSON.stringify(value)}),onSuccess:value=>client.setQueryData(["plugin-artwork"],value)});
- useEffect(()=>{dialog.current?.showModal();},[]);
- return createPortal(<dialog ref={dialog} onCancel={onClose} onClick={event=>{if(event.target===event.currentTarget)onClose();}} aria-label="Artwork configuration" className="fixed inset-0 m-auto max-h-[85dvh] w-[min(52rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-border bg-sidebar p-6 text-white shadow-2xl backdrop:bg-black/60"><header className="mb-6 flex items-center justify-between"><h2 className="flex items-center gap-2 text-lg font-semibold"><Images className="size-5"/>Artwork</h2><button aria-label="Close Artwork" onClick={onClose} className="rounded-lg p-2 text-muted hover:bg-elevated" data-icon-button="true"><X className="size-5"/></button></header>{settings.data&&<div className="space-y-5">{([['enabled','Enable Artwork'],['pinned','Pin to Settings'],['poster_edit','Enable PosterEdit'],['backdrop_edit','Enable BackdropEdit']] as const).map(([key,label])=><label key={key} className="flex items-center justify-between text-sm"><span>{label}</span><input type="checkbox" role="switch" aria-label={label} checked={settings.data![key]} disabled={save.isPending} onChange={event=>save.mutate({...settings.data!,[key]:event.target.checked})} className="size-5 accent-accent"/></label>)}<p className="border-b border-border pb-5 text-xs text-muted">Disabling hides artwork tools and pauses automatic artwork downloads. Existing artwork remains visible and metadata fetching continues.</p><DefaultArtworkSourcesFields flat/><Link to="/settings/sources" onClick={onClose} className="inline-block rounded-full border border-border px-4 py-2 text-sm">Manage metadata & artwork providers</Link></div>}{(settings.error||save.error)&&<p role="alert" className="text-danger">{(settings.error||save.error)?.message}</p>}</dialog>,document.body);
+
+ return <PopupPage title="Artwork" ariaLabel="Artwork configuration" closeLabel="Close Artwork" onClose={onClose} footer={<button className={ACTION_BUTTON} onClick={onClose}>Done</button>}>{settings.data&&<div className="space-y-5">{([['enabled','Enable Artwork'],['pinned','Pin to Settings'],['poster_edit','Enable PosterEdit'],['backdrop_edit','Enable BackdropEdit']] as const).map(([key,label])=><label key={key} className="flex items-center justify-between text-sm"><span>{label}</span><input type="checkbox" role="switch" aria-label={label} checked={settings.data![key]} disabled={save.isPending} onChange={event=>save.mutate({...settings.data!,[key]:event.target.checked})} className="size-5 accent-accent"/></label>)}<p className="border-b border-border pb-5 text-xs text-muted">Disabling hides artwork tools and pauses automatic artwork downloads. Existing artwork remains visible and metadata fetching continues.</p><DefaultArtworkSourcesFields flat/><Link to="/settings/sources" onClick={onClose} className="inline-block rounded-full border border-border px-4 py-2 text-sm">Manage metadata & artwork providers</Link></div>}{(settings.error||save.error)&&<p role="alert" className="text-danger">{(settings.error||save.error)?.message}</p>}</PopupPage>;
 }

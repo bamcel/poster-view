@@ -63,7 +63,7 @@ it("protects dirty drafts on Escape and restores body scrolling", () => {
   const close = vi.fn();
   const view = mount(<LibraryDialog onClose={close} onSaved={vi.fn()} />);
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Books" } });
-  fireEvent.keyDown(document, { key: "Escape" });
+  fireEvent(screen.getByRole("dialog"),new Event("cancel",{bubbles:true,cancelable:true}));
   expect(close).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
   expect(close).toHaveBeenCalledOnce();
@@ -107,10 +107,12 @@ it("starts scans for every library from the top toolbar", async () => {
   expect(nativeLibraries.scan).toHaveBeenCalledWith("second");
 });
 
-it("closes a dirty library editor with its X",()=>{
+it("protects a dirty library editor when closing with its X",()=>{
  const close=vi.fn();mount(<LibraryDialog onClose={close} onSaved={vi.fn()}/>);
  fireEvent.change(screen.getByLabelText("Name"),{target:{value:"Books"}});
  fireEvent.click(screen.getByRole("button",{name:"Close library dialog"}));
+ expect(close).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole("button",{name:"Discard changes"}));
  expect(close).toHaveBeenCalledOnce();
 });
 it("allows dismissing library actions while removal is pending",async()=>{

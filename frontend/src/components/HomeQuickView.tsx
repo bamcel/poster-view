@@ -1,8 +1,9 @@
+import PopupPage from "./PopupPage";
 import { mediaDescription } from "../lib/mediaDescription";
 import {sizedArtwork} from "../lib/artworkSizes";
-import {useEffect, useId, useMemo, useRef, useState} from "react";
+import {useEffect, useMemo, useState} from "react";
 import {useQuery} from "@tanstack/react-query";
-import {Film, Play, X} from "lucide-react";
+import {Film, Play} from "lucide-react";
 import {nativeLibraries} from "../api/nativeLibraries";
 import {Link} from "../lib/libraryNavigation";
 import {nativeArtworkVersion} from "../lib/nativeArtworkCache";
@@ -46,26 +47,10 @@ function SeriesAction({title: {entry, library}}: {title: HomeTitle}) {
 
 export default function HomeQuickView({title, onClose}: {title: HomeTitle; onClose: () => void}) {
   const {entry, library} = title;
-  const dialog = useRef<HTMLDialogElement>(null);
-  const close = useRef<HTMLButtonElement>(null);
-  const heading = useId();
   const [failedArtwork, setFailedArtwork] = useState(false);
   const kind = ["backdrop", "landscape", "fanart", "poster"].find(candidate => entry.artwork.some(image => image.kind === candidate));
   const artwork = kind ? stillArtwork(`${nativeLibraries.artworkUrl(library.id, entry.id, kind)}?v=${encodeURIComponent(nativeArtworkVersion(entry, kind))}`) : undefined;
   useEffect(() => setFailedArtwork(false), [artwork]);
-  useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const element = dialog.current!;
-    const previousOverflow = document.body.style.overflow;
-    element.showModal();
-    document.body.style.overflow = "hidden";
-    close.current?.focus();
-    return () => {
-      element.close();
-      document.body.style.overflow = previousOverflow;
-      if (previous?.isConnected) previous.focus();
-    };
-  }, []);
   const year = numeric(entry.metadata.year);
   const rating = numeric(entry.metadata.rating);
   const runtime = numeric(entry.metadata.runtime);
@@ -73,20 +58,15 @@ export default function HomeQuickView({title, onClose}: {title: HomeTitle; onClo
   const genres = Array.isArray(entry.metadata.genres) ? entry.metadata.genres.filter((genre): genre is string => typeof genre === "string" && !!genre.trim()).map(genre => genre.trim()) : [];
   const plot = mediaDescription(entry.metadata.plot);
   const available = entry.available && entry.metadata.missing !== true;
-  return <dialog ref={dialog} aria-labelledby={heading} aria-modal="true" onCancel={event => {event.preventDefault(); onClose();}} onClick={event => {
-    if (event.target !== event.currentTarget) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onClose();
-  }} className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-3xl overflow-y-auto rounded-2xl border border-border bg-surface p-0 text-white shadow-2xl backdrop:bg-black/75 backdrop:backdrop-blur-sm">
+  return <PopupPage title={entry.title} closeLabel="Close quick view" onClose={onClose} dismissOnBackdrop bodyClassName="p-0">
     <div className="relative">
       <div className="relative aspect-[16/7] max-h-[30dvh] w-full overflow-hidden bg-elevated">
         {artwork && !failedArtwork ? <img src={sizedArtwork(artwork,1280)} alt="" onError={() => setFailedArtwork(true)} className="h-full w-full object-cover"/> : <div className="grid h-full place-items-center text-faint"><Film aria-hidden="true" className="size-20 opacity-25"/></div>}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"/>
       </div>
-      <button ref={close} type="button" aria-label="Close quick view" onClick={onClose} className="absolute right-4 top-4 grid size-11 place-items-center rounded-full border border-white/20 bg-black/70 text-[#fff] hover:bg-black focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"><X aria-hidden="true" className="size-5"/></button>
     </div>
     <div className="space-y-5 p-5 sm:p-8">
-      <div><p className="mb-2 text-xs font-semibold uppercase tracking-widest text-accent">{library.name}</p><h2 id={heading} className="break-words text-3xl font-bold">{entry.title}</h2></div>
+      <div><p className="mb-2 text-xs font-semibold uppercase tracking-widest text-accent">{library.name}</p></div>
       <div aria-label="Title information" className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted">
         {year && <span>{year}</span>}<span>{entry.kind === "series" ? "Series" : "Movie"}</span>
         {rating && rating <= 10 && <span>★ {rating.toFixed(1)}</span>}
@@ -100,5 +80,5 @@ export default function HomeQuickView({title, onClose}: {title: HomeTitle; onClo
         <Link to={`/media/${encodeURIComponent(library.id)}?native_library=${encodeURIComponent(library.id)}&native_item=${encodeURIComponent(entry.id)}`} className="inline-flex min-h-11 items-center rounded-full border border-border bg-surface-2 px-5 py-2.5 text-sm font-semibold text-white hover:bg-elevated focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">Full Details</Link>
       </div>
     </div>
-  </dialog>;
+  </PopupPage>;
 }

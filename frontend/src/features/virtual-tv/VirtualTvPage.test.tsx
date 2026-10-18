@@ -90,7 +90,7 @@ it("keeps edit and remove actions inside the channel management list",async()=>{
  fireEvent.click(within(dialog).getByRole("button",{name:"Remove Comedy"}));
  await waitFor(()=>expect(virtualTv.remove).toHaveBeenCalledWith("comedy",expect.anything()));
  await within(dialog).findByText("No channels to edit.");
- fireEvent.click(within(dialog).getByRole("button",{name:"Close"}));
+ fireEvent.click(within(dialog).getByRole("button",{name:"Done"}));
  expect(screen.queryByRole("dialog")).toBeNull();
  confirm.mockRestore();
 });
@@ -199,7 +199,7 @@ it("keeps the live preview mounted while future programs display thumbnails",asy
  fireEvent.click(screen.getByRole("checkbox",{name:"Live preview"}));
  expect(screen.getByLabelText("Live preview comedy")).toBeTruthy();
  expect(localStorage.getItem("posterview-virtual-tv-live-preview")).toBe("true");
- fireEvent.click(screen.getByRole("button",{name:/^Close$/}));
+ fireEvent.click(screen.getByRole("button",{name:"Done"}));
  const livePreview=screen.getByLabelText("Live preview comedy");
  fireEvent.click(screen.getByRole("button",{name:/Comedy: Future,/}));
  expect(screen.getByLabelText("Live preview comedy")).toBe(livePreview);

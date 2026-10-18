@@ -56,3 +56,5 @@ export function Logo({ className = "" }: { className?: string }) {
 export function ServerTypeBadge({ type }: { type: string }) {
   return <span className="text-xs text-faint capitalize">{type}</span>;
 }
+
+export const ACTION_BUTTON="inline-flex items-center justify-center gap-2 rounded-full border border-border bg-input px-4 py-2.5 text-sm font-medium text-white transition-colors hover:border-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50";

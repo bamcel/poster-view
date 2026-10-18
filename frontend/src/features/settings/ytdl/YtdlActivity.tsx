@@ -1,7 +1,8 @@
+import {ACTION_BUTTON} from "../../../components/ui";
 import {X} from "lucide-react";
 import type {YtdlJob} from "./client";
 import {activeYtdlJob,ytdlOutcomes,ytdlPhase} from "./jobPresentation";
-const button="rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50 hover:bg-elevated";
+const button=ACTION_BUTTON;
 interface Props {jobs:YtdlJob[];loading:boolean;busy:boolean;onRemove:(id:string)=>void;onAction:(id:string,operation:"cancel"|"retry"|"retry-failed")=>void}
 export default function YtdlActivity({jobs,loading,busy,onRemove,onAction}:Props){
  const running=jobs.filter(job=>activeYtdlJob(job.status)&&job.status!=="queued");

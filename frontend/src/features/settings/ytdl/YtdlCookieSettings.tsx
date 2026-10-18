@@ -1,10 +1,11 @@
+import {ACTION_BUTTON} from "../../../components/ui";
 import {useRef,useState} from "react";
 import {useMutation,useQuery,useQueryClient} from "@tanstack/react-query";
 import {useAutoSave} from "../../../lib/useAutoSave";
 import {ytdlCookies} from "./client";
 
 const key=["ytdl-cookies"];
-const button="rounded-lg border border-border px-4 py-2 text-sm hover:bg-elevated disabled:opacity-50";
+const button=ACTION_BUTTON;
 export default function YtdlCookieSettings(){
  const client=useQueryClient(),fileInput=useRef<HTMLInputElement>(null),selection=useRef(0);
  const [cookies,setCookies]=useState(""),[filename,setFilename]=useState(""),[fileError,setFileError]=useState("");

@@ -1,3 +1,4 @@
+import {Switch} from "../../../components/ui";
 import {useAutoSave} from "../../../lib/useAutoSave";
 import {SETTINGS_BUTTON} from "../../../components/SettingsPageFrame";
 import {useEffect,useRef,useState} from "react";
@@ -19,7 +20,7 @@ export default function TranscodingSettings(){
  const videoEncoding=settings.allow_conversion||settings.auto_bandwidth_transcoding;
  const audioEncoding=settings.allow_conversion||settings.allow_audio_transcoding;
  const set=<K extends keyof Settings>(key:K,value:Settings[K])=>{setSettings({...settings,[key]:value});};
- const toggle=(key:keyof Settings,label:string,help:string)=><label className="flex items-start justify-between gap-6 py-3"><span><span className="block text-sm font-medium">{label}</span><span className="mt-1 block text-xs text-muted">{help}</span></span><input type="checkbox" role="switch" aria-label={label} checked={Boolean(settings[key])} onChange={e=>{const next={...settings,[key]:e.target.checked};if((key==="allow_hevc"&&settings.preferred_encoder==="hevc"||key==="allow_av1"&&settings.preferred_encoder==="av1")&&!e.target.checked)next.preferred_encoder="avc";setSettings(next);}} className="mt-1 accent-accent"/></label>;
+ const toggle=(key:keyof Settings,label:string,help:string)=><div className="flex items-start justify-between gap-6 py-3"><span><span className="block text-sm font-medium">{label}</span><span className="mt-1 block text-xs text-muted">{help}</span></span><Switch label={label} checked={Boolean(settings[key])} onChange={()=>{const checked=!settings[key];const next={...settings,[key]:checked};if((key==="allow_hevc"&&settings.preferred_encoder==="hevc"||key==="allow_av1"&&settings.preferred_encoder==="av1")&&!checked)next.preferred_encoder="avc";setSettings(next);}}/></div>;
  const number=(key:keyof Settings,label:string,min:number,max:number,help?:string)=><label className="block text-sm">{label}<input type="number" min={min} max={max} step={key==="audio_boost"?.1:1} value={Number(settings[key])} onChange={e=>set(key,Number(e.target.value) as never)} className={input}/>{help&&<span className="mt-1 block text-xs text-muted">{help}</span>}</label>;
  return <form ref={form} className="w-full space-y-6" onSubmit={e=>e.preventDefault()}>
  <nav aria-label="Playback and transcoding sections" className="settings-section-navigation flex flex-wrap gap-2">{[["delivery","Delivery"],["hardware","Hardware"],["encoding","Encoding"],["resources","Resources"]].map(([id,label])=><a key={id} href={`#transcoding-${id}`} className={SETTINGS_BUTTON}>{label}</a>)}</nav>

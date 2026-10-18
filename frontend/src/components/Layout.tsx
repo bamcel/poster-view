@@ -33,6 +33,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   const [searchTarget,setSearchTarget]=useState<HTMLDivElement|null>(null);
   const [headerBackdrop,setHeaderBackdrop]=useState<string|null>(null);
   const libraryBack=/^\/media\//.test(preview?previewPath:location.pathname)||/^\/server\/[^/]+\/(item|series)\//.test(preview?previewPath:location.pathname)||/^\/collections\/[^/]+/.test(preview?previewPath:location.pathname);
+  const collectionsSearch=!preview&&location.pathname==="/collections";
   const homeSearch=!preview&&location.pathname==="/"&&!new URLSearchParams(location.search).has("lib")&&!new URLSearchParams(location.search).has("native_library");
   const preferencesMenu=useRef<HTMLDetailsElement>(null);
   const profilePanel=useRef<HTMLDivElement>(null);
@@ -177,7 +178,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           ))}
 
         </nav>
-        <div ref={setSearchTarget} className={homeSearch?"order-last min-w-0 basis-full pb-2 sm:order-none sm:flex-1 sm:basis-auto sm:pb-0":libraryBack?"flex min-w-0 flex-1 justify-center":"hidden"}/>
+        <div ref={setSearchTarget} className={homeSearch?"order-last min-w-0 basis-full pb-2 sm:order-none sm:flex-1 sm:basis-auto sm:pb-0":libraryBack||collectionsSearch?"flex min-w-0 flex-1 justify-center":"hidden"}/>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <details ref={preferencesMenu} className="relative">
             <summary aria-label="Profile" title="Profile" onClick={event=>{event.preventDefault();const open=!preferencesMenu.current?.open;if(preferencesMenu.current)preferencesMenu.current.open=open;const rect=event.currentTarget.getBoundingClientRect();setProfilePosition({top:rect.bottom+8,right:Math.max(12,window.innerWidth-rect.right)});setProfileOpen(open);}} className="pv-profile-trigger grid size-10 cursor-pointer list-none place-items-center text-white [&::-webkit-details-marker]:hidden">
@@ -204,7 +205,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
       {!preview&&!settingsOpen&&virtualTvSettings.data?.enabled&&<NavLink to="/virtual-tv" className="flex shrink-0 items-center gap-2 bg-sidebar px-4 py-2 text-sm md:hidden"><Tv className="size-4"/>Virtual TV</NavLink>}
       <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
-        <HeaderBackdropContext.Provider value={setHeaderBackdrop}><HeaderSearchTarget.Provider value={homeSearch||libraryBack?searchTarget:null}><LibraryHeaderBackContext.Provider value={libraryBack}>{children ?? <Outlet />}</LibraryHeaderBackContext.Provider></HeaderSearchTarget.Provider></HeaderBackdropContext.Provider>
+        <HeaderBackdropContext.Provider value={setHeaderBackdrop}><HeaderSearchTarget.Provider value={homeSearch||libraryBack||collectionsSearch?searchTarget:null}><LibraryHeaderBackContext.Provider value={libraryBack}>{children ?? <Outlet />}</LibraryHeaderBackContext.Provider></HeaderSearchTarget.Provider></HeaderBackdropContext.Provider>
       </main>
       {!preview&&isAdmin&&downloadsOpen&&<Suspense fallback={null}><DownloadQueuePopup initialTab="Queue" onClose={()=>setDownloadsOpen(false)}/></Suspense>}
       </div>

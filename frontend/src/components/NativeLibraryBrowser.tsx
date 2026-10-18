@@ -1,3 +1,4 @@
+import PopupPage from "./PopupPage";
 import SearchField from "./SearchField";
 import HeaderSearchControl from "./HeaderSearchControl";
 import LibraryDetailLayout, {LibraryDetailHero, LibraryDetailSection} from "./LibraryDetailLayout";
@@ -31,7 +32,7 @@ import {validFraming} from "../lib/backdropFraming";
 import LibraryViewPreferences, { useBackdropView, useYoutubeBannerBackground, posterGrid, backdropGrid } from "./LibraryViewPreferences";
 import PeopleRow from "./PeopleRow";
 import { useEffect, useRef, useMemo, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+
 import { useNavigate, useSearchParams } from "../lib/libraryNavigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -44,7 +45,6 @@ import {
   Pencil,
   RefreshCw,
   UserRound,
-  X,
 } from "lucide-react";
 import {
   nativeLibraries,
@@ -66,7 +66,6 @@ import TitleMetadata from "./TitleMetadata";
 import ItemAbout from "./ItemAbout";
 import DetailSynopsis from "./DetailSynopsis";
 import { EntryEditor } from "./NativeCatalogPanel";
-import { detailActionClass } from "../lib/detailActions";
 import { LibraryBackdrop } from "../lib/libraryNavigation";
 import {
   BACKDROP_OVERLAY_EVENT,
@@ -227,36 +226,9 @@ function Modal({
     return ()=>{window.removeEventListener(BACKDROP_BLUR_EVENT,update);window.removeEventListener(BACKDROP_OVERLAY_EVENT,update);window.removeEventListener("storage",update);};
   },[]);
   const metadata = title === "Edit Metadata" || title === "Identify" || title === "Fetch Metadata";
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const dialog = ref.current;
-    dialog?.showModal();
-    return () => dialog?.close();
-  }, []);
-  return createPortal(
-    <dialog
-      ref={ref}
-      onCancel={onClose}
-      aria-label={title}
-      className={metadata ? "relative isolate m-auto h-[85dvh] max-h-[832px] w-[min(80rem,calc(100vw-2rem))] max-w-none overflow-hidden rounded-2xl border border-border bg-sidebar p-0 text-white backdrop:bg-black/70" : "relative isolate m-auto max-h-[90dvh] w-[min(80rem,calc(100vw-2rem))] max-w-none overflow-y-auto rounded-2xl border border-border bg-sidebar p-5 text-white backdrop:bg-black/70"}
-    >
-      {backdrop&&<div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl"><img src={sizedArtwork(stillArtwork(backdrop),1280)} alt="" className="h-full w-full scale-110 object-cover" style={{filter:`blur(${appearance.blur}px)`}} onError={event=>{event.currentTarget.style.visibility="hidden";}}/><div className="absolute inset-0 md:hidden" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).mobile}}/><div className="absolute inset-0 hidden md:block" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).desktop}}/></div>}
+  return <PopupPage title={title} closeLabel="Close editor" onClose={onClose} bodyClassName={metadata?"overflow-hidden p-0":""} backdrop={<>{backdrop&&<div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl"><img src={sizedArtwork(stillArtwork(backdrop),1280)} alt="" className="h-full w-full scale-110 object-cover" style={{filter:`blur(${appearance.blur}px)`}} onError={event=>{event.currentTarget.style.visibility="hidden";}}/><div className="absolute inset-0 md:hidden" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).mobile}}/><div className="absolute inset-0 hidden md:block" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).desktop}}/></div>}
       {title==="Identify"&&backdrop&&<div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 rounded-2xl bg-gradient-to-b from-black/10 via-black/25 to-black/50"/>}
-      <header className={metadata ? "flex h-16 shrink-0 items-center gap-4 px-6 sm:px-8" : "mb-5 flex items-center justify-between gap-4"}>
-        <h2 className={`text-lg font-semibold`}>{title}</h2>
-        <button
-          autoFocus
-          aria-label="Close editor"
-          className={metadata ? "ml-auto shrink-0 rounded-md p-1 text-muted hover:text-white" : detailActionClass}
-          onClick={onClose}
-         data-icon-button="true">
-          <X className="size-4" />
-        </button>
-      </header>
-      <div className={metadata ? "h-[calc(100%-4rem)] min-h-0" : ""}>{children}</div>
-    </dialog>,
-    document.body,
-  );
+</>}>{children}</PopupPage>;
 }
 
 export default function NativeLibraryBrowser({

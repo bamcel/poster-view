@@ -1,7 +1,8 @@
-import {useEffect,useRef,useState,type ReactNode} from "react";
+import PopupPage from "../../components/PopupPage";
+import {useState,type ReactNode} from "react";
 import {createPortal} from "react-dom";
 import {useMutation,useQueryClient} from "@tanstack/react-query";
-import {Images,Pencil,RefreshCw,X} from "lucide-react";
+import {Images,Pencil,RefreshCw} from "lucide-react";
 import {nativeLibraries,type NativeCatalogEntry,type NativeLibrary} from "../../api/nativeLibraries";
 import {EntryEditor} from "../../components/NativeCatalogPanel";
 import ArtworkPanel from "../../components/ArtworkPanel";
@@ -37,8 +38,5 @@ export default function YouTubeChannelActions({library,entry,entries,onUpdated}:
 }
 
 function ChannelEditorDialog({children,onClose}:{children:ReactNode;onClose:()=>void}){
- const ref=useRef<HTMLDialogElement>(null);
- useEffect(()=>{const dialog=ref.current;dialog?.showModal();return()=>dialog?.close();},[]);
- return createPortal(<dialog ref={ref} aria-label="Edit Metadata" onCancel={onClose} className="relative isolate m-auto h-[85dvh] max-h-[832px] w-[min(80rem,calc(100vw-2rem))] max-w-none overflow-hidden rounded-2xl border border-border bg-sidebar p-0 text-white backdrop:bg-black/70"><header className="flex h-16 items-center gap-4 px-6 sm:px-8"><h2 className="text-lg font-semibold">Edit Metadata</h2><button autoFocus aria-label="Close editor" className="ml-auto p-1 text-muted hover:text-white" onClick={onClose}><X className="size-4"/></button></header><div className="h-[calc(100%-4rem)] min-h-0">{children}</div></dialog>,document.body);
+ return <PopupPage title="Edit Metadata" closeLabel="Close editor" onClose={onClose} bodyClassName="overflow-hidden p-0">{children}</PopupPage>;
 }
-

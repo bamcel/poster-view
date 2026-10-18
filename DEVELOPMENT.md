@@ -581,3 +581,23 @@ Banner retrieval uses HTTPS YouTube image hosts without redirects or credentials
 with bounded download time, size and decoded dimensions. Images retain their
 original dimensions and are saved atomically as RGB JPEG. Missing remote banners
 leave existing artwork untouched; retrieval failures use the job error path.
+
+### Popup page layout
+
+Use `frontend/src/components/PopupPage.tsx` for modal pages. It owns native modal
+focus/keyboard dismissal, opener restoration, nested body scroll locking, shared
+52rem/85dvh geometry, header/title/close, optional navigation, scroll body and
+fixed footer. Features own state, validation, persistence and close guards.
+Use `closeDisabled` for busy actions and `onClose` guards for unsaved changes.
+Put submit controls in `footer` (associate external buttons with the form ID),
+with Cancel left and primary action right. Autosaving pages use Done.
+`ariaLabel` and `closeLabel` preserve established accessible names. Complex
+editors/wizards can use `bodyClassName="overflow-hidden p-0"` and a full-height
+inner layout; embedded folder browsing remains embedded. `portalContainer`
+supports nested editor mounting. PopupPage.css owns shell spacing/scrolling;
+popupSurfaces.css owns background/border/blur tokens.
+
+Compact player prompts, menus/hover previews, anchored color pickers, and reader
+and artwork drawers retain purpose-specific dimensions. Native dialog unit
+behavior is shimmed in `frontend/src/testSetup.ts`; browser checks verify actual
+top-layer rendering and responsive scrolling.

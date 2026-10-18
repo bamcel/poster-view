@@ -1,9 +1,10 @@
+import {ACTION_BUTTON} from "../../../components/ui";
 import {useMutation} from "@tanstack/react-query";
 import {apiRequest} from "../../../api/client";
 import type {YtdlSettings} from "./client";
 import DownloadDirectoryPicker from "./DownloadDirectoryPicker";
 const input="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm";
-const button="rounded-lg border border-border px-4 py-2 text-sm disabled:opacity-50 hover:bg-elevated";
+const button=ACTION_BUTTON;
 type HardwareCapabilities={encoders:{name:string;backend:string;codec:string;available:boolean;detail:string}[];hardware_help:Record<string,string>};
 export function invalidEncoding(draft:YtdlSettings){return draft.download_mode!=="direct"&&draft.convert&&(draft.hardware_backend??"cpu")!=="cpu"&&!["h264","hevc","av1"].includes(draft.video_codec);}
 export default function YtdlSettingsEditor({value:draft,onChange,dependencies,metadataOnly=false}:{value:YtdlSettings;onChange:(settings:YtdlSettings)=>void;dependencies?:Record<string,string|null>;metadataOnly?:boolean}){

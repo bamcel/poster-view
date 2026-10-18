@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ExternalLink, Loader2, Save, X } from "lucide-react";
+import PopupPage from "./PopupPage";
+import { useMemo, useState, type FormEvent } from "react";
+import { ExternalLink, Loader2, Save } from "lucide-react";
 import type { NfoMetadata } from "../types";
 import EditionField from "./EditionField";
 
@@ -53,11 +54,6 @@ export default function MetadataEditorModal({
   });
   const [overwrites, setOverwrites] = useState<Set<keyof NfoMetadata>>(new Set());
   const [appendDescription, setAppendDescription] = useState(false);
-  useEffect(() => {
-    const close = (event: KeyboardEvent) => event.key === "Escape" && !saving && onClose();
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
-  }, [onClose, saving]);
   const set = (key: keyof NfoMetadata, value: string) => setFields((current) => ({ ...current, [key]: value }));
   const sourceUrls = fields.source_url.split(/\r?\n/).map((url) => url.trim()).filter(Boolean);
   const displayedSourceUrls = sourceUrls.length ? sourceUrls : [""];
@@ -101,13 +97,11 @@ export default function MetadataEditorModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/70 p-4 backdrop-blur-sm" onMouseDown={(event) => event.target === event.currentTarget && !saving && onClose()}>
-      <form onSubmit={submit} role="dialog" aria-modal="true" aria-labelledby="metadata-editor-title" className="flex h-[85dvh] max-h-[900px] w-full max-w-[52rem] flex-col overflow-hidden rounded-2xl border border-border bg-sidebar shadow-2xl">
-        <header className="flex shrink-0 items-center gap-4 px-6 py-4 sm:px-8">
-          <div className="min-w-0"><h2 id="metadata-editor-title" className="text-lg font-semibold">{incoming ? `Review ${sourceLabel ?? "imported"} metadata` : "Edit metadata"}</h2><p className="text-xs text-faint">Review the fields below, then save changes to this title’s NFO file.</p></div>
-          <button type="button" onClick={onClose} disabled={saving} aria-label="Close metadata editor" className="ml-auto shrink-0 grid size-9 place-items-center rounded-lg text-muted hover:bg-elevated hover:text-white disabled:opacity-50" data-icon-button="true"><X className="size-5" /></button>
-        </header>
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-6 overflow-y-auto px-6 pb-6 sm:px-10">
+    <PopupPage title={incoming ? `Review ${sourceLabel ?? "imported"} metadata` : "Edit metadata"} description="Review the fields below, then save changes to this title’s NFO file." closeDisabled={saving} closeLabel="Close metadata editor" onClose={onClose} footer={        <div className="flex w-full justify-between gap-2">
+          <button type="button" onClick={onClose} disabled={saving} className="rounded-lg border border-border px-4 py-2 text-sm text-muted hover:text-white disabled:opacity-50">Cancel</button>
+          <button type="submit" form="metadata-editor-form" disabled={saving} className="flex items-center justify-center gap-2 rounded-full bg-accent px-4 py-2.5 text-sm font-semibold text-black hover:bg-accent-hover disabled:opacity-50">{saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Save changes</button>
+        </div>}>
+      <form id="metadata-editor-form" onSubmit={submit} className="grid grid-cols-1 gap-6">
           {incoming && conflicts.length > 0 && (
             <section className="space-y-2 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 ">
               <div>
@@ -224,12 +218,7 @@ export default function MetadataEditorModal({
             </div>
           </details>
           {error && <p role="alert" className="text-sm text-danger ">{error}</p>}
-        </div>
-        <footer className="flex shrink-0 gap-2 bg-sidebar px-6 py-5 sm:px-8">
-          <button type="button" onClick={onClose} disabled={saving} className="rounded-lg border border-border px-4 py-2 text-sm text-muted hover:text-white disabled:opacity-50">Cancel</button>
-          <button type="submit" disabled={saving} className="flex flex-1 items-center justify-center gap-2 rounded-full bg-accent px-4 py-2.5 text-sm font-semibold text-black hover:bg-accent-hover disabled:opacity-50">{saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Save changes</button>
-        </footer>
       </form>
-    </div>
+    </PopupPage>
   );
 }

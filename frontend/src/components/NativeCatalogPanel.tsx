@@ -3,7 +3,7 @@ import {detailActionClass} from "../lib/detailActions";
 import AnimatedArtwork from "./AnimatedArtwork";
 import NativeScanProgress from "./NativeScanProgress";
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import PopupPage from "./PopupPage";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Trash2, X, ImagePlus, Plus } from "lucide-react";
 import { nativeLibraries, type NativeLibrary, type NativeCatalogEntry } from "../api/nativeLibraries";
@@ -19,12 +19,11 @@ export default function NativeCatalogPanel({library,onClose,onDeleted,embedded=f
  const scan=useMutation({mutationFn:()=>nativeLibraries.scan(library.id),onSuccess:()=>{void client.invalidateQueries({queryKey:["native-scan",library.id]});}});
  const remove=useMutation({mutationFn:()=>nativeLibraries.remove(library.id,library.revision),onSuccess:onDeleted});
  useEffect(()=>{if(status.data?.status&&status.data.status!=="scanning")void client.invalidateQueries({queryKey:["native-catalog",library.id]});},[status.data?.status,client,library.id]);
- useEffect(()=>{if(embedded)return;const previous=document.body.style.overflow;document.body.style.overflow="hidden";return()=>{document.body.style.overflow=previous;};},[embedded]);
+
  const visible=(catalog.data??[]).filter(e=>e.available&&(filter?e.title.toLowerCase().includes(filter.toLowerCase()):!e.parent_path));
  const updated=()=>{void client.invalidateQueries({queryKey:["native-catalog",library.id]});setSelected(null);};
- const panel = <div className={embedded ? "h-full" : "fixed inset-0 z-[85] flex items-center justify-center bg-black/70 backdrop-blur-sm sm:p-6"}><section role={embedded ? "region" : "dialog"} aria-modal={embedded ? undefined : true} aria-label={`${library.name} library`} className={embedded ? "flex h-full w-full flex-col overflow-hidden bg-panel" : "flex h-full w-full max-w-6xl flex-col overflow-hidden border border-edge bg-panel shadow-2xl sm:h-[90dvh] sm:rounded-2xl"}>
- <header className="flex flex-wrap items-center justify-between gap-3 border-b border-edge p-5"><div><h2 className="text-lg font-semibold text-white">{library.name}</h2><p className="mt-1 text-xs text-muted">Manual library · {catalog.data?.filter(e=>e.available).length??0} catalog items</p></div><div className="flex items-center gap-2"><button className={BUTTON} disabled={busy||scan.isPending||remove.isPending} onClick={()=>scan.mutate()}><RefreshCw className={`mr-2 inline size-4 ${busy?"animate-spin":""}`} />{busy?"Scanning…":"Scan library"}</button><button aria-label="Delete library" className={BUTTON} disabled={busy||remove.isPending} onClick={()=>setConfirm(true)} data-icon-button="true"><Trash2 className="size-4" /></button>{!embedded&&<button aria-label="Close library" className={BUTTON} onClick={onClose} data-icon-button="true"><X className="size-4" /></button>}</div></header>
- <main className="min-h-0 flex-1 overflow-y-auto p-5">
+ const actions = <div className="flex items-center gap-2"><button className={BUTTON} disabled={busy||scan.isPending||remove.isPending} onClick={()=>scan.mutate()}><RefreshCw className={`mr-2 inline size-4 ${busy?"animate-spin":""}`} />{busy?"Scanning…":"Scan library"}</button><button aria-label="Delete library" className={BUTTON} disabled={busy||remove.isPending} onClick={()=>setConfirm(true)} data-icon-button="true"><Trash2 className="size-4" /></button></div>;
+ const body =  <main className="h-full min-h-0 flex-1 overflow-y-auto p-5">
  {confirm&&<div role="alertdialog" aria-label="Delete library confirmation" className="mb-5 rounded-xl border border-danger/40 bg-base p-4"><h3 className="font-medium text-white">Delete {library.name}?</h3><p className="mt-2 text-sm text-muted">This removes the manual library and its catalog records. Media, NFO files, and local artwork stay on disk.</p><div className="mt-4 flex gap-2"><button className={BUTTON} disabled={remove.isPending} onClick={()=>setConfirm(false)}>Cancel</button><button className="rounded-xl bg-danger px-4 py-2 text-sm text-white disabled:opacity-50" disabled={remove.isPending} onClick={()=>remove.mutate()}>{remove.isPending?"Deleting…":"Delete library"}</button></div></div>}
  {(scan.error||remove.error||catalog.error||status.error)&&<p role="alert" className="mb-4 text-sm text-danger">{(scan.error||remove.error||catalog.error||status.error)?.message}</p>}
  {status.data&&<div className="mb-5 rounded-xl border border-edge bg-base p-4"><NativeScanProgress status={status.data} />{status.data.warnings.length>0&&<details className="mt-3 text-sm text-muted"><summary className="cursor-pointer">Review {status.data.warnings.length} scan notices</summary><ul className="mt-2 max-h-48 space-y-2 overflow-y-auto">{status.data.warnings.map((w,i)=><li key={i}>{w}</li>)}</ul></details>}</div>}
@@ -33,8 +32,9 @@ export default function NativeCatalogPanel({library,onClose,onDeleted,embedded=f
  {catalog.isPending&&<p role="status" className="text-muted">Loading catalog…</p>}
  {!catalog.isPending&&visible.length===0&&<p className="py-8 text-center text-muted">{busy?"Items will appear when the scan finishes.":"No matching items. Scan the library to discover media."}</p>}
  <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">{visible.slice(0,250).map(entry=><button key={entry.id} className="overflow-hidden rounded-xl border border-edge bg-base text-left hover:border-accent" onClick={()=>setSelected(entry)}><div className="flex aspect-[2/3] items-center justify-center bg-panel">{entry.artwork.some(a=>a.kind==="poster")?<AnimatedArtwork className="h-full w-full object-cover" alt="" src={`${nativeLibraries.artworkUrl(library.id,entry.id,"poster")}?v=${entry.revision}&format=${entry.artwork.find(a=>a.kind==="poster")?.path.split(".").pop()}`} />:<ImagePlus className="size-8 text-faint" />}</div><div className="p-3"><p className="truncate text-sm font-medium text-white">{entry.title}</p><p className="mt-1 text-xs text-muted">{entry.kind.replaceAll("_"," ")}{!entry.available?" · Missing from disk":""}</p></div></button>)}</div>{visible.length>250&&<p className="mt-4 text-sm text-muted">Showing 250 results. Refine your search to find more.</p>}</>}
- </main></section></div>;
- return embedded ? panel : createPortal(panel,document.body);
+ </main>;
+ return embedded ? <section role="region" aria-label={`${library.name} library`} className="flex h-full flex-col overflow-hidden bg-panel"><header className="flex flex-wrap items-center justify-between gap-3 border-b border-edge p-5"><div><h2 className="text-lg font-semibold text-white">{library.name}</h2><p className="mt-1 text-xs text-muted">Manual library · {catalog.data?.filter(e=>e.available).length??0} catalog items</p></div>{actions}</header>{body}</section> : <PopupPage title={library.name} description={`Manual library · ${catalog.data?.filter(e=>e.available).length??0} catalog items`} onClose={onClose} closeLabel="Close library" headerActions={actions} bodyClassName="overflow-hidden p-0">{body}</PopupPage>;
+
 }
 const specialPlacementFields=["airs_before_season","airs_before_episode","airs_after_season"] as const;
 export function EntryEditor({library,entry,busy,onSaved,dialog=false}:{library:NativeLibrary;entry:NativeCatalogEntry;busy:boolean;onSaved:()=>void;dialog?:boolean}){

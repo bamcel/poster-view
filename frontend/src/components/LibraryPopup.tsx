@@ -1,21 +1,13 @@
-import { useRef, type ReactNode, type CSSProperties } from "react";
-import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { useState, type ReactNode, type CSSProperties } from "react";
+import PopupPage from "./PopupPage";
+import {ACTION_BUTTON} from "./ui";
 
-export default function LibraryPopup({ title, label, icon, children, style, editorStyle=false }: { title: string; label: string; icon: ReactNode; children: ReactNode; style?: CSSProperties; editorStyle?:boolean }) {
-  const dialog = useRef<HTMLDialogElement>(null);
+
+export default function LibraryPopup({ title, label, icon, children, style, editorStyle: _editorStyle=false }: { title: string; label: string; icon: ReactNode; children: ReactNode; style?: CSSProperties; editorStyle?:boolean }) {
+  const [open,setOpen]=useState(false);
   return <>
-    <button type="button" style={style} aria-label={label} title={title} onClick={() => dialog.current?.showModal()}
+    <button type="button" style={style} aria-label={label} title={title} onClick={() => setOpen(true)}
       className="pv-profile-trigger grid size-10 shrink-0 place-items-center rounded-full text-white focus-visible:outline-accent">{icon}</button>
-    {createPortal(<dialog ref={dialog} aria-label={title}
-      onClick={e => { if (e.target === e.currentTarget) dialog.current?.close(); }}
-      className="pv-popup-page fixed inset-0 m-auto overflow-y-auto rounded-2xl border border-border bg-sidebar p-0 text-white shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm">
-      <div className={editorStyle?"p-6 sm:px-10 sm:py-6":"p-5 sm:p-6"}>
-        <header className={`mb-5 flex items-center gap-4 ${editorStyle?"flex-row-reverse justify-end":"justify-between"}`}><h2 className="text-lg font-semibold">{title}</h2>
-          <button type="button" aria-label={`Close ${title}`} onClick={() => dialog.current?.close()} className="rounded-lg p-2 text-muted hover:bg-surface-2 hover:text-white" data-icon-button="true"><X className="size-5" /></button>
-        </header>
-        {children}
-      </div>
-    </dialog>, document.body)}
+    {open&&<PopupPage title={title} onClose={()=>setOpen(false)} dismissOnBackdrop footer={<><span/><button className={ACTION_BUTTON} onClick={()=>setOpen(false)}>Done</button></>}>{children}</PopupPage>}
   </>;
 }

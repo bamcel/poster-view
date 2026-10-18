@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type UserAccount, type UserInput, type UserRole } from "../api/client";
 import { nativeLibraries } from "../api/nativeLibraries";
 
 import { useAutoSave } from "../lib/useAutoSave";
 import AutoSaveStatus from "./AutoSaveStatus";
+import PopupPage from "./PopupPage";
+import {ACTION_BUTTON} from "./ui";
 
 const inputClass = "w-full rounded-lg border border-border bg-input px-3 py-2";
 const movieRatings = ["G", "PG", "PG-13", "R", "NC-17"];
@@ -26,54 +28,6 @@ function newUser(): UserInput {
       max_playback_streams: 5,
     },
   };
-}
-
-function UserDialog({ title, busy, onClose, children }: {
-  title: string; busy: boolean; onClose: () => void; children: ReactNode;
-}) {
-  const dialog = useRef<HTMLDivElement>(null);
-  const close = useRef(onClose);
-  close.current = onClose;
-  const pending = useRef(busy);
-  pending.current = busy;
-  useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const focusable = () => Array.from(dialog.current?.querySelectorAll<HTMLElement>(
-      'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]',
-    ) ?? []);
-    (dialog.current?.querySelector<HTMLElement>("input") ?? dialog.current)?.focus();
-    function keydown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        if (!pending.current) close.current();
-      }
-      if (event.key === "Tab") {
-        const elements = focusable();
-        const first = elements[0];
-        const last = elements[elements.length - 1];
-        if (!first) { event.preventDefault(); dialog.current?.focus(); }
-        else if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
-          event.preventDefault(); last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault(); first.focus();
-        }
-      }
-    }
-    document.addEventListener("keydown", keydown);
-    return () => {
-      document.removeEventListener("keydown", keydown);
-      document.body.style.overflow = previousOverflow;
-      if (previous?.isConnected) previous.focus();
-    };
-  }, []);
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-    <div ref={dialog} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}
-      className="settings-user-dialog flex max-h-[90dvh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
-      {children}
-    </div>
-  </div>;
 }
 
 function ExistingUserAutoSave({account,form,onSaved,onBusy}:{account:UserAccount;form:UserInput;onSaved:(account:UserAccount)=>void;onBusy:(busy:boolean)=>void}) {
@@ -218,27 +172,15 @@ export default function UsersSection() {
         ))}
       </div>
       {deleting && (
-        <UserDialog title="Delete user" busy={busy} onClose={() => { setDeleting(null); setError(""); }}>
-          <header className="border-b border-border p-5"><h2 className="text-xl font-semibold">Delete user</h2></header>
-          <div className="overflow-y-auto p-5">
+        <PopupPage title="Delete user" layout="compact" closeDisabled={busy} onClose={() => { setDeleting(null); setError(""); }} footer={<><button className={ACTION_BUTTON} disabled={busy} onClick={() => { setDeleting(null); setError(""); }}>Cancel deletion</button><button disabled={busy} onClick={() => void remove()} className={`${ACTION_BUTTON} bg-danger`}>Confirm deletion</button></>}>
           {error && <p role="alert" className="mb-4 text-danger">{error}</p>}
           <p>Delete {deleting.display_name}? Their account will be removed and they will lose access.</p>
-          </div>
-          <footer className="flex shrink-0 gap-3 border-t border-border p-5">
-            <button disabled={busy} onClick={() => void remove()} className="rounded-lg bg-danger px-4 py-2">Confirm deletion</button>
-            <button disabled={busy} onClick={() => { setDeleting(null); setError(""); }}>Cancel deletion</button>
-          </footer>
-        </UserDialog>
+        </PopupPage>
       )}
       {editing !== undefined && (
-        <UserDialog title={editing ? `Edit ${editing.display_name}` : "Create user"} busy={busy || autoBusy} onClose={() => { setEditing(undefined); setError(""); }}>
-        <form onSubmit={event=>{if(editing&&!form.password){event.preventDefault();return;}void save(event);}} className="flex min-h-0 flex-col">
-          <header className="flex shrink-0 items-start justify-between gap-4 border-b border-border p-5">
-            <div><h2 className="text-xl font-semibold">{editing ? `Edit ${editing.display_name}` : "Create user"}</h2>
-              <p className="mt-1 text-sm text-muted">Server account · Changes apply to this user on every device.</p></div>
-            <button type="button" disabled={busy || autoBusy} aria-label="Close user editor" className="rounded-lg border border-border px-3 py-2" onClick={() => { setEditing(undefined); setError(""); }}>×</button>
-          </header>
-          <fieldset disabled={busy} className="min-h-0 space-y-5 overflow-y-auto p-5">
+        <PopupPage title={editing ? `Edit ${editing.display_name}` : "Create user"} description="Server account · Changes apply to this user on every device." closeLabel="Close user editor" closeDisabled={busy || autoBusy} onClose={() => { setEditing(undefined); setError(""); }} footer={<><button type="button" className={ACTION_BUTTON} disabled={busy || autoBusy} onClick={() => { setEditing(undefined); setError(""); }}>Cancel</button>{(!editing || !!form.password) && <button type="submit" form="user-editor" disabled={busy || autoBusy || (!!editing && form.password.length<8)} className={`${ACTION_BUTTON} bg-accent font-medium text-black`}>{busy ? "Saving…" : editing?"Update password":"Save user"}</button>}</>}>
+        <form id="user-editor" onSubmit={event=>{if(editing&&!form.password){event.preventDefault();return;}void save(event);}}>
+          <fieldset disabled={busy} className="space-y-5">
           {error && <p role="alert" className="text-danger">{error}</p>}
           {notice && <p role="status" className="text-accent">{notice}</p>}
           {editing && <ExistingUserAutoSave key={editing.id} account={editing} form={form} onSaved={account=>setEditing(current=>current?.id===account.id?{...current,revision:account.revision}:current)} onBusy={setAutoBusy}/>}
@@ -340,14 +282,8 @@ export default function UsersSection() {
             </>
           )}
           </fieldset>
-          <footer className="flex shrink-0 items-center justify-end gap-4 border-t border-border p-5">
-            {(!editing || !!form.password) && <button type="submit" disabled={busy || autoBusy || (!!editing && form.password.length<8)} className="rounded-lg bg-accent px-4 py-2 font-medium text-black">
-              {busy ? "Saving…" : editing?"Update password":"Save user"}
-            </button>}
-            <button type="button" disabled={busy || autoBusy} onClick={() => { setEditing(undefined); setError(""); }}>Cancel</button>
-          </footer>
         </form>
-        </UserDialog>
+        </PopupPage>
       )}
     </div>
   );

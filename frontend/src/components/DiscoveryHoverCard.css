@@ -38,6 +38,4 @@
 .pv-discovery-hover-plot{color:#d0d6da}
 .pv-discovery-hover-actions>:is(a,button){border-color:#ffffff24;background:#ffffff05;transition:background .18s,border-color .18s}
 .pv-discovery-hover-actions>:is(a,button):hover:not(:disabled){background:#ffffff12;border-color:#ffffff45}
-.pv-discovery-hover-actions>.pv-discovery-hover-play:first-child:not(:has(+.pv-discovery-hover-play)),.pv-discovery-hover-actions>.pv-discovery-hover-play+.pv-discovery-hover-play{background:var(--color-accent,#7d9d78);border-color:transparent;color:#101810}
-.pv-discovery-hover-actions>.pv-discovery-hover-play:first-child:not(:has(+.pv-discovery-hover-play)):hover:not(:disabled),.pv-discovery-hover-actions>.pv-discovery-hover-play+.pv-discovery-hover-play:hover:not(:disabled){background:color-mix(in srgb,var(--color-accent,#7d9d78),white 12%);border-color:transparent}
 @media(prefers-reduced-motion:reduce){.pv-discovery-hover-actions>:is(a,button){transition:none}}

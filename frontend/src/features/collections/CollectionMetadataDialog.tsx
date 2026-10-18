@@ -1,17 +1,17 @@
+import {ACTION_BUTTON} from "../../components/ui";
+import PopupPage from "../../components/PopupPage";
 import SearchField from "../../components/SearchField";
 import {useEffect,useState} from "react";
 import {useQueryClient} from "@tanstack/react-query";
 import {collectionsApi,type Collection,type MetadataCandidate} from "./client";
-import {useCollectionDialog} from "./useCollectionDialog";
 import {useActivity} from "../activity/ActivityContext";
-const button="rounded-full border border-border px-4 py-2 text-sm hover:bg-elevated disabled:opacity-50";
+const button=ACTION_BUTTON;
 const field="mt-1 w-full rounded border border-border bg-input p-2";
 const fields=["title","overview","poster","backdrop"];
 export default function CollectionMetadataDialog({collection,mode,onClose}:{collection:Collection;mode:"identify"|"refresh"|"locks";onClose:()=>void}){
  const client=useQueryClient(),{publish}=useActivity();
  const [searched,setSearched]=useState(false);
  const [provider,setProvider]=useState<"tmdb"|"tvdb">(collection.metadata?.provider==="tvdb"?"tvdb":"tmdb"),[query,setQuery]=useState(collection.title),[results,setResults]=useState<MetadataCandidate[]>([]),[preview,setPreview]=useState<Awaited<ReturnType<typeof collectionsApi.previewMetadata>>|null>(null),[locks,setLocks]=useState<string[]>(collection.metadata?.locks??[]),[addMembers,setAddMembers]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState("");
- const dialog=useCollectionDialog(onClose,busy);
  const activity=(state:"running"|"completed"|"failed",detail:string)=>{if(mode==="locks")publish(`collection-metadata:${collection.id}`,[{id:collection.id,title:`${collection.title} field locks`,detail,state,adminOnly:true,href:`/collections/${encodeURIComponent(collection.id)}`,updatedAt:Date.now()}]);};
  const load=async(candidate:Pick<MetadataCandidate,"provider"|"provider_id">)=>{setBusy(true);setError("");try{setPreview(await collectionsApi.previewMetadata(collection.id,candidate));}catch{setError("Could not preview collection metadata. Please try again.");}finally{setBusy(false);}};
  useEffect(()=>{if(mode==="refresh"&&collection.metadata?.provider_id)void load({provider:collection.metadata.provider as "tmdb"|"tvdb",provider_id:collection.metadata.provider_id});},[]);
@@ -24,9 +24,7 @@ export default function CollectionMetadataDialog({collection,mode,onClose}:{coll
   if(mode!=="locks")await client.invalidateQueries({queryKey:["durable-jobs"]});
   activity("completed","Field locks saved");onClose();
  }catch{setError("Could not save collection metadata. Refresh the collection and try again.");activity("failed","Collection metadata could not be updated");}finally{setBusy(false);}};
- return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"><section ref={dialog} role="dialog" aria-modal="true" aria-label={mode==="locks"?"Collection field locks":mode==="refresh"?"Refresh collection metadata":"Identify collection"} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-sidebar p-6">
-  <h2 className="text-xl font-semibold">{mode==="locks"?"Field locks":mode==="refresh"?"Refresh metadata":"Identify collection"}</h2>
-  {mode!=="locks"&&<p className="mt-2 text-xs text-muted">Uses the credentials configured in Search Providers. Locked fields retain their current values.</p>}
+ return <PopupPage title={mode==="locks"?"Collection field locks":mode==="refresh"?"Refresh collection metadata":"Identify collection"} description={mode!=="locks"?"Uses the credentials configured in Search Providers. Locked fields retain their current values.":undefined} closeDisabled={busy} onClose={onClose} footer={<><button className={button} disabled={busy} onClick={onClose}>Cancel</button><button className={button} disabled={busy||(mode!=="locks"&&!preview)} onClick={()=>void save()}>{mode==="locks"?"Save locks":"Apply metadata"}</button></>}>
   {mode==="identify"&&<form className="mt-4 space-y-3" onSubmit={event=>{event.preventDefault();void search();}}><label className="block">Provider<select className={field} disabled={busy} value={provider} onChange={event=>{setProvider(event.target.value as "tmdb"|"tvdb");setResults([]);setPreview(null);setSearched(false);}}><option value="tmdb">TMDB</option><option value="tvdb">TVDB</option></select></label><label className="block">{provider==="tvdb"?"List name, slug, or ID":"Search collections"}<SearchField containerClassName="mt-1" disabled={busy} value={query} onChange={event=>setQuery(event.target.value)}/></label>{provider==="tvdb"&&<p className="text-sm text-muted">TVDB uses an exact list lookup. Names are converted to a list slug.</p>}<button className={button} disabled={busy||!query.trim()}>Search</button></form>}
   {mode==="refresh"&&!collection.metadata?.provider_id&&<p className="mt-3 text-muted">Identify this collection before refreshing its metadata.</p>}
   {mode==="identify"&&searched&&!results.length&&!busy&&<p className="mt-3 text-muted">No matching collections found.</p>}
@@ -35,6 +33,6 @@ export default function CollectionMetadataDialog({collection,mode,onClose}:{coll
   {preview&&preview.matches.length>0&&<details className="mt-3 text-sm"><summary className="cursor-pointer">Review matched library titles</summary><ul className="mt-2 max-h-40 overflow-y-auto rounded border border-border p-3">{preview.matches.map(member=><li key={`${member.library_id}:${member.item_id}`} className="py-1">{member.entry.title}<span className="ml-2 text-xs text-muted">{member.library_name}</span></li>)}</ul></details>}
   <fieldset className="mt-5"><legend className="font-medium">Locked fields</legend><p className="mt-1 text-sm text-muted">Locked fields keep their current values when metadata is applied.</p><div className="mt-2 flex flex-wrap gap-4">{fields.map(name=><label key={name} className="flex items-center gap-2 capitalize"><input type="checkbox" disabled={busy} checked={locks.includes(name)} onChange={event=>setLocks(previous=>event.target.checked?[...previous,name]:previous.filter(value=>value!==name))}/>{name}</label>)}</div></fieldset>
   {busy&&<p role="status" className="mt-3">Working…</p>}{error&&<p role="alert" className="mt-3 text-danger">{error}</p>}
-  <footer className="mt-5 flex gap-3"><button className={button} disabled={busy||(mode!=="locks"&&!preview)} onClick={()=>void save()}>{mode==="locks"?"Save locks":"Apply metadata"}</button><button className={button} disabled={busy} onClick={onClose}>Cancel</button></footer>
- </section></div>;
+
+ </PopupPage>;
 }

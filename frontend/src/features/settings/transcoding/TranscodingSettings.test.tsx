@@ -65,7 +65,7 @@ it("links configuration areas without discarding edits",async()=>{
     expect(document.querySelector(link.getAttribute("href")!)).not.toBeNull();
   }
   fireEvent.click(screen.getByRole("link",{name:"Hardware"}));
-  expect((screen.getByRole("switch",{name:"Allow audio-only transcoding"}) as HTMLInputElement).checked).toBe(true);
+  expect(screen.getByRole("switch",{name:"Allow audio-only transcoding"}).getAttribute("aria-checked")).toBe("true");
   expect(vi.mocked(apiRequest).mock.calls.some(([,options])=>options?.method==="PUT")).toBe(false);
   client.clear();
 });
@@ -77,7 +77,7 @@ it("preserves edits on refetch and automatically saves the draft",async()=>{
   expect(vi.mocked(apiRequest).mock.calls.some(([,options])=>options?.method==="PUT")).toBe(false);
   fireEvent.click(toggle);
   client.setQueryData(["transcoding-settings"],{...settings,max_concurrent:4});
-  await waitFor(()=>expect((toggle as HTMLInputElement).checked).toBe(true));
+  await waitFor(()=>expect(toggle.getAttribute("aria-checked")).toBe("true"));
   await screen.findByText("Changes saved automatically");
   const write=vi.mocked(apiRequest).mock.calls.find(([,options])=>options?.method==="PUT")!;
   expect(JSON.parse(String(write[1]?.body))).toMatchObject({allow_audio_transcoding:true,max_concurrent:2});

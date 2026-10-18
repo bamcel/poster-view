@@ -187,9 +187,9 @@ it.each(["/media/Anime/title","/server/7/item/show","/server/7/series/show/seaso
  expect(screen.queryByRole("button",{name:"Duplicate Back"})).toBeNull();
 });
 
-it("places library search in the same header as navigation and account controls",async()=>{
+it.each(["/media/Anime/season","/collections"])("places search in the shared top toolbar on %s",async path=>{
  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
- render(<MemoryRouter initialEntries={["/media/Anime/season"]}><AuthGate><Layout><HeaderSearchControl><input aria-label="Search episodes"/></HeaderSearchControl></Layout></AuthGate></MemoryRouter>);
+ render(<MemoryRouter initialEntries={[path]}><AuthGate><Layout><HeaderSearchControl><input aria-label="Search episodes"/></HeaderSearchControl></Layout></AuthGate></MemoryRouter>);
  const input=await screen.findByRole("textbox",{name:"Search episodes"});
  expect(within(screen.getByRole("banner")).getByRole("textbox",{name:"Search episodes"})).toBe(input);
  expect(screen.getAllByRole("textbox",{name:"Search episodes"})).toHaveLength(1);
