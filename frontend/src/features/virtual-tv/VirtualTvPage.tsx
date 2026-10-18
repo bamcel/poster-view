@@ -2,14 +2,14 @@ import {useCollections} from "../collections/client";
 import {HeaderBackdropContext,headerBackdropStyle} from "../../lib/headerBackdrop";
 import {useCallback,useContext,useEffect,useState,type FormEvent} from "react";
 import {useMutation,useQueries,useQuery,useQueryClient} from "@tanstack/react-query";
-import {Link,useNavigate} from "react-router-dom";
+import {Link} from "react-router-dom";
 import {Tv,Plus,Pencil,Trash2} from "lucide-react";
 import {nativeLibraries,type NativeCatalogEntry} from "../../api/nativeLibraries";
 import {useIsAdmin} from "../../lib/authContext";
 import {virtualTv,type Channel,type ChannelInput,type Program,type YoutubePlaylistSelection} from "./client";
 import {isChannelSource} from "./sources";
 import YoutubePlaylistSources from "./YoutubePlaylistSources";
-import LiveChannelPreview,{stopLivePreviews} from "./LiveChannelPreview";
+import LiveChannelPreview from "./LiveChannelPreview";
 import "./VirtualTvPage.css";
 
 const button="rounded-lg border border-border px-3 py-2 text-sm hover:bg-elevated disabled:opacity-50";
@@ -30,7 +30,7 @@ function ProgramImage({channel,program,clock,preview}:{channel:Channel;program:P
 }
 
 export default function VirtualTvPage(){
- const admin=useIsAdmin(),client=useQueryClient(),navigate=useNavigate();
+ const admin=useIsAdmin(),client=useQueryClient();
  const setHeaderBackdrop=useContext(HeaderBackdropContext);
  const [preferencesOpen,setPreferencesOpen]=useState(false);
  const [previewEnabled,setPreviewEnabled]=useState(()=>{try{return localStorage.getItem("posterview-virtual-tv-live-preview")!=="false";}catch{return true;}});
@@ -56,11 +56,6 @@ export default function VirtualTvPage(){
  useEffect(()=>{const timer=window.setInterval(()=>setClock(Date.now()),15000);return()=>clearInterval(timer);},[]);
  const error=settings.error||channels.error||remove.error;
  const changeWindow=(value:number)=>{setWindowStart(value);setFocusedProgram("");};
- const playProgram=async(channel:Channel,program:Program)=>{
-  const now=Date.now(),airing=Date.parse(program.starts_at)<=now&&Date.parse(program.ends_at)>now;
-  await stopLivePreviews();
-  navigate(airing?`/play/virtual-tv/${encodeURIComponent(channel.id)}`:`/play/native/${encodeURIComponent(program.library_id)}/${encodeURIComponent(program.item_id)}?start=0&return=%2Fvirtual-tv`);
- };
  const nowOffset=(clock-windowStart)/WINDOW_MS*100;
  const selectedArtwork=enabled&&!channels.error&&!selectedGuide?.error?featured?.artwork_url:null;
  const backdrop=selectedArtwork?`${selectedArtwork}${selectedArtwork.includes("?")?"&":"?"}kind=backdrop`:null;
@@ -74,7 +69,7 @@ export default function VirtualTvPage(){
  <section aria-label="TV guide" className="mb-7"><header className="vtv-guide-controls"><div className="flex flex-wrap items-center gap-2"><button className={button} aria-label="Previous 3 hours" onClick={()=>changeWindow(windowStart-WINDOW_MS)}>←</button><button className={button} onClick={()=>changeWindow(roundWindow(Date.now()))}>Now</button><button className={button} aria-label="Next 3 hours" onClick={()=>changeWindow(windowStart+WINDOW_MS)}>→</button></div><p className="text-xs text-muted">{time(from)} – {time(until)} · Local time</p></header>
  {channels.isPending&&<p role="status">Loading channels…</p>}{channels.data?.length===0&&<p className="text-muted">No channels available.{admin&&" Create a channel to get started."}</p>}
  {visible.length>0&&<div className="vtv-guide-scroll"><div className="vtv-guide" role="table" aria-label="Channel schedule"><div role="row" className="vtv-row vtv-times"><div role="columnheader" className="vtv-channel-heading">Channels</div><div className="vtv-time-track" role="columnheader" aria-label="Program times">{Array.from({length:6},(_,index)=><span key={index} className="vtv-time" style={{left:`${index/6*100}%`}}>{time(new Date(windowStart+index*WINDOW_MS/6).toISOString())}</span>)}{nowOffset>=0&&nowOffset<100&&<span className="vtv-now" style={{left:`${nowOffset}%`}}>Now</span>}</div></div>
- {visible.map((channel,index)=>{const guide=guides[index];const rowPrograms=guide.error?[]:(guide.data??[]).filter(program=>inWindow(program,windowStart,windowEnd));return <div role="row" key={channel.id} className="vtv-row"><div role="rowheader" className="vtv-channel"><span className="vtv-channel-number" aria-hidden="true">{channel.number}</span><button aria-label={`Select channel ${channel.number} ${channel.name}`} aria-pressed={current?.id===channel.id} title={channel.name} className="vtv-channel-button" onClick={()=>{setSelected(channel.id);setFocusedProgram("");setWindowStart(roundWindow(Date.now()));}}><span className="vtv-channel-name">{channel.name}</span></button></div><div role="cell" className="vtv-program-track">{guide.error?<p className="p-3 text-sm text-red-400">Guide unavailable. {String(guide.error)}</p>:guide.isPending?<p role="status" className="p-3 text-sm text-muted">Loading guide…</p>:rowPrograms.length===0?<p className="p-3 text-sm text-muted">No scheduled programs</p>:rowPrograms.map(program=>{const start=Math.max(windowStart,Date.parse(program.starts_at)),end=Math.min(windowEnd,Date.parse(program.ends_at)),active=current.id===channel.id&&featured?.id===program.id;return <button key={program.id} title={`${program.title} · ${time(program.starts_at)} – ${time(program.ends_at)}`} aria-label={`${channel.name}: ${program.title}, ${time(program.starts_at)} to ${time(program.ends_at)}`} aria-pressed={active} onClick={()=>{setSelected(channel.id);setFocusedProgram(program.id);}} onDoubleClick={()=>void playProgram(channel,program)} className={`vtv-program${active?" vtv-program-selected":""}`} style={{left:`${(start-windowStart)/WINDOW_MS*100}%`,width:`calc(${(end-start)/WINDOW_MS*100}% - 6px)`}}><span>{program.title}</span></button>;})}{nowOffset>=0&&nowOffset<100&&<span aria-hidden="true" className="vtv-now-line" style={{left:`${nowOffset}%`}}/>}</div></div>;})}</div></div>}
+ {visible.map((channel,index)=>{const guide=guides[index];const rowPrograms=guide.error?[]:(guide.data??[]).filter(program=>inWindow(program,windowStart,windowEnd));return <div role="row" key={channel.id} className="vtv-row"><div role="rowheader" className="vtv-channel"><span className="vtv-channel-number" aria-hidden="true">{channel.number}</span><button aria-label={`Select channel ${channel.number} ${channel.name}`} aria-pressed={current?.id===channel.id} title={channel.name} className="vtv-channel-button" onClick={()=>{setSelected(channel.id);setFocusedProgram("");setWindowStart(roundWindow(Date.now()));}}><span className="vtv-channel-name">{channel.name}</span></button></div><div role="cell" className="vtv-program-track">{guide.error?<p className="p-3 text-sm text-red-400">Guide unavailable. {String(guide.error)}</p>:guide.isPending?<p role="status" className="p-3 text-sm text-muted">Loading guide…</p>:rowPrograms.length===0?<p className="p-3 text-sm text-muted">No scheduled programs</p>:rowPrograms.map(program=>{const start=Math.max(windowStart,Date.parse(program.starts_at)),end=Math.min(windowEnd,Date.parse(program.ends_at)),active=current.id===channel.id&&featured?.id===program.id;return <button key={program.id} title={`${program.title} · ${time(program.starts_at)} – ${time(program.ends_at)}`} aria-label={`${channel.name}: ${program.title}, ${time(program.starts_at)} to ${time(program.ends_at)}`} aria-pressed={active} onClick={()=>{setSelected(channel.id);setFocusedProgram(program.id);}} className={`vtv-program${active?" vtv-program-selected":""}`} style={{left:`${(start-windowStart)/WINDOW_MS*100}%`,width:`calc(${(end-start)/WINDOW_MS*100}% - 6px)`}}><span>{program.title}</span></button>;})}{nowOffset>=0&&nowOffset<100&&<span aria-hidden="true" className="vtv-now-line" style={{left:`${nowOffset}%`}}/>}</div></div>;})}</div></div>}
  {pageCount>1&&<nav aria-label="Channel pages" className="mt-3 flex items-center justify-end gap-3"><button className={button} disabled={activePage===0} onClick={()=>{setPage(activePage-1);setSelected("");setFocusedProgram("");}}>Previous channels</button><span className="text-sm text-muted">Page {activePage+1} of {pageCount}</span><button className={button} disabled={activePage+1>=pageCount} onClick={()=>{setPage(activePage+1);setSelected("");setFocusedProgram("");}}>Next channels</button></nav>}</section>
  </>}
  {enabled&&preferencesOpen&&<GuidePreferences previewEnabled={previewEnabled} onPreviewChange={togglePreview} onClose={()=>setPreferencesOpen(false)}/>}

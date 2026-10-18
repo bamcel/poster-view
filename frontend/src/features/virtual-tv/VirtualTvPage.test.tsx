@@ -31,14 +31,16 @@ function mount(role:"user"|"admin"="user",onBackdrop:((url:string|null)=>void)|n
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
  return {...render(<AuthSessionContext.Provider value={{user:{role}} as AuthSession}><QueryClientProvider client={client}><MemoryRouter><Destination/><HeaderBackdropContext.Provider value={onBackdrop}><VirtualTvPage/></HeaderBackdropContext.Provider></MemoryRouter></QueryClientProvider></AuthSessionContext.Provider>),client};
 }
-it("double clicks the airing program to watch the live channel",async()=>{
+it("only starts main playback when Watch live is clicked",async()=>{
  mount();fireEvent.doubleClick(await screen.findByRole("button",{name:/Comedy: Pilot,/}));
+ expect(screen.getByLabelText("Playback destination").textContent).toBe("/");
+ fireEvent.click(screen.getByRole("link",{name:"Watch Comedy live"}));
  await waitFor(()=>expect(screen.getByLabelText("Playback destination").textContent).toBe("/play/virtual-tv/comedy"));
 });
-it("double clicks a future program to play that item from the beginning",async()=>{
+it("does not start playback when a future program is double clicked",async()=>{
  vi.mocked(virtualTv.guide).mockResolvedValue([{id:"future",library_id:"tv",item_id:"next/episode",title:"Future",series_title:"Example",season:1,episode:2,starts_at:new Date(Date.now()+60000).toISOString(),ends_at:new Date(Date.now()+120000).toISOString(),artwork_url:null}]);
  mount();fireEvent.doubleClick(await screen.findByRole("button",{name:/Comedy: Future,/}));
- await waitFor(()=>expect(screen.getByLabelText("Playback destination").textContent).toBe("/play/native/tv/next%2Fepisode?start=0&return=%2Fvirtual-tv"));
+ expect(screen.getByLabelText("Playback destination").textContent).toBe("/");
 });
 it("automatically starts the selected airing preview when the preference is already enabled",async()=>{
  localStorage.setItem("posterview-virtual-tv-live-preview","true");mount();
@@ -267,4 +269,15 @@ it("autoplays the selected live program by default without hover",async()=>{
  mount();
  expect(await screen.findByLabelText("Live preview comedy")).toBeTruthy();
  expect(localStorage.getItem("posterview-virtual-tv-live-preview")).toBeNull();
+});
+
+it("switches only the preview when selecting another channel",async()=>{
+ vi.mocked(virtualTv.channels).mockResolvedValue([channel,{...channel,id:"news",name:"News",number:3}]);
+ mount();expect(await screen.findByLabelText("Live preview comedy")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Select channel 3 News"}));
+ expect(await screen.findByLabelText("Live preview news")).toBeTruthy();
+ expect(screen.queryByLabelText("Live preview comedy")).toBeNull();
+ expect(screen.getByLabelText("Playback destination").textContent).toBe("/");
+ fireEvent.click(screen.getByRole("link",{name:"Watch News live"}));
+ await waitFor(()=>expect(screen.getByLabelText("Playback destination").textContent).toBe("/play/virtual-tv/news"));
 });
