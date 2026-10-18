@@ -112,7 +112,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           <NavLink to="/" aria-label="Go to Home" className="block w-fit">
             <Logo />
           </NavLink>
-          <div className="mt-1 whitespace-nowrap text-left text-xs text-faint">{isAdmin?"Artwork Management Console":"Your media library"}</div>
+          <div className="mt-1 whitespace-nowrap text-left text-xs text-faint">Your Library. Your Style.</div>
         </div>
 
         <nav className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto [&>a]:shrink-0">

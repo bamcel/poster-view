@@ -1,3 +1,5 @@
+import LibraryPopup from "../components/LibraryPopup";
+import {useHomepageBannerLogo} from "../lib/homepagePreferences";
 import SearchField from "../components/SearchField";
 import CardActionMenu from "../components/CardActionMenu";
 import HomeBackground from "../components/HomeBackground";
@@ -13,7 +15,7 @@ import {Link, useSearchParams} from "../lib/libraryNavigation";
 import {useContext,useEffect,useState} from "react";
 import {createPortal} from "react-dom";
 import {HeaderSearchTarget} from "../lib/headerSearch";
-import {X, Film} from "lucide-react";
+import {X, Film, MoreHorizontal} from "lucide-react";
 import {useQueries, useQuery,useQueryClient} from "@tanstack/react-query";
 import LibraryPosterStrip from "../components/LibraryPosterStrip";
 import {nativeLibraries, type NativeLibrary} from "../api/nativeLibraries";
@@ -36,6 +38,7 @@ function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:Native
 }
 function LibraryHome(){
  const searchTarget=useContext(HeaderSearchTarget);
+ const [bannerLogo,setBannerLogo]=useHomepageBannerLogo();
  const user=useContext(AuthSessionContext)?.user;
  const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,select:items=>items.filter(library=>!user||user.role==="admin"||user.permissions.all_libraries||user.permissions.library_ids.includes(library.id))});
  const [search,setSearch]=useState("");
@@ -48,11 +51,15 @@ function LibraryHome(){
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
  const bannerLoading=libraries.isPending||catalogs.some((catalog,index)=>!["books","youtube"].includes(libraries.data![index].library_type)&&catalog.isPending);
  const featured=!term&&(bannerLoading||titles.length>0);
- const searchControl=<div role="search" className="flex min-h-11 min-w-0 items-center">
+ const searchControl=<div role="search" className="flex min-h-11 min-w-0 items-center gap-2">
    <div className="relative mx-auto w-full max-w-[21rem]">
     <SearchField aria-label="Search all libraries" placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} trailing={search&&<button type="button" aria-label="Clear search" onClick={()=>setSearch("")} className="text-muted hover:text-white" data-icon-button="true"><X className="size-4"/></button>}/>
 
    </div>
+   <LibraryPopup title="Homepage preferences" label="Homepage preferences" icon={<MoreHorizontal className="size-4"/>}>
+    <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-accent" checked={bannerLogo} onChange={event=>setBannerLogo(event.target.checked)}/>Use title logos in the featured banner</label>
+    <p className="mt-3 text-xs text-muted">Show the title’s logo when available, with text as a fallback. Saved for your account in this browser.</p>
+   </LibraryPopup>
   </div>;
  return <main className="relative z-10 h-full overflow-y-auto pt-5 pb-8">
   <HomeBackground libraries={libraries.data??[]}/>

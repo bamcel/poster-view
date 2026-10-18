@@ -21,3 +21,16 @@ export function useHomepageNavigation():[boolean,(open:boolean)=>void]{
   },[key]);
   return [open,setOpen];
 }
+
+export function useHomepageBannerLogo():[boolean,(enabled:boolean)=>void]{
+ const session=useContext(AuthSessionContext);
+ const key=`posterview:homepage-banner-logo:${session?.user?.id??"local"}`;
+ const read=useCallback(()=>{try{return localStorage.getItem(key)==="true";}catch{return false;}},[key]);
+ const subscribe=useCallback((notify:()=>void)=>{
+  window.addEventListener("storage",notify);window.addEventListener("posterview:homepage-banner-changed",notify);
+  return()=>{window.removeEventListener("storage",notify);window.removeEventListener("posterview:homepage-banner-changed",notify);};
+ },[]);
+ const enabled=useSyncExternalStore(subscribe,read,()=>false);
+ const setEnabled=useCallback((next:boolean)=>{try{localStorage.setItem(key,String(next));}catch{/* Storage may be unavailable. */}window.dispatchEvent(new Event("posterview:homepage-banner-changed"));},[key]);
+ return [enabled,setEnabled];
+}

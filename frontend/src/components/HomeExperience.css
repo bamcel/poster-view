@@ -36,3 +36,5 @@
 @media(prefers-reduced-motion:reduce){.pv-home-edge-arrow{transition:none}}
 
 .pv-home-library-grid{display:grid;grid-template-columns:repeat(auto-fill,var(--home-card-width));column-gap:8px;row-gap:24px;padding:4px 4px 12px}
+
+.pv-home-hero-content h2 .pv-home-featured-logo{display:block;width:auto;max-width:min(100%,28rem);height:auto;max-height:10rem;object-fit:contain;object-position:left center}

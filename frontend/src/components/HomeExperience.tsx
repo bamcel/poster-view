@@ -1,3 +1,4 @@
+import {useHomepageBannerLogo} from "../lib/homepagePreferences";
 import SeriesBannerPlay from "./SeriesBannerPlay";
 import {useFeaturedRotation} from "../lib/useFeaturedRotation";
 import HomeMediaRow from "./HomeMediaRow";
@@ -26,6 +27,14 @@ function Artwork({title,hero=false}:{title:HomeTitle;hero?:boolean}){
   return src&&!failed?<img src={hero?src:sizedArtwork(src,640)} srcSet={hero?undefined:`${sizedArtwork(src,320)} 320w, ${sizedArtwork(src,480)} 480w, ${sizedArtwork(src,640)} 640w`} sizes={hero?"100vw":"(min-width: 1200px) 20vw, (min-width: 900px) 25vw, (min-width: 600px) 33vw, 45vw"} alt="" loading={hero?"eager":"lazy"} decoding="async" onError={()=>setFailed(true)}/>:<div className="pv-home-art-fallback"><Film aria-hidden="true"/><span>{title.entry.title}</span></div>;
 }
 
+function FeaturedHeading({title}:{title:HomeTitle}){
+ const [enabled]=useHomepageBannerLogo();
+ const kind=title.entry.artwork.some(art=>art.kind==="logo")?"logo":undefined;
+ const src=enabled&&kind?sizedArtwork(`${nativeLibraries.artworkUrl(title.library.id,title.entry.id,kind)}?v=${encodeURIComponent(nativeArtworkVersion(title.entry,kind))}`,640):undefined;
+ const [failed,setFailed]=useState<string>();
+ return <h2>{src&&failed!==src?<img src={src} alt={title.entry.title} decoding="async" className="pv-home-featured-logo" onError={()=>setFailed(src)}/>:title.entry.title}</h2>;
+}
+
 export function FeaturedTitle({titles}:{titles:HomeTitle[]}){
   const candidates=useMemo(()=>{
     const libraries=new Map<string,HomeTitle[]>();
@@ -52,7 +61,7 @@ export function FeaturedTitle({titles}:{titles:HomeTitle[]}){
     </>}
     <div className="pv-home-hero-content">
       <p className="pv-home-eyebrow">Featured · {title.library.name}</p>
-      <h2>{title.entry.title}</h2>
+      <FeaturedHeading title={title}/>
       <p className="pv-home-hero-meta">{[title.entry.kind==="series"?"Series":"Movie",year&&year>0?year:null,rating,...genres(title).slice(0,2)].filter(Boolean).join(" · ")}</p>
       {plot&&<p className="pv-home-hero-plot">{plot}</p>}
       <div className="pv-home-actions">

@@ -1,4 +1,4 @@
-import {Mic,MicOff} from "lucide-react";
+import {Volume2,VolumeX} from "lucide-react";
 import {useEffect,useRef,useState} from "react";
 import {apiRequest} from "../../api/client";
 import {playbackApi,defaultPlaybackPreferences} from "../playback/api/playback";
@@ -119,5 +119,5 @@ export default function LiveChannelPreview({channelId,programId,endsAt,onReady}:
   stopCurrentPreview=stop;
   return()=>{stop();element.removeEventListener("loadedmetadata",metadata);element.removeEventListener("playing",playing);element.removeEventListener("loadeddata",playing);element.removeEventListener("canplay",playing);element.removeEventListener("seeked",playing);element.removeEventListener("seeking",waiting);element.removeEventListener("waiting",waiting);element.removeEventListener("error",stop);element.removeEventListener("ended",stop);document.removeEventListener("visibilitychange",visibility);};
  },[channelId,programId,endsAt,visibilityEpoch]);
- return <div className="vtv-live-layer"><video ref={video} className="vtv-live-video" muted={muted} playsInline autoPlay aria-label="Live channel preview"/><button type="button" className="vtv-preview-sound" aria-label={muted?"Unmute live preview":"Mute live preview"} aria-pressed={!muted} title={muted?"Turn preview sound on":"Mute preview sound"} onClick={event=>{event.stopPropagation();toggleSound();}}>{muted?<MicOff size={18} aria-hidden="true"/>:<Mic size={18} aria-hidden="true"/>}</button></div>;
+ return <div className="vtv-live-layer"><video ref={video} className="vtv-live-video" muted={muted} playsInline autoPlay aria-label="Live channel preview"/><button type="button" className="vtv-preview-sound" aria-label={muted?"Unmute live preview":"Mute live preview"} aria-pressed={!muted} title={muted?"Turn preview sound on":"Mute preview sound"} onClick={event=>{event.stopPropagation();toggleSound();}}>{muted?<VolumeX size={18} aria-hidden="true"/>:<Volume2 size={18} aria-hidden="true"/>}</button></div>;
 }

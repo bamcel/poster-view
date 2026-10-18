@@ -83,3 +83,17 @@ it("ignores the retired banner preference and uses backdrop artwork",()=>{
  const view=render(<MemoryRouter><FeaturedTitle titles={[movie]}/></MemoryRouter>);
  expect(view.container.querySelector("img")?.getAttribute("src")).toContain("/artwork/backdrop?");
 });
+
+it("uses the saved banner logo preference and falls back to text on failure",()=>{
+ const movie=title("Logo movie");movie.entry.artwork=[{kind:"logo",path:"logo.png",source:"local"}];
+ const view=render(<MemoryRouter><FeaturedTitle titles={[movie]}/></MemoryRouter>);
+ expect(screen.getByRole("heading",{name:"Logo movie"}).textContent).toBe("Logo movie");
+ localStorage.setItem("posterview:homepage-banner-logo:local","true");
+ view.unmount();
+ render(<MemoryRouter><FeaturedTitle titles={[movie]}/></MemoryRouter>);
+ const logo=screen.getByRole("img",{name:"Logo movie"});
+ expect(logo.getAttribute("src")).toContain("/artwork/logo?");
+ expect(new URL((logo as HTMLImageElement).src).searchParams.get("width")).toBe("640");
+ fireEvent.error(logo);
+ expect(screen.getByRole("heading",{name:"Logo movie"}).textContent).toBe("Logo movie");
+});
