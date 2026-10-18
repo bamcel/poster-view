@@ -155,7 +155,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col" style={!preview&&location.pathname==="/virtual-tv"&&headerBackdrop?headerBackdropStyle(headerBackdrop):undefined}>
       <header className={`relative z-20 flex shrink-0 items-center gap-2 bg-transparent px-3 ${homeSearch?"min-h-14 flex-wrap sm:h-14 sm:flex-nowrap":"h-14"}`}>
-        {libraryBack&&<NavLink to={backNavigation.target} replace={!backNavigation.hasPrevious} aria-label="Back" title="Back" onClick={event=>{if(!preview&&backNavigation.hasPrevious&&event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey){event.preventDefault();void previewNavigate(-1);}}} className="grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-white focus-visible:outline-2 focus-visible:outline-accent"><ArrowLeft className="size-[20px]" aria-hidden="true"/></NavLink>}
+        {libraryBack&&<NavLink to={backNavigation.target} replace={!backNavigation.hasPrevious} aria-label="Back" title="Back" onClick={event=>{if(!preview&&backNavigation.hasPrevious&&event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.altKey){event.preventDefault();void previewNavigate(-1);}}} className="grid size-11 shrink-0 place-items-center bg-transparent text-muted hover:text-white focus-visible:outline-2 focus-visible:outline-accent"><ArrowLeft className="size-[20px]" aria-hidden="true"/></NavLink>}
         <NavLink to="/" aria-label="Go to Home" className="mr-auto min-w-0 md:hidden">
           <Logo className="w-20 overflow-hidden [&>img]:max-w-full [&>img]:translate-y-[5px] sm:w-36" />
         </NavLink>

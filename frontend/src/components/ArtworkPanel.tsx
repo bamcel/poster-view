@@ -23,6 +23,7 @@ import { artworkMediaKind, providerMatchesMediaKind } from "../lib/mediaKind";
 import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
 
 interface Props {
+  manualOnly?: boolean;
   serverId: number;
   item: ItemDetail;
   prefill?: { term: string; nonce: number };
@@ -41,11 +42,11 @@ const PROVIDER_GROUPS = [
   { label: "Local", names: ["manual", "remove"] },
 ];
 
-export default function ArtworkPanel({ serverId, item, prefill, navigationTarget, anilistMangaId, libraryType, libraryTitle, onReviewMetadata, onClose }: Props) {
+export default function ArtworkPanel({ manualOnly = false, serverId, item, prefill, navigationTarget, anilistMangaId, libraryType, libraryTitle, onReviewMetadata, onClose }: Props) {
   const plugin=useArtworkPlugin();
   const collection = serverId === 0 && item.id.startsWith("collection:");
   const [mode, setMode] = useState<"artwork" | "edit" | "backdrop">("artwork");
-  const [provider, setProvider] = useState("posterdb");
+  const [provider, setProvider] = useState(manualOnly ? "manual" : "posterdb");
   const [sourceLayout, setSourceLayout] = useState<"list" | "compact">(() =>
     localStorage.getItem(ARTWORK_LAYOUT_KEY) === "compact" ? "compact" : "list",
   );
@@ -72,8 +73,8 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
       window.removeEventListener(PANEL_OVERLAY_EVENT, updateOverlay);
     };
   }, []);
-  const providersQ = useQuery({ queryKey: ["artwork-providers"], queryFn: api.artworkProviders });
-  const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
+  const providersQ = useQuery({ queryKey: ["artwork-providers"], queryFn: api.artworkProviders, enabled: !manualOnly });
+  const settingsQ = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings, enabled: !manualOnly });
   const enabled = settingsQ.data?.enabled_providers ?? [];
   const mediaKind = artworkMediaKind(item.type, libraryType === "anime" ? "show" : libraryType, libraryTitle);
   const animeLibrary = libraryType === "anime" || /\banime\b/i.test(libraryTitle ?? "");
@@ -88,9 +89,9 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
     ...(enabled.includes("posterdb") ? [{ name: "posterdb", label: "ThePosterDB", configured: true, needs_key: false, enabled: true }] : []),
     ...(providersQ.data ?? []).filter((source) => source.enabled),
     { name: "manual", label: "Manual", configured: true, needs_key: false },
-  ].filter((source) => mediaKind === "book" || (providerMatchesMediaKind(source.name, mediaKind)
+  ].filter((source) => (!manualOnly || source.name === "manual") && (mediaKind === "book" || (providerMatchesMediaKind(source.name, mediaKind)
     && (!["anilist", "myanimelist"].includes(source.name) || animeLibrary)
-    && !["anilist-manga", "myanimelist-manga", "mangadex", "viz", "comicvine"].includes(source.name)));
+    && !["anilist-manga", "myanimelist-manga", "mangadex", "viz", "comicvine"].includes(source.name))));
   const primaryTabs = allTabs.filter((source) => providerMatchesMediaKind(source.name, mediaKind))
     .sort((left, right) => left.name === defaultProvider ? -1 : right.name === defaultProvider ? 1 : 0);
 
@@ -101,13 +102,14 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   const otherTabs = mediaKind === "book" ? allTabs.filter((tab) => !providerMatchesMediaKind(tab.name, "book")) : [];
 
   useEffect(() => {
+    if(manualOnly){setProvider("manual");setMode("artwork");setOtherSourcesOpen(false);return;}
     const preferred = defaultProvider;
     if (preferred && primaryTabs.some((tab) => tab.name === preferred)) setProvider(preferred);
     else if (provider !== "remove" && !allTabs.some((tab) => tab.name === provider)) setProvider(primaryTabs[0]?.name ?? "manual");
     setOtherSourcesOpen(false);
     // Reset to the configured default when a different library item opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.id, defaultProvider, enabled.join(","), providersQ.data, mediaKind]);
+  }, [item.id, defaultProvider, enabled.join(","), providersQ.data, mediaKind, manualOnly]);
 
   useEffect(() => {
     if (navigationTarget && allTabs.some((tab) => tab.name === navigationTarget.provider)) {
@@ -173,8 +175,8 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
         <div className="mb-2 flex items-center justify-between gap-3 px-1">
           <div className="flex flex-wrap gap-2" role="tablist" aria-label="Artwork tools">
             <button role="tab" aria-selected={mode==="artwork"} onClick={()=>setMode("artwork")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="artwork"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Images className="size-4"/>Artwork</button>
-            {!collection && plugin.data?.poster_edit !== false && <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="edit"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><PosterIcon className="size-4"/>PosterEdit</button>}
-            {!collection && plugin.data?.backdrop_edit !== false && <button role="tab" aria-selected={mode==="backdrop"} onClick={()=>setMode("backdrop")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="backdrop"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Wallpaper className="size-4"/>BackdropEdit</button>}
+            {!manualOnly && !collection && plugin.data?.poster_edit !== false && <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="edit"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><PosterIcon className="size-4"/>PosterEdit</button>}
+            {!manualOnly && !collection && plugin.data?.backdrop_edit !== false && <button role="tab" aria-selected={mode==="backdrop"} onClick={()=>setMode("backdrop")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="backdrop"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Wallpaper className="size-4"/>BackdropEdit</button>}
           </div>
           {onClose && <button type="button" onClick={onClose} aria-label="Close artwork" className="grid size-9 place-items-center rounded-lg text-muted transition-colors hover:bg-white/10 hover:text-white" data-icon-button="true"><X className="size-5" /></button>}
         </div>

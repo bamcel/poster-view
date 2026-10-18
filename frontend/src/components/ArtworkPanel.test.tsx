@@ -143,3 +143,12 @@ it("offers collection artwork without unsupported editor tools or server refresh
  fireEvent.click(screen.getByRole("button",{name:"Refresh ThePosterDB cache"}));
  expect(api.refreshArtworkItem).not.toHaveBeenCalled();
 });
+
+it("restricts channel artwork to manual sources without requesting providers",async()=>{
+ vi.mocked(api.artworkProviders).mockClear();vi.mocked(api.getArtworkSettings).mockClear();
+ render(<QueryClientProvider client={client}><ArtworkPanel serverId={0} item={item} manualOnly/></QueryClientProvider>);
+ expect(await screen.findByText('Manual upload')).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'ThePosterDB'})).toBeNull();
+ expect(screen.queryByRole('tab',{name:'PosterEdit'})).toBeNull();
+ expect(api.artworkProviders).not.toHaveBeenCalled();expect(api.getArtworkSettings).not.toHaveBeenCalled();
+});

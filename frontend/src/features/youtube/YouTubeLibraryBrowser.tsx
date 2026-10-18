@@ -1,3 +1,4 @@
+import YouTubeChannelActions from "./YouTubeChannelActions";
 import LibraryDetailLayout,{LibraryDetailHero,LibraryDetailSection} from "../../components/LibraryDetailLayout";
 import DetailSynopsis from "../../components/DetailSynopsis";
 import {useEffect,useState} from "react";
@@ -58,21 +59,21 @@ export default function YouTubeLibraryBrowser({ library }: { library: NativeLibr
         <LibraryPopup title="Filters and sorting" label="Filter and sort titles" icon={<ListFilter className="size-4"/>} style={style} editorStyle><label className="block text-sm font-semibold">Sort by<select aria-label="Sort titles" value={sort} onChange={event=>setSort(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-white"><option value="title">Title A–Z</option><option value="reverse">Title Z–A</option><option value="newest">Newest date</option></select></label></LibraryPopup>
         <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style} editorStyle><LibraryViewPreferences library={library.id} defaultBackdrop/></LibraryPopup>
         </div>;
-  if(channel&&!playlistId&&!video){
+  if(channel&&!video){
     const posterKind=['poster','thumb'].find(kind=>channel.entry?.artwork.some(art=>art.kind===kind));
     const poster=channel.entry&&posterKind?sizedArtwork(`${nativeLibraries.artworkUrl(library.id,channel.entry.id,posterKind)}?v=${encodeURIComponent(nativeArtworkVersion(channel.entry,posterKind))}`,640):undefined;
     return <section aria-label={`${channel.title} channel`} className="relative flex h-full min-h-0 flex-col overflow-hidden">
       {appearance.enabled&&backgrounds.length>0&&<DashboardBackdrop desktopUrls={backgrounds} mobileUrls={backgrounds} overlayStrength={appearance.overlay}/>}
       <LibraryDetailLayout back={back} toolbar={toolbar}
         hero={<LibraryDetailHero artwork={poster?<img src={poster} alt={`${channel.title} channel poster`} className="h-full w-full object-cover"/>:<div className="h-full w-full bg-white/10" aria-label="No channel poster"/>} synopsis={<DetailSynopsis text={channel.description} lines={8}/>}>
-          <h1 className="text-3xl font-bold leading-tight sm:text-4xl">{channel.title}</h1>
+          <div className="flex flex-wrap items-center gap-3"><h1 className="text-3xl font-bold leading-tight sm:text-4xl">{channel.title}</h1>{channel.entry&&<YouTubeChannelActions library={library} entry={channel.entry} entries={catalog.data??[]} onUpdated={()=>{void catalog.refetch();}}/>}</div>
           <p className="mt-4 text-sm text-muted">YouTube · {channel.videos.length} videos · {channel.playlists.length} playlists</p>
           <button className="mt-5 inline-flex items-center rounded-full border border-white/20 bg-white/10 px-5 py-2.5 text-sm font-semibold hover:bg-white/20" onClick={()=>navigate(channel.id,'all')}>All Videos</button>
         </LibraryDetailHero>}
-        related={<LibraryDetailSection label="Channel playlists"><h2>Playlists</h2><p className="mb-4 text-xs text-faint">{visible.length} playlists</p>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-5 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
+        related={<LibraryDetailSection label={playlistId?"Playlist videos":"Channel playlists"}><h2>{playlistId?title:"Playlists"}</h2>{playlistId&&playlist?.description&&<p className="mb-4 whitespace-pre-wrap text-muted">{playlist.description}</p>}<p className="mb-4 text-xs text-faint">{visible.length} {playlistId?"videos":"playlists"}</p>
+          <div className={backdropView?backdropGrid:posterGrid}>
             {visible.map(card=><button key={card.id} className="poster-title-card min-w-0 text-left" onClick={card.open}>
-              <div className="aspect-[2/3] overflow-hidden rounded-xl bg-white/10">{image(card.entry)&&<img src={image(card.entry)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover"/>}</div>
+              <div className={`${backdropView?"aspect-video":"aspect-[2/3]"} overflow-hidden rounded-xl bg-white/10`}>{image(card.entry)&&<img src={image(card.entry)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover"/>}</div>
               <h3 className="mt-2 text-sm font-semibold"><ScrollingTitle title={card.title}/></h3><p className="text-sm text-muted">{card.detail}</p>
             </button>)}
           </div>{cards.length>0&&!visible.length&&<p className="text-muted">No titles match your search.</p>}

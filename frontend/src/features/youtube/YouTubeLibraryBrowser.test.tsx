@@ -103,3 +103,15 @@ it("shows channel-owned poster and synopsis above its playlist collection",async
  fireEvent.click(screen.getByRole('button',{name:'All Videos'}));
  expect(await screen.findByRole('button',{name:'Camping video'})).toBeTruthy();
 });
+
+it("retains the channel hero on a playlist page and lists its videos beneath",async()=>{
+ const channel={...video,id:'channel',kind:'series',path:'channel',parent_path:null,title:'Outdoor Boys',artwork:[{kind:'poster',path:'poster.jpg',source:'local' as const}],metadata:{plot:'Channel description',youtube:{channel_id:'channel',channel:'Outdoor Boys'}}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([channel,video]);
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/?youtube_channel=channel&youtube_playlist=camping']}><YouTubeLibraryBrowser library={{id:'youtube',name:'YouTube'} as NativeLibrary}/></MemoryRouter></QueryClientProvider>);
+ expect(await screen.findByRole('heading',{name:'Outdoor Boys',level:1})).toBeTruthy();
+ expect(screen.getByRole('img',{name:'Outdoor Boys channel poster'})).toBeTruthy();
+ expect(screen.getAllByText('Channel description').length).toBeGreaterThan(0);
+ expect(screen.getByRole('heading',{name:'Camping',level:2})).toBeTruthy();
+ expect(screen.getByRole('button',{name:'Camping video'})).toBeTruthy();
+ expect(screen.queryByRole('heading',{name:'Playlists'})).toBeNull();
+});
