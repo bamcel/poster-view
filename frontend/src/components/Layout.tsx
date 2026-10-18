@@ -58,6 +58,10 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   const [panelSolid, setPanelSolid] = useState(panelSolidity);
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
+  useEffect(()=>{
+    document.documentElement.style.setProperty("--pv-menu-background",translucentPanelColor("--color-surface-2",panelSolid,panelOverlayStrength));
+    document.documentElement.style.setProperty("--pv-menu-blur",`${panelBlur}px`);
+  },[panelSolid,panelOverlayStrength,panelBlur]);
 
   const settingsOpen = (preview ? previewPath : location.pathname).split("/")[1] === "settings";
   const settingsPath = isAdmin ? "/settings" : "/settings/playback";
