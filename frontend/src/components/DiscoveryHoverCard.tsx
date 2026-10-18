@@ -84,6 +84,7 @@ export default function DiscoveryHoverCard({title, children}: {title: HomeTitle;
       <div className="pv-discovery-hover-art">{artwork && !failed ? <img src={sizedArtwork(artwork,640)} srcSet={`${sizedArtwork(artwork,640)} 640w, ${sizedArtwork(artwork,1280)} 1280w`} sizes="(max-width: 414px) calc(100vw - 24px), 390px" alt="" decoding="async" onError={() => setFailed(true)}/> : <Film aria-hidden="true" size={44}/>}</div>
       <button type="button" className="pv-discovery-hover-dismiss" aria-label={`Close preview of ${entry.title}`} onClick={() => {dismissed.current = true; close(); opener.current?.focus();}}><X size={18} aria-hidden="true"/></button>
       <div className="pv-discovery-hover-body">
+        {artwork&&!failed&&<img className="pv-discovery-hover-tint" src={sizedArtwork(artwork,640)} alt="" aria-hidden="true" decoding="async"/>}
         <h3>{entry.title}</h3>
         <p className="pv-discovery-hover-metadata">{[year ? String(year) : "", text(entry.metadata.mpaa), entry.kind === "series" ? "Series" : runtime ? `${Math.round(runtime)} min` : "Movie", rating ? `${Number(rating.toFixed(1))}/10` : ""].filter(Boolean).join(" · ")}</p>
         {genres.length > 0 && <p className="pv-discovery-hover-genres">{genres.join(" · ")}</p>}

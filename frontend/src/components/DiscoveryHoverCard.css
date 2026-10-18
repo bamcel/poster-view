@@ -28,3 +28,18 @@
 
 .pv-discovery-hover-actions>:is(a,button){justify-content:center;min-width:0;min-height:44px;padding:8px 6px;gap:5px;text-align:center;line-height:1.35;font-size:12px}
 .pv-discovery-hover-actions>:is(a,button) svg{flex-shrink:0}
+
+/* Artwork softly carries into a dark glass surface without sampling pixels. */
+.pv-discovery-hover-panel{isolation:isolate;background:rgba(14,18,21,.94);border-color:rgba(255,255,255,.16);box-shadow:0 24px 70px #000a,0 0 0 1px #ffffff04;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+.pv-discovery-hover-art{position:relative;background:#11171b}
+.pv-discovery-hover-art::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(to bottom,transparent 50%,rgba(14,18,21,.25) 76%,rgba(14,18,21,.96) 100%)}
+.pv-discovery-hover-body{position:relative;isolation:isolate;overflow:hidden;background:linear-gradient(160deg,rgba(255,255,255,.025),transparent 65%);padding:14px 16px 16px}
+.pv-discovery-hover-body>.pv-discovery-hover-tint{position:absolute;z-index:-1;inset:-35%;width:170%;height:170%;max-width:none;object-fit:cover;filter:blur(32px) saturate(.7);opacity:.12;pointer-events:none}
+.pv-discovery-hover-body h3{color:#f5f6f7;letter-spacing:-.015em}
+.pv-discovery-hover-metadata,.pv-discovery-hover-genres{color:#b7c0c5}
+.pv-discovery-hover-plot{color:#d0d6da}
+.pv-discovery-hover-actions>:is(a,button){border-color:#ffffff24;background:#ffffff05;transition:background .18s,border-color .18s}
+.pv-discovery-hover-actions>:is(a,button):hover:not(:disabled){background:#ffffff12;border-color:#ffffff45}
+.pv-discovery-hover-actions>.pv-discovery-hover-play:first-child:not(:has(+.pv-discovery-hover-play)),.pv-discovery-hover-actions>.pv-discovery-hover-play+.pv-discovery-hover-play{background:var(--color-accent,#7d9d78);border-color:transparent;color:#101810}
+.pv-discovery-hover-actions>.pv-discovery-hover-play:first-child:not(:has(+.pv-discovery-hover-play)):hover:not(:disabled),.pv-discovery-hover-actions>.pv-discovery-hover-play+.pv-discovery-hover-play:hover:not(:disabled){background:color-mix(in srgb,var(--color-accent,#7d9d78),white 12%);border-color:transparent}
+@media(prefers-reduced-motion:reduce){.pv-discovery-hover-actions>:is(a,button){transition:none}}
