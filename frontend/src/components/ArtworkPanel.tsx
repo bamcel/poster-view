@@ -43,6 +43,7 @@ const PROVIDER_GROUPS = [
 
 export default function ArtworkPanel({ serverId, item, prefill, navigationTarget, anilistMangaId, libraryType, libraryTitle, onReviewMetadata, onClose }: Props) {
   const plugin=useArtworkPlugin();
+  const collection = serverId === 0 && item.id.startsWith("collection:");
   const [mode, setMode] = useState<"artwork" | "edit" | "backdrop">("artwork");
   const [provider, setProvider] = useState("posterdb");
   const [sourceLayout, setSourceLayout] = useState<"list" | "compact">(() =>
@@ -120,7 +121,7 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
   const refreshProvider = async () => {
     setRefreshing(true);
     try {
-      const result = await api.refreshArtworkItem(serverId, item.id);
+      const result = collection ? {ok:true,message:"Artwork cache refreshed."} : await api.refreshArtworkItem(serverId, item.id);
       queryClient.removeQueries({
         predicate: (query) =>
           query.queryKey.includes("artwork") && query.queryKey.includes(item.id),
@@ -161,8 +162,8 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
 
     useEffect(()=>{
     if(plugin.data?.enabled === false) onClose?.();
-    if(mode === "edit" && plugin.data?.poster_edit === false || mode === "backdrop" && plugin.data?.backdrop_edit === false) setMode("artwork");
-  },[plugin.data?.enabled,plugin.data?.poster_edit,plugin.data?.backdrop_edit,mode,onClose]);
+    if(collection || mode === "edit" && plugin.data?.poster_edit === false || mode === "backdrop" && plugin.data?.backdrop_edit === false) setMode("artwork");
+  },[plugin.data?.enabled,plugin.data?.poster_edit,plugin.data?.backdrop_edit,mode,onClose,collection]);
   return (
     <div
       className="flex h-full flex-col border-l border-border"
@@ -172,8 +173,8 @@ export default function ArtworkPanel({ serverId, item, prefill, navigationTarget
         <div className="mb-2 flex items-center justify-between gap-3 px-1">
           <div className="flex flex-wrap gap-2" role="tablist" aria-label="Artwork tools">
             <button role="tab" aria-selected={mode==="artwork"} onClick={()=>setMode("artwork")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="artwork"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Images className="size-4"/>Artwork</button>
-            {plugin.data?.poster_edit !== false && <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="edit"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><PosterIcon className="size-4"/>PosterEdit</button>}
-            {plugin.data?.backdrop_edit !== false && <button role="tab" aria-selected={mode==="backdrop"} onClick={()=>setMode("backdrop")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="backdrop"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Wallpaper className="size-4"/>BackdropEdit</button>}
+            {!collection && plugin.data?.poster_edit !== false && <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="edit"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><PosterIcon className="size-4"/>PosterEdit</button>}
+            {!collection && plugin.data?.backdrop_edit !== false && <button role="tab" aria-selected={mode==="backdrop"} onClick={()=>setMode("backdrop")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="backdrop"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Wallpaper className="size-4"/>BackdropEdit</button>}
           </div>
           {onClose && <button type="button" onClick={onClose} aria-label="Close artwork" className="grid size-9 place-items-center rounded-lg text-muted transition-colors hover:bg-white/10 hover:text-white" data-icon-button="true"><X className="size-5" /></button>}
         </div>

@@ -1,3 +1,6 @@
+import ArtworkPanel from "../../components/ArtworkPanel";
+import {useArtworkPlugin} from "../../lib/artworkPlugin";
+import type {ItemDetail} from "../../types";
 import SearchField from "../../components/SearchField";
 import ScrollingTitle from "../../components/ScrollingTitle";
 import {useEffect,useState} from "react";
@@ -6,12 +9,11 @@ import {useQuery,useQueryClient} from "@tanstack/react-query";
 import {nativeLibraries,type NativeCatalogEntry} from "../../api/nativeLibraries";
 import {useIsAdmin} from "../../lib/authContext";
 import {nativeArtworkVersion} from "../../lib/nativeArtworkCache";
-import {Layers,Pencil,Trash2,MoreHorizontal} from "lucide-react";
+import {Layers,Pencil,MoreHorizontal,Images,RefreshCw,Fingerprint} from "lucide-react";
 import LibraryDetailLayout,{LibraryDetailHero,LibraryDetailSection} from "../../components/LibraryDetailLayout";
 import DetailSynopsis from "../../components/DetailSynopsis";
 import AnimatedArtwork from "../../components/AnimatedArtwork";
 import {posterGrid} from "../../components/LibraryViewPreferences";
-import {detailActionClass} from "../../lib/detailActions";
 import {LibraryBackdrop} from "../../lib/libraryNavigation";
 import {DASHBOARD_BACKDROP_EVENT,BACKDROP_OVERLAY_EVENT,dashboardBackdropEnabled,backdropOverlay,backdropOverlayGradients} from "../../lib/dashboardSettings";
 import {collectionsApi,useCollectionAccount,memberKey,type Collection,type CollectionMember} from "./client";
@@ -24,6 +26,8 @@ const field="mt-1 w-full rounded border border-border bg-input p-2";
 export default function CollectionPage(){
  const {id}=useParams(),account=useCollectionAccount(),admin=useIsAdmin(),client=useQueryClient(),navigate=useNavigate();
  const query=useQuery({queryKey:["collections",account,"detail",id],queryFn:()=>collectionsApi.get(id!),enabled:!!id});
+ const artworkPlugin=useArtworkPlugin();
+ const [artworkOpen,setArtworkOpen]=useState(false);
  const [editing,setEditing]=useState(false),[error,setError]=useState("");
  const [metadataMenu,setMetadataMenu]=useState(false),[metadataMode,setMetadataMode]=useState<"identify"|"refresh"|"locks"|null>(null);
  const remove=async()=>{if(!query.data||!window.confirm(`Delete ${query.data.title}? Media files will remain.`))return;try{await collectionsApi.remove(query.data.id);await client.invalidateQueries({queryKey:["collections"]});navigate("/collections");}catch(error){setError(String(error));}};
@@ -43,6 +47,10 @@ export default function CollectionPage(){
     <div className="flex flex-wrap items-center gap-3">
      <h1 className="text-3xl font-bold leading-tight sm:text-4xl">{collection.title}</h1>
      {admin&&<button aria-label="Edit collection" title="Edit collection" className="episode-inline-action" onClick={()=>setEditing(true)}><Pencil className="size-4"/></button>}
+     {admin&&artworkPlugin.data?.enabled&&<button aria-label="Edit images" title="Edit images" className="episode-inline-action" onClick={()=>setArtworkOpen(true)}><Images className="size-4"/></button>}
+     {admin&&<button aria-label="Refresh metadata" title="Refresh metadata" className="episode-inline-action" onClick={()=>setMetadataMode("refresh")}><RefreshCw className="size-4"/></button>}
+     {admin&&<button aria-label="Identify" title="Identify" className="episode-inline-action" onClick={()=>setMetadataMode("identify")}><Fingerprint className="size-4"/></button>}
+     {admin&&<div className="relative"><button aria-label="Collection metadata actions" aria-expanded={metadataMenu} aria-haspopup="menu" className="episode-inline-action" onClick={()=>setMetadataMenu(value=>!value)}><MoreHorizontal className="size-4"/></button>{metadataMenu&&<div role="menu" aria-label="Collection metadata" className="absolute left-0 top-full z-20 mt-2 min-w-48 rounded-xl border border-border bg-sidebar p-2 shadow-xl" onKeyDown={event=>{if(event.key==="Escape")setMetadataMenu(false);}}>{([{mode:"identify",label:"Identify"},{mode:"refresh",label:"Refresh metadata"},{mode:"locks",label:"Field locks"}] as const).map(action=><button role="menuitem" key={action.mode} className="block w-full rounded p-2 text-left text-sm hover:bg-elevated" onClick={()=>{setMetadataMenu(false);setMetadataMode(action.mode);}}>{action.label}</button>)}<button role="menuitem" className="block w-full rounded p-2 text-left text-sm text-danger hover:bg-elevated" onClick={()=>{setMetadataMenu(false);void remove();}}>Delete collection</button></div>}</div>}
     </div>
     <div aria-label="Title information" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
      <span>{collection.members.length} titles</span>
@@ -51,7 +59,6 @@ export default function CollectionPage(){
      <span>{collection.ordering==="release"?"Release order":collection.ordering==="title"?"Title order":"Custom order"}</span>
      {collection.metadata?.provider_id&&<a className="text-xs text-muted underline" href={collection.metadata.provider==="tmdb"?`https://www.themoviedb.org/collection/${encodeURIComponent(collection.metadata.provider_id)}`:"https://thetvdb.com"} target="_blank" rel="noreferrer">Metadata from {collection.metadata.provider==="tmdb"?"TMDB":"TheTVDB"}</a>}
     </div>
-    {admin&&<div className="mt-5 flex flex-wrap items-center gap-3"><div className="relative"><button aria-label="Collection metadata actions" aria-expanded={metadataMenu} aria-haspopup="menu" className={detailActionClass} onClick={()=>setMetadataMenu(value=>!value)}><MoreHorizontal className="size-4"/></button>{metadataMenu&&<div role="menu" aria-label="Collection metadata" className="absolute left-0 top-full z-20 mt-2 min-w-48 rounded-xl border border-border bg-sidebar p-2 shadow-xl" onKeyDown={event=>{if(event.key==="Escape")setMetadataMenu(false);}}>{([{mode:"identify",label:"Identify"},{mode:"refresh",label:"Refresh metadata"},{mode:"locks",label:"Field locks"}] as const).map(action=><button role="menuitem" key={action.mode} className="block w-full rounded p-2 text-left text-sm hover:bg-elevated" onClick={()=>{setMetadataMenu(false);setMetadataMode(action.mode);}}>{action.label}</button>)}</div>}</div><button aria-label="Delete collection" title="Delete collection" className={detailActionClass} onClick={()=>void remove()}><Trash2 className="size-4"/></button></div>}
     {error&&<p role="alert" className="mt-3">{error}</p>}
    </LibraryDetailHero>}
    related={<>
@@ -62,9 +69,13 @@ export default function CollectionPage(){
     {!collection.members.length&&<p className="mt-10 text-muted">No accessible titles in this collection.{admin&&" Edit this collection to add titles."}</p>}
    </>}
   />
+  {admin&&artworkPlugin.data?.enabled&&artworkOpen&&<div className="pointer-events-none fixed inset-0 z-50 bg-transparent"><section aria-label={`Artwork for ${collection.title}`} className="pointer-events-auto ml-auto h-full w-full max-w-md shadow-2xl"><ArtworkPanel serverId={0} libraryType="movie" item={collectionArtworkItem(collection)} onClose={()=>setArtworkOpen(false)}/></section></div>}
   {admin&&metadataMode&&<CollectionMetadataDialog key={`${collection.id}:${collection.revision}:${metadataMode}`} collection={collection} mode={metadataMode} onClose={()=>setMetadataMode(null)}/>}
   {editing&&<CollectionEditor key={`${collection.id}:${collection.revision}`} collection={collection} onClose={()=>setEditing(false)}/>}
  </>;
+}
+function collectionArtworkItem(collection:Collection):ItemDetail {
+ return {id:`collection:${collection.id}`,type:"collection",title:collection.title,summary:collection.overview,poster:collection.metadata?.poster_url,background:collection.metadata?.backdrop_url,seasons:[],members:[],external_ids:collection.metadata?.provider&&collection.metadata.provider_id?{[collection.metadata.provider]:collection.metadata.provider_id}:{}};
 }
 function artworkUrl(member:CollectionMember,kinds:string[]){
  const kind=kinds.find(kind=>member.entry.artwork.some(art=>art.kind===kind));

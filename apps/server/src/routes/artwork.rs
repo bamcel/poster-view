@@ -72,6 +72,11 @@ async fn upload_image(
             "Animated artwork belongs to manual libraries. Select static artwork for the connected server.",
         ));
     }
+    if server_id == 0 && item_id.starts_with("collection:") {
+        return crate::collections::apply_panel_artwork(state, item_id, target, Some(bytes))
+            .await
+            .map(Json);
+    }
     if server_id == 0 {
         return native::apply_panel_artwork(state, item_id, target, Some(bytes.to_vec()))
             .await
@@ -97,6 +102,11 @@ async fn remove_artwork(
     State(state): State<AppState>,
     Json(input): Json<RemoveImageRequest>,
 ) -> Result<impl IntoResponse, HttpError> {
+    if input.server_id == 0 && input.item_id.starts_with("collection:") {
+        return crate::collections::apply_panel_artwork(state, input.item_id, input.target, None)
+            .await
+            .map(Json);
+    }
     if input.server_id == 0 {
         return native::apply_panel_artwork(state, input.item_id, input.target, None)
             .await
@@ -457,6 +467,16 @@ async fn apply_download(
             .download_artwork_image(&input)
             .await
             .map_err(|e| HttpError::bad_gateway(e.to_string()))?;
+        if input.item_id.starts_with("collection:") {
+            return crate::collections::apply_panel_artwork(
+                state,
+                input.item_id,
+                input.target,
+                Some(bytes),
+            )
+            .await
+            .map(Json);
+        }
         return native::apply_panel_artwork(state, input.item_id, input.target, Some(bytes))
             .await
             .map(Json);

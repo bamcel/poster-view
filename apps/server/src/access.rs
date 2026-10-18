@@ -230,7 +230,9 @@ pub(crate) fn authorize_request(
     let personal_write = get || *method == Method::PUT;
     let allowed = match p.as_slice() {
         ["api", "auth", "activity"] => *method == Method::POST,
-        ["api", "collections"] | ["api", "collections", _] => get,
+        ["api", "collections"]
+        | ["api", "collections", _]
+        | ["api", "collections", _, "artwork", _] => get,
         ["api", "collections", "preferences", library] => {
             personal_write && library_allowed(user, library)
         }
@@ -313,6 +315,7 @@ pub(crate) async fn filter_response(
         matches!(
             parts.as_slice(),
             ["api", "native", "libraries", _, "items", _, "artwork", _]
+                | ["api", "collections", _, "artwork", _]
         )
     }) && matches!(response.status(), StatusCode::OK | StatusCode::NOT_MODIFIED);
     response.headers_mut().insert(

@@ -3,6 +3,7 @@ import type { ImageTarget } from "../types";
 import type { NativeCatalogEntry } from "../api/nativeLibraries";
 
 export function invalidateArtworkItems(client: QueryClient, serverId: number, itemId: string, target?: ImageTarget) {
+  if (serverId === 0 && itemId.startsWith("collection:")) return client.invalidateQueries({queryKey:["collections"]});
   const native = serverId === 0 && itemId.startsWith("native:");
   const key = native ? ["native-catalog", itemId.split(":")[1]] : ["items", serverId];
   // The save has succeeded: show the fresh image immediately instead of waiting

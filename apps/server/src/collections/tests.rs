@@ -299,3 +299,136 @@ fn title_and_release_order_are_stable_with_unknown_dates_last() {
     unknown.metadata = json!({"year":"invalid"});
     assert!(release(&unknown) > release(&collection.members[1].entry));
 }
+
+#[tokio::test]
+async fn artwork_is_collection_owned_locked_and_validated() {
+    let (_temp, state, members) = fixture();
+    let store = ServerStore::new(state.runtime.data_dir());
+    let collection = store
+        .create_collection("Art collection", "Keep overview", "custom", &members)
+        .unwrap();
+    let target = format!("collection:{}", collection.id);
+    let detail = state
+        .runtime
+        .get_item_detail(0, &target)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(detail.item_type, posterview_contracts::ItemType::Collection);
+    assert!(detail.members.is_empty());
+    let mut image = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::new_rgb8(8, 12)
+        .write_to(&mut image, image::ImageFormat::Png)
+        .unwrap();
+    super::apply_panel_artwork(
+        state.clone(),
+        target.clone(),
+        posterview_contracts::ImageTarget::Poster,
+        Some(image.into_inner()),
+    )
+    .await
+    .unwrap();
+    let saved = store.collection(&collection.id).unwrap().unwrap();
+    assert!(
+        saved
+            .metadata
+            .poster_url
+            .starts_with(&format!("/api/collections/{}/artwork/", collection.id))
+    );
+    assert!(saved.metadata.locks.contains(&"poster".into()));
+    assert_eq!(saved.members, collection.members);
+    assert_eq!(saved.overview, "Keep overview");
+    let app = crate::routes::protected(state.auth.clone()).with_state(state.clone());
+    let (_, admin_cookie) = state.auth.login("admin", "admin-password").unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(&saved.metadata.poster_url)
+                .header(header::COOKIE, admin_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    store
+        .create_user(&UserCreate {
+            username: "artviewer".into(),
+            display_name: "Viewer".into(),
+            password: "viewer-password".into(),
+            role: UserRole::User,
+            enabled: true,
+            permissions: viewer(&members[0].library_id).permissions,
+        })
+        .unwrap();
+    let (_, cookie) = state.auth.login("artviewer", "viewer-password").unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(&saved.metadata.poster_url)
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/artwork/remove")
+                .header(header::COOKIE, cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({"server_id":0,"item_id":target,"target":"poster"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let file = saved.metadata.poster_url.rsplit('/').next().unwrap();
+    assert!(
+        state
+            .runtime
+            .data_dir()
+            .join("collection-artwork")
+            .join(file)
+            .exists()
+    );
+    assert!(
+        super::apply_panel_artwork(
+            state.clone(),
+            target.clone(),
+            posterview_contracts::ImageTarget::Logo,
+            None
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        super::apply_panel_artwork(
+            state.clone(),
+            target.clone(),
+            posterview_contracts::ImageTarget::Background,
+            Some(vec![0, 1, 2])
+        )
+        .await
+        .is_err()
+    );
+    super::apply_panel_artwork(
+        state,
+        target,
+        posterview_contracts::ImageTarget::Poster,
+        None,
+    )
+    .await
+    .unwrap();
+    let removed = store.collection(&collection.id).unwrap().unwrap();
+    assert!(removed.metadata.poster_url.is_empty());
+    assert!(removed.metadata.locks.contains(&"poster".into()));
+}

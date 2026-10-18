@@ -13,6 +13,10 @@ export interface ApplyTarget {
 }
 
 export function buildApplyTargets(item: ItemDetail, includeFolderBackdrop = false): ApplyTarget[] {
+  if (item.id.startsWith("collection:")) return [
+    {label:"Poster",itemId:item.id,target:"poster"},
+    {label:"Background",itemId:item.id,target:"background"},
+  ];
   const base: ApplyTarget[] =
     item.type === "folder"
       ? [

@@ -35,3 +35,20 @@ it.each(["tvdb","fanart"])("applies %s banners to native media",async provider=>
  fireEvent.click(await screen.findByRole("button",{name:"Banner"}));
  await waitFor(()=>expect(api.applyPoster).toHaveBeenCalledWith(expect.objectContaining({target:"banner",item_id:"native:lib:show",server_id:0})));
 });
+
+it("limits collection provider artwork to static posters and backgrounds",async()=>{
+ const base={provider:"fanart",kind:"collection" as const,thumb_url:"https://assets.fanart.tv/thumb.jpg",applyable:true};
+ vi.mocked(api.getArtwork).mockResolvedValue({provider:"fanart",items:[
+ {...base,id:"poster",type:"poster",title:"Collection poster",download_url:"https://assets.fanart.tv/poster.jpg"},
+ {...base,id:"backdrop",type:"background",title:"Collection backdrop",download_url:"https://assets.fanart.tv/backdrop.jpg"},
+ {...base,id:"logo",type:"logo",title:"Logo",download_url:"https://assets.fanart.tv/logo.png"},
+ {...base,id:"animated",type:"poster",title:"Animation",download_url:"https://assets.fanart.tv/poster.gif"},
+ ]});
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<QueryClientProvider client={client}><ArtworkBrowser provider="fanart" serverId={0} item={{id:"collection:saga",title:"Saga",type:"collection",seasons:[],external_ids:{},members:[]}}/></QueryClientProvider>);
+ expect(await screen.findByAltText("Collection poster")).toBeTruthy();
+ expect(screen.queryByRole("button",{name:/^Logo/})).toBeNull();
+ expect(screen.queryByRole("button",{name:/^Animated/})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:/^Backgrounds/}));
+ expect(screen.getByAltText("Collection backdrop")).toBeTruthy();
+});

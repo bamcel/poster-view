@@ -149,6 +149,37 @@ fn apply_metadata(
 }
 
 impl ServerStore {
+    /// Save a manual collection image without replacing its metadata or membership.
+    pub fn save_collection_artwork(
+        &self,
+        id: &str,
+        field: &str,
+        url: &str,
+    ) -> Result<Option<CollectionRecord>, StoreError> {
+        if !matches!(field, "poster" | "backdrop") {
+            return Err(StoreError::Validation(
+                "Unsupported collection artwork.".into(),
+            ));
+        }
+        let mut db = self.write_connection()?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let Some(mut record) = read(&tx, id)? else {
+            return Ok(None);
+        };
+        if field == "poster" {
+            record.metadata.poster_url = url.into();
+        } else {
+            record.metadata.backdrop_url = url.into();
+        }
+        if !record.metadata.locks.iter().any(|lock| lock == field) {
+            record.metadata.locks.push(field.into());
+        }
+        save_metadata(&tx, id, &record.metadata)?;
+        let result = read(&tx, id)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
     pub fn save_collection_metadata_locks(
         &self,
         id: &str,

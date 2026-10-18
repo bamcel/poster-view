@@ -14,7 +14,9 @@ use posterview_contracts::{
 use posterview_infra_sqlite::{ServerStore, StoreError};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+mod artwork;
 mod metadata;
+pub(crate) use artwork::apply_panel_artwork;
 pub(crate) use metadata::execute_background_job;
 mod providers;
 
@@ -31,6 +33,7 @@ struct MetadataCandidate {
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
         .merge(metadata::routes())
+        .merge(artwork::routes())
         .route("/api/collections", get(list).post(create))
         .route(
             "/api/collections/{id}",

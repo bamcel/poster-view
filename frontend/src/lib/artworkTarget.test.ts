@@ -37,3 +37,15 @@ it("refreshes the native catalog without invalidating connected server libraries
  expect(client.getQueryState(["items",1])?.isInvalidated).toBe(false);
  client.clear();
 });
+
+it("invalidates collection projections after artwork changes",async()=>{
+ const client=new QueryClient();
+ client.setQueryData(["collections","account","detail","saga"],{});
+ client.setQueryData(["collections","account","list","all"],[]);
+ client.setQueryData(["items",0],[]);
+ await invalidateArtworkItems(client,0,"collection:saga","poster");
+ expect(client.getQueryState(["collections","account","detail","saga"])?.isInvalidated).toBe(true);
+ expect(client.getQueryState(["collections","account","list","all"])?.isInvalidated).toBe(true);
+ expect(client.getQueryState(["items",0])?.isInvalidated).toBe(false);
+ client.clear();
+});

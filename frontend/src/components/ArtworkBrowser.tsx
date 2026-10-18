@@ -173,13 +173,14 @@ export default function ArtworkBrowser({
   const byType = useMemo(() => {
     const map = new Map<ArtworkType, ArtworkItem[]>();
     for (const a of q.data?.items ?? []) {
+      if (item.id.startsWith("collection:") && (isAnimatedArtwork(a) || !["poster","background"].includes(a.type))) continue;
       const type = isAnimatedArtwork(a) ? "animated" : a.type;
       const arr = map.get(type) ?? [];
       arr.push(a);
       map.set(type, arr);
     }
     return map;
-  }, [q.data]);
+  }, [q.data,item.id]);
 
   const types = TYPE_ORDER.filter((t) => (byType.get(t)?.length ?? 0) > 0);
   const active = activeType && types.includes(activeType) ? activeType : types[0] ?? null;

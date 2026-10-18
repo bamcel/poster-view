@@ -12,6 +12,45 @@ impl Runtime {
         &self,
         target: &str,
     ) -> Result<Option<ItemDetail>, RuntimeError> {
+        if let Some(id) = target.strip_prefix("collection:") {
+            let Some(record) = self.server_store()?.collection(id)? else {
+                return Ok(None);
+            };
+            let external_ids = if record.metadata.provider_id.is_empty() {
+                Default::default()
+            } else {
+                [(
+                    record.metadata.provider.clone(),
+                    record.metadata.provider_id.clone(),
+                )]
+                .into_iter()
+                .collect()
+            };
+            return Ok(Some(ItemDetail {
+                source_path: None,
+                file_name: None,
+                volume: None,
+                id: target.into(),
+                title: record.title,
+                year: None,
+                item_type: ItemType::Collection,
+                poster: Some(record.metadata.poster_url),
+                background: Some(record.metadata.backdrop_url),
+                logo: None,
+                added_at: None,
+                summary: Some(record.overview),
+                season_count: None,
+                seasons: vec![],
+                rating: None,
+                content_rating: None,
+                genres: vec![],
+                tags: vec![],
+                studios: vec![],
+                external_urls: vec![],
+                external_ids,
+                members: vec![],
+            }));
+        }
         let Some((library, item)) = native_artwork_target(target) else {
             return Ok(None);
         };

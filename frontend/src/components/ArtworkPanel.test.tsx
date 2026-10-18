@@ -134,3 +134,12 @@ it("switches matching artwork tool tabs and underlines the selected tab",()=>{
  expect(artwork.getAttribute("aria-selected")).toBe("false");expect(editor.querySelector("svg")).toBeTruthy();
  expect(screen.getByText(/Add a poster and a series logo/)).toBeTruthy();
 });
+
+it("offers collection artwork without unsupported editor tools or server refresh",async()=>{
+ render(<QueryClientProvider client={client}><ArtworkPanel serverId={0} item={{...item,id:"collection:saga",type:"collection"}}/></QueryClientProvider>);
+ fireEvent.click(await screen.findByRole("button",{name:"ThePosterDB"}));
+ expect(screen.queryByRole("tab",{name:"PosterEdit"})).toBeNull();
+ expect(screen.queryByRole("tab",{name:"BackdropEdit"})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Refresh ThePosterDB cache"}));
+ expect(api.refreshArtworkItem).not.toHaveBeenCalled();
+});
