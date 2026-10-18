@@ -310,3 +310,27 @@ it("reports failed automatic saves and retries the same defaults",async()=>{
  await screen.findByText("Changes saved automatically");
  expect(ytdl.save).toHaveBeenLastCalledWith({...settings,quality:720});
 });
+
+it("defaults missing skip-existing metadata to enabled and automatically saves disabling it",async()=>{
+ mount();
+ expect((await screen.findByLabelText("Skip existing metadata") as HTMLInputElement).checked).toBe(true);
+ expect(ytdl.save).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByLabelText("Skip existing metadata"));
+ await waitFor(()=>expect(ytdl.save).toHaveBeenCalledWith({...settings,skip_existing_metadata:false}));
+ await screen.findByText("Changes saved automatically");
+});
+it("allows metadata-only jobs to override skipping without changing defaults",async()=>{
+ mount();await screen.findByLabelText("Video codec");fireEvent.click(screen.getByRole("button",{name:"Download"}));fireEvent.change(screen.getByLabelText("Operation"),{target:{value:"metadata"}});
+ expect(screen.getByText("Existing metadata: Skip valid NFOs")).toBeTruthy();
+ fireEvent.click(screen.getByLabelText("Override for this job"));
+ expect((screen.getByLabelText("Skip existing metadata") as HTMLInputElement).checked).toBe(true);
+ fireEvent.click(screen.getByLabelText("Skip existing metadata"));
+ expect(screen.getByText("Existing metadata: Refresh and overwrite NFOs")).toBeTruthy();
+ fireEvent.change(screen.getByLabelText("YouTube URL"),{target:{value:"https://www.youtube.com/@channel"}});fireEvent.click(screen.getByRole("button",{name:"Refresh existing NFOs"}));
+ await waitFor(()=>expect(ytdl.submit).toHaveBeenCalledWith("https://www.youtube.com/@channel",[],{...settings,skip_existing_metadata:false},true));
+ expect(ytdl.save).not.toHaveBeenCalled();
+});
+it("shows captured metadata skip policy in job settings",async()=>{
+ vi.mocked(ytdl.jobs).mockResolvedValue([{id:"metadata",title:"Metadata",status:"downloading",metadata_only:true,settings:{...settings,skip_existing_metadata:false}}] as YtdlJob[]);
+ mount();expect(await screen.findByText("Skip existing metadata: Off")).toBeTruthy();
+});

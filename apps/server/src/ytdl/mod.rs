@@ -24,6 +24,7 @@ static ACTIVE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<St
 pub(crate) struct Settings {
     #[serde(default)]
     pub skip_existing: bool,
+    pub skip_existing_metadata: bool,
     pub download_mode: String,
     pub enabled: bool,
     pub library_id: String,
@@ -53,6 +54,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             skip_existing: true,
+            skip_existing_metadata: true,
             download_mode: "custom".into(),
             enabled: false,
             library_id: String::new(),
@@ -700,6 +702,20 @@ mod tests {
             settings: Settings::default(),
             video_ids: vec![],
         }
+    }
+    #[test]
+    fn metadata_skip_defaults_on_for_saved_settings_and_preserves_explicit_opt_out() {
+        assert!(Settings::default().skip_existing_metadata);
+        assert!(
+            serde_json::from_str::<Settings>("{}")
+                .unwrap()
+                .skip_existing_metadata
+        );
+        assert!(
+            !serde_json::from_str::<Settings>(r#"{"skip_existing_metadata":false}"#)
+                .unwrap()
+                .skip_existing_metadata
+        );
     }
     #[test]
     fn new_defaults_skip_existing_but_legacy_configs_do_not_change() {

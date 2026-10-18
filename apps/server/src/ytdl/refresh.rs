@@ -39,6 +39,14 @@ fn merge_playlist(
 
 /// Index only the plugin's channel/video layout, without creating missing paths.
 pub(super) fn local_videos(root: &Path) -> Result<HashSet<String>, HttpError> {
+    index_local_videos(root, false)
+}
+
+pub(super) fn local_metadata(root: &Path) -> Result<HashSet<String>, HttpError> {
+    index_local_videos(root, true)
+}
+
+fn index_local_videos(root: &Path, metadata_only: bool) -> Result<HashSet<String>, HttpError> {
     let channels = root.to_path_buf();
     if !channels.try_exists().map_err(err)? {
         return Ok(HashSet::new());
@@ -61,6 +69,9 @@ pub(super) fn local_videos(root: &Path) -> Result<HashSet<String>, HttpError> {
                 continue;
             }
             let identity = naming::video_identity(&video.path())?.or_else(|| {
+                if metadata_only {
+                    return None;
+                }
                 let name = video.file_name().to_string_lossy().into_owned();
                 downloader::valid_id(&name).then_some(name)
             });
@@ -150,6 +161,11 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
     }
     let destination = super::validate_metadata_destination(state, &job.settings)?;
     let local = local_videos(&destination)?;
+    let metadata = if job.settings.skip_existing_metadata {
+        local_metadata(&destination)?
+    } else {
+        HashSet::new()
+    };
     if local.is_empty() {
         return Err(err(
             "No existing local videos found. Metadata refresh never downloads missing videos.",
@@ -205,6 +221,35 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             channels.insert(channel_id.to_string(), channel);
         }
     }
+    // Channel artwork remains independent of per-video NFO skipping, so a
+    // missing banner can still be fetched when every video has metadata.
+    for (id, channel) in &channels {
+        let (folder, _) = naming::folder_names(
+            &destination,
+            id,
+            "artwork",
+            &text(channel, "channel"),
+            "artwork",
+        )?;
+        let directory = destination.join(folder);
+        if directory.try_exists().map_err(err)? {
+            real_directory(&directory)?;
+            let relative = directory
+                .strip_prefix(&destination)
+                .map_err(err)?
+                .to_string_lossy();
+            let relative = if job.settings.directory.is_empty() {
+                relative.into_owned()
+            } else {
+                format!("{}/{relative}", job.settings.directory)
+            };
+            let directory = state
+                .metadata
+                .directory(&relative.replace('\\', "/"), false)?;
+            super::artwork::download(&directory, channel).await?;
+            channel_artwork.insert(id.clone());
+        }
+    }
     let entries = inspection["entries"]
         .as_array()
         .ok_or_else(|| err("No videos found."))?;
@@ -235,6 +280,11 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             Some(text(entry, "title")),
         )
         .await?;
+        if metadata.contains(&id) {
+            super::outcome(state, &job.id, entry, Ok(super::Outcome::Existing)).await?;
+            downloader::video_progress(state, &job.id, selected.len(), index + 1, None).await?;
+            continue;
+        }
         if !local.contains(&id) {
             super::outcome(state, &job.id, entry, Ok(super::Outcome::Skipped)).await?;
             downloader::video_progress(state, &job.id, selected.len(), index + 1, None).await?;
@@ -390,6 +440,26 @@ mod tests {
         target
     }
 
+    #[test]
+    fn metadata_index_requires_video_nfo_and_media_and_preserves_contents() {
+        let temp = tempfile::tempdir().unwrap();
+        let target = fixture(temp.path());
+        let original = std::fs::read(target.join("Original filename.nfo")).unwrap();
+        let missing = temp.path().join("Original channel/missing");
+        std::fs::create_dir(&missing).unwrap();
+        std::fs::write(missing.join("video.mp4"), b"video").unwrap();
+        assert_eq!(
+            local_metadata(temp.path()).unwrap(),
+            HashSet::from(["fixture".into()])
+        );
+        assert!(local_videos(temp.path()).unwrap().contains("missing"));
+        assert_eq!(
+            std::fs::read(target.join("Original filename.nfo")).unwrap(),
+            original
+        );
+        std::fs::remove_file(target.join("Original filename.mp4")).unwrap();
+        assert!(local_metadata(temp.path()).unwrap().is_empty());
+    }
     #[test]
     fn channel_union_includes_local_unlisted_and_short_playlist_members_once() {
         let local = ["upload", "unlisted", "short"]

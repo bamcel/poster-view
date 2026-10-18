@@ -923,6 +923,11 @@ async fn run_inspection(
     existing_ids: &std::collections::HashSet<String>,
     inspection: &Value,
 ) -> Result<(), HttpError> {
+    let metadata_ids = if job.settings.skip_existing_metadata {
+        super::refresh::local_metadata(destination)?
+    } else {
+        std::collections::HashSet::new()
+    };
     let mut encoder_validated = false;
     let mut channel_metadata = std::collections::HashMap::new();
     let mut channel_artwork = std::collections::HashSet::new();
@@ -959,7 +964,7 @@ async fn run_inspection(
         if !valid_id(&id) {
             return Err(err("Invalid video identity."));
         }
-        if existing_ids.contains(&id) {
+        if existing_ids.contains(&id) || metadata_ids.contains(&id) {
             super::outcome(state, &job.id, e, Ok(super::Outcome::Existing)).await?;
             video_progress(state, &job.id, selected.len(), index + 1, None).await?;
             continue;
@@ -1035,6 +1040,8 @@ async fn run_inspection(
                 super::artwork::download(target.parent().ok_or_else(|| err("Missing channel directory."))?, channel_info).await?;
             }
             let existing = super::naming::existing_media(&target)?;
+            let preserve_metadata = job.settings.skip_existing_metadata
+                && super::naming::video_identity(&target)?.is_some();
             let stem = if let Some(media) = &existing {
                 media
                     .file_stem()
@@ -1047,7 +1054,9 @@ async fn run_inspection(
             let media = target.join(format!("{stem}.{}", job.settings.container));
             // Reserve stable identities before staging so retries reuse readable folders
             // even if titles change or a previous download did not finish publishing.
-            super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
+            if !preserve_metadata {
+                super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
+            }
             if existing.is_none() {
                 if !encoder_validated && job.settings.convert && job.settings.hardware_backend != "cpu"
                 {
@@ -1177,14 +1186,21 @@ async fn run_inspection(
                         publish(&file.path(), &target.join(name))?;
                     }
                 }
-                super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
+                if !preserve_metadata {
+                    super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
+                }
                 if cancelled(state, &job.id).await {
                     return Err(err("Download cancelled."));
                 }
                 publish_with_modified(&source, &media, upload_modified_time(&info))?;
             }
 
-            super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
+            if !preserve_metadata {
+                super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
+            }
+            if existing.is_none() {
+                set_video_folder_modified(&target, upload_modified_time(&info))?;
+            }
             Ok(if existing.is_some() { super::Outcome::Updated } else { super::Outcome::Downloaded })
         }
         .await;
@@ -1255,6 +1271,30 @@ fn upload_modified_time(info: &Value) -> Option<std::time::SystemTime> {
                 .map(|date| date.and_utc())
         })
         .map(Into::into)
+}
+// Apply only after the final sidecar write: creating/replacing children updates
+// the directory timestamp independently of the media file's timestamp.
+fn set_video_folder_modified(
+    directory: &Path,
+    modified: Option<std::time::SystemTime>,
+) -> Result<(), HttpError> {
+    let Some(modified) = modified else {
+        return Ok(());
+    };
+    #[cfg(windows)]
+    let folder = {
+        use std::os::windows::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .access_mode(0x100) // FILE_WRITE_ATTRIBUTES
+            .custom_flags(0x02000000) // FILE_FLAG_BACKUP_SEMANTICS permits directories
+            .open(directory)
+            .map_err(err)?
+    };
+    #[cfg(not(windows))]
+    let folder = std::fs::File::open(directory).map_err(err)?;
+    folder
+        .set_times(std::fs::FileTimes::new().set_modified(modified))
+        .map_err(err)
 }
 fn publish(source: &Path, target: &Path) -> Result<(), HttpError> {
     publish_with_modified(source, target, None)
@@ -1400,6 +1440,37 @@ mod tests {
         assert_eq!(std::fs::read_dir(video).unwrap().count(), 2);
         let saved = super::super::load::<Vec<Job>>(&state, "plugin-ytdl-jobs").unwrap();
         assert_eq!(saved[0].completed_videos, 1);
+        assert_eq!(saved[0].status, "completed");
+    }
+    #[tokio::test]
+    async fn existing_metadata_skips_individual_extraction_without_skip_existing_videos() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let destination = temp.path().join("media/downloads");
+        let video = destination.join("Channel/Video");
+        std::fs::create_dir_all(&video).unwrap();
+        let nfo = "<episodedetails><title>Keep custom title</title><youtube><video_id>fixture</video_id></youtube></episodedetails>";
+        std::fs::write(video.join("video.nfo"), nfo).unwrap();
+        std::fs::write(video.join("video.mp4"), b"video").unwrap();
+        let mut job = progress_fixture();
+        job.settings.skip_existing = false;
+        job.settings.skip_existing_metadata = true;
+        super::super::save(&state, "plugin-ytdl-jobs", &vec![job.clone()]).unwrap();
+        run_inspection(
+            &state,
+            &job,
+            &destination,
+            &Default::default(),
+            &json!({"entries":[{"id":"fixture", "title":"Changed remote title"}]}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(video.join("video.nfo")).unwrap(),
+            nfo
+        );
+        let saved: Vec<Job> = super::super::load(&state, "plugin-ytdl-jobs").unwrap();
+        assert_eq!(saved[0].existing_videos, 1);
         assert_eq!(saved[0].status, "completed");
     }
     #[test]
@@ -1738,6 +1809,48 @@ mod tests {
         assert_eq!(
             std::fs::metadata(&target).unwrap().modified().unwrap(),
             modified
+        );
+    }
+    #[test]
+    fn video_folder_gets_upload_date_after_sidecars_without_changing_channel_or_files() {
+        let channel = tempfile::tempdir().unwrap();
+        let video = channel.path().join("Video");
+        std::fs::create_dir(&video).unwrap();
+        let media = video.join("video.mp4");
+        let nfo = video.join("video.nfo");
+        std::fs::write(&media, b"video").unwrap();
+        std::fs::write(&nfo, b"metadata").unwrap();
+        let channel_time = std::fs::metadata(channel.path())
+            .unwrap()
+            .modified()
+            .unwrap();
+        let media_time = std::fs::metadata(&media).unwrap().modified().unwrap();
+        let nfo_time = std::fs::metadata(&nfo).unwrap().modified().unwrap();
+        let upload = upload_modified_time(&json!({"upload_date":"20260102"})).unwrap();
+        set_video_folder_modified(&video, Some(upload)).unwrap();
+        assert_eq!(
+            std::fs::metadata(&video).unwrap().modified().unwrap(),
+            upload
+        );
+        assert_eq!(
+            std::fs::metadata(channel.path())
+                .unwrap()
+                .modified()
+                .unwrap(),
+            channel_time
+        );
+        assert_eq!(
+            std::fs::metadata(&media).unwrap().modified().unwrap(),
+            media_time
+        );
+        assert_eq!(
+            std::fs::metadata(&nfo).unwrap().modified().unwrap(),
+            nfo_time
+        );
+        set_video_folder_modified(&video, None).unwrap();
+        assert_eq!(
+            std::fs::metadata(&video).unwrap().modified().unwrap(),
+            upload
         );
     }
     #[tokio::test]

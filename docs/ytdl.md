@@ -190,7 +190,9 @@ shown in the queue. Tool updates require a rebuilt image.
 Newly downloaded videos have their filesystem Date modified set to the YouTube
 upload timestamp, falling back to midnight UTC on the upload date. If neither is
 available, the filesystem timestamp is retained. This applies after remuxing or
-conversion; existing videos and sidecar timestamps are preserved.
+conversion. Their individual video folders receive the same Date modified after
+all sidecars are written. Channel folders, existing videos/folders, and sidecar
+timestamps are preserved; later filesystem changes can update folder timestamps.
 
 ## Scheduled subscriptions
 
@@ -280,3 +282,10 @@ banner** and **Use channel backdrops on the homepage** switches. Both default of
 and are saved per library in this browser. Only top-level channel records can join
 these rotations; videos and playlists remain excluded even when cached or searched.
 These options do not change YouTube library artwork or homepage search results.
+
+**Skip existing metadata** is enabled by default, including for previously saved
+settings that do not specify it. It skips videos with existing valid YouTube NFO
+metadata during downloads and metadata-only refreshes, avoiding individual video
+lookups when local media and metadata already exist. Disable it to refresh those
+NFOs deliberately. Missing channel banners can still be downloaded during a
+channel metadata refresh. Queued jobs keep their captured settings.
