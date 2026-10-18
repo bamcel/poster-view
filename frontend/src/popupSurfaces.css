@@ -1,8 +1,8 @@
 /* Shared popup surface. Semantic dialogs/menus opt in automatically; other
    floating surfaces use .pv-popup-surface. Override tokens, never copy styles. */
 :root {
- --pv-popup-background: rgba(14,18,21,.92);
- --pv-popup-tint: color-mix(in srgb,var(--color-accent,#7d9d78) 8%,transparent);
+ --pv-popup-background: rgba(18,18,18,.92);
+ --pv-popup-tint: rgba(64,64,64,.12);
  --pv-popup-border: rgba(255,255,255,.16);
  --pv-popup-shadow: 0 24px 70px #000a,0 0 0 1px #ffffff04;
  --pv-popup-blur: 20px;
@@ -29,7 +29,7 @@
 :root [role="menu"]:has([role="menuitem"]:hover) [role="menuitem"]:not(:hover) { background:transparent; }
 :root [role="menu"] [role="menuitem"].text-danger { color:var(--color-danger,#f87171); }
 @media(prefers-reduced-transparency:reduce) {
- :root { --pv-popup-background:rgb(14,18,21);--pv-popup-blur:0px; }
+ :root { --pv-popup-background:rgb(18,18,18);--pv-popup-blur:0px; }
  :root :is(dialog,[role="dialog"],[role="alertdialog"],[role="menu"],.pv-profile-menu,.pv-discovery-hover-panel,.pv-popup-surface,.pv-popup-backdrop), :root dialog::backdrop, :root .fixed.inset-0:has(> :is([role="dialog"],[role="alertdialog"])[aria-modal="true"]) { backdrop-filter:none;-webkit-backdrop-filter:none; }
 }
 

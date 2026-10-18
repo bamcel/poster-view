@@ -1,0 +1,5 @@
+.pv-activity-status{font-family:inherit;font-size:12px;line-height:1.2}
+/* Global form font inheritance must not enlarge compact status actions. */
+.pv-activity-status button{font-family:inherit;font-size:10px;font-weight:400;line-height:12px}
+.pv-activity-status .pv-activity-footer{font-size:10px;line-height:12px}
+.pv-activity-status h2{font-size:12px;line-height:16px;font-weight:600;margin:0}

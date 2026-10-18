@@ -13,7 +13,7 @@ import {sizedArtwork} from "../../lib/artworkSizes";
 import LibraryViewPreferences, {useBackdropView, useYoutubeBannerBackground, posterGrid, backdropGrid} from "../../components/LibraryViewPreferences";
 import { useQuery } from '@tanstack/react-query';
 import { nativeArtworkVersion } from '../../lib/nativeArtworkCache';
-import { ArrowLeft, ListFilter, MoreHorizontal } from 'lucide-react';
+import { ArrowLeft, ListFilter, MoreHorizontal, Play } from 'lucide-react';
 import { nativeLibraries, type NativeLibrary, type NativeCatalogEntry } from '../../api/nativeLibraries';
 import { useNavigate, useSearchParams } from '../../lib/libraryNavigation';
 import {useLocation} from 'react-router-dom';
@@ -102,7 +102,7 @@ export default function YouTubeLibraryBrowser({ library }: { library: NativeLibr
               const date=String(metadata.published_at??entry.metadata.aired??'');
               const canPlay=playable(entry);
               return <article key={card.id} className="group flex items-start gap-4 sm:gap-6" aria-label={card.title}>
-                <button aria-label={`Play ${card.title}`} disabled={!canPlay} onClick={card.open} className="relative aspect-video w-32 shrink-0 overflow-hidden rounded-lg bg-white/10 sm:w-64 lg:w-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50">{image(entry,true)&&<img src={image(entry,true)} alt={`${card.title} video thumbnail`} loading="lazy" decoding="async" className="h-full w-full object-cover"/>}</button>
+                <button aria-label={`Play ${card.title}`} disabled={!canPlay} onClick={card.open} className="group/video relative aspect-video w-32 shrink-0 overflow-hidden rounded-lg bg-white/10 sm:w-64 lg:w-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50">{image(entry,true)&&<img src={image(entry,true)} alt={`${card.title} video thumbnail`} loading="lazy" decoding="async" className="h-full w-full object-cover"/>}{canPlay&&<span aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center bg-black/40 text-white opacity-0 transition-opacity duration-200 group-hover/video:opacity-100 group-focus-visible/video:opacity-100 motion-reduce:transition-none"><Play className="size-9 fill-current sm:size-12"/></span>}</button>
                 <div className="min-w-0 flex-1 py-1"><button disabled={!canPlay} onClick={card.open} className="text-left text-base font-semibold leading-snug text-white disabled:opacity-50">{card.title}</button>
                   {(date||duration)&&<p className="mt-2 text-xs text-muted">{[date,duration].filter(Boolean).join(' · ')}</p>}
                   {!canPlay&&<p className="mt-2 text-xs text-muted">No playable file available.</p>}
