@@ -28,7 +28,7 @@ import BookPreferences from "./BookPreferences";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
 import NativeScanProgress from "./NativeScanProgress";
 import {validFraming} from "../lib/backdropFraming";
-import LibraryViewPreferences, { useBackdropView, posterGrid, backdropGrid } from "./LibraryViewPreferences";
+import LibraryViewPreferences, { useBackdropView, useYoutubeBannerBackground, posterGrid, backdropGrid } from "./LibraryViewPreferences";
 import PeopleRow from "./PeopleRow";
 import { useEffect, useRef, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -119,6 +119,19 @@ function picture(
     artwork(library, entry, kind) ??
     (kind === "thumb" ? artwork(library, entry, "landscape") : undefined)
   );
+}
+// Page artwork is independent of wide-card artwork. Legacy backdrops remain valid.
+function pageBackground(library: NativeLibrary, preferBanner: boolean, ...entries: (NativeCatalogEntry | undefined)[]) {
+  if (library.library_type === "youtube" && preferBanner) {
+    for (const entry of entries) {
+      const banner = picture(library, entry, "banner");
+      if (banner) return banner;
+    }
+  }
+  for (const entry of entries) {
+    const backdrop = picture(library, entry, "backdrop");
+    if (backdrop) return backdrop;
+  }
 }
 function sizedPicture(src: string | undefined,width: number) {
   return src ? sizedArtwork(src,width) : undefined;
@@ -260,6 +273,7 @@ export default function NativeLibraryBrowser({
   const [membershipOpen,setMembershipOpen]=useState(false);
   useEffect(()=>setMembershipOpen(false),[collectionAccount,library.id]);
   const { enabled: backdropView } = useBackdropView(library.id);
+  const {enabled: bannerBackground} = useYoutubeBannerBackground(library.id);
   const [, , bookDisplay] = useTrackingOverlays(library.library_type === "books");
   const {hoverOnly}=useAnimatedArtworkPreference(library.id);
   const artworkPlugin=useArtworkPlugin();
@@ -441,16 +455,16 @@ export default function NativeLibraryBrowser({
     if(!parent)break;
     posterEntry=parent;
   }
-  const editorBackdrop=picture(library,posterEntry,"backdrop")??picture(library,editEntry || undefined,"backdrop");
+  const editorBackdrop=pageBackground(library,bannerBackground,posterEntry,editEntry || undefined);
   const backgroundUrls = useMemo(
     () =>
       (catalog.data ?? [])
         .filter((e) => e.available && !e.parent_path)
-        .map((e) => picture(library, e, "backdrop"))
+        .map((e) => pageBackground(library, bannerBackground, e))
         .filter((url): url is string => !!url)
         .map(url=>sizedArtwork(url,1920))
         .slice(0, 8),
-    [catalog.data, library],
+    [catalog.data, library, bannerBackground],
   );
   const posterUrls = useMemo(
     () =>
@@ -480,7 +494,7 @@ export default function NativeLibraryBrowser({
         (backgroundUrls.length > 0 || posterUrls.length > 0) && (
           <DashboardBackdrop
             desktopUrls={backgroundUrls}
-            mobileUrls={posterUrls}
+            mobileUrls={library.library_type === "youtube" && bannerBackground ? backgroundUrls : posterUrls}
             overlayStrength={overlay}
           />
         )}
@@ -561,7 +575,7 @@ export default function NativeLibraryBrowser({
                 {library.library_type!=="books"&&<label className="flex items-center justify-between gap-3 text-sm">Group titles into collections<input type="checkbox" checked={collectionPreference.data?.group_collections===true} disabled={collectionPreference.isPending||savingCollectionPreference} onChange={event=>void saveGrouping(event.target.checked)}/></label>}
                 {isAdmin&&library.library_type!=="books"&&<button type="button" className="rounded-full border border-border px-3 py-2 text-sm" onClick={event=>{event.currentTarget.closest("dialog")?.close();selection.start();}}>Select titles</button>}
                 {collectionError&&<p role="alert" className="text-sm text-danger">{collectionError}</p>}
-                <LibraryViewPreferences library={library.id}/>
+                <LibraryViewPreferences library={library.id} youtube={library.library_type === "youtube"}/>
                 <ArtworkPreferences library={library.id}/>{library.library_type === "books" && <BookPreferences/>}{library.library_type === "anime" && <AnimePreferences library={library.id}/>} {(["shows","movies"].includes(library.library_type))&&<VideoPreferences library={library.id}/>}</div>
               </LibraryPopup>
               </div></HeaderSearchControl>
@@ -672,6 +686,7 @@ function NativeDetail({
   const [versionId,setVersionId]=useState<string|undefined>();
   useEffect(()=>setVersionId(undefined),[entry.id]);
   const dubClient=useQueryClient();
+  const {enabled: bannerBackground} = useYoutubeBannerBackground(library.id);
   const {hoverOnly}=useAnimatedArtworkPreference(library.id);
   const {value:animePreferences} = useAnimePreferences(library.id);
   const {value:videoPreferences}=useVideoPreferences(library.id);
@@ -747,7 +762,7 @@ function NativeDetail({
     ),
   };
   const backdrop =
-    picture(library, entry, "backdrop") ?? picture(library, series, "backdrop");
+    pageBackground(library, bannerBackground, entry, series, ...(library.library_type === "youtube" ? [parent] : []));
   const logo =
     picture(library, entry, "logo") ??
     (["season","episode"].includes(entry.kind) ? picture(library, series, "logo") : undefined);

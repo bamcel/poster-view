@@ -14,7 +14,7 @@ import DiscoveryHoverCard from "./DiscoveryHoverCard";
 import type {HomeTitle} from "./HomeDiscovery";
 import "./HomeExperience.css";
 
-const details=({library,entry}:HomeTitle)=>`/media/${encodeURIComponent(library.id)}?native_library=${encodeURIComponent(library.id)}&native_item=${encodeURIComponent(entry.id)}&from=home`;
+const details=({library,entry}:HomeTitle)=>library.library_type==="youtube"?`/media/${encodeURIComponent(library.id)}?youtube_channel=${encodeURIComponent(String((entry.metadata.youtube as {channel_id?:string}|undefined)?.channel_id??entry.path))}&from=home`:`/media/${encodeURIComponent(library.id)}?native_library=${encodeURIComponent(library.id)}&native_item=${encodeURIComponent(entry.id)}&from=home`;
 const play=({library,entry}:HomeTitle)=>`/play/native/${encodeURIComponent(library.id)}/${encodeURIComponent(entry.id)}?return=%2F`;
 const playable=({entry}:HomeTitle)=>entry.available&&entry.metadata.missing!==true&&entry.kind==="movie"&&(entry.files.length>0||entry.metadata._has_files===true);
 function numeric(value:unknown){if(typeof value!=="number"&&(typeof value!=="string"||!value.trim()))return;const n=Number(value);return Number.isFinite(n)?n:undefined;}
@@ -62,11 +62,11 @@ export function FeaturedTitle({titles}:{titles:HomeTitle[]}){
     <div className="pv-home-hero-content">
       <p className="pv-home-eyebrow">Featured · {title.library.name}</p>
       <FeaturedHeading title={title}/>
-      <p className="pv-home-hero-meta">{[title.entry.kind==="series"?"Series":"Movie",year&&year>0?year:null,rating,...genres(title).slice(0,2)].filter(Boolean).join(" · ")}</p>
+      <p className="pv-home-hero-meta">{[title.library.library_type==="youtube"?"YouTube channel":title.entry.kind==="series"?"Series":"Movie",year&&year>0?year:null,rating,...genres(title).slice(0,2)].filter(Boolean).join(" · ")}</p>
       {plot&&<p className="pv-home-hero-plot">{plot}</p>}
       <div className="pv-home-actions">
         {playable(title)&&<Link className="pv-home-action pv-home-action-primary" to={`${play(title)}&start=0`} aria-label={`Play ${title.entry.title}`}><Play aria-hidden="true"/>Play</Link>}
-        {title.entry.kind==="series"&&title.entry.available&&title.entry.metadata.missing!==true&&<SeriesBannerPlay key={`${title.library.id}:${title.entry.id}`} title={title}/>}
+        {title.library.library_type!=="youtube"&&title.entry.kind==="series"&&title.entry.available&&title.entry.metadata.missing!==true&&<SeriesBannerPlay key={`${title.library.id}:${title.entry.id}`} title={title}/>}
         <Link className="pv-home-action" to={details(title)} aria-label={`More info about ${title.entry.title}`}><Info aria-hidden="true"/>More Info</Link>
       </div>
     </div>

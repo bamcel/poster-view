@@ -14,7 +14,7 @@ vi.mock("../components/HomeBackground",()=>({default:({libraries}:{libraries:{id
 vi.mock("../components/LibraryPosterStrip",()=>({default:({library}:{library:string})=><div data-testid={`collage-${library}`}>Shared collage</div>}));
 vi.mock("./DashboardPage",()=>({default:()=> <div>Legacy library</div>}));
 beforeEach(()=>{vi.resetAllMocks();vi.mocked(nativeLibraries.summaries).mockImplementation(id=>nativeLibraries.catalog(id));HTMLDialogElement.prototype.showModal=vi.fn(function(this:HTMLDialogElement){this.setAttribute("open","");});HTMLDialogElement.prototype.close=vi.fn(function(this:HTMLDialogElement){this.removeAttribute("open");});vi.mocked(nativeLibraries.catalog).mockResolvedValue([]);vi.mocked(watchApi.continue).mockResolvedValue([]);vi.mocked(nativeLibraries.artworkUrl).mockImplementation((library,item,kind)=>`/art/${library}/${item}/${kind}`);});
-afterEach(()=>{cleanup();vi.clearAllMocks();});
+afterEach(()=>{cleanup();vi.clearAllMocks();localStorage.clear();});
 function mount(path="/"){
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes><Route path="/" element={<HomePage/>}/><Route path="/media/:id" element={<div>Opened library page</div>}/></Routes></MemoryRouter></QueryClientProvider>);
@@ -211,4 +211,25 @@ it("opens library actions with Shift+F10 and closes them with Escape",async()=>{
  expect(within(menu).getByRole("menuitem",{name:"Scan Library Files"})).toBeTruthy();
  fireEvent.keyDown(menu,{key:"Escape"});
  expect(screen.queryByRole("menu")).toBeNull();expect(nativeLibraries.scan).not.toHaveBeenCalled();
+});
+
+it("keeps cached YouTube artwork out of featured rotation until enabled, then includes channels only",async()=>{
+ const library={id:"youtube",name:"YouTube",library_type:"youtube"} as Awaited<ReturnType<typeof nativeLibraries.list>>[number];
+ const channel={...entryDefaults,id:"channel",path:"youtube/channel",title:"Outdoor Channel",kind:"series",available:true,metadata:{youtube:{channel_id:"UC-channel"}},artwork:[{kind:"backdrop",path:"backdrop.jpg",source:"local"}]};
+ const entries=[channel,{...channel,id:"video",title:"Video must stay isolated",kind:"episode",parent_path:channel.path},{...channel,id:"playlist",title:"Playlist must stay isolated",parent_path:channel.path}];
+ vi.mocked(nativeLibraries.list).mockResolvedValue([library]);
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue(entries);
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ client.setQueryData(["native-catalog","youtube"],entries);
+ render(<QueryClientProvider client={client}><MemoryRouter><HomePage/></MemoryRouter></QueryClientProvider>);
+ await screen.findByRole("link",{name:"Open YouTube"});
+ expect(screen.queryByRole("region",{name:"Featured title"})).toBeNull();
+ act(()=>{localStorage.setItem("posterview.youtubeHomepage.youtube",JSON.stringify({featured:true,background:false}));window.dispatchEvent(new Event("posterview-youtube-homepage"));});
+ const hero=await screen.findByRole("region",{name:"Featured title"});
+ expect(within(hero).getByRole("heading",{name:"Outdoor Channel"})).toBeTruthy();
+ expect(within(hero).queryByRole("button",{name:"Play Outdoor Channel"})).toBeNull();
+ expect(within(hero).getByRole("link",{name:"More info about Outdoor Channel"}).getAttribute("href")).toContain("youtube_channel=UC-channel");
+ expect(screen.queryByRole("button",{name:"Next featured title"})).toBeNull();
+ act(()=>{localStorage.setItem("posterview.youtubeHomepage.youtube",JSON.stringify({featured:false,background:true}));window.dispatchEvent(new Event("posterview-youtube-homepage"));});
+ expect(screen.queryByRole("region",{name:"Featured title"})).toBeNull();
 });

@@ -138,12 +138,30 @@ channels or videos with identical names receive a numeric folder suffix such as
 ```text
 <download-directory>/<channel-name>/
   tvshow.nfo
+  banner.jpg
   <video-title>/
     2026-01-02 - Example video [<video-id>].mp4
     2026-01-02 - Example video [<video-id>].nfo
     2026-01-02 - Example video [<video-id>].jpg
     2026-01-02 - Example video [<video-id>].<language>.vtt
 ```
+
+Channel banner downloads are saved as `banner.jpg`, separately from backdrop
+artwork used by wide cards. An existing banner in any format is preserved.
+Older `backdrop.jpg`, `fanart.jpg`, and `background.*` files are left untouched
+and do not prevent downloading a separate banner. Older banners are not renamed
+automatically because those files may contain custom backdrop artwork.
+
+In a YouTube library's Preferences, set **Page background** to **Banner** to use
+channel banners behind the library and detail pages. Missing banners fall back to
+backdrops. Wide cards continue to prefer backdrop artwork. This choice is saved
+for that library in the current browser; other library types are unchanged.
+Existing page-background visibility controls still apply.
+
+Playlist and All Videos pages list videos vertically with a thumbnail, title,
+upload date, duration and description. Clicking a video opens the player directly;
+returning from playback brings you back to the playlist. YouTube video links also
+open playback without a separate episode details page.
 
 The video NFO uses `<episodedetails>` with standard title, plot, aired, runtime,
 tags, thumbnail, and `<uniqueid type="youtube">`. Its `<youtube>` extension stores
@@ -256,3 +274,9 @@ An authenticated subprocess receives a restricted temporary cookie file that is
 deleted afterward. Authenticated errors are sanitized, and no cookies are returned
 in the UI, queue, NFO or settings responses. This feature does not read browser
 profiles or automatically sign in to YouTube.
+
+YouTube library Preferences also offer independent **Show channels in the homepage
+banner** and **Use channel backdrops on the homepage** switches. Both default off
+and are saved per library in this browser. Only top-level channel records can join
+these rotations; videos and playlists remain excluded even when cached or searched.
+These options do not change YouTube library artwork or homepage search results.

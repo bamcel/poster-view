@@ -99,6 +99,7 @@ function mount(url = "/", selectedLibrary = library) {
   );
 }
 beforeEach(() => {
+  vi.stubGlobal("matchMedia",vi.fn(()=>({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()})));
   vi.mocked(collectionsApi.list).mockResolvedValue([]);
   vi.mocked(collectionsApi.preferences).mockResolvedValue({group_collections:false});
   vi.mocked(nativeLibraries.summaries).mockImplementation(id=>nativeLibraries.catalog(id));
@@ -123,6 +124,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
   localStorage.clear();
 });
@@ -845,4 +847,40 @@ it("shows audio and subtitles from the selected movie version",async()=>{
  fireEvent.change(selector,{target:{value:"uhd"}});
  const tracks=screen.getByLabelText("Movie media tracks");
  expect(tracks.textContent).toContain("en TRUEHD");expect(tracks.textContent).toContain("fr SUBRIP");expect(tracks.textContent).not.toContain("ja AAC");
+});
+
+const channelArtwork = [
+  {kind:"poster",path:"poster.jpg",source:"local"},
+  {kind:"backdrop",path:"fanart.jpg",source:"local"},
+  {kind:"banner",path:"banner.jpg",source:"local"},
+  {kind:"landscape",path:"landscape.jpg",source:"local"},
+];
+it("uses a YouTube banner for page backgrounds while wide cards keep backdrops",async()=>{
+ localStorage.setItem("posterview.dashboardBackdropEnabled","true");
+ localStorage.setItem("posterview.libraryView.native","backdrop");
+ localStorage.setItem("posterview.youtubeBackground.native","banner");
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series,artwork:channelArtwork}]);
+ mount("/",{...library,library_type:"youtube"});
+ const card=await screen.findByRole("button",{name:/Open Example Series/});
+ expect(card.querySelector("img")?.getAttribute("src")).toContain("/backdrop?");
+ fireEvent.click(card);
+ await screen.findByRole("heading",{name:"Example Series"});
+ await waitFor(()=>expect(document.querySelector('img[src*="/banner?"]')).toBeTruthy());
+});
+it.each(["youtube","anime"] as const)("keeps backdrop fallback and non-YouTube backgrounds for %s",async type=>{
+ localStorage.setItem("posterview.dashboardBackdropEnabled","true");
+ localStorage.setItem("posterview.youtubeBackground.native","banner");
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series,artwork:type==="youtube"?channelArtwork.filter(a=>a.kind!=="banner"):channelArtwork}]);
+ mount("/?native_library=native&native_item=show",{...library,library_type:type});
+ await screen.findByRole("heading",{name:"Example Series"});
+ await waitFor(()=>expect(document.querySelector('img[src*="/backdrop?"]')).toBeTruthy());
+ expect(document.querySelector('img[src*="/banner?"]')).toBeNull();
+});
+it("inherits a YouTube channel banner for video page backgrounds",async()=>{
+ localStorage.setItem("posterview.dashboardBackdropEnabled","true");
+ localStorage.setItem("posterview.youtubeBackground.native","banner");
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series,artwork:channelArtwork},{...episode,parent_path:series.path}]);
+ mount("/?native_library=native&native_item=episode",{...library,library_type:"youtube"});
+ await screen.findByRole("heading",{name:"S1:E1 - First Episode"});
+ await waitFor(()=>expect(document.querySelector('img[src*="/show/banner?"]')).toBeTruthy());
 });

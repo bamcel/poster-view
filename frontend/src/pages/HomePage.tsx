@@ -1,3 +1,4 @@
+import {readYoutubeHomepagePreferences,useYoutubeHomepagePreferencesRevision} from "../lib/youtubeHomepagePreferences";
 import LibraryPopup from "../components/LibraryPopup";
 import {useHomepageBannerLogo} from "../lib/homepagePreferences";
 import SearchField from "../components/SearchField";
@@ -38,6 +39,7 @@ function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:Native
 }
 function LibraryHome(){
  const searchTarget=useContext(HeaderSearchTarget);
+ useYoutubeHomepagePreferencesRevision();
  const [bannerLogo,setBannerLogo]=useHomepageBannerLogo();
  const [bannerSaved,setBannerSaved]=useState(false);
  const user=useContext(AuthSessionContext)?.user;
@@ -45,12 +47,12 @@ function LibraryHome(){
  const [search,setSearch]=useState("");
  useEffect(()=>{const reset=()=>setSearch("");window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
  const term=search.trim().toLocaleLowerCase();
- const catalogs=useQueries({queries:(libraries.data??[]).map(library=>({...catalogQueryOptions(library),enabled:!!term||!["books","youtube"].includes(library.library_type),staleTime:5*60_000,gcTime:30*60_000}))});
- const titles=term?[]:groupHomeTitles(catalogs.flatMap((catalog,index)=>catalogView(catalog.data).entries.filter(entry=>entry.metadata.missing!==true&&["movie","series"].includes(entry.kind)).map(entry=>({entry,library:libraries.data![index]}))));
+ const catalogs=useQueries({queries:(libraries.data??[]).map(library=>({...catalogQueryOptions(library),enabled:!!term||!["books","youtube"].includes(library.library_type)||library.library_type==="youtube"&&readYoutubeHomepagePreferences(library.id).featured,staleTime:5*60_000,gcTime:30*60_000}))});
+ const titles=term?[]:groupHomeTitles(catalogs.flatMap((catalog,index)=>catalogView(catalog.data).entries.filter(entry=>entry.metadata.missing!==true&&["movie","series"].includes(entry.kind)&&(libraries.data![index].library_type!=="youtube"||readYoutubeHomepagePreferences(libraries.data![index].id).featured&&entry.kind==="series"&&!entry.parent_path)).map(entry=>({entry,library:libraries.data![index]}))));
  const results=term?groupHomeTitles(catalogs.flatMap((catalog,index)=>(catalog.data??[]).filter(entry=>entry.available&&entry.kind!=="season"&&[entry.title,entry.metadata.originaltitle].some(value=>typeof value==="string"&&value.toLocaleLowerCase().includes(term))).map(entry=>({entry,library:libraries.data![index]})))):[];
  const sections=[{name:"Movies",kinds:["movie"]},{name:"Series",kinds:["series"]},{name:"Episodes",kinds:["episode"]},{name:"Books",kinds:["book","book_series"]}].map(section=>({...section,results:results.filter(({entry})=>section.kinds.includes(entry.kind))})).filter(section=>section.results.length>0);
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
- const bannerLoading=libraries.isPending||catalogs.some((catalog,index)=>!["books","youtube"].includes(libraries.data![index].library_type)&&catalog.isPending);
+ const bannerLoading=libraries.isPending||catalogs.some((catalog,index)=>(!["books","youtube"].includes(libraries.data![index].library_type)||libraries.data![index].library_type==="youtube"&&readYoutubeHomepagePreferences(libraries.data![index].id).featured)&&catalog.isPending);
  const featured=!term&&(bannerLoading||titles.length>0);
  const searchControl=<div role="search" className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2">
    <div className="relative w-full max-w-[21rem]">
@@ -95,7 +97,7 @@ function LibraryHome(){
    <ContinueWatching/>
    {catalogs.some((catalog,index)=>catalog.isPending&&!["books","youtube"].includes(libraries.data![index].library_type))&&<p role="status" className="mt-6 text-muted">Discovering your titles…</p>}
    {catalogs.map((catalog,index)=>catalog.error&&<p role="alert" key={libraries.data![index].id} className="mt-4 text-danger">Could not load discoveries from {libraries.data![index].name}: {catalog.error.message}</p>)}
-   <HomeDiscovery titles={titles}/>
+   <HomeDiscovery titles={titles.filter(title=>title.library.library_type!=="youtube")}/>
    </div>
   </>}
   </div>

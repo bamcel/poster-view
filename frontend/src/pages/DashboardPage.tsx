@@ -55,7 +55,11 @@ export default function DashboardPage() {
  };
  useEffect(()=>{
   if(preview||!library||catalog.isPending||catalog.isError)return;
-  if(youtube){if(youtubeResolved.valid||routeItem)setReadable(effective,{replace:true});return;}
+  if(youtube){
+   // Video links enter playback directly; do not race the player redirect with canonicalization.
+   if(effective.has("youtube_video"))return;
+   if(youtubeResolved.valid||routeItem)setReadable(effective,{replace:true});return;
+  }
   if(itemSlug&&!routeItem)return;
   if(!itemSlug||(routeItem&&itemPath(library,libraries.data??[],routeItem,entries)!==`/media/${encodeURIComponent(libraryId??"")}/${encodeURIComponent(itemSlug??"")}${seasonSlug?`/${encodeURIComponent(seasonSlug)}`:""}${episodeSlug?`/${encodeURIComponent(episodeSlug)}`:""}`)||params.has("native_library")||params.has("native_item"))setReadable(effective,{replace:true});
  },[library?.id,catalog.data,itemSlug,seasonSlug,episodeSlug,params.toString(),preview]);

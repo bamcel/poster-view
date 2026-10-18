@@ -9,7 +9,7 @@ vi.mock("../api/nativeLibraries",async original=>({...await original<typeof impo
 vi.mock("../components/NativeLibraryBrowser",()=>({default:({library}:{library:NativeLibrary})=>{const [params,setParams]=useSearchParams();return <><p>Catalog {library.name}</p><span data-testid="selected">{params.get("native_item")}</span><button onClick={()=>setParams(previous=>{const next=new URLSearchParams(previous);next.delete("native_item");return next;})}>Back</button></>;}}));
 const library:NativeLibrary={id:"anime",name:"Anime",library_type:"anime",anime_content:"both",paths:["Anime"],revision:1,created_at:"",updated_at:"",options:{...defaultNativeOptions}};
 function Location(){const location=useLocation();return <output>{location.pathname}{location.search}</output>;}
-function mount(url="/",home=false){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter initialEntries={[url]}><Routes><Route path="/" element={home?<p>Homepage</p>:<DashboardPage/>}/><Route path="/media/:libraryId" element={<DashboardPage/>}/><Route path="/media/:libraryId/:itemSlug" element={<DashboardPage/>}/><Route path="/media/:libraryId/:itemSlug/:seasonSlug" element={<DashboardPage/>}/><Route path="/media/:libraryId/:itemSlug/:seasonSlug/:episodeSlug" element={<DashboardPage/>}/></Routes><Location/></MemoryRouter></QueryClientProvider>);}
+function mount(url="/",home=false){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter initialEntries={[url]}><Routes><Route path="/play/native/:libraryId/:itemId" element={<p>Player</p>}/><Route path="/" element={home?<p>Homepage</p>:<DashboardPage/>}/><Route path="/media/:libraryId" element={<DashboardPage/>}/><Route path="/media/:libraryId/:itemSlug" element={<DashboardPage/>}/><Route path="/media/:libraryId/:itemSlug/:seasonSlug" element={<DashboardPage/>}/><Route path="/media/:libraryId/:itemSlug/:seasonSlug/:episodeSlug" element={<DashboardPage/>}/></Routes><Location/></MemoryRouter></QueryClientProvider>);}
 afterEach(()=>{cleanup();vi.clearAllMocks();localStorage.clear();});
 it("uses only PosterView libraries and redirects old home library URLs to the current library",async()=>{
  vi.mocked(nativeLibraries.list).mockResolvedValue([library]);vi.mocked(nativeLibraries.status).mockResolvedValue({status:"complete",count:1,warnings:[]});mount("/?lib=80197");
@@ -57,13 +57,16 @@ it("keeps a cached series page visible when background refresh fails",async()=>{
 
 it("canonicalizes legacy YouTube channel links and opens readable nested video links",async()=>{
  vi.mocked(nativeLibraries.list).mockResolvedValue([{...library,id:'youtube',name:'Youtube',library_type:'youtube'}]);
- vi.mocked(nativeLibraries.catalog).mockResolvedValue([{id:'video',title:'Camping Trip',kind:'episode',path:'channel/video.mp4',parent_path:'channel',available:true,files:[],metadata:{youtube:{channel_id:'UCchannel',channel:'Outdoor Boys',playlists:[{id:'camp',title:'Camping'}]}},artwork:[],nfo_path:null,revision:1}]);
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{id:'video',title:'Camping Trip',kind:'episode',path:'channel/video.mp4',parent_path:'channel',available:true,files:[{path:"channel/video.mp4",size:100,extension:"mp4"}],metadata:{youtube:{channel_id:'UCchannel',channel:'Outdoor Boys',playlists:[{id:'camp',title:'Camping'}]}},artwork:[],nfo_path:null,revision:1}]);
  mount('/media/Youtube?youtube_channel=UCchannel');
  await waitFor(()=>expect(screen.getByRole('status').textContent).toBe('/media/Youtube/Outdoor-Boys'));
  fireEvent.click(screen.getByRole('button',{name:'All Videos 1 videos'}));
  await waitFor(()=>expect(screen.getByRole('status').textContent).toBe('/media/Youtube/Outdoor-Boys/All-Videos'));
  cleanup();
  mount('/media/Youtube/Outdoor-Boys/Camping/Camping-Trip');
- expect(await screen.findByRole('heading',{name:'Camping Trip',level:1})).toBeTruthy();
+ expect(await screen.findByText('Player')).toBeTruthy();
+ await waitFor(()=>expect(screen.getByRole('status').textContent).toContain('/play/native/youtube/video?return='));
+ const playerUrl=new URL(screen.getByRole('status').textContent!,"http://localhost");
+ expect(playerUrl.searchParams.get('return')).toBe('/media/Youtube/Outdoor-Boys/Camping');
  expect(screen.queryByText(/This title could not be found/)).toBeNull();
 });

@@ -39,7 +39,7 @@ fn banner_url(channel: &Value) -> Option<reqwest::Url> {
         .map(|(_, url)| url)
 }
 
-fn has_backdrop(directory: &Path) -> Result<bool, HttpError> {
+fn has_banner(directory: &Path) -> Result<bool, HttpError> {
     for entry in std::fs::read_dir(directory).map_err(err)? {
         let path = entry.map_err(err)?.path();
         let stem = path
@@ -47,7 +47,7 @@ fn has_backdrop(directory: &Path) -> Result<bool, HttpError> {
             .and_then(|value| value.to_str())
             .unwrap_or_default()
             .to_ascii_lowercase();
-        if matches!(stem.as_str(), "backdrop" | "fanart" | "background") {
+        if stem == "banner" {
             return Ok(true);
         }
     }
@@ -55,7 +55,7 @@ fn has_backdrop(directory: &Path) -> Result<bool, HttpError> {
 }
 
 fn persist(directory: &Path, bytes: &[u8]) -> Result<(), HttpError> {
-    if has_backdrop(directory)? {
+    if has_banner(directory)? {
         return Ok(());
     }
     let reader = image::ImageReader::new(Cursor::new(bytes))
@@ -71,7 +71,7 @@ fn persist(directory: &Path, bytes: &[u8]) -> Result<(), HttpError> {
     image
         .write_to(&mut encoded, image::ImageFormat::Jpeg)
         .map_err(err)?;
-    let temporary = directory.join(format!(".channel-backdrop-{}.tmp", uuid::Uuid::new_v4()));
+    let temporary = directory.join(format!(".channel-banner-{}.tmp", uuid::Uuid::new_v4()));
     let result = (|| {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
@@ -81,8 +81,8 @@ fn persist(directory: &Path, bytes: &[u8]) -> Result<(), HttpError> {
         file.write_all(encoded.get_ref()).map_err(err)?;
         file.sync_all().map_err(err)?;
         // Linking publishes a complete image atomically without replacing existing artwork.
-        if !has_backdrop(directory)? {
-            match std::fs::hard_link(&temporary, directory.join("backdrop.jpg")) {
+        if !has_banner(directory)? {
+            match std::fs::hard_link(&temporary, directory.join("banner.jpg")) {
                 Ok(()) => (),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
                 Err(error) => return Err(err(error)),
@@ -95,7 +95,7 @@ fn persist(directory: &Path, bytes: &[u8]) -> Result<(), HttpError> {
 }
 
 pub(super) async fn download(directory: &Path, channel: &Value) -> Result<(), HttpError> {
-    if has_backdrop(directory)? {
+    if has_banner(directory)? {
         return Ok(());
     }
     let Some(url) = banner_url(channel) else {
@@ -154,17 +154,50 @@ mod tests {
             .unwrap();
         persist(directory.path(), image.get_ref()).unwrap();
         assert_eq!(
-            image::open(directory.path().join("backdrop.jpg"))
+            image::open(directory.path().join("banner.jpg"))
                 .unwrap()
                 .width(),
             256
         );
-        std::fs::write(directory.path().join("backdrop.jpg"), b"custom").unwrap();
+        std::fs::write(directory.path().join("banner.jpg"), b"custom").unwrap();
         persist(directory.path(), image.get_ref()).unwrap();
         assert_eq!(
-            std::fs::read(directory.path().join("backdrop.jpg")).unwrap(),
+            std::fs::read(directory.path().join("banner.jpg")).unwrap(),
             b"custom"
         );
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn preserves_existing_banner_formats_and_backdrops() {
+        for name in ["banner.jpg", "banner.png", "banner.webp", "Banner.JPEG"] {
+            let directory = tempfile::tempdir().unwrap();
+            std::fs::write(directory.path().join(name), b"custom banner").unwrap();
+            persist(directory.path(), b"not decoded when banner exists").unwrap();
+            assert_eq!(
+                std::fs::read(directory.path().join(name)).unwrap(),
+                b"custom banner"
+            );
+            assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        for name in ["backdrop.jpg", "fanart.jpg", "background.png"] {
+            std::fs::write(directory.path().join(name), name.as_bytes()).unwrap();
+        }
+        let mut image = Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(256, 64)
+            .write_to(&mut image, image::ImageFormat::Png)
+            .unwrap();
+        persist(directory.path(), image.get_ref()).unwrap();
+        let saved = image::open(directory.path().join("banner.jpg")).unwrap();
+        assert_eq!((saved.width(), saved.height()), (256, 64));
+        for name in ["backdrop.jpg", "fanart.jpg", "background.png"] {
+            assert_eq!(
+                std::fs::read(directory.path().join(name)).unwrap(),
+                name.as_bytes()
+            );
+        }
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 4);
     }
 }

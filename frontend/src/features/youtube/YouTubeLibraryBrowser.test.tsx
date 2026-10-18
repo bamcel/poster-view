@@ -1,12 +1,13 @@
+import {LibraryNavigationContext} from '../../lib/libraryNavigation';
 import {HeaderSearchTarget} from "../../lib/headerSearch";
-import {cleanup,fireEvent,render,screen} from "@testing-library/react";
+import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
-import {MemoryRouter} from "react-router-dom";
+import {MemoryRouter,useLocation} from "react-router-dom";
 import {afterEach,beforeEach,expect,it,vi} from "vitest";
 import YouTubeLibraryBrowser from "./YouTubeLibraryBrowser";
 import {nativeLibraries,type NativeLibrary,type NativeCatalogEntry} from "../../api/nativeLibraries";
-vi.mock("../../api/nativeLibraries",()=>({nativeLibraries:{catalog:vi.fn(),artworkUrl:()=>"/api/native/libraries/youtube/items/video/artwork/thumb"}}));
-vi.mock("../playback/components/NativePlaybackActions",()=>({default:()=>null}));
+vi.mock("../../api/nativeLibraries",()=>({nativeLibraries:{catalog:vi.fn(),artworkUrl:(_library:string,_item:string,kind:string)=>`/api/native/libraries/youtube/items/video/artwork/${kind}`}}));
+vi.mock("../../components/DashboardBackdrop",()=>({default:({desktopUrls}:{desktopUrls:string[]})=><div data-testid="background" data-urls={desktopUrls.join(",")}/> }));
 beforeEach(()=>{HTMLDialogElement.prototype.showModal=function(){this.setAttribute("open","");};HTMLDialogElement.prototype.close=function(){this.removeAttribute("open");};});
 afterEach(()=>{cleanup();localStorage.clear();});
 const video:NativeCatalogEntry={id:"video",path:"channel/video.mp4",kind:"episode",parent_path:"channel",title:"Camping video",available:true,revision:1,files:[],nfo_path:null,artwork:[{kind:"thumb",path:"thumb.jpg",source:"local"}],metadata:{youtube:{channel_id:"channel",channel:"Outdoor Boys",playlists:[{id:"camping",title:"Camping"}]}}};
@@ -114,4 +115,80 @@ it("retains the channel hero on a playlist page and lists its videos beneath",as
  expect(screen.getByRole('heading',{name:'Camping',level:2})).toBeTruthy();
  expect(screen.getByRole('button',{name:'Camping video'})).toBeTruthy();
  expect(screen.queryByRole('heading',{name:'Playlists'})).toBeNull();
+});
+
+function LocationProbe(){const location=useLocation();return <output data-testid="location">{location.pathname+location.search}</output>;}
+function renderPlaylist(entries:NativeCatalogEntry[],url='/?youtube_channel=channel&youtube_playlist=camping'){
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue(entries);
+ return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter initialEntries={[url]}><YouTubeLibraryBrowser library={{id:'youtube',name:'YouTube',library_type:'youtube'} as NativeLibrary}/><LocationProbe/></MemoryRouter></QueryClientProvider>);
+}
+const playableVideo={...video,files:[{path:'channel/video.mp4',size:1,extension:'mp4'}]};
+it('lists playlist videos as season-style rows with synopsis, date and duration without starting playback',async()=>{
+ renderPlaylist([{...playableVideo,metadata:{plot:'An adventure in the mountains.',youtube:{...video.metadata.youtube as object,published_at:'2026-10-01',duration_seconds:125}}}]);
+ const article=await screen.findByRole('article',{name:'Camping video'});
+ expect(article.querySelector('img')?.alt).toBe('Camping video video thumbnail');
+ expect(article.querySelector('.detail-synopsis')?.textContent).toBe('An adventure in the mountains.');
+ expect(screen.getByText('2026-10-01 · 3 min')).toBeTruthy();
+ expect(screen.getByTestId('location').textContent).toBe('/?youtube_channel=channel&youtube_playlist=camping');
+ expect(screen.queryByText('View on YouTube')).toBeNull();
+ fireEvent.change(screen.getByRole('textbox',{name:'Search titles'}),{target:{value:'absent'}});
+ expect(screen.queryByRole('article')).toBeNull();
+ expect(screen.getByText('No titles match your search.')).toBeTruthy();
+});
+it.each(['Play Camping video','Camping video'])('starts playback directly from %s and returns to its playlist',async label=>{
+ renderPlaylist([playableVideo]);
+ fireEvent.click(await screen.findByRole('button',{name:label}));
+ const location=screen.getByTestId('location').textContent!;
+ expect(location.startsWith('/play/native/youtube/video?')).toBe(true);
+ expect(new URLSearchParams(location.split('?')[1]).get('return')).toBe('/?youtube_channel=channel&youtube_playlist=camping');
+});
+it('disables videos without a playable file and explains why',async()=>{
+ renderPlaylist([video]);
+ expect((await screen.findByRole('button',{name:'Play Camping video'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(screen.getByRole('button',{name:'Camping video'}));
+ expect(screen.getByText('No playable file available.')).toBeTruthy();
+ expect(screen.getByTestId('location').textContent).not.toContain('/play/');
+});
+it('plays old query video links and removes the video from the player return destination',async()=>{
+ renderPlaylist([playableVideo],'/?youtube_channel=channel&youtube_playlist=camping&youtube_video=video&keep=yes');
+ await waitFor(()=>expect(screen.getByTestId('location').textContent?.startsWith('/play/native/youtube/video?')).toBe(true));
+ const location=screen.getByTestId('location').textContent!;
+ expect(location.startsWith('/play/native/youtube/video?')).toBe(true);
+ expect(new URLSearchParams(location.split('?')[1]).get('return')).toBe('/?youtube_channel=channel&youtube_playlist=camping&keep=yes');
+});
+it('shows a clear error for an unavailable old video link instead of opening details',async()=>{
+ renderPlaylist([{...playableVideo,available:false}],'/?youtube_video=video');
+ expect(await screen.findByRole('alert')).toHaveProperty('textContent','This video is unavailable or has no playable file.');
+ expect(screen.getByTestId('location').textContent).not.toContain('/play/');
+});
+it('lets YouTube page backgrounds prefer banners independently of backdrop cards with fallback',async()=>{
+ localStorage.setItem('posterview.dashboardBackdropEnabled','true');
+ const channel={...video,id:'channel-art',kind:'series',path:'channel',parent_path:null,title:'Outdoor Boys',metadata:{youtube:{channel_id:'channel'}},artwork:[{kind:'banner',path:'banner.jpg',source:'local' as const},{kind:'backdrop',path:'backdrop.jpg',source:'local' as const}]};
+ renderPlaylist([channel,playableVideo],'/');
+ const card=await screen.findByRole('button',{name:'Outdoor Boys 1 videos'});
+ expect(card.querySelector('img')?.src).toContain('/artwork/backdrop?');
+ fireEvent.click(screen.getByRole('button',{name:'Library preferences'}));
+ fireEvent.change(screen.getByRole('combobox',{name:'Page background'}),{target:{value:'banner'}});
+ expect(screen.getByTestId('background').getAttribute('data-urls')).toContain('/artwork/banner?');
+ expect(card.querySelector('img')?.src).toContain('/artwork/backdrop?');
+ expect(localStorage.getItem('posterview.youtubeBackground.youtube')).toBe('banner');
+});
+it('falls back to channel backdrop when banner background is preferred but absent',async()=>{
+ localStorage.setItem('posterview.dashboardBackdropEnabled','true');
+ localStorage.setItem('posterview.youtubeBackground.youtube','banner');
+ renderPlaylist([{...video,id:'channel-art',kind:'series',path:'channel',parent_path:null,title:'Outdoor Boys',metadata:{youtube:{channel_id:'channel'}},artwork:[{kind:'backdrop',path:'backdrop.jpg',source:'local'}]},playableVideo],'/');
+ await screen.findByRole('button',{name:'Outdoor Boys 1 videos'});
+ expect(screen.getByTestId('background').getAttribute('data-urls')).toContain('/artwork/backdrop?');
+});
+
+it('returns canonical video deep links to the playlist instead of replaying on player close',async()=>{
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([playableVideo]);
+ const navigate=vi.fn();
+ const params=new URLSearchParams('youtube_channel=channel&youtube_playlist=camping&youtube_video=video');
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/media/Youtube/Outdoor-Boys/Camping/Camping-video?keep=yes']}><LibraryNavigationContext.Provider value={{navigate,params:{},searchParams:params,setSearchParams:vi.fn()}}><YouTubeLibraryBrowser library={{id:'youtube',name:'YouTube'} as NativeLibrary}/></LibraryNavigationContext.Provider></MemoryRouter></QueryClientProvider>);
+ await waitFor(()=>expect(navigate).toHaveBeenCalled());
+ const destination=navigate.mock.calls[0][0] as string;
+ expect(destination.startsWith('/play/native/youtube/video?')).toBe(true);
+ expect(new URLSearchParams(destination.split('?')[1]).get('return')).toBe('/media/Youtube/Outdoor-Boys/Camping?keep=yes');
+ expect(navigate.mock.calls[0][1]).toEqual({replace:true});
 });
