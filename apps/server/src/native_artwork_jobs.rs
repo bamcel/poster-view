@@ -126,19 +126,14 @@ mod tests {
         let store = ServerStore::new(state.runtime.data_dir());
         start(state.clone());
         tokio::time::sleep(Duration::from_millis(2200)).await;
-        assert!(
-            store
-                .claim_background_job(chrono::Utc::now().timestamp())
-                .unwrap()
-                .is_none()
-        );
+        assert!(store.background_jobs().unwrap().is_empty());
         request(&state);
         let job = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                if let Some(job) = store
-                    .claim_background_job(chrono::Utc::now().timestamp())
-                    .unwrap()
-                {
+                // Enqueue starts the real worker, which can already have claimed
+                // or finished this job. Observe the durable record instead of
+                // racing that worker for its lease.
+                if let Some(job) = store.background_jobs().unwrap().into_iter().next() {
                     break job;
                 }
                 tokio::time::sleep(Duration::from_millis(20)).await;

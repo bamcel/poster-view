@@ -132,6 +132,7 @@ it("keeps save failures inside the editor and closes without saving", async () =
   fireEvent.change(screen.getByLabelText("Display name"),{target:{value:"Changed"}});
   const alert = await screen.findByRole("alert");
   expect(screen.getByRole("dialog").contains(alert)).toBe(true);
+  await waitFor(()=>expect((screen.getByRole("button",{name:"Close user editor"}) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "Close user editor" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.queryByRole("alert")).toBeNull();
