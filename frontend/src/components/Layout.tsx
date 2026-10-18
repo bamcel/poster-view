@@ -1,4 +1,5 @@
 import {confirmUnsavedSettings} from "../features/settings/useUnsavedSettings";
+import {createPortal} from "react-dom";
 import {LibraryHeaderBackContext,useLibraryHeaderBack} from "../lib/libraryHeaderBack";
 import SettingsNavigation from "../features/settings/SettingsNavigation";
 import {settingsPath as settingsPagePath,visibleSettingsPages} from "../features/settings/navigation";
@@ -34,11 +35,17 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   const libraryBack=/^\/media\//.test(preview?previewPath:location.pathname)||/^\/server\/[^/]+\/(item|series)\//.test(preview?previewPath:location.pathname)||/^\/collections\/[^/]+/.test(preview?previewPath:location.pathname);
   const homeSearch=!preview&&location.pathname==="/"&&!new URLSearchParams(location.search).has("lib")&&!new URLSearchParams(location.search).has("native_library");
   const preferencesMenu=useRef<HTMLDetailsElement>(null);
+  const profilePanel=useRef<HTMLDivElement>(null);
+  const [profileOpen,setProfileOpen]=useState(false);
+  const [profilePosition,setProfilePosition]=useState({top:56,right:12});
+  const closeProfile=()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;setProfileOpen(false);};
   useEffect(()=>{
-    const close=(event:PointerEvent)=>{if(preferencesMenu.current&&!preferencesMenu.current.contains(event.target as Node))preferencesMenu.current.open=false;};
-    const escape=(event:KeyboardEvent)=>{if(event.key==="Escape"&&preferencesMenu.current?.open){event.preventDefault();preferencesMenu.current.open=false;preferencesMenu.current.querySelector("summary")?.focus();}};
+    const close=(event:PointerEvent)=>{if(preferencesMenu.current&&!preferencesMenu.current.contains(event.target as Node)&&!profilePanel.current?.contains(event.target as Node))closeProfile();};
+    const escape=(event:KeyboardEvent)=>{if(event.key==="Escape"&&preferencesMenu.current?.open){event.preventDefault();closeProfile();preferencesMenu.current.querySelector("summary")?.focus();}};
+    const reposition=()=>closeProfile();
     document.addEventListener("pointerdown",close);window.addEventListener("keydown",escape);
-    return()=>{document.removeEventListener("pointerdown",close);window.removeEventListener("keydown",escape);};
+    window.addEventListener("resize",reposition);
+    return()=>{document.removeEventListener("pointerdown",close);window.removeEventListener("keydown",escape);window.removeEventListener("resize",reposition);};
   },[]);
   const artworkPlugin=useArtworkPlugin();
   const virtualTvSettings=useQuery({queryKey:["virtual-tv-settings"],queryFn:virtualTv.settings,enabled:!preview});
@@ -173,21 +180,21 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
         <div ref={setSearchTarget} className={homeSearch?"order-last min-w-0 basis-full pb-2 sm:order-none sm:flex-1 sm:basis-auto sm:pb-0":libraryBack?"flex min-w-0 flex-1 justify-center":"hidden"}/>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <details ref={preferencesMenu} className="relative">
-            <summary aria-label="Profile" title="Profile" className="pv-profile-trigger grid size-10 cursor-pointer list-none place-items-center text-white [&::-webkit-details-marker]:hidden">
+            <summary aria-label="Profile" title="Profile" onClick={event=>{event.preventDefault();const open=!preferencesMenu.current?.open;if(preferencesMenu.current)preferencesMenu.current.open=open;const rect=event.currentTarget.getBoundingClientRect();setProfilePosition({top:rect.bottom+8,right:Math.max(12,window.innerWidth-rect.right)});setProfileOpen(open);}} className="pv-profile-trigger grid size-10 cursor-pointer list-none place-items-center text-white [&::-webkit-details-marker]:hidden">
               <UserRound className="size-4" />
             </summary>
-            <div className="pv-profile-menu absolute right-0 top-full mt-2 shadow-xl">
+            {createPortal(<div ref={profilePanel} hidden={!profileOpen} className="pv-profile-menu fixed z-[100] shadow-xl" style={profilePosition}>
               <div className="pv-profile-identity">
               <p className="font-medium">{session?.user?.display_name ?? "Profile"}</p>
               <p className="mt-1 text-xs text-muted">{session?.user ? (isAdmin ? "Administrator" : "User") : "Local session"}</p>
               </div>
               <nav aria-label="Profile settings">
-                <NavLink to={settingsPath} onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="pv-profile-item"><Settings aria-hidden="true"/>Settings</NavLink>
-                <NavLink to="/settings/playback" onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="pv-profile-item"><Film aria-hidden="true"/>Playback preferences</NavLink>
-                <NavLink to="/settings/reading" onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="pv-profile-item"><BookOpen aria-hidden="true"/>Reading preferences</NavLink>
+                <NavLink to={settingsPath} onClick={event=>{closeProfile();if(preview){event.preventDefault();void previewNavigate(settingsPath);}}} className="pv-profile-item"><Settings aria-hidden="true"/>Settings</NavLink>
+                <NavLink to="/settings/playback" onClick={event=>{closeProfile();if(preview){event.preventDefault();void previewNavigate("/settings/playback");}}} className="pv-profile-item"><Film aria-hidden="true"/>Playback preferences</NavLink>
+                <NavLink to="/settings/reading" onClick={event=>{closeProfile();if(preview){event.preventDefault();void previewNavigate("/settings/reading");}}} className="pv-profile-item"><BookOpen aria-hidden="true"/>Reading preferences</NavLink>
               </nav>
               {showSignOut && <div className="pv-profile-footer"><button type="button" onClick={signOut} className="pv-profile-item"><LogOut aria-hidden="true"/>Sign out</button></div>}
-            </div>
+            </div>,document.body)}
           </details>
 
         </div>

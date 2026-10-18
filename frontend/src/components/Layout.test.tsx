@@ -140,7 +140,7 @@ it("combines settings and preferences in the profile menu",async()=>{
  render(<MemoryRouter><AuthGate><Layout/></AuthGate></MemoryRouter>);
  const profile=await screen.findByLabelText("Profile");
  expect(screen.queryByLabelText("Preferences")).toBeNull();
- expect(screen.getByRole("link",{name:"Settings",hidden:true}).closest("details")).toBe(profile.closest("details"));
+ expect(screen.getByRole("link",{name:"Settings",hidden:true}).closest(".pv-profile-menu")?.parentElement).toBe(document.body);
  fireEvent.click(profile);
  const navigation=screen.getByRole("navigation",{name:"Profile settings"});
  expect(within(navigation).getByRole("link",{name:"Settings"}).getAttribute("href")).toBe("/settings");
