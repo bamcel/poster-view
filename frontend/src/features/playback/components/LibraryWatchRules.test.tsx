@@ -23,8 +23,8 @@ it("preserves standalone saved-library loading and saving",async()=>{
   vi.mocked(watchApi.saveRules).mockImplementation(async(_library,rules)=>rules);
   render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><LibraryWatchRules library="youtube"/></QueryClientProvider>);
   fireEvent.change(await screen.findByLabelText("Maximum resume percentage"),{target:{value:"95"}});
-  fireEvent.click(screen.getByRole("button",{name:"Save playback rules"}));
-  await screen.findByText("Playback rules saved.");
+
+  await screen.findByText("Changes saved automatically");
   expect(watchApi.saveRules).toHaveBeenCalledWith("youtube",{...defaultWatchRules,maximum_percentage:95});
 });
 it("validates finite ordered percentages and duration using the server limits",()=>{

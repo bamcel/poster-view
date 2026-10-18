@@ -1003,6 +1003,7 @@ async fn run_scan_scoped_mode(
             fields.remove("_image_capture_attempted");
         }
     }
+    let new_artwork = crate::native_artwork_jobs::has_new_artwork(&entries, &existing);
     let count = entries.len();
     let db = store(&state);
     let scan_library = library.clone();
@@ -1135,7 +1136,9 @@ async fn run_scan_scoped_mode(
         count
     };
     crate::spawn_backdrop_refresh(&state);
-    crate::native_artwork_jobs::request(&state);
+    if new_artwork {
+        crate::native_artwork_jobs::request(&state);
+    }
     Ok(posterview_contracts::native::NativeScanStatus {
         progress: None,
         status: if warnings.is_empty() {
@@ -1390,6 +1393,7 @@ pub(crate) async fn apply_panel_artwork(
     kind: posterview_contracts::ImageTarget,
     bytes: Option<Vec<u8>>,
 ) -> Result<posterview_contracts::ApplyResult, HttpError> {
+    let new_artwork = bytes.is_some();
     let save_state = state.clone();
     let result = tokio::task::spawn_blocking(move || {
         let state = save_state;
@@ -1470,7 +1474,9 @@ pub(crate) async fn apply_panel_artwork(
     .await
     .map_err(|_| HttpError::bad_request("Artwork save interrupted."))??;
     crate::spawn_backdrop_refresh(&state);
-    crate::native_artwork_jobs::request(&state);
+    if new_artwork {
+        crate::native_artwork_jobs::request(&state);
+    }
     Ok(result)
 }
 

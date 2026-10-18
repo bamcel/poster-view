@@ -1,4 +1,5 @@
-import {useEffect,useState} from "react";
+import {useAutoSave} from "../../../lib/useAutoSave";
+import {useEffect,useRef,useState} from "react";
 import {useQuery} from "@tanstack/react-query";
 import {watchApi,type WatchRules} from "../api/watch";
 export const defaultWatchRules:WatchRules={minimum_percentage:2,maximum_percentage:90,minimum_duration_seconds:120};
@@ -18,12 +19,14 @@ function WatchRuleFields({settings,onChange}:{settings:WatchRules;onChange:(rule
 }
 function SavedWatchRules({library}:{library:string}) {
   const query=useQuery({queryKey:["watch-rules",library],queryFn:()=>watchApi.rules(library!),enabled:!!library});
-  const [settings,setSettings]=useState<WatchRules>(),[message,setMessage]=useState(""),[error,setError]=useState(""),[saving,setSaving]=useState(false);
-  useEffect(()=>{setSettings(query.data);},[query.data]);
+  const [settings,setSettings]=useState<WatchRules>();
+  const hydrated=useRef(false);
+  useEffect(()=>{if(query.data&&!hydrated.current){hydrated.current=true;setSettings(query.data);}},[query.data]);
+  const autoSave=useAutoSave({value:settings,enabled:!!settings,save:async value=>{if(!value)return;if(!validWatchRules(value))throw new Error("Enter ordered percentages from 0 to 100 and a duration from 0 to 86400 seconds.");await watchApi.saveRules(library,value);}});
   if(!library)return <p className="text-sm text-muted">Save the library first to configure resume and completion rules.</p>;
   if(query.isError)return <p role="alert" className="text-sm text-danger">{query.error.message}</p>;
   if(!settings)return <p role="status" className="text-sm text-muted">Loading playback rules…</p>;
-  return <div className="space-y-4"><WatchRuleFields settings={settings} onChange={value=>{setSettings(value);setMessage("");}}/>
-  <button type="button" disabled={saving} className="rounded-full border border-border bg-input px-4 py-2 text-sm disabled:opacity-40" onClick={async()=>{setSaving(true);setError("");try{setSettings(await watchApi.saveRules(library,settings));setMessage("Playback rules saved.");}catch(e){setError(e instanceof Error?e.message:"Could not save playback rules.");}finally{setSaving(false);}}}>{saving?"Saving…":"Save playback rules"}</button>
-  {message&&<p role="status" className="text-xs text-accent">{message}</p>}{error&&<p role="alert" className="text-xs text-danger">{error}</p>}</div>;
+  return <div className="space-y-4"><WatchRuleFields settings={settings} onChange={setSettings}/>
+  <p role="status" className="text-xs text-muted">{autoSave.status==="saved"?"Changes saved automatically":autoSave.status==="saving"?"Saving changes…":autoSave.status==="pending"?"Changes will save automatically…":"Changes save automatically"}</p>
+  {autoSave.error&&<p role="alert" className="text-xs text-danger">{autoSave.error.message} <button type="button" onClick={autoSave.retry}>Retry</button></p>}</div>;
 }

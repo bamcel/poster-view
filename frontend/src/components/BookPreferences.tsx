@@ -9,6 +9,7 @@ export default function BookPreferences(){
  {row("Colored edition badge",settings.coloredEffect==="badge"||settings.coloredEffect==="both",()=>settings.toggleColoredEffect("badge"))}
  {row("Colored edition title",settings.coloredTitle,()=>settings.setColoredTitle(!settings.coloredTitle))}
  <p className="text-xs text-faint">Changes save automatically and apply across book libraries.</p>
+ {settings.saved&&!settings.busy&&!settings.error&&<p role="status" className="text-xs text-muted">Changes saved automatically</p>}
  {settings.error&&<p role="alert" className="text-sm text-danger">{settings.error}</p>}
  </section>;
 }

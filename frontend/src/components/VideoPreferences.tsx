@@ -11,5 +11,6 @@ export function useVideoPreferences(library:string){
 }
 export default function VideoPreferences({library}:{library:string}){
  const {value,toggle}=useVideoPreferences(library);
- return <div className="space-y-7"><section className="space-y-5"><h3 className="text-xl font-semibold">Cast and crew</h3>{([['casts','Display Cast'],['crew','Display Crew']] as const).map(([field,label])=><div key={field} className="flex items-center justify-between gap-4"><span className="text-sm text-muted">{label}</span><Switch label={label} checked={value[field]} onChange={()=>toggle(field)}/></div>)}</section><p className="text-xs text-faint">Changes save automatically for this library in this browser.</p></div>;
+ const [saved,setSaved]=useState(false);
+ return <div className="space-y-7"><section className="space-y-5"><h3 className="text-xl font-semibold">Cast and crew</h3>{([['casts','Display Cast'],['crew','Display Crew']] as const).map(([field,label])=><div key={field} className="flex items-center justify-between gap-4"><span className="text-sm text-muted">{label}</span><Switch label={label} checked={value[field]} onChange={()=>{toggle(field);setSaved(true);}}/></div>)}</section><p className="text-xs text-faint">Changes save automatically for this library in this browser.</p>{saved&&<p role="status" className="text-xs text-muted">Changes saved automatically</p>}</div>;
 }

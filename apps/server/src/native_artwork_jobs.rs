@@ -8,6 +8,23 @@ pub(crate) fn request(state: &AppState) {
     // dispatcher below persists accepted work; it does not execute artwork jobs.
     state.artwork_generation_notify.notify_one();
 }
+pub(crate) fn has_new_artwork(
+    entries: &[posterview_contracts::native::NativeCatalogEntry],
+    existing: &std::collections::BTreeMap<String, posterview_contracts::native::NativeCatalogEntry>,
+) -> bool {
+    entries
+        .iter()
+        .filter(|entry| entry.available && entry.metadata["missing"] != true)
+        .any(|entry| {
+            entry.artwork.iter().any(|art| {
+                !existing.get(&entry.path).is_some_and(|old| {
+                    old.artwork
+                        .iter()
+                        .any(|previous| previous.kind == art.kind && previous.path == art.path)
+                })
+            })
+        })
+}
 fn spec() -> BackgroundJobSpec {
     BackgroundJobSpec {
         kind: "artwork_backfill".into(),
@@ -19,9 +36,8 @@ fn spec() -> BackgroundJobSpec {
     }
 }
 pub(crate) fn start(state: AppState) {
-    // Reconcile on every startup, including requests interrupted before their
-    // enqueue transaction. Existing variants are reused instead of regenerated.
-    request(&state);
+    // Wait for artwork changes. Scheduled maintenance covers missing variants;
+    // starting the dispatcher must not enqueue a fresh full-library pass.
     tokio::spawn(async move {
         loop {
             state.artwork_generation_notify.notified().await;
@@ -64,6 +80,74 @@ mod tests {
     use super::*;
     use posterview_infra_sqlite::ServerStore;
     use std::sync::{Arc, atomic::AtomicBool};
+
+    #[test]
+    fn scan_requests_require_added_or_replaced_artwork() {
+        use posterview_contracts::native::{NativeArtwork, NativeCatalogEntry};
+        let mut entry = NativeCatalogEntry {
+            id: "item".into(),
+            path: "Movies/title".into(),
+            kind: "movie".into(),
+            parent_path: None,
+            title: "Title".into(),
+            metadata: serde_json::json!({}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        let mut old = std::collections::BTreeMap::new();
+        old.insert(entry.path.clone(), entry.clone());
+        assert!(!has_new_artwork(&[entry.clone()], &old));
+        entry.artwork.push(NativeArtwork {
+            kind: "poster".into(),
+            path: "poster.jpg".into(),
+            source: "local".into(),
+        });
+        assert!(has_new_artwork(&[entry.clone()], &old));
+        old.insert(entry.path.clone(), entry.clone());
+        entry.title = "Metadata edit".into();
+        entry.artwork[0].source = "manual".into();
+        assert!(!has_new_artwork(&[entry.clone()], &old));
+        entry.artwork[0].path = "new-poster.jpg".into();
+        assert!(has_new_artwork(&[entry.clone()], &old));
+        entry.available = false;
+        assert!(!has_new_artwork(&[entry.clone()], &old));
+        entry.available = true;
+        entry.artwork.clear();
+        assert!(!has_new_artwork(&[entry], &old));
+    }
+    #[tokio::test]
+    async fn startup_waits_for_an_artwork_change_before_enqueuing() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let store = ServerStore::new(state.runtime.data_dir());
+        start(state.clone());
+        tokio::time::sleep(Duration::from_millis(2200)).await;
+        assert!(
+            store
+                .claim_background_job(chrono::Utc::now().timestamp())
+                .unwrap()
+                .is_none()
+        );
+        request(&state);
+        let job = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(job) = store
+                    .claim_background_job(chrono::Utc::now().timestamp())
+                    .unwrap()
+                {
+                    break job;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(job.kind, "artwork_backfill");
+    }
 
     #[test]
     fn automatic_requests_coalesce_and_running_work_allows_one_followup() {

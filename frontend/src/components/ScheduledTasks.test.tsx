@@ -14,11 +14,11 @@ it("previews cleanup before allowing removal and preserves disabled schedules",a
  fireEvent.click(review);fireEvent.click(await screen.findByRole("button",{name:"Clean selected"}));
  await waitFor(()=>expect(apiRequest).toHaveBeenCalledWith("/tasks/cleanup/run",{method:"POST"}));
 });
-it("requires saving changed categories before reviewing cleanup",async()=>{
+it("automatically saves changed categories before reviewing cleanup",async()=>{
  vi.mocked(apiRequest).mockResolvedValue([task]);render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><ScheduledTasks/></QueryClientProvider>);
  fireEvent.click(await screen.findByRole("checkbox",{name:"Unused managed artwork"}));
  expect((screen.getByRole("button",{name:"Review cleanup"}) as HTMLButtonElement).disabled).toBe(true);
- fireEvent.click(screen.getByRole("button",{name:"Save task"}));await waitFor(()=>expect(apiRequest).toHaveBeenCalledWith("/tasks/cleanup",expect.objectContaining({method:"PUT"})));
+ await waitFor(()=>expect(apiRequest).toHaveBeenCalledWith("/tasks/cleanup",expect.objectContaining({method:"PUT"})));
 });
 
 it("allows cleanup when only obsolete records are eligible",async()=>{
@@ -45,7 +45,7 @@ it("runs artwork backfill and allows changing its daily schedule without cleanup
  expect(screen.queryByRole("button",{name:"Review cleanup"})).toBeNull();
  fireEvent.click(screen.getByRole("checkbox",{name:"Enable schedule for Optimize Artwork"}));
  fireEvent.change(screen.getByLabelText("Optimize Artwork interval days"),{target:{value:"3"}});
- fireEvent.click(screen.getByRole("button",{name:"Save task"}));
+
  await waitFor(()=>expect(apiRequest).toHaveBeenCalledWith("/tasks/artwork",expect.objectContaining({method:"PUT",body:expect.any(String)})));
  const saved=vi.mocked(apiRequest).mock.calls.find(([url,options])=>url==="/tasks/artwork"&&options?.method==="PUT");
  expect(JSON.parse(String(saved?.[1]?.body))).toMatchObject({enabled:false,interval_days:3});

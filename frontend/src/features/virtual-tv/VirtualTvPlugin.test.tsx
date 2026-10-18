@@ -14,6 +14,7 @@ it("enables Virtual TV and exposes channel management",async()=>{
  fireEvent.click(screen.getByRole("button",{name:/Virtual TV/}));
  fireEvent.click(screen.getByRole("checkbox",{name:"Enable Virtual TV"}));
  await waitFor(()=>expect(virtualTv.saveSettings).toHaveBeenCalledWith({enabled:true},expect.anything()));
+ await screen.findByText("Changes saved automatically");
  expect(screen.getByRole("link",{name:"Manage channels and guide"}).getAttribute("href")).toBe("/virtual-tv");
  fireEvent.keyDown(window,{key:"Escape"});
  expect(screen.queryByRole("dialog")).toBeNull();

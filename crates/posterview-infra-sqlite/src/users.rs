@@ -2,9 +2,11 @@ use crate::{ServerStore, StoreError};
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 use posterview_contracts::{UserAccount, UserCreate, UserPermissions, UserRole, UserUpdate};
 use rusqlite::{Connection, OptionalExtension, params};
+use sha2::{Digest, Sha256};
 
 pub(crate) fn migrate(connection: &Connection) -> Result<(), StoreError> {
     connection.execute_batch("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL COLLATE NOCASE UNIQUE, display_name TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin','user')), enabled INTEGER NOT NULL, permissions TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT(datetime('now')));")?;
+    connection.execute_batch("CREATE TABLE IF NOT EXISTS remembered_sessions (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, user_revision INTEGER NOT NULL, expires_at INTEGER NOT NULL, last_activity INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS remembered_sessions_expiry ON remembered_sessions(expires_at);")?;
     Ok(())
 }
 fn hash_password(password: &str) -> Result<String, StoreError> {
@@ -485,6 +487,130 @@ mod tests {
                     ..input
                 })
                 .is_err()
+        );
+    }
+}
+
+fn remembered_hash(token: &str) -> String {
+    format!("{:x}", Sha256::digest(token.as_bytes()))
+}
+impl ServerStore {
+    pub fn create_remembered_session(
+        &self,
+        token: &str,
+        user: &UserAccount,
+        now: i64,
+        expires: i64,
+    ) -> Result<(), StoreError> {
+        let mut connection = self.write_connection()?;
+        let tx = connection.transaction()?;
+        tx.execute(
+            "DELETE FROM remembered_sessions WHERE expires_at<=?1",
+            [now],
+        )?;
+        tx.execute("INSERT INTO remembered_sessions(token_hash,user_id,user_revision,expires_at,last_activity) VALUES(?1,?2,?3,?4,?5)",params![remembered_hash(token),user.id,user.revision,expires,now])?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub fn remembered_session_user(
+        &self,
+        token: &str,
+        now: i64,
+        idle_minutes: Option<u32>,
+    ) -> Result<Option<UserAccount>, StoreError> {
+        if token.len() != 32 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Ok(None);
+        }
+        Ok(self.connection()?.query_row("SELECT u.id,u.username,u.display_name,u.role,u.enabled,u.permissions,u.revision,u.created_at FROM remembered_sessions s JOIN users u ON u.id=s.user_id AND u.revision=s.user_revision WHERE s.token_hash=?1 AND s.expires_at>?2 AND u.enabled=1 AND (?3 IS NULL OR s.last_activity>?2-?3)",params![remembered_hash(token),now,idle_minutes.map(|minutes|i64::from(minutes)*60)],account).optional()?)
+    }
+    pub fn touch_remembered_session(
+        &self,
+        token: &str,
+        now: i64,
+        idle_minutes: Option<u32>,
+    ) -> Result<bool, StoreError> {
+        if self
+            .remembered_session_user(token, now, idle_minutes)?
+            .is_none()
+        {
+            return Ok(false);
+        }
+        self.write_connection()?.execute("UPDATE remembered_sessions SET last_activity=?2 WHERE token_hash=?1 AND expires_at>?2 AND (?3 IS NULL OR last_activity>?2-?3)",params![remembered_hash(token),now,idle_minutes.map(|minutes|i64::from(minutes)*60)]).map(|count|count>0).map_err(Into::into)
+    }
+    pub fn revoke_remembered_session(&self, token: &str) -> Result<(), StoreError> {
+        self.write_connection()?.execute(
+            "DELETE FROM remembered_sessions WHERE token_hash=?1",
+            [remembered_hash(token)],
+        )?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod remembered_tests {
+    use super::*;
+    #[test]
+    fn remembered_tokens_are_hashed_expire_and_revoke_without_retaining_credentials() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = ServerStore::new(temp.path());
+        store.initialize().unwrap();
+        store.bootstrap_user("admin", "password123").unwrap();
+        let user = store.users().unwrap().remove(0);
+        let token = "a".repeat(32);
+        store
+            .create_remembered_session(&token, &user, 1000, 2000)
+            .unwrap();
+        let hash: String = store
+            .connection()
+            .unwrap()
+            .query_row("SELECT token_hash FROM remembered_sessions", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_ne!(hash, token);
+        assert_eq!(hash.len(), 64);
+        assert_eq!(
+            store
+                .remembered_session_user(&token, 1059, Some(1))
+                .unwrap()
+                .unwrap()
+                .id,
+            user.id
+        );
+        assert!(
+            store
+                .remembered_session_user(&token, 1060, Some(1))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            !store
+                .touch_remembered_session(&token, 1060, Some(1))
+                .unwrap()
+        );
+        assert!(
+            store
+                .touch_remembered_session(&token, 1050, Some(1))
+                .unwrap()
+        );
+        assert!(
+            store
+                .remembered_session_user(&token, 1109, Some(1))
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            store
+                .remembered_session_user(&token, 2000, None)
+                .unwrap()
+                .is_none()
+        );
+        store.revoke_remembered_session(&token).unwrap();
+        assert!(
+            store
+                .remembered_session_user(&token, 1100, None)
+                .unwrap()
+                .is_none()
         );
     }
 }

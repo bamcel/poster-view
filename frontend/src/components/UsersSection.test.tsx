@@ -59,7 +59,6 @@ it("keeps the saved password when editing and sends the revision", async () => {
   mount();
   fireEvent.click(await screen.findByRole("button", { name: "Edit Viewer" }));
   fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "New name" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save user" }));
   await waitFor(() => expect(api.updateUser).toHaveBeenCalledWith("u", expect.objectContaining({
     revision: 4, password: null, display_name: "New name",
   })));
@@ -86,19 +85,16 @@ it("loads and edits an existing playback limit while preserving content restrict
   mount();fireEvent.click(await screen.findByRole("button", { name: "Edit Viewer" }));
   expect((screen.getByLabelText("Simultaneous playback limit") as HTMLInputElement).value).toBe("3");
   fireEvent.change(screen.getByLabelText("Simultaneous playback limit"), { target: { value: "0" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save user" }));
   await waitFor(() => expect(api.updateUser).toHaveBeenCalledWith("u", expect.objectContaining({
     permissions: { ...permissions, max_playback_streams: 0 }, revision: 4,
   })));
 });
 
-it("uses five streams for legacy accounts without a saved playback limit", async () => {
-  mount();fireEvent.click(await screen.findByRole("button", { name: "Edit Viewer" }));
-  expect((screen.getByLabelText("Simultaneous playback limit") as HTMLInputElement).value).toBe("5");
-  fireEvent.click(screen.getByRole("button", { name: "Save user" }));
-  await waitFor(() => expect(api.updateUser).toHaveBeenCalledWith("u", expect.objectContaining({
-    permissions: { ...account.permissions, max_playback_streams: 5 },
-  })));
+it("uses five streams for legacy accounts without writing on open", async () => {
+ mount();fireEvent.click(await screen.findByRole("button",{name:"Edit Viewer"}));
+ expect((screen.getByLabelText("Simultaneous playback limit") as HTMLInputElement).value).toBe("5");
+ expect(screen.queryByRole("button",{name:"Save user"})).toBeNull();
+ expect(api.updateUser).not.toHaveBeenCalled();
 });
 
 it("requires deletion confirmation and reports last administrator protection", async () => {
@@ -133,10 +129,54 @@ it("keeps save failures inside the editor and closes without saving", async () =
   vi.mocked(api.updateUser).mockRejectedValueOnce(new Error("Revision changed."));
   mount();
   fireEvent.click(await screen.findByRole("button", { name: "Edit Viewer" }));
-  fireEvent.click(screen.getByRole("button", { name: "Save user" }));
+  fireEvent.change(screen.getByLabelText("Display name"),{target:{value:"Changed"}});
   const alert = await screen.findByRole("alert");
   expect(screen.getByRole("dialog").contains(alert)).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Close user editor" }));
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("autosaves account settings without sending a password draft and advances revisions",async()=>{
+ vi.mocked(api.updateUser).mockResolvedValue({...account,revision:5});
+ mount();fireEvent.click(await screen.findByRole("button",{name:"Edit Viewer"}));
+ fireEvent.change(screen.getByLabelText("New password (leave blank to keep current)"),{target:{value:"new-password"}});
+ fireEvent.change(screen.getByLabelText("Display name"),{target:{value:"Changed"}});
+ await waitFor(()=>expect(api.updateUser).toHaveBeenCalledWith("u",expect.objectContaining({password:null,revision:4,display_name:"Changed"})));
+ expect(await screen.findByText("Changes saved automatically")).toBeTruthy();
+ fireEvent.change(screen.getByLabelText("Display name"),{target:{value:"Changed again"}});
+ await waitFor(()=>expect(api.updateUser).toHaveBeenLastCalledWith("u",expect.objectContaining({password:null,revision:5,display_name:"Changed again"})));
+ await screen.findByText("Changes saved automatically");
+ fireEvent.click(screen.getByRole("button",{name:"Update password"}));
+ await waitFor(()=>expect(api.updateUser).toHaveBeenLastCalledWith("u",expect.objectContaining({password:"new-password",revision:5})));
+});
+
+it("keeps the user editor open while automatic saves are pending and in flight",async()=>{
+ let complete!:(account:UserAccount)=>void;
+ vi.mocked(api.updateUser).mockImplementationOnce(()=>new Promise(resolve=>{complete=resolve;}));
+ mount();fireEvent.click(await screen.findByRole("button",{name:"Edit Viewer"}));
+ fireEvent.change(screen.getByLabelText("Display name"),{target:{value:"Changed"}});
+ await waitFor(()=>expect((screen.getByRole("button",{name:"Close user editor"}) as HTMLButtonElement).disabled).toBe(true));
+ fireEvent.keyDown(screen.getByRole("dialog"),{key:"Escape"});
+ expect(screen.getByRole("dialog")).toBeTruthy();
+ await waitFor(()=>expect(api.updateUser).toHaveBeenCalled());
+ fireEvent.click(screen.getByRole("button",{name:"Cancel"}));
+ expect(screen.getByRole("dialog")).toBeTruthy();
+ complete({...account,revision:5});
+ await screen.findByText("Changes saved automatically");
+ await waitFor(()=>expect((screen.getByRole("button",{name:"Close user editor"}) as HTMLButtonElement).disabled).toBe(false));
+});
+
+it("prevents account edits from racing an explicit password update",async()=>{
+ let complete!:(account:UserAccount)=>void;
+ vi.mocked(api.updateUser).mockImplementationOnce(()=>new Promise(resolve=>{complete=resolve;}));
+ mount();fireEvent.click(await screen.findByRole("button",{name:"Edit Viewer"}));
+ fireEvent.change(screen.getByLabelText("New password (leave blank to keep current)"),{target:{value:"replacement-password"}});
+ fireEvent.click(screen.getByRole("button",{name:"Update password"}));
+ await waitFor(()=>expect(api.updateUser).toHaveBeenCalledTimes(1));
+ expect(screen.getByLabelText("Display name").closest("fieldset")?.disabled).toBe(true);
+ expect((screen.getByRole("button",{name:"Close user editor"}) as HTMLButtonElement).disabled).toBe(true);
+ complete({...account,revision:5});
+ await screen.findByText("Password updated.");
+ expect(screen.getByLabelText("Display name").closest("fieldset")?.disabled).toBe(false);
 });

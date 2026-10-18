@@ -39,6 +39,7 @@ function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:Native
 function LibraryHome(){
  const searchTarget=useContext(HeaderSearchTarget);
  const [bannerLogo,setBannerLogo]=useHomepageBannerLogo();
+ const [bannerSaved,setBannerSaved]=useState(false);
  const user=useContext(AuthSessionContext)?.user;
  const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,select:items=>items.filter(library=>!user||user.role==="admin"||user.permissions.all_libraries||user.permissions.library_ids.includes(library.id))});
  const [search,setSearch]=useState("");
@@ -57,8 +58,9 @@ function LibraryHome(){
 
    </div>
    <LibraryPopup title="Homepage preferences" label="Homepage preferences" icon={<MoreHorizontal className="size-4"/>}>
-    <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-accent" checked={bannerLogo} onChange={event=>setBannerLogo(event.target.checked)}/>Use title logos in the featured banner</label>
+    <label className="flex items-center gap-3 text-sm"><input type="checkbox" className="accent-accent" checked={bannerLogo} onChange={event=>{setBannerLogo(event.target.checked);setBannerSaved(true);}}/>Use title logos in the featured banner</label>
     <p className="mt-3 text-xs text-muted">Show the title’s logo when available, with text as a fallback. Saved for your account in this browser.</p>
+    {bannerSaved&&<p role="status" className="mt-3 text-xs text-muted">Changes saved automatically</p>}
    </LibraryPopup>
   </div>;
  return <main className="relative z-10 h-full overflow-y-auto pt-5 pb-8">

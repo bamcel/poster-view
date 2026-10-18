@@ -57,6 +57,7 @@ describe("AuthGate", () => {
     fireEvent.change(await screen.findByLabelText("Password"), {
       target: { value: "correct-password" },
     });
+    expect((screen.getByRole("checkbox", { name: "Remember me (30 days)" }) as HTMLInputElement).checked).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     await waitFor(() => expect(api.authLogin).toHaveBeenCalledWith("admin", "correct-password"));
@@ -126,6 +127,7 @@ it("requires a first administrator before showing the app and signs into the new
   );
   expect(await screen.findByRole("heading", { name: "Create administrator" })).toBeTruthy();
   expect(screen.queryByText("Administrator home")).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: "Remember me (30 days)" })).toBeNull();
   expect((screen.getByLabelText("Username") as HTMLInputElement).value).toBe("");
   fireEvent.change(screen.getByLabelText("Username"), { target: { value: "owner" } });
   fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Server owner" } });
@@ -155,4 +157,25 @@ it("validates setup confirmation and keeps server setup errors visible", async (
   fireEvent.click(screen.getByRole("button", { name: "Create administrator" }));
   expect((await screen.findByRole("alert")).textContent).toContain("Administrator already created.");
   expect(screen.queryByText("Administrator home")).toBeNull();
+});
+
+it.each([true,false])("requests remembered sessions only while selected: %s", async selected => {
+  localStorage.clear();
+  vi.mocked(api.authStatus).mockResolvedValue({ authenticated: false, accounts_enabled: true });
+  vi.mocked(api.authLogin).mockReset();
+  vi.mocked(api.authLogin).mockResolvedValue({ authenticated: true, accounts_enabled: true });
+  render(<AuthGate><p>Remembered home</p></AuthGate>);
+  fireEvent.change(await screen.findByLabelText("Username"), { target: { value: "viewer" } });
+  fireEvent.change(screen.getByLabelText("Password"), { target: { value: "private-password" } });
+  const checkbox=screen.getByRole("checkbox", { name: "Remember me (30 days)" });
+  expect((checkbox as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(checkbox);
+  if(!selected)fireEvent.click(checkbox);
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  await screen.findByText("Remembered home");
+  if(selected)expect(api.authLogin).toHaveBeenCalledWith("viewer", "private-password", true);
+  else expect(api.authLogin).toHaveBeenCalledWith("viewer", "private-password");
+  expect(JSON.stringify(localStorage)).not.toContain("private-password");
+  fireEvent(window, new Event("posterview:unauthorized"));
+  expect((await screen.findByRole("checkbox", { name: "Remember me (30 days)" }) as HTMLInputElement).checked).toBe(false);
 });

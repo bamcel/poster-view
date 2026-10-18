@@ -14,15 +14,18 @@ it("creates a Mon/Wed/Fri afternoon subscription with an explicit IANA time zone
  fireEvent.change(screen.getByLabelText("Channel or playlist URL"),{target:{value:saved.url}});
  fireEvent.click(screen.getByRole("checkbox",{name:"Monday"}));fireEvent.click(screen.getByRole("checkbox",{name:"Friday"}));
  fireEvent.change(screen.getByLabelText("Check time"),{target:{value:"16:00"}});fireEvent.change(screen.getByLabelText("Time zone"),{target:{value:"America/Los_Angeles"}});
- fireEvent.click(screen.getByRole("button",{name:"Save subscription"}));
+ fireEvent.click(screen.getByRole("button",{name:"Create subscription"}));
  await waitFor(()=>expect(ytdl.saveSubscription).toHaveBeenCalledWith({name:"My channel",url:saved.url,enabled:true,weekdays:[0,2,4],time:"16:00",timezone:"America/Los_Angeles"},undefined));
 });
 it("edits a saved Wednesday subscription without changing its identity",async()=>{
  vi.mocked(ytdl.subscriptions).mockResolvedValue([saved]);mount();fireEvent.click(await screen.findByRole("button",{name:"Edit Channel"}));
+ expect(ytdl.saveSubscription).not.toHaveBeenCalled();
+ expect(screen.queryByRole("button",{name:"Create subscription"})).toBeNull();
  expect((screen.getByRole("checkbox",{name:"Wednesday"}) as HTMLInputElement).checked).toBe(true);
  expect((screen.getByLabelText("Check time") as HTMLInputElement).value).toBe("09:00");
- fireEvent.change(screen.getByLabelText("Subscription name"),{target:{value:"Renamed"}});fireEvent.click(screen.getByRole("button",{name:"Save subscription"}));
+ fireEvent.change(screen.getByLabelText("Subscription name"),{target:{value:"Renamed"}});
  await waitFor(()=>expect(ytdl.saveSubscription).toHaveBeenCalledWith({name:"Renamed",url:saved.url,enabled:true,weekdays:[2],time:"09:00",timezone:saved.timezone},saved.id));
+ await screen.findByText("Changes saved automatically");
 });
 it("checks, pauses, and deletes subscriptions and displays check failures",async()=>{
  vi.mocked(ytdl.subscriptions).mockResolvedValue([{...saved,error:"Channel unavailable"}]);mount();const card=await screen.findByRole("article",{name:"Channel"});
@@ -32,5 +35,20 @@ it("checks, pauses, and deletes subscriptions and displays check failures",async
 });
 it("requires at least one weekday",()=>{
  mount();fireEvent.click(screen.getByRole("button",{name:"Add subscription"}));fireEvent.change(screen.getByLabelText("Subscription name"),{target:{value:"Channel"}});fireEvent.change(screen.getByLabelText("Channel or playlist URL"),{target:{value:saved.url}});fireEvent.click(screen.getByRole("checkbox",{name:"Wednesday"}));
- expect((screen.getByRole("button",{name:"Save subscription"}) as HTMLButtonElement).disabled).toBe(true);
+ expect((screen.getByRole("button",{name:"Create subscription"}) as HTMLButtonElement).disabled).toBe(true);
 });
+
+it("does not send incomplete existing settings and retries failed changes",async()=>{
+ vi.mocked(ytdl.subscriptions).mockResolvedValue([saved]);mount();
+ fireEvent.click(await screen.findByRole("button",{name:"Edit Channel"}));
+ fireEvent.change(screen.getByLabelText("Subscription name"),{target:{value:""}});
+ expect((await screen.findByRole("alert")).textContent).toContain("Complete the subscription fields");
+ expect(ytdl.saveSubscription).not.toHaveBeenCalled();
+ vi.mocked(ytdl.saveSubscription).mockRejectedValueOnce(new Error("Offline"));
+ fireEvent.change(screen.getByLabelText("Subscription name"),{target:{value:"Updated"}});
+ await screen.findByText(/Offline/);
+ fireEvent.click(screen.getByRole("button",{name:"Retry"}));
+ await screen.findByText("Changes saved automatically");
+ expect(ytdl.saveSubscription).toHaveBeenLastCalledWith({...savedInput(),name:"Updated"},saved.id);
+});
+function savedInput(){return {name:saved.name,url:saved.url,enabled:saved.enabled,weekdays:saved.weekdays,time:saved.time,timezone:saved.timezone};}

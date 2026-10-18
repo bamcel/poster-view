@@ -16,9 +16,9 @@ it("saves new provider credentials without showing saved secrets and tests saved
   fireEvent.click(await screen.findByRole("button",{name:"Configure MyAnimeList"}));
   const input=await screen.findByLabelText("MyAnimeList Client ID");
   fireEvent.change(input,{target:{value:"fixture-client"}});
-  fireEvent.click(screen.getByRole("button",{name:"Save MyAnimeList"}));
+  expect(screen.queryByRole("button",{name:"Save MyAnimeList"})).toBeNull();
   await waitFor(()=>expect(apiRequest).toHaveBeenCalledWith("/native/providers/settings",{method:"PUT",body:JSON.stringify({mal_client_id:"fixture-client"})}));
-  await waitFor(()=>expect((input as HTMLInputElement).value).toBe(""));
+  expect(await screen.findByText("Changes saved automatically")).toBeTruthy();
   await waitFor(()=>expect((screen.getByRole("button",{name:"Test Connection"}) as HTMLButtonElement).disabled).toBe(false));
   await waitFor(()=>expect((screen.getByRole("button",{name:"Test Connection"}) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole("button",{name:"Test Connection"}));

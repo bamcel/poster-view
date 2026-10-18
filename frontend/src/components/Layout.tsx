@@ -183,7 +183,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
             <summary aria-label="Profile" title="Profile" onClick={event=>{event.preventDefault();const open=!preferencesMenu.current?.open;if(preferencesMenu.current)preferencesMenu.current.open=open;const rect=event.currentTarget.getBoundingClientRect();setProfilePosition({top:rect.bottom+8,right:Math.max(12,window.innerWidth-rect.right)});setProfileOpen(open);}} className="pv-profile-trigger grid size-10 cursor-pointer list-none place-items-center text-white [&::-webkit-details-marker]:hidden">
               <UserRound className="size-4" />
             </summary>
-            {createPortal(<div ref={profilePanel} hidden={!profileOpen} className="pv-profile-menu fixed z-[100] shadow-xl" style={profilePosition}>
+            {createPortal(<div ref={profilePanel} hidden={!profileOpen} className="pv-profile-menu fixed z-[100] shadow-xl" style={{...profilePosition,backgroundColor:translucentPanelColor("--color-sidebar",panelSolid,panelOverlayStrength),backdropFilter:`blur(${panelBlur}px)`,WebkitBackdropFilter:`blur(${panelBlur}px)`}}>
               <div className="pv-profile-identity">
               <p className="font-medium">{session?.user?.display_name ?? "Profile"}</p>
               <p className="mt-1 text-xs text-muted">{session?.user ? (isAdmin ? "Administrator" : "User") : "Local session"}</p>

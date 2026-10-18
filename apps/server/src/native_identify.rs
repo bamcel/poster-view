@@ -1051,6 +1051,7 @@ pub(crate) async fn apply(
     .await
     .map_err(|_| HttpError::bad_request("Identification save interrupted."))?
     .map_err(|e| HttpError::bad_request(e.to_string()))?;
+    let new_artwork = !images.is_empty();
     for art in images {
         db(&state)
             .save_native_artwork(&library, &item, &art)
@@ -1062,7 +1063,9 @@ pub(crate) async fn apply(
             warnings.push(format!("Artwork saved; media-folder write failed: {e}"));
         }
     }
-    crate::native_artwork_jobs::request(&state);
+    if new_artwork {
+        crate::native_artwork_jobs::request(&state);
+    }
     let (_, updated) = context(&state, &library, &item).await?;
     if updated.kind == "series" {
         db(&state)

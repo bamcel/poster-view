@@ -112,10 +112,10 @@ export const api = {
   authSetup: (username: string, displayName: string, password: string) => request<AuthSession>("/auth/setup", {
     method: "POST", body: JSON.stringify({ username, display_name: displayName, password }),
   }),
-  authLogin: (username: string, password: string) =>
+  authLogin: (username: string, password: string, remember = false) =>
     request<AuthSession>("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, ...(remember ? { remember_me: true } : {}) }),
     }),
   authLogout: () =>
     request<{ authenticated: boolean }>("/auth/logout", { method: "POST" }),

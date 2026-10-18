@@ -17,6 +17,7 @@ use subtle::ConstantTimeEq;
 use tracing::warn;
 
 const COOKIE_NAME: &str = "posterview_session";
+const REMEMBER_SECONDS: i64 = 30 * 24 * 60 * 60;
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -138,7 +139,8 @@ impl AuthState {
             return false;
         };
         sessions.retain(|_, last_activity| !expired(*last_activity, timeout, now));
-        sessions.contains_key(token) && self.session_user(token).is_some()
+        (sessions.contains_key(token) && self.session_user(token).is_some())
+            || self.remembered_user(token).is_some()
     }
 
     pub(crate) fn login_permit(&self) -> Option<tokio::sync::OwnedSemaphorePermit> {
@@ -198,13 +200,24 @@ impl AuthState {
     }
     fn session_user(&self, token: &str) -> Option<UserAccount> {
         let identities = self.identities.read().ok()?;
-        let (id, revision) = identities.get(token)?;
+        let Some((id, revision)) = identities.get(token) else {
+            return self.remembered_user(token);
+        };
         let user = if let Some(dir) = &self.data_dir {
             ServerStore::new(dir).user(id).ok()??
         } else {
             self.bootstrap()?
         };
         (user.enabled && user.revision == *revision).then_some(user)
+    }
+    fn remembered_user(&self, token: &str) -> Option<UserAccount> {
+        ServerStore::new(self.data_dir.as_ref()?)
+            .remembered_session_user(
+                token,
+                chrono::Utc::now().timestamp(),
+                self.security_settings().idle_timeout_minutes,
+            )
+            .ok()?
     }
     pub(crate) fn principal(
         &self,
@@ -319,10 +332,23 @@ impl AuthState {
             *last_activity = now;
             return true;
         }
-        false
+        drop(sessions);
+        self.data_dir.as_ref().is_some_and(|dir| {
+            ServerStore::new(dir)
+                .touch_remembered_session(token, chrono::Utc::now().timestamp(), timeout)
+                .unwrap_or(false)
+        })
     }
 
     pub fn login(&self, username: &str, candidate: &str) -> Option<(String, HeaderValue)> {
+        self.login_with_remember(username, candidate, false)
+    }
+    pub fn login_with_remember(
+        &self,
+        username: &str,
+        candidate: &str,
+        remember: bool,
+    ) -> Option<(String, HeaderValue)> {
         if candidate.len() > 1024 {
             return None;
         }
@@ -340,6 +366,15 @@ impl AuthState {
             self.bootstrap()?
         };
         let token = uuid::Uuid::new_v4().simple().to_string();
+        if remember {
+            let now = chrono::Utc::now().timestamp();
+            ServerStore::new(self.data_dir.as_ref()?)
+                .create_remembered_session(&token, &user, now, now + REMEMBER_SECONDS)
+                .ok()?;
+            let secure = if self.secure_cookie { "; Secure" } else { "" };
+            let value=HeaderValue::from_str(&format!("{COOKIE_NAME}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={REMEMBER_SECONDS}{secure}")).ok()?;
+            return Some((token, value));
+        }
         let timeout = self.security_settings().idle_timeout_minutes;
         let mut sessions = self.sessions.write().ok()?;
         let now = Instant::now();
@@ -357,7 +392,15 @@ impl AuthState {
         Some((token, value))
     }
 
-    pub fn logout(&self, headers: &HeaderMap) -> HeaderValue {
+    pub fn logout(
+        &self,
+        headers: &HeaderMap,
+    ) -> Result<HeaderValue, posterview_infra_sqlite::StoreError> {
+        if let Some(token) = cookie(headers, COOKIE_NAME)
+            && let Some(dir) = &self.data_dir
+        {
+            ServerStore::new(dir).revoke_remembered_session(token)?;
+        }
         if let Some(token) = cookie(headers, COOKIE_NAME)
             && let Ok(mut sessions) = self.sessions.write()
         {
@@ -366,9 +409,9 @@ impl AuthState {
                 identities.remove(token);
             }
         }
-        HeaderValue::from_static(
+        Ok(HeaderValue::from_static(
             "posterview_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
-        )
+        ))
     }
 }
 
@@ -641,7 +684,7 @@ mod tests {
         assert_eq!(auth.sessions.read().unwrap()[&token], logged_in_at);
         assert!(auth.activity_at(&headers, next_day));
         assert_eq!(auth.sessions.read().unwrap()[&token], next_day);
-        auth.logout(&headers);
+        auth.logout(&headers).unwrap();
         assert!(!auth.authenticated_at(&headers, next_day));
     }
 
@@ -714,5 +757,80 @@ mod tests {
         let fresh = tempfile::tempdir().unwrap();
         AuthState::load(fresh.path(), None, "admin", false).unwrap();
         assert!(!fresh.path().join("admin-password.txt").exists());
+    }
+}
+
+#[cfg(test)]
+mod remembered_tests {
+    use super::*;
+    #[test]
+    fn remembered_sign_in_survives_restart_and_logout_revokes_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let auth = AuthState::load(temp.path(), None, "admin", true).unwrap();
+        let store = ServerStore::new(temp.path());
+        store.bootstrap_user("admin", "password123").unwrap();
+        let (_, cookie) = auth
+            .login_with_remember("admin", "password123", true)
+            .unwrap();
+        let text = cookie.to_str().unwrap();
+        assert!(text.contains("Max-Age=2592000"));
+        assert!(text.contains("HttpOnly"));
+        assert!(text.contains("SameSite=Strict"));
+        assert!(text.contains("Secure"));
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, cookie);
+        let reloaded = AuthState::load(temp.path(), None, "admin", true).unwrap();
+        assert!(reloaded.authenticated(&headers));
+        assert_eq!(reloaded.request_user(&headers).unwrap().username, "admin");
+        reloaded.logout(&headers).unwrap();
+        let again = AuthState::load(temp.path(), None, "admin", true).unwrap();
+        assert!(!again.authenticated(&headers));
+        let (_, temporary) = again.login("admin", "password123").unwrap();
+        assert!(!temporary.to_str().unwrap().contains("Max-Age"));
+        headers.insert(header::COOKIE, temporary);
+        assert!(
+            !AuthState::load(temp.path(), None, "admin", true)
+                .unwrap()
+                .authenticated(&headers)
+        );
+    }
+    #[test]
+    fn remembered_accounts_respect_idle_expiry_and_revision_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let auth = AuthState::load(temp.path(), None, "admin", false).unwrap();
+        let store = ServerStore::new(temp.path());
+        store.bootstrap_user("admin", "password123").unwrap();
+        let (_, value) = auth
+            .login_with_remember("admin", "password123", true)
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, value);
+        assert!(auth.authenticated(&headers));
+        store
+            .write_connection()
+            .unwrap()
+            .execute("UPDATE users SET revision=revision+1", [])
+            .unwrap();
+        assert!(!auth.authenticated(&headers));
+        let (_, value) = auth
+            .login_with_remember("admin", "password123", true)
+            .unwrap();
+        headers.insert(header::COOKIE, value);
+        auth.set_security_settings(SecuritySettings {
+            idle_timeout_minutes: Some(1),
+            ..Default::default()
+        })
+        .unwrap();
+        assert!(auth.activity(&headers));
+        store
+            .write_connection()
+            .unwrap()
+            .execute(
+                "UPDATE remembered_sessions SET last_activity=?1",
+                [chrono::Utc::now().timestamp() - 61],
+            )
+            .unwrap();
+        assert!(!auth.authenticated(&headers));
+        assert!(!auth.activity(&headers));
     }
 }

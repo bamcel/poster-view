@@ -30,6 +30,8 @@ struct AuthStatus {
 struct LoginRequest {
     username: String,
     password: String,
+    #[serde(default)]
+    remember_me: bool,
 }
 
 async fn auth_status(State(state): State<AppState>, request: Request) -> impl IntoResponse {
@@ -66,7 +68,7 @@ async fn auth_login(
     let login = tokio::task::spawn_blocking(move || {
         // Keep the slot until verification finishes, even if the HTTP request is cancelled.
         let _permit = permit;
-        auth.login(&input.username, &input.password)
+        auth.login_with_remember(&input.username, &input.password, input.remember_me)
     })
     .await
     .map_err(|_| HttpError::bad_request("Could not sign in."))?;
@@ -218,9 +220,9 @@ async fn login_backdrop_image(State(state): State<AppState>, Path(name): Path<St
 async fn auth_logout(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-) -> impl IntoResponse {
-    let cookie = state.auth.logout(&headers);
-    (
+) -> Result<impl IntoResponse, HttpError> {
+    let cookie = state.auth.logout(&headers).map_err(HttpError::from)?;
+    Ok((
         [(header::SET_COOKIE, cookie)],
         Json(AuthStatus {
             username: state.auth.username().to_owned(),
@@ -231,7 +233,7 @@ async fn auth_logout(
             password_required: true,
             idle_timeout_minutes: state.auth.security_settings().idle_timeout_minutes,
         }),
-    )
+    ))
 }
 
 pub(crate) async fn require_auth(
@@ -364,6 +366,29 @@ mod account_setup_tests {
         http::Request,
     };
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn login_remember_me_is_opt_in_and_survives_server_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = crate::test_support::state(dir.path());
+        state.auth = AuthState::load(state.runtime.data_dir(), None, "admin", false).unwrap();
+        ServerStore::new(state.runtime.data_dir())
+            .bootstrap_user("admin", "password123")
+            .unwrap();
+        for remember in [false, true] {
+            let response=public().with_state(state.clone()).oneshot(Request::builder().method("POST").uri("/api/auth/login").header(header::CONTENT_TYPE,"application/json").body(Body::from(serde_json::json!({"username":"admin","password":"password123","remember_me":remember}).to_string())).unwrap()).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let value = response.headers()[header::SET_COOKIE].clone();
+            assert_eq!(
+                value.to_str().unwrap().contains("Max-Age=2592000"),
+                remember
+            );
+            let reloaded = AuthState::load(state.runtime.data_dir(), None, "admin", false).unwrap();
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert(header::COOKIE, value);
+            assert_eq!(reloaded.authenticated(&headers), remember);
+        }
+    }
 
     #[tokio::test]
     async fn first_visitor_creates_the_only_initial_admin_and_receives_a_session() {

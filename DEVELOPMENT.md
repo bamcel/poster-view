@@ -304,7 +304,10 @@ and modification time version the cache. A single generation gate bounds image
 decoding; a busy generator or unsupported source falls back to the original.
 Playing GIF/WebM artwork remains animated; static previews can request `still=1`.
 Catalog scans, artwork uploads/applies and monitored sidecar updates coalesce
-background generation. The enabled daily **Optimize Artwork** scheduled task
+background generation. Starting the artwork dispatcher does not enqueue a pass;
+unchanged scans, metadata-only edits and artwork removals do not request one.
+Added/replaced artwork and local artwork changes request coalesced generation.
+The enabled daily **Optimize Artwork** scheduled task
 backfills existing artwork and removes obsolete cache files after seven days.
 It can also be run manually or disabled in Scheduled Tasks. Deleting the derived
 cache is safe; requested variants regenerate. Existing authenticated artwork
@@ -516,3 +519,15 @@ session. New seeks cancel stale preparation immediately, then wait for retiring
 FFmpeg processes to release their slots. Original direct delivery bypasses this
 coordination. Download activity identity uses persisted `finished_at` so a finished
 item dismissed in Status stays dismissed after a browser refresh.
+
+### Remembered sign-ins
+
+The login form offers an unchecked **Remember me (30 days)** option. Opting in
+sets a persistent HttpOnly, SameSite=Strict cookie (Secure when configured) and
+stores only its SHA-256 token hash, account ID/revision, absolute expiry and last
+activity in SQLite `remembered_sessions`. It survives browser/container restarts.
+No passwords or session tokens are saved in browser storage. Ordinary logins
+retain their session cookie and in-memory lifetime. Remembered sessions still
+respect the configured inactivity timeout; account edits, disablement/deletion,
+password resets and explicit logout invalidate them. Logout reports storage
+failures instead of silently leaving a persistent token valid.

@@ -28,7 +28,7 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
   const candidate = section === "database" ? "tasks" : section;
   const tab = TABS.find(section => section.id === candidate)?.id;
   const [artworkOpen,setArtworkOpen]=useState(false);
-  const [saveStatus, setSaveStatus] = useState<SettingsSaveStatus>("saved");
+  const [saveStatus, setSaveStatus] = useState<SettingsSaveStatus|null>(null);
 
   useEffect(() => {
     const update = (event: Event) => setSaveStatus((event as CustomEvent<SettingsSaveStatus>).detail);
@@ -36,13 +36,13 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
     return () => window.removeEventListener("posterview:settings-save", update);
   }, []);
 
-  useEffect(()=>{setSaveStatus("saved");},[tab]);
+  useEffect(()=>{setSaveStatus(null);},[tab]);
 
   if (!previewSection && requestedTab && TABS.some(section => section.id === requestedTab)) return <Navigate replace to={`/settings/${requestedTab}`} />;
   if (!isAdmin && tab !== "playback" && tab !== "reading") return <Navigate replace to="/settings/playback" />;
   if (!tab) return <ServerSettingsDashboard />;
   const selectedPage=settingsPages.find(page=>page.id===tab)!;
-  return <SettingsPageFrame title={selectedPage.title} description={selectedPage.description} scope={selectedPage.scope} wide={tab==="appearance"} split={tab==="appearance"} status={tab==="libraries"?<NativeLibraryCount/>:saveStatus!=="saved"?<span className={saveStatus==="error"?"text-danger":"text-accent"}>{saveStatus==="saving"?"Saving…":"Settings could not be saved."}</span>:undefined}>
+  return <SettingsPageFrame title={selectedPage.title} description={selectedPage.description} scope={selectedPage.scope} wide={tab==="appearance"} split={tab==="appearance"} status={tab==="libraries"?<NativeLibraryCount/>:saveStatus?<span className={saveStatus==="error"?"text-danger":"text-accent"}>{saveStatus==="saving"?"Saving…":saveStatus==="saved"?"Changes saved automatically":"Settings could not be saved."}</span>:undefined}>
           {tab === "plugins" && <PluginsPage artworkOpen={artworkOpen} onArtworkOpen={()=>setArtworkOpen(true)} onClose={()=>setArtworkOpen(false)}/>}
           {tab === "artwork" && <ArtworkSettings/>}
           {tab === "reading" && <BookPreferences />}

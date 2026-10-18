@@ -28,6 +28,7 @@ export function useTrackingOverlays(enabled = true) {
     finishedThreshold: query.data?.finished_threshold ?? 95,
     saveThresholds: (reading: number, finished: number) => save.mutate({ reading_threshold: reading, finished_threshold: finished }),
     busy: query.isPending || save.isPending,
+    saved: save.isSuccess,
     error: save.isError ? "Could not save preferences. Please try again." : query.isError ? "Could not load preferences." : undefined,
   }] as const;
 }

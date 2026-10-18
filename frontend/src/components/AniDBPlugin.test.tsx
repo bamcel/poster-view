@@ -19,8 +19,7 @@ it("preserves saved AniDB settings, saves changes, and reports a failed connecti
  await waitFor(()=>expect(name).toHaveProperty("value","existing_client"));
  fireEvent.change(name,{target:{value:"new_client"}});
  expect(screen.getByRole("button",{name:"Test connection"})).toHaveProperty("disabled",true);
- fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
- await screen.findByText("Configuration saved.");
+ await screen.findByText("Changes saved automatically");
  expect(apiRequest).toHaveBeenCalledWith("/native/providers/settings",{method:"PUT",body:JSON.stringify({anidb_enabled:true,anidb_client:"new_client",anidb_client_version:"1"})});
  fireEvent.click(screen.getByRole("button",{name:"Test connection"}));
  expect(await screen.findByRole("alert")).toHaveProperty("textContent","AniDB rejected the client.");
@@ -41,7 +40,18 @@ it("disables AniDB without clearing existing client credentials",async()=>{
  fireEvent.click(await screen.findByRole("button",{name:/AniDB Anime metadata/}));
  await waitFor(()=>expect(screen.getByLabelText("AniDB registered client name")).toHaveProperty("value","saved_client"));
  fireEvent.click(screen.getByRole("switch",{name:"Enable AniDB"}));
- fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
- await screen.findByText("Configuration saved.");
+ await screen.findByText("Changes saved automatically");
  expect(apiRequest).toHaveBeenCalledWith("/native/providers/settings",{method:"PUT",body:JSON.stringify({anidb_enabled:false,anidb_client:"saved_client",anidb_client_version:"2"})});
+});
+
+it("does not save on hydration and automatically saves the first valid credentials",async()=>{
+ vi.mocked(apiRequest).mockImplementation(async(_path,input)=>input?.method==="PUT"?JSON.parse(input.body as string):{anidb_enabled:true,anidb_client:"",anidb_client_version:""});
+ render(<QueryClientProvider client={new QueryClient()}><AniDBPlugin/></QueryClientProvider>);
+ fireEvent.click(await screen.findByRole("button",{name:/AniDB Anime metadata/}));
+ await screen.findByLabelText("AniDB registered client name");
+ expect(vi.mocked(apiRequest).mock.calls.some(([,input])=>input?.method==="PUT")).toBe(false);
+ fireEvent.change(screen.getByLabelText("AniDB registered client name"),{target:{value:"client"}});
+ fireEvent.change(screen.getByLabelText("AniDB client version"),{target:{value:"3"}});
+ await screen.findByText("Changes saved automatically");
+ expect(apiRequest).toHaveBeenCalledWith("/native/providers/settings",{method:"PUT",body:JSON.stringify({anidb_enabled:true,anidb_client:"client",anidb_client_version:"3"})});
 });

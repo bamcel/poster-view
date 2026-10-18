@@ -15,8 +15,8 @@ it("shows and saves independent paused prompt and unanswered exit timeouts",asyn
   const exit=screen.getByLabelText(/Unanswered prompt before exit/) as HTMLInputElement;
   expect(prompt.value).toBe("5");expect(exit.value).toBe("5");
   fireEvent.change(prompt,{target:{value:"2"}});fireEvent.change(exit,{target:{value:"3"}});
-  fireEvent.click(screen.getByRole("button",{name:"Save preferences"}));
-  await screen.findByText("Playback preferences saved.");
+
+  await screen.findByText("Changes saved automatically");
   expect(watchApi.savePreferences).toHaveBeenCalledWith(expect.objectContaining({still_watching_minutes:2,still_watching_timeout_minutes:3}));
 });
 it("preserves ordered language entries and reports a successful server save",async()=>{
@@ -26,8 +26,8 @@ it("preserves ordered language entries and reports a successful server save",asy
   render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><PlaybackPreferences/></QueryClientProvider>);
   fireEvent.change(await screen.findByLabelText("Preferred audio languages"),{target:{value:"ja, en"}});
   fireEvent.click(screen.getByRole("switch",{name:"Play next episode automatically"}));
-  fireEvent.click(screen.getByRole("button",{name:"Save preferences"}));
-  await waitFor(()=>expect(screen.getByText("Playback preferences saved.")).toBeTruthy());
+
+  await waitFor(()=>expect(screen.getByText("Changes saved automatically")).toBeTruthy());
   expect(watchApi.savePreferences).toHaveBeenCalledWith(expect.objectContaining({audio_languages:["ja","en"],autoplay_next:false}));
 });
 it("loads legacy subtitle appearance defaults and saves selected plain-text formatting",async()=>{
@@ -37,7 +37,7 @@ it("loads legacy subtitle appearance defaults and saves selected plain-text form
   const color=await screen.findByLabelText("Text subtitle color") as HTMLInputElement;
   expect(color.value).toBe("#ffffff");expect((screen.getByLabelText("Text subtitle shadow") as HTMLSelectElement).value).toBe("none");expect((screen.getByLabelText("Text subtitle background") as HTMLSelectElement).value).toBe("dark");expect((screen.getByLabelText("Text subtitle position") as HTMLSelectElement).value).toBe("auto");
   fireEvent.change(color,{target:{value:"#ffee00"}});fireEvent.change(screen.getByLabelText("Text subtitle shadow"),{target:{value:"outline"}});fireEvent.change(screen.getByLabelText("Text subtitle background"),{target:{value:"none"}});fireEvent.change(screen.getByLabelText("Text subtitle position"),{target:{value:"top"}});
-  fireEvent.click(screen.getByRole("button",{name:"Save preferences"}));await screen.findByText("Playback preferences saved.");
+await screen.findByText("Changes saved automatically");
   expect(watchApi.savePreferences).toHaveBeenCalledWith(expect.objectContaining({subtitle_color:"#ffee00",subtitle_shadow:"outline",subtitle_background:"none",subtitle_position:"top",subtitle_size:100}));
 });
 
@@ -45,7 +45,7 @@ it("lets each profile disable series track memory independently of per-video mem
   vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);vi.mocked(watchApi.savePreferences).mockImplementation(async value=>value);
   render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><PlaybackPreferences/></QueryClientProvider>);
   const option=await screen.findByRole("switch",{name:"Remember audio and subtitles track selections"}) as HTMLInputElement;expect(option.checked).toBe(true);
-  fireEvent.click(option);fireEvent.click(screen.getByRole("button",{name:"Save preferences"}));await screen.findByText("Playback preferences saved.");
+  fireEvent.click(option);await screen.findByText("Changes saved automatically");
   expect(watchApi.savePreferences).toHaveBeenCalledWith(expect.objectContaining({remember_series_tracks:false,remember_audio:true,remember_subtitles:true}));
 });
 
@@ -64,18 +64,33 @@ it("reports a failed clear and allows retry",async()=>{
   expect((screen.getByRole("button",{name:"Clear saved track selections"}) as HTMLButtonElement).disabled).toBe(false);
 });
 
-it("retains edited language text on background updates and discards without saving",async()=>{
+it("retains edited language text on background updates and saves automatically",async()=>{
   vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);
+  vi.mocked(watchApi.savePreferences).mockImplementation(async value=>value);
   const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
   render(<QueryClientProvider client={client}><PlaybackPreferences/></QueryClientProvider>);
   const audio=await screen.findByLabelText("Preferred audio languages") as HTMLInputElement;
-  const original=audio.value;
+  expect(watchApi.savePreferences).not.toHaveBeenCalled();
   fireEvent.change(audio,{target:{value:"ja, ko"}});
   client.setQueryData(["playback-preferences"],{...defaultPlaybackPreferences,skip_back_seconds:20});
   await waitFor(()=>expect(audio.value).toBe("ja, ko"));
-  fireEvent.click(screen.getByRole("button",{name:"Discard"}));
-  expect(audio.value).toBe(original);
-  expect(watchApi.savePreferences).not.toHaveBeenCalled();
-  expect(screen.getByText("All changes saved")).toBeTruthy();
+  await screen.findByText("Changes saved automatically");
+  expect(watchApi.savePreferences).toHaveBeenCalledWith(expect.objectContaining({audio_languages:["ja","ko"]}));
+  expect(screen.queryByRole("button",{name:"Save preferences"})).toBeNull();
   client.clear();
+});
+
+it("keeps newer edits made while an automatic save is in flight",async()=>{
+  vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);
+  let finish!:(value:typeof defaultPlaybackPreferences)=>void;
+  vi.mocked(watchApi.savePreferences).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;})).mockImplementation(async value=>value);
+  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><PlaybackPreferences/></QueryClientProvider>);
+  const audio=await screen.findByLabelText("Preferred audio languages") as HTMLInputElement;
+  fireEvent.change(audio,{target:{value:"ja"}});
+  await waitFor(()=>expect(watchApi.savePreferences).toHaveBeenCalledTimes(1));
+  fireEvent.change(audio,{target:{value:"ko"}});
+  finish({...defaultPlaybackPreferences,audio_languages:["ja"]});
+  await screen.findByText("Changes saved automatically");
+  expect(audio.value).toBe("ko");
+  expect(watchApi.savePreferences).toHaveBeenLastCalledWith(expect.objectContaining({audio_languages:["ko"]}));
 });

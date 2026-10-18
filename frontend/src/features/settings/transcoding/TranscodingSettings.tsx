@@ -1,5 +1,5 @@
-import {useUnsavedSettings} from "../useUnsavedSettings";
-import {SETTINGS_BUTTON,SettingsActions} from "../../../components/SettingsPageFrame";
+import {useAutoSave} from "../../../lib/useAutoSave";
+import {SETTINGS_BUTTON} from "../../../components/SettingsPageFrame";
 import {useEffect,useRef,useState} from "react";
 import {useQuery} from "@tanstack/react-query";
 import {apiRequest} from "../../../api/client";
@@ -10,20 +10,18 @@ export default function TranscodingSettings(){
  const [testHardware,setTestHardware]=useState(false);
  const hardware=useQuery({queryKey:["playback-hardware"],queryFn:()=>apiRequest<{encoders:{name:string;backend:string;codec:string;available:boolean;detail:string}[]}>("/playback/capabilities"),enabled:testHardware,retry:false,staleTime:0});
  const query=useQuery({queryKey:["transcoding-settings"],queryFn:()=>apiRequest<Settings>("/transcoding/settings")});
- const [settings,setSettings]=useState<Settings>();const [saving,setSaving]=useState(false);const [message,setMessage]=useState("");const [error,setError]=useState("");
- const [baseline,setBaseline]=useState<Settings>();
- const dirty=!!settings&&JSON.stringify(settings)!==JSON.stringify(baseline);
- const dirtyRef=useRef(false);dirtyRef.current=dirty;
- useUnsavedSettings(dirty);
- useEffect(()=>{if(query.data&&!dirtyRef.current){const value={...query.data,allow_conversion:query.data.allow_conversion===true,allow_audio_transcoding:query.data.allow_audio_transcoding===true,auto_bandwidth_transcoding:query.data.auto_bandwidth_transcoding===true,allow_remux:query.data.allow_remux!==false};setSettings(value);setBaseline(value);}},[query.data]);
+ const [settings,setSettings]=useState<Settings>();
+ const hydrated=useRef(false),form=useRef<HTMLFormElement>(null);
+ useEffect(()=>{if(query.data&&!hydrated.current){hydrated.current=true;setSettings({...query.data,allow_conversion:query.data.allow_conversion===true,allow_audio_transcoding:query.data.allow_audio_transcoding===true,auto_bandwidth_transcoding:query.data.auto_bandwidth_transcoding===true,allow_remux:query.data.allow_remux!==false});}},[query.data]);
+ const autoSave=useAutoSave({value:settings,enabled:!!settings,save:async value=>{if(!value)return;if(form.current&&!form.current.checkValidity())throw new Error("Please enter values within the displayed limits.");await apiRequest<Settings>("/transcoding/settings",{method:"PUT",body:JSON.stringify(value)});}});
  if(query.isError)return <p role="alert" className="text-danger">{query.error.message}</p>;
  if(!settings)return <p className="text-muted">Loading transcoding settings…</p>;
  const videoEncoding=settings.allow_conversion||settings.auto_bandwidth_transcoding;
  const audioEncoding=settings.allow_conversion||settings.allow_audio_transcoding;
- const set=<K extends keyof Settings>(key:K,value:Settings[K])=>{setSettings({...settings,[key]:value});setMessage("");setError("");};
- const toggle=(key:keyof Settings,label:string,help:string)=><label className="flex items-start justify-between gap-6 py-3"><span><span className="block text-sm font-medium">{label}</span><span className="mt-1 block text-xs text-muted">{help}</span></span><input type="checkbox" role="switch" aria-label={label} checked={Boolean(settings[key])} onChange={e=>{const next={...settings,[key]:e.target.checked};if((key==="allow_hevc"&&settings.preferred_encoder==="hevc"||key==="allow_av1"&&settings.preferred_encoder==="av1")&&!e.target.checked)next.preferred_encoder="avc";setSettings(next);setMessage("");}} className="mt-1 accent-accent"/></label>;
+ const set=<K extends keyof Settings>(key:K,value:Settings[K])=>{setSettings({...settings,[key]:value});};
+ const toggle=(key:keyof Settings,label:string,help:string)=><label className="flex items-start justify-between gap-6 py-3"><span><span className="block text-sm font-medium">{label}</span><span className="mt-1 block text-xs text-muted">{help}</span></span><input type="checkbox" role="switch" aria-label={label} checked={Boolean(settings[key])} onChange={e=>{const next={...settings,[key]:e.target.checked};if((key==="allow_hevc"&&settings.preferred_encoder==="hevc"||key==="allow_av1"&&settings.preferred_encoder==="av1")&&!e.target.checked)next.preferred_encoder="avc";setSettings(next);}} className="mt-1 accent-accent"/></label>;
  const number=(key:keyof Settings,label:string,min:number,max:number,help?:string)=><label className="block text-sm">{label}<input type="number" min={min} max={max} step={key==="audio_boost"?.1:1} value={Number(settings[key])} onChange={e=>set(key,Number(e.target.value) as never)} className={input}/>{help&&<span className="mt-1 block text-xs text-muted">{help}</span>}</label>;
- return <form className="w-full space-y-6" onSubmit={async e=>{e.preventDefault();setSaving(true);setError("");try{const saved=await apiRequest<Settings>("/transcoding/settings",{method:"PUT",body:JSON.stringify(settings)});setSettings(saved);setBaseline(saved);setMessage("Transcoding settings saved.");}catch(e){setError(e instanceof Error?e.message:"Could not save settings.");}finally{setSaving(false);}}}>
+ return <form ref={form} className="w-full space-y-6" onSubmit={e=>e.preventDefault()}>
  <nav aria-label="Playback and transcoding sections" className="settings-section-navigation flex flex-wrap gap-2">{[["delivery","Delivery"],["hardware","Hardware"],["encoding","Encoding"],["resources","Resources"]].map(([id,label])=><a key={id} href={`#transcoding-${id}`} className={SETTINGS_BUTTON}>{label}</a>)}</nav>
  <fieldset id="transcoding-delivery" className="scroll-mt-4 rounded-xl border border-border p-5"><legend className="px-2 font-semibold">Playback mode</legend>
  {toggle("allow_remux","Allow stream-copy remuxing","Switch embedded audio, recover stalled native seeking in Auto mode, or change packaging by copying the original video and audio. Quality stays unchanged; no audio or video encoder runs.")}
@@ -57,7 +55,8 @@ export default function TranscodingSettings(){
  {toggle("subtitle_extraction","Allow subtitle extraction","Extract text, ASS / SSA, PGS, and VobSub tracks for browser overlays without changing the video.")}
  {toggle("font_extraction","Allow embedded font extraction","Preserve fonts used by styled ASS / SSA subtitles.")}
  <fieldset disabled={!audioEncoding}>{number("audio_boost","Audio boost when downmixing",1,4,"1 preserves original volume. Larger values may cause clipping.")}</fieldset></fieldset>
- {error&&<p role="alert" className="text-sm text-danger">{error}</p>}{message&&<p role="status" className="text-sm text-accent">{message}</p>}
- <SettingsActions dirty={dirty} saving={saving} onDiscard={()=>{setSettings(baseline);setMessage("");setError("");}}><button disabled={saving} className={SETTINGS_BUTTON}>{saving?"Saving…":"Save configuration"}</button></SettingsActions>
+ <p role="status" className="text-sm text-muted">{autoSave.status==="saved"?"Changes saved automatically":autoSave.status==="saving"?"Saving changes…":autoSave.status==="pending"?"Changes will save automatically…":"Changes save automatically"}</p>
+ {autoSave.error&&<p role="alert" className="text-sm text-danger">{autoSave.error.message} <button type="button" onClick={autoSave.retry}>Retry</button></p>}
+
  </form>;
 }

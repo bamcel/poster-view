@@ -3,6 +3,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type UserAccount, type UserInput, type UserRole } from "../api/client";
 import { nativeLibraries } from "../api/nativeLibraries";
 
+import { useAutoSave } from "../lib/useAutoSave";
+import AutoSaveStatus from "./AutoSaveStatus";
+
 const inputClass = "w-full rounded-lg border border-border bg-input px-3 py-2";
 const movieRatings = ["G", "PG", "PG-13", "R", "NC-17"];
 const tvRatings = ["TV-Y", "TV-Y7", "TV-G", "TV-PG", "TV-14", "TV-MA"];
@@ -73,6 +76,24 @@ function UserDialog({ title, busy, onClose, children }: {
   </div>;
 }
 
+function ExistingUserAutoSave({account,form,onSaved,onBusy}:{account:UserAccount;form:UserInput;onSaved:(account:UserAccount)=>void;onBusy:(busy:boolean)=>void}) {
+ const client=useQueryClient();
+ const revision=useRef(account.revision);
+ revision.current=account.revision;
+ const {password:_password,...settings}=form;
+ const limit=settings.permissions.max_playback_streams;
+ const valid=!!settings.username.trim() && !!settings.display_name.trim() && Number.isInteger(limit) && Number(limit)>=0 && Number(limit)<=64;
+ const autosave=useAutoSave({value:settings,enabled:valid,save:async value=>{
+   const result=await api.updateUser(account.id,{...value,username:value.username.trim(),display_name:value.display_name.trim(),password:null,revision:revision.current});
+   revision.current=result.revision;
+   onSaved(result);
+   await client.invalidateQueries({queryKey:["users"]});
+   window.dispatchEvent(new Event("posterview:security-changed"));
+ }});
+ useEffect(()=>{onBusy(autosave.status==="saving" || autosave.status==="pending");},[autosave.status,onBusy]);
+ return valid?<AutoSaveStatus {...autosave}/>:<p role="status" className="text-xs text-muted">Enter a username, display name and whole playback limit between 0 and 64 to save automatically.</p>;
+}
+
 export default function UsersSection() {
   const client = useQueryClient();
   const users = useQuery({ queryKey: ["users"], queryFn: api.users });
@@ -80,6 +101,7 @@ export default function UsersSection() {
   const [editing, setEditing] = useState<UserAccount | null | undefined>();
   const [form, setForm] = useState<UserInput>(newUser);
   const [busy, setBusy] = useState(false);
+  const [autoBusy,setAutoBusy]=useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [deleting, setDeleting] = useState<UserAccount | null>(null);
@@ -117,18 +139,20 @@ export default function UsersSection() {
     try {
       const data = { ...form, username: form.username.trim(), display_name: form.display_name.trim() };
       if (editing) {
-        await api.updateUser(editing.id, {
+        const result=await api.updateUser(editing.id, {
           ...data,
           revision: editing.revision,
           password: form.password || null,
         });
+        setEditing(current=>current?{...current,revision:result.revision}:current);
+        setForm(current=>({...current,password:""}));
       } else {
         await api.createUser(data);
       }
       await client.invalidateQueries({ queryKey: ["users"] });
       window.dispatchEvent(new Event("posterview:security-changed"));
-      setEditing(undefined);
-      setNotice("User saved.");
+      if(editing)setError("");else setEditing(undefined);
+      setNotice(editing?"Password updated.":"User saved.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not save user.");
     } finally {
@@ -164,7 +188,7 @@ export default function UsersSection() {
       </div>
       {users.error && <p role="alert">{users.error.message}</p>}
       {error && editing === undefined && !deleting && <p role="alert" className="text-danger">{error}</p>}
-      {notice && <p role="status" className="text-accent">{notice}</p>}
+      {notice && editing===undefined && <p role="status" className="text-accent">{notice}</p>}
       {users.isPending && <p>Loading users…</p>}
       <div className="rounded-lg border border-border bg-elevated p-4 text-sm text-muted">
         <p>Library permissions apply to native PosterView libraries. Connected media server administration remains administrator-only.</p>
@@ -207,15 +231,17 @@ export default function UsersSection() {
         </UserDialog>
       )}
       {editing !== undefined && (
-        <UserDialog title={editing ? `Edit ${editing.display_name}` : "Create user"} busy={busy} onClose={() => { setEditing(undefined); setError(""); }}>
-        <form onSubmit={save} className="flex min-h-0 flex-col">
+        <UserDialog title={editing ? `Edit ${editing.display_name}` : "Create user"} busy={busy || autoBusy} onClose={() => { setEditing(undefined); setError(""); }}>
+        <form onSubmit={event=>{if(editing&&!form.password){event.preventDefault();return;}void save(event);}} className="flex min-h-0 flex-col">
           <header className="flex shrink-0 items-start justify-between gap-4 border-b border-border p-5">
             <div><h2 className="text-xl font-semibold">{editing ? `Edit ${editing.display_name}` : "Create user"}</h2>
               <p className="mt-1 text-sm text-muted">Server account · Changes apply to this user on every device.</p></div>
-            <button type="button" disabled={busy} aria-label="Close user editor" className="rounded-lg border border-border px-3 py-2" onClick={() => { setEditing(undefined); setError(""); }}>×</button>
+            <button type="button" disabled={busy || autoBusy} aria-label="Close user editor" className="rounded-lg border border-border px-3 py-2" onClick={() => { setEditing(undefined); setError(""); }}>×</button>
           </header>
-          <div className="min-h-0 space-y-5 overflow-y-auto p-5">
+          <fieldset disabled={busy} className="min-h-0 space-y-5 overflow-y-auto p-5">
           {error && <p role="alert" className="text-danger">{error}</p>}
+          {notice && <p role="status" className="text-accent">{notice}</p>}
+          {editing && <ExistingUserAutoSave key={editing.id} account={editing} form={form} onSaved={account=>setEditing(current=>current?.id===account.id?{...current,revision:account.revision}:current)} onBusy={setAutoBusy}/>}
           <h3 className="font-semibold">Account details</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="space-y-2">
@@ -313,12 +339,12 @@ export default function UsersSection() {
               </fieldset>
             </>
           )}
-          </div>
+          </fieldset>
           <footer className="flex shrink-0 items-center justify-end gap-4 border-t border-border p-5">
-            <button type="submit" disabled={busy} className="rounded-lg bg-accent px-4 py-2 font-medium text-black">
-              {busy ? "Saving…" : "Save user"}
-            </button>
-            <button type="button" disabled={busy} onClick={() => { setEditing(undefined); setError(""); }}>Cancel</button>
+            {(!editing || !!form.password) && <button type="submit" disabled={busy || autoBusy || (!!editing && form.password.length<8)} className="rounded-lg bg-accent px-4 py-2 font-medium text-black">
+              {busy ? "Saving…" : editing?"Update password":"Save user"}
+            </button>}
+            <button type="button" disabled={busy || autoBusy} onClick={() => { setEditing(undefined); setError(""); }}>Cancel</button>
           </footer>
         </form>
         </UserDialog>

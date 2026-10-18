@@ -8,19 +8,19 @@ beforeEach(()=>{vi.mocked(ytdlCookies.status).mockResolvedValue({configured:fals
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 function mount(){render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><YtdlCookieSettings/></QueryClientProvider>);}
 function choose(contents="private session contents"){const file=new File([contents],"youtube.txt",{type:"text/plain"});Object.defineProperty(file,"text",{value:async()=>contents});fireEvent.change(screen.getByLabelText("YouTube cookie file"),{target:{files:[file]}});}
-it("imports locally and sends credentials only after save, clearing selected secrets afterwards",async()=>{
+it("imports locally and automatically saves credentials, clearing selected secrets afterwards",async()=>{
  mount();await screen.findByText("No cookies configured");choose();await screen.findByText(/youtube.txt selected/);
  expect(ytdlCookies.save).not.toHaveBeenCalled();expect(screen.queryByText("private session contents")).toBeNull();
- fireEvent.click(screen.getByRole("button",{name:"Save cookies"}));
- await waitFor(()=>expect(ytdlCookies.save).toHaveBeenCalledWith("private session contents"));await screen.findByText("Cookies saved.");
- expect(screen.queryByText(/youtube.txt selected/)).toBeNull();expect((screen.getByRole("button",{name:"Replace cookies"}) as HTMLButtonElement).disabled).toBe(true);
+
+ await waitFor(()=>expect(ytdlCookies.save).toHaveBeenCalledWith("private session contents"));await screen.findByText("Changes saved automatically");
+ expect(screen.queryByText(/youtube.txt selected/)).toBeNull();expect(screen.queryByRole("button",{name:"Replace cookies"})).toBeNull();
 });
 it("removes configured cookies and updates status",async()=>{
  vi.mocked(ytdlCookies.status).mockResolvedValue({configured:true,updated_at:null});mount();await screen.findByText("Cookies configured");
  fireEvent.click(screen.getByRole("button",{name:"Remove cookies"}));await screen.findByText("Cookies removed.");expect(ytdlCookies.remove).toHaveBeenCalledOnce();expect(screen.getByText("No cookies configured")).toBeTruthy();
 });
 it("shows save errors and leaves the file available for deliberate retry",async()=>{
- vi.mocked(ytdlCookies.save).mockRejectedValue(new Error("Invalid cookie file"));mount();choose();await screen.findByText(/youtube.txt selected/);fireEvent.click(screen.getByRole("button",{name:"Save cookies"}));expect((await screen.findByRole("alert")).textContent).toBe("Invalid cookie file");expect(screen.getByText(/youtube.txt selected/)).toBeTruthy();
+ vi.mocked(ytdlCookies.save).mockRejectedValue(new Error("Invalid cookie file"));mount();choose();await screen.findByText(/youtube.txt selected/);expect((await screen.findByRole("alert")).textContent).toBe("Invalid cookie file");expect(screen.getByText(/youtube.txt selected/)).toBeTruthy();
 });
 it("shows removal errors without claiming cookies were removed",async()=>{
  vi.mocked(ytdlCookies.status).mockResolvedValue({configured:true,updated_at:null});vi.mocked(ytdlCookies.remove).mockRejectedValue(new Error("Removal failed"));mount();await screen.findByText("Cookies configured");fireEvent.click(screen.getByRole("button",{name:"Remove cookies"}));expect((await screen.findByRole("alert")).textContent).toBe("Removal failed");expect(screen.getByText("Cookies configured")).toBeTruthy();

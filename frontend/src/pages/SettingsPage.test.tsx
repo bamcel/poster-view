@@ -278,7 +278,7 @@ it("keeps each provider test result inside its own card", async () => {
   client.clear();
 });
 
-it("explicitly saves TMDB credentials and tests the saved connection", async () => {
+it("automatically saves TMDB credentials and tests the saved connection", async () => {
   const settings = await api.getArtworkSettings();
   vi.mocked(api.setArtworkSettings).mockResolvedValue({ ...settings, tmdb_configured: true });
   vi.mocked(api.testArtworkProvider).mockResolvedValue({ ok: true, message: "TMDB API connection succeeded." });
@@ -287,12 +287,12 @@ it("explicitly saves TMDB credentials and tests the saved connection", async () 
   fireEvent.click(screen.getByRole("button", { name: "Configure TMDB" }));
   const region = within(screen.getByRole("region", { name: "TMDB connection" }));
   const input = region.getByLabelText("TMDB API Read Access Token or API key");
+  await waitFor(()=>expect((input as HTMLInputElement).disabled).toBe(false));
   fireEvent.change(input, { target: { value: "  example.token  " } });
   fireEvent.blur(input);
   expect(api.setArtworkSettings).not.toHaveBeenCalled();
-  fireEvent.click(region.getByRole("button", { name: "Save credentials" }));
   await waitFor(() => expect(api.setArtworkSettings).toHaveBeenCalledWith({ tmdb_access_token: "example.token" }));
-  await waitFor(() => expect((input as HTMLInputElement).value).toBe(""));
+  await region.findByText("Changes saved automatically");
   fireEvent.click(region.getByRole("button", { name: "Test Connection" }));
   await waitFor(() => expect(api.testArtworkProvider).toHaveBeenCalledWith({ provider: "tmdb" }));
   await waitFor(() => expect(region.getByRole("img", { name: "TMDB connection verified" })).toBeTruthy());

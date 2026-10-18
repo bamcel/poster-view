@@ -1,8 +1,8 @@
-import {useUnsavedSettings} from "../../settings/useUnsavedSettings";
+import {useAutoSave} from "../../../lib/useAutoSave";
 import {useEffect,useRef,useState} from "react";
 import {useQuery,useQueryClient} from "@tanstack/react-query";
 import {watchApi,type PlaybackPreferences as Preferences} from "../api/watch";
-import {SETTINGS_BUTTON,SettingsActions} from "../../../components/SettingsPageFrame";
+import {SETTINGS_BUTTON} from "../../../components/SettingsPageFrame";
 import {subtitleAppearance} from "../lib/subtitleAppearance";
 const input="mt-2 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm";
 export default function PlaybackPreferences() {
@@ -10,19 +10,18 @@ export default function PlaybackPreferences() {
   const [clearing,setClearing]=useState(false);
   const query=useQuery({queryKey:["playback-preferences"],queryFn:()=>watchApi.preferences()});
   const [audioText,setAudioText]=useState(""),[subtitleText,setSubtitleText]=useState("");
-  const [settings,setSettings]=useState<Preferences>(),[saving,setSaving]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");
-  const [baseline,setBaseline]=useState<Preferences>();
-  const dirty=!!settings&&(JSON.stringify(settings)!==JSON.stringify(baseline)||audioText!==(baseline?.audio_languages.join(", ")??"")||subtitleText!==(baseline?.subtitle_languages.join(", ")??""));
-  const dirtyRef=useRef(false);dirtyRef.current=dirty;
-  useUnsavedSettings(dirty);
-  const restore=(value:Preferences)=>{setSettings(value);setBaseline(value);setAudioText(value.audio_languages.join(", "));setSubtitleText(value.subtitle_languages.join(", "));};
-  useEffect(()=>{if(query.data&&!dirtyRef.current)restore({...query.data,remember_series_tracks:query.data.remember_series_tracks??true,...subtitleAppearance(query.data)});},[query.data]);
+  const [settings,setSettings]=useState<Preferences>(),[message,setMessage]=useState(""),[error,setError]=useState("");
+  const hydrated=useRef(false);
+  const form=useRef<HTMLFormElement>(null);
+  useEffect(()=>{if(query.data&&!hydrated.current){hydrated.current=true;const value={...query.data,remember_series_tracks:query.data.remember_series_tracks??true,...subtitleAppearance(query.data)};setSettings(value);setAudioText(value.audio_languages.join(", "));setSubtitleText(value.subtitle_languages.join(", "));}},[query.data]);
+  const autoSave=useAutoSave({value:settings?{...settings,audio_languages:audioText.split(",").map(s=>s.trim()).filter(Boolean),subtitle_languages:subtitleText.split(",").map(s=>s.trim()).filter(Boolean)}:undefined,enabled:!!settings,save:async value=>{if(!value)return;if(form.current&&!form.current.checkValidity())throw new Error("Please enter values within the displayed limits.");await watchApi.savePreferences(value);}});
+  const saving=autoSave.status==="saving";
   if(query.isError)return <p role="alert" className="text-danger">{query.error.message}</p>;
   if(!settings)return <p role="status" className="text-muted">Loading playback preferences…</p>;
   const change=<K extends keyof Preferences>(key:K,value:Preferences[K])=>{setSettings({...settings,[key]:value});setMessage("");setError("");};
   const toggle=(key:"remember_series_tracks"|"prefer_default_audio"|"remember_audio"|"remember_subtitles"|"autoplay_next"|"up_next",label:string,help:string)=><label className="flex items-start justify-between gap-5 py-3"><span><span className="block text-sm font-medium">{label}</span><span className="mt-1 block text-xs text-muted">{help}</span></span><input type="checkbox" role="switch" aria-label={label} checked={settings[key]} onChange={e=>change(key,e.target.checked)} className="mt-1 size-4 shrink-0 accent-accent"/></label>;
   const number=(key:"resume_rewind_seconds"|"skip_back_seconds"|"skip_forward_seconds"|"still_watching_minutes"|"still_watching_timeout_minutes"|"subtitle_size",label:string,min:number,max:number,help?:string)=><label className="block text-sm">{label}<input type="number" className={input} value={settings[key]??5} min={min} max={max} onChange={e=>change(key,Number(e.target.value))}/>{help&&<span className="mt-1 block text-xs text-muted">{help}</span>}</label>;
-  return <form className="w-full space-y-6" onSubmit={async e=>{e.preventDefault();setSaving(true);setError("");try{const value=await watchApi.savePreferences({...settings,audio_languages:audioText.split(",").map(s=>s.trim()).filter(Boolean),subtitle_languages:subtitleText.split(",").map(s=>s.trim()).filter(Boolean)});restore(value);setMessage("Playback preferences saved.");}catch(e){setError(e instanceof Error?e.message:"Could not save preferences.");}finally{setSaving(false);}}}>
+  return <form ref={form} className="w-full space-y-6" onSubmit={e=>e.preventDefault()}>
     <fieldset className="rounded-xl border border-border p-5"><legend className="px-2 font-semibold">Series track preferences</legend>
       {toggle("remember_series_tracks","Remember audio and subtitles track selections","Use your selected language and track characteristics in other episodes. Saved choices for an individual video take priority. Applies only to your profile.")}
     </fieldset>
@@ -50,7 +49,9 @@ export default function PlaybackPreferences() {
       <div className="mt-3 grid gap-4 sm:grid-cols-2">{number("skip_back_seconds","Skip back (seconds)",5,120)}{number("skip_forward_seconds","Skip forward (seconds)",5,120)}{number("resume_rewind_seconds","Rewind on resume (seconds)",0,30,"Only when resuming saved progress, not after each pause.")}{number("still_watching_minutes","Paused inactivity before prompt (minutes)",0,1440,"Only while paused. 0 disables the prompt.")}{number("still_watching_timeout_minutes","Unanswered prompt before exit (minutes)",1,1440,"Saves progress and frees playback slots when the prompt times out.")}</div>
     </fieldset>
     {error&&<p role="alert" className="text-sm text-danger">{error}</p>}{message&&<p role="status" className="text-sm text-accent">{message}</p>}
-    <SettingsActions dirty={dirty} saving={saving||clearing} onDiscard={()=>{if(baseline)restore(baseline);setMessage("");setError("");}}><button disabled={saving||clearing} className={SETTINGS_BUTTON}>{saving?"Saving…":"Save preferences"}</button></SettingsActions>
+    <p role="status" className="text-sm text-muted">{autoSave.status==="saved"?"Changes saved automatically":saving?"Saving changes…":autoSave.status==="pending"?"Changes will save automatically…":"Changes save automatically"}</p>
+    {autoSave.error&&<p role="alert" className="text-sm text-danger">{autoSave.error.message} <button type="button" onClick={autoSave.retry}>Retry</button></p>}
+
     <section className="rounded-xl border border-border p-5" aria-labelledby="clear-track-selections-title">
       <h2 id="clear-track-selections-title" className="font-semibold">Saved track selections</h2>
       <p className="my-3 text-sm text-muted">Reset saved audio and subtitle choices for all videos and series in your profile. Your language preferences, watch history and progress are kept. Reopen playing videos to apply your defaults.</p>

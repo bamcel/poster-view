@@ -1,3 +1,4 @@
+import {useAutoSave} from "../lib/useAutoSave";
 import {defaultWatchRules,validWatchRules} from "../features/playback/components/LibraryWatchRules";
 import {watchApi,type WatchRules} from "../features/playback/api/watch";
 import {sizedArtwork} from "../lib/artworkSizes";
@@ -110,6 +111,17 @@ function LibraryCard({library,onEdit}:{library:NativeLibrary;onEdit:(button:HTML
 export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer }: { library?: NativeLibrary; seed?: NativeLibraryInput; onClose: () => void; onSaved: () => void; portalContainer?: HTMLElement | null }) {
   const initial = useRef<NativeLibraryInput>(seed ?? (library ? { name: library.name, library_type: library.library_type, anime_content: library.anime_content, paths: library.paths, options: { ...defaultNativeOptions, ...library.options }, revision: library.revision } : { name: "", library_type: "movies", anime_content: "both", paths: [], options: { ...defaultNativeOptions }, revision: null }));
   const [draft, setDraft] = useState(initial.current);
+  const client=useQueryClient();
+  const revision=useRef<number|null>(library?.revision??null);
+  const autoSave=useAutoSave({value:draft,enabled:!!library,save:async value=>{
+    if(!library)return;
+    if(!value.name.trim()||value.name.trim().length>120||value.paths.length===0||value.paths.length>32||overlap(value.paths))throw new Error("Enter a name and select 1–32 folders without overlaps.");
+    const payload=value.library_type==="youtube"?{...value,options:{...defaultNativeOptions,...value.options,...youtubeOptions,youtube_mode:"multiple_channels" as const,youtube_channels:value.options?.youtube_channels?.map(channel=>channel.trim()).filter(Boolean)??[]}}:value.library_type==="books"?{...value,options:{...value.options!,allow_adult_metadata:true}}:value;
+    const updated=await nativeLibraries.save({...payload,revision:revision.current},library.id);
+    revision.current=updated.revision;
+    void client.invalidateQueries({queryKey:["native-libraries"]});
+  }});
+
   const [playbackRules,setPlaybackRules]=useState<WatchRules>({...defaultWatchRules});
   const [rulesChanged,setRulesChanged]=useState(false);
   const createdLibrary=useRef<NativeLibrary|null>(null);
@@ -133,7 +145,7 @@ export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer
   }, onSuccess: onSaved });
   const dirty = JSON.stringify(draft) !== JSON.stringify(initial.current)||rulesChanged;
   const closeRef = useRef<() => void>(() => {});
-  closeRef.current = () => { if (save.isPending) { onClose(); return; } if (dirty) { setDiscard(true); if(content.current)content.current.scrollTop=0; } else onClose(); };
+  closeRef.current = () => { if (library||save.isPending) { onClose(); return; } if (dirty) { setDiscard(true); if(content.current)content.current.scrollTop=0; } else onClose(); };
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -175,10 +187,11 @@ export function LibraryDialog({ library, seed, onClose, onSaved, portalContainer
           </div>}
           {[2, 3, 4, 5].includes(step) && <LibrarySettings libraryId={library?.id} playbackRules={playbackRules} onPlaybackRulesChange={value=>{setPlaybackRules(value);setRulesChanged(true);}} options={{...defaultNativeOptions, ...draft.options}} type={draft.library_type} animeContent={draft.anime_content} section={step} onChange={options => setDraft(previous => ({...previous, options}))} />}
           {step === 6 && <div className="space-y-5"><div><h3 className="font-medium text-white">Review your library</h3><p className="mt-1 text-sm text-muted">Folders are validated before the configuration is saved.</p></div><dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-3 text-sm"><dt className="text-faint">Name</dt><dd className="break-all text-white">{draft.name || "Not set"}</dd><dt className="text-faint">Type</dt><dd className="text-white">{TYPES[draft.library_type]}</dd>{draft.library_type === "anime" && <><dt className="text-faint">Content</dt><dd className="text-white">{draft.anime_content === "both" ? "Mixed" : draft.anime_content === "shows" ? "Shows only" : "Movies only"}</dd></>}</dl><div className="rounded-xl border border-border p-4"><h4 className="mb-2 text-sm text-white">Media roots</h4>{draft.paths.map(p => <p key={p} className="break-all text-sm text-muted">{displayPath(p)}</p>)}</div><p className="text-sm text-muted">New libraries scan after saving. Local files are written only when Save metadata to NFO is enabled. Existing libraries can be scanned from their library card.</p>{(basicsInvalid || pathsInvalid) && <p role="alert" className="text-sm text-danger">Enter a name and select 1–32 folders without overlaps before saving.</p>}</div>}
+          {library&&<><p role="status" className="mt-4 text-sm text-muted">{autoSave.status==="saved"?"Changes saved automatically":autoSave.status==="saving"?"Saving changes…":autoSave.status==="pending"?"Changes will save automatically…":"Changes save automatically"}</p>{autoSave.error&&<p role="alert" className="mt-3 text-sm text-danger">{autoSave.error.message} <button type="button" onClick={autoSave.retry}>Retry</button></p>}</>}
           {save.error && <p role="alert" className="mt-5 text-sm text-danger">{save.error.message}</p>}
         </main>
       </div>
-      <footer className="flex shrink-0 items-center justify-between gap-3 bg-sidebar px-6 py-5 sm:px-8"><button className={BUTTON} disabled={save.isPending} onClick={() => step ? setStep(draft.library_type === "books" && step === 6 ? 4 : step - 1) : closeRef.current()}>{step ? "Back" : "Cancel"}</button>{step < STEPS.length - 1 ? <button className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={save.isPending || (step === 0 ? basicsInvalid : pathsInvalid)} onClick={() => setStep(draft.library_type === "books" && step === 4 ? 6 : step + 1)}>Next</button> : <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={basicsInvalid || pathsInvalid || save.isPending || (!library&&draft.library_type!=="books"&&!validWatchRules(playbackRules))} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{save.isPending ? "Saving…" : library ? "Save library" : "Create library"}</button>}</footer>
+      <footer className="flex shrink-0 items-center justify-between gap-3 bg-sidebar px-6 py-5 sm:px-8"><button className={BUTTON} disabled={save.isPending} onClick={() => step ? setStep(draft.library_type === "books" && step === 6 ? 4 : step - 1) : closeRef.current()}>{step ? "Back" : "Cancel"}</button>{step < STEPS.length - 1 ? <button className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={save.isPending || (step === 0 ? basicsInvalid : pathsInvalid)} onClick={() => setStep(draft.library_type === "books" && step === 4 ? 6 : step + 1)}>Next</button> : library ? <button className={BUTTON} onClick={onClose}>Done</button> : <button className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-base disabled:opacity-50" disabled={basicsInvalid || pathsInvalid || save.isPending || (!library&&draft.library_type!=="books"&&!validWatchRules(playbackRules))} onClick={() => save.mutate()}>{save.isPending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}{save.isPending ? "Saving…" : library ? "Save library" : "Create library"}</button>}</footer>
     </div>
   </div>, portalContainer ?? document.body);
 }

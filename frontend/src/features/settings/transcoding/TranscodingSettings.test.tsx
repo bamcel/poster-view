@@ -13,8 +13,8 @@ it("saves independent audio permission while leaving video and bandwidth encodin
   vi.mocked(apiRequest).mockImplementation(async(path,options)=>path==="/transcoding/settings"&&options?.method==="PUT"?JSON.parse(String(options.body)):settings);
   const client=mount();
   fireEvent.click(await screen.findByRole("switch",{name:"Allow audio-only transcoding"}));
-  fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
-  await screen.findByText("Transcoding settings saved.");
+
+  await screen.findByText("Changes saved automatically");
   const write=vi.mocked(apiRequest).mock.calls.find(([,options])=>options?.method==="PUT")!;
   expect(JSON.parse(String(write[1]?.body))).toMatchObject({allow_audio_transcoding:true,allow_conversion:false,auto_bandwidth_transcoding:false,allow_remux:true});
   client.clear();
@@ -24,9 +24,9 @@ it("reports a rejected save without announcing success",async()=>{
   vi.mocked(apiRequest).mockImplementation(async(_path,options)=>{if(options?.method==="PUT")throw new Error("Temporary path must be an absolute server path.");return settings;});
   const client=mount();
   fireEvent.change(await screen.findByLabelText(/Transcoding temporary path/),{target:{value:"relative"}});
-  fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
+
   expect((await screen.findByRole("alert")).textContent).toContain("Temporary path must be an absolute server path.");
-  expect(screen.queryByText("Transcoding settings saved.")).toBeNull();
+  expect(screen.queryByText("Changes saved automatically")).toBeNull();
   client.clear();
 });
 
@@ -37,8 +37,8 @@ it("shows and saves independent stream, video and per-user job limits",async()=>
   expect((screen.getByLabelText("Maximum video transcodes") as HTMLInputElement).value).toBe("2");
   expect((screen.getByLabelText(/Maximum FFmpeg jobs per user/) as HTMLInputElement).value).toBe("5");
   fireEvent.change(screen.getByLabelText("Maximum Direct Stream / audio-only jobs"),{target:{value:"10"}});
-  fireEvent.click(screen.getByRole("button",{name:"Save configuration"}));
-  await screen.findByText("Transcoding settings saved.");
+
+  await screen.findByText("Changes saved automatically");
   const write=vi.mocked(apiRequest).mock.calls.find(([,options])=>options?.method==="PUT")!;
   expect(JSON.parse(String(write[1]?.body))).toMatchObject({max_stream_jobs:10,max_concurrent:2,max_jobs_per_user:5});
   client.clear();
@@ -70,16 +70,26 @@ it("links configuration areas without discarding edits",async()=>{
   client.clear();
 });
 
-it("preserves a dirty draft on refetch and discards to the saved baseline",async()=>{
-  vi.mocked(apiRequest).mockResolvedValue(settings);
+it("preserves edits on refetch and automatically saves the draft",async()=>{
+  vi.mocked(apiRequest).mockImplementation(async(_path,options)=>options?.method==="PUT"?JSON.parse(String(options.body)):settings);
   const client=mount();
   const toggle=await screen.findByRole("switch",{name:"Allow audio-only transcoding"});
+  expect(vi.mocked(apiRequest).mock.calls.some(([,options])=>options?.method==="PUT")).toBe(false);
   fireEvent.click(toggle);
-  expect(screen.getByText("Unsaved changes")).toBeTruthy();
   client.setQueryData(["transcoding-settings"],{...settings,max_concurrent:4});
   await waitFor(()=>expect((toggle as HTMLInputElement).checked).toBe(true));
-  fireEvent.click(screen.getByRole("button",{name:"Discard"}));
-  expect((toggle as HTMLInputElement).checked).toBe(false);
-  expect(screen.getByText("All changes saved")).toBeTruthy();
+  await screen.findByText("Changes saved automatically");
+  const write=vi.mocked(apiRequest).mock.calls.find(([,options])=>options?.method==="PUT")!;
+  expect(JSON.parse(String(write[1]?.body))).toMatchObject({allow_audio_transcoding:true,max_concurrent:2});
+  expect(screen.queryByRole("button",{name:"Save configuration"})).toBeNull();
+  client.clear();
+});
+
+it("does not send invalid numeric limits",async()=>{
+  vi.mocked(apiRequest).mockResolvedValue(settings);
+  const client=mount();
+  fireEvent.change(await screen.findByLabelText("Maximum video transcodes"),{target:{value:"0"}});
+  expect((await screen.findByRole("alert")).textContent).toContain("displayed limits");
+  expect(vi.mocked(apiRequest).mock.calls.some(([,options])=>options?.method==="PUT")).toBe(false);
   client.clear();
 });

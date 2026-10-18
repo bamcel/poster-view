@@ -74,8 +74,8 @@ it("submits the existing revision when editing and keeps errors visible", async 
   vi.mocked(nativeLibraries.save).mockRejectedValue(new Error("Library changed since it was opened."));
   mount(<LibraryDialog library={saved} onClose={vi.fn()} onSaved={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: /Review/ }));
-  fireEvent.click(screen.getByRole("button", { name: "Save library" }));
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Library changed since it was opened.");
+  fireEvent.click(screen.getByRole("button",{name:/General/}));fireEvent.change(screen.getByLabelText("Name"),{target:{value:"Updated library"}});
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Library changed since it was opened. Retry");
   expect(nativeLibraries.save).toHaveBeenCalledWith(expect.objectContaining({ revision: 1 }), "library");
 });
 
@@ -261,6 +261,24 @@ it("hides unused channel references when editing YouTube without dropping saved 
  mount(<LibraryDialog library={library} onClose={vi.fn()} onSaved={vi.fn()}/>);
  expect(screen.queryByLabelText("Channel URLs or IDs")).toBeNull();
  fireEvent.click(screen.getByRole("button",{name:/Review/}));
- fireEvent.click(screen.getByRole("button",{name:"Save library"}));
+ fireEvent.click(screen.getByRole("button",{name:/General/}));fireEvent.change(screen.getByLabelText("Name"),{target:{value:"Updated YouTube"}});
  await waitFor(()=>expect(nativeLibraries.save).toHaveBeenCalledWith(expect.objectContaining({options:expect.objectContaining({youtube_channels:["@existing"]})}),saved.id));
+});
+
+it("automatically saves existing libraries with the latest revision and keeps the popup open",async()=>{
+ const onSaved=vi.fn();
+ let finish!:(value:NativeLibrary)=>void;
+ vi.mocked(nativeLibraries.save).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;})).mockResolvedValue({...saved,revision:3});
+ mount(<LibraryDialog library={saved} onClose={vi.fn()} onSaved={onSaved}/>);
+ const name=screen.getByLabelText("Name") as HTMLInputElement;
+ expect(nativeLibraries.save).not.toHaveBeenCalled();
+ fireEvent.change(name,{target:{value:"First edit"}});
+ await waitFor(()=>expect(nativeLibraries.save).toHaveBeenCalledTimes(1));
+ fireEvent.change(name,{target:{value:"Latest edit"}});
+ finish({...saved,name:"First edit",revision:2});
+ await screen.findByText("Changes saved automatically");
+ expect(nativeLibraries.save).toHaveBeenLastCalledWith(expect.objectContaining({name:"Latest edit",revision:2}),saved.id);
+ expect(name.value).toBe("Latest edit");
+ expect(onSaved).not.toHaveBeenCalled();
+ expect(screen.getByRole("dialog")).toBeTruthy();
 });
