@@ -190,7 +190,7 @@ export default function AppearanceSection({preview=false}: {preview?:boolean}) {
   return (
     <div ref={splitRef} className="h-full min-h-0 min-w-0" style={split ? { display: "grid", gridTemplateColumns: `minmax(0, ${settingsWidth}fr) 12px minmax(0, ${100 - settingsWidth}fr)` } : undefined}>
     <section className="h-full min-h-0 min-w-0 overflow-y-auto pr-2">
-      <div className="min-h-full w-full"><nav aria-label="Appearance sections" className="settings-section-navigation mb-4 flex flex-wrap gap-2">{[["theme","Theme"],["backgrounds","Backgrounds & Panels"],["advanced","Advanced"]].map(([id,label])=><a key={id} href={`#appearance-${id}`} className={SETTINGS_BUTTON}>{label}</a>)}</nav><p className="mb-4 text-xs text-muted">Appearance changes save automatically for all users. Custom color previews are saved with Save custom theme.</p><div className="mb-4 flex justify-end">        <button type="button" aria-pressed={split} onClick={() => setSplitView(value => !value)} className="hidden shrink-0 items-center gap-2 rounded-lg border border-border bg-button px-3 py-2 text-sm font-medium hover:bg-button-hover xl:flex"><Columns2 className="size-4" />Split View</button></div>
+      <div className="min-h-full w-full"><nav aria-label="Appearance sections" className="settings-section-navigation appearance-section-navigation mb-4 flex flex-wrap gap-2">{[["theme","Theme"],["advanced","Colors"],["backgrounds","Backgrounds & Panels"]].map(([id,label])=><a key={id} href={`#appearance-${id}`} className={SETTINGS_BUTTON}>{label}</a>)}<button type="button" aria-pressed={split} onClick={() => setSplitView(value => !value)} className="appearance-split-view ml-auto hidden shrink-0 items-center gap-2 rounded-full border border-border bg-button px-3 py-2 text-sm font-medium hover:bg-button-hover xl:flex"><Columns2 className="size-4" />Split View</button></nav><p className="mb-4 text-xs text-muted">Appearance changes save automatically for all users. Custom color previews are saved with Save custom theme.</p>
         <div id="appearance-theme" className="scroll-mt-4">
           <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
             <Palette className="size-5 text-accent" /> Theme
@@ -205,31 +205,7 @@ export default function AppearanceSection({preview=false}: {preview?:boolean}) {
           </div>
           </div>
         </div>
-<div id="appearance-backgrounds" className="scroll-mt-4 mt-8 border-t border-border pt-6">        <div className="mb-1 flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 text-lg font-semibold">
-          <LayoutDashboard className="size-5 text-accent" /> Backgrounds &amp; Panels
-        </h2>
-
-        </div>
-        <p className="mb-3 text-sm text-faint">Adjust backgrounds, panels, and metadata pills across the application.</p>
-        <div className="rounded-xl border border-border bg-window p-5">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-white">Show Backdrops</p>
-              <p className="mt-1 text-xs text-faint">Show library artwork and selected-series backgrounds.</p>
-            </div>
-            <Switch label="Show Backdrops" checked={showBackdrops} onChange={() => changeBackdrops(!showBackdrops)} />
-          </div>
-          <DashboardSlider label="Panel Color" value={panelSolid} suffix="%" min={0} max={100} onChange={changePanelSolid} start="Transparent" end="Solid" />
-          <DashboardSlider label="Panel Blur" value={blur} suffix="px" min={0} max={30} step={2} onChange={changeBlur} start="No blur" end="Blurred" />
-          <DashboardSlider label="Panel Overlay" value={panelOverlayStrength} suffix="%" min={0} max={95} onChange={changePanelOverlay} start="Light" end="Dark" />
-          <DashboardSlider label="Backdrop Overlay" value={backdropOverlayStrength} suffix="%" min={0} max={95} onChange={changeBackdropOverlay} start="Light" end="Dark" />
-          <DashboardSlider label="Pill Background" value={pillOpacity} suffix="%" min={0} max={100} onChange={changePillOpacity} start="Transparent" end="Solid" />
-          <p className="mt-1 text-xs text-faint">Background opacity for series metadata pills and season episode-count pills. Text and borders stay visible.</p>
-          <button type="button" onClick={resetDashboard} className={`${SETTINGS_BUTTON} mt-4`}>Reset to default</button>
-        </div>
-
-</div><div id="appearance-advanced" className="scroll-mt-4 mt-8 border-t border-border pt-6"><h2 className="text-lg font-semibold">Colors</h2><p className="mb-3 mt-1 text-sm text-muted">Preview colors and save them as a custom theme.</p><div className="rounded-xl border border-border bg-window p-5">          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+<div id="appearance-advanced" className="scroll-mt-4 mt-8 border-t border-border pt-6"><h2 className="text-lg font-semibold">Colors</h2><p className="mb-3 mt-1 text-sm text-muted">Preview colors and save them as a custom theme.</p><div className="rounded-xl border border-border bg-window p-5">          <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <ColorLabelPicker theme={previewColors} selected={selectedColor} onSelect={setSelectedColor} />
             <div className="text-xs font-semibold text-muted">
               {THEME_COLOR_OPTIONS.find((option) => option.key === selectedColor)?.label}
@@ -270,6 +246,31 @@ export default function AppearanceSection({preview=false}: {preview?:boolean}) {
           {message && <p role="status" className="mt-3 text-xs text-faint">{message}</p>}
         </div>
 </div></div>
+<div id="appearance-backgrounds" className="scroll-mt-4 mt-8 border-t border-border pt-6">        <div className="mb-1 flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <LayoutDashboard className="size-5 text-accent" /> Backgrounds &amp; Panels
+        </h2>
+
+        </div>
+        <p className="mb-3 text-sm text-faint">Adjust backgrounds, panels, and metadata pills across the application.</p>
+        <div className="rounded-xl border border-border bg-window p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-white">Show Backdrops</p>
+              <p className="mt-1 text-xs text-faint">Show library artwork and selected-series backgrounds.</p>
+            </div>
+            <Switch label="Show Backdrops" checked={showBackdrops} onChange={() => changeBackdrops(!showBackdrops)} />
+          </div>
+          <DashboardSlider label="Panel Color" value={panelSolid} suffix="%" min={0} max={100} onChange={changePanelSolid} start="Transparent" end="Solid" />
+          <DashboardSlider label="Panel Blur" value={blur} suffix="px" min={0} max={30} step={2} onChange={changeBlur} start="No blur" end="Blurred" />
+          <DashboardSlider label="Panel Overlay" value={panelOverlayStrength} suffix="%" min={0} max={95} onChange={changePanelOverlay} start="Light" end="Dark" />
+          <DashboardSlider label="Backdrop Overlay" value={backdropOverlayStrength} suffix="%" min={0} max={95} onChange={changeBackdropOverlay} start="Light" end="Dark" />
+          <DashboardSlider label="Pill Background" value={pillOpacity} suffix="%" min={0} max={100} onChange={changePillOpacity} start="Transparent" end="Solid" />
+          <p className="mt-1 text-xs text-faint">Background opacity for series metadata pills and season episode-count pills. Text and borders stay visible.</p>
+          <button type="button" onClick={resetDashboard} className={`${SETTINGS_BUTTON} mt-4`}>Reset to default</button>
+        </div>
+
+</div>
       </div>
     </section>
     {split && <>

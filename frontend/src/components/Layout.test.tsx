@@ -23,7 +23,7 @@ it.each([true,false])("shows the Virtual TV sidebar page only when enabled (%s)"
  vi.mocked(virtualTv.settings).mockResolvedValue({enabled});
  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
  render(<MemoryRouter initialEntries={["/media/example"]}><AuthGate><Layout/></AuthGate></MemoryRouter>);
- await screen.findByRole("link",{name:"Settings"});
+ await screen.findByRole("link",{name:"Settings",hidden:true});
  await waitFor(()=>expect(screen.queryAllByRole("link",{name:"Virtual TV"}).length).toBe(enabled?2:0));
  vi.mocked(virtualTv.settings).mockResolvedValue({enabled:false});
 });
@@ -56,7 +56,7 @@ it("offers separate Playback preferences and Transcoding policy in navigation",a
 it.each([true, false])("shows Sign out only when password_required is true (%s)", async (required) => {
   vi.mocked(api.authStatus).mockResolvedValue({ authenticated: true, password_required: required });
   render(<MemoryRouter><AuthGate><Layout /></AuthGate></MemoryRouter>);
-  await screen.findByRole("link", {name:"Settings"});
+  await screen.findByRole("link", {name:"Settings",hidden:true});
   fireEvent.click(screen.getByLabelText("Profile"));
   expect(screen.queryAllByRole("button", { name: "Sign out" })).toHaveLength(required ? 1 : 0);
 });
@@ -64,7 +64,7 @@ it.each([true, false])("shows Sign out only when password_required is true (%s)"
 it("updates the profile sign-out control when the security policy changes", async () => {
   vi.mocked(api.authStatus).mockResolvedValue({ authenticated: true, password_required: true });
   render(<MemoryRouter><AuthGate><Layout /></AuthGate></MemoryRouter>);
-  await screen.findByRole("link", {name:"Settings"});
+  await screen.findByRole("link", {name:"Settings",hidden:true});
   fireEvent.click(screen.getByLabelText("Profile"));
   expect(screen.getAllByRole("button", {name:"Sign out"})).toHaveLength(1);
   vi.mocked(api.authStatus).mockResolvedValue({ authenticated: true, password_required: false });
@@ -89,6 +89,7 @@ it("returns to the PosterView dashboard instead of a server catalog", async () =
 
   await screen.findByText("/server/7/item/classroom?return_library=novels");
   expect(screen.queryByRole("link", {name:"Overview"})).toBeNull();
+  fireEvent.click(screen.getByLabelText("Profile"));
   fireEvent.click(screen.getByRole("link", {name: "Settings"}));
   await screen.findByText("/settings");
   expect(screen.getByRole("link", {name:"Overview"})).toBeTruthy();
@@ -129,31 +130,29 @@ it("shows user navigation without administrator controls",async()=>{
   for(const label of ["Users","Plugins","Artwork","Dashboard","Search Providers","Scheduled Tasks","Appearance","Privacy / Security"])expect(screen.queryByRole("link",{name:label})).toBeNull();
   expect(screen.queryByRole("link",{name:"Playback & transcoding"})).toBeNull();
   expect(screen.queryByRole("link",{name:"Libraries"})).toBeNull();
-  expect(screen.getByRole("link",{name:"Settings"}).getAttribute("href")).toBe("/settings/playback");
+  expect(screen.getByRole("link",{name:"Settings",hidden:true}).getAttribute("href")).toBe("/settings/playback");
   fireEvent.click(screen.getByLabelText("Profile"));
   expect(screen.getByText("Viewer")).toBeTruthy();
 });
 
-it("orders Preferences, Profile, Settings and opens personal preference links",async()=>{
+it("combines settings and preferences in the profile menu",async()=>{
  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
  render(<MemoryRouter><AuthGate><Layout/></AuthGate></MemoryRouter>);
- const preferences=await screen.findByLabelText("Preferences");
- const profile=screen.getByLabelText("Profile");const settings=screen.getByRole("link",{name:"Settings"});
- expect(preferences.compareDocumentPosition(profile)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
- expect(profile.compareDocumentPosition(settings)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
- fireEvent.click(preferences);
- const navigation=screen.getByRole("navigation",{name:"Personal preferences"});
+ const profile=await screen.findByLabelText("Profile");
+ expect(screen.queryByLabelText("Preferences")).toBeNull();
+ expect(screen.getByRole("link",{name:"Settings",hidden:true}).closest("details")).toBe(profile.closest("details"));
+ fireEvent.click(profile);
+ const navigation=screen.getByRole("navigation",{name:"Profile settings"});
+ expect(within(navigation).getByRole("link",{name:"Settings"}).getAttribute("href")).toBe("/settings");
  expect(within(navigation).getByRole("link",{name:"Playback preferences"}).getAttribute("href")).toBe("/settings/playback");
  expect(within(navigation).getByRole("link",{name:"Reading preferences"}).getAttribute("href")).toBe("/settings/reading");
- fireEvent.keyDown(window,{key:"Escape"});
- expect(preferences.closest("details")?.open).toBe(false);
- expect(document.activeElement).toBe(preferences);
+ fireEvent.keyDown(window,{key:"Escape"});expect(profile.closest("details")?.open).toBe(false);expect(document.activeElement).toBe(profile);
+ fireEvent.click(profile);fireEvent.pointerDown(document.body);expect(profile.closest("details")?.open).toBe(false);
 });
-
 it("does not offer the retired headline artwork preference",async()=>{
  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
  render(<MemoryRouter><AuthGate><Layout/></AuthGate></MemoryRouter>);
- fireEvent.click(await screen.findByLabelText("Preferences"));
+ fireEvent.click(await screen.findByLabelText("Profile"));
  expect(screen.queryByRole("combobox",{name:"Headline artwork"})).toBeNull();
 });
 
