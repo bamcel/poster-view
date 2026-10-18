@@ -206,6 +206,32 @@ it("previews an independent poster accent and restores general accent inheritanc
  client.clear();
 });
 
+it("previews, saves and resets an independent glass tint", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<MemoryRouter initialEntries={["/settings/appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
+  await waitFor(() => expect(client.getQueryData(["appearance-settings"])).toBeTruthy());
+  fireEvent.click(screen.getByLabelText("Select Color Label"));
+  fireEvent.click(screen.getByRole("button", { name: "Glass Tint" }));
+  expect(screen.getByText("Inherits general accent")).toBeTruthy();
+  expect(screen.getByText(/Homepage hover previews keep their artwork tint/)).toBeTruthy();
+  expect(document.documentElement.style.getPropertyValue("--color-glass-tint")).toBe(document.documentElement.style.getPropertyValue("--color-accent"));
+  fireEvent.click(screen.getByLabelText("Choose Glass Tint color"));
+  fireEvent.change(screen.getByLabelText("Glass Tint HEX color"), { target: { value: "#334466" } });
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  expect(document.documentElement.style.getPropertyValue("--color-glass-tint")).toBe("#334466");
+  expect(document.documentElement.style.getPropertyValue("--color-accent")).not.toBe("#334466");
+  fireEvent.change(screen.getByPlaceholderText("My theme"), { target: { value: "Glass Night" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save custom theme" }));
+  await waitFor(() => expect(api.saveAppearanceSettings).toHaveBeenCalledWith(expect.objectContaining({
+    theme_name: "Glass Night",
+    custom_themes_json: expect.stringContaining('"glassTint":"#334466"'),
+  })));
+  fireEvent.click(screen.getByRole("button", { name: "Use general accent" }));
+  expect(document.documentElement.style.getPropertyValue("--color-glass-tint")).toBe(document.documentElement.style.getPropertyValue("--color-accent"));
+  expect(screen.getByText("Inherits general accent")).toBeTruthy();
+  client.clear();
+});
+
 it("persists and resets Dashboard appearance controls", () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings/appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);

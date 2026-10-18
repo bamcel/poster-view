@@ -184,7 +184,7 @@ export default function AppearanceSection({preview=false}: {preview?:boolean}) {
     previewColors = parseThemeJson(themeJson);
   } catch { /* Keep the selected theme while JSON is incomplete. */ }
   const selectedColorValue = previewColors[selectedColor] ?? previewColors.accent;
-  const independentAccent=["sidebarAccent","posterOutline","selectionAccent","focusAccent","linkAccent"].includes(selectedColor);
+  const independentAccent=["sidebarAccent","posterOutline","selectionAccent","focusAccent","linkAccent","glassTint"].includes(selectedColor);
   const inheritAccent=()=>{const theme=parseThemeJson(themeJson);delete theme[selectedColor];setThemeJson(serializeTheme(theme));previewTheme(theme);setMessage("Previewing inherited general accent");};
 
   return (
@@ -213,7 +213,8 @@ export default function AppearanceSection({preview=false}: {preview?:boolean}) {
               {independentAccent&&<div className="mt-2"><p className="text-xs text-muted">{previewColors[selectedColor]?"Custom color":"Inherits general accent"}</p><button type="button" className={`${SETTINGS_BUTTON} mt-2`} disabled={!previewColors[selectedColor]} onClick={inheritAccent}>Use general accent</button></div>}
             </div>
           </div>
-          <p className="mt-2 text-xs text-faint">General accent controls remaining highlights. Sidebar navigation, poster hover outlines, selected items, keyboard focus, and links can use independent colors. Color changes preview immediately; save a custom theme to keep them.</p>
+          {selectedColor === "glassTint" && <p className="mt-2 text-xs text-faint">Glass Tint colors shared glass popups and menus. Homepage hover previews keep their artwork tint.</p>}
+          <p className="mt-2 text-xs text-faint">General accent controls remaining highlights. Sidebar navigation, poster hover outlines, selected items, keyboard focus, links, and glass tint can use independent colors. Color changes preview immediately; save a custom theme to keep them.</p>
 
         <div className="mt-4 border-t border-border pt-4">
           <h2 className="text-lg font-semibold">Custom Theme</h2>

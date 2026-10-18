@@ -35,13 +35,7 @@ struct Subscription {
 }
 fn validate(input: &Input) -> Result<(), HttpError> {
     downloader::validate_url(&input.url)?;
-    let url = reqwest::Url::parse(&input.url).map_err(err)?;
-    if !(downloader::is_channel_url(&input.url)
-        || (url.path() == "/playlist"
-            && url
-                .query_pairs()
-                .any(|(key, value)| key == "list" && downloader::valid_id(&value))))
-    {
+    if !(downloader::is_channel_url(&input.url) || downloader::playlist_url(&input.url).is_ok()) {
         return Err(err(
             "Subscriptions require a YouTube channel or playlist URL.",
         ));
@@ -272,13 +266,7 @@ fn same_source(a: &str, b: &str) -> bool {
     if a == b {
         return true;
     }
-    let playlist = |raw: &str| {
-        reqwest::Url::parse(raw).ok().and_then(|u| {
-            u.query_pairs()
-                .find(|(k, _)| k == "list")
-                .map(|(_, v)| v.into_owned())
-        })
-    };
+    let playlist = |raw: &str| downloader::playlist_url(raw).ok();
     match (playlist(a), playlist(b)) {
         (Some(a), Some(b)) => a == b,
         _ => false,
@@ -297,18 +285,7 @@ struct Source {
     playlist: bool,
 }
 fn valid_playlist_url(raw: &str) -> Result<String, HttpError> {
-    downloader::validate_url(raw)?;
-    let url = reqwest::Url::parse(raw).map_err(err)?;
-    if url.path() != "/playlist" {
-        return Err(err("Channel listing contains an invalid playlist URL."));
-    }
-    let id = url
-        .query_pairs()
-        .find(|(key, _)| key == "list")
-        .map(|(_, v)| v.into_owned())
-        .filter(|id| downloader::valid_id(id))
-        .ok_or_else(|| err("Playlist listing has no valid playlist ID."))?;
-    Ok(format!("https://www.youtube.com/playlist?list={id}"))
+    downloader::playlist_url(raw)
 }
 fn playlist_urls(info: &Value) -> (Vec<String>, Vec<String>) {
     let mut urls = Vec::new();
@@ -645,6 +622,26 @@ pub(super) fn start(state: AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn show_links_are_playlist_subscriptions_and_share_the_same_source() {
+        let show = "https://www.youtube.com/show/VLPLtN43kak3fFEEDNo0ks9QVKYfQpT2yUEo?sbp=Kgs2LXlHeF9yZlNnWUAB";
+        let canonical = "https://www.youtube.com/playlist?list=PLtN43kak3fFEEDNo0ks9QVKYfQpT2yUEo";
+        let mut value = input();
+        value.url = show.into();
+        assert!(validate(&value).is_ok());
+        assert_eq!(valid_playlist_url(show).unwrap(), canonical);
+        assert!(same_source(show, canonical));
+        for invalid in [
+            "https://www.youtube.com/show/VL",
+            "https://www.youtube.com/show/VLPLvalid/extra",
+            "https://evil.test/show/VLPLvalid",
+            "http://www.youtube.com/show/VLPLvalid",
+            "https://youtu.be/show/VLPLvalid",
+        ] {
+            value.url = invalid.into();
+            assert!(validate(&value).is_err(), "{invalid}");
+        }
+    }
     #[test]
     fn cursor_resumes_rotates_and_handles_removed_playlist() {
         let urls = vec!["PLone".into(), "PLtwo".into(), "PLthree".into()];

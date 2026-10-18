@@ -104,18 +104,19 @@ describe("independent accent roles", () => {
     localStorage.setItem("posterview.customThemes", JSON.stringify([theme]));
     expect(loadCustomThemes()).toEqual([theme]);
     applyTheme({ ...theme, accent: "#ABCDEF" });
-    for (const role of ["sidebar-accent", "poster-outline", "selection-accent", "focus-accent", "link-accent"]) {
+    for (const role of ["glass-tint", "sidebar-accent", "poster-outline", "selection-accent", "focus-accent", "link-accent"]) {
       expect(document.documentElement.style.getPropertyValue(`--color-${role}`)).toBe("#ABCDEF");
     }
     expect(JSON.parse(serializeTheme(theme)).colors["Left Panel Accent"]).toBeUndefined();
   });
 
   it("round-trips independent overrides without changing other accent consumers", () => {
-    const theme = { ...getTheme("Everforest"), name: "Independent accents", sidebarAccent: "#123456", posterOutline: "#654321", selectionAccent: "#AABBCC", focusAccent: "#112233", linkAccent: "#445566" };
+    const theme = { ...getTheme("Everforest"), name: "Independent accents", glassTint: "#BD4455", sidebarAccent: "#123456", posterOutline: "#654321", selectionAccent: "#AABBCC", focusAccent: "#112233", linkAccent: "#445566" };
     expect(parseThemeJson(serializeTheme(theme))).toEqual(theme);
     saveCustomTheme(theme);
     expect(loadCustomThemes()).toEqual([theme]);
     const root = document.documentElement.style;
+    expect(root.getPropertyValue("--color-glass-tint")).toBe("#BD4455");
     expect(root.getPropertyValue("--color-sidebar-accent")).toBe("#123456");
     expect(root.getPropertyValue("--color-poster-outline")).toBe("#654321");
     expect(root.getPropertyValue("--color-selection-accent")).toBe("#AABBCC");
@@ -123,6 +124,7 @@ describe("independent accent roles", () => {
     expect(root.getPropertyValue("--color-link-accent")).toBe("#445566");
     expect(root.getPropertyValue("--color-accent")).toBe(theme.accent);
     applyTheme("Everforest");
+    expect(root.getPropertyValue("--color-glass-tint")).toBe(getTheme("Everforest").accent);
     expect(root.getPropertyValue("--color-poster-outline")).toBe(getTheme("Everforest").accent);
   });
 

@@ -16,6 +16,7 @@ export interface AppTheme {
   subtle: string;
   disabled: string;
   accent: string;
+  glassTint?: string;
   sidebarAccent?: string;
   posterOutline?: string;
   selectionAccent?: string;
@@ -35,7 +36,7 @@ export interface AppTheme {
 
 export type ThemeColorKey = Exclude<keyof AppTheme, "name">;
 
-export const ACCENT_COLOR_KEYS = ["sidebarAccent", "posterOutline", "selectionAccent", "focusAccent", "linkAccent"] as const;
+export const ACCENT_COLOR_KEYS = ["glassTint", "sidebarAccent", "posterOutline", "selectionAccent", "focusAccent", "linkAccent"] as const;
 function isAccentRole(key: ThemeColorKey) {
   return (ACCENT_COLOR_KEYS as readonly string[]).includes(key);
 }
@@ -54,6 +55,7 @@ export const THEME_COLOR_OPTIONS: { key: ThemeColorKey; label: string }[] = [
   { key: "detailMetadata", label: "Media Detail Metadata" },
   { key: "detailLink", label: "Media Detail Links" },
   { key: "accent", label: "General Accent" },
+  { key: "glassTint", label: "Glass Tint" },
   { key: "sidebarAccent", label: "Left Panel Accent" },
   { key: "posterOutline", label: "Poster Hover Outline" },
   { key: "selectionAccent", label: "Selection Accent" },
@@ -237,6 +239,7 @@ function applyThemeValues(theme: AppTheme) {
     "button-hover": theme.buttonHover, elevated: theme.selected, border: theme.border,
     "border-strong": theme.borderStrong, text: theme.text, muted: theme.muted,
     faint: theme.subtle, disabled: theme.disabled, accent: theme.accent,
+    "glass-tint": theme.glassTint ?? theme.accent,
     "sidebar-accent": theme.sidebarAccent ?? theme.accent,
     "poster-outline": theme.posterOutline ?? theme.accent,
     "selection-accent": theme.selectionAccent ?? theme.accent,

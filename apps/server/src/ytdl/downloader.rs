@@ -35,6 +35,27 @@ pub(super) fn validate_url(raw: &str) -> Result<(), HttpError> {
     }
     Ok(())
 }
+/// YouTube show links use a VL-prefixed playlist browse ID.
+pub(super) fn playlist_url(raw: &str) -> Result<String, HttpError> {
+    validate_url(raw)?;
+    let url = reqwest::Url::parse(raw).map_err(err)?;
+    let id = if url.path() == "/playlist" {
+        url.query_pairs()
+            .find(|(key, _)| key == "list")
+            .map(|(_, id)| id.into_owned())
+    } else if matches!(
+        url.host_str(),
+        Some("youtube.com" | "www.youtube.com" | "m.youtube.com" | "music.youtube.com")
+    ) {
+        url.path().strip_prefix("/show/VL").map(str::to_owned)
+    } else {
+        None
+    };
+    let id = id
+        .filter(|id| valid_id(id))
+        .ok_or_else(|| err("Use a YouTube playlist or playlist-backed show URL."))?;
+    Ok(format!("https://www.youtube.com/playlist?list={id}"))
+}
 pub(super) fn is_channel_url(url: &str) -> bool {
     reqwest::Url::parse(url).is_ok_and(|u| {
         u.path().starts_with("/@")
@@ -45,7 +66,7 @@ pub(super) fn is_channel_url(url: &str) -> bool {
 }
 fn channel_playlists_url(raw: &str) -> String {
     if !is_channel_url(raw) {
-        return raw.into();
+        return playlist_url(raw).unwrap_or_else(|_| raw.into());
     }
     let Ok(mut url) = reqwest::Url::parse(raw) else {
         return raw.into();
@@ -1950,6 +1971,16 @@ mod tests {
         );
         assert_eq!(v["kind"], "playlist");
         assert_eq!(v["url"], "https://www.youtube.com/playlist?list=PLid");
+    }
+    #[test]
+    fn show_inspection_normalizes_to_the_underlying_playlist() {
+        assert_eq!(
+            channel_playlists_url(
+                "https://www.youtube.com/show/VLPLtN43kak3fFEEDNo0ks9QVKYfQpT2yUEo?sbp=tracking"
+            ),
+            "https://www.youtube.com/playlist?list=PLtN43kak3fFEEDNo0ks9QVKYfQpT2yUEo"
+        );
+        assert!(!is_channel_url("https://www.youtube.com/show/VLPLexample"));
     }
     #[test]
     fn url_boundary() {
