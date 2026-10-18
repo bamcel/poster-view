@@ -11,7 +11,7 @@ beforeEach(()=>{HTMLDialogElement.prototype.showModal=function(){this.setAttribu
 afterEach(()=>{cleanup();localStorage.clear();});
 const video:NativeCatalogEntry={id:"video",path:"channel/video.mp4",kind:"episode",parent_path:"channel",title:"Camping video",available:true,revision:1,files:[],nfo_path:null,artwork:[{kind:"thumb",path:"thumb.jpg",source:"local"}],metadata:{youtube:{channel_id:"channel",channel:"Outdoor Boys",playlists:[{id:"camping",title:"Camping"}]}}};
 it.each(["single_channel","multiple_channels"] as const)("shows channels before playlists for saved %s libraries",async youtube_mode=>{
- vi.mocked(nativeLibraries.catalog).mockResolvedValue([video]);
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...video,id:"channel-art",kind:"series",path:"channel",parent_path:null,title:"Outdoor Boys",artwork:[{kind:"poster",path:"poster.jpg",source:"local"},{kind:"backdrop",path:"backdrop.jpg",source:"local"}],metadata:{youtube:{channel_id:"channel",channel:"Outdoor Boys"}}},video]);
  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><YouTubeLibraryBrowser library={{id:"youtube",name:"YouTube",options:{youtube_mode}} as NativeLibrary}/></MemoryRouter></QueryClientProvider>);
  const channel=await screen.findByRole("button",{name:"Outdoor Boys 1 videos"});
  expect(screen.queryByRole("button",{name:"Camping 1 videos"})).toBeNull();
@@ -56,7 +56,7 @@ it("preserves newest upload ordering for playlist videos using published timesta
 });
 
 it("places filter and preferences beside search in the shared header",async()=>{
- vi.mocked(nativeLibraries.catalog).mockResolvedValue([video]);
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...video,id:"channel-art",kind:"series",path:"channel",parent_path:null,title:"Outdoor Boys",artwork:[{kind:"poster",path:"poster.jpg",source:"local"},{kind:"backdrop",path:"backdrop.jpg",source:"local"}],metadata:{youtube:{channel_id:"channel",channel:"Outdoor Boys"}}},video]);
  const target=document.createElement("div");document.body.appendChild(target);
  try{
   render(<QueryClientProvider client={new QueryClient()}><MemoryRouter><HeaderSearchTarget.Provider value={target}><YouTubeLibraryBrowser library={{id:"youtube",name:"YouTube"} as NativeLibrary}/></HeaderSearchTarget.Provider></MemoryRouter></QueryClientProvider>);
@@ -85,3 +85,21 @@ it("places filter and preferences beside search in the shared header",async()=>{
   fireEvent.change(screen.getByRole("textbox",{name:"Search titles"}),{target:{value:"2018"}});
   expect(titles()).toEqual(["2018 World Tour1 videos"]);
  });
+
+it("does not substitute video thumbnails for missing channel artwork",async()=>{
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([video]);
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter><YouTubeLibraryBrowser library={{id:"youtube",name:"YouTube"} as NativeLibrary}/></MemoryRouter></QueryClientProvider>);
+ const card=await screen.findByRole("button",{name:"Outdoor Boys 1 videos"});
+ expect(card.querySelector("img")).toBeNull();
+});
+
+it("shows channel-owned poster and synopsis above its playlist collection",async()=>{
+ const channel={...video,id:'channel',kind:'series',path:'channel',parent_path:null,title:'Outdoor Boys',artwork:[{kind:'poster',path:'poster.jpg',source:'local' as const}],metadata:{plot:'Channel adventures and family trips.',youtube:{channel_id:'channel',channel:'Outdoor Boys'}}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([channel,video]);
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/?youtube_channel=channel']}><YouTubeLibraryBrowser library={{id:'youtube',name:'YouTube'} as NativeLibrary}/></MemoryRouter></QueryClientProvider>);
+ expect(await screen.findByRole('img',{name:'Outdoor Boys channel poster'})).toBeTruthy();
+ expect(screen.getAllByText('Channel adventures and family trips.').length).toBeGreaterThan(0);
+ expect(screen.getByRole('heading',{name:'Playlists'})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'All Videos'}));
+ expect(await screen.findByRole('button',{name:'Camping video'})).toBeTruthy();
+});

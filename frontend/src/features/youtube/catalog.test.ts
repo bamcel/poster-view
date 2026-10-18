@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NativeCatalogEntry } from '../../api/nativeLibraries';
-import { channelsFromCatalog, playlistVideos } from './catalog';
+import { channelsFromCatalog, playlistVideos, youtubePath, youtubeRoute } from './catalog';
 const entry = (id: string, playlists: unknown[], channel = 'channel'): NativeCatalogEntry => ({ id, path: `${channel}/${id}.mp4`, kind: 'episode', parent_path: channel, title: id, metadata: { youtube: { video_id: id, channel_id: channel, channel, playlists } }, artwork: [], files: [], nfo_path: null, available: true, revision: 1 });
 describe('YouTube catalog hierarchy', () => {
   it('groups a single channel by playlists and shows the newest uploads first despite playlist positions', () => {
@@ -35,4 +35,15 @@ describe('YouTube catalog hierarchy', () => {
     expect(playlistVideos(channelsFromCatalog(videos)[0],'all').map(v=>v.id)).toEqual(['late','early']);
   });
 
+});
+
+it("uses readable channel playlist and video paths and disambiguates duplicate titles",()=>{
+ const videos=[entry('one',[{id:'camp',title:'Camping'}]),entry('two',[{id:'camp',title:'Camping'}])];
+ for(const video of videos){video.title='A Trip';(video.metadata.youtube as Record<string,unknown>).channel='Outdoor Boys';}
+ expect(youtubePath('/media/Youtube',videos,'channel',null,null)).toBe('/media/Youtube/Outdoor-Boys');
+ expect(youtubePath('/media/Youtube',videos,'channel','all',null)).toBe('/media/Youtube/Outdoor-Boys/All-Videos');
+ expect(youtubePath('/media/Youtube',videos,'channel','camp','one')).toBe('/media/Youtube/Outdoor-Boys/Camping/A-Trip~one');
+ expect(youtubeRoute(videos,'Outdoor-Boys','Camping','A-Trip~one').video?.id).toBe('one');
+ expect(youtubeRoute(videos,'Outdoor-Boys','Camping','A-Trip').valid).toBe(false);
+ expect(youtubeRoute(videos,'Missing').valid).toBe(false);
 });
