@@ -45,6 +45,9 @@ use tower_http::services::ServeFile;
 
 const MAX_PROBE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_SUBTITLE_BYTES: u64 = 16 * 1024 * 1024;
+// Styled anime tracks can include extensive vector drawings and animation.
+// Bound them separately without increasing plain text, font or total cache limits.
+const MAX_ASS_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_FONT_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_BITMAP_BYTES: u64 = 128 * 1024 * 1024;
 const SESSION_IDLE: Duration = Duration::from_secs(90);
@@ -1745,6 +1748,8 @@ async fn extracted_resource(
             ]);
         let limit = if bitmap {
             MAX_BITMAP_BYTES
+        } else if format == "ass" {
+            MAX_ASS_BYTES
         } else {
             MAX_SUBTITLE_BYTES
         };

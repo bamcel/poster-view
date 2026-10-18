@@ -150,7 +150,10 @@ track promotion uses `/sessions/{id}/seek` with the expected generation, returni
 409 for stale work. Logical session ID, watch token and full source duration remain
 stable through delivery generations. Direct seeks use the browser and need no job.
 
-Metadata and resource preparation are bounded, cached and source-scoped. ASS/SSA
+Metadata and resource preparation are bounded, cached and source-scoped. Styled
+ASS/SSA extraction permits up to 128 MiB for large authored drawings and animation;
+plain text remains limited to 16 MiB, fonts to 32 MiB, and the resource cache to
+256 MiB in total. Outputs reaching their limit are rejected and removed. ASS/SSA
 uses JASSUB and embedded fonts; text uses WebVTT. PGS and VobSub are stream-copied
 into .sup/.mks resources and drawn by local libbitsub overlays with source-clock
 synchronization. Unknown bitmap formats stay unavailable. Neither subtitle track

@@ -2441,3 +2441,139 @@ async fn selected_versions_isolate_sources_tracks_and_resource_urls() {
         );
     }
 }
+
+#[tokio::test]
+async fn large_styled_ass_extraction_preserves_complete_track_and_reuses_cache() {
+    use std::io::Write;
+    if command("ffmpeg").arg("-version").status().await.is_err() {
+        eprintln!("FFmpeg unavailable; large ASS extraction fixture skipped.");
+        return;
+    }
+    let fixture = video_fixture(b"old source", original_mkv_probe()).await;
+    let ass = fixture._directory.path().join("large.ass");
+    let mut file = std::fs::File::create(&ass).unwrap();
+    file.write_all(b"[Script Info]\nScriptType: v4.00+\nPlayResX: 160\nPlayResY: 90\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,12,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n").unwrap();
+    let event = format!(
+        "Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,{}\n",
+        "x".repeat(4096)
+    );
+    for _ in 0..4400 {
+        file.write_all(event.as_bytes()).unwrap();
+    }
+    file.write_all(b"Dialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,FINAL COMPLETE CUE\n")
+        .unwrap();
+    drop(file);
+    let mut cmd = command("ffmpeg");
+    cmd.args([
+        "-nostdin",
+        "-v",
+        "error",
+        "-y",
+        "-filter_threads",
+        "1",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=size=160x90:rate=1:duration=1",
+        "-i",
+    ])
+    .arg(&ass)
+    .args([
+        "-map",
+        "0:v",
+        "-map",
+        "1:s",
+        "-c:v",
+        "libx264",
+        "-threads",
+        "1",
+        "-preset",
+        "ultrafast",
+        "-c:s",
+        "copy",
+    ])
+    .arg(&fixture.file);
+    run(
+        &mut cmd,
+        Duration::from_secs(30),
+        "Large ASS fixture generation",
+    )
+    .await
+    .unwrap();
+    let original_stamp = stamp(&fixture.file).unwrap();
+    let request = || Request::new(axum::body::Body::empty());
+    let response = subtitle(
+        State(fixture.state.clone()),
+        Path((fixture.library.clone(), fixture.item.clone(), 1)),
+        Query(VersionQuery::default()),
+        request(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "text/plain; charset=utf-8"
+    );
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert!(bytes.len() as u64 > MAX_SUBTITLE_BYTES);
+    assert!((bytes.len() as u64) < MAX_ASS_BYTES);
+    assert!(String::from_utf8_lossy(&bytes).contains("FINAL COMPLETE CUE"));
+    assert_eq!(
+        String::from_utf8_lossy(&bytes).matches("Dialogue:").count(),
+        4401
+    );
+    let cached = fixture
+        .state
+        .playback
+        .resources
+        .lock()
+        .await
+        .values()
+        .next()
+        .unwrap()
+        .path
+        .clone();
+    let modified = std::fs::metadata(&cached).unwrap().modified().unwrap();
+    let again = subtitle(
+        State(fixture.state.clone()),
+        Path((fixture.library.clone(), fixture.item.clone(), 1)),
+        Query(VersionQuery::default()),
+        request(),
+    )
+    .await
+    .unwrap()
+    .into_body()
+    .collect()
+    .await
+    .unwrap()
+    .to_bytes();
+    assert_eq!(bytes, again);
+    assert_eq!(fixture.state.playback.resources.lock().await.len(), 1);
+    assert_eq!(
+        std::fs::metadata(cached).unwrap().modified().unwrap(),
+        modified
+    );
+    assert_eq!(stamp(&fixture.file).unwrap(), original_stamp);
+    assert!(fixture.state.playback.sessions.lock().await.is_empty());
+
+    // The larger styled-track allowance must not enlarge plain text outputs.
+    let source = source(
+        &fixture.state,
+        fixture.library.clone(),
+        fixture.item.clone(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        extracted_resource(&fixture.state.playback, &source, 1, "vtt")
+            .await
+            .is_err()
+    );
+    assert_eq!(fixture.state.playback.resources.lock().await.len(), 1);
+    assert_eq!(
+        std::fs::read_dir(fixture.state.playback.root.join("resources"))
+            .unwrap()
+            .count(),
+        1
+    );
+}
