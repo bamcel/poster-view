@@ -176,15 +176,17 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
             <summary aria-label="Profile" title="Profile" className="pv-profile-trigger grid size-10 cursor-pointer list-none place-items-center text-white [&::-webkit-details-marker]:hidden">
               <UserRound className="size-4" />
             </summary>
-            <div className="pv-profile-menu absolute right-0 top-full mt-2 w-60 p-3 shadow-xl">
+            <div className="pv-profile-menu absolute right-0 top-full mt-2 shadow-xl">
+              <div className="pv-profile-identity">
               <p className="font-medium">{session?.user?.display_name ?? "Profile"}</p>
               <p className="mt-1 text-xs text-muted">{session?.user ? (isAdmin ? "Administrator" : "User") : "Local session"}</p>
-              <nav aria-label="Profile settings" className="mt-3 border-t border-border pt-2">
-                <NavLink to={settingsPath} onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted hover:bg-input-hover hover:text-white"><Settings className="size-4"/>Settings</NavLink>
-                <NavLink to="/settings/playback" onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-input-hover hover:text-white">Playback preferences</NavLink>
-                <NavLink to="/settings/reading" onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="block rounded-lg px-3 py-2 text-sm text-muted hover:bg-input-hover hover:text-white">Reading preferences</NavLink>
+              </div>
+              <nav aria-label="Profile settings">
+                <NavLink to={settingsPath} onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="pv-profile-item"><Settings aria-hidden="true"/>Settings</NavLink>
+                <NavLink to="/settings/playback" onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="pv-profile-item"><Film aria-hidden="true"/>Playback preferences</NavLink>
+                <NavLink to="/settings/reading" onClick={()=>{if(preferencesMenu.current)preferencesMenu.current.open=false;}} className="pv-profile-item"><BookOpen aria-hidden="true"/>Reading preferences</NavLink>
               </nav>
-              {showSignOut && <button type="button" onClick={signOut} className="mt-3 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted hover:bg-input-hover hover:text-white"><LogOut className="size-[18px]" />Sign out</button>}
+              {showSignOut && <div className="pv-profile-footer"><button type="button" onClick={signOut} className="pv-profile-item"><LogOut aria-hidden="true"/>Sign out</button></div>}
             </div>
           </details>
 
