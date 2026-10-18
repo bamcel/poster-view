@@ -86,6 +86,9 @@ it displayed video and subtitles at the same seek position. The rounded mask kee
 the video in the browser compositing path alongside the OffscreenCanvas overlay.
 It does not alter delivery, decoding, stream packets or subtitle rendering; it
 clips only the outermost video-element corners, usually within the letterbox.
+Virtual TV previews use the same mask while their ASS canvas is present; their
+separate video layer must retain it even when readiness and subtitles are toggled
+together. Advancing frame callbacks alone cannot detect this compositor failure.
 This is a browser/GPU presentation workaround validated on the reproduced setup;
 other GPUs, HDR sources and native TV clients require their own validation.
 Startup, storage latency, source indexes, browser decoder behavior and background

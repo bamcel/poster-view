@@ -184,7 +184,8 @@ it("uses a clean image fallback for unavailable thumbnails",async()=>{
  expect(screen.getByLabelText("Program image unavailable")).toBeTruthy();
 });
 
-it("keeps optional live previews off until enabled and disables them for future programs",async()=>{
+it("respects disabled previews until enabled and disables them for future programs",async()=>{
+ localStorage.setItem("posterview-virtual-tv-live-preview","false");
  const now=Date.now();
  vi.mocked(virtualTv.guide).mockResolvedValue([
   {id:"current",library_id:"tv",item_id:"episode",title:"Current",series_title:"Example show",season:1,episode:1,starts_at:new Date(now-60000).toISOString(),ends_at:new Date(now+60000).toISOString(),artwork_url:"/current.jpg"},
@@ -260,4 +261,10 @@ it("uses playlist selections instead of the generic title picker for YouTube sou
  expect(nativeLibraries.summaries).not.toHaveBeenCalled();expect(screen.queryByText("No shows or movies found in these sources.")).toBeNull();
  fireEvent.click(screen.getByRole("button",{name:"Save channel"}));
  await waitFor(()=>expect(virtualTv.save).toHaveBeenCalledWith(expect.objectContaining({library_ids:["yt"],youtube_playlists:[{library_id:"yt",channel_id:"UC",playlist_id:"PL"}]}),undefined));
+});
+
+it("autoplays the selected live program by default without hover",async()=>{
+ mount();
+ expect(await screen.findByLabelText("Live preview comedy")).toBeTruthy();
+ expect(localStorage.getItem("posterview-virtual-tv-live-preview")).toBeNull();
 });

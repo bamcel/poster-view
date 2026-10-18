@@ -44,6 +44,8 @@
 .vtv-image img { opacity: 1; transition: opacity 500ms ease; }
 .vtv-live-layer { position: absolute; inset: 0; opacity: 0; pointer-events: none; transition: opacity 500ms ease; }
 .vtv-live-video { width: 100%; height: 100%; object-fit: cover; }
+/* Match the full player's Chromium video/ASS canvas compositing workaround. */
+.vtv-live-layer:has(canvas.JASSUB) .vtv-live-video { clip-path: inset(0 round 1px); }
 .vtv-preview-ready .vtv-live-layer { opacity: 1; }
 .vtv-preview-ready img { opacity: 0; }
 @media (prefers-reduced-motion: reduce) { .vtv-image img, .vtv-live-layer { transition: none; } }
