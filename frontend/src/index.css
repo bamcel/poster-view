@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+/* Match the home hero's translucent Play / More Info surfaces. */
+.pv-profile-trigger,.pv-profile-menu,[role="menu"] { background: #ffffff18; border: 1px solid #ffffff40; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.pv-profile-trigger { border-radius: 999px; transition: background-color .15s; }
+.pv-profile-trigger:hover,.pv-profile-trigger:focus-visible { background: #ffffff30; }
+.pv-profile-menu { border-radius: 18px; color: #fff; }
+.pv-profile-menu nav { border-color: #ffffff40; }
+.pv-profile-menu :is(a,button) { border-radius: 999px; color: #fff; }
+.pv-profile-menu :is(a,button):hover { background: #ffffff18; }
+[role="menu"] { border-radius: 18px; padding: 6px; color: #fff; box-shadow: 0 16px 48px #0007; }
+[role="menu"] [role="menuitem"] { border-radius: 999px; color: #fff; transition: background-color .15s; }
+[role="menu"] [role="menuitem"]:not(:disabled):is(:hover,:focus) { background: #ffffff30; }
+
 /* A desktop preview has its own available width, independent of the window. */
 @container library (width < 80rem) {
   .appearance-preview .item-artwork-overlay {
