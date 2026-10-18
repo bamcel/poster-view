@@ -97,3 +97,23 @@ it("uses the saved banner logo preference and falls back to text on failure",()=
  fireEvent.error(logo);
  expect(screen.getByRole("heading",{name:"Logo movie"}).textContent).toBe("Logo movie");
 });
+
+it("keeps the visible banner edge rounded as it passes the scroll viewport",()=>{
+ vi.stubGlobal("ResizeObserver",class {observe(){} disconnect(){}});
+ let bannerTop=80;
+ vi.spyOn(HTMLElement.prototype,"getBoundingClientRect").mockImplementation(function(this:HTMLElement){
+   return {top:this.classList.contains("pv-home-hero")?bannerTop:56,height:600} as DOMRect;
+ });
+ let nextFrame:FrameRequestCallback|undefined;
+ vi.stubGlobal("requestAnimationFrame",(callback:FrameRequestCallback)=>{nextFrame=callback;return 1;});
+ const view=render(<MemoryRouter><div style={{overflowY:"auto"}} data-testid="viewport"><FeaturedTitle titles={[title("Movie")]}/></div></MemoryRouter>);
+ const hero=screen.getByRole("region",{name:"Featured title"});
+ expect(hero.style.getPropertyValue("--pv-hero-clip-top")).toBe("0px");
+ bannerTop=-100;
+ fireEvent.scroll(screen.getByTestId("viewport"));nextFrame?.(0);
+ expect(hero.style.getPropertyValue("--pv-hero-clip-top")).toBe("156px");
+ bannerTop=80;
+ fireEvent.scroll(screen.getByTestId("viewport"));nextFrame?.(0);
+ expect(hero.style.getPropertyValue("--pv-hero-clip-top")).toBe("0px");
+ view.unmount();
+});

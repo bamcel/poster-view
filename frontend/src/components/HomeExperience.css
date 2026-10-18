@@ -1,4 +1,4 @@
-.pv-home-hero{position:relative;isolation:isolate;overflow:hidden;margin:0 20px 28px;border:1px solid var(--color-border);border-radius:24px;background:var(--color-elevated);min-height:380px;aspect-ratio:2.18/1;display:flex;align-items:flex-end;box-shadow:0 16px 40px #0003}
+.pv-home-hero{position:relative;isolation:isolate;overflow:hidden;margin:0 20px 28px;border:1px solid var(--color-border);border-radius:24px;clip-path:inset(var(--pv-hero-clip-top,0px) 0 0 round 24px);background:var(--color-elevated);min-height:380px;aspect-ratio:2.18/1;display:flex;align-items:flex-end;box-shadow:0 16px 40px #0003}
 .pv-home-hero-art{position:absolute;inset:0;z-index:-2}.pv-home-hero-art img{width:100%;height:100%;object-fit:cover}
 .pv-home-hero::before{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,rgba(9,13,17,.82),rgba(9,13,17,.56) 28%,rgba(9,13,17,.18) 52%,transparent 72%),linear-gradient(0deg,rgba(9,13,17,.65),rgba(9,13,17,.12) 18%,transparent 38%)}
 .pv-home-hero-content{width:100%;padding:clamp(24px,4vw,56px);padding-top:100px;color:#eceff4}
@@ -38,3 +38,5 @@
 .pv-home-library-grid{display:grid;grid-template-columns:repeat(auto-fill,var(--home-card-width));column-gap:8px;row-gap:24px;padding:4px 4px 12px}
 
 .pv-home-hero-content h2 .pv-home-featured-logo{display:block;width:auto;max-width:min(100%,28rem);height:auto;max-height:10rem;object-fit:contain;object-position:left center}
+
+@media(max-width:480px){.pv-home-hero{clip-path:inset(var(--pv-hero-clip-top,0px) 0 0 round 18px)}}

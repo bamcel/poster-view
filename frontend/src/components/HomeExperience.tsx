@@ -49,11 +49,40 @@ export function FeaturedTitle({titles}:{titles:HomeTitle[]}){
   const rotation=useFeaturedRotation(candidates.map(({library,entry})=>`${library.id}:${entry.id}`));
   const hovering=useRef(false);
   const title=candidates[rotation.index];
+  const banner=useRef<HTMLElement>(null);
+  useEffect(()=>{
+    const element=banner.current;
+    if(!element)return;
+    let viewport=element.parentElement;
+    while(viewport&&!/(auto|scroll)/.test(getComputedStyle(viewport).overflowY))viewport=viewport.parentElement;
+    if(!viewport)return;
+    const scroller=viewport;
+    let frame=0;
+    const update=()=>{
+      frame=0;
+      const bounds=element.getBoundingClientRect();
+      const top=scroller.getBoundingClientRect().top+scroller.clientTop;
+      element.style.setProperty("--pv-hero-clip-top",`${Math.min(bounds.height,Math.max(0,top-bounds.top))}px`);
+    };
+    const schedule=()=>{if(!frame)frame=requestAnimationFrame(update);};
+    scroller.addEventListener("scroll",schedule,{passive:true});
+    window.addEventListener("resize",schedule);
+    const observer=new ResizeObserver(schedule);
+    observer.observe(element);
+    observer.observe(scroller);
+    update();
+    return()=>{
+      scroller.removeEventListener("scroll",schedule);
+      window.removeEventListener("resize",schedule);
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  },[!!title]);
   if(!title)return null;
   const year=numeric(title.entry.metadata.year);
   const rating=typeof title.entry.metadata.mpaa==="string"?title.entry.metadata.mpaa.trim():"";
   const plot=mediaDescription(title.entry.metadata.plot);
-  return <section className="pv-home-hero" aria-label="Featured title" aria-roledescription={candidates.length>1?"carousel":undefined} onMouseEnter={()=>{hovering.current=true;rotation.setInteracting(true);}} onMouseLeave={event=>{hovering.current=false;rotation.setInteracting(event.currentTarget.contains(document.activeElement));}} onFocus={()=>rotation.setInteracting(true)} onBlur={event=>rotation.setInteracting(hovering.current||event.currentTarget.contains(event.relatedTarget))}>
+  return <section ref={banner} className="pv-home-hero" aria-label="Featured title" aria-roledescription={candidates.length>1?"carousel":undefined} onMouseEnter={()=>{hovering.current=true;rotation.setInteracting(true);}} onMouseLeave={event=>{hovering.current=false;rotation.setInteracting(event.currentTarget.contains(document.activeElement));}} onFocus={()=>rotation.setInteracting(true)} onBlur={event=>rotation.setInteracting(hovering.current||event.currentTarget.contains(event.relatedTarget))}>
     <div className="pv-home-hero-art">{candidates.map((candidate,index)=>({candidate,index})).filter(({index})=>index===rotation.index||index===(rotation.index+1)%candidates.length||index===(rotation.index+candidates.length-1)%candidates.length).map(({candidate,index})=><div key={`${candidate.library.id}:${candidate.entry.id}`} className={`pv-home-hero-slide ${index===rotation.index?"is-current":""}`} aria-hidden="true"><Artwork title={candidate} hero/></div>)}</div>
     {candidates.length>1&&<>
       <button type="button" className="pv-home-edge-arrow pv-home-edge-previous" aria-label="Previous featured title" onClick={rotation.previous}><ChevronLeft aria-hidden="true"/></button>

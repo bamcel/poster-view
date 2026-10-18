@@ -148,6 +148,7 @@ it("autosaves account settings without sending a password draft and advances rev
  fireEvent.change(screen.getByLabelText("Display name"),{target:{value:"Changed again"}});
  await waitFor(()=>expect(api.updateUser).toHaveBeenLastCalledWith("u",expect.objectContaining({password:null,revision:5,display_name:"Changed again"})));
  await screen.findByText("Changes saved automatically");
+ await waitFor(()=>expect((screen.getByRole("button",{name:"Update password"}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.click(screen.getByRole("button",{name:"Update password"}));
  await waitFor(()=>expect(api.updateUser).toHaveBeenLastCalledWith("u",expect.objectContaining({password:"new-password",revision:5})));
 });
