@@ -173,8 +173,8 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
         <div ref={setSearchTarget} className={homeSearch?"order-last min-w-0 basis-full pb-2 sm:order-none sm:flex-1 sm:basis-auto sm:pb-0":libraryBack?"flex min-w-0 flex-1 justify-center":"hidden"}/>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <details ref={preferencesMenu} className="relative">
-            <summary aria-label="Profile" title="Profile" className="pv-profile-trigger grid size-11 cursor-pointer list-none place-items-center text-white [&::-webkit-details-marker]:hidden">
-              <UserRound className="size-[20px]" />
+            <summary aria-label="Profile" title="Profile" className="pv-profile-trigger grid size-10 cursor-pointer list-none place-items-center text-white [&::-webkit-details-marker]:hidden">
+              <UserRound className="size-4" />
             </summary>
             <div className="pv-profile-menu absolute right-0 top-full mt-2 w-60 p-3 shadow-xl">
               <p className="font-medium">{session?.user?.display_name ?? "Profile"}</p>

@@ -51,8 +51,8 @@ function LibraryHome(){
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
  const bannerLoading=libraries.isPending||catalogs.some((catalog,index)=>!["books","youtube"].includes(libraries.data![index].library_type)&&catalog.isPending);
  const featured=!term&&(bannerLoading||titles.length>0);
- const searchControl=<div role="search" className="flex min-h-11 min-w-0 items-center gap-2">
-   <div className="relative mx-auto w-full max-w-[21rem]">
+ const searchControl=<div role="search" className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2">
+   <div className="relative w-full max-w-[21rem]">
     <SearchField aria-label="Search all libraries" placeholder="Search" value={search} onChange={event=>setSearch(event.target.value)} trailing={search&&<button type="button" aria-label="Clear search" onClick={()=>setSearch("")} className="text-muted hover:text-white" data-icon-button="true"><X className="size-4"/></button>}/>
 
    </div>

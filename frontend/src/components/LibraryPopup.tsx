@@ -6,7 +6,7 @@ export default function LibraryPopup({ title, label, icon, children, style, edit
   const dialog = useRef<HTMLDialogElement>(null);
   return <>
     <button type="button" style={style} aria-label={label} title={title} onClick={() => dialog.current?.showModal()}
-      className="grid size-10 shrink-0 place-items-center rounded-full border border-border bg-surface-2 text-muted hover:text-white focus-visible:outline-accent">{icon}</button>
+      className="pv-profile-trigger grid size-10 shrink-0 place-items-center rounded-full text-white focus-visible:outline-accent">{icon}</button>
     {createPortal(<dialog ref={dialog} aria-label={title}
       onClick={e => { if (e.target === e.currentTarget) dialog.current?.close(); }}
       className={`fixed inset-0 m-auto max-h-[85dvh] ${editorStyle?"w-[min(52rem,calc(100vw-2rem))]":"w-[min(32rem,calc(100vw-2rem))]"} overflow-y-auto rounded-2xl border border-border bg-sidebar p-0 text-white shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm`}>
