@@ -176,6 +176,7 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
         super::save(state, "plugin-ytdl-jobs", &jobs)?;
     }
     let mut channels = HashMap::new();
+    let mut channel_artwork = HashSet::new();
     let mut memberships = Memberships::new();
     if downloader::is_channel_url(&job.url) {
         let channel = downloader::job_raw_inspect(state, job, &job.url).await?;
@@ -284,6 +285,15 @@ pub(super) async fn run(state: &AppState, job: &Job) -> Result<(), HttpError> {
             }
             update(state, &job.id, "importing", None, None).await?;
             let channel = &channels[&channel_id];
+            if channel_artwork.insert(channel_id.clone()) {
+                super::artwork::download(
+                    target
+                        .parent()
+                        .ok_or_else(|| err("Missing channel directory."))?,
+                    channel,
+                )
+                .await?;
+            }
             if write_existing(&target, &info, entry, &inspection, channel)? {
                 for (member, parent) in memberships.get(&id).into_iter().flatten() {
                     if text(member, "id") == id {

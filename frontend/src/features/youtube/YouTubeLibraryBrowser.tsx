@@ -23,7 +23,7 @@ export default function YouTubeLibraryBrowser({ library }: { library: NativeLibr
   const [appearance,setAppearance]=useState(()=>({enabled:dashboardBackdropEnabled(),overlay:backdropOverlay()}));
   useEffect(()=>{const update=()=>setAppearance({enabled:dashboardBackdropEnabled(),overlay:backdropOverlay()});window.addEventListener(DASHBOARD_BACKDROP_EVENT,update);window.addEventListener(BACKDROP_OVERLAY_EVENT,update);return()=>{window.removeEventListener(DASHBOARD_BACKDROP_EVENT,update);window.removeEventListener(BACKDROP_OVERLAY_EVENT,update);};},[]);
   useEffect(()=>{setSearch("");setSort(params.get("youtube_playlist")?"newest":"title");},[params.get('youtube_channel'),params.get('youtube_playlist'),params.get('youtube_video')]);
-  const {enabled:backdropView}=useBackdropView(library.id);
+  const {enabled:backdropView}=useBackdropView(library.id,true);
   const catalog = useQuery({ queryKey: ['native-catalog', library.id], queryFn: () => nativeLibraries.catalog(library.id), staleTime: 5 * 60_000, gcTime: 30 * 60_000 });
   const channels = channelsFromCatalog(catalog.data ?? []);
   const playlistId = params.get('youtube_playlist');
@@ -49,7 +49,7 @@ export default function YouTubeLibraryBrowser({ library }: { library: NativeLibr
   const playlist = channel?.playlists.find(p => p.id === playlistId);
   const title=video?.title ?? (playlistId ? playlistId === 'all' ? 'All Videos' : playlist?.title ?? playlistId : channel?.title ?? library.name);
   const cards=!channel?channels.map(c=>({id:c.id,title:c.title,entry:c.entry??c.videos[0],detail:`${c.videos.length} videos`,open:()=>navigate(c.id)})):!playlistId?[{id:'all',title:'All Videos'},...channel.playlists].map(p=>({id:p.id,title:p.title,entry:playlistVideos(channel,p.id)[0],detail:`${playlistVideos(channel,p.id).length} videos`,open:()=>navigate(channel.id,p.id)})):playlistVideos(channel,playlistId).map(v=>({id:v.id,title:v.title,entry:v,detail:String(v.metadata.aired??''),open:()=>navigate(channel.id,playlistId,v.id)}));
-  const visible=cards.filter(card=>card.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).sort((a,b)=>sort==='title'?a.title.localeCompare(b.title,undefined,{numeric:true}):sort==='reverse'?b.title.localeCompare(a.title,undefined,{numeric:true}):(String(b.entry?youtubeMetadata(b.entry).published_at??b.entry.metadata.aired??'':'').localeCompare(String(a.entry?youtubeMetadata(a.entry).published_at??a.entry.metadata.aired??'':''))||a.title.localeCompare(b.title)));
+  const visible=cards.filter(card=>card.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())).sort((a,b)=>channel&&!playlistId&&(a.id==='all'||b.id==='all')?(a.id==='all'?-1:1):sort==='title'?a.title.localeCompare(b.title,undefined,{numeric:true}):sort==='reverse'?b.title.localeCompare(a.title,undefined,{numeric:true}):(String(b.entry?youtubeMetadata(b.entry).published_at??b.entry.metadata.aired??'':'').localeCompare(String(a.entry?youtubeMetadata(a.entry).published_at??a.entry.metadata.aired??'':''))||a.title.localeCompare(b.title)));
   const style={backgroundColor:translucentPanelColor("--color-surface-2",panelSolidity(),panelOverlay()),backdropFilter:`blur(${backdropBlur()}px)`};
   const backgrounds=channels.map(c=>image(c.entry??c.videos[0],true)).filter((url):url is string=>!!url).slice(0,8);
   return <section aria-label={`${library.name} library`} className="relative flex h-full min-h-0 flex-col overflow-hidden">
@@ -60,7 +60,7 @@ export default function YouTubeLibraryBrowser({ library }: { library: NativeLibr
       {!video&&<div className="flex items-center justify-center gap-2">
         <HeaderSearchControl><div className="flex w-full min-w-0 items-center justify-center gap-2"><div className="relative min-w-0 w-full max-w-[21rem]"><SearchField aria-label="Search titles" value={search} onChange={event=>setSearch(event.target.value)}/></div>
         <LibraryPopup title="Filters and sorting" label="Filter and sort titles" icon={<ListFilter className="size-4"/>} style={style} editorStyle><label className="block text-sm font-semibold">Sort by<select aria-label="Sort titles" value={sort} onChange={event=>setSort(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-white"><option value="title">Title A–Z</option><option value="reverse">Title Z–A</option><option value="newest">Newest date</option></select></label></LibraryPopup>
-        <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style} editorStyle><LibraryViewPreferences library={library.id}/></LibraryPopup>
+        <LibraryPopup title="Preferences" label="Library preferences" icon={<MoreHorizontal className="size-4"/>} style={style} editorStyle><LibraryViewPreferences library={library.id} defaultBackdrop/></LibraryPopup>
         </div></HeaderSearchControl>
       </div>}
       <div aria-hidden="true" className="hidden lg:block"/>

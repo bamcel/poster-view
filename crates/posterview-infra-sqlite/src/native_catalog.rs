@@ -522,11 +522,11 @@ impl ServerStore {
             "SELECT i.id,i.title,i.revision,a.kind,a.path,a.source,m.value_json
              FROM native_catalog_sources s JOIN catalog_items i ON i.id=s.item_id
              JOIN catalog_artwork a ON a.item_id=i.id AND a.kind=CASE
-               WHEN ?2 AND EXISTS(SELECT 1 FROM catalog_artwork t WHERE t.item_id=i.id AND t.kind='thumb')
+               WHEN ?2 AND NOT EXISTS(SELECT 1 FROM catalog_artwork t WHERE t.item_id=i.id AND t.kind='poster')
                THEN 'thumb' ELSE 'poster' END
              LEFT JOIN catalog_metadata_fields m ON m.item_id=i.id AND m.field='_artwork_cache_revision'
              WHERE s.library_id=?1 AND s.available=1
-               AND ((?2 AND i.kind='episode') OR (NOT ?2 AND i.kind IN ('series','movie','book','book_series')))
+               AND ((?2 AND i.kind='series') OR (NOT ?2 AND i.kind IN ('series','movie','book','book_series')))
              ORDER BY i.sort_title,i.title",
         )?;
         let rows = statement.query_map(params![library, youtube], |row| {
@@ -1758,7 +1758,7 @@ mod tests {
     }
 
     #[test]
-    fn thin_youtube_previews_prefer_thumbnails_and_keep_image_identity() {
+    fn thin_youtube_previews_use_only_channel_artwork_and_keep_image_identity() {
         let temp = tempfile::tempdir().unwrap();
         let db = ServerStore::new(temp.path());
         db.initialize().unwrap();
@@ -1777,8 +1777,8 @@ mod tests {
             .unwrap();
         let entry = |name: &str, thumb: bool| NativeCatalogEntry {
             id: String::new(),
-            path: format!("Videos/{name}.mp4"),
-            kind: "episode".into(),
+            path: format!("Videos/{name}"),
+            kind: "series".into(),
             parent_path: None,
             title: name.into(),
             metadata: json!({"title":name}),
@@ -1793,10 +1793,19 @@ mod tests {
             available: true,
             revision: 1,
         };
+        let mut video = entry("Episode", true);
+        video.kind = "episode".into();
+        let mut missing = entry("Missing channel image", true);
+        missing.artwork.clear();
         db.ingest_native_catalog(
             &library.id,
             library.revision,
-            &[entry("Thumbnail", true), entry("Poster", false)],
+            &[
+                entry("Thumbnail", true),
+                entry("Poster", false),
+                video,
+                missing,
+            ],
         )
         .unwrap();
         let thumbnail = db
@@ -1832,12 +1841,12 @@ mod tests {
             .iter()
             .find(|preview| preview["id"] == expected.id)
             .unwrap();
-        assert_eq!(thumbnail["artwork_kind"], "thumb");
+        assert_eq!(thumbnail["artwork_kind"], "poster");
         assert_eq!(
             thumbnail["artwork_version"],
             json!([
-                "Videos/Thumbnail.jpg",
-                "local",
+                "Videos/other.jpg",
+                "manual",
                 expected.metadata.get("_artwork_cache_revision")
             ])
             .to_string()
@@ -1850,9 +1859,19 @@ mod tests {
             "poster"
         );
         assert!(
-            db.native_catalog_previews(&library.id, false)
-                .unwrap()
-                .is_empty()
+            !previews.iter().any(|preview| preview["title"] == "Episode"
+                || preview["title"] == "Missing channel image")
+        );
+        // A channel without a poster may use only its own thumbnail.
+        db.remove_native_artwork(&library.id, &expected.id, "poster")
+            .unwrap();
+        let fallback = db.native_catalog_previews(&library.id, true).unwrap();
+        assert_eq!(
+            fallback
+                .iter()
+                .find(|preview| preview["id"] == expected.id)
+                .unwrap()["artwork_kind"],
+            "thumb"
         );
     }
     #[test]

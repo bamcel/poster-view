@@ -761,6 +761,7 @@ export default function ReaderPage() {
         >
           <section
             role="dialog"
+            data-popup-layout="drawer"
             aria-modal="true"
             aria-label={
               panel === "layout"

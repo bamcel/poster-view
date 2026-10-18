@@ -20,7 +20,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { LibraryBig, ArrowLeft, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, } from "lucide-react";
 import { Logo } from "./ui";
 import { api } from "../api/client";
-import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { useNavigate as useLibraryNavigate } from "../lib/libraryNavigation";
 import { AuthSessionContext, useIsAdmin } from "../lib/authContext";
 import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
@@ -183,7 +183,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
             <summary aria-label="Profile" title="Profile" onClick={event=>{event.preventDefault();const open=!preferencesMenu.current?.open;if(preferencesMenu.current)preferencesMenu.current.open=open;const rect=event.currentTarget.getBoundingClientRect();setProfilePosition({top:rect.bottom+8,right:Math.max(12,window.innerWidth-rect.right)});setProfileOpen(open);}} className="pv-profile-trigger grid size-10 cursor-pointer list-none place-items-center text-white [&::-webkit-details-marker]:hidden">
               <UserRound className="size-4" />
             </summary>
-            {createPortal(<div ref={profilePanel} hidden={!profileOpen} className="pv-profile-menu fixed z-[100] shadow-xl" style={{...profilePosition,backgroundColor:translucentPanelColor("--color-sidebar",panelSolid,panelOverlayStrength),backdropFilter:`blur(${panelBlur}px)`,WebkitBackdropFilter:`blur(${panelBlur}px)`}}>
+            {createPortal(<div ref={profilePanel} hidden={!profileOpen} className="pv-profile-menu pv-popup-surface fixed z-[100] shadow-xl" style={{...profilePosition,"--pv-popup-blur":`${panelBlur}px`} as CSSProperties}>
               <div className="pv-profile-identity">
               <p className="font-medium">{session?.user?.display_name ?? "Profile"}</p>
               <p className="mt-1 text-xs text-muted">{session?.user ? (isAdmin ? "Administrator" : "User") : "Local session"}</p>

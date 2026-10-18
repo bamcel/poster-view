@@ -23,7 +23,7 @@ it("prefers landscape art in rows and keeps accessible details if the image fail
   const movie=title("Scene");movie.entry.artwork=[{kind:"poster",path:"poster.jpg",source:"local"},{kind:"landscape",path:"scene.jpg",source:"local"}];
   const view=render(<MemoryRouter><HomeExperience titles={[movie]}/></MemoryRouter>);
   const image=view.container.querySelector("img")!;expect(image.src).toContain("/artwork/landscape?");fireEvent.error(image);expect(view.container.querySelector("img")).toBeNull();
-  expect(screen.getByRole("link",{name:"Open Scene in Movies"})).toBeTruthy();expect(screen.getByRole("button",{name:"Preview Scene"})).toBeTruthy();
+  expect(screen.getByRole("link",{name:"Open Scene in Movies"})).toBeTruthy();expect(screen.queryByRole("button",{name:"Preview Scene"})).toBeNull();
 });
 it("sorts discovery by valid metadata and excludes unavailable or missing titles",()=>{
   const missing=title("Missing",{rating:10,year:2026,missing:true}),unavailable=title("Unavailable",{rating:10});unavailable.entry.available=false;

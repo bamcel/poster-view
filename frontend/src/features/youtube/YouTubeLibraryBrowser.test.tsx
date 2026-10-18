@@ -15,14 +15,14 @@ it.each(["single_channel","multiple_channels"] as const)("shows channels before 
  render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><YouTubeLibraryBrowser library={{id:"youtube",name:"YouTube",options:{youtube_mode}} as NativeLibrary}/></MemoryRouter></QueryClientProvider>);
  const channel=await screen.findByRole("button",{name:"Outdoor Boys 1 videos"});
  expect(screen.queryByRole("button",{name:"Camping 1 videos"})).toBeNull();
- expect(new URL(channel.querySelector("img")!.src).searchParams.get("width")).toBe("480");
- expect(channel.querySelector("img")!.className).toContain("aspect-[2/3]");
+ expect(new URL(channel.querySelector("img")!.src).searchParams.get("width")).toBe("640");
+ expect(channel.querySelector("img")!.className).toContain("aspect-video");
  expect(screen.queryByRole("combobox",{name:"Display"})).toBeNull();
  fireEvent.click(screen.getByRole("button",{name:"Library preferences"}));
- fireEvent.change(screen.getByRole("combobox",{name:"Display"}),{target:{value:"backdrop"}});
- expect(channel.querySelector("img")!.className).toContain("aspect-video");
- expect(new URL(channel.querySelector("img")!.src).searchParams.get("width")).toBe("640");
- expect(localStorage.getItem("posterview.libraryView.youtube")).toBe("backdrop");
+ fireEvent.change(screen.getByRole("combobox",{name:"Display"}),{target:{value:"poster"}});
+ expect(channel.querySelector("img")!.className).toContain("aspect-[2/3]");
+ expect(new URL(channel.querySelector("img")!.src).searchParams.get("width")).toBe("480");
+ expect(localStorage.getItem("posterview.libraryView.youtube")).toBe("poster");
  fireEvent.click(screen.getByRole("button",{name:"Close Preferences"}));
  fireEvent.click(channel);fireEvent.click(await screen.findByRole("button",{name:"Camping 1 videos"}));
  expect(await screen.findByRole("button",{name:"Camping video"})).toBeTruthy();
@@ -70,3 +70,18 @@ it("places filter and preferences beside search in the shared header",async()=>{
   expect(filter.parentElement?.contains(search)).toBe(true);
  }finally{cleanup();target.remove();}
 });
+
+ it("pins All Videos before playlists for every sort while preserving search",async()=>{
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...video,metadata:{youtube:{channel_id:"channel",channel:"Outdoor Boys",playlists:[{id:"a",title:"2018 World Tour"},{id:"z",title:"Z Camping"}]}}}]);
+  render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={["/?youtube_channel=channel"]}><YouTubeLibraryBrowser library={{id:"youtube",name:"YouTube"} as NativeLibrary}/></MemoryRouter></QueryClientProvider>);
+  await screen.findByRole("button",{name:"All Videos 1 videos"});
+  const titles=()=>screen.getAllByRole("button").filter(button=>button.classList.contains("poster-title-card")).map(button=>button.textContent);
+  expect(titles()).toEqual(["All Videos1 videos","2018 World Tour1 videos","Z Camping1 videos"]);
+  fireEvent.click(screen.getByRole("button",{name:"Filter and sort titles"}));
+  fireEvent.change(screen.getByRole("combobox",{name:"Sort titles"}),{target:{value:"reverse"}});
+  expect(titles()).toEqual(["All Videos1 videos","Z Camping1 videos","2018 World Tour1 videos"]);
+  fireEvent.change(screen.getByRole("combobox",{name:"Sort titles"}),{target:{value:"newest"}});
+  expect(titles()[0]).toBe("All Videos1 videos");
+  fireEvent.change(screen.getByRole("textbox",{name:"Search titles"}),{target:{value:"2018"}});
+  expect(titles()).toEqual(["2018 World Tour1 videos"]);
+ });

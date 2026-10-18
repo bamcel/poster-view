@@ -93,6 +93,7 @@ fn input(library: &str) -> ChannelInput {
         number: 1,
         library_ids: vec![library.into()],
         collection_ids: vec![],
+        genre_library_ids: None,
         youtube_playlists: None,
         show_ids: vec![],
         movie_ids: vec![],
@@ -899,4 +900,72 @@ async fn movie_release_year_reaches_guide_and_legacy_schedules_still_load() {
             None
         );
     }
+}
+
+#[test]
+fn genre_library_scope_excludes_matches_and_permissions_but_preserves_explicit_titles() {
+    let (_temp, state, library) = fixture();
+    let store = ServerStore::new(state.runtime.data_dir());
+    let second = store
+        .save_native_library(
+            None,
+            &NativeLibraryInput {
+                name: "Other".into(),
+                library_type: NativeLibraryType::Movies,
+                anime_content: AnimeContent::Both,
+                paths: vec!["Other".into()],
+                options: Default::default(),
+                revision: None,
+            },
+        )
+        .unwrap();
+    let mut movie = store.native_catalog(&library).unwrap().remove(0);
+    movie.id = String::new();
+    movie.path = "Other/Film.mp4".into();
+    movie.title = "Other film".into();
+    movie.files = vec![json!({"path":"Other/Film.mp4","media_info":{"format":{"duration":"120"}}})];
+    store
+        .ingest_native_catalog(&second.id, second.revision, &[movie])
+        .unwrap();
+    let other = store.native_catalog(&second.id).unwrap().remove(0);
+    let mut request = input(&library);
+    request.library_ids.push(second.id.clone());
+    request.genres = vec!["Comedy".into()];
+    request.genre_library_ids = Some(vec![library.clone()]);
+    let mut channel = validate(request, "genre-channel".into(), 1).unwrap();
+    let values = candidates(&state, &mut channel).unwrap();
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].library_id, library);
+    assert_eq!(channel.library_ids, vec![library.clone()]);
+    assert!(allowed(&viewer(vec![library.clone()]), &channel));
+    channel
+        .source_library_ids
+        .as_mut()
+        .unwrap()
+        .push(second.id.clone());
+    channel.movie_ids = vec![other.id];
+    assert_eq!(candidates(&state, &mut channel).unwrap().len(), 2);
+    assert!(!allowed(&viewer(vec![library.clone()]), &channel));
+    let mut request = input(&library);
+    request.library_ids.clear();
+    request.genres = vec!["Comedy".into()];
+    request.genre_library_ids = Some(vec![library.clone()]);
+    let mut genre_only = validate(request, "genres-only".into(), 1).unwrap();
+    assert_eq!(candidates(&state, &mut genre_only).unwrap().len(), 1);
+    genre_only.genre_library_ids = Some(vec!["missing".into()]);
+    assert!(candidates(&state, &mut genre_only).is_err());
+}
+
+#[test]
+fn legacy_genre_channels_keep_their_selected_library_scope() {
+    let (_temp, state, library) = fixture();
+    let mut request = input(&library);
+    request.genres = vec!["Comedy".into()];
+    let mut channel = validate(request, "legacy".into(), 1).unwrap();
+    let mut value = serde_json::to_value(&channel).unwrap();
+    value.as_object_mut().unwrap().remove("genre_library_ids");
+    channel = serde_json::from_value(value).unwrap();
+    assert!(channel.genre_library_ids.is_none());
+    assert_eq!(candidates(&state, &mut channel).unwrap().len(), 1);
+    assert_eq!(channel.library_ids, vec![library]);
 }

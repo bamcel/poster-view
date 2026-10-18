@@ -531,3 +531,53 @@ retain their session cookie and in-memory lifetime. Remembered sessions still
 respect the configured inactivity timeout; account edits, disablement/deletion,
 password resets and explicit logout invalidate them. Logout reports storage
 failures instead of silently leaving a persistent token valid.
+
+### Virtual TV source selection
+
+Channel editors expose Collections and Genres beside physical library sources.
+Collections show their member shows/movies; genres show matching titles from an
+explicit `genre_library_ids` whitelist. Excluding a library removes it from this
+whitelist without excluding explicitly chosen titles or collection members.
+Legacy channels without a genre whitelist retain their previous library scope.
+`source_library_ids` preserves the administrator's physical-library selections;
+`library_ids` remains the effective access requirement including collection and
+genre sources. Excluded genre-only libraries do not retain an access requirement.
+Source controls expand independently and never add previewed matches to explicit
+show/movie IDs. Schedule revision checks still compare effective sources and
+candidates, so presentation-only edits do not reset the schedule.
+
+### Shared popup surfaces
+
+`frontend/src/popupSurfaces.css` owns the dark glass background, subtle accent
+wash, border, shadow, blur and menu hover treatment for all semantic dialogs,
+alert dialogs and menus. The profile menu and homepage previews use the same
+surface. Custom floating popups should add `pv-popup-surface`; modal scrims can
+use `pv-popup-backdrop`. Keep sizing, positioning, scrolling and focus behavior
+in the owning component. Do not copy background/shadow/blur styles or set an
+inline background on a popup. Customize `--pv-popup-background`,
+`--pv-popup-tint`, `--pv-popup-border`, `--pv-popup-shadow` or `--pv-popup-blur`
+when needed. Existing artwork previews may retain their decorative image tint
+and gradient fade inside the shared outer surface. Permanent page/sidebar
+backgrounds and artwork editing side panels remain separate surfaces.
+
+Popup pages also share `--pv-popup-page-width:52rem`,
+`--pv-popup-page-height:85dvh` and `--pv-popup-page-gutter:1rem`, matching the
+Anime library preferences. Native dialogs and modal ARIA dialogs inherit these
+dimensions automatically. Custom popup pages should use `pv-popup-page` together
+with `pv-popup-surface`; keep header/footer flex layouts and content scrolling
+inside their owner. Do not add per-page width or height styles. Compact menus,
+anchored pickers and player prompts keep content-sized layouts. Use
+`data-popup-layout="drawer"` or `data-popup-layout="compact"` for those distinct
+interaction patterns, not for ordinary settings or editor pages.
+
+### YouTube channel backdrops
+
+YTDL downloads and metadata refresh backfill missing channel `backdrop.jpg`
+from the channel banner exposed by yt-dlp, preferring its uncropped image.
+Video thumbnails and channel avatars are not used as banner substitutes.
+Existing backdrop/fanart/background files are preserved. Refresh an existing
+channel through YTDL to backfill its banner, then scan the library to publish it.
+Banner retrieval uses HTTPS YouTube image hosts without redirects or credentials,
+with bounded download time, size and decoded dimensions. Images retain their
+original dimensions and are saved atomically as RGB JPEG. Missing remote banners
+leave existing artwork untouched; retrieval failures use the job error path.

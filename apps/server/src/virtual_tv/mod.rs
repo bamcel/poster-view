@@ -49,11 +49,15 @@ pub(super) struct Channel {
     number: u32,
     library_ids: Vec<String>,
     #[serde(default)]
+    source_library_ids: Option<Vec<String>>,
+    #[serde(default)]
     collection_ids: Vec<String>,
     #[serde(default)]
     youtube_playlists: Option<Vec<YoutubePlaylistSelection>>,
     show_ids: Vec<String>,
     movie_ids: Vec<String>,
+    #[serde(default)]
+    genre_library_ids: Option<Vec<String>>,
     genres: Vec<String>,
     order: String,
     start_at: String,
@@ -77,6 +81,8 @@ struct ChannelInput {
     movie_ids: Vec<String>,
     #[serde(default)]
     genres: Vec<String>,
+    #[serde(default)]
+    genre_library_ids: Option<Vec<String>>,
     order: String,
     start_at: String,
     revision: Option<u64>,
@@ -364,6 +370,27 @@ fn special_placement(entry: &NativeCatalogEntry) -> Option<(i64, i64, u8)> {
 fn candidates(state: &AppState, channel: &mut Channel) -> Result<Vec<Candidate>, HttpError> {
     let store = ServerStore::new(state.runtime.data_dir());
     let libraries = store.native_libraries().map_err(storage)?;
+    if let Some(explicit) = &channel.source_library_ids {
+        channel.library_ids = explicit.clone();
+    }
+    if !channel.genres.is_empty()
+        && let Some(ids) = &channel.genre_library_ids
+    {
+        if ids.iter().any(|id| {
+            !libraries.iter().any(|library| {
+                library.id == *id
+                    && !matches!(
+                        library.library_type,
+                        NativeLibraryType::Books | NativeLibraryType::Youtube
+                    )
+            })
+        }) {
+            return Err(HttpError::bad_request(
+                "Genre sources must be existing movie or series libraries.",
+            ));
+        }
+        channel.library_ids.extend(ids.iter().cloned());
+    }
     let mut members = HashSet::new();
     for id in &channel.collection_ids {
         let collection = store
@@ -462,25 +489,29 @@ fn candidates(state: &AppState, channel: &mut Channel) -> Result<Vec<Candidate>,
                 || series.is_some_and(|s| members.contains(&(library.clone(), s.id.clone())));
             let selected = channel.movie_ids.contains(&entry.id)
                 || series.is_some_and(|s| channel.show_ids.contains(&s.id));
-            let genre_match = std::iter::once(entry).chain(series).any(|e| {
-                ["genre", "genres"].iter().any(|key| {
-                    let v = &e.metadata[*key];
-                    let genres: Vec<&str> = v
-                        .as_array()
-                        .map(|a| a.iter().filter_map(Value::as_str).collect())
-                        .unwrap_or_else(|| {
-                            v.as_str()
-                                .map(|s| s.split(['|', ',', '/']).collect())
-                                .unwrap_or_default()
-                        });
-                    genres.iter().any(|g| {
-                        channel
-                            .genres
-                            .iter()
-                            .any(|filter| filter.eq_ignore_ascii_case(g.trim()))
+            let genre_match = channel
+                .genre_library_ids
+                .as_ref()
+                .is_none_or(|ids| ids.contains(library))
+                && std::iter::once(entry).chain(series).any(|e| {
+                    ["genre", "genres"].iter().any(|key| {
+                        let v = &e.metadata[*key];
+                        let genres: Vec<&str> = v
+                            .as_array()
+                            .map(|a| a.iter().filter_map(Value::as_str).collect())
+                            .unwrap_or_else(|| {
+                                v.as_str()
+                                    .map(|s| s.split(['|', ',', '/']).collect())
+                                    .unwrap_or_default()
+                            });
+                        genres.iter().any(|g| {
+                            channel
+                                .genres
+                                .iter()
+                                .any(|filter| filter.eq_ignore_ascii_case(g.trim()))
+                        })
                     })
-                })
-            });
+                });
             let unfiltered = channel.show_ids.is_empty()
                 && channel.movie_ids.is_empty()
                 && channel.genres.is_empty()
@@ -582,6 +613,19 @@ fn candidates(state: &AppState, channel: &mut Channel) -> Result<Vec<Candidate>,
             "No playable videos match this channel.",
         ));
     }
+    if !channel.genres.is_empty()
+        && let Some(scope) = &channel.genre_library_ids
+    {
+        // Excluding a genre source also removes its access requirement unless
+        // an explicit title, playlist or collection still uses that library.
+        channel.library_ids.retain(|library| {
+            scope.contains(library)
+                || members.iter().any(|(id, _)| id == library)
+                || result
+                    .iter()
+                    .any(|candidate| &candidate.library_id == library)
+        });
+    }
     Ok(result)
 }
 fn validate(input: ChannelInput, id: String, revision: u64) -> Result<Channel, HttpError> {
@@ -589,7 +633,10 @@ fn validate(input: ChannelInput, id: String, revision: u64) -> Result<Channel, H
         || input.name.len() > 120
         || input.number == 0
         || input.number > 99999
-        || (input.library_ids.is_empty() && input.collection_ids.is_empty())
+        || (input.library_ids.is_empty()
+            && input.collection_ids.is_empty()
+            && (input.genres.is_empty()
+                || input.genre_library_ids.as_ref().is_none_or(Vec::is_empty)))
         || input.library_ids.len() > 100
         || !matches!(
             input.order.as_str(),
@@ -599,6 +646,16 @@ fn validate(input: ChannelInput, id: String, revision: u64) -> Result<Channel, H
     {
         return Err(HttpError::bad_request(
             "Provide a channel name, number, native libraries or collections, valid ordering, and start time.",
+        ));
+    }
+    if input.genre_library_ids.as_ref().is_some_and(|ids| {
+        ids.len() > 100
+            || ids
+                .iter()
+                .any(|id| id.is_empty() || id.len() > 512 || id.chars().any(char::is_control))
+    }) {
+        return Err(HttpError::bad_request(
+            "Genre library selection is too large or invalid.",
         ));
     }
     if input.show_ids.len() + input.movie_ids.len() > 10000
@@ -629,6 +686,7 @@ fn validate(input: ChannelInput, id: String, revision: u64) -> Result<Channel, H
             "YouTube playlist selection is too large or invalid.",
         ));
     }
+    let source_library_ids = Some(input.library_ids.clone());
     let mut library_ids = input.library_ids;
     library_ids.sort();
     library_ids.dedup();
@@ -640,10 +698,16 @@ fn validate(input: ChannelInput, id: String, revision: u64) -> Result<Channel, H
         name: input.name.trim().into(),
         number: input.number,
         library_ids,
+        source_library_ids,
         collection_ids,
         youtube_playlists: input.youtube_playlists,
         show_ids: input.show_ids,
         movie_ids: input.movie_ids,
+        genre_library_ids: input.genre_library_ids.map(|mut ids| {
+            ids.sort();
+            ids.dedup();
+            ids
+        }),
         genres: input.genres,
         order: input.order,
         start_at: input.start_at,
@@ -725,6 +789,7 @@ async fn update(
         && channel.youtube_playlists == previous.youtube_playlists
         && channel.show_ids == previous.show_ids
         && channel.movie_ids == previous.movie_ids
+        && channel.genre_library_ids == previous.genre_library_ids
         && channel.genres == previous.genres
         && channel.order == previous.order
         && channel.start_at == previous.start_at

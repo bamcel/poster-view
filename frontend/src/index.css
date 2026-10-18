@@ -1,7 +1,8 @@
 @import "tailwindcss";
+@import "./popupSurfaces.css";
 
 /* Match the home hero's translucent Play / More Info surfaces. */
-.pv-profile-trigger,.pv-profile-menu,[role="menu"] { background: var(--pv-menu-background, #1d2026b3); border: 1px solid #ffffff40; backdrop-filter: blur(var(--pv-menu-blur, 8px)); -webkit-backdrop-filter: blur(var(--pv-menu-blur, 8px)); }
+.pv-profile-trigger { background: var(--pv-menu-background, #1d2026b3); border: 1px solid #ffffff40; backdrop-filter: blur(var(--pv-menu-blur, 8px)); -webkit-backdrop-filter: blur(var(--pv-menu-blur, 8px)); }
 .pv-profile-trigger { border-radius: 999px; transition: background-color .15s; }
 .pv-profile-trigger:hover,.pv-profile-trigger:focus-visible { background: #ffffff30; }
 .pv-profile-menu { width: 260px; max-width: calc(100vw - 24px); padding: 8px; box-sizing: border-box; overflow: hidden; border-radius: 18px; color: #fff; }

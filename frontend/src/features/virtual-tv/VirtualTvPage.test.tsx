@@ -235,7 +235,7 @@ it("extends the selected backdrop into app chrome and clears it on leaving",asyn
 });
 it("combines shows and movies with select-all and hides empty media groups",async()=>{
  vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"tv",name:"Anime",library_type:"anime"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
- vi.mocked(nativeLibraries.summaries).mockResolvedValue([{id:"show",kind:"series",path:"Anime/Show",title:"A show",metadata:{}},{id:"movie",kind:"movie",path:"Movies/Film.mkv",title:"A movie",metadata:{}}] as NativeCatalogEntry[]);
+ vi.mocked(nativeLibraries.summaries).mockResolvedValue([{id:"show",kind:"series",path:"Anime/Show",title:"A show",parent_path:null,artwork:[],files:[],nfo_path:null,available:true,revision:1,metadata:{}},{id:"movie",kind:"movie",path:"Movies/Film.mkv",title:"A movie",metadata:{}}] as NativeCatalogEntry[]);
  mount("admin");fireEvent.click(await screen.findByRole("button",{name:"Create channel"}));fireEvent.click(await screen.findByRole("checkbox",{name:"Anime"}));
  const all=await screen.findByRole("checkbox",{name:"Select all shows and movies"});
  fireEvent.click(all);expect((screen.getByRole("checkbox",{name:/A show/}) as HTMLInputElement).checked).toBe(true);expect((screen.getByRole("checkbox",{name:/A movie/}) as HTMLInputElement).checked).toBe(true);
@@ -244,16 +244,19 @@ it("combines shows and movies with select-all and hides empty media groups",asyn
 });
 it("shows a full-width shows picker when no movies exist",async()=>{
  vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"tv",name:"Anime",library_type:"anime"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
- vi.mocked(nativeLibraries.summaries).mockResolvedValue([{id:"show",kind:"series",path:"Anime/Show",title:"A show",metadata:{}}] as NativeCatalogEntry[]);
+ vi.mocked(nativeLibraries.summaries).mockResolvedValue([{id:"show",kind:"series",path:"Anime/Show",title:"A show",parent_path:null,artwork:[],files:[],nfo_path:null,available:true,revision:1,metadata:{}}] as NativeCatalogEntry[]);
  mount("admin");fireEvent.click(await screen.findByRole("button",{name:"Create channel"}));fireEvent.click(await screen.findByRole("checkbox",{name:"Anime"}));
  expect(await screen.findByRole("checkbox",{name:"Select all shows"})).toBeTruthy();expect(screen.queryByText("Movies",{selector:"legend"})).toBeNull();
 });
-it("saves collection-only sources and offers collection titles in the combined picker",async()=>{
- vi.mocked(useCollections).mockReturnValue({data:[{id:"collection",title:"Favorites",members:[{library_id:"tv",item_id:"show",entry:{id:"show",kind:"series",path:"Anime/Show",title:"A show",metadata:{}}}]}],isPending:false,error:null} as unknown as ReturnType<typeof useCollections>);
+it("expands collection-only sources and displays their member titles",async()=>{
+ vi.mocked(useCollections).mockReturnValue({data:[{id:"collection",title:"Favorites",members:[{library_id:"tv",item_id:"show",entry:{id:"show",kind:"series",path:"Anime/Show",title:"A show",parent_path:null,artwork:[],files:[],nfo_path:null,available:true,revision:1,metadata:{}}}]}],isPending:false,error:null} as unknown as ReturnType<typeof useCollections>);
  vi.mocked(virtualTv.save).mockResolvedValue(channel);
  mount("admin");fireEvent.click(await screen.findByRole("button",{name:"Create channel"}));
- fireEvent.change(screen.getByLabelText("Channel name"),{target:{value:"Favorites channel"}});fireEvent.click(screen.getByRole("checkbox",{name:"Favorites"}));
- expect(await screen.findByRole("checkbox",{name:/A show/})).toBeTruthy();
+ fireEvent.change(screen.getByLabelText("Channel name"),{target:{value:"Favorites channel"}});
+ expect(screen.queryByRole("checkbox",{name:"Favorites"})).toBeNull();
+ fireEvent.click(screen.getByRole("checkbox",{name:"Collections"}));fireEvent.click(screen.getByRole("checkbox",{name:"Favorites"}));
+ expect(await within(screen.getByRole("region",{name:"Collection titles"})).findByText("A show")).toBeTruthy();
+ expect(screen.queryByRole("checkbox",{name:"A show"})).toBeNull();
  fireEvent.click(screen.getByRole("button",{name:"Save channel"}));
  await waitFor(()=>expect(virtualTv.save).toHaveBeenCalledWith(expect.objectContaining({name:"Favorites channel",library_ids:[],collection_ids:["collection"]}),undefined));
 });
@@ -297,4 +300,68 @@ it("shows movie title and year without invented episode numbers",async()=>{
  expect(program.querySelector(".vtv-program-title")?.textContent).toBe("A Movie");
  expect(program.querySelector(".vtv-program-detail")?.textContent).toBe("2008");
  expect(program.title).toContain("A Movie · 2008");
+});
+
+it("uses independent genre sources and excludes libraries from matches and saved scope",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"tv",name:"Anime",library_type:"anime"},{id:"movies",name:"Films",library_type:"movies"},{id:"yt",name:"YouTube",library_type:"youtube"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ vi.mocked(nativeLibraries.summaries).mockImplementation(async id=>[{id:id+"-title",kind:id==="tv"?"series":"movie",path:id+"/Title",title:id==="tv"?"Anime comedy":"Film comedy",parent_path:null,artwork:[],files:[],nfo_path:null,available:true,revision:1,metadata:{genres:["Comedy"]}}] as NativeCatalogEntry[]);
+ vi.mocked(virtualTv.save).mockResolvedValue(channel);
+ mount("admin");fireEvent.click(await screen.findByRole("button",{name:"Create channel"}));
+ fireEvent.change(screen.getByLabelText("Channel name"),{target:{value:"Genre channel"}});
+ expect(screen.queryByText("Exclude libraries")).toBeNull();
+ fireEvent.click(await screen.findByRole("checkbox",{name:"Genres"}));
+ fireEvent.click(await screen.findByRole("checkbox",{name:"Comedy"}));
+ const matches=screen.getByRole("region",{name:"Genre matches"});
+ expect(within(matches).getByText("Anime comedy")).toBeTruthy();expect(within(matches).getByText("Film comedy")).toBeTruthy();
+ expect((screen.getByRole("checkbox",{name:"Anime"}) as HTMLInputElement).checked).toBe(false);
+ expect(screen.queryByRole("checkbox",{name:"Exclude YouTube"})).toBeNull();
+ fireEvent.click(screen.getByRole("checkbox",{name:"Exclude Films"}));
+ await waitFor(()=>expect(within(matches).queryByText("Film comedy")).toBeNull());
+ await within(matches).findByText("Anime comedy");
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Save channel"}).hasAttribute("disabled")).toBe(false));
+ fireEvent.click(screen.getByRole("button",{name:"Save channel"}));
+ await waitFor(()=>expect(virtualTv.save).toHaveBeenCalledWith(expect.objectContaining({library_ids:[],genres:["Comedy"],genre_library_ids:["tv"]}),undefined));
+});
+it("opens existing collection and genre modes and preserves a legacy channel's genre scope",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"tv",name:"Anime",library_type:"anime"},{id:"movies",name:"Films",library_type:"movies"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ vi.mocked(nativeLibraries.summaries).mockResolvedValue([{id:"show",kind:"series",path:"Anime/Show",title:"A show",parent_path:null,artwork:[],files:[],nfo_path:null,available:true,revision:1,metadata:{genre:"Comedy"}}] as NativeCatalogEntry[]);
+ vi.mocked(useCollections).mockReturnValue({data:[{id:"collection",title:"Favorites",members:[{library_id:"tv",item_id:"show",entry:{id:"show",kind:"series",path:"Anime/Show",title:"A show",parent_path:null,artwork:[],files:[],nfo_path:null,available:true,revision:1,metadata:{}}}]}],isPending:false,error:null} as unknown as ReturnType<typeof useCollections>);
+ vi.mocked(virtualTv.channels).mockResolvedValue([{...channel,genres:["Comedy"],collection_ids:["collection"]}]);
+ vi.mocked(virtualTv.save).mockResolvedValue(channel);
+ mount("admin");fireEvent.click(await screen.findByRole("button",{name:"Edit channels"}));fireEvent.click(await screen.findByRole("button",{name:"Edit Comedy"}));
+ expect((screen.getByRole("checkbox",{name:"Collections"}) as HTMLInputElement).checked).toBe(true);
+ expect((screen.getByRole("checkbox",{name:"Genres"}) as HTMLInputElement).checked).toBe(true);
+ expect((await screen.findByRole("checkbox",{name:"Exclude Films"}) as HTMLInputElement).checked).toBe(true);
+ await within(screen.getByRole("region",{name:"Collection titles"})).findByText("A show");
+ expect(screen.queryByRole("checkbox",{name:"A show"})).toBeNull();
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Save channel"}).hasAttribute("disabled")).toBe(false));
+ fireEvent.click(screen.getByRole("button",{name:"Save channel"}));
+ await waitFor(()=>expect(virtualTv.save).toHaveBeenCalledWith(expect.objectContaining({genre_library_ids:["tv"],genres:["Comedy"],collection_ids:["collection"]}),"comedy"));
+});
+it("clears collection and genre selections when their source modes are disabled",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"tv",name:"Anime",library_type:"anime"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ vi.mocked(virtualTv.channels).mockResolvedValue([{...channel,genres:["Comedy"],genre_library_ids:["tv"],collection_ids:["collection"]}]);
+ vi.mocked(virtualTv.save).mockResolvedValue(channel);
+ mount("admin");fireEvent.click(await screen.findByRole("button",{name:"Edit channels"}));fireEvent.click(await screen.findByRole("button",{name:"Edit Comedy"}));
+ fireEvent.click(screen.getByRole("checkbox",{name:"Collections"}));fireEvent.click(screen.getByRole("checkbox",{name:"Genres"}));
+ expect(screen.queryByRole("region",{name:"Collection titles"})).toBeNull();expect(screen.queryByText("Exclude libraries")).toBeNull();
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Save channel"}).hasAttribute("disabled")).toBe(false));
+ fireEvent.click(screen.getByRole("button",{name:"Save channel"}));
+ await waitFor(()=>expect(virtualTv.save).toHaveBeenCalledWith(expect.objectContaining({genres:[],collection_ids:[],genre_library_ids:undefined}),"comedy"));
+});
+
+it("keeps genre-only edit sources separate from effective permission libraries",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"tv",name:"Anime",library_type:"anime"},{id:"movies",name:"Films",library_type:"movies"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ vi.mocked(nativeLibraries.summaries).mockResolvedValue([{id:"show",kind:"series",path:"Anime/Show",title:"A show",parent_path:null,artwork:[],files:[],nfo_path:null,available:true,revision:1,metadata:{genres:["Comedy"]}}] as NativeCatalogEntry[]);
+ vi.mocked(virtualTv.channels).mockResolvedValue([{...channel,library_ids:["tv"],source_library_ids:[],genre_library_ids:["tv"],genres:["Comedy"]}]);
+ vi.mocked(virtualTv.save).mockResolvedValue(channel);
+ mount("admin");fireEvent.click(await screen.findByRole("button",{name:"Edit channels"}));fireEvent.click(await screen.findByRole("button",{name:"Edit Comedy"}));
+ expect((await screen.findByRole("checkbox",{name:"Anime"}) as HTMLInputElement).checked).toBe(false);
+ expect((screen.getByRole("checkbox",{name:"Films"}) as HTMLInputElement).checked).toBe(false);
+ expect((screen.getByRole("checkbox",{name:"Genres"}) as HTMLInputElement).checked).toBe(true);
+ await within(screen.getByRole("region",{name:"Genre matches"})).findByText("A show");
+ expect(screen.queryByRole("checkbox",{name:"A show"})).toBeNull();
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Save channel"}).hasAttribute("disabled")).toBe(false));
+ fireEvent.click(screen.getByRole("button",{name:"Save channel"}));
+ await waitFor(()=>expect(virtualTv.save).toHaveBeenCalledWith(expect.objectContaining({library_ids:[],genre_library_ids:["tv"],show_ids:[],genres:["Comedy"]}),"comedy"));
 });

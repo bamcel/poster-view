@@ -1,0 +1,46 @@
+/* Shared popup surface. Semantic dialogs/menus opt in automatically; other
+   floating surfaces use .pv-popup-surface. Override tokens, never copy styles. */
+:root {
+ --pv-popup-background: rgba(14,18,21,.92);
+ --pv-popup-tint: color-mix(in srgb,var(--color-accent,#7d9d78) 8%,transparent);
+ --pv-popup-border: rgba(255,255,255,.16);
+ --pv-popup-shadow: 0 24px 70px #000a,0 0 0 1px #ffffff04;
+ --pv-popup-blur: 20px;
+ --pv-popup-highlight: rgba(255,255,255,.08);
+ --pv-popup-backdrop: rgba(0,0,0,.55);
+ --pv-popup-page-width: 52rem;
+ --pv-popup-page-height: 85dvh;
+ --pv-popup-page-gutter: 1rem;
+}
+:root :is(dialog,[role="dialog"],[role="alertdialog"],[role="menu"],.pv-profile-menu,.pv-discovery-hover-panel,.pv-popup-surface) {
+ background: linear-gradient(145deg,#ffffff06,transparent 65%),radial-gradient(ellipse at top left,var(--pv-popup-tint),transparent 70%),var(--pv-popup-background);
+ border: 1px solid var(--pv-popup-border);
+ box-shadow: var(--pv-popup-shadow);
+ backdrop-filter: blur(var(--pv-popup-blur)) saturate(.9);
+ -webkit-backdrop-filter: blur(var(--pv-popup-blur)) saturate(.9);
+}
+.pv-popup-surface { border-radius:16px; }
+/* Keep chrome from painting opaque grey strips over the shared surface. */
+:root :is(dialog,[role="dialog"],[role="alertdialog"],.pv-popup-surface) :is(header,footer,nav):is(.bg-sidebar,.bg-window,.bg-surface) { background:transparent; }
+:root dialog::backdrop { background:var(--pv-popup-backdrop);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px); }
+:root .pv-popup-backdrop, :root .fixed.inset-0:has(> :is([role="dialog"],[role="alertdialog"])[aria-modal="true"]) { background:var(--pv-popup-backdrop);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px); }
+:root :is([role="menu"],.pv-profile-menu) :is([role="menuitem"],.pv-profile-item):not(:disabled):is(:hover,:focus-visible) { background:var(--pv-popup-highlight); }
+/* Mouse navigation must never leave the initially focused option highlighted. */
+:root [role="menu"]:has([role="menuitem"]:hover) [role="menuitem"]:not(:hover) { background:transparent; }
+:root [role="menu"] [role="menuitem"].text-danger { color:var(--color-danger,#f87171); }
+@media(prefers-reduced-transparency:reduce) {
+ :root { --pv-popup-background:rgb(14,18,21);--pv-popup-blur:0px; }
+ :root :is(dialog,[role="dialog"],[role="alertdialog"],[role="menu"],.pv-profile-menu,.pv-discovery-hover-panel,.pv-popup-surface,.pv-popup-backdrop), :root dialog::backdrop, :root .fixed.inset-0:has(> :is([role="dialog"],[role="alertdialog"])[aria-modal="true"]) { backdrop-filter:none;-webkit-backdrop-filter:none; }
+}
+
+/* Popup pages share the Anime preferences footprint. Menus and anchored
+   pickers remain content sized; drawers/compact prompts opt out explicitly. */
+:root :is(dialog,[role="dialog"][aria-modal="true"],[role="alertdialog"],.pv-popup-page):not([data-popup-layout="drawer"]):not([data-popup-layout="compact"]) {
+ box-sizing:border-box;
+ width:min(var(--pv-popup-page-width),calc(100vw - 2 * var(--pv-popup-page-gutter)));
+ max-width:calc(100vw - 2 * var(--pv-popup-page-gutter));
+ height:min(var(--pv-popup-page-height),calc(100dvh - 2 * var(--pv-popup-page-gutter)));
+ max-height:min(var(--pv-popup-page-height),calc(100dvh - 2 * var(--pv-popup-page-gutter)));
+ min-width:0;min-height:0;flex-shrink:0;
+}
+:root :is(dialog,[role="dialog"][aria-modal="true"],[role="alertdialog"],.pv-popup-page):not(.overflow-hidden):not([data-popup-layout="drawer"]):not([data-popup-layout="compact"]) { overflow-y:auto; }

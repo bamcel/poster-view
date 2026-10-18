@@ -925,6 +925,7 @@ async fn run_inspection(
 ) -> Result<(), HttpError> {
     let mut encoder_validated = false;
     let mut channel_metadata = std::collections::HashMap::new();
+    let mut channel_artwork = std::collections::HashSet::new();
     {
         let _lock = state.ytdl_lock.lock().await;
         let mut jobs = super::load::<Vec<Job>>(state, "plugin-ytdl-jobs")?;
@@ -1030,6 +1031,9 @@ async fn run_inspection(
                 }
             );
             let target = state.metadata.directory(&relative, false)?;
+            if channel_artwork.insert(channel.clone()) {
+                super::artwork::download(target.parent().ok_or_else(|| err("Missing channel directory."))?, channel_info).await?;
+            }
             let existing = super::naming::existing_media(&target)?;
             let stem = if let Some(media) = &existing {
                 media

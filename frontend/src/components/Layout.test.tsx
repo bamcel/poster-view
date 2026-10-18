@@ -1,5 +1,5 @@
 import HeaderSearchControl from "./HeaderSearchControl";
-import {BACKDROP_BLUR_EVENT,PANEL_OVERLAY_EVENT,PANEL_SOLIDITY_EVENT} from "../lib/dashboardSettings";
+import {BACKDROP_BLUR_EVENT} from "../lib/dashboardSettings";
 import {LibraryPageBack} from "../lib/libraryHeaderBack";
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import type {ReactNode} from "react";
@@ -34,16 +34,15 @@ function CurrentLocation() {
   return <p>{location.pathname}{location.search}</p>;
 }
 
-it("keeps profile backdrop identical to the sidebar as appearance sliders change",async()=>{
+it("uses the shared popup surface for profile while retaining the blur preference",async()=>{
  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
  render(<MemoryRouter><AuthGate><Layout/></AuthGate></MemoryRouter>);
  fireEvent.click(await screen.findByLabelText("Profile"));
- const sidebar=screen.getByRole("complementary",{name:"Navigation"});
  const panel=screen.getByRole("navigation",{name:"Profile settings"}).closest(".pv-profile-menu") as HTMLElement;
- const match=()=>{expect(panel.style.backgroundColor).toBe(sidebar.style.backgroundColor);expect(panel.style.backdropFilter).toBe(sidebar.style.backdropFilter);expect(panel.style.getPropertyValue("-webkit-backdrop-filter")).toBe(sidebar.style.getPropertyValue("-webkit-backdrop-filter"));};
- match();
- for(const [name,value] of [[PANEL_SOLIDITY_EVENT,65],[PANEL_OVERLAY_EVENT,35],[BACKDROP_BLUR_EVENT,24]] as const){fireEvent(window,new CustomEvent(name,{detail:value}));match();}
- expect(panel.style.backdropFilter).toBe("blur(24px)");
+ expect(panel.classList.contains("pv-popup-surface")).toBe(true);
+ expect(panel.style.backgroundColor).toBe("");
+ fireEvent(window,new CustomEvent(BACKDROP_BLUR_EVENT,{detail:24}));
+ expect(panel.style.getPropertyValue("--pv-popup-blur")).toBe("24px");
 });
 
 it("keeps homepage navigation open without collapse controls or stored-state effects",async()=>{

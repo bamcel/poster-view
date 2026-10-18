@@ -1,4 +1,5 @@
 //! Administrator-owned YouTube downloads and durable queue.
+mod artwork;
 mod cookies;
 mod downloader;
 mod naming;

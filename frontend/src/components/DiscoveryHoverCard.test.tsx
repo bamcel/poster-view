@@ -13,7 +13,7 @@ const anchor = () => screen.getByRole("link", {name: "Details Sample"}).parentEl
 beforeEach(() => {vi.spyOn(watchApi,"state").mockResolvedValue({position_seconds:0,duration_seconds:1000,watched:false,play_count:0,last_played_at:null,audio_index:null,subtitle_index:null,session_id:null,version:1});vi.useFakeTimers(); vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({left: 900, top: 100, width: 260, height: 146, right: 1160, bottom: 246, x: 900, y: 100, toJSON() {}});});
 afterEach(() => {cleanup(); vi.useRealTimers(); vi.restoreAllMocks();});
 it("delays hover and renders a viewport-clamped portal without shifting its anchor", () => {
-  const view = mount(); fireEvent.mouseEnter(anchor());
+  const view = mount(); expect(screen.queryByRole("button", {name: "Preview Sample"})).toBeNull(); fireEvent.mouseEnter(anchor());
   act(() => vi.advanceTimersByTime(349)); expect(screen.queryByRole("region")).toBeNull();
   act(() => vi.advanceTimersByTime(1)); const panel = screen.getByRole("region", {name: "Preview of Sample"});
   expect(view.container.contains(panel)).toBe(false); expect(panel.style.width).toBe("390px");
@@ -32,45 +32,45 @@ it("opens on keyboard focus and Escape restores the opener without reopening", (
   expect(screen.getByRole("region")).toBeTruthy(); fireEvent.keyDown(window, {key: "Escape"});
   expect(screen.queryByRole("region")).toBeNull(); expect(document.activeElement).toBe(trigger);
 });
-it("supports explicit touch opening, only one panel, and scroll/resize dismissal", () => {
-  mount(); mount(title("Other")); fireEvent.click(screen.getByRole("button", {name: "Preview Sample"}));
-  fireEvent.click(screen.getByRole("button", {name: "Preview Other"})); expect(screen.getAllByRole("region")).toHaveLength(1);
+it("keeps only one focused preview and dismisses on scroll or resize", () => {
+  mount(); mount(title("Other")); fireEvent.focus(screen.getByRole("link", {name: "Details Sample"}));
+  fireEvent.focus(screen.getByRole("link", {name: "Details Other"})); expect(screen.getAllByRole("region")).toHaveLength(1);
   expect(screen.getByRole("region", {name: "Preview of Other"})).toBeTruthy(); fireEvent.scroll(document); expect(screen.queryByRole("region")).toBeNull();
-  fireEvent.click(screen.getByRole("button", {name: "Preview Other"})); fireEvent.resize(window); expect(screen.queryByRole("region")).toBeNull();
+  fireEvent.focus(screen.getByRole("link", {name: "Details Other"})); fireEvent.resize(window); expect(screen.queryByRole("region")).toBeNull();
 });
 it("does not create invalid play links or fabricate missing metadata", () => {
   const item = title(); item.entry.kind = "series"; item.entry.metadata = {year: true, runtime: "bad", rating: 99, genres: [false, "Action"]};
-  mount(item); fireEvent.click(screen.getByRole("button", {name: "Preview Sample"})); expect(screen.queryByRole("link", {name: "Play Sample"})).toBeNull(); expect(screen.getByText("Series")).toBeTruthy(); expect(screen.getByText("Action")).toBeTruthy();
+  mount(item); fireEvent.focus(screen.getByRole("link", {name: "Details Sample"})); expect(screen.queryByRole("link", {name: "Play Sample"})).toBeNull(); expect(screen.getByText("Series")).toBeTruthy(); expect(screen.getByText("Action")).toBeTruthy();
 });
 it("cancels pending hover on leave and unmount", () => {
   const view = mount(); fireEvent.mouseEnter(anchor()); fireEvent.mouseLeave(anchor()); act(() => vi.advanceTimersByTime(400)); expect(screen.queryByRole("region")).toBeNull();
   fireEvent.mouseEnter(anchor()); view.unmount(); act(() => vi.advanceTimersByTime(500)); expect(screen.queryByRole("region")).toBeNull();
 });
 it("lets keyboard users enter portal actions and return to the trigger on Escape", () => {
-  mount(); const trigger = screen.getByRole("button", {name: "Preview Sample"}); act(() => trigger.focus());
+  mount(); const trigger = screen.getByRole("link", {name: "Details Sample"}); act(() => trigger.focus());
   fireEvent.keyDown(trigger, {key: "Tab"}); expect(document.activeElement).toBe(screen.getByRole("link", {name: "Play Sample"}));
   fireEvent.keyDown(window, {key: "Escape"}); expect(screen.queryByRole("region")).toBeNull(); expect(document.activeElement).toBe(trigger);
 });
 it("fits a narrow viewport and provides details when a movie is unavailable", () => {
   vi.spyOn(window, "innerWidth", "get").mockReturnValue(320);
-  const item = title(); item.entry.available = false; mount(item); fireEvent.click(screen.getByRole("button", {name: "Preview Sample"}));
+  const item = title(); item.entry.available = false; mount(item); fireEvent.focus(screen.getByRole("link", {name: "Details Sample"}));
   const panel = screen.getByRole("region"); expect(panel.style.width).toBe("296px"); expect(panel.style.left).toBe("12px");
   expect(screen.queryByRole("link", {name: "Play Sample"})).toBeNull(); expect(screen.getByRole("link", {name: "More info about Sample"})).toBeTruthy();
 });
 it("keeps its own scrolling panel open but closes on an ancestor scroll", () => {
-  mount(); fireEvent.click(screen.getByRole("button", {name: "Preview Sample"}));
+  mount(); fireEvent.focus(screen.getByRole("link", {name: "Details Sample"}));
   const panel = screen.getByRole("region"); expect(panel.style.maxHeight).toContain("px"); fireEvent.scroll(panel); expect(screen.getByRole("region")).toBe(panel);
   fireEvent.scroll(window); expect(screen.queryByRole("region")).toBeNull();
 });
 it("does not offer playback for a missing file marker", () => {
-  const item = title(); item.entry.metadata.missing = true; mount(item); fireEvent.click(screen.getByRole("button", {name: "Preview Sample"})); expect(screen.queryByRole("link", {name: "Play Sample"})).toBeNull();
+  const item = title(); item.entry.metadata.missing = true; mount(item); fireEvent.focus(screen.getByRole("link", {name: "Details Sample"})); expect(screen.queryByRole("link", {name: "Play Sample"})).toBeNull();
 });
 it("dismisses a series preview normally while history is still loading",()=>{
  vi.spyOn(nativeLibraries,"summaries").mockReturnValue(new Promise(()=>{}));
  vi.spyOn(watchApi,"states").mockReturnValue(new Promise(()=>{}));
  vi.spyOn(watchApi,"continue").mockReturnValue(new Promise(()=>{}));
  const series=title();series.entry.kind="series";mount(series);
- fireEvent.click(screen.getByRole("button",{name:"Preview Sample"}));
+ fireEvent.focus(screen.getByRole("link", {name: "Details Sample"}));
  fireEvent.mouseLeave(screen.getByRole("region"));act(()=>vi.advanceTimersByTime(200));
  expect(screen.queryByRole("region")).toBeNull();
 });

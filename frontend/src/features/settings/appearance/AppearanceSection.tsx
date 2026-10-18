@@ -315,7 +315,7 @@ function ThemePicker({ themes, selected, onSelect }: { themes: AppTheme[]; selec
           <span className="min-w-0 flex-1 truncate">{selectedTheme.name}</span>
           <span className="text-faint transition-transform group-open:rotate-180">⌄</span>
         </summary>
-        <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-sidebar p-1 shadow-2xl">
+        <div className="pv-popup-surface absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-sidebar p-1 shadow-2xl">
           {themes.map((theme) => (
             <button key={theme.name} type="button" onClick={() => { onSelect(theme.name); detailsRef.current?.removeAttribute("open"); }} className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-surface-2 ${theme.name === selected ? "text-accent" : "text-white"}`}>
               <ThemePaletteIcon theme={theme} />
@@ -352,7 +352,7 @@ function ColorLabelPicker({ theme, selected, onSelect }: { theme: AppTheme; sele
         <span className="flex-1">{THEME_COLOR_OPTIONS.find((option) => option.key === selected)?.label}</span>
         <ChevronDown className="size-4" />
       </summary>
-      <div className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-sidebar p-1 shadow-2xl">
+      <div className="pv-popup-surface absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-sidebar p-1 shadow-2xl">
         {THEME_COLOR_OPTIONS.map((option) => <button key={option.key} type="button" aria-pressed={selected === option.key}
           className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-white hover:bg-surface-2 focus-visible:outline-accent"
           onClick={() => {

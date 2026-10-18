@@ -198,7 +198,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
             />
           </>
         )}
-        {!setupRequired && <label className="mt-4 flex items-center gap-2 text-sm text-muted"><input type="checkbox" checked={rememberMe} disabled={submitting} onChange={event => setRememberMe(event.target.checked)} className="size-4 accent-accent"/>Remember me (30 days)</label>}
+        {!setupRequired && <label className="mt-4 flex items-center gap-2 text-sm text-muted"><input type="checkbox" checked={rememberMe} disabled={submitting} onChange={event => setRememberMe(event.target.checked)} className="size-4 accent-accent"/>Remember me</label>}
         {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
         <button type="submit" disabled={submitting} className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5 font-medium text-black disabled:opacity-60">
           {submitting && <Loader2 className="size-4 animate-spin" />}
