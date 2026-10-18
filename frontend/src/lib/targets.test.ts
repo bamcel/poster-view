@@ -24,9 +24,10 @@ it("does not add a folder backdrop outside book libraries", () => {
   ]);
 });
 
-it("limits native collection artwork to its own poster and background",()=>{
+it("includes individual member posters alongside collection artwork",()=>{
  expect(buildApplyTargets({...bookSeries,id:"collection:saga",type:"collection",members:[{id:"member",title:"Movie",type:"movie"}]})).toEqual([
   {label:"Poster",itemId:"collection:saga",target:"poster"},
   {label:"Background",itemId:"collection:saga",target:"background"},
+  {label:"Movie — poster",itemId:"member",target:"poster"},
  ]);
 });

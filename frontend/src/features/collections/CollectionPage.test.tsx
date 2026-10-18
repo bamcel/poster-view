@@ -43,7 +43,7 @@ it("deletes from the actions menu after confirmation without a separate delete b
 it("opens collection artwork beside metadata tools and closes it",async()=>{
  mount();fireEvent.click(await screen.findByRole("button",{name:"Edit images"}));
  expect(screen.getByRole("region",{name:"Artwork for Saga"})).toBeTruthy();
- expect(screen.getByTestId("collection-artwork-panel").textContent).toContain("collection:saga collection 0");
+ expect(screen.getByTestId("collection-artwork-panel").textContent).toContain("collection:saga collection 3");
  fireEvent.click(screen.getByRole("button",{name:"Close artwork"}));
  expect(screen.queryByTestId("collection-artwork-panel")).toBeNull();
 });

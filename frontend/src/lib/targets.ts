@@ -16,6 +16,7 @@ export function buildApplyTargets(item: ItemDetail, includeFolderBackdrop = fals
   if (item.id.startsWith("collection:")) return [
     {label:"Poster",itemId:item.id,target:"poster"},
     {label:"Background",itemId:item.id,target:"background"},
+    ...item.members.map(member=>({label:`${member.title}${member.year?` (${member.year})`:""} — poster`,itemId:member.id,target:"poster" as const})),
   ];
   const base: ApplyTarget[] =
     item.type === "folder"

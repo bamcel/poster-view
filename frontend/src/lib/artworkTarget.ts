@@ -17,5 +17,5 @@ export function invalidateArtworkItems(client: QueryClient, serverId: number, it
       return {...entry, artwork, revision:entry.revision + 1};
     }));
   }
-  return client.invalidateQueries({queryKey:key});
+  return Promise.all([client.invalidateQueries({queryKey:key}),...(native?[client.invalidateQueries({queryKey:["collections"]})]:[])]);
 }

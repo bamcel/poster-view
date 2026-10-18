@@ -10,7 +10,7 @@ it("refreshes the saved native image before the catalog refetch finishes",async(
   const client=new QueryClient();
   client.setQueryData(["native-catalog","library"],[entry("series"),entry("other")]);
   let finish!: () => void;
-  vi.spyOn(client,"invalidateQueries").mockImplementation(()=>new Promise<void>(resolve=>{finish=resolve;}));
+  vi.spyOn(client,"invalidateQueries").mockImplementationOnce(()=>new Promise<void>(resolve=>{finish=resolve;}));
   const pending=invalidateArtworkItems(client,0,"native:library:series","poster");
   const items=client.getQueryData<NativeCatalogEntry[]>(["native-catalog","library"])!;
   expect(items[0].revision).toBe(5);
@@ -32,9 +32,11 @@ it("refreshes the native catalog without invalidating connected server libraries
  const client = new QueryClient();
  client.setQueryData(["native-catalog","library"], []);
  client.setQueryData(["items", 1], []);
+ client.setQueryData(["collections","account","detail","saga"],{});
  await invalidateArtworkItems(client,0,"native:library:item");
  expect(client.getQueryState(["native-catalog","library"])?.isInvalidated).toBe(true);
  expect(client.getQueryState(["items",1])?.isInvalidated).toBe(false);
+ expect(client.getQueryState(["collections","account","detail","saga"])?.isInvalidated).toBe(true);
  client.clear();
 });
 

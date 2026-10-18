@@ -75,7 +75,7 @@ export default function CollectionPage(){
  </>;
 }
 function collectionArtworkItem(collection:Collection):ItemDetail {
- return {id:`collection:${collection.id}`,type:"collection",title:collection.title,summary:collection.overview,poster:collection.metadata?.poster_url,background:collection.metadata?.backdrop_url,seasons:[],members:[],external_ids:collection.metadata?.provider&&collection.metadata.provider_id?{[collection.metadata.provider]:collection.metadata.provider_id}:{}};
+ return {id:`collection:${collection.id}`,type:"collection",title:collection.title,summary:collection.overview,poster:collection.metadata?.poster_url,background:collection.metadata?.backdrop_url,seasons:[],members:collection.members.map(member=>({id:`native:${member.library_id}:${member.item_id}`,title:member.entry.title,type:member.entry.kind==="series"?"show":"movie",year:typeof member.entry.metadata.year==="number"?member.entry.metadata.year:undefined,poster:artworkUrl(member,["poster"])})),external_ids:collection.metadata?.provider&&collection.metadata.provider_id?{[collection.metadata.provider]:collection.metadata.provider_id}:{}};
 }
 function artworkUrl(member:CollectionMember,kinds:string[]){
  const kind=kinds.find(kind=>member.entry.artwork.some(art=>art.kind===kind));
