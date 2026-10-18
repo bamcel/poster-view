@@ -9,7 +9,7 @@ export interface ChannelInput {
 export interface Channel extends ChannelInput {id:string; revision:number}
 export interface Program {
   id:string; library_id:string; item_id:string; title:string; series_title:string|null;
-  season:number|null; episode:number|null; starts_at:string; ends_at:string; artwork_url:string|null;
+  season:number|null; episode:number|null; year?:number|null; starts_at:string; ends_at:string; artwork_url:string|null;
 }
 export interface TuneResult {library_id:string;item_id:string;position_seconds:number;ends_at:string;program_id:string}
 const channelPath=(id:string)=>`/virtual-tv/channels/${encodeURIComponent(id)}`;

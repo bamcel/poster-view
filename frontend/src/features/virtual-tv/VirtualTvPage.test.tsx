@@ -186,7 +186,7 @@ it("uses a clean image fallback for unavailable thumbnails",async()=>{
  expect(screen.getByLabelText("Program image unavailable")).toBeTruthy();
 });
 
-it("respects disabled previews until enabled and disables them for future programs",async()=>{
+it("keeps the live preview mounted while future programs display thumbnails",async()=>{
  localStorage.setItem("posterview-virtual-tv-live-preview","false");
  const now=Date.now();
  vi.mocked(virtualTv.guide).mockResolvedValue([
@@ -200,11 +200,14 @@ it("respects disabled previews until enabled and disables them for future progra
  expect(screen.getByLabelText("Live preview comedy")).toBeTruthy();
  expect(localStorage.getItem("posterview-virtual-tv-live-preview")).toBe("true");
  fireEvent.click(screen.getByRole("button",{name:/^Close$/}));
+ const livePreview=screen.getByLabelText("Live preview comedy");
  fireEvent.click(screen.getByRole("button",{name:/Comedy: Future,/}));
- expect(screen.queryByLabelText("Live preview comedy")).toBeNull();
+ expect(screen.getByLabelText("Live preview comedy")).toBe(livePreview);
+ expect(livePreview.closest("[aria-hidden]")?.getAttribute("aria-hidden")).toBe("true");
  expect(screen.getByAltText("Future thumbnail").getAttribute("src")).toBe("/future.jpg");
  fireEvent.click(screen.getByRole("button",{name:/Select channel 2 Comedy/}));
- expect(screen.getByLabelText("Live preview comedy")).toBeTruthy();
+ expect(screen.getByLabelText("Live preview comedy")).toBe(livePreview);
+ expect(livePreview.closest("[aria-hidden]")?.getAttribute("aria-hidden")).toBe("false");
  fireEvent.click(screen.getByRole("button",{name:"Preferences"}));
  fireEvent.click(screen.getByRole("checkbox",{name:"Live preview"}));
  expect(screen.queryByLabelText("Live preview comedy")).toBeNull();
@@ -280,4 +283,18 @@ it("switches only the preview when selecting another channel",async()=>{
  expect(screen.getByLabelText("Playback destination").textContent).toBe("/");
  fireEvent.click(screen.getByRole("link",{name:"Watch News live"}));
  await waitFor(()=>expect(screen.getByLabelText("Playback destination").textContent).toBe("/play/virtual-tv/news"));
+});
+
+it("shows series identity above episode details with complete hover text",async()=>{
+ mount();const program=await screen.findByRole("button",{name:/Comedy: Pilot,/});
+ expect(program.querySelector(".vtv-program-title")?.textContent).toBe("Example show");
+ expect(program.querySelector(".vtv-program-detail")?.textContent).toBe("S01 E01 · Pilot");
+ expect(program.title).toContain("Example show · S01 E01 · Pilot");
+});
+it("shows movie title and year without invented episode numbers",async()=>{
+ vi.mocked(virtualTv.guide).mockResolvedValue([{id:"movie",library_id:"tv",item_id:"movie",title:"A Movie",series_title:null,season:null,episode:null,year:2008,starts_at:new Date(Date.now()-60000).toISOString(),ends_at:new Date(Date.now()+60000).toISOString(),artwork_url:null}]);
+ mount();const program=await screen.findByRole("button",{name:/Comedy: A Movie,/});
+ expect(program.querySelector(".vtv-program-title")?.textContent).toBe("A Movie");
+ expect(program.querySelector(".vtv-program-detail")?.textContent).toBe("2008");
+ expect(program.title).toContain("A Movie · 2008");
 });

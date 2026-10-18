@@ -10,6 +10,8 @@ pub(super) struct Candidate {
     pub library_id: String,
     pub item_id: String,
     pub title: String,
+    #[serde(default)]
+    pub year: Option<i64>,
     pub series_title: Option<String>,
     pub series_id: Option<String>,
     pub season: Option<i64>,
@@ -26,6 +28,8 @@ pub(super) struct Program {
     pub library_id: String,
     pub item_id: String,
     pub title: String,
+    #[serde(default)]
+    pub year: Option<i64>,
     pub series_title: Option<String>,
     pub season: Option<i64>,
     pub episode: Option<i64>,
@@ -187,6 +191,7 @@ fn program(
         library_id: item.library_id.clone(),
         item_id: item.item_id.clone(),
         title: item.title.clone(),
+        year: item.year,
         series_title: item.series_title.clone(),
         season: item.season,
         episode: item.episode,
@@ -306,6 +311,7 @@ mod tests {
             library_id: "library".into(),
             item_id: id.into(),
             title: id.into(),
+            year: None,
             series_title: Some(show.into()),
             series_id: Some(show.into()),
             season: Some(1),

@@ -835,3 +835,68 @@ fn youtube_empty_selection_keeps_non_youtube_sources() {
     channel.youtube_playlists = Some(vec![playlist(&library, "channel-a", "playlist-a")]);
     assert!(candidates(&state, &mut channel).is_err());
 }
+
+#[tokio::test]
+async fn movie_release_year_reaches_guide_and_legacy_schedules_still_load() {
+    for year in [json!(2007), json!("2007")] {
+        let (_temp, state, library) = fixture();
+        let store = ServerStore::new(state.runtime.data_dir());
+        let mut entry = store.native_catalog(&library).unwrap().remove(0);
+        entry.metadata["year"] = year;
+        let revision = store
+            .native_libraries()
+            .unwrap()
+            .into_iter()
+            .find(|item| item.id == library)
+            .unwrap()
+            .revision;
+        store
+            .ingest_native_catalog(&library, revision, &[entry])
+            .unwrap();
+        let mut channel = validate(input(&library), "year-channel".into(), 1).unwrap();
+        let lineup = candidates(&state, &mut channel).unwrap();
+        assert_eq!(lineup[0].year, Some(2007));
+        let mut legacy = serde_json::to_value(&lineup[0]).unwrap();
+        legacy.as_object_mut().unwrap().remove("year");
+        assert_eq!(
+            serde_json::from_value::<Candidate>(legacy).unwrap().year,
+            None
+        );
+        let mut old_lineup = lineup.clone();
+        old_lineup[0].year = None;
+        persist(
+            &state,
+            &Document {
+                enabled: true,
+                channels: vec![Record {
+                    channel: channel.clone(),
+                    candidates: old_lineup,
+                }],
+            },
+        )
+        .unwrap();
+        let Json(legacy_guide) = guide(
+            State(state.clone()),
+            HeaderMap::new(),
+            Path(channel.id.clone()),
+            axum::extract::Query(GuideWindow::default()),
+        )
+        .await
+        .unwrap();
+        assert!(!legacy_guide.is_empty());
+        assert!(
+            legacy_guide
+                .iter()
+                .all(|program| program.year == Some(2007))
+        );
+        let programs = schedule::generate(&channel, lineup, Utc::now()).unwrap();
+        assert!(!programs.is_empty());
+        assert!(programs.iter().all(|program| program.year == Some(2007)));
+        let mut legacy = serde_json::to_value(&programs[0]).unwrap();
+        legacy.as_object_mut().unwrap().remove("year");
+        assert_eq!(
+            serde_json::from_value::<Program>(legacy).unwrap().year,
+            None
+        );
+    }
+}

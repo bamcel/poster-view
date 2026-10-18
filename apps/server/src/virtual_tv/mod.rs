@@ -530,6 +530,9 @@ fn candidates(state: &AppState, channel: &mut Channel) -> Result<Vec<Candidate>,
                 library_id: library.clone(),
                 item_id: entry.id.clone(),
                 title: entry.title.clone(),
+                year: (entry.kind == "movie")
+                    .then(|| number(&entry.metadata["year"]).map(|year| year as i64))
+                    .flatten(),
                 series_title: series.map(|s| s.title.clone()),
                 series_id: series.map(|s| s.id.clone()),
                 season: if youtube {
@@ -864,12 +867,15 @@ async fn guide(
             schedule::generate_range(&record.channel, record.candidates, from, until)
                 .map_err(HttpError::bad_request)?;
         let mut permission = HashMap::new();
+        let mut years = HashMap::new();
+        let store = ServerStore::new(state_copy.runtime.data_dir());
         for p in &mut programs {
             let permitted = *permission
                 .entry((p.library_id.clone(), p.item_id.clone()))
                 .or_insert_with(|| item_available(&state_copy, &user, &p.library_id, &p.item_id));
             if !permitted {
                 p.title = "Unavailable program".into();
+                p.year = None;
                 p.series_title = None;
                 p.season = None;
                 p.episode = None;
@@ -877,6 +883,22 @@ async fn guide(
                 p.library_id.clear();
                 p.artwork_url = None;
             } else {
+                // Older saved lineups did not include release years. Resolve missing
+                // display metadata without regenerating or shifting the schedule.
+                if p.year.is_none() && p.series_title.is_none() {
+                    p.year = *years
+                        .entry((p.library_id.clone(), p.item_id.clone()))
+                        .or_insert_with(|| {
+                            store
+                                .native_catalog_item(&p.library_id, &p.item_id)
+                                .ok()
+                                .flatten()
+                                .filter(|entry| entry.kind == "movie")
+                                .and_then(|entry| {
+                                    number(&entry.metadata["year"]).map(|year| year as i64)
+                                })
+                        });
+                }
                 p.artwork_url = Some(format!(
                     "/api/virtual-tv/channels/{id}/artwork/{}/{}",
                     p.library_id, p.item_id
