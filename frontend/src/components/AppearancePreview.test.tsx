@@ -8,6 +8,7 @@ import { LibraryBackdrop, Link, useNavigate, useParams, useSearchParams } from "
 import AppearancePreview from "./AppearancePreview";
 
 vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(async()=>[{id:"anime",name:"Anime",library_type:"anime"}]),catalog:vi.fn(async()=>[] ),summaries:vi.fn(async()=>[]),item:vi.fn()}}));
+vi.mock("../pages/SettingsPage",()=>({default:({previewSection}:{previewSection:string})=><h2>{previewSection} settings preview</h2>}));
 vi.mock("./LibraryPosterStrip",()=>({default:()=> <div>Library collage</div>}));
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [], selectedId: null, setSelectedId: vi.fn() }) }));
 let measure: () => void;
@@ -85,7 +86,10 @@ it("fits the full desktop by default and selects the icon only for pane-sized pr
   const sidebar = frame.querySelector("aside")!;
   expect(sidebar).toBeTruthy();
   expect(within(sidebar).queryByRole("heading", {name:"Settings"})).toBeNull();
-  expect(within(frame).getByRole("link", {name:"Settings"})).toBeTruthy();
+  const profile=within(frame).getByLabelText("Profile");
+  fireEvent.click(profile);
+  expect(screen.getByRole("link", {name:"Settings"})).toBeTruthy();
+  fireEvent.click(profile);
   expect(screen.getByRole("heading", { name: "Series show" })).toBeTruthy();
   expect(screen.getByTestId("outer-location").textContent).toBe("/settings?tab=appearance");
   paneWidth = 800;
@@ -123,4 +127,17 @@ it("clears homepage search when Home is clicked while already at preview home",a
  expect((screen.getByRole("textbox",{name:"Search all libraries"}) as HTMLInputElement).value).toBe("");
  expect(screen.getByRole("heading",{name:"My Media"})).toBeTruthy();
  expect(screen.getByTestId("outer-location").textContent).toBe("/settings/appearance");
+});
+
+it("keeps profile popup navigation inside the appearance preview",async()=>{
+ render(<MemoryRouter initialEntries={["/settings?tab=appearance"]}><Location/><AppearancePreview onClose={vi.fn()}/></MemoryRouter>);
+ const frame=await screen.findByTestId("preview-desktop-frame");
+ fireEvent.click(within(frame).getByLabelText("Profile"));
+ const reading=screen.getByRole("link",{name:"Reading preferences"});
+ fireEvent.click(reading);
+ expect(await screen.findByRole("heading",{name:"reading settings preview"})).toBeTruthy();
+ expect(screen.getByTestId("outer-location").textContent).toBe("/settings?tab=appearance");
+ expect(screen.queryByRole("link",{name:"Reading preferences"})).toBeNull();
+ fireEvent.click(screen.getByLabelText("Back in preview"));
+ expect(screen.getByTestId("outer-location").textContent).toBe("/settings?tab=appearance");
 });
