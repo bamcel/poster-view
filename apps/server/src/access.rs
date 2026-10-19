@@ -230,6 +230,11 @@ pub(crate) fn authorize_request(
     let personal_write = get || *method == Method::PUT;
     let allowed = match p.as_slice() {
         ["api", "auth", "activity"] => *method == Method::POST,
+        ["api", "plugins", "pairwise"] | ["api", "rankings", "libraries"] => get,
+        ["api", "rankings", library] => get && library_allowed(user, library),
+        ["api", "rankings", library, "actions"] => {
+            *method == Method::POST && library_allowed(user, library)
+        }
         ["api", "collections"]
         | ["api", "collections", _]
         | ["api", "collections", _, "artwork", _] => get,

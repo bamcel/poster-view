@@ -31,6 +31,7 @@ mod native_progress;
 mod native_provider;
 mod native_provider_extra;
 mod native_scan;
+mod pairwise;
 mod playback;
 mod plugins;
 mod reader;

@@ -2,6 +2,7 @@ import {useIsAdmin} from "../lib/authContext";
 import OmdbPlugin from "./OmdbPlugin";
 import YtdlPlugin from "../features/settings/ytdl/YtdlPlugin";
 import VirtualTvPlugin from "../features/virtual-tv/VirtualTvPlugin";
+import PairwisePlugin from "../features/pairwise/PairwisePlugin";
 import AniDBPlugin from "./AniDBPlugin";
 import PluginCard from "./PluginCard";
 import {Link} from "../lib/libraryNavigation";
@@ -19,7 +20,7 @@ export default function PluginsPage(props:PluginPageProps){
 }
 function AdminPluginsPage({onClose,artworkOpen=false,onArtworkOpen}:{onClose:()=>void;artworkOpen?:boolean;onArtworkOpen:()=>void}){
  const artwork=useArtworkPlugin();
- return <div className="grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3"><PluginCard title="Artwork" description="Browse, upload, remove, and edit artwork with PosterEdit and BackdropEdit." coverSrc="/plugins/artwork-cover.svg" branding={<Images className="size-10 text-accent"/>} status={<><span>Built-in</span><span className="rounded-full border border-border px-2 py-1">{artwork.data?artwork.data.enabled?"Enabled":"Disabled":"Loading…"}</span></>} onClick={onArtworkOpen}/><AniDBPlugin/><OmdbPlugin/><YtdlPlugin/><VirtualTvPlugin/>{artworkOpen&&<ArtworkPopup onClose={onClose}/>}</div>;
+ return <div className="grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 xl:grid-cols-3"><PluginCard title="Artwork" description="Browse, upload, remove, and edit artwork with PosterEdit and BackdropEdit." coverSrc="/plugins/artwork-cover.svg" branding={<Images className="size-10 text-accent"/>} status={<><span>Built-in</span><span className="rounded-full border border-border px-2 py-1">{artwork.data?artwork.data.enabled?"Enabled":"Disabled":"Loading…"}</span></>} onClick={onArtworkOpen}/><AniDBPlugin/><OmdbPlugin/><YtdlPlugin/><VirtualTvPlugin/><PairwisePlugin/>{artworkOpen&&<ArtworkPopup onClose={onClose}/>}</div>;
 }
 
 export function ArtworkPopup(props:{onClose:()=>void}){

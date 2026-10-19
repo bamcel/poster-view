@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 pub mod collections;
 pub mod jobs;
+pub mod pairwise;
 mod seasons;
 pub mod users;
 pub use seasons::{EpisodeDetail, SeasonDetail};

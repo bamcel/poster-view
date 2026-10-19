@@ -10,6 +10,8 @@ import AuthGate from "./AuthGate";
 import Layout from "./Layout";
 import { api } from "../api/client";
 import {virtualTv} from "../features/virtual-tv/client";
+import {pairwise} from "../features/pairwise/client";
+vi.mock("../features/pairwise/client",()=>({pairwise:{settings:vi.fn(async()=>({enabled:false}))}}));
 vi.mock("../features/virtual-tv/client",()=>({virtualTv:{settings:vi.fn(async()=>({enabled:false}))}}));
 
 vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{list:vi.fn(async()=>[])}}));
@@ -19,6 +21,15 @@ function render(node:ReactNode){return rtlRender(<QueryClientProvider client={ne
 vi.mock("../api/client", () => ({ api: { authStatus: vi.fn() } }));
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [], selectedId: 7, setSelectedId: vi.fn() }) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); sessionStorage.clear();localStorage.clear(); });
+
+it.each([true,false])("shows PairWise Ranking navigation only when enabled (%s)",async(enabled)=>{
+ vi.mocked(pairwise.settings).mockResolvedValue({enabled});
+ vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
+ render(<MemoryRouter initialEntries={["/rankings"]}><AuthGate><Layout><HeaderSearchControl><input aria-label="Search ranking titles"/></HeaderSearchControl></Layout></AuthGate></MemoryRouter>);
+ await waitFor(()=>expect(screen.queryAllByRole("link",{name:"PairWise Ranking"}).length).toBe(enabled?2:0));
+ expect(await screen.findByLabelText("Search ranking titles")).toBeTruthy();
+ vi.mocked(pairwise.settings).mockResolvedValue({enabled:false});
+});
 
 it.each([true,false])("shows the Virtual TV sidebar page only when enabled (%s)",async(enabled)=>{
  vi.mocked(virtualTv.settings).mockResolvedValue({enabled});

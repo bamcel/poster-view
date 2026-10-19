@@ -12,12 +12,13 @@ import {resetHomeNavigation} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
 import {useArtworkPlugin} from "../lib/artworkPlugin";
 import {virtualTv} from "../features/virtual-tv/client";
+import {pairwise} from "../features/pairwise/client";
 import {useQuery,useQueryClient} from "@tanstack/react-query";
 import {nativeLibraries} from "../api/nativeLibraries";
 // App chrome: contextual media/settings navigation and account controls.
 
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { LibraryBig, ArrowLeft, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, } from "lucide-react";
+import { Scale, LibraryBig, ArrowLeft, Home, Film, BookOpen, Tv, LogOut, Settings, UserRound, } from "lucide-react";
 import { Logo } from "./ui";
 import { api } from "../api/client";
 import { lazy, Suspense, useContext, useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
@@ -33,7 +34,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   const [searchTarget,setSearchTarget]=useState<HTMLDivElement|null>(null);
   const [headerBackdrop,setHeaderBackdrop]=useState<string|null>(null);
   const libraryBack=/^\/media\//.test(preview?previewPath:location.pathname)||/^\/server\/[^/]+\/(item|series)\//.test(preview?previewPath:location.pathname)||/^\/collections\/[^/]+/.test(preview?previewPath:location.pathname);
-  const collectionsSearch=!preview&&location.pathname==="/collections";
+  const collectionsSearch=!preview&&(location.pathname==="/collections"||location.pathname==="/rankings");
   const homeSearch=!preview&&location.pathname==="/"&&!new URLSearchParams(location.search).has("lib")&&!new URLSearchParams(location.search).has("native_library");
   const preferencesMenu=useRef<HTMLDetailsElement>(null);
   const profilePanel=useRef<HTMLDivElement>(null);
@@ -49,6 +50,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
     return()=>{document.removeEventListener("pointerdown",close);window.removeEventListener("keydown",escape);window.removeEventListener("resize",reposition);};
   },[]);
   const artworkPlugin=useArtworkPlugin();
+  const pairwiseSettings=useQuery({queryKey:["pairwise-settings"],queryFn:pairwise.settings,enabled:!preview});
   const virtualTvSettings=useQuery({queryKey:["virtual-tv-settings"],queryFn:virtualTv.settings,enabled:!preview});
   const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,enabled:true});
   const prefetchCatalog=useCatalogPrefetch();
@@ -145,6 +147,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           {<><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Media</h2>{libraries.data?.map(library=>{const Icon=library.library_type==="books"?BookOpen:library.library_type==="movies"?Film:Tv;return <NavLink key={library.id} onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={preview ? `/media/${encodeURIComponent(library.id)}` : libraryPath(library,libraries.data??[])} className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${(preview ? previewPath === `/media/${encodeURIComponent(library.id)}` : isActive) ? "bg-elevated text-white shadow-[inset_3px_0_0_var(--color-sidebar-accent)]" : "text-muted hover:bg-input-hover hover:text-white"}`}><Icon className="size-[18px]"/><span className="truncate">{library.name}</span></NavLink>;})}</>}
           {!preview&&<NavLink to="/collections" className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${isActive?"bg-elevated text-white":"text-muted hover:bg-input-hover hover:text-white"}`}><LibraryBig className="size-[18px]"/>Collections</NavLink>}
           {!preview&&virtualTvSettings.data?.enabled&&<NavLink to="/virtual-tv" className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${isActive?"bg-elevated text-white":"text-muted hover:bg-input-hover hover:text-white"}`}><Tv className="size-[18px]"/>Virtual TV</NavLink>}
+          {!preview&&pairwiseSettings.data?.enabled&&<NavLink to="/rankings" className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${isActive?"bg-elevated text-white":"text-muted hover:bg-input-hover hover:text-white"}`}><Scale className="size-[18px]"/>PairWise Ranking</NavLink>}
           </>}
 
           {settingsOpen && <SettingsNavigation admin={isAdmin} pinned={!!artworkPlugin.data?.pinned} previewPath={preview?previewPath:undefined}/>}
@@ -204,6 +207,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
       {!preview && settingsOpen && <div className="shrink-0 border-b border-border bg-sidebar px-4 py-2 md:hidden"><label className="flex items-center gap-3 text-sm text-muted">Settings<select aria-label="Settings page" value={location.pathname.split("/")[2]??""} onChange={event=>{if(confirmUnsavedSettings())void previewNavigate(settingsPagePath(event.target.value));else event.target.value=location.pathname.split("/")[2]??"";}} className="min-w-0 flex-1 rounded-lg border border-border bg-input px-3 py-2 text-white">{[...new Set(visibleSettingsPages(isAdmin,!!artworkPlugin.data?.pinned).map(page=>page.group))].map(group=><optgroup key={group} label={group}>{visibleSettingsPages(isAdmin,!!artworkPlugin.data?.pinned).filter(page=>page.group===group).map(page=><option key={page.id} value={page.id}>{page.title}</option>)}</optgroup>)}</select></label></div>}
 
       {!preview&&!settingsOpen&&virtualTvSettings.data?.enabled&&<NavLink to="/virtual-tv" className="flex shrink-0 items-center gap-2 bg-sidebar px-4 py-2 text-sm md:hidden"><Tv className="size-4"/>Virtual TV</NavLink>}
+      {!preview&&!settingsOpen&&pairwiseSettings.data?.enabled&&<NavLink to="/rankings" className="flex shrink-0 items-center gap-2 bg-sidebar px-4 py-2 text-sm md:hidden"><Scale className="size-4"/>PairWise Ranking</NavLink>}
       <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
         <HeaderBackdropContext.Provider value={setHeaderBackdrop}><HeaderSearchTarget.Provider value={homeSearch||libraryBack||collectionsSearch?searchTarget:null}><LibraryHeaderBackContext.Provider value={libraryBack}>{children ?? <Outlet />}</LibraryHeaderBackContext.Provider></HeaderSearchTarget.Provider></HeaderBackdropContext.Provider>
       </main>

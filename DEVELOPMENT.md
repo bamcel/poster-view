@@ -351,6 +351,19 @@ and watch controls. `native_scan.rs` reads the YouTube NFO extension. YouTube
 libraries skip TV-provider enrichment and missing-episode generation. See
 [setup, metadata, and runtime requirements](docs/ytdl.md).
 
+## PairWise Ranking
+
+`apps/server/src/pairwise.rs` owns authenticated, per-account library rankings;
+its `model.rs` contains the regularized Davidson fit and adaptive pair selection.
+`posterview-contracts::pairwise` is the wire/storage contract and SQLite migration
+7 stores optimistic-revision boards through the shared write coordinator.
+The feature filters native summary projections by current library and parental
+permissions before scoring or choosing pairs. Settings writes require an admin;
+ranking actions are personal user operations, explicitly allowed by the central
+access policy. `frontend/src/features/pairwise/` owns the plugin and `/rankings`
+page, using shared cards, toolbar search, switches, and popups.
+See [PairWise Ranking](docs/pairwise.md) for scoring and storage limits.
+
 ## Native Collections
 
 Curated collections live independently of scan-owned catalog hierarchy. Shared DTOs

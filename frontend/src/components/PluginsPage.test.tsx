@@ -9,6 +9,7 @@ vi.mock("./AniDBPlugin", () => ({ default: () => <button>AniDB</button> }));
 vi.mock("./OmdbPlugin", () => ({ default: () => <button>The Open Movie Database</button> }));
 vi.mock("../features/settings/ytdl/YtdlPlugin",()=>({default:()=> <button>YTDL</button>}));
 vi.mock("../features/virtual-tv/VirtualTvPlugin",()=>({default:()=> <button>Virtual TV</button>}));
+vi.mock("../features/pairwise/PairwisePlugin",()=>({default:()=> <button>PairWise Ranking</button>}));
 
 afterEach(cleanup);
 
@@ -23,6 +24,7 @@ it("shows retained plugins without requesting the retired Google Books configura
     expect(screen.getByRole("button", { name: "The Open Movie Database" })).toBeTruthy();
     expect(screen.getByRole("button",{name:"YTDL"})).toBeTruthy();
     expect(screen.getByRole("button",{name:"Virtual TV"})).toBeTruthy();
+    expect(screen.getByRole("button",{name:"PairWise Ranking"})).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
   } finally {
     vi.unstubAllGlobals();
