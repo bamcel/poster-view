@@ -336,7 +336,12 @@ and unrelated changes; repository guidance alone is not shipping permission.
 ## YTDL and YouTube libraries
 
 `apps/server/src/ytdl/` owns downloader commands, NFO metadata, settings and the
-persistent serial queue. The central router enforces administrator-only plugin
+persistent job queue. One job runs at a time; video download jobs use two workers
+within that job. Shared channel metadata and readable folder reservations remain
+serialized, while transfers and per-video processing can overlap. Aggregate
+progress counts completed videos independently of playlist order and sums fresh
+transfer speeds. Metadata-only refresh jobs retain their sequential flow.
+The central router enforces administrator-only plugin
 access. Jobs/settings use encrypted application settings in `posterview.db`.
 Native migration 3 extends library types without changing existing catalog IDs.
 

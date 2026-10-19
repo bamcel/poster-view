@@ -5,6 +5,8 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     process::Command,
 };
+mod batch;
+
 static INSPECTIONS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 pub(super) fn valid_id(id: &str) -> bool {
     !id.is_empty()
@@ -711,7 +713,11 @@ async fn persist_progress(
     encoding: &EncodingProgress,
     duration: Option<Option<f64>>,
     download: Option<&Value>,
+    video: Option<&batch::VideoProgress>,
 ) -> Result<(), HttpError> {
+    if let Some(video) = video {
+        return video.record(state, id, encoding, duration, download).await;
+    }
     let guard = state.ytdl_lock.clone().lock_owned().await;
     let state = state.clone();
     let id = id.to_owned();
@@ -758,13 +764,32 @@ async fn persist_progress(
     .map_err(err)?
 }
 
+#[cfg(test)]
 async fn cancellable(
+    state: &AppState,
+    job: &Job,
+    command: Command,
+    encoding_duration: Option<Option<f64>>,
+) -> Result<(), HttpError> {
+    cancellable_video(state, job, command, encoding_duration, None).await
+}
+
+// Spawned pipe readers must not outlive an aborted video worker.
+struct AbortReader(tokio::task::AbortHandle);
+impl Drop for AbortReader {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+async fn cancellable_video(
     state: &AppState,
     job: &Job,
     mut command: Command,
     encoding_duration: Option<Option<f64>>,
+    video: Option<&batch::VideoProgress>,
 ) -> Result<(), HttpError> {
-    if encoding_duration.is_some() {
+    if encoding_duration.is_some() && video.is_none() {
         let _lock = state.ytdl_lock.lock().await;
         let mut jobs = super::load::<Vec<Job>>(state, "plugin-ytdl-jobs")?;
         if let Some(saved) = jobs
@@ -791,9 +816,11 @@ async fn cancellable(
             Vec::new()
         }
     });
+    let _stderr_guard = AbortReader(reader.abort_handle());
     let progress_state = state.clone();
     let id = job.id.clone();
     let stdout = child.stdout.take();
+    let progress_video = video.cloned();
     let mut progress_reader = Some(tokio::spawn(async move {
         if let Some(stdout) = stdout {
             let mut lines = BufReader::new(stdout).lines();
@@ -823,6 +850,7 @@ async fn cancellable(
                         &encoding,
                         encoding_duration,
                         latest_download.as_ref(),
+                        progress_video.as_ref(),
                     )
                     .await?;
                     last_flush = Some(now);
@@ -838,12 +866,14 @@ async fn cancellable(
                     &encoding,
                     encoding_duration,
                     latest_download.as_ref(),
+                    progress_video.as_ref(),
                 )
                 .await?;
             }
         }
         Ok::<_, HttpError>(())
     }));
+    let _stdout_guard = AbortReader(progress_reader.as_ref().unwrap().abort_handle());
     let deadline = tokio::time::Instant::now() + Duration::from_secs(24 * 3600);
     loop {
         if progress_reader
@@ -879,7 +909,7 @@ async fn cancellable(
                 reader.await.map_err(err)??;
             }
             if status.success() {
-                if encoding_duration.is_some() {
+                if encoding_duration.is_some() && video.is_none() {
                     // Some FFmpeg versions report the last frame's start time,
                     // not the full duration. A successful exit is authoritative.
                     let _lock = state.ytdl_lock.lock().await;
@@ -949,9 +979,6 @@ async fn run_inspection(
     } else {
         std::collections::HashSet::new()
     };
-    let mut encoder_validated = false;
-    let mut channel_metadata = std::collections::HashMap::new();
-    let mut channel_artwork = std::collections::HashSet::new();
     {
         let _lock = state.ytdl_lock.lock().await;
         let mut jobs = super::load::<Vec<Job>>(state, "plugin-ytdl-jobs")?;
@@ -977,53 +1004,112 @@ async fn run_inspection(
     let stage_root = state.runtime.data_dir().join("ytdl");
     std::fs::create_dir_all(&stage_root).map_err(err)?;
 
-    for (index, e) in selected.iter().enumerate() {
-        if cancelled(state, &job.id).await {
-            return Err(err("Download cancelled."));
+    let context = DownloadBatch {
+        state,
+        job,
+        destination,
+        existing_ids,
+        metadata_ids: &metadata_ids,
+        inspection,
+        stage_root,
+        setup: Default::default(),
+        progress: batch::Batch::new(selected.len()),
+    };
+    let entries = selected.into_iter().cloned().collect::<Vec<_>>();
+    two_at_a_time(&entries, |entry| run_video(&context, entry)).await?;
+    if cancelled(state, &job.id).await {
+        return Err(err("Download cancelled."));
+    }
+    super::finish(state, &job.id).await
+}
+
+#[derive(Default)]
+struct BatchSetup {
+    encoder_validated: bool,
+    channel_metadata: std::collections::HashMap<String, Value>,
+    channel_artwork: std::collections::HashSet<String>,
+}
+struct DownloadBatch<'a> {
+    state: &'a AppState,
+    job: &'a Job,
+    destination: &'a Path,
+    existing_ids: &'a std::collections::HashSet<String>,
+    metadata_ids: &'a std::collections::HashSet<String>,
+    inspection: &'a Value,
+    stage_root: std::path::PathBuf,
+    setup: tokio::sync::Mutex<BatchSetup>,
+    progress: batch::Batch,
+}
+
+// Exactly two workers pull from the same queue. Fatal errors drop the sibling
+// future (including its process-tree and reader guards) before returning.
+async fn two_at_a_time<T: Clone, F, Fut>(entries: &[T], run: F) -> Result<(), HttpError>
+where
+    F: Fn(T) -> Fut,
+    Fut: std::future::Future<Output = Result<(), HttpError>>,
+{
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let worker = || async {
+        loop {
+            let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let Some(entry) = entries.get(index) else {
+                return Ok::<(), HttpError>(());
+            };
+            run(entry.clone()).await?;
         }
-        let id = text(e, "id");
-        if !valid_id(&id) {
-            return Err(err("Invalid video identity."));
-        }
-        if existing_ids.contains(&id) || metadata_ids.contains(&id) {
-            super::outcome(state, &job.id, e, Ok(super::Outcome::Existing)).await?;
-            video_progress(state, &job.id, selected.len(), index + 1, None).await?;
-            continue;
-        }
-        let url = format!("https://www.youtube.com/watch?v={id}");
-        video_progress(
-            state,
-            &job.id,
-            selected.len(),
-            index,
-            Some(text(e, "title")),
-        )
+    };
+    tokio::try_join!(worker(), worker())?;
+    Ok(())
+}
+
+async fn run_video(context: &DownloadBatch<'_>, entry: Value) -> Result<(), HttpError> {
+    let DownloadBatch {
+        state,
+        job,
+        destination,
+        existing_ids,
+        metadata_ids,
+        inspection,
+        ..
+    } = context;
+    let (state, job, destination, inspection) = (*state, *job, *destination, *inspection);
+    let e = &entry;
+    if cancelled(state, &job.id).await {
+        return Err(err("Download cancelled."));
+    }
+    let id = text(e, "id");
+    if !valid_id(&id) {
+        return Err(err("Invalid video identity."));
+    }
+    let progress = context
+        .progress
+        .start(state, job, &id, text(e, "title"))
         .await?;
-        let result: Result<super::Outcome, HttpError> = async {
+    if existing_ids.contains(&id) || metadata_ids.contains(&id) {
+        super::outcome(state, &job.id, e, Ok(super::Outcome::Existing)).await?;
+        return context.progress.complete(state, job, &id).await;
+    }
+    let url = format!("https://www.youtube.com/watch?v={id}");
+    let result: Result<super::Outcome, HttpError> = async {
             let info = job_raw_inspect(state, job, &url).await?;
-            video_progress(
-                state,
-                &job.id,
-                selected.len(),
-                index,
-                Some(text(&info, "title")),
-            )
-            .await?;
+            progress.title(state, job, text(&info, "title")).await?;
+            let mut setup = context.setup.lock().await;
             let channel = text(&info, "channel_id");
             if !valid_id(&channel) {
                 return Err(err("Video has no stable channel ID."));
             }
-            if !channel_metadata.contains_key(&channel) {
+            if !setup.channel_metadata.contains_key(&channel) {
                 let data = job_raw_inspect(
                     state,
                     job,
                     &format!("https://www.youtube.com/channel/{channel}/playlists"),
                 )
                 .await?;
-                channel_metadata.insert(channel.clone(), data);
+                setup.channel_metadata.insert(channel.clone(), data);
             }
-            let channel_info = channel_metadata
+            let channel_info = setup.channel_metadata
                 .get(&channel)
+                .cloned()
                 .ok_or_else(|| err("Channel metadata unavailable."))?;
             let (channel_folder, video_folder) = super::naming::folder_names(
                 destination,
@@ -1057,8 +1143,8 @@ async fn run_inspection(
                 }
             );
             let target = state.metadata.directory(&relative, false)?;
-            if channel_artwork.insert(channel.clone()) {
-                super::artwork::download(target.parent().ok_or_else(|| err("Missing channel directory."))?, channel_info).await?;
+            if setup.channel_artwork.insert(channel.clone()) {
+                super::artwork::download(target.parent().ok_or_else(|| err("Missing channel directory."))?, &channel_info).await?;
             }
             let existing = super::naming::existing_media(&target)?;
             let preserve_metadata = job.settings.skip_existing_metadata
@@ -1076,10 +1162,10 @@ async fn run_inspection(
             // Reserve stable identities before staging so retries reuse readable folders
             // even if titles change or a previous download did not finish publishing.
             if !preserve_metadata {
-                super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
+                super::nfo::write_named(&target, &stem, &info, e, inspection, &channel_info)?;
             }
             if existing.is_none() {
-                if !encoder_validated && job.settings.convert && job.settings.hardware_backend != "cpu"
+                if !setup.encoder_validated && job.settings.convert && job.settings.hardware_backend != "cpu"
                 {
                     crate::playback::validate_download_encoder(
                         state,
@@ -1087,8 +1173,9 @@ async fn run_inspection(
                         &job.settings.hardware_backend,
                     )
                     .await?;
-                    encoder_validated = true;
+                    setup.encoder_validated = true;
                 }
+                drop(setup);
                 let mut download_settings = job.settings.clone();
                 match choose_quality(&job.settings, &info) {
                     QualityChoice::Legacy => {}
@@ -1098,15 +1185,8 @@ async fn run_inspection(
                         return Ok(super::Outcome::Skipped);
                     }
                 }
-                let stage = tempfile::tempdir_in(&stage_root).map_err(err)?;
-                update(
-                    state,
-                    &job.id,
-                    "downloading",
-                    None,
-                    Some(index as f64 / selected.len() as f64 * 100.0),
-                )
-                .await?;
+                let stage = tempfile::tempdir_in(&context.stage_root).map_err(err)?;
+                progress.phase(state, job, "downloading").await?;
                 let template = stage.path().join(format!("{id}.%(ext)s"));
                 let download_container = if job.settings.convert {
                     "mkv"
@@ -1157,7 +1237,7 @@ async fn run_inspection(
                         command.arg("--embed-chapters");
                     }
                     command.args(["--", &url]);
-                    match cancellable(state, job, command, None).await {
+                    match cancellable_video(state, job, command, None, Some(&progress)).await {
                         Ok(()) => break,
                         Err(error) if cookies.is_some() => {
                             return Err(err(super::cookies::redact(&error.detail)));
@@ -1185,13 +1265,13 @@ async fn run_inspection(
                 }
                 let source = stage.path().join(format!("{id}.{download_container}"));
                 let source = if job.settings.convert {
-                    update(state, &job.id, "processing", None, None).await?;
+                    progress.phase(state, job, "processing").await?;
                     let converted = stage
                         .path()
                         .join(format!("converted.{}", job.settings.container));
                     let mut ff = Command::new("ffmpeg");
                     ff.args(conversion_args(&job.settings, &source, &converted));
-                    cancellable(state, job, ff, Some(info["duration"].as_f64())).await?;
+                    cancellable_video(state, job, ff, Some(info["duration"].as_f64()), Some(&progress)).await?;
                     converted
                 } else {
                     source
@@ -1208,16 +1288,20 @@ async fn run_inspection(
                     }
                 }
                 if !preserve_metadata {
-                    super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
+                    let _setup = context.setup.lock().await;
+                    super::nfo::write_named(&target, &stem, &info, e, inspection, &channel_info)?;
                 }
                 if cancelled(state, &job.id).await {
                     return Err(err("Download cancelled."));
                 }
                 publish_with_modified(&source, &media, upload_modified_time(&info))?;
+            } else {
+                drop(setup);
             }
 
             if !preserve_metadata {
-                super::nfo::write_named(&target, &stem, &info, e, inspection, channel_info)?;
+                let _setup = context.setup.lock().await;
+                super::nfo::write_named(&target, &stem, &info, e, inspection, &channel_info)?;
             }
             if existing.is_none() {
                 set_video_folder_modified(&target, upload_modified_time(&info))?;
@@ -1225,13 +1309,11 @@ async fn run_inspection(
             Ok(if existing.is_some() { super::Outcome::Updated } else { super::Outcome::Downloaded })
         }
         .await;
-        match result {
-            Err(error) if !upstream_failure(&error.detail) => return Err(error),
-            result => super::outcome(state, &job.id, e, result).await?,
-        }
-        video_progress(state, &job.id, selected.len(), index + 1, None).await?;
+    match result {
+        Err(error) if !upstream_failure(&error.detail) => return Err(error),
+        result => super::outcome(state, &job.id, e, result).await?,
     }
-    super::finish(state, &job.id).await
+    context.progress.complete(state, job, &id).await
 }
 pub(super) fn upstream_failure(detail: &str) -> bool {
     let lower = detail.to_ascii_lowercase();
@@ -1423,6 +1505,199 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn video_queue_overlaps_two_workers_without_starting_a_third() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let active = AtomicUsize::new(0);
+        let peak = AtomicUsize::new(0);
+        let started = AtomicUsize::new(0);
+        let ready = tokio::sync::Barrier::new(3);
+        let release = tokio::sync::Semaphore::new(0);
+        let queue = two_at_a_time(&[0, 1, 2, 3], |index| {
+            let (active, peak, started, ready, release) =
+                (&active, &peak, &started, &ready, &release);
+            async move {
+                started.fetch_add(1, Ordering::SeqCst);
+                peak.fetch_max(active.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+                if index < 2 {
+                    ready.wait().await;
+                    release.acquire().await.unwrap().forget();
+                }
+                active.fetch_sub(1, Ordering::SeqCst);
+                Ok(())
+            }
+        });
+        let observe = async {
+            ready.wait().await;
+            assert_eq!(started.load(Ordering::SeqCst), 2);
+            assert_eq!(active.load(Ordering::SeqCst), 2);
+            release.add_permits(2);
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let (result, ()) = tokio::join!(queue, observe);
+            result.unwrap();
+        })
+        .await
+        .unwrap();
+        assert_eq!(peak.load(Ordering::SeqCst), 2);
+        assert_eq!(started.load(Ordering::SeqCst), 4);
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn fatal_video_error_drops_sibling_and_stops_queued_admission() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Active<'a>(&'a AtomicUsize);
+        impl Drop for Active<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        let active = AtomicUsize::new(0);
+        let started = AtomicUsize::new(0);
+        let ready = tokio::sync::Barrier::new(2);
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            two_at_a_time(&[0, 1, 2], |index| {
+                let (active, started, ready) = (&active, &started, &ready);
+                async move {
+                    started.fetch_add(1, Ordering::SeqCst);
+                    active.fetch_add(1, Ordering::SeqCst);
+                    let _active = Active(active);
+                    ready.wait().await;
+                    if index == 0 {
+                        Err(err("No space left on device"))
+                    } else {
+                        std::future::pending().await
+                    }
+                }
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.unwrap_err().detail, "No space left on device");
+        assert_eq!(started.load(Ordering::SeqCst), 2);
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+    }
+
+    fn delayed_fixture(ready: &Path, late: &Path) -> Command {
+        #[cfg(windows)]
+        {
+            let quote = |path: &Path| path.to_string_lossy().replace('\'', "''");
+            let mut command = Command::new("powershell.exe");
+            command.args(["-NoProfile", "-NonInteractive", "-Command", &format!(
+                "Set-Content -LiteralPath '{}' -Value ready; Start-Sleep -Seconds 3; Set-Content -LiteralPath '{}' -Value late",
+                quote(ready), quote(late)
+            )]);
+            command
+        }
+        #[cfg(not(windows))]
+        {
+            let mut command = Command::new("sh");
+            command.args([
+                "-c",
+                "printf ready > \"$1\"; sleep 3; printf late > \"$2\"",
+                "fixture",
+            ]);
+            command.arg(ready).arg(late);
+            command
+        }
+    }
+
+    #[tokio::test]
+    async fn cancellation_stops_both_active_video_processes() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let mut job = progress_fixture();
+        job.status = "downloading".into();
+        super::super::save(&state, "plugin-ytdl-jobs", &vec![job.clone()]).unwrap();
+        let batch = batch::Batch::new(2);
+        let first = batch
+            .start(&state, &job, "first", "First".into())
+            .await
+            .unwrap();
+        let second = batch
+            .start(&state, &job, "second", "Second".into())
+            .await
+            .unwrap();
+        let ready = [temp.path().join("ready-a"), temp.path().join("ready-b")];
+        let late = [temp.path().join("late-a"), temp.path().join("late-b")];
+        let cancel = async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while !ready.iter().all(|path| path.exists()) {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .unwrap();
+            super::super::update(&state, &job.id, "cancelled", None, None)
+                .await
+                .unwrap();
+        };
+        let (a, b, ()) = tokio::join!(
+            cancellable_video(
+                &state,
+                &job,
+                delayed_fixture(&ready[0], &late[0]),
+                None,
+                Some(&first)
+            ),
+            cancellable_video(
+                &state,
+                &job,
+                delayed_fixture(&ready[1], &late[1]),
+                None,
+                Some(&second)
+            ),
+            cancel,
+        );
+        assert!(a.is_err() && b.is_err());
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert!(
+            late.iter().all(|path| !path.exists()),
+            "cancelled subprocesses must not keep running"
+        );
+        assert_eq!(
+            super::super::load::<Vec<Job>>(&state, "plugin-ytdl-jobs").unwrap()[0].status,
+            "cancelled"
+        );
+    }
+
+    #[tokio::test]
+    async fn fatal_error_stops_an_already_running_sibling_process() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let mut job = progress_fixture();
+        job.status = "downloading".into();
+        super::super::save(&state, "plugin-ytdl-jobs", &vec![job.clone()]).unwrap();
+        let ready = temp.path().join("ready");
+        let late = temp.path().join("late");
+        let result = tokio::time::timeout(
+            Duration::from_secs(10),
+            two_at_a_time(&[0, 1], |index| {
+                let (state, job, ready, late) = (&state, &job, &ready, &late);
+                async move {
+                    if index == 0 {
+                        while !ready.exists() {
+                            tokio::time::sleep(Duration::from_millis(20)).await;
+                        }
+                        Err(err("No space left on device"))
+                    } else {
+                        cancellable(state, job, delayed_fixture(ready, late), None).await
+                    }
+                }
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.unwrap_err().detail, "No space left on device");
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert!(
+            !late.exists(),
+            "fatal sibling failure must stop the active child"
+        );
+    }
+
+    #[tokio::test]
     async fn skip_existing_bypasses_per_video_inspection_quality_and_encoding() {
         let temp = tempfile::tempdir().unwrap();
         let state = crate::test_support::state(temp.path());
@@ -1568,6 +1843,7 @@ mod tests {
             &EncodingProgress::default(),
             None,
             Some(&sample),
+            None,
         )
         .await
         .unwrap();
@@ -1581,6 +1857,7 @@ mod tests {
             &EncodingProgress::default(),
             None,
             Some(&sample),
+            None,
         )
         .await
         .unwrap();
@@ -1606,7 +1883,8 @@ mod tests {
                 "fixture",
                 &EncodingProgress::default(),
                 None,
-                Some(&json!({}))
+                Some(&json!({})),
+                None,
             )
             .await
             .is_err()

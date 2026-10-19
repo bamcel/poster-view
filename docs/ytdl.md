@@ -70,7 +70,11 @@ Container access changes take effect after a container recreation; let active
 downloads finish before applying them. NVIDIA RTX 3050 supports H.264/HEVC
 encoding, while supported codecs always depend on the GPU and FFmpeg build.
 
-The queue runs one job at a time and persists independently of the catalog in
+The queue runs one job at a time, with up to two videos downloading concurrently
+inside a video-download job. Metadata-only refresh remains sequential. Cancelling
+or removing the job stops both workers and keeps completed media. Shared channel
+metadata and folder naming remain serialized to avoid collisions.
+The queue persists independently of the catalog in
 `ytdl-jobs.json` under the application data directory. Existing SQLite queue
 history is migrated automatically on first access. Atomic file replacement keeps
 progress updates independent of SQLite write locks. It persists job settings, status, progress,
@@ -80,10 +84,12 @@ restart marks active jobs Interrupted and leaves queued jobs queued. Retry is
 explicit; staging for interrupted work is not guaranteed resumable.
 
 The queue, settings sidebar, and settings dashboard show playlist counts and
-overall progress. During conversion they also show the current video's encoding
-percentage, encoded time, frame rate, speed, and estimated remaining encoding
-time. If duration is unavailable, live encoder activity is shown without an
-estimated percentage. Minimize closes the popup without stopping work.
+overall progress and combined download speed. Video counts update as each video
+finishes, regardless of playlist order. During conversion they show encoding
+progress; active encoders' percentages are averaged. Individual-video ETA is
+shown only when one video is active. If duration is unavailable, live encoder
+activity is shown without an estimated percentage. Minimize closes the popup
+without stopping work.
 Removing a queue card stops that job without deleting downloaded files. Finished
 job history expires after seven days; queued and active jobs are retained.
 
