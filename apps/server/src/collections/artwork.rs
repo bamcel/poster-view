@@ -21,9 +21,6 @@ pub(crate) async fn apply_panel_artwork(
     kind: ImageTarget,
     bytes: Option<Vec<u8>>,
 ) -> Result<ApplyResult, HttpError> {
-    if !crate::plugins::artwork_enabled(&state) {
-        return Err(HttpError::bad_request("Artwork plugin is disabled."));
-    }
     let field = match kind {
         ImageTarget::Poster => "poster",
         ImageTarget::Background => "backdrop",

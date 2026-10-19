@@ -8,6 +8,7 @@ use tower_http::{
 };
 
 mod access;
+mod artwork_preferences;
 mod auth;
 mod collections;
 mod config;
@@ -33,7 +34,6 @@ mod native_provider_extra;
 mod native_scan;
 mod pairwise;
 mod playback;
-mod plugins;
 mod reader;
 mod routes;
 mod scheduled_tasks;

@@ -321,6 +321,12 @@ async fn artwork_is_collection_owned_locked_and_validated() {
     image::DynamicImage::new_rgb8(8, 12)
         .write_to(&mut image, image::ImageFormat::Png)
         .unwrap();
+    ServerStore::new(state.runtime.data_dir())
+        .set_setting(
+            "plugin-artwork",
+            r#"{"enabled":false,"pinned":true,"poster_edit":true,"backdrop_edit":true}"#,
+        )
+        .unwrap();
     super::apply_panel_artwork(
         state.clone(),
         target.clone(),

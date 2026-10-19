@@ -1,14 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { api } from "../api/client";
-import type { ItemDetail } from "../types";
+import { api } from "../../api/client";
+import type { ItemDetail } from "../../types";
 import RemoveArtwork from "./RemoveArtwork";
 
 const push = vi.fn();
 
-vi.mock("../api/client", () => ({ api: { removeArtwork: vi.fn() } }));
-vi.mock("../lib/toast", () => ({ useToast: () => ({ push }) }));
+vi.mock("../../api/client", () => ({ api: { removeArtwork: vi.fn() } }));
+vi.mock("../../lib/toast", () => ({ useToast: () => ({ push }) }));
 
 const item: ItemDetail = {
   id: "series",

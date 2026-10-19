@@ -805,7 +805,7 @@ pub(crate) async fn enrich(
         BTreeMap::new()
     };
     let mut configured = library.clone();
-    if !crate::plugins::artwork_enabled(state) {
+    if !crate::artwork_preferences::artwork_enabled(state) {
         configured.options.image_types.clear();
     }
     let library = &configured;

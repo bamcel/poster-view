@@ -10,7 +10,6 @@ import {HeaderSearchTarget} from "../lib/headerSearch";
 import {openDownloadsEvent} from "../features/settings/ytdl/DownloadStatus";
 import {resetHomeNavigation} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
-import {useArtworkPlugin} from "../lib/artworkPlugin";
 import {virtualTv} from "../features/virtual-tv/client";
 import {pairwise} from "../features/pairwise/client";
 import {useQuery,useQueryClient} from "@tanstack/react-query";
@@ -49,7 +48,6 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
     window.addEventListener("resize",reposition);
     return()=>{document.removeEventListener("pointerdown",close);window.removeEventListener("keydown",escape);window.removeEventListener("resize",reposition);};
   },[]);
-  const artworkPlugin=useArtworkPlugin();
   const pairwiseSettings=useQuery({queryKey:["pairwise-settings"],queryFn:pairwise.settings,enabled:!preview});
   const virtualTvSettings=useQuery({queryKey:["virtual-tv-settings"],queryFn:virtualTv.settings,enabled:!preview});
   const libraries=useQuery({queryKey:["native-libraries"],queryFn:nativeLibraries.list,enabled:true});
@@ -150,7 +148,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           {!preview&&pairwiseSettings.data?.enabled&&<NavLink to="/rankings" className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${isActive?"bg-elevated text-white":"text-muted hover:bg-input-hover hover:text-white"}`}><Scale className="size-[18px]"/>PairWise Ranking</NavLink>}
           </>}
 
-          {settingsOpen && <SettingsNavigation admin={isAdmin} pinned={!!artworkPlugin.data?.pinned} previewPath={preview?previewPath:undefined}/>}
+          {settingsOpen && <SettingsNavigation admin={isAdmin} previewPath={preview?previewPath:undefined}/>}
 
         </nav>
 
@@ -204,7 +202,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
         </div>
       </header>
       {!preview && !settingsOpen && <details className="shrink-0 bg-sidebar px-4 py-2 md:hidden"><summary className="text-sm text-muted">Media</summary><nav className="flex flex-col gap-2 py-3">{libraries.data?.map(library=><NavLink key={library.id} onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={preview ? `/media/${encodeURIComponent(library.id)}` : libraryPath(library,libraries.data??[])} className="rounded-md bg-elevated px-3 py-2 text-sm">{library.name}</NavLink>)}</nav></details>}
-      {!preview && settingsOpen && <div className="shrink-0 border-b border-border bg-sidebar px-4 py-2 md:hidden"><label className="flex items-center gap-3 text-sm text-muted">Settings<select aria-label="Settings page" value={location.pathname.split("/")[2]??""} onChange={event=>{if(confirmUnsavedSettings())void previewNavigate(settingsPagePath(event.target.value));else event.target.value=location.pathname.split("/")[2]??"";}} className="min-w-0 flex-1 rounded-lg border border-border bg-input px-3 py-2 text-white">{[...new Set(visibleSettingsPages(isAdmin,!!artworkPlugin.data?.pinned).map(page=>page.group))].map(group=><optgroup key={group} label={group}>{visibleSettingsPages(isAdmin,!!artworkPlugin.data?.pinned).filter(page=>page.group===group).map(page=><option key={page.id} value={page.id}>{page.title}</option>)}</optgroup>)}</select></label></div>}
+      {!preview && settingsOpen && <div className="shrink-0 border-b border-border bg-sidebar px-4 py-2 md:hidden"><label className="flex items-center gap-3 text-sm text-muted">Settings<select aria-label="Settings page" value={location.pathname.split("/")[2]??""} onChange={event=>{if(confirmUnsavedSettings())void previewNavigate(settingsPagePath(event.target.value));else event.target.value=location.pathname.split("/")[2]??"";}} className="min-w-0 flex-1 rounded-lg border border-border bg-input px-3 py-2 text-white">{[...new Set(visibleSettingsPages(isAdmin).map(page=>page.group))].map(group=><optgroup key={group} label={group}>{visibleSettingsPages(isAdmin).filter(page=>page.group===group).map(page=><option key={page.id} value={page.id}>{page.title}</option>)}</optgroup>)}</select></label></div>}
 
       {!preview&&!settingsOpen&&virtualTvSettings.data?.enabled&&<NavLink to="/virtual-tv" className="flex shrink-0 items-center gap-2 bg-sidebar px-4 py-2 text-sm md:hidden"><Tv className="size-4"/>Virtual TV</NavLink>}
       {!preview&&!settingsOpen&&pairwiseSettings.data?.enabled&&<NavLink to="/rankings" className="flex shrink-0 items-center gap-2 bg-sidebar px-4 py-2 text-sm md:hidden"><Scale className="size-4"/>PairWise Ranking</NavLink>}

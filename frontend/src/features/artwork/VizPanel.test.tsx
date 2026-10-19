@@ -2,9 +2,9 @@ import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
 import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
 import {afterEach,expect,it,vi} from "vitest";
 import VizPanel from "./VizPanel";
-import {api} from "../api/client";
-vi.mock("../api/client",()=>({api:{getArtwork:vi.fn(),searchArtwork:vi.fn(),applyPoster:vi.fn()}}));
-vi.mock("../lib/toast",()=>({useToast:()=>({push:vi.fn()})}));
+import {api} from "../../api/client";
+vi.mock("../../api/client",()=>({api:{getArtwork:vi.fn(),searchArtwork:vi.fn(),applyPoster:vi.fn()}}));
+vi.mock("../../lib/toast",()=>({useToast:()=>({push:vi.fn()})}));
 afterEach(()=>{cleanup();localStorage.clear();vi.clearAllMocks();});
 it.each(["comicvine","viz"] as const)("applies %s covers to native book volumes and exposes custom volume targets",async database=>{
  const item={id:"native:books:series",title:"Example",type:"folder" as const,seasons:[],external_ids:{},members:[{id:"native:books:volume1",title:"Example Volume 01",type:"book" as const}]};

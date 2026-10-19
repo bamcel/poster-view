@@ -1,10 +1,10 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import PluginsPage,{ArtworkPopup} from "./PluginsPage";
+import PluginsPage from "./PluginsPage";
 import {AuthSessionContext} from "../lib/authContext";
 import type {AuthSession} from "../api/client";
 
-vi.mock("../lib/artworkPlugin", () => ({ useArtworkPlugin: () => ({ data: { enabled: true } }) }));
+vi.mock("../features/artwork/preferences", () => ({ useArtworkPreferences: () => ({ data: { enabled: true } }) }));
 vi.mock("./AniDBPlugin", () => ({ default: () => <button>AniDB</button> }));
 vi.mock("./OmdbPlugin", () => ({ default: () => <button>The Open Movie Database</button> }));
 vi.mock("../features/settings/ytdl/YtdlPlugin",()=>({default:()=> <button>YTDL</button>}));
@@ -17,9 +17,9 @@ it("shows retained plugins without requesting the retired Google Books configura
   const fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
   try {
-    render(<PluginsPage onClose={() => {}} onArtworkOpen={() => {}} />);
+    render(<PluginsPage />);
     expect(screen.queryByText("Google Books")).toBeNull();
-    expect(screen.getByText("Artwork")).toBeTruthy();
+    expect(screen.queryByText("Artwork")).toBeNull();
     expect(screen.getByRole("button", { name: "AniDB" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "The Open Movie Database" })).toBeTruthy();
     expect(screen.getByRole("button",{name:"YTDL"})).toBeTruthy();
@@ -33,7 +33,7 @@ it("shows retained plugins without requesting the retired Google Books configura
 
 it("hides plugin management and configuration from regular users",()=>{
  const viewer:AuthSession={authenticated:true,user:{id:"viewer",username:"viewer",display_name:"Viewer",role:"user",enabled:true,revision:1,created_at:"",permissions:{all_libraries:true,library_ids:[],max_movie_rating:null,max_tv_rating:null,allow_unrated:true}}};
- const {container}=render(<AuthSessionContext.Provider value={viewer}><PluginsPage onClose={()=>{}} onArtworkOpen={()=>{}} artworkOpen/><ArtworkPopup onClose={()=>{}}/></AuthSessionContext.Provider>);
+ const {container}=render(<AuthSessionContext.Provider value={viewer}><PluginsPage/></AuthSessionContext.Provider>);
  expect(container.textContent).toBe("");
  expect(screen.queryByRole("dialog",{name:"Artwork configuration"})).toBeNull();
 });

@@ -2,11 +2,11 @@ import {QueryClient, QueryClientProvider} from "@tanstack/react-query";
 import {cleanup, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {afterEach, expect, it, vi} from "vitest";
 import PosterEdit from "./PosterEdit";
-import {nativeLibraries, type NativeCatalogEntry} from "../api/nativeLibraries";
-import {api} from "../api/client";
-vi.mock("../api/client",()=>({api:{applyUpload:vi.fn()}}));
-vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{catalog:vi.fn(),editItem:vi.fn(),upload:vi.fn()}}));
-vi.mock("../lib/toast",()=>({useToast:()=>({push:vi.fn()})}));
+import {nativeLibraries, type NativeCatalogEntry} from "../../api/nativeLibraries";
+import {api} from "../../api/client";
+vi.mock("../../api/client",()=>({api:{applyUpload:vi.fn()}}));
+vi.mock("../../api/nativeLibraries",()=>({nativeLibraries:{catalog:vi.fn(),item:vi.fn(),editItem:vi.fn(),upload:vi.fn()}}));
+vi.mock("../../lib/toast",()=>({useToast:()=>({push:vi.fn()})}));
 afterEach(()=>{cleanup();vi.clearAllMocks();vi.restoreAllMocks();vi.unstubAllGlobals();});
 function show(poster="/poster.png",logo:string|undefined="/logo.png",native=false) {
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
@@ -38,7 +38,7 @@ it("downloads and applies a new poster through the normal artwork replacement wo
 });
 it("applies native downloads and marks the logo as already combined",async()=>{
  const entry={id:"series",revision:1,title:"Series",metadata:{},artwork:[{kind:"poster",path:"poster.jpg",source:"local"}]} as NativeCatalogEntry;
- vi.mocked(nativeLibraries.catalog).mockResolvedValue([entry]);
+ vi.mocked(nativeLibraries.item).mockResolvedValue(entry);
  vi.mocked(nativeLibraries.editItem).mockResolvedValue({entry,warnings:[]});
  vi.mocked(nativeLibraries.upload).mockResolvedValue();
  vi.mocked(api.applyUpload).mockResolvedValue({ok:true,message:"Saved in database and media folder"});
@@ -56,13 +56,16 @@ it("applies native downloads and marks the logo as already combined",async()=>{
 });
 it("saves only overlay placement in the native database",async()=>{
  const entry={id:"series",revision:1,title:"Series",metadata:{},artwork:[{kind:"poster",path:"poster.jpg",source:"local"}]} as NativeCatalogEntry;
- vi.mocked(nativeLibraries.catalog).mockResolvedValue([entry]);
+ const fresh={...entry,revision:7,artwork:[{kind:"poster",path:"latest-poster.jpg",source:"local"}]};
+ vi.mocked(nativeLibraries.item).mockResolvedValue(fresh).mockResolvedValueOnce(entry);
  vi.mocked(nativeLibraries.editItem).mockResolvedValue({entry,warnings:[]});
  show("/poster.png","/logo.png",true);
  await waitFor(()=>expect((screen.getByRole("button",{name:"Save Overlay"}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.change(screen.getByRole("slider",{name:"Logo size"}),{target:{value:"50"}});
  fireEvent.click(screen.getByRole("button",{name:"Save Overlay"}));
- await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("library",entry,{posteredit:expect.objectContaining({mode:"overlay",width:50,poster_path:"poster.jpg"}),poseredit:null}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("library",fresh,{posteredit:expect.objectContaining({mode:"overlay",width:50,poster_path:"latest-poster.jpg"}),poseredit:null}));
+ expect(nativeLibraries.catalog).not.toHaveBeenCalled();
+ expect(nativeLibraries.item).toHaveBeenCalledWith("library","series");
  expect(api.applyUpload).not.toHaveBeenCalled();expect(nativeLibraries.upload).not.toHaveBeenCalled();
 });
 it("explains missing logo before allowing editing",()=>{show("/poster.png","");expect(screen.getByText(/Add a poster and a series logo/)).toBeTruthy();expect(screen.queryByRole("button",{name:"Save Overlay"})).toBeNull();});
@@ -70,8 +73,8 @@ it("explains missing logo before allowing editing",()=>{show("/poster.png","");e
 it("removes a saved overlay without replacing artwork",async()=>{
  const entry={id:"series",path:"Series",kind:"series",parent_path:null,files:[],nfo_path:null,available:true,revision:1,title:"Series",metadata:{posteredit:{mode:"overlay",enabled:true,x:15,y:72,width:70,opacity:100}},artwork:[{kind:"poster",path:"poster.jpg",source:"local"}]} as NativeCatalogEntry;
  const cleared={...entry,revision:2,metadata:{posteredit:null,poseredit:null}};
- vi.mocked(nativeLibraries.catalog).mockResolvedValue([entry]);
- vi.mocked(nativeLibraries.editItem).mockImplementation(async()=>{vi.mocked(nativeLibraries.catalog).mockResolvedValue([cleared]);return {entry:cleared,warnings:[]};});
+ vi.mocked(nativeLibraries.item).mockResolvedValue(entry);
+ vi.mocked(nativeLibraries.editItem).mockImplementation(async()=>{vi.mocked(nativeLibraries.item).mockResolvedValue(cleared);return {entry:cleared,warnings:[]};});
  show("/poster.png","/logo.png",true);
  await waitFor(()=>expect((screen.getByRole("button",{name:"Remove Overlay"}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.click(screen.getByRole("button",{name:"Remove Overlay"}));

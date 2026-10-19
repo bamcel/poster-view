@@ -8,11 +8,11 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import MangaDexPanel from "./MangaDexPanel";
-import { api } from "../api/client";
-import type { ArtworkItem, ItemDetail } from "../types";
+import { api } from "../../api/client";
+import type { ArtworkItem, ItemDetail } from "../../types";
 
-vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
-vi.mock("../api/client", () => ({
+vi.mock("../../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
+vi.mock("../../api/client", () => ({
   api: {
     mangaSelection: vi.fn(),
     saveMangaSelection: vi.fn(),

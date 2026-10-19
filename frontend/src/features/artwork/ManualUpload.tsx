@@ -1,5 +1,5 @@
-import AnimatedArtwork, {artworkFormat} from "./AnimatedArtwork";
-import { invalidateArtworkItems } from "../lib/artworkTarget";
+import AnimatedArtwork, {artworkFormat} from "../../components/AnimatedArtwork";
+import { invalidateArtworkItems } from "../../lib/artworkTarget";
 // "Manual" artwork tab: apply your own image (uploaded file or a URL) to a
 // chosen target — the item's poster/background, or a specific season's poster
 // (including Season 0 / Specials). Reuses the same apply plumbing.
@@ -7,10 +7,10 @@ import { invalidateArtworkItems } from "../lib/artworkTarget";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Upload, Loader2, ImageOff, Check } from "lucide-react";
-import { api } from "../api/client";
-import { useToast } from "../lib/toast";
-import { buildApplyTargets } from "../lib/targets";
-import type { ItemDetail } from "../types";
+import { api } from "../../api/client";
+import { useToast } from "../../lib/toast";
+import { buildApplyTargets } from "../../lib/targets";
+import type { ItemDetail } from "../../types";
 
 export default function ManualUpload({ serverId, item, includeFolderBackdrop = false }: { serverId: number; item: ItemDetail; includeFolderBackdrop?: boolean }) {
   const toast = useToast();

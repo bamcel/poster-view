@@ -11,7 +11,7 @@ import type { AppearanceSettings } from "../types";
 vi.mock("../components/AppearancePreview", () => ({ default: ({ onClose }: { onClose: () => void }) => <section aria-label="Live Dashboard preview"><button onClick={onClose}>Close split view</button></section> }));
 
 vi.mock("../api/client", () => ({
-  apiRequest:vi.fn(async(url:string)=>{if(url==="/plugins/ytdl")return {settings:{enabled:false},dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}};if(url.startsWith("/plugins/"))return {enabled:true,pinned:false,poster_edit:true,backdrop_edit:true};throw new Error("Not configured");}),
+  apiRequest:vi.fn(async(url:string)=>{if(url==="/plugins/ytdl")return {settings:{enabled:false},dependencies:{yt_dlp:null,ffmpeg:null,js_runtime:null}};if(url==="/artwork/preferences"||url.startsWith("/plugins/"))return {enabled:true,pinned:false,poster_edit:true,backdrop_edit:true};throw new Error("Not configured");}),
   api: {
     listServers: vi.fn(),
     createServer: vi.fn(),
@@ -272,7 +272,7 @@ it("groups existing providers without disable controls or new metadata providers
   expect(screen.queryByText("Show Providers")).toBeNull();
   expect(screen.queryByRole("group", {name:"eReader providers"})).toBeNull();
   expect(screen.queryByRole("combobox", {name:"Default provider"})).toBeNull();
-  for (const name of ["AniList", "AniList Manga", "MediUX", "MangaDex", "VIZ"]) {
+  for (const name of ["AniList", "MediUX", "MangaDex", "VIZ"]) {
     expect(screen.getByText(name,{exact:true}).closest("a")?.getAttribute("href")).toMatch(/^https:/);
   }
   expect(screen.getByRole("button", { name: "Configure TMDB" })).toBeTruthy();
@@ -328,13 +328,12 @@ it("automatically saves TMDB credentials and tests the saved connection", async 
 });
 
 
-it("opens Artwork plugin settings with unpinned defaults and shared provider access",async()=>{
+it("opens core Artwork settings with automatic fetching and shared provider access",async()=>{
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
- render(<MemoryRouter initialEntries={["/settings/plugins"]}><QueryClientProvider client={client}><SettingsPage/></QueryClientProvider></MemoryRouter>);
- fireEvent.click(await screen.findByRole("button",{name:/^Artwork Browse/}));
- expect((await screen.findByRole("switch",{name:"Enable Artwork"}) as HTMLInputElement).checked).toBe(true);
- expect((screen.getByRole("switch",{name:"Pin to Settings"}) as HTMLInputElement).checked).toBe(false);
- expect((screen.getByRole("switch",{name:"Enable PosterEdit"}) as HTMLInputElement).checked).toBe(true);
+ render(<MemoryRouter initialEntries={["/settings/artwork"]}><QueryClientProvider client={client}><SettingsPage/></QueryClientProvider></MemoryRouter>);
+ expect((await screen.findByRole("switch",{name:"Automatically fetch artwork"})).getAttribute("aria-checked")).toBe("true");
+ expect(screen.queryByRole("switch",{name:/Pin/})).toBeNull();
+ expect(screen.getByRole("switch",{name:"Enable PosterEdit"}).getAttribute("aria-checked")).toBe("true");
  expect(screen.getByRole("link",{name:"Manage metadata & artwork providers"}).getAttribute("href")).toBe("/settings/sources");
  client.clear();
 });
@@ -342,7 +341,7 @@ it("opens Artwork plugin settings with unpinned defaults and shared provider acc
 it("hides Server Connect even when saved settings enable it",async()=>{
  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
  render(<MemoryRouter initialEntries={["/settings/plugins"]}><QueryClientProvider client={client}><SettingsPage/></QueryClientProvider></MemoryRouter>);
- await screen.findByRole("button",{name:/Artwork Browse/});
+ await screen.findByRole("button",{name:/YTDL/});
  expect(screen.queryByRole("button",{name:/Server Connect/})).toBeNull();
  expect(screen.queryByRole("button",{name:"Add server"})).toBeNull();
 });

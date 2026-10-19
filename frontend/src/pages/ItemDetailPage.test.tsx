@@ -39,7 +39,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "../api/client";
 import ItemDetailPage from "./ItemDetailPage";
 
-vi.mock("../components/ArtworkPanel", () => ({ default: () => null }));
+vi.mock("../features/artwork/ArtworkPanel", () => ({ default: () => null }));
 vi.mock("../api/client", () => ({ imageUrl: (_serverId: number, image?: string | null) => image ? `/api/image/${image}` : undefined, api: { getItemDetail: vi.fn(), getNfoMetadata: vi.fn(), refreshArtworkItem: vi.fn() } }));
 vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });

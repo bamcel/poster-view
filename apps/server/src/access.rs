@@ -248,6 +248,7 @@ pub(crate) fn authorize_request(
         ["api", "virtual-tv", "channels", _, "tune"] => *method == Method::POST,
         ["api", "appearance", "settings"]
         | ["api", "plugins", "artwork"]
+        | ["api", "artwork", "preferences"]
         | ["api", "transcoding", "settings"]
         | ["api", "playback", "capabilities"] => get,
         ["api", "library-display"] | ["api", "playback", "preferences"] => personal_write,
@@ -361,6 +362,7 @@ pub(crate) async fn filter_response(
                 "items" | "summaries" | "previews" | "scan"
             ]
             | ["api", "plugins", "artwork"]
+            | ["api", "artwork", "preferences"]
     );
     if !filter {
         return response;
@@ -415,7 +417,7 @@ pub(crate) async fn filter_response(
         ["api", "native", "libraries", _, "scan"] => {
             value = serde_json::json!({"status": "idle", "count": 0, "warnings": [], "progress": null, "manual_queued": false, "show_progress": false, "artwork_revision": value.get("artwork_revision").cloned().unwrap_or(Value::Null)});
         }
-        ["api", "plugins", "artwork"] => {
+        ["api", "plugins", "artwork"] | ["api", "artwork", "preferences"] => {
             let Some(settings) = value.as_object_mut() else {
                 return denied().into_response();
             };

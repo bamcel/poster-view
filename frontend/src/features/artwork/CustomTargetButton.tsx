@@ -12,11 +12,11 @@
 // cards. Escaping to a portal sidesteps that entirely.
 
 import { useId, useRef, useState } from "react";
-import { useActionMenu } from "../lib/actionMenu";
+import { useActionMenu } from "../../lib/actionMenu";
 import { createPortal } from "react-dom";
 import { Settings2, Loader2, ChevronDown } from "lucide-react";
-import { buildApplyTargets } from "../lib/targets";
-import type { ImageTarget, ItemDetail } from "../types";
+import { buildApplyTargets } from "../../lib/targets";
+import type { ImageTarget, ItemDetail } from "../../types";
 
 const MENU_WIDTH = 192; // matches w-48
 

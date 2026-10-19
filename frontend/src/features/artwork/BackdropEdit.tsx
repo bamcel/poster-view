@@ -1,17 +1,17 @@
 import {useEffect,useState} from "react";
 import {useQuery,useQueryClient} from "@tanstack/react-query";
 import {RotateCcw,Save} from "lucide-react";
-import AnimatedArtwork from "./AnimatedArtwork";
-import {nativeLibraries} from "../api/nativeLibraries";
-import {invalidateArtworkItems} from "../lib/artworkTarget";
-import {useToast} from "../lib/toast";
-import {backdropFramingUrl,backdropFramingEvent,defaultFraming,validFraming,type BackdropFraming} from "../lib/backdropFraming";
-import type {ItemDetail} from "../types";
+import AnimatedArtwork from "../../components/AnimatedArtwork";
+import {nativeLibraries,type NativeCatalogEntry} from "../../api/nativeLibraries";
+import {invalidateArtworkItems} from "../../lib/artworkTarget";
+import {useToast} from "../../lib/toast";
+import {backdropFramingUrl,backdropFramingEvent,defaultFraming,validFraming,type BackdropFraming} from "../../lib/backdropFraming";
+import type {ItemDetail} from "../../types";
 export default function BackdropEdit({serverId,item}:{serverId:number;item:ItemDetail}) {
  const client=useQueryClient();const toast=useToast();const native=serverId===0 && item.id.startsWith("native:");
  const [,library,id]=item.id.split(":");const key=`posterview.backdropEdit.${serverId}.${item.id}`;
- const catalog=useQuery({queryKey:["native-catalog",library],queryFn:()=>nativeLibraries.catalog(library),enabled:native});
- const entry=catalog.data?.find(e=>e.id===id);
+ const itemQuery=useQuery({queryKey:["native-catalog",library,"item",id],queryFn:()=>nativeLibraries.item(library,id),enabled:native});
+ const entry=itemQuery.data;
  const [framing,setFraming]=useState<BackdropFraming>(defaultFraming);const [busy,setBusy]=useState(false);
  useEffect(()=>{try{setFraming(validFraming(native ? entry?.metadata.backdropedit : JSON.parse(localStorage.getItem(key)??"null"))??defaultFraming);}catch{setFraming(defaultFraming);}},[key,native,entry?.metadata.backdropedit]);
  const source=item.background?.replace(/[?&]backdrop(?:Edit|Key)=[^&]*/g,"");
@@ -38,7 +38,7 @@ export default function BackdropEdit({serverId,item}:{serverId:number;item:ItemD
   setBusy(true);
   try{
    const value=reset?null:framing;
-   if(native){const fresh=(await nativeLibraries.catalog(library)).find(e=>e.id===id);if(!fresh)throw new Error("Library item is unavailable.");const result=await nativeLibraries.editItem(library,fresh,{backdropedit:value});client.setQueryData<typeof catalog.data>(["native-catalog",library],entries=>entries?.map(e=>e.id===id?result.entry:e));await invalidateArtworkItems(client,serverId,item.id);await client.invalidateQueries({queryKey:["item-detail",serverId,item.id]});}
+   if(native){const fresh=await nativeLibraries.item(library,id);if(!fresh)throw new Error("Library item is unavailable.");const result=await nativeLibraries.editItem(library,fresh,{backdropedit:value});client.setQueryData(["native-catalog",library,"item",id],result.entry);client.setQueryData<NativeCatalogEntry[]>(["native-catalog",library],entries=>entries?.map(e=>e.id===id?result.entry:e));await invalidateArtworkItems(client,serverId,item.id);await client.invalidateQueries({queryKey:["item-detail",serverId,item.id]});}
    else {if(value)localStorage.setItem(key,JSON.stringify(value));else localStorage.removeItem(key);window.dispatchEvent(new Event(backdropFramingEvent));}
    if(reset)setFraming(defaultFraming);
    toast.push("success",reset?"Backdrop adjustments removed.":"Backdrop adjustments saved.");

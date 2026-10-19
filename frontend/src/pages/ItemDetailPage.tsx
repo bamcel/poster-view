@@ -2,7 +2,6 @@ import {LibraryHeaderBackContext,LibraryPageBack} from "../lib/libraryHeaderBack
 import { mediaDescription } from "../lib/mediaDescription";
 import {useIsAdmin} from "../lib/authContext";
 import AdminOnly from "../components/AdminOnly";
-import {useArtworkPlugin} from "../lib/artworkPlugin";
 import AnimatedArtwork from "../components/AnimatedArtwork";
 import {connectedBackdropUrl} from "../lib/backdropFraming";
 import { detailActionClass } from "../lib/detailActions";
@@ -20,7 +19,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink, Images, Pencil, RefreshCw } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import PosterCard from "../components/PosterCard";
-import ArtworkPanel from "../components/ArtworkPanel";
+import ArtworkPanel from "../features/artwork/ArtworkPanel";
 import MetadataEditorModal from "../components/MetadataEditorModal";
 import ItemAbout from "../components/ItemAbout";
 import TitleMetadata from "../components/TitleMetadata";
@@ -37,7 +36,6 @@ function sentenceCaseMetadata(value: string): string {
 export default function ItemDetailPage() {
   const isAdmin=useIsAdmin();
   const headerBack=useContext(LibraryHeaderBackContext);
-  const artworkPlugin=useArtworkPlugin();
   const navigate = useNavigate();
   const { serverId: serverIdParam, itemId } = useParams();
   const [searchParams] = useSearchParams();
@@ -242,7 +240,7 @@ export default function ItemDetailPage() {
                         />
 
                       </button>
-                      {artworkPlugin.data?.enabled !== false && <AdminOnly><button type="button" onClick={() => setArtworkOpen(true)} aria-label="Edit Artwork" title="Edit Artwork" aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className={detailActionClass} data-icon-button="true">
+                      {<AdminOnly><button type="button" onClick={() => setArtworkOpen(true)} aria-label="Edit Artwork" title="Edit Artwork" aria-expanded={artworkOpen} aria-controls="item-artwork-panel" className={detailActionClass} data-icon-button="true">
                         <Images className="size-4" aria-hidden="true" />
                       </button></AdminOnly>}
                       </div>

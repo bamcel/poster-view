@@ -1,5 +1,5 @@
-import SearchField from "./SearchField";
-import { invalidateArtworkItems } from "../lib/artworkTarget";
+import SearchField from "../../components/SearchField";
+import { invalidateArtworkItems } from "../../lib/artworkTarget";
 // The ThePosterDB side module shown on the item detail page.
 //
 // Navigation is a stack so you can drill in and back out, all in-app:
@@ -23,8 +23,8 @@ import {
   ArrowLeft,
   Layers,
 } from "lucide-react";
-import { api } from "../api/client";
-import { useToast } from "../lib/toast";
+import { api } from "../../api/client";
+import { useToast } from "../../lib/toast";
 import CustomTargetButton from "./CustomTargetButton";
 import type {
   ImageTarget,
@@ -32,7 +32,7 @@ import type {
   PosterAsset,
   PosterSearchResults,
   PosterSet,
-} from "../types";
+} from "../../types";
 
 const TPDB = "https://theposterdb.com";
 const looksLikeRef = (s: string) => /^\d+$/.test(s.trim()) || /https?:\/\//.test(s);

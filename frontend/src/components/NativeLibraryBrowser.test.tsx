@@ -1,5 +1,5 @@
 import {AuthSessionContext} from "../lib/authContext";
-import {useArtworkPlugin} from "../lib/artworkPlugin";
+import {useArtworkPreferences} from "../features/artwork/preferences";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
@@ -7,9 +7,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import NativeLibraryBrowser from "./NativeLibraryBrowser";
 import {collectionsApi} from "../features/collections/client";
 vi.mock("../features/collections/client",async original=>{const module=await original<typeof import("../features/collections/client")>();module.collectionsApi.list=vi.fn(async()=>[]);module.collectionsApi.preferences=vi.fn(async()=>({group_collections:false}));module.collectionsApi.setPreferences=vi.fn(async(_id,input)=>input);return module;});
-vi.mock("../lib/artworkPlugin",()=>({useArtworkPlugin:vi.fn(()=>({data:{enabled:true}}))}));
+vi.mock("../features/artwork/preferences",()=>({useArtworkPreferences:vi.fn(()=>({data:{enabled:true}}))}));
 vi.mock("../lib/libraryDisplay",()=>({useTrackingOverlays:()=>[true,vi.fn(),{coloredEffect:"both",coloredTitle:true}]}));
-vi.mock("./ArtworkPanel", () => ({default: ({serverId, item}: {serverId:number;item:import("../types").ItemDetail}) => <div data-testid="shared-artwork" data-server={serverId} data-item={item.id} data-seasons={item.seasons.map(s=>s.id).join(",")}>Shared artwork lookup</div>}));
+vi.mock("../features/artwork/ArtworkPanel", () => ({default: ({serverId, item}: {serverId:number;item:import("../types").ItemDetail}) => <div data-testid="shared-artwork" data-server={serverId} data-item={item.id} data-seasons={item.seasons.map(s=>s.id).join(",")}>Shared artwork lookup</div>}));
 import {
   nativeLibraries,
   defaultNativeOptions as importedDefaults,
@@ -583,13 +583,13 @@ it("opens the selected series and artwork panel from Edit Images",async()=>{
  await waitFor(()=>expect(screen.queryByTestId("shared-artwork")).toBeNull());
 });
 
-it("hides Edit Images when the artwork plugin is disabled",async()=>{
- vi.mocked(useArtworkPlugin).mockReturnValue({data:{enabled:false}} as ReturnType<typeof useArtworkPlugin>);
+it("keeps manual Edit Images available when automatic fetching is disabled",async()=>{
+ vi.mocked(useArtworkPreferences).mockReturnValue({data:{enabled:false}} as ReturnType<typeof useArtworkPreferences>);
  mount();fireEvent.contextMenu(await screen.findByTitle("Example Series · right-click for options"));
- expect(screen.queryByRole("menuitem",{name:"Edit Images"})).toBeNull();
+ expect(screen.getByRole("menuitem",{name:"Edit Images"})).toBeTruthy();
  fireEvent.click(screen.getByRole("menuitem",{name:"View Missing Episodes"}));
  expect(screen.queryByTestId("shared-artwork")).toBeNull();
- vi.mocked(useArtworkPlugin).mockReturnValue({data:{enabled:true}} as ReturnType<typeof useArtworkPlugin>);
+ vi.mocked(useArtworkPreferences).mockReturnValue({data:{enabled:true}} as ReturnType<typeof useArtworkPreferences>);
 });
 
 it("allows identity and refresh actions while another scan is running",async()=>{

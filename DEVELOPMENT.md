@@ -195,13 +195,13 @@ column, rather than comparing wall-clock timestamps. It is omitted from API
 responses, and older records without it remain readable.
 
 `SettingsPage.tsx` selects sections and provides their frame. Appearance and
-provider editors are independent leaves. `PluginsPage.tsx` imports default
-provider forms directly, removing its cycle with SettingsPage. Appearance preview
+provider editors are independent leaves. Artwork settings import default provider forms directly; plugin configuration stays separate from the core Artwork page. Appearance preview
 loads the settings page lazily instead of statically importing its composition.
 Existing page tests still verify the composed flow.
 
-Artwork (`ArtworkPanel`, `ArtworkBrowser`, `PosterDBPanel`, provider panels),
-reading (`ReaderPage`, `ReaderPages`, `lib/reader*`), catalog/detail views
+Artwork tools now live in `frontend/src/features/artwork/` (`ArtworkPanel`,
+`ArtworkBrowser`, `PosterDBPanel`, provider panels, editors and preferences).
+Reading (`ReaderPage`, `ReaderPages`, `lib/reader*`), catalog/detail views
 (`NativeLibraryBrowser`, native catalog helpers), and authentication (`AuthGate`,
 `AuthProvider`, idle-session helpers) remain in established locations. Shared UI,
 transport, navigation, theme and artwork-target utilities remain shared. Move
@@ -619,3 +619,26 @@ Compact player prompts, menus/hover previews, anchored color pickers, and reader
 and artwork drawers retain purpose-specific dimensions. Native dialog unit
 behavior is shimmed in `frontend/src/testSetup.ts`; browser checks verify actual
 top-layer rendering and responsive scrolling.
+
+### Core Artwork settings
+
+Artwork is a core feature, always listed for administrators at Settings → Artwork.
+It is no longer a plugin card and needs no pin toggle. `features/artwork/` owns
+provider browsing, manual upload/removal, PosterEdit, BackdropEdit, settings and
+adjacent tests. Shared image display/animation, catalog artwork URLs, provider
+credentials and backend runtime/provider/storage layers keep their existing owners.
+This stage does not redesign the artwork drawer or provider search workflow.
+
+`apps/server/src/artwork_preferences.rs` retains the `plugin-artwork` storage key
+and the `enabled`, `pinned`, `poster_edit`, `backdrop_edit` JSON fields. `enabled`
+now controls automatic artwork fetching during library scans/capture; false no
+longer hides or blocks administrator manual editing. Editor switches remain
+independent. `pinned` is preserved for compatibility but no longer affects navigation.
+The canonical endpoint is `/api/artwork/preferences`; `/api/plugins/artwork`
+remains an authenticated compatibility alias over the same persisted settings.
+Credentials, artwork files, metadata, framing, query keys and browser keys are
+not migrated or removed. Non-administrators still cannot manage artwork.
+
+Editors query `nativeLibraries.item` with `['native-catalog', library, 'item', id]`
+and refetch that item before revision-based writes. Catalog array caches retain
+their previous shape, and existing prefix invalidation refreshes both views.

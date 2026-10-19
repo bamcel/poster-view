@@ -1,12 +1,12 @@
 import {QueryClient, QueryClientProvider} from "@tanstack/react-query";
 import {act, cleanup, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import {afterEach, beforeEach, expect, it, vi} from "vitest";
-import {api} from "../api/client";
-import type {ItemDetail} from "../types";
+import {api} from "../../api/client";
+import type {ItemDetail} from "../../types";
 import PosterDBBody from "./PosterDBPanel";
 
-vi.mock("../api/client", () => ({api:{posterdbStatus:vi.fn(),posterdbSearch:vi.fn(),posterdbSearchPreview:vi.fn(),posterdbSet:vi.fn(),posterdbVerify:vi.fn()}}));
-vi.mock("../lib/toast", () => ({useToast:()=>({push:vi.fn()})}));
+vi.mock("../../api/client", () => ({api:{posterdbStatus:vi.fn(),posterdbSearch:vi.fn(),posterdbSearchPreview:vi.fn(),posterdbSet:vi.fn(),posterdbVerify:vi.fn()}}));
+vi.mock("../../lib/toast", () => ({useToast:()=>({push:vi.fn()})}));
 const item: ItemDetail = {id:"native:library:movie",title:"1917",type:"movie",seasons:[],members:[],external_ids:{}};
 let client: QueryClient;
 beforeEach(()=>{

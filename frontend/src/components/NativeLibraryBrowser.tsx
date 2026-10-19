@@ -27,7 +27,6 @@ import FetchBookMetadata from "./FetchBookMetadata";
 import {useTrackingOverlays} from "../lib/libraryDisplay";
 import BookSeriesMetadata from "./BookSeriesMetadata";
 import BookPreferences from "./BookPreferences";
-import {useArtworkPlugin} from "../lib/artworkPlugin";
 import NativeScanProgress from "./NativeScanProgress";
 import {validFraming} from "../lib/backdropFraming";
 import LibraryViewPreferences, { useBackdropView, useYoutubeBannerBackground, posterGrid, backdropGrid } from "./LibraryViewPreferences";
@@ -55,7 +54,7 @@ import {
 import type { ItemDetail } from "../types";
 import PosterCard from "./PosterCard";
 import AnimatedArtwork from "./AnimatedArtwork";
-import ArtworkPanel from "./ArtworkPanel";
+import ArtworkPanel from "../features/artwork/ArtworkPanel";
 import IdentifyPanel from "./IdentifyPanel";
 import LibraryPopup from "./LibraryPopup";
 import ArtworkPreferences, {animatedArtworkEnabled,useAnimatedArtworkPreference} from "./ArtworkPreferences";
@@ -251,8 +250,7 @@ export default function NativeLibraryBrowser({
   const {enabled: bannerBackground} = useYoutubeBannerBackground(library.id);
   const [, , bookDisplay] = useTrackingOverlays(library.library_type === "books");
   const {hoverOnly}=useAnimatedArtworkPreference(library.id);
-  const artworkPlugin=useArtworkPlugin();
-  const artworkEnabled=isAdmin&&artworkPlugin.data?.enabled!==false;
+  const artworkEnabled=isAdmin;
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
   const navigate=useNavigate();
@@ -679,7 +677,6 @@ function NativeDetail({
       : entry.kind === "season"
         ? parent
         : entries.find((e) => e.path === parent?.parent_path);
-  const artworkPlugin=useArtworkPlugin();
   const inlineSpecials=new Set(placedSpecials(entries,entry,series,library.options?.show_specials_in_seasons===true).map(special=>special.id));
   const children = entries
     .filter((e) => e.available && (e.parent_path === entry.path || inlineSpecials.has(e.id)))
@@ -812,7 +809,7 @@ function NativeDetail({
           synopsis={<DetailSynopsis text={overview} lines={isEpisode?3:8}/>}
         >
                 <div className="flex flex-wrap items-center gap-3">
-                {isEpisode ? (<><button onClick={()=>series&&open(series)} disabled={!series} className="block text-left" aria-label={series?`Open ${series.title}`:undefined}>{logo?<AnimatedArtwork src={logo} width={640} alt={series?.title??entry.title} className="max-h-20 max-w-[240px] object-contain object-left"/>:<span className="text-2xl font-semibold">{series?.title??"Episode"}</span>}</button><div className="mt-4 flex flex-wrap items-center gap-3"><h1 className="text-[17px] font-medium leading-snug">S{String(entry.metadata.season??parent?.metadata.season??1)}:E{String(entry.metadata.episode??"")} - {entry.title}</h1><AdminOnly><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button></AdminOnly>{artworkPlugin.data?.enabled!==false&&<AdminOnly><button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button></AdminOnly>}<AdminOnly><button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching ? "animate-spin" : ""}`} /></button></AdminOnly></div></>) : logo ? (
+                {isEpisode ? (<><button onClick={()=>series&&open(series)} disabled={!series} className="block text-left" aria-label={series?`Open ${series.title}`:undefined}>{logo?<AnimatedArtwork src={logo} width={640} alt={series?.title??entry.title} className="max-h-20 max-w-[240px] object-contain object-left"/>:<span className="text-2xl font-semibold">{series?.title??"Episode"}</span>}</button><div className="mt-4 flex flex-wrap items-center gap-3"><h1 className="text-[17px] font-medium leading-snug">S{String(entry.metadata.season??parent?.metadata.season??1)}:E{String(entry.metadata.episode??"")} - {entry.title}</h1><AdminOnly><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button></AdminOnly>{<AdminOnly><button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button></AdminOnly>}<AdminOnly><button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching ? "animate-spin" : ""}`} /></button></AdminOnly></div></>) : logo ? (
                   <AnimatedArtwork
                     src={logo}
                     width={1280}
@@ -827,7 +824,7 @@ function NativeDetail({
                 )}
                 {!isEpisode&&<div data-testid="detail-actions" className="flex flex-wrap items-center gap-3">
                   <AdminOnly><button aria-label="Edit Metadata" title="Edit Metadata" onClick={()=>edit("metadata")} className="episode-inline-action"><Pencil className="size-4"/></button></AdminOnly>
-                  {artworkPlugin.data?.enabled!==false&&<AdminOnly><button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button></AdminOnly>}
+                  {<AdminOnly><button aria-label="Edit Images" title="Edit Images" onClick={()=>edit("artwork")} className="episode-inline-action"><Images className="size-4"/></button></AdminOnly>}
                   <AdminOnly><button aria-label="Refresh" title="Refresh" disabled={fetching} onClick={refresh} className="episode-inline-action"><RefreshCw className={`size-4 ${fetching?"animate-spin":""}`}/></button></AdminOnly>
                   {entry.kind.startsWith("book")&&<AdminOnly><button aria-label="Fetch Metadata" title="Fetch Metadata" onClick={()=>edit("fetch-metadata")} className="episode-inline-action"><Database className="size-4"/></button></AdminOnly>}
                   {["series","season","movie","book_series","book"].includes(entry.kind)&&<AdminOnly><button aria-label="Identify" title="Identify" onClick={()=>edit("identify")} className="episode-inline-action"><Fingerprint className="size-4"/></button></AdminOnly>}

@@ -1,7 +1,6 @@
 import PopupPage from "../../components/PopupPage";
 import {ACTION_BUTTON} from "../../components/ui";
-import ArtworkPanel from "../../components/ArtworkPanel";
-import {useArtworkPlugin} from "../../lib/artworkPlugin";
+import ArtworkPanel from "../artwork/ArtworkPanel";
 import type {ItemDetail} from "../../types";
 import SearchField from "../../components/SearchField";
 import ScrollingTitle from "../../components/ScrollingTitle";
@@ -27,7 +26,6 @@ const field="mt-1 w-full rounded border border-border bg-input p-2";
 export default function CollectionPage(){
  const {id}=useParams(),account=useCollectionAccount(),admin=useIsAdmin(),client=useQueryClient(),navigate=useNavigate();
  const query=useQuery({queryKey:["collections",account,"detail",id],queryFn:()=>collectionsApi.get(id!),enabled:!!id});
- const artworkPlugin=useArtworkPlugin();
  const [artworkOpen,setArtworkOpen]=useState(false);
  const [editing,setEditing]=useState(false),[error,setError]=useState("");
  const [metadataMenu,setMetadataMenu]=useState(false),[metadataMode,setMetadataMode]=useState<"identify"|"refresh"|"locks"|null>(null);
@@ -48,7 +46,7 @@ export default function CollectionPage(){
     <div className="flex flex-wrap items-center gap-3">
      <h1 className="text-3xl font-bold leading-tight sm:text-4xl">{collection.title}</h1>
      {admin&&<button aria-label="Edit collection" title="Edit collection" className="episode-inline-action" onClick={()=>setEditing(true)}><Pencil className="size-4"/></button>}
-     {admin&&artworkPlugin.data?.enabled&&<button aria-label="Edit images" title="Edit images" className="episode-inline-action" onClick={()=>setArtworkOpen(true)}><Images className="size-4"/></button>}
+     {admin&&<button aria-label="Edit images" title="Edit images" className="episode-inline-action" onClick={()=>setArtworkOpen(true)}><Images className="size-4"/></button>}
      {admin&&<button aria-label="Refresh metadata" title="Refresh metadata" className="episode-inline-action" onClick={()=>setMetadataMode("refresh")}><RefreshCw className="size-4"/></button>}
      {admin&&<button aria-label="Identify" title="Identify" className="episode-inline-action" onClick={()=>setMetadataMode("identify")}><Fingerprint className="size-4"/></button>}
      {admin&&<div className="relative"><button aria-label="Collection metadata actions" aria-expanded={metadataMenu} aria-haspopup="menu" className="episode-inline-action" onClick={()=>setMetadataMenu(value=>!value)}><MoreHorizontal className="size-4"/></button>{metadataMenu&&<div role="menu" aria-label="Collection metadata" className="absolute left-0 top-full z-20 mt-2 min-w-48 rounded-xl border border-border bg-sidebar p-2 shadow-xl" onKeyDown={event=>{if(event.key==="Escape")setMetadataMenu(false);}}>{([{mode:"identify",label:"Identify"},{mode:"refresh",label:"Refresh metadata"},{mode:"locks",label:"Field locks"}] as const).map(action=><button role="menuitem" key={action.mode} className="block w-full rounded p-2 text-left text-sm hover:bg-elevated" onClick={()=>{setMetadataMenu(false);setMetadataMode(action.mode);}}>{action.label}</button>)}<button role="menuitem" className="block w-full rounded p-2 text-left text-sm text-danger hover:bg-elevated" onClick={()=>{setMetadataMenu(false);void remove();}}>Delete collection</button></div>}</div>}
@@ -70,7 +68,7 @@ export default function CollectionPage(){
     {!collection.members.length&&<p className="mt-10 text-muted">No accessible titles in this collection.{admin&&" Edit this collection to add titles."}</p>}
    </>}
   />
-  {admin&&artworkPlugin.data?.enabled&&artworkOpen&&<div className="pointer-events-none fixed inset-0 z-50 bg-transparent"><section aria-label={`Artwork for ${collection.title}`} className="pointer-events-auto ml-auto h-full w-full max-w-md shadow-2xl"><ArtworkPanel serverId={0} libraryType="movie" item={collectionArtworkItem(collection)} onClose={()=>setArtworkOpen(false)}/></section></div>}
+  {admin&&artworkOpen&&<div className="pointer-events-none fixed inset-0 z-50 bg-transparent"><section aria-label={`Artwork for ${collection.title}`} className="pointer-events-auto ml-auto h-full w-full max-w-md shadow-2xl"><ArtworkPanel serverId={0} libraryType="movie" item={collectionArtworkItem(collection)} onClose={()=>setArtworkOpen(false)}/></section></div>}
   {admin&&metadataMode&&<CollectionMetadataDialog key={`${collection.id}:${collection.revision}:${metadataMode}`} collection={collection} mode={metadataMode} onClose={()=>setMetadataMode(null)}/>}
   {editing&&<CollectionEditor key={`${collection.id}:${collection.revision}`} collection={collection} onClose={()=>setEditing(false)}/>}
  </>;

@@ -1,25 +1,26 @@
 import {useState} from "react";
 import {useQuery, useQueryClient} from "@tanstack/react-query";
 import {Loader2, Trash2} from "lucide-react";
-import {nativeLibraries} from "../api/nativeLibraries";
-import {invalidateArtworkItems} from "../lib/artworkTarget";
-import {useToast} from "../lib/toast";
-import type {ItemDetail} from "../types";
+import {nativeLibraries,type NativeCatalogEntry} from "../../api/nativeLibraries";
+import {invalidateArtworkItems} from "../../lib/artworkTarget";
+import {useToast} from "../../lib/toast";
+import type {ItemDetail} from "../../types";
 
 export default function RemovePosterOverlay({serverId,item,disabled=false,onRemoved}: {serverId:number;item:ItemDetail;disabled?:boolean;onRemoved?:()=>void}) {
   const client=useQueryClient(); const toast=useToast(); const [busy,setBusy]=useState(false);
   const native=serverId===0 && item.id.startsWith("native:");
   const [,library,id]=item.id.split(":");
-  const catalog=useQuery({queryKey:["native-catalog",library],queryFn:()=>nativeLibraries.catalog(library),enabled:native});
-  const entry=catalog.data?.find(e=>e.id===id);
+  const itemQuery=useQuery({queryKey:["native-catalog",library,"item",id],queryFn:()=>nativeLibraries.item(library,id),enabled:native});
+  const entry=itemQuery.data;
   const hasOverlay=!!(entry?.metadata.posteredit ?? entry?.metadata.poseredit);
   const remove=async()=>{
     setBusy(true);
     try {
-      const fresh=(await nativeLibraries.catalog(library)).find(e=>e.id===id);
+      const fresh=await nativeLibraries.item(library,id);
       if (!fresh) throw new Error("Library item is unavailable.");
       const result=await nativeLibraries.editItem(library,fresh,{posteredit:null,poseredit:null});
-      client.setQueryData<typeof catalog.data>(["native-catalog",library],entries=>entries?.map(e=>e.id===id?result.entry:e));
+      client.setQueryData(["native-catalog",library,"item",id],result.entry);
+      client.setQueryData<NativeCatalogEntry[]>(["native-catalog",library],entries=>entries?.map(e=>e.id===id?result.entry:e));
       onRemoved?.();
       await invalidateArtworkItems(client,serverId,item.id);
       await client.invalidateQueries({queryKey:["item-detail",serverId,item.id]});

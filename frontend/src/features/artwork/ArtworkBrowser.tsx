@@ -1,5 +1,5 @@
-import SearchField from "./SearchField";
-import { invalidateArtworkItems } from "../lib/artworkTarget";
+import SearchField from "../../components/SearchField";
+import { invalidateArtworkItems } from "../../lib/artworkTarget";
 // Browses one API-based provider's artwork (Fanart.tv / TheTVDB / AniList) for
 // the current item, grouped into Posters / Backgrounds / Banners / Logos.
 // Posters, backgrounds, logos and banners can be applied to supported destinations.
@@ -13,10 +13,10 @@ import { invalidateArtworkItems } from "../lib/artworkTarget";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Database, Loader2, AlertCircle, ExternalLink, ImageOff } from "lucide-react";
-import { api } from "../api/client";
-import { useToast } from "../lib/toast";
+import { api } from "../../api/client";
+import { useToast } from "../../lib/toast";
 import CustomTargetButton from "./CustomTargetButton";
-import type { ArtworkItem, ArtworkSearchResult, ArtworkType, ImageTarget, ItemDetail, NfoMetadata } from "../types";
+import type { ArtworkItem, ArtworkSearchResult, ArtworkType, ImageTarget, ItemDetail, NfoMetadata } from "../../types";
 
 // Fanart.tv, TheTVDB, and MediUX have no title-search API of their own —
 // all three are backed by TheTVDB's search endpoint in the artwork adapter.

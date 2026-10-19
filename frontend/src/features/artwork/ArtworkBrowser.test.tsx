@@ -1,10 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { api } from "../api/client";
+import { api } from "../../api/client";
 import ArtworkBrowser from "./ArtworkBrowser";
-vi.mock("../api/client", () => ({api:{getArtwork:vi.fn(),applyPoster:vi.fn()}}));
-vi.mock("../lib/toast", () => ({useToast:()=>({push:vi.fn()})}));
+vi.mock("../../api/client", () => ({api:{getArtwork:vi.fn(),applyPoster:vi.fn()}}));
+vi.mock("../../lib/toast", () => ({useToast:()=>({push:vi.fn()})}));
 vi.mock("./CustomTargetButton", () => ({default:()=>null}));
 afterEach(cleanup);
 

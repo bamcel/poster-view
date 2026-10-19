@@ -1,11 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "../api/client";
-import type { ItemDetail, Library } from "../types";
+import { api } from "../../api/client";
+import type { ItemDetail, Library } from "../../types";
 import ArtworkPanel from "./ArtworkPanel";
 
-vi.mock("../api/client", () => ({
+vi.mock("../../api/client", () => ({
   api: {
     artworkProviders: vi.fn(),
     getArtworkSettings: vi.fn(),
@@ -13,7 +13,7 @@ vi.mock("../api/client", () => ({
     refreshArtworkItem: vi.fn(),
   },
 }));
-vi.mock("../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
+vi.mock("../../lib/toast", () => ({ useToast: () => ({ push: vi.fn() }) }));
 vi.mock("./PosterDBPanel", () => ({ default: () => <div>PosterDB panel</div> }));
 vi.mock("./ArtworkBrowser", () => ({ default: () => <div>Artwork browser</div> }));
 vi.mock("./ManualUpload", () => ({ default: () => <div>Manual upload</div> }));

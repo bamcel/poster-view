@@ -1,5 +1,5 @@
 import {settingsPages} from "../features/settings/navigation";
-import ArtworkSettings from "../features/settings/ArtworkSettings";
+import ArtworkSettings from "../features/artwork/ArtworkSettings";
 import BookPreferences from "../components/BookPreferences";
 import UsersSection from "../components/UsersSection";
 import {useIsAdmin} from "../lib/authContext";
@@ -27,7 +27,6 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
   const section = previewSection ?? location.pathname.split("/")[2];
   const candidate = section === "database" ? "tasks" : section;
   const tab = TABS.find(section => section.id === candidate)?.id;
-  const [artworkOpen,setArtworkOpen]=useState(false);
   const [saveStatus, setSaveStatus] = useState<SettingsSaveStatus|null>(null);
 
   useEffect(() => {
@@ -43,7 +42,7 @@ export default function SettingsPage({previewSection}: {previewSection?: string}
   if (!tab) return <ServerSettingsDashboard />;
   const selectedPage=settingsPages.find(page=>page.id===tab)!;
   return <SettingsPageFrame title={selectedPage.title} description={selectedPage.description} scope={selectedPage.scope} wide={tab==="appearance"} split={tab==="appearance"} status={tab==="libraries"?<NativeLibraryCount/>:saveStatus?<span className={saveStatus==="error"?"text-danger":"text-accent"}>{saveStatus==="saving"?"Saving…":saveStatus==="saved"?"Changes saved automatically":"Settings could not be saved."}</span>:undefined}>
-          {tab === "plugins" && <PluginsPage artworkOpen={artworkOpen} onArtworkOpen={()=>setArtworkOpen(true)} onClose={()=>setArtworkOpen(false)}/>}
+          {tab === "plugins" && <PluginsPage/>}
           {tab === "artwork" && <ArtworkSettings/>}
           {tab === "reading" && <BookPreferences />}
           {tab === "users" && <UsersSection />}

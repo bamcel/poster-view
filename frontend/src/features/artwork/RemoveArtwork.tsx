@@ -1,13 +1,13 @@
 import RemovePosterOverlay from "./RemovePosterOverlay";
-import { invalidateArtworkItems } from "../lib/artworkTarget";
+import { invalidateArtworkItems } from "../../lib/artworkTarget";
 import { useMemo, useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
-import { nativeLibraries } from "../api/nativeLibraries";
+import { nativeLibraries } from "../../api/nativeLibraries";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
-import { buildApplyTargets, type ApplyTarget } from "../lib/targets";
-import { useToast } from "../lib/toast";
-import type { ItemDetail } from "../types";
+import { api } from "../../api/client";
+import { buildApplyTargets, type ApplyTarget } from "../../lib/targets";
+import { useToast } from "../../lib/toast";
+import type { ItemDetail } from "../../types";
 
 interface Props {
   serverId: number;

@@ -8,8 +8,8 @@ import {nativeLibraries} from "../../api/nativeLibraries";
 import CollectionPage from "./CollectionPage";
 import {collectionsApi,type Collection,type CollectionMember} from "./client";
 const artworkPlugin=vi.hoisted(()=>({enabled:true}));
-vi.mock("../../lib/artworkPlugin",()=>({useArtworkPlugin:()=>({data:artworkPlugin})}));
-vi.mock("../../components/ArtworkPanel",()=>({default:({item,onClose}:{item:{id:string;type:string;members:unknown[]};onClose:()=>void})=><div data-testid="collection-artwork-panel">{item.id} {item.type} {item.members.length}<button onClick={onClose}>Close artwork</button></div>}));
+vi.mock("../artwork/preferences",()=>({useArtworkPreferences:()=>({data:artworkPlugin})}));
+vi.mock("../artwork/ArtworkPanel",()=>({default:({item,onClose}:{item:{id:string;type:string;members:unknown[]};onClose:()=>void})=><div data-testid="collection-artwork-panel">{item.id} {item.type} {item.members.length}<button onClick={onClose}>Close artwork</button></div>}));
 const member=(id:string,kind="movie"):CollectionMember=>({library_id:"lib",library_name:"Movies",item_id:id,entry:{id,title:id,path:id,parent_path:null,kind,artwork:[],files:[],metadata:{year:2000},available:true,revision:1,nfo_path:null}});
 const collection:Collection={id:"saga",title:"Saga",overview:"Shared story",ordering:"custom",revision:2,created_at:"",updated_at:"",members:[member("A"),member("B"),member("C","series")]};
 function mount(role="admin"){return render(<AuthSessionContext.Provider value={{user:{id:"account",role}} as AuthSession}><QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter initialEntries={["/collections/saga"]}><Routes><Route path="/collections/:id" element={<CollectionPage/>}/><Route path="/collections" element={<h1>Collections</h1>}/></Routes></MemoryRouter></QueryClientProvider></AuthSessionContext.Provider>);}
@@ -47,9 +47,9 @@ it("opens collection artwork beside metadata tools and closes it",async()=>{
  fireEvent.click(screen.getByRole("button",{name:"Close artwork"}));
  expect(screen.queryByTestId("collection-artwork-panel")).toBeNull();
 });
-it("hides artwork tools when disabled",async()=>{
+it("keeps manual artwork available when automatic fetching is disabled",async()=>{
  artworkPlugin.enabled=false;mount();await screen.findByRole("heading",{name:"Saga"});
- expect(screen.queryByRole("button",{name:"Edit images"})).toBeNull();
+ expect(screen.getByRole("button",{name:"Edit images"})).toBeTruthy();
 });
 it("hides artwork management from regular users",async()=>{
  mount("user");await screen.findByRole("heading",{name:"Saga"});

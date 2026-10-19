@@ -151,7 +151,7 @@ pub(crate) async fn fill_missing(
                 .get(*kind)
                 .is_some_and(|providers| providers.iter().any(|provider| provider == "capture"))
         })
-        || !crate::plugins::artwork_enabled(state)
+        || !crate::artwork_preferences::artwork_enabled(state)
     {
         return;
     }

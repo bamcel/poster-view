@@ -1,19 +1,19 @@
-import {mediaDescription} from "../lib/mediaDescription";
-import SearchField from "./SearchField";
-import { invalidateArtworkItems } from "../lib/artworkTarget";
+import {mediaDescription} from "../../lib/mediaDescription";
+import SearchField from "../../components/SearchField";
+import { invalidateArtworkItems } from "../../lib/artworkTarget";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ExternalLink } from "lucide-react";
-import { api } from "../api/client";
+import { api } from "../../api/client";
 import type {
   ArtworkItem,
   ArtworkSearchResult,
   ImageTarget,
   ItemDetail,
   MangaSelection,
-} from "../types";
-import { detectManga, normalizeVolume } from "../lib/manga";
-import { useToast } from "../lib/toast";
+} from "../../types";
+import { detectManga, normalizeVolume } from "../../lib/manga";
+import { useToast } from "../../lib/toast";
 import { ArtImg, ApplyBtn } from "./ArtworkBrowser";
 import CustomTargetButton from "./CustomTargetButton";
 

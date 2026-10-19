@@ -15,7 +15,7 @@ fn router(runtime: Arc<Runtime>, ui_dir: PathBuf) -> axum::Router {
 }
 
 #[tokio::test]
-async fn artwork_plugin_routes_require_authentication_and_persist_authorized_changes() {
+async fn artwork_preferences_and_legacy_routes_share_authenticated_persistence() {
     let directory = tempdir().unwrap();
     let mut state = crate::test_support::state(directory.path());
     state.auth = super::AuthState::for_tests("test-password");
@@ -26,13 +26,18 @@ async fn artwork_plugin_routes_require_authentication_and_persist_authorized_cha
     let settings =
         serde_json::json!({"enabled":false,"pinned":true,"poster_edit":false,"backdrop_edit":true});
 
-    for method in ["GET", "PUT"] {
+    for (method, path) in [
+        ("GET", "/api/artwork/preferences"),
+        ("PUT", "/api/artwork/preferences"),
+        ("GET", "/api/plugins/artwork"),
+        ("PUT", "/api/plugins/artwork"),
+    ] {
         let response = app
             .clone()
             .oneshot(
                 Request::builder()
                     .method(method)
-                    .uri("/api/plugins/artwork")
+                    .uri(path)
                     .header("content-type", "application/json")
                     .body(Body::from(settings.to_string()))
                     .unwrap(),
@@ -42,13 +47,18 @@ async fn artwork_plugin_routes_require_authentication_and_persist_authorized_cha
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{method}");
     }
 
-    for method in ["PUT", "GET"] {
+    for (method, path) in [
+        ("PUT", "/api/artwork/preferences"),
+        ("GET", "/api/plugins/artwork"),
+        ("PUT", "/api/plugins/artwork"),
+        ("GET", "/api/artwork/preferences"),
+    ] {
         let response = app
             .clone()
             .oneshot(
                 Request::builder()
                     .method(method)
-                    .uri("/api/plugins/artwork")
+                    .uri(path)
                     .header("cookie", cookie.clone())
                     .header("content-type", "application/json")
                     .body(Body::from(settings.to_string()))

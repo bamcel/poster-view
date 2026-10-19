@@ -1,7 +1,7 @@
-import {useArtworkPlugin} from "../lib/artworkPlugin";
+import {useArtworkPreferences} from "./preferences";
 import BackdropEdit from "./BackdropEdit";
 import PosterEdit from "./PosterEdit";
-import { Switch } from "./ui";
+import { Switch } from "../../components/ui";
 // The right-hand artwork panel. A provider selector across the top switches
 // between ThePosterDB (rich title/set search) and the API-based providers
 // (Fanart.tv / TheTVDB / AniList), which load the current item's artwork
@@ -10,17 +10,17 @@ import { Switch } from "./ui";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Image as PosterIcon, Wallpaper, Images, RefreshCw, X } from "lucide-react";
-import { api } from "../api/client";
-import type { ItemDetail, Library, NfoMetadata } from "../types";
+import { api } from "../../api/client";
+import type { ItemDetail, Library, NfoMetadata } from "../../types";
 import PosterDBBody from "./PosterDBPanel";
 import ArtworkBrowser from "./ArtworkBrowser";
 import ManualUpload from "./ManualUpload";
 import RemoveArtwork from "./RemoveArtwork";
 import MangaDexPanel from "./MangaDexPanel";
 import VizPanel from "./VizPanel";
-import { useToast } from "../lib/toast";
-import { artworkMediaKind, providerMatchesMediaKind } from "../lib/mediaKind";
-import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../lib/dashboardSettings";
+import { useToast } from "../../lib/toast";
+import { artworkMediaKind, providerMatchesMediaKind } from "../../lib/mediaKind";
+import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdropBlur, panelOverlay, panelSolidity, translucentPanelColor } from "../../lib/dashboardSettings";
 
 interface Props {
   manualOnly?: boolean;
@@ -43,7 +43,7 @@ const PROVIDER_GROUPS = [
 ];
 
 export default function ArtworkPanel({ manualOnly = false, serverId, item, prefill, navigationTarget, anilistMangaId, libraryType, libraryTitle, onReviewMetadata, onClose }: Props) {
-  const plugin=useArtworkPlugin();
+  const plugin=useArtworkPreferences();
   const collection = serverId === 0 && item.id.startsWith("collection:");
   const [mode, setMode] = useState<"artwork" | "edit" | "backdrop">("artwork");
   const [provider, setProvider] = useState(manualOnly ? "manual" : "posterdb");
@@ -163,9 +163,8 @@ export default function ArtworkPanel({ manualOnly = false, serverId, item, prefi
   );
 
     useEffect(()=>{
-    if(plugin.data?.enabled === false) onClose?.();
     if(collection || mode === "edit" && plugin.data?.poster_edit === false || mode === "backdrop" && plugin.data?.backdrop_edit === false) setMode("artwork");
-  },[plugin.data?.enabled,plugin.data?.poster_edit,plugin.data?.backdrop_edit,mode,onClose,collection]);
+  },[plugin.data?.poster_edit,plugin.data?.backdrop_edit,mode,onClose,collection]);
   return (
     <div
       className="flex h-full flex-col border-l border-border"
