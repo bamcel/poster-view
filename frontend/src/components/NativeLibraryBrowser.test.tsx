@@ -523,6 +523,21 @@ it("scans only the right-clicked series folder",async()=>{
  await waitFor(()=>expect(nativeLibraries.scanFolder).toHaveBeenCalledWith("native","show"));
 });
 
+it.each([1,0])("offers scoped scan and metadata refresh on season %s cards",async seasonNumber=>{
+ const folder={...season,id:`season-${seasonNumber}`,title:seasonNumber===0?"Specials":"Season 1",metadata:{season:seasonNumber}};
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([series,folder]);
+ mount("/?native_library=native&native_item=show");
+ const card=await screen.findByTitle(`${folder.title} · right-click for options`);
+ fireEvent.contextMenu(card);
+ fireEvent.click(screen.getByRole("menuitem",{name:"Scan library files"}));
+ await waitFor(()=>expect(nativeLibraries.scanFolder).toHaveBeenCalledWith("native",folder.id));
+ fireEvent.contextMenu(card);
+ fireEvent.click(screen.getByRole("menuitem",{name:"Refresh Metadata"}));
+ const dialog=await screen.findByRole("dialog",{name:"Refresh Metadata"});
+ fireEvent.click(within(dialog).getByRole("button",{name:"Refresh"}));
+ await waitFor(()=>expect(nativeLibraries.scanFolder).toHaveBeenCalledWith("native",folder.id,true,{replaceMetadata:true,replaceImages:false}));
+});
+
 it("offers series actions without delete and opens missing episodes",async()=>{
  mount();fireEvent.contextMenu(await screen.findByTitle("Example Series · right-click for options"));
  for(const name of ["Edit Metadata","Edit Images","Identify","Remove Identification","Refresh Metadata","Scan library files","View Missing Episodes"])expect(screen.getByRole("menuitem",{name})).toBeTruthy();

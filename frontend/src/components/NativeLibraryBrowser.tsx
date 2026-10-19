@@ -492,6 +492,8 @@ export default function NativeLibraryBrowser({
           back={back}
           refresh={refresh}
           fetching={catalog.isFetching || refreshingArtwork}
+          scanFolder={scanFolder}
+          scanning={scanningFolder || status.data?.status === "scanning"}
           edit={(kind, id = selected.id) => setEditor({ id, kind })}
           showBackdrop={showBackdrop}
           overlay={overlay}
@@ -638,6 +640,8 @@ function NativeDetail({
   back,
   refresh,
   fetching,
+  scanFolder,
+  scanning,
   edit,
   showBackdrop,
   overlay,
@@ -649,7 +653,9 @@ function NativeDetail({
   back: () => void;
   refresh: () => void;
   fetching: boolean;
-  edit: (kind: "metadata" | "artwork" | "identify" | "fetch-metadata", id?: string) => void;
+  scanFolder: (entry: NativeCatalogEntry) => Promise<void>;
+  scanning: boolean;
+  edit: (kind: "metadata" | "artwork" | "identify" | "fetch-metadata" | "refresh-metadata", id?: string) => void;
   showBackdrop: boolean;
   overlay: number;
 }) {
@@ -862,6 +868,11 @@ function NativeDetail({
                         kind={child.kind.startsWith("book") ? "book" : "show"}
                         openLabel={child.kind==="book" ? child.metadata.missing===true ? "Edit Images" : "Read" : "Open"}
                         onOpen={() => open(child)}
+                        onScan={isAdmin && child.kind === "season" && child.metadata.missing !== true ? () => void scanFolder(child) : undefined}
+                        scanning={scanning}
+                        actions={isAdmin && child.kind === "season" && child.metadata.missing !== true ? [
+                          {label: "Refresh Metadata", icon: <RefreshCw className="size-4 shrink-0"/>, onClick: () => edit("refresh-metadata", child.id)},
+                        ] : undefined}
                       />
                     ))}
                 </div>
