@@ -1,9 +1,9 @@
 import RemovePosterOverlay from "./RemovePosterOverlay";
-import { invalidateArtworkItems } from "../../lib/artworkTarget";
+import { useArtworkMutationFeedback } from "./mutations";
 import { useMemo, useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { nativeLibraries } from "../../api/nativeLibraries";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import { buildApplyTargets, type ApplyTarget } from "../../lib/targets";
 import { useToast } from "../../lib/toast";
@@ -18,7 +18,7 @@ interface Props {
 export default function RemoveArtwork({ serverId, item, includeFolderBackdrop = false }: Props) {
   const targets = useMemo(() => buildApplyTargets(item, includeFolderBackdrop), [includeFolderBackdrop, item]);
   const [busy, setBusy] = useState<string | null>(null);
-  const queryClient = useQueryClient();
+  const feedback = useArtworkMutationFeedback(serverId, item.id);
   const toast = useToast();
   const libraryId = serverId === 0 && item.id.startsWith("native:") ? item.id.split(":")[1] : "";
   const catalog = useQuery({queryKey: ["native-catalog", libraryId], queryFn: () => nativeLibraries.catalog(libraryId), enabled: !!libraryId});
@@ -34,26 +34,20 @@ export default function RemoveArtwork({ serverId, item, includeFolderBackdrop = 
       await nativeLibraries.removeVariant(libraryId, id, kind);
       await refresh();
       toast.push("success", "Animation removed. Static artwork kept.");
-    } catch (error) { toast.push("error", (error as Error).message); }
+    } catch (error) { feedback.fail(error); }
     finally { setBusy(null); }
   };
 
-  const refresh = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] }),
-      invalidateArtworkItems(queryClient, serverId, item.id),
-    ]);
-  };
+  const refresh = feedback.refresh;
 
   const remove = async (target: ApplyTarget) => {
     if (!window.confirm(`Remove ${target.label} artwork?`)) return;
     setBusy(`${target.itemId}:${target.target}`);
     try {
       const result = await api.removeArtwork({ server_id: serverId, item_id: target.itemId, target: target.target });
-      toast.push(result.ok ? "success" : "error", result.message);
-      if (result.ok) await refresh();
+      await feedback.complete(result);
     } catch (error) {
-      toast.push("error", (error as Error).message);
+      feedback.fail(error);
     } finally {
       setBusy(null);
     }
@@ -72,7 +66,7 @@ export default function RemoveArtwork({ serverId, item, includeFolderBackdrop = 
       await refresh();
       toast.push("success", `Removed artwork from ${removed} target${removed === 1 ? "" : "s"}.`);
     } catch (error) {
-      toast.push("error", (error as Error).message);
+      feedback.fail(error);
     } finally {
       setBusy(null);
     }

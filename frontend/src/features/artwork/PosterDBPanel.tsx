@@ -1,5 +1,5 @@
 import SearchField from "../../components/SearchField";
-import { invalidateArtworkItems } from "../../lib/artworkTarget";
+import { useArtworkMutationFeedback } from "./mutations";
 // The ThePosterDB side module shown on the item detail page.
 //
 // Navigation is a stack so you can drill in and back out, all in-app:
@@ -13,7 +13,7 @@ import { invalidateArtworkItems } from "../../lib/artworkTarget";
 // without a TPDb session in the browser.
 
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import {
   ExternalLink,
   ImageDown,
@@ -62,7 +62,7 @@ type GridView = { set: PosterSet; isTitle: boolean; label?: string };
 
 export default function PosterDBBody({ serverId, item, prefill, refreshSearch = false }: Props) {
   const toast = useToast();
-  const queryClient = useQueryClient();
+  const feedback = useArtworkMutationFeedback(serverId, item.id);
   const [query, setQuery] = useState(prefill?.term ?? item.title);
   const bodyRef = useRef<HTMLDivElement>(null);
   const returnPositions = useRef<number[]>([]);
@@ -175,12 +175,7 @@ export default function PosterDBBody({ serverId, item, prefill, refreshSearch = 
   const seasonByNumber = (n?: number | null) =>
     n == null ? undefined : item.seasons.find((s) => s.index === n);
 
-  async function refreshArtwork(targetId = item.id, target?: ImageTarget) {
-    await Promise.all([
-      invalidateArtworkItems(queryClient, serverId, targetId, target),
-      queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] }),
-    ]);
-  }
+  const refreshArtwork = feedback.refresh;
 
   async function apply(
     asset: PosterAsset,
@@ -198,10 +193,9 @@ export default function PosterDBBody({ serverId, item, prefill, refreshSearch = 
         download_url: asset.download_url,
         item_title: titleOverride ?? item.title,
       });
-      toast.push(res.ok ? "success" : "error", res.message);
-      if (res.ok) await refreshArtwork(targetItemId, target);
+      await feedback.complete(res, targetItemId, target);
     } catch (e) {
-      toast.push("error", (e as Error).message);
+      feedback.fail(e);
     } finally {
       setBusyKey(null);
     }

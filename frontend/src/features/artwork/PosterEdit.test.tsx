@@ -31,7 +31,7 @@ it("downloads and applies a new poster through the normal artwork replacement wo
  vi.spyOn(HTMLCanvasElement.prototype,"toBlob").mockImplementation(callback=>callback(new Blob(["poster"],{type:"image/png"})));
  vi.spyOn(HTMLAnchorElement.prototype,"click").mockImplementation(function(this: HTMLAnchorElement){downloaded=this.download;});
  vi.mocked(api.applyUpload).mockResolvedValue({ok:true,message:"Saved"});
- show();fireEvent.click(screen.getByRole("button",{name:"Download"}));
+ show();fireEvent.click(screen.getByRole("button",{name:"Save as new image"}));
  await waitFor(()=>expect(downloaded).toBe("Series-poster.png"));
  expect(drawImage).toHaveBeenCalledTimes(2);
  expect(api.applyUpload).toHaveBeenCalledWith(expect.objectContaining({server_id:1,item_id:"series",target:"poster",file:expect.any(File)}));expect(nativeLibraries.upload).not.toHaveBeenCalled();
@@ -48,8 +48,8 @@ it("applies native downloads and marks the logo as already combined",async()=>{
  vi.spyOn(HTMLCanvasElement.prototype,"toBlob").mockImplementation(callback=>callback(new Blob(["poster"],{type:"image/png"})));
  vi.spyOn(HTMLAnchorElement.prototype,"click").mockImplementation(()=>{});
  show("/poster.png","/logo.png",true);
- await waitFor(()=>expect((screen.getByRole("button",{name:"Download"}) as HTMLButtonElement).disabled).toBe(false));
- fireEvent.click(screen.getByRole("button",{name:"Download"}));
+ await waitFor(()=>expect((screen.getByRole("button",{name:"Save as new image"}) as HTMLButtonElement).disabled).toBe(false));
+ fireEvent.click(screen.getByRole("button",{name:"Save as new image"}));
  await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("library",entry,{posteredit:expect.objectContaining({mode:"flattened",poster_path:"poster.jpg"}),poseredit:null}));
  expect(api.applyUpload).toHaveBeenCalledWith(expect.objectContaining({server_id:0,item_id:"native:library:series",target:"poster"}));
  expect(nativeLibraries.upload).toHaveBeenCalledWith("library","series","poster-edit-original",expect.any(File));

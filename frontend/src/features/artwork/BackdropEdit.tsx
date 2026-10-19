@@ -3,12 +3,12 @@ import {useQuery,useQueryClient} from "@tanstack/react-query";
 import {RotateCcw,Save} from "lucide-react";
 import AnimatedArtwork from "../../components/AnimatedArtwork";
 import {nativeLibraries,type NativeCatalogEntry} from "../../api/nativeLibraries";
-import {invalidateArtworkItems} from "../../lib/artworkTarget";
+import {useArtworkMutationFeedback} from "./mutations";
 import {useToast} from "../../lib/toast";
 import {backdropFramingUrl,backdropFramingEvent,defaultFraming,validFraming,type BackdropFraming} from "../../lib/backdropFraming";
 import type {ItemDetail} from "../../types";
 export default function BackdropEdit({serverId,item}:{serverId:number;item:ItemDetail}) {
- const client=useQueryClient();const toast=useToast();const native=serverId===0 && item.id.startsWith("native:");
+ const client=useQueryClient();const toast=useToast();const feedback=useArtworkMutationFeedback(serverId,item.id);const native=serverId===0 && item.id.startsWith("native:");
  const [,library,id]=item.id.split(":");const key=`posterview.backdropEdit.${serverId}.${item.id}`;
  const itemQuery=useQuery({queryKey:["native-catalog",library,"item",id],queryFn:()=>nativeLibraries.item(library,id),enabled:native});
  const entry=itemQuery.data;
@@ -38,11 +38,11 @@ export default function BackdropEdit({serverId,item}:{serverId:number;item:ItemD
   setBusy(true);
   try{
    const value=reset?null:framing;
-   if(native){const fresh=await nativeLibraries.item(library,id);if(!fresh)throw new Error("Library item is unavailable.");const result=await nativeLibraries.editItem(library,fresh,{backdropedit:value});client.setQueryData(["native-catalog",library,"item",id],result.entry);client.setQueryData<NativeCatalogEntry[]>(["native-catalog",library],entries=>entries?.map(e=>e.id===id?result.entry:e));await invalidateArtworkItems(client,serverId,item.id);await client.invalidateQueries({queryKey:["item-detail",serverId,item.id]});}
+   if(native){const fresh=await nativeLibraries.item(library,id);if(!fresh)throw new Error("Library item is unavailable.");const result=await nativeLibraries.editItem(library,fresh,{backdropedit:value});client.setQueryData(["native-catalog",library,"item",id],result.entry);client.setQueryData<NativeCatalogEntry[]>(["native-catalog",library],entries=>entries?.map(e=>e.id===id?result.entry:e));await feedback.refresh();}
    else {if(value)localStorage.setItem(key,JSON.stringify(value));else localStorage.removeItem(key);window.dispatchEvent(new Event(backdropFramingEvent));}
    if(reset)setFraming(defaultFraming);
    toast.push("success",reset?"Backdrop adjustments removed.":"Backdrop adjustments saved.");
-  }catch(error){toast.push("error",(error as Error).message);}finally{setBusy(false);}
+  }catch(error){feedback.fail(error);}finally{setBusy(false);}
  };
  if(!source)return <p className="text-sm text-muted">Add a backdrop in Artwork before using BackdropEdit.</p>;
  return <div className="space-y-4"><p className="text-xs leading-5 text-muted">Drag the backdrop or use the controls to adjust it inside its boundary. Static and animated artwork use the same framing. {native?"Saved per item in PosterView’s database.":"Saved per item in this browser."} Original artwork and connected servers are unchanged.</p>

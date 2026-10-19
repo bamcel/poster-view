@@ -1,5 +1,5 @@
 import SearchField from "../../components/SearchField";
-import { invalidateArtworkItems } from "../../lib/artworkTarget";
+import { useArtworkMutationFeedback } from "./mutations";
 // Browses one API-based provider's artwork (Fanart.tv / TheTVDB / AniList) for
 // the current item, grouped into Posters / Backgrounds / Banners / Logos.
 // Posters, backgrounds, logos and banners can be applied to supported destinations.
@@ -11,7 +11,7 @@ import { invalidateArtworkItems } from "../../lib/artworkTarget";
 // when none is.
 
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Database, Loader2, AlertCircle, ExternalLink, ImageOff } from "lucide-react";
 import { api } from "../../api/client";
 import { useToast } from "../../lib/toast";
@@ -104,7 +104,7 @@ export default function ArtworkBrowser({
   onReviewMetadata?: (metadata: NfoMetadata, sourceLabel: string) => void;
 }) {
   const toast = useToast();
-  const queryClient = useQueryClient();
+  const feedback = useArtworkMutationFeedback(serverId, item.id);
   const [activeType, setActiveType] = useState<ArtworkType | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(24);
@@ -205,15 +205,9 @@ export default function ArtworkBrowser({
         download_url: art.download_url,
         item_title: titleOverride ?? item.title,
       });
-      toast.push(res.ok ? "success" : "error", res.message);
-      if (res.ok) {
-        await Promise.all([
-          invalidateArtworkItems(queryClient, serverId, targetId, target),
-          queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] }),
-        ]);
-      }
+      await feedback.complete(res, targetId, target);
     } catch (e) {
-      toast.push("error", (e as Error).message);
+      feedback.fail(e);
     } finally {
       setBusyKey(null);
     }

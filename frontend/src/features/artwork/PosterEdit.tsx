@@ -6,7 +6,7 @@ import {Download, Loader2, RotateCcw} from "lucide-react";
 import AnimatedArtwork, {artworkFormat, stillArtwork} from "../../components/AnimatedArtwork";
 import {api} from "../../api/client";
 import {nativeLibraries,type NativeCatalogEntry} from "../../api/nativeLibraries";
-import {invalidateArtworkItems} from "../../lib/artworkTarget";
+import {useArtworkMutationFeedback} from "./mutations";
 import {useToast} from "../../lib/toast";
 import type {ItemDetail} from "../../types";
 
@@ -17,7 +17,7 @@ const loadImage = (src:string) => new Promise<HTMLImageElement>((resolve,reject)
   image.onload=()=>resolve(image); image.onerror=()=>reject(new Error("Unable to load artwork for export.")); image.src=src;
 });
 export default function PosterEdit({serverId,item}: {serverId:number;item:ItemDetail}) {
-  const client=useQueryClient(); const toast=useToast(); const preview=useRef<HTMLDivElement>(null);
+  const client=useQueryClient(); const toast=useToast(); const feedback=useArtworkMutationFeedback(serverId,item.id); const preview=useRef<HTMLDivElement>(null);
   const [placement,setPlacement]=useState<Placement>(defaults); const [busy,setBusy]=useState(false);
   const native=serverId===0 && item.id.startsWith("native:");
   const [,library,id]=item.id.split(":");
@@ -48,10 +48,9 @@ export default function PosterEdit({serverId,item}: {serverId:number;item:ItemDe
       if (!fresh) throw new Error("Library item is unavailable.");
       const result=await nativeLibraries.editItem(library,fresh,{posteredit:{...placement,mode:"overlay",poster_path:fresh.artwork.find(a=>a.kind==="poster")?.path},poseredit:null});
       client.setQueryData(["native-catalog",library,"item",id],result.entry);client.setQueryData<NativeCatalogEntry[]>(["native-catalog",library],entries=>entries?.map(e=>e.id===id?result.entry:e));
-      await invalidateArtworkItems(client,serverId,item.id);
-      await client.invalidateQueries({queryKey:["item-detail",serverId,item.id]});
+      await feedback.refresh();
       toast.push("success","Poster overlay saved. Original artwork unchanged.");
-    } catch(error) {toast.push("error",(error as Error).message);} finally {setBusy(false);}
+    } catch(error) {feedback.fail(error);} finally {setBusy(false);}
   };
   const download=async()=>{
     if (!source || !logo) return;
@@ -77,17 +76,16 @@ export default function PosterEdit({serverId,item}: {serverId:number;item:ItemDe
         if (!fresh) throw new Error("Poster saved, but its editing settings could not be updated.");
         await nativeLibraries.editItem(library,fresh,{posteredit:{...placement,mode:"flattened",poster_path:fresh.artwork.find(a=>a.kind==="poster")?.path},poseredit:null});
       }
-      await invalidateArtworkItems(client,serverId,item.id,"poster");
-      await client.invalidateQueries({queryKey:["item-detail",serverId,item.id]});
+      await feedback.refresh(item.id,"poster");
       toast.push("success",applied.message);
       const url=URL.createObjectURL(blob);const link=document.createElement("a");
       link.href=url;link.download=`${item.title.replace(/[<>:"/\\|?*\x00-\x1f]/g,"_").trim() || "poster"}-poster.png`;
       document.body.appendChild(link);link.click();link.remove();window.setTimeout(()=>URL.revokeObjectURL(url),60_000);
-    } catch(error) {toast.push("error",(error as Error).message);} finally {setBusy(false);}
+    } catch(error) {feedback.fail(error);} finally {setBusy(false);}
   };
   if (!source || !logo) return <div className="space-y-4"><p className="text-sm text-muted">Add a poster and a series logo in Artwork before using PosterEdit.</p><RemovePosterOverlay serverId={serverId} item={item}/></div>;
   return <div className="space-y-4">
-    <p className="text-xs leading-5 text-muted">Drag the logo to position it. Save Overlay stores its placement in PosterView without replacing artwork. Download applies and downloads a new PNG poster, following your artwork storage and sync settings{animated ? " using the animation’s static preview frame" : ""}.{!native && " Overlay saving is available for manual libraries; connected-server posters can be replaced and downloaded."}</p>
+    <p className="text-xs leading-5 text-muted">Drag the logo to position it. Save Overlay stores its placement in PosterView without replacing artwork. Save as new image applies and downloads a new PNG poster, following your artwork storage and sync settings{animated ? " using the animation’s static preview frame" : ""}.{!native && " Overlay saving is available for manual libraries; connected-server posters can be replaced and downloaded."}</p>
     <div ref={preview} className="relative aspect-[2/3] overflow-hidden rounded-xl bg-black">
       <AnimatedArtwork src={source} alt={item.title} className="h-full w-full object-cover"/>
       {placement.enabled && <img src={logo} alt="Drag series logo" draggable={false} onPointerDown={drag} className="absolute cursor-move touch-none select-none" style={{left:`${placement.x}%`,top:`${placement.y}%`,width:`${placement.width}%`,opacity:placement.opacity/100}}/>}
@@ -97,6 +95,6 @@ export default function PosterEdit({serverId,item}: {serverId:number;item:ItemDe
     <div className="flex gap-2"><button type="button" onClick={()=>setPlacement(p=>({...p,x:(100-p.width)/2}))} className="rounded-lg border border-border px-3 py-2 text-sm">Center</button><button type="button" onClick={()=>setPlacement(defaults)} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"><RotateCcw className="size-4"/>Reset</button></div>
     <button type="button" disabled={busy || !native || !entry} onClick={()=>void save()} className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-black disabled:opacity-50">{busy&&<Loader2 className="size-4 animate-spin"/>}Save Overlay</button>
     <RemovePosterOverlay serverId={serverId} item={item} disabled={busy} onRemoved={()=>setPlacement(p=>({...p,enabled:false}))}/>
-    <button type="button" disabled={busy || (native && !entry)} onClick={()=>void download()} className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-semibold text-white hover:border-accent disabled:opacity-50"><Download className="size-4"/>Download</button>
+    <button type="button" disabled={busy || (native && !entry)} onClick={()=>void download()} className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm font-semibold text-white hover:border-accent disabled:opacity-50"><Download className="size-4"/>Save as new image</button>
   </div>;
 }

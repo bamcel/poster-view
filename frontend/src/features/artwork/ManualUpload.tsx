@@ -1,11 +1,10 @@
 import AnimatedArtwork, {artworkFormat} from "../../components/AnimatedArtwork";
-import { invalidateArtworkItems } from "../../lib/artworkTarget";
+import { useArtworkMutationFeedback } from "./mutations";
 // "Manual" artwork tab: apply your own image (uploaded file or a URL) to a
 // chosen target — the item's poster/background, or a specific season's poster
 // (including Season 0 / Specials). Reuses the same apply plumbing.
 
 import { useEffect, useMemo, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Upload, Loader2, ImageOff, Check } from "lucide-react";
 import { api } from "../../api/client";
 import { useToast } from "../../lib/toast";
@@ -14,7 +13,7 @@ import type { ItemDetail } from "../../types";
 
 export default function ManualUpload({ serverId, item, includeFolderBackdrop = false }: { serverId: number; item: ItemDetail; includeFolderBackdrop?: boolean }) {
   const toast = useToast();
-  const queryClient = useQueryClient();
+  const feedback = useArtworkMutationFeedback(serverId, item.id);
   const [file, setFile] = useState<File | null>(null);
   const [url, setUrl] = useState("");
   const [targetIndex, setTargetIndex] = useState(0);
@@ -62,15 +61,9 @@ export default function ManualUpload({ serverId, item, includeFolderBackdrop = f
             download_url: url.trim(),
             item_title: itemTitle,
           });
-      toast.push(res.ok ? "success" : "error", res.message);
-      if (res.ok) {
-        await Promise.all([
-          invalidateArtworkItems(queryClient, serverId, target.itemId, target.target),
-          queryClient.invalidateQueries({ queryKey: ["item-detail", serverId, item.id] }),
-        ]);
-      }
+      await feedback.complete(res, target.itemId, target.target);
     } catch (e) {
-      toast.push("error", (e as Error).message);
+      feedback.fail(e);
     } finally {
       setBusy(false);
     }
