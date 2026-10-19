@@ -53,13 +53,14 @@ interface Props {
   item: ItemDetail;
   /** When `nonce` changes, the panel runs a search for `term` (the hero button). */
   prefill?: { term: string; nonce: number };
+  refreshSearch?: boolean;
 }
 
 /** One level of the drill-down stack. `isTitle` grids list covers/sets that can
  *  be opened further; non-title grids are a concrete set (apply or go back). */
 type GridView = { set: PosterSet; isTitle: boolean; label?: string };
 
-export default function PosterDBBody({ serverId, item, prefill }: Props) {
+export default function PosterDBBody({ serverId, item, prefill, refreshSearch = false }: Props) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [query, setQuery] = useState(prefill?.term ?? item.title);
@@ -80,6 +81,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
   const [activeCat, setActiveCat] = useState<string | null>(null);
   const [stack, setStack] = useState<GridView[]>([]);
   const [busyLoad, setBusyLoad] = useState(false);
+  const [refreshingSearch, setRefreshingSearch] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const statusQ = useQuery({ queryKey: ["posterdb-status"], queryFn: api.posterdbStatus });
@@ -99,41 +101,44 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
     restorePosition.current = 0;
     const request = ++searchRequest.current;
     setBusyLoad(true);
+    setRefreshingSearch(true);
+    setSearch(null);
+    setStack([]);
+    const preferredCategory = item.id.startsWith("collection:") ? "Collections" : item.type === "movie" ? "Movies" : "Shows";
+    let finished = false;
     try {
-      const fullSearch = api.posterdbSearch(serverId, term).then(
-        (result) => ({ result, error: null }),
-        (error: unknown) => ({ result: null, error }),
-      );
-      const preview = await api.posterdbSearchPreview(serverId, term).catch(() => null);
-      if (preview && request === searchRequest.current) {
+      void (refreshSearch ? Promise.resolve(null) : api.posterdbSearchPreview(serverId, term)).then(preview => {
+        if (!preview || finished || request !== searchRequest.current) return;
         setSearch(preview);
-        setStack([]);
-        const first = preview.categories.find((c) => c.results.length) ?? preview.categories[0];
+        const first = preview.categories.find(c => c.name === preferredCategory && c.results.length)
+          ?? preview.categories.find(c => c.results.length) ?? preview.categories[0];
         setActiveCat(first?.name ?? null);
-      }
-
-      const { result, error } = await fullSearch;
+        setBusyLoad(false);
+      }).catch(() => {});
+      const result = await (refreshSearch ? api.posterdbSearch(serverId, term, true) : api.posterdbSearch(serverId, term));
+      finished = true;
       if (request !== searchRequest.current) return;
-      if (error) throw error;
-      if (!result) return;
       setSearch(result);
       setStack([]);
       setActiveCat((currentCategory) => {
         if (result.categories.some((category) => category.name === currentCategory)) {
           return currentCategory;
         }
-        const first = result.categories.find((category) => category.results.length) ?? result.categories[0];
+        const first = result.categories.find(c => c.name === preferredCategory && c.results.length)
+          ?? result.categories.find((category) => category.results.length) ?? result.categories[0];
         return first?.name ?? null;
       });
     } catch (e) {
       if (request === searchRequest.current) toast.push("error", (e as Error).message);
     } finally {
-      if (request === searchRequest.current) setBusyLoad(false);
+      finished = true;
+      if (request === searchRequest.current) {setBusyLoad(false);setRefreshingSearch(false);}
     }
   }
 
   async function openGrid(url: string, opts: { replace?: boolean; label?: string } = {}) {
     ++searchRequest.current;
+    setRefreshingSearch(false);
     const previousPosition = scrollContainer()?.scrollTop ?? 0;
     setBusyLoad(true);
     try {
@@ -294,6 +299,7 @@ export default function PosterDBBody({ serverId, item, prefill }: Props) {
           <Loader2 className="size-4 animate-spin" /> Loading from ThePosterDB…
         </div>
       )}
+      {!busyLoad && refreshingSearch && <p role="status" className="py-2 text-xs text-faint">Showing cached results. Refreshing search…</p>}
 
       {/* A grid (a title's posters, or a concrete set) */}
       {!busyLoad && current && (
@@ -361,7 +367,7 @@ function SearchResults({
       return {
         queryKey: ["posterdb-verify", serverId, ids],
         queryFn: () => api.posterdbVerify(serverId, ids),
-        enabled: ids.length > 0,
+        enabled: ids.length > 0 && c.name === active?.name,
         staleTime: 5 * 60_000,
       };
     }),
@@ -456,7 +462,7 @@ function SearchResults({
       )}
 
       <p className="mt-4 rounded-lg bg-surface-2 px-3 py-2 text-xs text-faint">
-        Category badges show titles with available artwork. Empty titles are hidden after checking.
+        The selected category is checked for available artwork. Empty titles are hidden after checking.
         Pick one to view its posters, open a poster for its full set, then apply or go back.
       </p>
     </div>

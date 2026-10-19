@@ -922,6 +922,16 @@ impl Runtime {
         server_id: i64,
         term: &str,
     ) -> Result<PosterSearchResults, String> {
+        self.posterdb_search_with_refresh(server_id, term, false)
+            .await
+    }
+
+    pub async fn posterdb_search_with_refresh(
+        &self,
+        server_id: i64,
+        term: &str,
+        refresh: bool,
+    ) -> Result<PosterSearchResults, String> {
         if !self
             .enabled_artwork_providers()
             .map_err(|error| error.to_string())?
@@ -932,6 +942,24 @@ impl Runtime {
         let settings = self
             .artwork_cache_settings(server_id)
             .map_err(|error| error.to_string())?;
+        let cache = self
+            .server_artwork_cache(server_id)
+            .map_err(|error| error.to_string())?;
+        let key = format!("posterdb-search:{}", term.trim().to_lowercase());
+        if refresh {
+            cache
+                .remove_matching(&key)
+                .map_err(|error| error.to_string())?;
+            cache
+                .remove_matching(&format!(
+                    "posterdb-prewarm-search:{}",
+                    term.trim().to_lowercase()
+                ))
+                .map_err(|error| error.to_string())?;
+        }
+        if let Some(cached) = cache.get_json(&key, settings.ttl_days) {
+            return Ok(cached);
+        }
         let store = self.server_store().map_err(|error| error.to_string())?;
         let result = self
             .artwork
@@ -947,9 +975,7 @@ impl Runtime {
             )
             .await?;
         let preview = posterdb_top_three(result.clone());
-        let cache = self
-            .server_artwork_cache(server_id)
-            .map_err(|error| error.to_string())?;
+        let _ = cache.put_json(&key, &result, settings.max_mb, settings.ttl_days);
         let key = format!("posterdb-prewarm-search:{}", term.trim().to_lowercase());
         let _ = cache.put_json(&key, &preview, settings.max_mb, settings.ttl_days);
         Ok(result)

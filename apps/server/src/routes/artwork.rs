@@ -377,6 +377,8 @@ struct ServerQuery {
 struct SearchQuery {
     server_id: i64,
     term: String,
+    #[serde(default)]
+    refresh: bool,
 }
 
 async fn posterdb_search(
@@ -389,7 +391,7 @@ async fn posterdb_search(
     Ok(Json(
         state
             .runtime
-            .posterdb_search(query.server_id, &query.term)
+            .posterdb_search_with_refresh(query.server_id, &query.term, query.refresh)
             .await
             .map_err(HttpError::bad_gateway)?,
     ))

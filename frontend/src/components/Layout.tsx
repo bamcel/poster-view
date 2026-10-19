@@ -33,7 +33,7 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
   const backNavigation=useLibraryHeaderBack();
   const [searchTarget,setSearchTarget]=useState<HTMLDivElement|null>(null);
   const [headerBackdrop,setHeaderBackdrop]=useState<string|null>(null);
-  const libraryBack=/^\/media\//.test(preview?previewPath:location.pathname)||/^\/server\/[^/]+\/(item|series)\//.test(preview?previewPath:location.pathname)||/^\/collections\/[^/]+/.test(preview?previewPath:location.pathname);
+  const libraryBack=/^\/media\//.test(preview?previewPath:location.pathname)||/^\/server\/[^/]+\/(item|series)\//.test(preview?previewPath:location.pathname)||/^\/collections\/[^/]+/.test(preview?previewPath:location.pathname)||(preview?previewPath:location.pathname)==="/virtual-tv";
   const collectionsSearch=!preview&&(location.pathname==="/collections"||location.pathname==="/rankings");
   const homeSearch=!preview&&location.pathname==="/"&&!new URLSearchParams(location.search).has("lib")&&!new URLSearchParams(location.search).has("native_library");
   const preferencesMenu=useRef<HTMLDetailsElement>(null);

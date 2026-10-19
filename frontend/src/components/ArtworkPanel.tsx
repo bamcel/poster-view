@@ -240,7 +240,7 @@ export default function ArtworkPanel({ manualOnly = false, serverId, item, prefi
           </div>
         )}
         {provider === "posterdb" ? (
-          <PosterDBBody key={panelVersion} serverId={serverId} item={item} prefill={prefill} />
+          <PosterDBBody key={panelVersion} serverId={serverId} item={item} prefill={prefill} refreshSearch={panelVersion > 0} />
         ) : provider === "mangadex" ? (
           <MangaDexPanel key={`${serverId}:${item.id}:${panelVersion}`} serverId={serverId} item={item} onManual={() => setProvider("manual")} />
         ) : provider === "viz" ? (

@@ -142,6 +142,45 @@ fn fixture() -> (tempfile::TempDir, AppState, String) {
     (temp, state, library.id)
 }
 #[tokio::test]
+async fn obsolete_channels_release_numbers_and_cleanup_survives_cache_reload() {
+    let (_temp, state, library) = fixture();
+    let _guard = WRITE.lock().await;
+    let record = |id: &str, number, libraries: Vec<String>| {
+        let mut channel = validate(input(&library), id.into(), 1).unwrap();
+        channel.number = number;
+        channel.library_ids = libraries;
+        Record {
+            channel,
+            candidates: vec![],
+        }
+    };
+    persist(
+        &state,
+        &Document {
+            enabled: false,
+            channels: vec![
+                record("valid", 1, vec![library.clone()]),
+                record("obsolete", 2, vec!["deleted-library".into()]),
+                record("mixed", 3, vec![library.clone(), "deleted-library".into()]),
+            ],
+        },
+    )
+    .unwrap();
+    let doc = load_current_channels(&state).unwrap();
+    assert!(!doc.enabled);
+    assert_eq!(
+        doc.channels
+            .iter()
+            .map(|r| r.channel.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["valid", "mixed"]
+    );
+    assert!(!doc.channels.iter().any(|r| r.channel.number == 2));
+    *state.virtual_tv.cache.write().unwrap() = None;
+    assert_eq!(load(&state).unwrap().channels.len(), 2);
+    assert_eq!(load_current_channels(&state).unwrap().channels.len(), 2);
+}
+#[tokio::test]
 async fn default_channel_image_prefers_current_video_thumbnail_over_poster() {
     let (temp, state, library) = fixture();
     let item = ServerStore::new(state.runtime.data_dir())

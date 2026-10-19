@@ -179,9 +179,9 @@ it("does not offer the retired headline artwork preference",async()=>{
  expect(screen.queryByRole("combobox",{name:"Headline artwork"})).toBeNull();
 });
 
-it("returns from a library to the homepage using the header back button",async()=>{
+it.each(["/media/Anime","/virtual-tv"])("returns from %s to the homepage using the header back button",async path=>{
  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});
- render(<MemoryRouter initialEntries={["/media/Anime"]}><AuthGate><Layout><CurrentLocation/></Layout></AuthGate></MemoryRouter>);
+ render(<MemoryRouter initialEntries={[path]}><AuthGate><Layout><CurrentLocation/></Layout></AuthGate></MemoryRouter>);
  const back=await screen.findByRole("link",{name:"Back"});
  expect(back.getAttribute("href")).toBe("/");
  expect(back.className).toContain("size-11");

@@ -148,6 +148,26 @@ fn persist(state: &AppState, doc: &Document) -> Result<(), HttpError> {
     *state.virtual_tv.cache.write().map_err(storage)? = Some(Arc::new(doc.clone()));
     Ok(())
 }
+// Call while holding WRITE so cleanup cannot overwrite a concurrent channel edit.
+fn load_current_channels(state: &AppState) -> Result<Arc<Document>, HttpError> {
+    let doc = load(state)?;
+    let libraries = ServerStore::new(state.runtime.data_dir())
+        .native_libraries()
+        .map_err(storage)?;
+    let mut current = (*doc).clone();
+    current.channels.retain(|record| {
+        record
+            .channel
+            .library_ids
+            .iter()
+            .any(|id| libraries.iter().any(|library| &library.id == id))
+    });
+    if current.channels.len() != doc.channels.len() {
+        persist(state, &current)?;
+        return Ok(Arc::new(current));
+    }
+    Ok(doc)
+}
 fn admin(state: &AppState, headers: &HeaderMap) -> Result<(), HttpError> {
     if state.auth.request_user(headers)?.role == UserRole::Admin {
         Ok(())
@@ -263,7 +283,12 @@ async fn channels(
     headers: HeaderMap,
 ) -> Result<Json<Vec<Channel>>, HttpError> {
     let user = state.auth.request_user(&headers)?;
-    let doc = load(&state)?;
+    let doc = if user.role == UserRole::Admin {
+        let _guard = WRITE.lock().await;
+        load_current_channels(&state)?
+    } else {
+        load(&state)?
+    };
     if !doc.enabled && user.role != UserRole::Admin {
         return Ok(Json(vec![]));
     }
@@ -722,7 +747,7 @@ async fn create(
 ) -> Result<Json<Channel>, HttpError> {
     admin(&state, &headers)?;
     let _guard = WRITE.lock().await;
-    let mut doc = (*load(&state)?).clone();
+    let mut doc = (*load_current_channels(&state)?).clone();
     if doc.channels.len() >= 128 {
         return Err(HttpError::bad_request("Limit reached: 128 channels."));
     }
@@ -751,7 +776,7 @@ async fn update(
 ) -> Result<Json<Channel>, HttpError> {
     admin(&state, &headers)?;
     let _guard = WRITE.lock().await;
-    let mut doc = (*load(&state)?).clone();
+    let mut doc = (*load_current_channels(&state)?).clone();
     let index = doc
         .channels
         .iter()

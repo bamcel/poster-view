@@ -287,6 +287,65 @@ fn migration_preserves_cached_artwork_and_does_not_restore_cleared_data() {
 }
 
 #[tokio::test]
+async fn posterdb_full_search_cache_preserves_results_and_server_isolation() {
+    use posterview_contracts::{PosterCategory, PosterTitleResult};
+
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = Runtime::new(directory.path());
+    runtime.initialize().unwrap();
+    let a = add_server(&runtime, "A", "http://localhost:8096");
+    let b = add_server(&runtime, "B", "http://localhost:8097");
+    for server in [&a, &b] {
+        let results = PosterSearchResults {
+            term: "Collection".into(),
+            categories: vec![PosterCategory {
+                name: "Collections".into(),
+                count: 5,
+                results: (1..=5)
+                    .map(|id| PosterTitleResult {
+                        title: format!("{} collection {id}", server.name),
+                        url: format!("https://theposterdb.com/collection/{id}"),
+                        media_id: id.to_string(),
+                    })
+                    .collect(),
+            }],
+        };
+        runtime
+            .server_artwork_cache(server.id)
+            .unwrap()
+            .put_json("posterdb-search:collection", &results, 25, 30)
+            .unwrap();
+    }
+    for server in [&a, &b] {
+        // No credentials are configured: a cache miss would fail login.
+        let cached = runtime
+            .posterdb_search(server.id, "  COLLECTION ")
+            .await
+            .unwrap();
+        assert_eq!(cached.categories[0].results.len(), 5);
+        assert_eq!(cached.categories[0].count, 5);
+        assert_eq!(
+            cached.categories[0].results[0].title,
+            format!("{} collection 1", server.name)
+        );
+    }
+    runtime
+        .server_artwork_cache(a.id)
+        .unwrap()
+        .remove_matching("posterdb-search:collection")
+        .unwrap();
+    assert!(runtime.posterdb_search(a.id, "Collection").await.is_err());
+    assert!(runtime.posterdb_search(b.id, "Collection").await.is_ok());
+    assert!(
+        runtime
+            .posterdb_search_with_refresh(b.id, "Collection", true)
+            .await
+            .is_err()
+    );
+    assert!(runtime.posterdb_search(b.id, "Collection").await.is_err());
+}
+
+#[tokio::test]
 async fn cached_provider_images_and_thumbnail_links_use_the_requested_server() {
     let directory = tempfile::tempdir().unwrap();
     let runtime = Runtime::new(directory.path());

@@ -184,8 +184,8 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   posterdbLogin: () => request<PosterDBStatus>("/posterdb/login", { method: "POST" }),
-  posterdbSearch: (serverId: number, term: string) =>
-    request<PosterSearchResults>(`/posterdb/search?server_id=${serverId}&term=${encodeURIComponent(term)}`),
+  posterdbSearch: (serverId: number, term: string, refresh = false) =>
+    request<PosterSearchResults>(`/posterdb/search?server_id=${serverId}&term=${encodeURIComponent(term)}${refresh ? "&refresh=true" : ""}`),
   posterdbSearchPreview: (serverId: number, term: string) =>
     request<PosterSearchResults | null>(
       `/posterdb/search/preview?server_id=${serverId}&term=${encodeURIComponent(term)}`,
