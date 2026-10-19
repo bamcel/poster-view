@@ -82,7 +82,14 @@ async fn upload_image(
             .await
             .map(Json);
     }
-    state
+    let history = crate::artwork_history::capture_connected(
+        &state,
+        server_id,
+        &item_id,
+        history_kind(&target),
+    )
+    .await?;
+    let result = state
         .runtime
         .apply_image(
             server_id,
@@ -94,8 +101,11 @@ async fn upload_image(
             &item_title,
         )
         .await?
-        .map(Json)
-        .ok_or_else(HttpError::not_found)
+        .ok_or_else(HttpError::not_found)?;
+    if result.ok {
+        history.commit(&state).await?;
+    }
+    Ok(Json(result))
 }
 
 async fn remove_artwork(
@@ -112,12 +122,22 @@ async fn remove_artwork(
             .await
             .map(Json);
     }
-    state
+    let history = crate::artwork_history::capture_connected(
+        &state,
+        input.server_id,
+        &input.item_id,
+        history_kind(&input.target),
+    )
+    .await?;
+    let result = state
         .runtime
         .remove_image(input.server_id, &input.item_id, &input.target)
         .await?
-        .map(Json)
-        .ok_or_else(HttpError::not_found)
+        .ok_or_else(HttpError::not_found)?;
+    if result.ok {
+        history.commit(&state).await?;
+    }
+    Ok(Json(result))
 }
 
 async fn artwork_providers(State(state): State<AppState>) -> Result<impl IntoResponse, HttpError> {
@@ -483,12 +503,32 @@ async fn apply_download(
             .await
             .map(Json);
     }
-    state
+    let history = crate::artwork_history::capture_connected(
+        &state,
+        input.server_id,
+        &input.item_id,
+        history_kind(&input.target),
+    )
+    .await?;
+    let result = state
         .runtime
         .apply_download(&input)
         .await?
-        .map(Json)
-        .ok_or_else(HttpError::not_found)
+        .ok_or_else(HttpError::not_found)?;
+    if result.ok {
+        history.commit(&state).await?;
+    }
+    Ok(Json(result))
+}
+
+fn history_kind(target: &ImageTarget) -> &'static str {
+    match target {
+        ImageTarget::Poster => "poster",
+        ImageTarget::Background => "backdrop",
+        ImageTarget::Logo => "logo",
+        ImageTarget::Landscape => "landscape",
+        ImageTarget::Banner => "banner",
+    }
 }
 
 fn cached_image_response(bytes: Vec<u8>, content_type: &str) -> axum::response::Response {

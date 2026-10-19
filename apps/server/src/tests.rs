@@ -1137,11 +1137,22 @@ async fn jellyfin_item_detail_is_normalized() {
 
 #[tokio::test]
 async fn large_png_manual_upload_is_applied_without_artwork_history() {
-    let media_app = axum::Router::new().route(
-        "/Items/movie-1/Images/Primary",
-        axum::routing::post(|_: axum::body::Bytes| async { StatusCode::NO_CONTENT })
-            .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
-    );
+    let media_app = axum::Router::new()
+        .route("/Users", axum::routing::get(|| async {axum::Json(serde_json::json!([{"Id":"user"}]))}))
+        .route("/Items", axum::routing::get(|| async {axum::Json(serde_json::json!({"Items":[{"Id":"movie-1","Name":"Example Movie","Type":"Movie"}]}))}))
+        .route(
+            "/Items/movie-1",
+            axum::routing::get(|| async {
+                axum::Json(
+                    serde_json::json!({"Id":"movie-1","Name":"Example Movie","Type":"Movie"}),
+                )
+            }),
+        )
+        .route(
+            "/Items/movie-1/Images/Primary",
+            axum::routing::post(|_: axum::body::Bytes| async { StatusCode::NO_CONTENT })
+                .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
+        );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let media_server = tokio::spawn(async move {

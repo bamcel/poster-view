@@ -20,6 +20,7 @@ pub(crate) fn protected(auth: AuthState) -> Router<AppState> {
     Router::new()
         .merge(crate::users::routes())
         .merge(crate::collections::routes())
+        .merge(crate::artwork_history::routes())
         .merge(crate::pairwise::routes())
         .merge(crate::jobs::routes())
         .merge(crate::ytdl::routes())
@@ -176,6 +177,10 @@ pub(crate) fn protected(auth: AuthState) -> Router<AppState> {
         )
         .route("/api", any(api_not_found))
         .route("/api/{*path}", any(api_not_found))
+        .route_layer(middleware::from_fn_with_state(
+            auth.clone(),
+            crate::artwork_history::context,
+        ))
         .route_layer(middleware::from_fn_with_state(auth, system::require_auth))
 }
 

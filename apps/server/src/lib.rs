@@ -8,6 +8,7 @@ use tower_http::{
 };
 
 mod access;
+mod artwork_history;
 mod artwork_preferences;
 mod auth;
 mod collections;
@@ -85,6 +86,7 @@ pub fn router(runtime: Arc<Runtime>, ui_dir: PathBuf, auth: AuthState) -> Router
         tracing::warn!(error=%error.detail,"Unable to remove legacy artwork history");
     }
     state.playback.start_cleanup();
+    artwork_history::start(state.clone());
     jobs::start(state.clone());
     native_monitor::start(state.clone());
     ytdl::start(state.clone());

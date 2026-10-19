@@ -1328,6 +1328,24 @@ pub(crate) async fn edit_item(
                 .keys()
                 .all(|key| ["posteredit", "poseredit", "backdropedit"].contains(&key.as_str()))
     });
+    let changed_adjustments = input.metadata.as_object().is_some_and(|fields| {
+        ["posteredit", "poseredit", "backdropedit"]
+            .iter()
+            .any(|key| {
+                fields
+                    .get(*key)
+                    .is_some_and(|value| value != &fresh.metadata[*key])
+            })
+    });
+    let history = if changed_adjustments {
+        Some(
+            crate::artwork_history::capture_native(&state, &library_id, &item, "adjustments")
+                .await?,
+        )
+    } else {
+        None
+    };
+    let history_state = state.clone();
     let result = tokio::task::spawn_blocking(move || {
         let db = store(&state);
         db.edit_native_entry(&library_id, &item, input.revision, &input.metadata)
@@ -1385,6 +1403,9 @@ pub(crate) async fn edit_item(
     })
     .await
     .map_err(|_| HttpError::bad_request("Metadata save interrupted."))??;
+    if let Some(history) = history {
+        history.commit(&history_state).await?;
+    }
     Ok(result)
 }
 pub(crate) async fn apply_panel_artwork(
@@ -1393,6 +1414,22 @@ pub(crate) async fn apply_panel_artwork(
     kind: posterview_contracts::ImageTarget,
     bytes: Option<Vec<u8>>,
 ) -> Result<posterview_contracts::ApplyResult, HttpError> {
+    let (library, item) =
+        posterview_runtime::native_artwork_target(&target).ok_or_else(HttpError::not_found)?;
+    let entry = store(&state)
+        .native_catalog_item(library, item)
+        .map_err(error)?
+        .ok_or_else(HttpError::not_found)?;
+    let history_kind = match kind {
+        posterview_contracts::ImageTarget::Background => "backdrop",
+        posterview_contracts::ImageTarget::Logo => "logo",
+        posterview_contracts::ImageTarget::Landscape => "landscape",
+        posterview_contracts::ImageTarget::Banner => "banner",
+        posterview_contracts::ImageTarget::Poster if entry.kind == "episode" => "thumb",
+        _ => "poster",
+    };
+    let history =
+        crate::artwork_history::capture_native(&state, library, item, history_kind).await?;
     let new_artwork = bytes.is_some();
     let save_state = state.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -1473,6 +1510,7 @@ pub(crate) async fn apply_panel_artwork(
     })
     .await
     .map_err(|_| HttpError::bad_request("Artwork save interrupted."))??;
+    history.commit(&state).await?;
     crate::spawn_backdrop_refresh(&state);
     if new_artwork {
         crate::native_artwork_jobs::request(&state);
@@ -1508,8 +1546,13 @@ pub(crate) async fn upload_artwork(
         .bytes()
         .await
         .map_err(|_| HttpError::bad_request("Unable to read artwork upload."))?;
+    let history = if kind == "poster-edit-original" {
+        None
+    } else {
+        Some(crate::artwork_history::capture_native(&state, &library, &item, &kind).await?)
+    };
     let save_state = state.clone();
-    let art = tokio::task::spawn_blocking(move || {
+    let (art, sidecar_error) = tokio::task::spawn_blocking(move || {
         let state = save_state;
         let db = store(&state);
         let entry = db
@@ -1536,18 +1579,30 @@ pub(crate) async fn upload_artwork(
         };
         db.save_native_artwork(&library, &item, &art)
             .map_err(error)?;
-        if config.options.save_artwork && !animated && art.kind != "poster-edit-original" {
+        let sidecar_error = if config.options.save_artwork
+            && !animated
+            && art.kind != "poster-edit-original"
+        {
             crate::workers::blocking(|| crate::native_artwork::write(&state, &entry, &art, true))
-                .map_err(|e| {
-                HttpError::bad_request(format!(
-                    "Artwork saved in the database, but media-folder write failed: {e}"
-                ))
-            })?;
-        }
-        Ok::<_, HttpError>(art)
+                .err()
+                .map(|e| {
+                    HttpError::bad_request(format!(
+                        "Artwork saved in the database, but media-folder write failed: {e}"
+                    ))
+                })
+        } else {
+            None
+        };
+        Ok::<_, HttpError>((art, sidecar_error))
     })
     .await
     .map_err(|_| HttpError::bad_request("Artwork save interrupted."))??;
+    if let Some(history) = history {
+        history.commit(&state).await?;
+    }
+    if let Some(error) = sidecar_error {
+        return Err(error);
+    }
     if art.kind == "poster-edit-original" {
         return Ok(StatusCode::NO_CONTENT);
     }
@@ -2056,6 +2111,208 @@ pub(crate) mod scan_tests {
         assert_eq!(status, StatusCode::OK);
         assert_ne!(changed[header::ETAG], headers[header::ETAG]);
         assert_eq!(image::load_from_memory(&bytes).unwrap().height(), 320);
+    }
+
+    #[tokio::test]
+    async fn manual_artwork_history_records_successful_replacements_and_changed_adjustments() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let db = store(&state);
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "History".into(),
+                    library_type: NativeLibraryType::Shows,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Shows".into()],
+                    revision: None,
+                    options: NativeLibraryOptions::default(),
+                },
+            )
+            .unwrap();
+        let entry = posterview_contracts::native::NativeCatalogEntry {
+            id: String::new(),
+            path: "Shows/Example".into(),
+            kind: "series".into(),
+            parent_path: None,
+            title: "Example".into(),
+            metadata: serde_json::json!({"posteredit":{"mode":"overlay","x":3}}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
+        let entry = db.native_catalog(&library.id).unwrap().remove(0);
+        let target = format!("native:{}:{}", library.id, entry.id);
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            2,
+            2,
+            image::Rgba([255, 0, 0, 255]),
+        ))
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+        let path = crate::native_provider::store_image(&state, bytes.get_ref()).unwrap();
+        db.save_native_artwork(
+            &library.id,
+            &entry.id,
+            &posterview_contracts::native::NativeArtwork {
+                kind: "poster".into(),
+                path,
+                source: "manual".into(),
+            },
+        )
+        .unwrap();
+        // Manual image replacement intentionally clears old overlay preferences.
+        // Seed the original overlay after the original image has been assigned.
+        let seeded = db
+            .native_catalog_item(&library.id, &entry.id)
+            .unwrap()
+            .unwrap();
+        db.edit_native_entry(
+            &library.id,
+            &entry.id,
+            seeded.revision,
+            &serde_json::json!({"posteredit":{"mode":"overlay","x":3}}),
+        )
+        .unwrap();
+        let original_bytes = bytes.into_inner();
+        let mut replacement = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            2,
+            2,
+            image::Rgba([0, 0, 255, 255]),
+        ))
+        .write_to(&mut replacement, image::ImageFormat::Png)
+        .unwrap();
+        let replacement_bytes = replacement.into_inner();
+        apply_panel_artwork(
+            state.clone(),
+            target.clone(),
+            posterview_contracts::ImageTarget::Poster,
+            Some(replacement_bytes.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            crate::artwork_history::records_for(&state, 0, &target)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            apply_panel_artwork(
+                state.clone(),
+                target.clone(),
+                posterview_contracts::ImageTarget::Poster,
+                Some(b"not an image".to_vec())
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(
+            crate::artwork_history::records_for(&state, 0, &target)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        let original_id = crate::artwork_history::records_for(&state, 0, &target)
+            .await
+            .unwrap()[0]
+            .id
+            .clone();
+        for _ in 0..2 {
+            let current = db
+                .native_catalog_item(&library.id, &entry.id)
+                .unwrap()
+                .unwrap();
+            let _ = edit_item(
+                State(state.clone()),
+                Path((library.id.clone(), entry.id.clone())),
+                Json(EditRequest {
+                    revision: current.revision,
+                    metadata: serde_json::json!({"posteredit":{"mode":"overlay","x":15}}),
+                }),
+            )
+            .await
+            .unwrap();
+        }
+        assert_eq!(
+            crate::artwork_history::records_for(&state, 0, &target)
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        let previous_ids = crate::artwork_history::records_for(&state, 0, &target)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>();
+        assert!(
+            crate::artwork_history::restore_for(&state, &original_id)
+                .await
+                .unwrap()
+                .ok
+        );
+        let restored = db
+            .native_catalog_item(&library.id, &entry.id)
+            .unwrap()
+            .unwrap();
+        let restored_art = restored
+            .artwork
+            .iter()
+            .find(|art| art.kind == "poster")
+            .unwrap();
+        assert_eq!(
+            fs::read(artwork_source(&state, restored_art, false).unwrap()).unwrap(),
+            original_bytes
+        );
+        assert_eq!(restored.metadata["posteredit"]["x"], 3);
+        let history = crate::artwork_history::records_for(&state, 0, &target)
+            .await
+            .unwrap();
+        assert_eq!(history.len(), 3);
+        let undo_id = &history
+            .iter()
+            .find(|entry| !previous_ids.contains(&entry.id))
+            .unwrap()
+            .id;
+        assert!(
+            crate::artwork_history::restore_for(&state, undo_id)
+                .await
+                .unwrap()
+                .ok
+        );
+        let undone = db
+            .native_catalog_item(&library.id, &entry.id)
+            .unwrap()
+            .unwrap();
+        let undone_art = undone
+            .artwork
+            .iter()
+            .find(|art| art.kind == "poster")
+            .unwrap();
+        assert_eq!(
+            fs::read(artwork_source(&state, undone_art, false).unwrap()).unwrap(),
+            replacement_bytes
+        );
+        assert_eq!(undone.metadata["posteredit"]["x"], 15);
+        assert_eq!(
+            crate::artwork_history::records_for(&state, 0, &target)
+                .await
+                .unwrap()
+                .len(),
+            4
+        );
     }
 
     #[tokio::test]
@@ -3738,6 +3995,11 @@ pub(crate) async fn remove_variant(
             "Wait for the library scan to finish before removing artwork.",
         ));
     }
+    let history = if original {
+        None
+    } else {
+        Some(crate::artwork_history::capture_native(&state, &library, &item, &kind).await?)
+    };
     if !animated && !original {
         let entry = store(&state)
             .native_catalog_item(&library, &item)
@@ -3772,6 +4034,9 @@ pub(crate) async fn remove_variant(
                 .select_local_artwork(&library, &item, &art)
                 .map_err(error)?;
         }
+    }
+    if let Some(history) = history {
+        history.commit(&state).await?;
     }
     Ok(StatusCode::NO_CONTENT)
 }

@@ -34,7 +34,9 @@ pub(crate) async fn apply_panel_artwork(
         .strip_prefix("collection:")
         .ok_or_else(HttpError::not_found)?
         .to_string();
-    super::blocking(move || {
+    let history = crate::artwork_history::capture_collection(&state, &id, field).await?;
+    let history_state = state.clone();
+    let result = super::blocking(move || {
         let store = ServerStore::new(state.runtime.data_dir());
         store
             .collection(&id)
@@ -89,7 +91,9 @@ pub(crate) async fn apply_panel_artwork(
             message: "Collection artwork updated.".into(),
         })
     })
-    .await
+    .await?;
+    history.commit(&history_state).await?;
+    Ok(result)
 }
 
 async fn image(

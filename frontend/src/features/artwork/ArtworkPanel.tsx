@@ -1,3 +1,4 @@
+import {artworkHistory} from "./historyClient";
 import {useArtworkPreferences} from "./preferences";
 import BackdropEdit from "./BackdropEdit";
 import PosterEdit from "./PosterEdit";
@@ -9,7 +10,8 @@ import { Switch } from "../../components/ui";
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Image as PosterIcon, Wallpaper, Images, RefreshCw, X } from "lucide-react";
+import { ChevronDown, Image as PosterIcon, Wallpaper, Images, RefreshCw, History, X } from "lucide-react";
+import ArtworkHistory from "./ArtworkHistory";
 import { api } from "../../api/client";
 import type { ItemDetail, Library, NfoMetadata } from "../../types";
 import PosterDBBody from "./PosterDBPanel";
@@ -44,6 +46,7 @@ const PROVIDER_GROUPS = [
 
 export default function ArtworkPanel({ manualOnly = false, serverId, item, prefill, navigationTarget, anilistMangaId, libraryType, libraryTitle, onReviewMetadata, onClose }: Props) {
   const plugin=useArtworkPreferences();
+  useQuery({queryKey:["artwork-history",serverId,item.id],queryFn:()=>artworkHistory.entries(serverId,item.id),staleTime:30_000});
   const collection = serverId === 0 && item.id.startsWith("collection:");
   const [mode, setMode] = useState<"artwork" | "edit" | "backdrop">("artwork");
   const [provider, setProvider] = useState(manualOnly ? "manual" : "posterdb");
@@ -56,6 +59,7 @@ export default function ArtworkPanel({ manualOnly = false, serverId, item, prefi
   const [panelBlur, setPanelBlur] = useState(backdropBlur);
   const [panelOverlayStrength, setPanelOverlayStrength] = useState(panelOverlay);
   const [otherSourcesOpen, setOtherSourcesOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -83,8 +87,6 @@ export default function ArtworkPanel({ manualOnly = false, serverId, item, prefi
     : settingsQ.data?.default_provider;
 
   // ThePosterDB first, the API providers from the backend, then Manual upload.
-  // Apply history now lives on its own global page (see Layout's "History" nav
-  // link) rather than a per-item tab here.
   const allTabs = [
     ...(enabled.includes("posterdb") ? [{ name: "posterdb", label: "ThePosterDB", configured: true, needs_key: false, enabled: true }] : []),
     ...(providersQ.data ?? []).filter((source) => source.enabled),
@@ -177,7 +179,7 @@ export default function ArtworkPanel({ manualOnly = false, serverId, item, prefi
             {!manualOnly && !collection && plugin.data?.poster_edit !== false && <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="edit"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><PosterIcon className="size-4"/>PosterEdit</button>}
             {!manualOnly && !collection && plugin.data?.backdrop_edit !== false && <button role="tab" aria-selected={mode==="backdrop"} onClick={()=>setMode("backdrop")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="backdrop"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Wallpaper className="size-4"/>BackdropEdit</button>}
           </div>
-          {onClose && <button type="button" onClick={onClose} aria-label="Close artwork" className="grid size-9 place-items-center rounded-full border border-border text-muted transition-colors hover:bg-white/10 hover:text-white" data-icon-button="true"><X className="size-5" /></button>}
+          <div className="flex shrink-0 gap-2"><button type="button" onClick={()=>setHistoryOpen(true)} aria-label="Artwork History" title="Artwork History" className="grid size-9 place-items-center rounded-full border border-border text-muted transition-colors hover:bg-white/10 hover:text-white" data-icon-button="true"><History className="size-4"/></button>{onClose && <button type="button" onClick={onClose} aria-label="Close artwork" className="grid size-9 place-items-center rounded-full border border-border text-muted transition-colors hover:bg-white/10 hover:text-white" data-icon-button="true"><X className="size-5" /></button>}</div>
         </div>
         {mode === "artwork" && <>{sourceLayout === "list" ? (
           <div>
@@ -255,6 +257,7 @@ export default function ArtworkPanel({ manualOnly = false, serverId, item, prefi
         )}
         </>}
       </div>
+      {historyOpen&&<ArtworkHistory key={`${serverId}:${item.id}`} serverId={serverId} itemId={item.id} title={item.title} onClose={()=>setHistoryOpen(false)}/>}
     </div>
   );
 }

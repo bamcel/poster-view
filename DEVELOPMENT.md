@@ -642,3 +642,33 @@ not migrated or removed. Non-administrators still cannot manage artwork.
 Editors query `nativeLibraries.item` with `['native-catalog', library, 'item', id]`
 and refetch that item before revision-based writes. Catalog array caches retain
 their previous shape, and existing prefix invalidation refreshes both views.
+
+### Artwork History
+
+`apps/server/src/artwork_history.rs` captures previous versions around successful
+manual image replacements/removals and changed PosterEdit/BackdropEdit settings.
+Internal original-image backups and automatic provider scans/capture do not create
+history entries. History uses the versioned `artwork-history-v1` setting and private
+immutable files in `artwork-history/`, separately from disposable image caches and
+legacy retired history. Existing credentials, images and database schemas remain
+unchanged. Only administrators can list, preview or restore snapshots.
+
+The artwork side panel retains its provider/editor layout and adds an always-enabled
+History button opening `PopupPage`; empty histories explain the retention policy.
+Settings → Artwork groups available histories into a searchable title-poster grid.
+Native ancestry groups a series, its seasons, Specials and episode artwork. Connected
+series contexts register season membership from server metadata when the panel opens.
+Filters operate within that title group. Up to 20 entries total across all artwork
+types/children are kept for seven days; entries expire immediately from API results.
+Owned backup files are pruned on history access/change and by hourly/startup cleanup.
+No original media files or unrelated files are removed by history pruning.
+
+A restore snapshots the current state first, so it can itself be undone. Native
+images restore through managed artwork storage, preserve editor metadata and honor
+configured artwork sidecar export; connected-server restores use existing adapters.
+Connected servers retain their existing image-type/removal capability limits.
+Previews use cached image/animation copies and saved adjustment data without changing
+the main page. Captures require readable current artwork; failures are surfaced
+rather than silently performing an unprotected replacement. Old overwritten artwork
+from before this feature cannot be recovered. Snapshot groups are keyed by library/
+server IDs, not title text; similarly named titles do not share history.
