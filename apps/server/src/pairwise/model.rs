@@ -331,15 +331,17 @@ mod tests {
     }
     #[test]
     fn disconnected_groups_are_provisional() {
-        assert!(rank(
-            &ids(),
-            &[
-                vote("a", "b", Outcome::Left),
-                vote("c", "d", Outcome::Right)
-            ]
-        )
-        .iter()
-        .all(|rating| rating.provisional));
+        assert!(
+            rank(
+                &ids(),
+                &[
+                    vote("a", "b", Outcome::Left),
+                    vote("c", "d", Outcome::Right)
+                ]
+            )
+            .iter()
+            .all(|rating| rating.provisional)
+        );
     }
     #[test]
     fn small_libraries_can_finish_their_available_comparisons() {
@@ -356,9 +358,11 @@ mod tests {
         );
         assert!(three.iter().all(|rating| !rating.provisional));
         let large: Vec<_> = (0..100).map(|i| format!("title{i}")).collect();
-        assert!(rank(&large, &[vote("title0", "title1", Outcome::Left)])
-            .iter()
-            .all(|rating| rating.provisional));
+        assert!(
+            rank(&large, &[vote("title0", "title1", Outcome::Left)])
+                .iter()
+                .all(|rating| rating.provisional)
+        );
     }
     #[test]
     fn exact_cycle_ties_use_stable_title_id_order() {
