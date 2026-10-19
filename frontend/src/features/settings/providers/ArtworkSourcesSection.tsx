@@ -18,11 +18,10 @@ export default function ArtworkSourcesSection() {
       </section>
       <section aria-labelledby="automatic-providers-heading" className="rounded-xl border border-border bg-window p-5"><header className="mb-4"><h2 id="automatic-providers-heading" className="font-semibold">Ready to use</h2><p className="mt-1 text-xs text-muted">These sources work without an API key or account setup.</p></header><div className="grid gap-x-8 sm:grid-cols-2 xl:grid-cols-3">
         {[
-          { id: "anilist", name: "AniList", description: "Anime artwork", url: "https://anilist.co" },
-          { id: "anilist-manga", name: "AniList Manga", description: "Manga artwork and metadata", url: "https://anilist.co" },
-          { id: "mediux", name: "MediUX", description: "Movie and TV artwork", url: "https://mediux.pro" },
-          { id: "mangadex", name: "MangaDex", description: "Manga covers", url: "https://mangadex.org" },
-          { id: "viz", name: "VIZ", description: "Manga covers", url: "https://www.viz.com" },
+          { id: "anilist", name: "AniList", description: "Anime & Manga", url: "https://anilist.co" },
+          { id: "mediux", name: "MediUX", description: "Artwork", url: "https://mediux.pro" },
+          { id: "mangadex", name: "MangaDex", description: "Artwork", url: "https://mangadex.org" },
+          { id: "viz", name: "VIZ", description: "Artwork", url: "https://www.viz.com" },
         ].map(provider => <a key={provider.id} href={provider.url} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 border-b border-border py-4 text-sm hover:text-accent"><span><span className="font-medium">{provider.name}</span><span className="mt-1 block text-xs text-muted">{provider.description}</span></span><span aria-hidden="true" className="text-muted">↗</span></a>)}
       </div></section>
 
@@ -33,7 +32,7 @@ export default function ArtworkSourcesSection() {
 function TmdbCredentialsFields() {
   const client = useQueryClient();
   const settings = useQuery({ queryKey: ["artwork-settings"], queryFn: api.getArtworkSettings });
-  return <CredentialConnection id="tmdb" name="TMDB" description="Movie and TV metadata" setupUrl="https://www.themoviedb.org/settings/api" configured={settings.data?.tmdb_configured} ready={settings.isSuccess} fields={[{key:"tmdb_access_token",label:"TMDB API Read Access Token or API key"}]} save={async value => { const result = await api.setArtworkSettings(value); client.setQueryData(["artwork-settings"],result); }} test={() => api.testArtworkProvider({provider:"tmdb"})}/>;
+  return <CredentialConnection id="tmdb" name="TMDB" description="Artwork & Metadata" setupUrl="https://www.themoviedb.org/settings/api" configured={settings.data?.tmdb_configured} ready={settings.isSuccess} fields={[{key:"tmdb_access_token",label:"TMDB API Read Access Token or API key"}]} save={async value => { const result = await api.setArtworkSettings(value); client.setQueryData(["artwork-settings"],result); }} test={() => api.testArtworkProvider({provider:"tmdb"})}/>;
 }
 
 function CredentialConnection({id,name,description,setupUrl,configured,ready,fields,save,test,initialEmail}: {
@@ -133,10 +132,10 @@ function ArtworkCredentialsFields() {
  const settings=useQuery({queryKey:["artwork-settings"],queryFn:api.getArtworkSettings});
  const saveArtwork=async(value:Record<string,string>)=>{const result=await api.setArtworkSettings(value);client.setQueryData(["artwork-settings"],result);void client.invalidateQueries({queryKey:["artwork-providers"]});};
  return <>
-  <CredentialConnection id="posterdb" name="ThePosterDB" description="Posters" setupUrl="https://theposterdb.com/register" configured={status.data?.configured} ready={status.isSuccess} initialEmail={status.data?.email} fields={[{key:"email",label:"Email / username"},{key:"password",label:"Password"}]} save={async value=>{await api.setPosterdbCredentials(value.email,value.password);await client.invalidateQueries({queryKey:["posterdb-status"]});}} test={async()=>{const result=await api.posterdbLogin();await client.invalidateQueries({queryKey:["posterdb-status"]});return {ok:result.logged_in,message:result.message || (result.logged_in?"Logged in.":"Login failed.")};}}/>
+  <CredentialConnection id="posterdb" name="ThePosterDB" description="Artwork" setupUrl="https://theposterdb.com/register" configured={status.data?.configured} ready={status.isSuccess} initialEmail={status.data?.email} fields={[{key:"email",label:"Email / username"},{key:"password",label:"Password"}]} save={async value=>{await api.setPosterdbCredentials(value.email,value.password);await client.invalidateQueries({queryKey:["posterdb-status"]});}} test={async()=>{const result=await api.posterdbLogin();await client.invalidateQueries({queryKey:["posterdb-status"]});return {ok:result.logged_in,message:result.message || (result.logged_in?"Logged in.":"Login failed.")};}}/>
   <CredentialConnection id="fanart" name="Fanart.tv" description="Artwork" setupUrl="https://fanart.tv/get-an-api-key/" configured={settings.data?.fanart_configured} ready={settings.isSuccess} fields={[{key:"fanart_api_key",label:"Fanart.tv API Key"}]} save={saveArtwork} test={()=>api.testArtworkProvider({provider:"fanart"})}/>
-  <CredentialConnection id="tvdb" name="TheTVDB" description="TV artwork and metadata" setupUrl="https://thetvdb.com/dashboard/account/apikey" configured={settings.data?.tvdb_configured} ready={settings.isSuccess} fields={[{key:"tvdb_api_key",label:"TheTVDB API Key"},{key:"tvdb_pin",label:"TheTVDB Subscriber PIN (Optional)"}]} save={saveArtwork} test={()=>api.testArtworkProvider({provider:"tvdb"})}/>
-  <CredentialConnection id="comicvine" name="ComicVine" description="Comics metadata" setupUrl="https://comicvine.gamespot.com/api/" configured={settings.data?.comicvine_configured} ready={settings.isSuccess} fields={[{key:"comicvine_api_key",label:"ComicVine API Key"}]} save={saveArtwork} test={()=>api.testArtworkProvider({provider:"comicvine"})}/>
+  <CredentialConnection id="tvdb" name="TheTVDB" description="TV Artwork & Metadata" setupUrl="https://thetvdb.com/dashboard/account/apikey" configured={settings.data?.tvdb_configured} ready={settings.isSuccess} fields={[{key:"tvdb_api_key",label:"TheTVDB API Key"},{key:"tvdb_pin",label:"TheTVDB Subscriber PIN (Optional)"}]} save={saveArtwork} test={()=>api.testArtworkProvider({provider:"tvdb"})}/>
+  <CredentialConnection id="comicvine" name="ComicVine" description="Artwork & Metadata" setupUrl="https://comicvine.gamespot.com/api/" configured={settings.data?.comicvine_configured} ready={settings.isSuccess} fields={[{key:"comicvine_api_key",label:"ComicVine API Key"}]} save={saveArtwork} test={()=>api.testArtworkProvider({provider:"comicvine"})}/>
   <NativeProviderCredentials/>
  </>;
 }
