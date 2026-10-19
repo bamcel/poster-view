@@ -15,7 +15,7 @@ export default function CharacterHoverCard({person, children, portrait}: {person
   const [position, setPosition] = useState<{left: number; top: number; width: number} | null>(null);
   const name = typeof person.name === "string" && person.name.trim() ? person.name.trim() : "Character";
   const role = typeof person.role === "string" ? person.role.trim() : "";
-  const biography = mediaDescription(person.biography ?? person.description).replace(/~![\s\S]*?(?:!~|$)/g, "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").trim();
+  const biography = mediaDescription(String(person.biography ?? person.description ?? "").replace(/~![\s\S]*?(?:!~|$)/g, "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1")).trim();
   function cancel() {clearTimeout(timer.current); timer.current = undefined;}
   function close() {cancel(); setPosition(null);}
   function open() {

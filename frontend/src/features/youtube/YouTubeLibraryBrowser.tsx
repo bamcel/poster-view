@@ -1,3 +1,4 @@
+import {mediaDescription} from "../../lib/mediaDescription";
 import YouTubeChannelActions from "./YouTubeChannelActions";
 import LibraryDetailLayout,{LibraryDetailHero,LibraryDetailSection} from "../../components/LibraryDetailLayout";
 import DetailSynopsis from "../../components/DetailSynopsis";
@@ -93,7 +94,7 @@ export default function YouTubeLibraryBrowser({ library }: { library: NativeLibr
           <p className="mt-4 text-sm text-muted">YouTube · {channel.videos.length} videos · {channel.playlists.length} playlists</p>
           <button className="mt-5 inline-flex items-center rounded-full border border-white/20 bg-white/10 px-5 py-2.5 text-sm font-semibold hover:bg-white/20" onClick={()=>navigate(channel.id,'all')}>All Videos</button>
         </LibraryDetailHero>}
-        related={<LibraryDetailSection label={playlistId?"Playlist videos":"Channel playlists"}><h2>{playlistId?title:"Playlists"}</h2>{playlistId&&playlist?.description&&<p className="mb-4 whitespace-pre-wrap text-muted">{playlist.description}</p>}<p className="mb-4 text-xs text-faint">{visible.length} {playlistId?"videos":"playlists"}</p>
+        related={<LibraryDetailSection label={playlistId?"Playlist videos":"Channel playlists"}><h2>{playlistId?title:"Playlists"}</h2>{playlistId&&playlist?.description&&<p className="mb-4 whitespace-pre-wrap text-muted">{mediaDescription(playlist.description)}</p>}<p className="mb-4 text-xs text-faint">{visible.length} {playlistId?"videos":"playlists"}</p>
           {playlistId?<div className="space-y-5">
             {visible.map(card=>{
               const entry=card.entry!;

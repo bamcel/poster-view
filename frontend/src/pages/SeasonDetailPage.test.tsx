@@ -36,7 +36,7 @@ it("shows server episode metadata, expands synopsis, and searches without leavin
   expect(screen.getByText("42 min")).toBeTruthy(); expect(screen.queryByText("8.5")).toBeNull();
   expect(screen.getByText("Episode 02–03")).toBeTruthy();
   expect(screen.queryByText("A Director")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Episode details for Pilot" })); expect(screen.getByRole("button", { name: "Less detail for Pilot" }).getAttribute("aria-expanded")).toBe("true");
+  expect(screen.queryByRole("button", { name: "More" })).toBeNull();
   expect(screen.queryByText("A Director")).toBeNull();
   expect(screen.getByRole("link", { name: "Back to series" }).getAttribute("href")).toBe("/server/7/item/show?return_library=tv");
   fireEvent.change(screen.getByRole("textbox", { name: "Search episodes" }), { target: { value: "Double" } });expect(screen.getAllByRole("article")).toHaveLength(1);

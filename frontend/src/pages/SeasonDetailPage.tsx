@@ -9,7 +9,7 @@ import { LibraryDetailHero, LibraryDetailSection } from "../components/LibraryDe
 import { useContext, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "../lib/libraryNavigation";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, CalendarDays, ChevronDown, Clock3, Film, Layers3, RefreshCw } from "lucide-react";
+import { ArrowLeft, CalendarDays, Clock3, Film, Layers3, RefreshCw } from "lucide-react";
 import { api, imageUrl } from "../api/client";
 import { seasonsApi, type EpisodeDetail } from "../api/seasons";
 import type { Season } from "../types";
@@ -29,7 +29,6 @@ function airDate(value: string | null) {
 }
 
 function EpisodeCard({ episode, serverId }: { episode: EpisodeDetail; serverId: number }) {
-  const [expanded, setExpanded] = useState(false);
   const aired = airDate(episode.aired);
   const number = episode.index == null ? "Episode" : `Episode ${String(episode.index).padStart(2, "0")}${episode.index_end != null && episode.index_end !== episode.index ? `–${String(episode.index_end).padStart(2, "0")}` : ""}`;
   return <article className="group flex items-start gap-4 sm:gap-6">
@@ -44,8 +43,7 @@ function EpisodeCard({ episode, serverId }: { episode: EpisodeDetail; serverId: 
         {aired && <span className="flex items-center gap-1.5"><CalendarDays className="size-3.5" aria-hidden="true" />{aired}</span>}
         {episode.runtime_minutes != null && <span className="flex items-center gap-1.5"><Clock3 className="size-3.5" aria-hidden="true" />{episode.runtime_minutes} min</span>}
       </div>
-      <p id={`episode-${episode.id}-details`} className={`mt-3 text-sm leading-relaxed text-muted ${expanded ? "" : "line-clamp-3"}`}>{episode.summary || "No synopsis available."}</p>
-      {episode.summary && <button aria-label={`${expanded ? "Less detail" : "Episode details"} for ${episode.title}`} aria-expanded={expanded} aria-controls={`episode-${episode.id}-details`} onClick={() => setExpanded(!expanded)} className="mt-4 flex min-h-8 items-center gap-1 text-xs font-medium text-accent hover:text-accent-hover">{expanded ? "Less detail" : "Episode details"}<ChevronDown aria-hidden="true" className={`size-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} /><span className="sr-only"> for {episode.title}</span></button>}
+      <DetailSynopsis text={episode.summary || "No synopsis available."}/>
     </div>
   </article>;
 }

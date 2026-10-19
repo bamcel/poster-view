@@ -72,7 +72,9 @@ encoding, while supported codecs always depend on the GPU and FFmpeg build.
 
 The queue runs one job at a time, with up to two videos downloading concurrently
 inside a video-download job. Metadata-only refresh remains sequential. Cancelling
-or removing the job stops both workers and keeps completed media. Shared channel
+or removing the job stops both workers and keeps completed media. Newly created
+unfinished video folders and their generated sidecars are removed; pre-existing
+folders, channel metadata, and unrelated files are preserved. Shared channel
 metadata and folder naming remain serialized to avoid collisions.
 The queue persists independently of the catalog in
 `ytdl-jobs.json` under the application data directory. Existing SQLite queue

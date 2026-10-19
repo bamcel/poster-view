@@ -6,6 +6,7 @@ use tokio::{
     process::Command,
 };
 mod batch;
+mod incomplete;
 
 static INSPECTIONS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 pub(super) fn valid_id(id: &str) -> bool {
@@ -1120,10 +1121,13 @@ async fn run_video(context: &DownloadBatch<'_>, entry: Value) -> Result<(), Http
             )?;
             let channel_relative = channel_folder.clone();
             let mut folder = job.settings.directory.clone();
-            for part in [channel_folder.as_str(), video_folder.as_str()] {
+            let mut incomplete_folder = None;
+            for (index, part) in [channel_folder.as_str(), video_folder.as_str()].into_iter().enumerate() {
                 let parent = state.metadata.directory(&folder, true)?;
                 let next = parent.join(part);
-                if !next.exists() {
+                if index == 1 {
+                    incomplete_folder = incomplete::IncompleteFolder::create(&parent, part)?;
+                } else if !next.exists() {
                     std::fs::create_dir(&next).map_err(err)?;
                 }
                 folder = if folder.is_empty() {
@@ -1159,8 +1163,11 @@ async fn run_video(context: &DownloadBatch<'_>, entry: Value) -> Result<(), Http
                 super::naming::stem(&info, &job.settings.filename_convention)?
             };
             let media = target.join(format!("{stem}.{}", job.settings.container));
-            // Reserve stable identities before staging so retries reuse readable folders
-            // even if titles change or a previous download did not finish publishing.
+            // Reserve stable identities before staging so concurrent workers do
+            // not choose the same folder. New unfinished folders are disposable.
+            if let Some(folder) = &mut incomplete_folder {
+                folder.track(format!("{stem}.nfo"));
+            }
             if !preserve_metadata {
                 super::nfo::write_named(&target, &stem, &info, e, inspection, &channel_info)?;
             }
@@ -1284,6 +1291,9 @@ async fn run_video(context: &DownloadBatch<'_>, entry: Value) -> Result<(), Http
                     let name = file.file_name();
                     let name = name.to_string_lossy();
                     if let Some(name) = super::naming::sidecar_name(&name, &id, &stem) {
+                        if let Some(folder) = &mut incomplete_folder {
+                            folder.track(name.clone());
+                        }
                         publish(&file.path(), &target.join(name))?;
                     }
                 }
@@ -1295,6 +1305,9 @@ async fn run_video(context: &DownloadBatch<'_>, entry: Value) -> Result<(), Http
                     return Err(err("Download cancelled."));
                 }
                 publish_with_modified(&source, &media, upload_modified_time(&info))?;
+                if let Some(folder) = &mut incomplete_folder {
+                    folder.published();
+                }
             } else {
                 drop(setup);
             }
@@ -1621,6 +1634,25 @@ mod tests {
             .unwrap();
         let ready = [temp.path().join("ready-a"), temp.path().join("ready-b")];
         let late = [temp.path().join("late-a"), temp.path().join("late-b")];
+        let worker = |index: usize, progress| {
+            let (state, job, ready, late, parent) = (&state, &job, &ready, &late, temp.path());
+            async move {
+                let name = format!("unfinished-{index}");
+                let mut folder = incomplete::IncompleteFolder::create(parent, &name)
+                    .unwrap()
+                    .unwrap();
+                folder.track("video.nfo");
+                std::fs::write(parent.join(&name).join("video.nfo"), "reserved metadata").unwrap();
+                cancellable_video(
+                    state,
+                    job,
+                    delayed_fixture(&ready[index], &late[index]),
+                    None,
+                    Some(progress),
+                )
+                .await
+            }
+        };
         let cancel = async {
             tokio::time::timeout(Duration::from_secs(10), async {
                 while !ready.iter().all(|path| path.exists()) {
@@ -1633,24 +1665,10 @@ mod tests {
                 .await
                 .unwrap();
         };
-        let (a, b, ()) = tokio::join!(
-            cancellable_video(
-                &state,
-                &job,
-                delayed_fixture(&ready[0], &late[0]),
-                None,
-                Some(&first)
-            ),
-            cancellable_video(
-                &state,
-                &job,
-                delayed_fixture(&ready[1], &late[1]),
-                None,
-                Some(&second)
-            ),
-            cancel,
-        );
+        let (a, b, ()) = tokio::join!(worker(0, &first), worker(1, &second), cancel,);
         assert!(a.is_err() && b.is_err());
+        assert!(!temp.path().join("unfinished-0").exists());
+        assert!(!temp.path().join("unfinished-1").exists());
         tokio::time::sleep(Duration::from_secs(3)).await;
         assert!(
             late.iter().all(|path| !path.exists()),

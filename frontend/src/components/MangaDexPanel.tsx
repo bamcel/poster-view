@@ -1,3 +1,4 @@
+import {mediaDescription} from "../lib/mediaDescription";
 import SearchField from "./SearchField";
 import { invalidateArtworkItems } from "../lib/artworkTarget";
 import { useEffect, useMemo, useState } from "react";
@@ -467,7 +468,7 @@ export default function MangaDexPanel({
               </p>
               {preview.manga?.description && (
                 <p className="text-xs text-muted">
-                  {preview.manga.description}
+                  {mediaDescription(preview.manga.description)}
                 </p>
               )}
               <ApplyBtn
