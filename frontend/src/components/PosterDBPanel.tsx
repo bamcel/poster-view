@@ -277,6 +277,7 @@ export default function PosterDBBody({ serverId, item, prefill, refreshSearch = 
     <div ref={bodyRef}>
       <form onSubmit={submit} className="relative mb-3">
         <SearchField
+          className="h-9 text-xs md:text-xs"
           aria-label="Search ThePosterDB by title or poster/set URL"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -435,7 +436,7 @@ function SearchResults({
                 <li key={r.url} className="flex items-center gap-1">
                 <button
                   onClick={() => onPick(r)}
-                  className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg border border-transparent px-3 py-2 text-left text-sm hover:border-border hover:bg-surface-2"
+                  className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-xl border border-border bg-surface-2 px-3 py-2 text-left text-xs transition-colors hover:bg-elevated"
                   title="Show this title's posters here"
                 >
                   <span className="min-w-0 truncate">{r.title}</span>
@@ -449,7 +450,7 @@ function SearchResults({
                   href={r.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="shrink-0 rounded p-1.5 text-faint hover:text-white"
+                  className="grid size-8 shrink-0 place-items-center rounded-full border border-border text-faint transition-colors hover:bg-elevated hover:text-white"
                   title="Open on ThePosterDB"
                 >
                   <ExternalLink className="size-3.5" />
@@ -533,7 +534,7 @@ function PosterGrid({
             <button
               onClick={onAuto}
               disabled={busyKey === "auto"}
-              className="mb-4 flex w-full items-center justify-center gap-2 rounded-lg bg-accent py-2 text-sm font-semibold text-black transition-colors hover:bg-accent-hover disabled:opacity-60"
+              className="mb-4 flex w-full items-center justify-center gap-2 rounded-full bg-accent py-2 text-xs font-semibold text-black transition-colors hover:bg-accent-hover disabled:opacity-60"
             >
               {busyKey === "auto" ? <Loader2 className="size-4 animate-spin" /> : <Wand2 className="size-4" />}
               Auto-apply set
@@ -544,7 +545,7 @@ function PosterGrid({
             {set.posters.map((asset) => {
               const season = seasonByNumber(asset.season_number);
               return (
-                <div key={asset.id} className="rounded-lg border border-border bg-surface-2 p-2">
+                <div key={asset.id} className="rounded-xl border border-border bg-surface-2 p-2">
                   {isTitle ? (
                     <button
                       onClick={() => onOpenSet(asset)}
@@ -597,7 +598,6 @@ function PosterGrid({
                     <CustomTargetButton
                       item={item}
                       busy={busyKey?.includes(asset.id) ?? false}
-                      compact
                       className="w-full"
                       onPick={(target, targetId, label) =>
                         onApply(asset, target, targetId, `c-${asset.id}-${targetId}-${target}-${label}`, `${item.title} — ${label}`)
@@ -645,7 +645,7 @@ function ApplyButton({
     <button
       onClick={onClick}
       disabled={busy}
-      className={`flex min-w-0 items-center justify-center gap-1 rounded px-1 py-1 text-[10px] font-medium transition-colors disabled:opacity-60 ${
+      className={`flex min-w-0 items-center justify-center gap-1 rounded-full px-2 py-1.5 text-xs font-medium transition-colors disabled:opacity-60 ${
         subtle ? "border border-border bg-elevated text-white hover:bg-input-hover" : "border border-border bg-elevated text-white hover:border-accent hover:bg-input-hover"
       }`}
     >

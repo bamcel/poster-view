@@ -224,6 +224,7 @@ export default function ArtworkBrowser({
   const searchBar = (
     <form onSubmit={submitId} className="relative mb-3">
       <SearchField
+        className="h-9 text-xs md:text-xs"
         aria-label={`Search ${providerLabel(provider)} by title or ID`}
         value={idInput}
         onChange={(e) => setIdInput(e.target.value)}
@@ -243,7 +244,7 @@ export default function ArtworkBrowser({
   );
 
   const searchPicker = searchTerm && (
-    <div className="mb-3 rounded-lg border border-border bg-surface-2 p-2">
+    <div className="mb-3 rounded-xl border border-border bg-surface-2 p-2">
       {searchQ.isLoading ? (
         <div className="flex items-center gap-2 px-2 py-3 text-sm text-faint">
           <Loader2 className="size-4 animate-spin" /> Searching…
@@ -261,7 +262,7 @@ export default function ArtworkBrowser({
               <button
                 type="button"
                 onClick={() => pickSearchResult(r)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-elevated"
+                className="flex w-full items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-xs transition-colors hover:border-border hover:bg-elevated"
               >
                 {r.thumb_url ? (
                   <img src={r.thumb_url} alt="" className="h-10 w-7 shrink-0 rounded bg-base object-cover" />
@@ -347,7 +348,7 @@ export default function ArtworkBrowser({
           {visibleItems.map((art) => {
             const season = seasonByNumber(art.season_number);
             return (
-              <div key={art.id} className="rounded-lg border border-border bg-surface-2 p-2">
+              <div key={art.id} className="rounded-xl border border-border bg-surface-2 p-2">
                 <ArtImg art={art} />
                 <div className="mt-1.5">
 
@@ -391,7 +392,7 @@ export default function ArtworkBrowser({
                         href={art.source_url ?? art.download_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="flex min-w-0 items-center justify-center gap-1 rounded bg-elevated px-2 py-1 text-[11px] text-muted hover:text-white"
+                        className="flex min-w-0 items-center justify-center gap-1 rounded-full border border-border bg-elevated px-2 py-1.5 text-xs text-muted hover:text-white"
                         title="Open artwork source"
                       >
                         View <ExternalLink className="size-3" />
@@ -467,7 +468,7 @@ export function ApplyBtn({ label, onClick, busy, disabled }: { label: string; on
     <button
       onClick={onClick}
       disabled={busy || disabled}
-      className="flex w-full min-w-0 items-center justify-center gap-1 rounded border border-border bg-elevated px-2 py-1 text-[11px] font-medium text-white transition-colors hover:border-accent hover:bg-input-hover disabled:opacity-50"
+      className="flex w-full min-w-0 items-center justify-center gap-1 rounded-full border border-border bg-elevated px-2 py-1.5 text-xs font-medium text-white transition-colors hover:border-accent hover:bg-input-hover disabled:opacity-50"
     >
       {busy && <Loader2 className="size-3 animate-spin" />}
       {label}
