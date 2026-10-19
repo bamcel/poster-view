@@ -34,11 +34,12 @@ export function useLibrarySelection(libraryId:string, visibleIds:string[], enabl
   return {ids,active,toggle,selectAll,clear,start:()=>setActive(true),hidden:[...ids].filter(id=>!visibleIds.includes(id)).length};
 }
 
-export default function LibrarySelection({count,hidden,onAll,onClear,onAdd}:{count:number;hidden:number;onAll:()=>void;onClear:()=>void;onAdd:()=>void}){
+export default function LibrarySelection({count,hidden,onAll,onClear,onAdd,onEdit}:{count:number;hidden:number;onAll:()=>void;onClear:()=>void;onAdd?:()=>void;onEdit?:()=>void}){
   return <div role="toolbar" aria-label="Library selection" className="sticky top-0 z-20 mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-2 p-3 text-sm">
     <span aria-live="polite">{count} selected{hidden>0?` (${hidden} hidden by filters)`:""}</span>
     <button type="button" onClick={onAll} className="rounded-full border border-border px-3 py-2">Select all visible</button>
     <button type="button" onClick={onClear} className="rounded-full border border-border px-3 py-2">Clear</button>
-    <button type="button" disabled={!count} onClick={onAdd} className="rounded-full border border-border px-3 py-2 disabled:opacity-50">Add to collection…</button>
+    {onEdit&&<button type="button" disabled={!count} onClick={onEdit} className="rounded-full border border-border px-3 py-2 disabled:opacity-50">Edit tags and genres…</button>}
+    {onAdd&&<button type="button" disabled={!count} onClick={onAdd} className="rounded-full border border-border px-3 py-2 disabled:opacity-50">Add to collection…</button>}
   </div>;
 }

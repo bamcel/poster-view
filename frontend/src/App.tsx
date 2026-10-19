@@ -1,3 +1,4 @@
+import {PlaybackNavigationProvider} from "./lib/playbackNavigation";
 import {ActivityProvider} from "./features/activity/ActivityContext";
 import ActivitySources from "./features/activity/ActivitySources";
 import HomePage from "./pages/HomePage";
@@ -27,7 +28,7 @@ export default function App() {
         <ServerProvider>
           <ToastProvider>
             <ActivityProvider><ActivitySources/>
-            <Routes>
+            <PlaybackNavigationProvider><Routes>
             <Route path="/play/virtual-tv/:channelId" element={<Suspense fallback={<p className="p-8">Tuning in…</p>}><VirtualTvPlayer /></Suspense>} />
             <Route path="/play/native/:libraryId/:itemId" element={<Suspense fallback={<p className="p-8">Opening player…</p>}><PlayerPage /></Suspense>} />
             <Route path="/read/native/:libraryId/:itemId" element={<Suspense fallback={<p className="p-8">Opening reader…</p>}><ReaderPage /></Suspense>} />
@@ -47,7 +48,7 @@ export default function App() {
               <Route path="/settings/*" element={<Suspense fallback={<p role="status" className="p-8">Loading page…</p>}><SettingsPage /></Suspense>} />
               <Route path="/server/:serverId/item/:itemId" element={<Suspense fallback={<p role="status" className="p-8">Loading page…</p>}><ItemDetailPage /></Suspense>} />
             </Route>
-            </Routes>
+            </Routes></PlaybackNavigationProvider>
             </ActivityProvider>
           </ToastProvider>
         </ServerProvider>

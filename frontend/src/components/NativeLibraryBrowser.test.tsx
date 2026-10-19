@@ -145,6 +145,15 @@ it("retains selected titles while filtering and clears selection with Escape",as
   fireEvent.keyDown(window,{key:"Escape"});
   expect(screen.queryByRole("toolbar",{name:"Library selection"})).toBeNull();
 });
+it("opens bulk tags and genres for the multi-selected titles",async()=>{
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue(alphabeticalTitles());
+ mount();
+ fireEvent.click(await screen.findByRole("button",{name:"Select Blue Box"}));
+ fireEvent.click(screen.getByRole("button",{name:"Edit tags and genres…"}));
+ const dialog=await screen.findByRole("dialog",{name:"Edit tags and genres"});
+ expect(within(dialog).getByLabelText("Tags to add")).toBeTruthy();
+ expect(within(dialog).getByLabelText("Genres to add")).toBeTruthy();
+});
 it("keeps the duplicate-add result visible after clearing the library selection",async()=>{
  const collection={id:"group",title:"Anime Collection",overview:"",ordering:"release" as const,revision:1,created_at:"",updated_at:"",members:[{library_id:library.id,item_id:series.id,library_name:library.name,entry:series}]};
  vi.mocked(collectionsApi.list).mockResolvedValue([collection]);

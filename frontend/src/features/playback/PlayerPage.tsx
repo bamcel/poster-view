@@ -1,3 +1,4 @@
+import {usePlaybackReturn} from "../../lib/playbackNavigation";
 import {ApiError} from "../../api/client";
 import {stopAfterWatchReports} from "./lib/sessionTeardown";
 import {createPausedInactivity} from "./lib/pausedInactivity";
@@ -50,6 +51,7 @@ export default function PlayerPage({virtualTv}:{virtualTv?:VirtualTvPlayback}={}
   const activeRoute=useRef(routeKey);activeRoute.current=routeKey;
   const navigate=useNavigate(), [params]=useSearchParams();
   const returnPath=channelId?"/virtual-tv":safePlayerReturn(params.get("return"));
+  const returnFromPlayback=usePlaybackReturn(returnPath);
   const requestedVersion=channelId?undefined:params.get("version_id")||undefined;
   const root=useRef<HTMLDivElement>(null), video=useRef<HTMLVideoElement>(null);
   const heldCanvas=useRef<HTMLCanvasElement>(null);
@@ -452,7 +454,7 @@ export default function PlayerPage({virtualTv}:{virtualTv?:VirtualTvPlayback}={}
   const toggle=useCallback(()=>{if(controls.current.prompt||activeRoute.current!==routeKey||initializedRoute.current!==routeKey)return;interact();if(controls.current.ended){void replayRef.current();return;}if(!ready.current&&current.current){playIntent.current=!playIntent.current;setNotice(playIntent.current?"Playback will begin when the video is ready.":"Playback will start paused.");return;}if(video.current?.paused)void play();else{playIntent.current=false;video.current?.pause();}},[play,interact,routeKey]);
   const exit=()=>{
     const element=video.current;if(ready.current&&!pendingSeek.current&&element&&Number.isFinite(element.currentTime))sourcePosition.current=Math.max(0,element.currentTime+(current.current?.offset_seconds??0));
-    report(false,true);navigate(returnPath);
+    report(false,true);returnFromPlayback();
   };
   exitRef.current=exit;
   const next=useCallback((automatic=false)=>{
@@ -460,7 +462,7 @@ export default function PlayerPage({virtualTv}:{virtualTv?:VirtualTvPlayback}={}
     const value=infoRef.current?.next;if(!value)return;
     if(!automatic)interact();
     report();
-    const advance=()=>{if(mounted.current&&activeRoute.current===routeKey)navigate(`/play/native/${encodeURIComponent(value.library_id)}/${encodeURIComponent(value.item_id)}?return=${encodeURIComponent(returnPath)}`);};
+    const advance=()=>{if(mounted.current&&activeRoute.current===routeKey)navigate(`/play/native/${encodeURIComponent(value.library_id)}/${encodeURIComponent(value.item_id)}?return=${encodeURIComponent(returnPath)}`,{replace:true});};
     if(seriesSaving.current)void waitForWatchReports(routeKey).then(advance).catch(error=>setNotice(errorMessage(error)));
     else advance();
   },[navigate,returnPath,report,interact,routeKey]);

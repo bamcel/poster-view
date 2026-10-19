@@ -1,3 +1,4 @@
+import BulkMetadataDialog from "./BulkMetadataDialog";
 import PopupPage from "./PopupPage";
 import SearchField from "./SearchField";
 import HeaderSearchControl from "./HeaderSearchControl";
@@ -243,6 +244,8 @@ export default function NativeLibraryBrowser({
   const [collectionError,setCollectionError]=useState("");
   const [savingCollectionPreference,setSavingCollectionPreference]=useState(false);
   const [membershipOpen,setMembershipOpen]=useState(false);
+  const [bulkMetadataOpen,setBulkMetadataOpen]=useState(false);
+  useEffect(()=>setBulkMetadataOpen(false),[collectionAccount,library.id]);
   useEffect(()=>setMembershipOpen(false),[collectionAccount,library.id]);
   const { enabled: backdropView } = useBackdropView(library.id);
   const {enabled: bannerBackground} = useYoutubeBannerBackground(library.id);
@@ -558,7 +561,7 @@ export default function NativeLibraryBrowser({
           </div>
           <div className="scrollbar-hidden relative z-10 min-h-0 flex-1 overflow-y-auto px-4 pb-8 sm:px-6 lg:px-8">
             {collectionPreference.data?.group_collections&&collections.isError&&<p role="alert" className="mb-3 text-sm text-muted">Collections could not be loaded. Showing individual titles. <button type="button" className="underline" onClick={()=>void collections.refetch()}>Retry collections</button></p>}
-            {selection.active&&<LibrarySelection count={selection.ids.size} hidden={selection.hidden} onAll={selection.selectAll} onClear={selection.clear} onAdd={()=>setMembershipOpen(true)}/>}
+            {selection.active&&<LibrarySelection count={selection.ids.size} hidden={selection.hidden} onAll={selection.selectAll} onClear={selection.clear} onAdd={()=>setMembershipOpen(true)} onEdit={()=>setBulkMetadataOpen(true)}/>}
             <div className="mb-4 flex items-center justify-between text-xs text-faint">
               <span>{grouped.collections.length?`${grouped.entries.length} titles · ${grouped.collections.length} collections`:`${visible.length} titles`}</span>
             </div>
@@ -607,6 +610,7 @@ export default function NativeLibraryBrowser({
           </div>
         </>
       )}
+      {bulkMetadataOpen&&isAdmin&&<BulkMetadataDialog libraryId={library.id} itemIds={[...selection.ids]} onClose={()=>setBulkMetadataOpen(false)} onSaved={()=>{void client.invalidateQueries({queryKey:["native-catalog",library.id]});void client.invalidateQueries({queryKey:["collections"]});}}/>}
       {membershipOpen&&isAdmin&&<CollectionMembershipDialog members={[...selection.ids].map(item_id=>({library_id:library.id,item_id}))} onClose={()=>setMembershipOpen(false)} onSaved={()=>{selection.clear();}}/>}
       {isAdmin && editEntry && (editor?.kind === "artwork" ? (
         artworkEnabled && <div className="pointer-events-none fixed inset-0 z-50 bg-transparent">

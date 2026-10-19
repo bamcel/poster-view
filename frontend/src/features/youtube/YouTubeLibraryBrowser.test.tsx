@@ -1,3 +1,4 @@
+import {AuthSessionContext} from "../../lib/authContext";
 import {LibraryNavigationContext} from '../../lib/libraryNavigation';
 import {HeaderSearchTarget} from "../../lib/headerSearch";
 import {cleanup,fireEvent,render,screen,waitFor} from "@testing-library/react";
@@ -191,4 +192,83 @@ it('returns canonical video deep links to the playlist instead of replaying on p
  expect(destination.startsWith('/play/native/youtube/video?')).toBe(true);
  expect(new URLSearchParams(destination.split('?')[1]).get('return')).toBe('/media/Youtube/Outdoor-Boys/Camping?keep=yes');
  expect(navigate.mock.calls[0][1]).toEqual({replace:true});
+});
+
+it("can hide both All Videos entries while retaining playlists and saved preference",async()=>{
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([video]);
+ const view=render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={["/?youtube_channel=channel"]}><YouTubeLibraryBrowser library={{id:"youtube",name:"YouTube"} as NativeLibrary}/></MemoryRouter></QueryClientProvider>);
+ await screen.findByRole("button",{name:"All Videos 1 videos"});
+ expect(screen.getByRole("button",{name:/^All Videos$/})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Library preferences"}));
+ fireEvent.click(screen.getByRole("switch",{name:"Hide All Videos"}));
+ expect(localStorage.getItem("posterview.youtubeAllVideos.youtube")).toBe("hidden");
+ expect(screen.getByText("Changes saved automatically")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Close Preferences"}));
+ expect(screen.queryByRole("button",{name:/^All Videos/})).toBeNull();
+ expect(screen.getByRole("button",{name:"Camping 1 videos"})).toBeTruthy();
+ view.unmount();
+ render(<QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={["/?youtube_channel=channel"]}><YouTubeLibraryBrowser library={{id:"youtube",name:"YouTube"} as NativeLibrary}/></MemoryRouter></QueryClientProvider>);
+ await screen.findByRole("button",{name:"Camping 1 videos"});
+ expect(screen.queryByRole("button",{name:/^All Videos/})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Library preferences"}));
+ fireEvent.click(screen.getByRole("switch",{name:"Hide All Videos"}));
+ fireEvent.click(screen.getByRole("button",{name:"Close Preferences"}));
+ expect(screen.getByRole("button",{name:"All Videos 1 videos"})).toBeTruthy();
+});
+
+vi.mock("../../components/BulkMetadataDialog",()=>({default:({itemIds,onSaved}:{itemIds:string[];onSaved:()=>void})=><div role="dialog" aria-label="Bulk metadata" data-items={itemIds.join(",")}><button onClick={onSaved}>Simulate bulk saved</button></div> }));
+function renderSelection(entries:NativeCatalogEntry[],path="/",viewer=false){
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue(entries);
+ return render(<AuthSessionContext.Provider value={viewer?{user:{role:"user"}} as never:null}><QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter initialEntries={[path]}><YouTubeLibraryBrowser library={{id:"youtube",name:"YouTube"} as NativeLibrary}/></MemoryRouter></QueryClientProvider></AuthSessionContext.Provider>);
+}
+it("expands selected channels to their videos without collection controls",async()=>{
+ renderSelection([video,{...video,id:"second"}]);
+ fireEvent.click(await screen.findByRole("button",{name:"Library preferences"}));
+ fireEvent.click(screen.getByRole("button",{name:"Select items"}));
+ fireEvent.click(screen.getByRole("button",{name:"Close Preferences"}));
+ fireEvent.click(screen.getByRole("checkbox",{name:"Select Outdoor Boys"}));
+ expect(screen.getByText("2 unique videos affected")).toBeTruthy();
+ expect(screen.queryByRole("button",{name:"Add to collection…"})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Edit tags and genres…"}));
+ expect(screen.getByRole("dialog",{name:"Bulk metadata"}).getAttribute("data-items")?.split(",").sort()).toEqual(["second","video"]);
+ fireEvent.click(screen.getByRole("button",{name:"Simulate bulk saved"}));
+ expect(screen.getByRole("dialog",{name:"Bulk metadata"})).toBeTruthy();
+});
+it("deduplicates overlapping selected playlists including All Videos",async()=>{
+ renderSelection([video,{...video,id:"second"}],"/?youtube_channel=channel");
+ fireEvent.click(await screen.findByRole("button",{name:"Library preferences"}));
+ fireEvent.click(screen.getByRole("button",{name:"Select items"}));
+ fireEvent.click(screen.getByRole("button",{name:"Close Preferences"}));
+ fireEvent.click(screen.getByRole("checkbox",{name:"Select All Videos"}));
+ fireEvent.click(screen.getByRole("checkbox",{name:"Select Camping"}));
+ expect(screen.getByText("2 unique videos affected")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Edit tags and genres…"}));
+ expect(screen.getByRole("dialog",{name:"Bulk metadata"}).getAttribute("data-items")?.split(",").sort()).toEqual(["second","video"]);
+});
+it("selects individual playlist videos without starting playback",async()=>{
+ renderSelection([video,{...video,id:"second",title:"Second video"}],"/?youtube_channel=channel&youtube_playlist=camping");
+ fireEvent.click(await screen.findByRole("button",{name:"Library preferences"}));
+ fireEvent.click(screen.getByRole("button",{name:"Select items"}));
+ fireEvent.click(screen.getByRole("button",{name:"Close Preferences"}));
+ fireEvent.click(screen.getByRole("checkbox",{name:"Select Camping video"}));
+ expect(screen.getByText("1 unique video affected")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Edit tags and genres…"}));
+ expect(screen.getByRole("dialog",{name:"Bulk metadata"}).getAttribute("data-items")).toBe("video");
+});
+it("does not offer bulk metadata selection to viewers",async()=>{
+ renderSelection([video],"/",true);
+ fireEvent.click(await screen.findByRole("button",{name:"Library preferences"}));
+ expect(screen.queryByRole("button",{name:"Select items"})).toBeNull();
+});
+
+it("selects only visible filtered videos",async()=>{
+ renderSelection([video,{...video,id:"second",title:"Second video"}],"/?youtube_channel=channel&youtube_playlist=camping");
+ fireEvent.click(await screen.findByRole("button",{name:"Library preferences"}));
+ fireEvent.click(screen.getByRole("button",{name:"Select items"}));
+ fireEvent.click(screen.getByRole("button",{name:"Close Preferences"}));
+ fireEvent.change(screen.getByRole("textbox",{name:"Search titles"}),{target:{value:"Second"}});
+ fireEvent.click(screen.getByRole("button",{name:"Select all visible"}));
+ expect(screen.getByText("1 unique video affected")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Edit tags and genres…"}));
+ expect(screen.getByRole("dialog",{name:"Bulk metadata"}).getAttribute("data-items")).toBe("second");
 });
