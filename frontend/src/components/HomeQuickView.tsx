@@ -1,3 +1,4 @@
+import {startupArtworkState} from "../features/playback/lib/startupArtwork";
 import PopupPage from "./PopupPage";
 import { mediaDescription } from "../lib/mediaDescription";
 import {sizedArtwork} from "../lib/artworkSizes";
@@ -24,7 +25,7 @@ function MovieAction({title: {entry, library}}: {title: HomeTitle}) {
   if (state.isPending) return <p role="status" className="text-sm text-muted">Loading playback…</p>;
   const resume = (state.data?.position_seconds ?? 0) > 0;
   return <div>
-    <Link to={`/play/native/${encodeURIComponent(library.id)}/${encodeURIComponent(entry.id)}?return=%2F`} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-accent px-6 py-2.5 text-sm font-semibold text-black focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"><Play aria-hidden="true" className="size-5 fill-current"/>{resume ? "Resume" : "Play"}</Link>
+    <Link state={startupArtworkState(library.id,entry)} to={`/play/native/${encodeURIComponent(library.id)}/${encodeURIComponent(entry.id)}?return=%2F`} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-accent px-6 py-2.5 text-sm font-semibold text-black focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"><Play aria-hidden="true" className="size-5 fill-current"/>{resume ? "Resume" : "Play"}</Link>
     {state.isError && <p role="status" className="mt-2 text-sm text-muted">Watch progress is unavailable. You can still play this title.</p>}
   </div>;
 }

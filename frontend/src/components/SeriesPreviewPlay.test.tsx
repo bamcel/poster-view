@@ -32,17 +32,20 @@ it("resolves summary-only episodes without fetching the full catalog or starting
   fireEvent.click(screen.getByRole("button", {name: "Play"})); await waitFor(() => expect(screen.getByRole("status").textContent).toBe("/play/native/library/one?return=%2F&start=0"));
   expect(view.onChoosingChange).toHaveBeenLastCalledWith(false);
 });
-it("shows adjacent restart and continue buttons for history and resumes the correct episode", async () => {
-  vi.mocked(watchApi.continue).mockResolvedValue([continued(two)]); setup();
-  await screen.findByRole("button", {name: "Play from beginning"});
-  expect(screen.getByRole("button", {name: "Resume"}).parentElement).toBe(screen.getByRole("button", {name: "Play from beginning"}).parentElement);
-  expect(screen.queryByRole("button", {name: "Cancel"})).toBeNull();
-  expect(screen.queryByRole("group")).toBeNull();
-  fireEvent.click(screen.getByRole("button", {name: "Resume"}));
-  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("/play/native/library/two?return=%2F"));
+it("opens playback choices only after Play and resumes the correct episode", async () => {
+ vi.mocked(watchApi.continue).mockResolvedValue([continued(two)]); const view=setup();
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Play"}).hasAttribute("disabled")).toBe(false));
+ expect(screen.queryByRole("button",{name:"Resume"})).toBeNull();
+ fireEvent.click(screen.getByRole("button",{name:"Play"}));
+ expect(await screen.findByRole("dialog",{name:"Play video"})).toBeTruthy();
+ expect(view.onChoosingChange).toHaveBeenLastCalledWith(true);
+ fireEvent.click(screen.getByRole("button",{name:"Resume"}));
+ await waitFor(()=>expect(screen.getByRole("status").textContent).toBe("/play/native/library/two?return=%2F"));
 });
 it("restarts at S1E1 without touching saved watch state", async () => {
   vi.mocked(watchApi.states).mockResolvedValue({two: {...state, watched: true}}); setup();
+  await waitFor(()=>expect(screen.getByRole("button",{name:"Play"}).hasAttribute("disabled")).toBe(false));
+  fireEvent.click(screen.getByRole("button",{name:"Play"}));
   fireEvent.click(await screen.findByRole("button", {name: "Play from beginning"}));
   await waitFor(() => expect(screen.getByRole("status").textContent).toBe("/play/native/library/one?return=%2F&start=0"));
 });

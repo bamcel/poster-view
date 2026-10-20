@@ -10,7 +10,7 @@ import { Switch } from "../../components/ui";
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Image as PosterIcon, Wallpaper, Images, RefreshCw, History, X } from "lucide-react";
+import { ChevronDown, Image as PosterIcon, Wallpaper, Images, RefreshCw, X } from "lucide-react";
 import ArtworkHistory from "./ArtworkHistory";
 import { api } from "../../api/client";
 import type { ItemDetail, Library, NfoMetadata } from "../../types";
@@ -173,25 +173,26 @@ export default function ArtworkPanel({ manualOnly = false, serverId, item, prefi
       style={{ backgroundColor: translucentPanelColor("--color-surface", panelSolid, panelOverlayStrength), backdropFilter: `blur(${panelBlur}px)`, WebkitBackdropFilter: `blur(${panelBlur}px)` }}
     >
       <div className="border-b border-border p-3">
-        <div className="mb-2 flex items-center justify-between gap-3 px-1">
-          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Artwork tools">
-            <button role="tab" aria-selected={mode==="artwork"} onClick={()=>setMode("artwork")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="artwork"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Images className="size-4"/>Artwork</button>
-            {!manualOnly && !collection && plugin.data?.poster_edit !== false && <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="edit"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><PosterIcon className="size-4"/>PosterEdit</button>}
-            {!manualOnly && !collection && plugin.data?.backdrop_edit !== false && <button role="tab" aria-selected={mode==="backdrop"} onClick={()=>setMode("backdrop")} className={`flex items-center gap-2 border-b-2 px-1 pb-2 text-sm font-semibold transition-colors ${mode==="backdrop"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Wallpaper className="size-4"/>BackdropEdit</button>}
+        <div className="mb-2 flex items-center justify-between gap-2 px-1">
+          <div className="scrollbar-hidden flex min-w-0 flex-1 flex-nowrap justify-evenly gap-1 overflow-x-auto" role="tablist" aria-label="Artwork tools">
+            <button role="tab" aria-selected={mode==="artwork"} onClick={()=>setMode("artwork")} className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-2 text-sm font-semibold transition-[color,transform] duration-150 hover:scale-105 focus-visible:scale-105 motion-reduce:transition-none ${mode==="artwork"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Images className="size-4"/>Artwork</button>
+            {!manualOnly && !collection && plugin.data?.poster_edit !== false && <button role="tab" aria-selected={mode==="edit"} onClick={()=>setMode("edit")} className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-2 text-sm font-semibold transition-[color,transform] duration-150 hover:scale-105 focus-visible:scale-105 motion-reduce:transition-none ${mode==="edit"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><PosterIcon className="size-4"/>PosterEdit</button>}
+            {!manualOnly && !collection && plugin.data?.backdrop_edit !== false && <button role="tab" aria-selected={mode==="backdrop"} onClick={()=>setMode("backdrop")} className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-2 text-sm font-semibold transition-[color,transform] duration-150 hover:scale-105 focus-visible:scale-105 motion-reduce:transition-none ${mode==="backdrop"?"border-accent text-accent":"border-transparent text-muted hover:text-white"}`}><Wallpaper className="size-4"/>BackdropEdit</button>}
           </div>
-          <div className="flex shrink-0 gap-2"><button type="button" onClick={()=>setHistoryOpen(true)} aria-label="Artwork History" title="Artwork History" className="grid size-9 place-items-center rounded-full border border-border text-muted transition-colors hover:bg-white/10 hover:text-white" data-icon-button="true"><History className="size-4"/></button>{onClose && <button type="button" onClick={onClose} aria-label="Close artwork" className="grid size-9 place-items-center rounded-full border border-border text-muted transition-colors hover:bg-white/10 hover:text-white" data-icon-button="true"><X className="size-5" /></button>}</div>
+          <div className="flex shrink-0 gap-2">{onClose && <button type="button" onClick={onClose} aria-label="Close artwork" className="group/close grid size-9 -translate-y-px shrink-0 place-items-center border-0 bg-transparent text-muted shadow-none transition-colors hover:bg-transparent hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"><X className="size-5 transition-transform duration-150 group-hover/close:scale-125 group-focus-visible/close:scale-125 motion-reduce:transition-none" /></button>}</div>
         </div>
         {mode === "artwork" && <>{sourceLayout === "list" ? (
           <div>
             <div className="flex flex-wrap gap-1">
               {primaryProviderTabs.map(sourceButton)}
               {manualTab && sourceButton(manualTab)}
-              {sourceButton(removeTab)}
+              <div className="flex gap-1"><button type="button" onClick={()=>setHistoryOpen(true)} className="rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-muted transition-colors hover:text-white">Restore Artwork</button>
+              {sourceButton(removeTab)}</div>
               {otherTabs.length > 0 && <button type="button" aria-label="Show more artwork databases" aria-expanded={otherSourcesOpen} onClick={() => setOtherSourcesOpen((open) => !open)} className="flex items-center gap-1 rounded-full bg-surface-2 px-2 py-1 text-xs font-medium text-muted hover:text-white">Show More<ChevronDown className={`size-4 ${otherSourcesOpen ? "rotate-180" : ""}`} /></button>}
             </div>
             {otherSourcesOpen && otherTabs.length > 0 && <div className="mt-2 flex flex-wrap gap-1 border-t border-border pt-2">{otherTabs.map(sourceButton)}</div>}
           </div>
-        ) : (
+        ) : (<>
           <label className="block text-xs text-faint">
             <span className="sr-only">Artwork source</span>
             <select
@@ -214,7 +215,8 @@ export default function ArtworkPanel({ manualOnly = false, serverId, item, prefi
               })}
             </select>
           </label>
-        )}
+          <button type="button" onClick={()=>setHistoryOpen(true)} className="mt-2 rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-muted transition-colors hover:text-white">Restore Artwork</button>
+        </>)}
         <div className="mt-3 flex items-center justify-end gap-2">
           <span className="text-xs font-medium text-muted">{sourceLayout === "list" ? "List" : "Compact"}</span>
           <Switch label="Compact artwork sources" checked={sourceLayout === "compact"} translucent onChange={() => chooseLayout(sourceLayout === "list" ? "compact" : "list")} />

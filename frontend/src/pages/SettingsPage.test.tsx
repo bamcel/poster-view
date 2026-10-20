@@ -232,7 +232,7 @@ it("previews, saves and resets an independent glass tint", async () => {
   client.clear();
 });
 
-it("persists and resets Dashboard appearance controls", () => {
+it.each([true, false])("resets sliders while preserving backdrop choice %s", async enabled => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<MemoryRouter initialEntries={["/settings/appearance"]}><QueryClientProvider client={client}><SettingsPage /></QueryClientProvider></MemoryRouter>);
 
@@ -242,6 +242,7 @@ it("persists and resets Dashboard appearance controls", () => {
   fireEvent.click(backdropSwitch);
   expect(backdropSwitch.getAttribute("aria-checked")).toBe("true");
   expect(localStorage.getItem("posterview.dashboardBackdropEnabled")).toBe("true");
+  if (!enabled) fireEvent.click(backdropSwitch);
   fireEvent.change(screen.getByLabelText("Panel Color"), { target: { value: "65" } });
   fireEvent.change(screen.getByLabelText("Panel Blur"), { target: { value: "20" } });
   fireEvent.change(screen.getByLabelText("Panel Overlay"), { target: { value: "80" } });
@@ -251,7 +252,9 @@ it("persists and resets Dashboard appearance controls", () => {
   expect(localStorage.getItem("posterview.panelOverlay")).toBe("80");
   expect(localStorage.getItem("posterview.darkOverlay")).toBe("75");
   fireEvent.click(screen.getByRole("button", { name: "Reset to default" }));
-  expect(backdropSwitch.getAttribute("aria-checked")).toBe("false");
+  expect(backdropSwitch.getAttribute("aria-checked")).toBe(String(enabled));
+  expect(localStorage.getItem("posterview.dashboardBackdropEnabled")).toBe(String(enabled));
+  await waitFor(() => expect(api.saveAppearanceSettings).toHaveBeenLastCalledWith(expect.objectContaining({backdrops_enabled:enabled,panel_solidity:40,panel_blur:12})));
   expect(localStorage.getItem("posterview.panelSolidity")).toBe("40");
   expect(localStorage.getItem("posterview.backdropBlur")).toBe("12");
   expect(localStorage.getItem("posterview.panelOverlay")).toBe("0");

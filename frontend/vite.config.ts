@@ -57,7 +57,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://localhost:7979",
+        target: process.env.POSTERVIEW_DEV_API_TARGET || "http://localhost:7979",
         changeOrigin: true,
       },
     },

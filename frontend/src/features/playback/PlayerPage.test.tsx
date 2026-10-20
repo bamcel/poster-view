@@ -28,7 +28,7 @@ let navigateInTest:NavigateFunction|undefined,browserAudio:NativeAudioList|undef
 const originalAudioProperty=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,"audioTracks");
 const audioList=(tracks:NativeAudioList[number][])=>Object.assign({length:tracks.length},tracks) as NativeAudioList;
 function CaptureNavigation(){navigateInTest=useNavigate();return null;}
-function player(strict=false,query=""){const content=<MemoryRouter initialEntries={[`/play/native/anime/one?return=%2Fmedia%2FAnime${query}`]}><CaptureNavigation/><Routes><Route path="/play/native/:libraryId/:itemId" element={<PlayerPage/>}/><Route path="/media/Anime" element={<p>Media page</p>}/></Routes></MemoryRouter>;return render(strict?<StrictMode>{content}</StrictMode>:content);}
+function player(strict=false,query="",state?:unknown){const content=<MemoryRouter initialEntries={[{pathname:"/play/native/anime/one",search:`?return=%2Fmedia%2FAnime${query}`,state}]}><CaptureNavigation/><Routes><Route path="/play/native/:libraryId/:itemId" element={<PlayerPage/>}/><Route path="/media/Anime" element={<p>Media page</p>}/></Routes></MemoryRouter>;return render(strict?<StrictMode>{content}</StrictMode>:content);}
 function loadMetadata(video:HTMLVideoElement){fireEvent.loadedMetadata(video);Object.defineProperty(video,"readyState",{value:2,configurable:true});fireEvent.loadedData(video);}
 async function ready(){await waitFor(()=>expect(playbackApi.create).toHaveBeenCalled());const video=document.querySelector("video")!;loadMetadata(video);fireEvent.seeked(video);await waitFor(()=>expect(screen.getByRole("heading",{name:"S1:E1 – Maomao"})).toBeTruthy());return video;}
 function scrubTo(value:number){const slider=screen.getByRole("slider",{name:"Seek"});fireEvent.change(slider,{target:{value:String(value)}});fireEvent.pointerUp(slider);return slider as HTMLInputElement;}
@@ -46,6 +46,26 @@ beforeEach(()=>{
  vi.mocked(playbackApi.info).mockResolvedValue(info);vi.mocked(watchApi.preferences).mockResolvedValue(defaultPlaybackPreferences);vi.mocked(watchApi.state).mockResolvedValue(state);vi.mocked(watchApi.begin).mockResolvedValue({session_id:"watch-one",state});vi.mocked(playbackApi.create).mockResolvedValue(session);vi.mocked(playbackApi.stop).mockResolvedValue();vi.mocked(playbackApi.heartbeat).mockResolvedValue();vi.mocked(watchApi.progress).mockResolvedValue({...state,audio_index:2,subtitle_index:-1});
 });
 afterEach(()=>{cleanup();window.dispatchEvent(new Event("posterview:account-changed"));vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();if(originalAudioProperty)Object.defineProperty(HTMLMediaElement.prototype,"audioTracks",originalAudioProperty);else Reflect.deleteProperty(HTMLMediaElement.prototype,"audioTracks");});
+it("shows the selected backdrop before metadata resolves and keeps it until playback begins",async()=>{
+ let resolveInfo!:(value:PlaybackInfo)=>void;
+ vi.mocked(playbackApi.info).mockImplementation(()=>new Promise(resolve=>{resolveInfo=resolve;}));
+ const url="/api/native/libraries/anime/items/series/artwork/backdrop?still=1";
+ player(false,"",{playbackArtwork:{libraryId:"anime",itemId:"one",url}});
+ expect(document.querySelector(".pv-startup-artwork")?.getAttribute("src")).toBe(url);
+ await waitFor(()=>expect(playbackApi.info).toHaveBeenCalled());
+ await act(async()=>resolveInfo(info));
+ const video=await ready();
+ Object.defineProperties(video,{videoWidth:{value:1920,configurable:true},videoHeight:{value:1080,configurable:true}});
+ fireEvent.loadedData(video);fireEvent.waiting(video);
+ expect(document.querySelector(".pv-startup-artwork")).toBeTruthy();
+ Object.defineProperty(video,"paused",{value:false,configurable:true});fireEvent.playing(video);
+ expect(document.querySelector(".pv-startup-artwork")).toBeNull();
+ fireEvent.waiting(video);expect(document.querySelector(".pv-startup-artwork")).toBeNull();
+});
+it("ignores navigation artwork belonging to another item",()=>{
+ player(false,"",{playbackArtwork:{libraryId:"anime",itemId:"other",url:"/api/native/other"}});
+ expect(document.querySelector(".pv-startup-artwork")).toBeNull();
+});
 describe("original-file player",()=>{
  it("prompts after paused inactivity and exits after no response, saving and stopping delivery",async()=>{
   vi.useFakeTimers({shouldAdvanceTime:true});vi.mocked(watchApi.preferences).mockResolvedValue({...defaultPlaybackPreferences,still_watching_minutes:1,still_watching_timeout_minutes:1});

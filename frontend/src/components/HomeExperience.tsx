@@ -1,3 +1,4 @@
+import {startupArtworkState} from "../features/playback/lib/startupArtwork";
 import {useHomepageBannerLogo} from "../lib/homepagePreferences";
 import SeriesBannerPlay from "./SeriesBannerPlay";
 import {useFeaturedRotation} from "../lib/useFeaturedRotation";
@@ -94,7 +95,7 @@ export function FeaturedTitle({titles}:{titles:HomeTitle[]}){
       <p className="pv-home-hero-meta">{[title.library.library_type==="youtube"?"YouTube channel":title.entry.kind==="series"?"Series":"Movie",year&&year>0?year:null,rating,...genres(title).slice(0,2)].filter(Boolean).join(" · ")}</p>
       {plot&&<p className="pv-home-hero-plot">{plot}</p>}
       <div className="pv-home-actions">
-        {playable(title)&&<Link className="pv-home-action pv-home-action-primary" to={`${play(title)}&start=0`} aria-label={`Play ${title.entry.title}`}><Play aria-hidden="true"/>Play</Link>}
+        {playable(title)&&<Link className="pv-home-action pv-home-action-primary" state={startupArtworkState(title.library.id,title.entry)} to={`${play(title)}&start=0`} aria-label={`Play ${title.entry.title}`}><Play aria-hidden="true"/>Play</Link>}
         {title.library.library_type!=="youtube"&&title.entry.kind==="series"&&title.entry.available&&title.entry.metadata.missing!==true&&<SeriesBannerPlay key={`${title.library.id}:${title.entry.id}`} title={title}/>}
         <Link className="pv-home-action" to={details(title)} aria-label={`More info about ${title.entry.title}`}><Info aria-hidden="true"/>More Info</Link>
       </div>

@@ -10,7 +10,7 @@ import type { AppearanceSettings } from "../../../types";
 import { applyTheme, applyThemePreferences, exportThemePreferences, getAllThemes, getStoredThemeName, getTheme, loadCustomThemes, parseThemeJson, previewTheme, removeCustomTheme, saveCustomTheme, serializeTheme, THEME_COLOR_OPTIONS, type AppTheme, type ThemeColorKey } from "../../../lib/theme";
 import AppearancePreview from "../../../components/AppearancePreview";
 import { reportSettingsSave } from "../../../lib/settingsSaveStatus";
-import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROP_OVERLAY, DEFAULT_BACKDROPS_ENABLED, DEFAULT_PANEL_OVERLAY, DEFAULT_PANEL_SOLIDITY, DEFAULT_PILL_BACKGROUND_OPACITY, pillBackgroundOpacity, setPillBackgroundOpacity, backdropBlur, backdropOverlay, dashboardAppearance, dashboardBackdropEnabled, panelOverlay, panelSolidity, setBackdropBlur, setBackdropOverlay, setDashboardBackdropEnabled, setPanelOverlay, setPanelSolidity } from "../../../lib/dashboardSettings";
+import { DEFAULT_BACKDROP_BLUR, DEFAULT_BACKDROP_OVERLAY, DEFAULT_PANEL_OVERLAY, DEFAULT_PANEL_SOLIDITY, DEFAULT_PILL_BACKGROUND_OPACITY, pillBackgroundOpacity, setPillBackgroundOpacity, backdropBlur, backdropOverlay, dashboardAppearance, dashboardBackdropEnabled, panelOverlay, panelSolidity, setBackdropBlur, setBackdropOverlay, setDashboardBackdropEnabled, setPanelOverlay, setPanelSolidity } from "../../../lib/dashboardSettings";
 const LIVE_PREVIEW_KEY = "posterview.appearanceLivePreview";
 
 export default function AppearanceSection({preview=false}: {preview?:boolean}) {
@@ -105,19 +105,17 @@ export default function AppearanceSection({preview=false}: {preview?:boolean}) {
   const changeBackdropOverlay = (value: number) => { setBackdropOverlayStrength(value); setBackdropOverlay(value); persist({ backdrop_overlay: value }); };
   const changePillOpacity = (value: number) => { setPillOpacity(value); setPillBackgroundOpacity(value); persist({ pill_background_opacity: value }); };
   const resetDashboard = () => {
-    setShowBackdrops(DEFAULT_BACKDROPS_ENABLED);
     setPanelSolid(DEFAULT_PANEL_SOLIDITY);
     setBlur(DEFAULT_BACKDROP_BLUR);
     setPanelOverlayStrength(DEFAULT_PANEL_OVERLAY);
     setBackdropOverlayStrength(DEFAULT_BACKDROP_OVERLAY);
     setPillOpacity(DEFAULT_PILL_BACKGROUND_OPACITY);
     setPillBackgroundOpacity(DEFAULT_PILL_BACKGROUND_OPACITY);
-    setDashboardBackdropEnabled(DEFAULT_BACKDROPS_ENABLED);
     setPanelSolidity(DEFAULT_PANEL_SOLIDITY);
     setBackdropBlur(DEFAULT_BACKDROP_BLUR);
     setPanelOverlay(DEFAULT_PANEL_OVERLAY);
     setBackdropOverlay(DEFAULT_BACKDROP_OVERLAY);
-    persist({ backdrops_enabled: DEFAULT_BACKDROPS_ENABLED, panel_solidity: DEFAULT_PANEL_SOLIDITY, panel_blur: DEFAULT_BACKDROP_BLUR, panel_overlay: DEFAULT_PANEL_OVERLAY, backdrop_overlay: DEFAULT_BACKDROP_OVERLAY, pill_background_opacity: DEFAULT_PILL_BACKGROUND_OPACITY });
+    persist({ panel_solidity: DEFAULT_PANEL_SOLIDITY, panel_blur: DEFAULT_BACKDROP_BLUR, panel_overlay: DEFAULT_PANEL_OVERLAY, backdrop_overlay: DEFAULT_BACKDROP_OVERLAY, pill_background_opacity: DEFAULT_PILL_BACKGROUND_OPACITY });
   };
 
   const choose = (name: string) => {

@@ -10,9 +10,16 @@
 .pv-popup-footer{position:relative;display:flex;flex-shrink:0;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:16px 24px;border-top:1px solid var(--pv-popup-border)}
 .pv-popup-footer>div{display:flex;flex-wrap:wrap;gap:12px}
 .pv-popup-decoration{position:absolute;inset:0;z-index:-1;overflow:hidden;pointer-events:none;border-radius:inherit}
-.pv-popup-shell[data-popup-layout=compact]{width:min(32rem,calc(100vw - 2rem));height:auto;max-height:calc(100dvh - 2rem)}
+.pv-popup-shell[data-popup-layout=compact]{width:min(32rem,calc(100vw - 2rem));height:fit-content;max-height:calc(100dvh - 2rem)}
 @media(max-width:640px){.pv-popup-header,.pv-popup-body{padding:16px}.pv-popup-navigation,.pv-popup-footer{padding:12px 16px}}
 
 .pv-popup-body.overflow-hidden{overflow:hidden}.pv-popup-body.p-0{padding:0}
 
 .pv-popup-footer button{border-radius:9999px}
+
+.pv-popup-header:has(.pv-popup-close-plain){padding-right:64px}
+.pv-popup-close.pv-popup-close-plain{position:absolute;top:8px;right:8px;border:0;background:transparent;box-shadow:none}
+.pv-popup-close.pv-popup-close-plain:hover{background:transparent}
+.pv-popup-close-plain>svg{transition:transform .15s ease}
+.pv-popup-close-plain:is(:hover,:focus-visible)>svg{transform:scale(1.25)}
+@media(prefers-reduced-motion:reduce){.pv-popup-close-plain>svg{transition:none}}

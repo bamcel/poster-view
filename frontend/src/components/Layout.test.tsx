@@ -22,6 +22,20 @@ vi.mock("../api/client", () => ({ api: { authStatus: vi.fn() } }));
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [], selectedId: 7, setSelectedId: vi.fn() }) }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); sessionStorage.clear();localStorage.clear(); });
 
+it.each(["admin","user"] as const)("shows the sidebar Admin section only to administrators (%s)",async role=>{
+ vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,user:{id:"viewer",username:"viewer",display_name:"Viewer",role,enabled:true,revision:1,created_at:"",permissions:{all_libraries:true,library_ids:[],max_movie_rating:null,max_tv_rating:null,allow_unrated:false}}});
+ render(<MemoryRouter><AuthGate><Layout/></AuthGate></MemoryRouter>);
+ await screen.findByLabelText("Profile");
+ if(role==="admin"){
+  const section=screen.getByRole("navigation",{name:"Admin"});
+  expect(within(section).getByRole("heading",{name:"Admin"})).toBeTruthy();
+  expect(within(section).getByRole("link",{name:"Open settings"}).getAttribute("href")).toBe("/settings");
+ }else{
+  expect(screen.queryByRole("navigation",{name:"Admin"})).toBeNull();
+  expect(screen.queryByRole("link",{name:"Open settings"})).toBeNull();
+ }
+});
+
 it.each([true,false])("shows PairWise Ranking navigation only when enabled (%s)",async(enabled)=>{
  vi.mocked(pairwise.settings).mockResolvedValue({enabled});
  vi.mocked(api.authStatus).mockResolvedValue({authenticated:true,password_required:false});

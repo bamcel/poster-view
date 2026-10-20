@@ -36,6 +36,7 @@
 .pv-discovery-hover-body h3{color:#f5f6f7;letter-spacing:-.015em}
 .pv-discovery-hover-metadata,.pv-discovery-hover-genres{color:#b7c0c5}
 .pv-discovery-hover-plot{color:#d0d6da}
-.pv-discovery-hover-actions>:is(a,button){border-color:#ffffff24;background:#ffffff05;transition:background .18s,border-color .18s}
-.pv-discovery-hover-actions>:is(a,button):hover:not(:disabled){background:#ffffff12;border-color:#ffffff45}
+.pv-discovery-hover-actions>:is(a,button){border-color:#ffffff40;background:#ffffff18;color:#fff;font-size:14px;font-weight:650;gap:9px;backdrop-filter:blur(8px);transition:background .18s,border-color .18s}
+.pv-discovery-hover-actions>:is(a,button):hover:not(:disabled){background:#ffffff30;border-color:#ffffff40}
+.pv-discovery-hover-actions>:is(a,button) svg{width:19px;height:19px}
 @media(prefers-reduced-motion:reduce){.pv-discovery-hover-actions>:is(a,button){transition:none}}

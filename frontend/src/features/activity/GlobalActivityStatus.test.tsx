@@ -4,6 +4,8 @@ import {MemoryRouter} from "react-router-dom";
 import {afterEach, beforeEach, expect, it, vi} from "vitest";
 import {useActivity, type ActivityItem} from "./ActivityContext";
 import GlobalActivityStatus from "./GlobalActivityStatus";
+import {AuthSessionContext} from "../../lib/authContext";
+import type {AuthSession} from "../../api/client";
 import {durableJobs} from "../jobs/client";
 vi.mock("../jobs/client",()=>({durableJobs:{cancel:vi.fn(),retry:vi.fn()}}));
 
@@ -17,11 +19,17 @@ const running:ActivityItem={id:"test:running",title:"Preparing library",detail:"
 beforeEach(()=>vi.clearAllMocks());
 afterEach(cleanup);
 
-it("keeps an idle status available", ()=>{
+it("hides the status container when no tasks are present", ()=>{
   mount();
-  expect(screen.getByRole("region",{name:"Activity status"})).toBeTruthy();
-  expect(screen.getByText("No current activity")).toBeTruthy();
+  expect(screen.queryByRole("region",{name:"Activity status"})).toBeNull();
   expect(screen.queryByRole("progressbar")).toBeNull();
+});
+
+it("hides all task status from regular users",()=>{
+ vi.mocked(useActivity).mockReturnValue({items:[running],dismiss,clearFinished,publish:vi.fn()});
+ render(<AuthSessionContext.Provider value={{user:{role:"user"}} as AuthSession}><MemoryRouter><GlobalActivityStatus/></MemoryRouter></AuthSessionContext.Provider>);
+ expect(screen.queryByRole("region",{name:"Activity status"})).toBeNull();
+ expect(screen.queryByText(running.title)).toBeNull();
 });
 
 it("shows running progress without offering cancellation or dismissal", ()=>{

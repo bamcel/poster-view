@@ -48,7 +48,9 @@ function ActivityRow({item, dismiss, showPercent=true}:{item:ActivityItem; dismi
 
 export default function GlobalActivityStatus() {
   const {items, dismiss, clearFinished} = useActivity();
+  const admin=useIsAdmin();
   const [selectedId,setSelectedId]=useState<string|null>(null);
+  if(!admin||items.length===0)return null;
   const index=Math.max(0,items.findIndex(item=>item.id===selectedId));
   const first = items[index];
   const move=(offset:number)=>{if(items.length>1)setSelectedId(items[(index+offset+items.length)%items.length].id);};

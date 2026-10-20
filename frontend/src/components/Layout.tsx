@@ -4,6 +4,7 @@ import {LibraryHeaderBackContext,useLibraryHeaderBack} from "../lib/libraryHeade
 import SettingsNavigation from "../features/settings/SettingsNavigation";
 import {settingsPath as settingsPagePath,visibleSettingsPages} from "../features/settings/navigation";
 import GlobalActivityStatus from "../features/activity/GlobalActivityStatus";
+import {useActivity} from "../features/activity/ActivityContext";
 import {HeaderBackdropContext,headerBackdropStyle} from "../lib/headerBackdrop";
 import {useCatalogPrefetch} from "../lib/catalogPrefetch";
 import {HeaderSearchTarget} from "../lib/headerSearch";
@@ -27,6 +28,7 @@ import { BACKDROP_BLUR_EVENT, PANEL_OVERLAY_EVENT, PANEL_SOLIDITY_EVENT, backdro
 const DownloadQueuePopup=lazy(()=>import("../features/settings/ytdl/YtdlPlugin").then(module=>({default:module.YtdlPopup})));
 
 export default function Layout({ children, preview = false, showPreviewChrome = true, previewPath = "/" }: { children?: ReactNode; preview?: boolean; showPreviewChrome?: boolean; previewPath?: string }) {
+  const activity=useActivity();
   const queryClient=useQueryClient();
   const location = useLocation();
   const backNavigation=useLibraryHeaderBack();
@@ -148,11 +150,14 @@ export default function Layout({ children, preview = false, showPreviewChrome = 
           {!preview&&pairwiseSettings.data?.enabled&&<NavLink to="/rankings" className={({isActive})=>`flex h-9 items-center gap-3 rounded-md px-3 text-sm font-medium ${isActive?"bg-elevated text-white":"text-muted hover:bg-input-hover hover:text-white"}`}><Scale className="size-[18px]"/>PairWise Ranking</NavLink>}
           </>}
 
+          {!settingsOpen&&isAdmin&&<nav aria-label="Admin" className="flex shrink-0 flex-col gap-1.5"><h2 className="mt-5 px-3 text-xs font-semibold uppercase tracking-wide text-faint">Admin</h2><NavLink to={settingsPath} aria-label="Open settings" className="flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted hover:bg-input-hover hover:text-white"><Settings aria-hidden="true" className="size-[18px]"/>Settings</NavLink></nav>}
+
           {settingsOpen && <SettingsNavigation admin={isAdmin} previewPath={preview?previewPath:undefined}/>}
 
         </nav>
 
-        <div className="mt-auto max-h-[40%] shrink-0 overflow-y-auto pt-4">{!preview&&<GlobalActivityStatus/>}</div>
+
+        {!preview&&isAdmin&&activity.items.length>0&&<div className={`mt-auto max-h-[40%] shrink-0 overflow-y-auto pt-4`}><GlobalActivityStatus/></div>}
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col" style={!preview&&location.pathname==="/virtual-tv"&&headerBackdrop?headerBackdropStyle(headerBackdrop):undefined}>

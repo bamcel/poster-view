@@ -1,3 +1,4 @@
+import {startupArtworkState} from "../features/playback/lib/startupArtwork";
 import { mediaDescription } from "../lib/mediaDescription";
 import {sizedArtwork} from "../lib/artworkSizes";
 import {useEffect, useId, useMemo, useRef, useState} from "react";
@@ -69,7 +70,7 @@ export function FeaturedTitle({titles,onQuickView}: {titles: HomeTitle[];onQuick
       <p className="mt-3 text-sm text-white/80">{metadata.join(" · ")}</p>
       {plot && <p className="mt-4 whitespace-pre-line line-clamp-3 max-w-xl text-sm leading-relaxed text-white/80 sm:text-[16px]">{plot}</p>}
       <div className="mt-6 flex flex-wrap gap-3">
-        {playable(title) && <Link to={playUrl(title)} aria-label={`Play ${entry.title}`} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-accent px-6 py-2.5 text-sm font-semibold text-black focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"><Play aria-hidden="true" className="size-5 fill-current"/>Play</Link>}
+        {playable(title) && <Link state={startupArtworkState(title.library.id,title.entry)} to={playUrl(title)} aria-label={`Play ${entry.title}`} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-accent px-6 py-2.5 text-sm font-semibold text-black focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"><Play aria-hidden="true" className="size-5 fill-current"/>Play</Link>}
         <QuickInfo title={title} onQuickView={onQuickView} hero/>
       </div>
     </div>
@@ -86,7 +87,7 @@ function TitleCard({title,onQuickView}: {title: HomeTitle;onQuickView?:(title:Ho
     </Link>
     <p className="mt-1 truncate text-xs text-muted">{year && year > 0 ? `${year} · ` : ""}{library.name}</p>
     <div className="mt-2 flex gap-2">
-      {playable(title) && <Link to={playUrl(title)} aria-label={`Play ${entry.title}`} className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-accent px-3 text-xs font-semibold text-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"><Play aria-hidden="true" className="size-3.5 fill-current"/>Play</Link>}
+      {playable(title) && <Link state={startupArtworkState(title.library.id,title.entry)} to={playUrl(title)} aria-label={`Play ${entry.title}`} className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-accent px-3 text-xs font-semibold text-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"><Play aria-hidden="true" className="size-3.5 fill-current"/>Play</Link>}
       <QuickInfo title={title} onQuickView={onQuickView}/>
     </div>
   </article>;

@@ -128,7 +128,7 @@ function pageBackground(library: NativeLibrary, preferBanner: boolean, ...entrie
     }
   }
   for (const entry of entries) {
-    const backdrop = picture(library, entry, "backdrop");
+    const backdrop = picture(library, entry, "backdrop") ?? picture(library, entry, "fanart");
     if (backdrop) return backdrop;
   }
 }
@@ -439,16 +439,6 @@ export default function NativeLibraryBrowser({
         .slice(0, 8),
     [catalog.data, library, bannerBackground],
   );
-  const posterUrls = useMemo(
-    () =>
-      (catalog.data ?? [])
-        .filter((e) => e.available && !e.parent_path)
-        .map((e) => picture(library, e, "poster"))
-        .filter((url): url is string => !!url)
-        .map(url=>sizedArtwork(url,640))
-        .slice(0, 8),
-    [catalog.data, library],
-  );
   const style = {
     backgroundColor: translucentPanelColor(
       "--color-surface-2",
@@ -464,10 +454,10 @@ export default function NativeLibraryBrowser({
     >
       {!selected &&
         showBackdrop &&
-        (backgroundUrls.length > 0 || posterUrls.length > 0) && (
+        backgroundUrls.length > 0 && (
           <DashboardBackdrop
             desktopUrls={backgroundUrls}
-            mobileUrls={library.library_type === "youtube" && bannerBackground ? backgroundUrls : posterUrls}
+            mobileUrls={backgroundUrls}
             overlayStrength={overlay}
           />
         )}

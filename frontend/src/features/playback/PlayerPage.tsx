@@ -12,7 +12,8 @@ import {waitForPreviousPlayback} from "./lib/previousPlayback";
 import {trackWatchReport, finishWatchReports, waitForWatchReports} from "./lib/watchReports";
 import {watchApi} from "./api/watch";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {startupArtworkUrl} from "./lib/startupArtwork";
 import subtitleFallbackFont from "jassub/dist/default.woff2?url";
 import { ArrowLeft, Check, ChevronRight, CircleHelp, Gauge, ListVideo, Maximize, Minimize, Pause, PictureInPicture2, Play, RotateCcw, RotateCw, Settings2, SkipBack, SkipForward, Subtitles, Volume2, VolumeX, X } from "lucide-react";
 import { defaultPlaybackPreferences, playbackApi, type PlaybackInfo, type PlaybackPreferences, type PlaybackSession, type WatchState } from "./api/playback";
@@ -50,6 +51,9 @@ export default function PlayerPage({virtualTv}:{virtualTv?:VirtualTvPlayback}={}
   const routeKey=`${libraryId}\u0000${itemId}`+(channelId?`\u0000${channelId}\u0000${virtualTv?.programId??""}`:"");
   const activeRoute=useRef(routeKey);activeRoute.current=routeKey;
   const navigate=useNavigate(), [params]=useSearchParams();
+  const location=useLocation();
+  const [startedRoute,setStartedRoute]=useState<string|null>(null);
+  const [failedStartupArtwork,setFailedStartupArtwork]=useState<string>();
   const returnPath=channelId?"/virtual-tv":safePlayerReturn(params.get("return"));
   const returnFromPlayback=usePlaybackReturn(returnPath);
   const requestedVersion=channelId?undefined:params.get("version_id")||undefined;
@@ -57,7 +61,7 @@ export default function PlayerPage({virtualTv}:{virtualTv?:VirtualTvPlayback}={}
   const heldCanvas=useRef<HTMLCanvasElement>(null);
   const [heldFrame,setHeldFrame]=useState(false),[hasVideoFrame,setHasVideoFrame]=useState(false);
   const heldVideo=useRef(createHeldVideoFrame(()=>heldCanvas.current,setHeldFrame));
-  useEffect(()=>{setHasVideoFrame(false);return()=>heldVideo.current.clear();},[routeKey]);
+  useEffect(()=>{setHasVideoFrame(false);setStartedRoute(null);return()=>heldVideo.current.clear();},[routeKey]);
   const [info,setInfo]=useState<PlaybackInfo>(), [session,setSession]=useState<PlaybackSession>();
   const [preferences,setPreferences]=useState(defaultPlaybackPreferences);
   const [error,setError]=useState(""), [notice,setNotice]=useState(""), [loading,setLoading]=useState(true);
@@ -644,7 +648,7 @@ export default function PlayerPage({virtualTv}:{virtualTv?:VirtualTvPlayback}={}
     if(!waitingDemand.current){waitingDemand.current=true;heartbeat(!playIntent.current);}
   };
   const mediaPlaying=()=>{
-    if(updatePosition()&&!video.current?.paused){setPlaying(true);setLoading(false);}
+    if(updatePosition()&&!video.current?.paused){setStartedRoute(routeKey);setPlaying(true);setLoading(false);}
   };
   const end=()=>{
     if(!ready.current||!ownsMedia()||pendingSeek.current)return;
@@ -740,13 +744,15 @@ export default function PlayerPage({virtualTv}:{virtualTv?:VirtualTvPlayback}={}
   const duration=info?.duration_seconds||session?.duration_seconds||0;
   const retryLabel="Retry original playback";
   const pendingInitialization=initializing||initializedRoute.current!==routeKey;
+  const startupArtwork=startupArtworkUrl(location.state,libraryId,itemId)??(!pendingInitialization?info?.poster_url:undefined);
+  const showStartupArtwork=startedRoute!==routeKey&&startupArtwork&&startupArtwork!==failedStartupArtwork;
   const showNext=!pendingInitialization&&!!info?.next&&preferences.up_next&&duration>0&&position>=duration-20;
   const title=pendingInitialization?"Media player":info?.season!=null&&info?.episode!=null?`S${info.season}:E${info.episode} – ${info.title}`:info?.title??"Media player";
   const chapters=normalizeChapters(info?.chapters??[],duration),activeChapter=currentChapter(chapters,scrubbing??position,duration);
   const previousChapter=previousChapterTarget(chapters,position,duration),nextChapter=nextChapterTarget(chapters,position,duration);
   const selectedSubtitle=info?.tracks.find(track=>track.index===subtitle);
   return <div className={`pv-player ${visible||menu||watchPrompt||!playing?"controls-visible":"controls-hidden"}`} ref={root} style={{"--subtitle-scale":preferences.subtitle_size/100,...subtitleAppearanceVariables(preferences)} as React.CSSProperties} onPointerMove={interact} onKeyDownCapture={interact} onPointerDown={()=>{controls.current.focus=false;interact();}} onFocusCapture={event=>{controls.current.focus=event.target instanceof HTMLElement&&event.target.matches(":focus-visible");setVisible(true);}} onBlurCapture={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))controls.current.focus=false;}}>
-    <div className="pv-video-stage" inert={watchPrompt||pendingInitialization}><video ref={video} playsInline preload="metadata" poster={hasVideoFrame?undefined:info?.poster_url??undefined} onClick={toggle} onDoubleClick={()=>void toggleFullscreen()} onPlay={mediaPlay} onPause={mediaPause} onWaiting={mediaWaiting} onPlaying={mediaPlaying} onLoadedData={()=>updatePosition()} onCanPlay={()=>updatePosition()} onTimeUpdate={()=>{updatePosition();progressEvent();}} onProgress={progressEvent} onEnded={end} onError={mediaError} onSeeked={()=>{if(updatePosition())report(false,false,true);}} aria-label={title}/><canvas ref={heldCanvas} className="pv-held-frame" hidden={!heldFrame} aria-hidden="true"/></div>
+    <div className="pv-video-stage" inert={watchPrompt||pendingInitialization}><video ref={video} playsInline preload="metadata" poster={hasVideoFrame?undefined:info?.poster_url??undefined} onClick={toggle} onDoubleClick={()=>void toggleFullscreen()} onPlay={mediaPlay} onPause={mediaPause} onWaiting={mediaWaiting} onPlaying={mediaPlaying} onLoadedData={()=>updatePosition()} onCanPlay={()=>updatePosition()} onTimeUpdate={()=>{updatePosition();progressEvent();}} onProgress={progressEvent} onEnded={end} onError={mediaError} onSeeked={()=>{if(updatePosition())report(false,false,true);}} aria-label={title}/><canvas ref={heldCanvas} className="pv-held-frame" hidden={!heldFrame} aria-hidden="true"/>{showStartupArtwork&&<img className="pv-startup-artwork" src={startupArtwork} alt="" aria-hidden="true" onError={()=>setFailedStartupArtwork(startupArtwork)}/>}</div>
     <div className="pv-player-header pv-controls" inert={watchPrompt} aria-hidden={!visible&&playing&&!menu}>
       <button className="pv-icon" aria-label={channelId?"Back to guide":"Back to media"} onClick={exit} title="Back"><ArrowLeft/></button>
       <div className="pv-header-tools" inert={pendingInitialization}>{channelId&&<button className="pv-button" onClick={()=>live.current?.onReturnLive()}>Return to live</button>}<button className="pv-icon" aria-label={muted?"Unmute":"Mute"} onClick={()=>setMuted(value=>!value)}>{muted||volume===0?<VolumeX/>:<Volume2/>}</button><input className="pv-volume" aria-label="Volume" type="range" min="0" max="1" step="0.01" value={muted?0:volume} onChange={event=>{setVolume(Number(event.target.value));setMuted(false);}}/>

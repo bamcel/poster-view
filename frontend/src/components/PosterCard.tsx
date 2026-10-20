@@ -176,8 +176,8 @@ export default function PosterCard({
       </button>
       {onSelect && <button type="button" aria-label={`Select ${title}`} aria-pressed={!!selected}
         onClick={event => { event.stopPropagation(); onSelect(event.shiftKey); }}
-        className={`absolute left-2 top-2 z-10 grid size-11 min-h-11 min-w-11 shrink-0 place-items-center rounded-full transition-opacity focus-visible:opacity-100 md:size-7 md:min-h-7 md:min-w-7 ${selectionMode || selected ? "opacity-100" : "opacity-0 group-hover/selection:opacity-100 group-focus-within/selection:opacity-100 [@media(hover:none)]:opacity-100"}`}>
-        <span aria-hidden="true" className={`grid size-[22px] place-items-center rounded-full border shadow backdrop-blur-sm md:size-3.5 ${selected ? "border-selection-accent bg-selection-accent text-black" : "border-white/50 bg-white/20 text-white"}`}>{selected && <Check className="size-2.5 md:size-2" />}</span>
+        className={`absolute left-1 top-1 z-10 grid size-11 min-h-11 min-w-11 shrink-0 place-items-start rounded-full transition-opacity focus-visible:opacity-100 md:size-[42px] md:min-h-[42px] md:min-w-[42px] ${selectionMode || selected ? "opacity-100" : "opacity-0 group-hover/selection:opacity-100 group-focus-within/selection:opacity-100 [@media(hover:none)]:opacity-100"}`}>
+        <span aria-hidden="true" className={`grid size-[33px] place-items-center rounded-full border shadow backdrop-blur-sm md:size-[21px] ${selected ? "border-selection-accent bg-selection-accent text-black" : "border-white/50 bg-white/20 text-white"}`}>{selected && <Check className="size-[15px] md:size-3" />}</span>
       </button>}
       {menuOpen && (onRefresh || onEditMetadata || onScan || actions.length>0) && (
         <div

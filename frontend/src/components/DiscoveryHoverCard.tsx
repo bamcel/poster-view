@@ -54,14 +54,14 @@ export default function DiscoveryHoverCard({title, children}: {title: HomeTitle;
   useEffect(() => {
     if (!position) return;
     const escape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || choosingPlayback.current) return;
       event.preventDefault();
       dismissed.current = true;
       close();
       opener.current?.focus();
     };
-    const scroll = (event: Event) => {if (!(event.target instanceof Node && panel.current?.contains(event.target))) close();};
-    const outside = (event: PointerEvent) => {if (!anchor.current?.contains(event.target as Node) && !panel.current?.contains(event.target as Node)) close();};
+    const scroll = (event: Event) => {if(choosingPlayback.current)return;if (!(event.target instanceof Node && panel.current?.contains(event.target))) close();};
+    const outside = (event: PointerEvent) => {if(choosingPlayback.current)return;if (!anchor.current?.contains(event.target as Node) && !panel.current?.contains(event.target as Node)) close();};
     window.addEventListener("keydown", escape);
     window.addEventListener("scroll", scroll, true);
     window.addEventListener("resize", close);
@@ -77,7 +77,7 @@ export default function DiscoveryHoverCard({title, children}: {title: HomeTitle;
   const runtime = positive(entry.metadata.runtime, 10000);
   const rating = positive(entry.metadata.rating, 10);
   const genres = Array.isArray(entry.metadata.genres) ? entry.metadata.genres.filter((genre): genre is string => typeof genre === "string" && !!genre.trim()).slice(0, 3) : [];
-  return <div ref={anchor} className="pv-discovery-hover-anchor" onMouseEnter={() => {dismissed.current = false; cancel(); timer.current = setTimeout(open, 350);}} onMouseLeave={scheduleClose} onFocus={event => {if (anchor.current?.contains(event.target)) {opener.current = event.target; open();}}} onKeyDown={event => {if (position && event.key === "Tab" && !event.shiftKey && event.target instanceof HTMLElement && anchor.current?.contains(event.target)) {event.preventDefault(); panel.current?.querySelector<HTMLElement>(".pv-discovery-hover-actions button,.pv-discovery-hover-actions a")?.focus();}}} onBlur={event => onBlur(event.relatedTarget)}>
+  return <div ref={anchor} className="pv-discovery-hover-anchor" onMouseEnter={() => {dismissed.current = false; cancel(); timer.current = setTimeout(open, 350);}} onMouseLeave={scheduleClose} onFocus={event => {if (anchor.current?.contains(event.target)) {opener.current = event.target; open();}}} onKeyDown={event => {if (position && event.key === "Tab" && !event.shiftKey && event.target instanceof HTMLElement && anchor.current?.contains(event.target)) {event.preventDefault(); panel.current?.querySelector<HTMLElement>(".pv-discovery-hover-actions button:not(:disabled),.pv-discovery-hover-actions a")?.focus();}}} onBlur={event => onBlur(event.relatedTarget)}>
     {children}
     {position && createPortal(<div ref={panel} id={id} role="region" aria-label={`Preview of ${entry.title}`} className="pv-discovery-hover-panel" style={{...position, maxHeight: `calc(100dvh - ${position.top + 12}px)`}} onMouseEnter={cancel} onMouseLeave={scheduleClose} onFocus={cancel} onBlur={event => onBlur(event.relatedTarget)}>
       <div className="pv-discovery-hover-art">{artwork && !failed ? <img src={sizedArtwork(artwork,640)} srcSet={`${sizedArtwork(artwork,640)} 640w, ${sizedArtwork(artwork,1280)} 1280w`} sizes="(max-width: 414px) calc(100vw - 24px), 390px" alt="" decoding="async" onError={() => setFailed(true)}/> : <Film aria-hidden="true" size={44}/>}</div>
@@ -90,7 +90,7 @@ export default function DiscoveryHoverCard({title, children}: {title: HomeTitle;
         {mediaDescription(entry.metadata.plot) && <p className="pv-discovery-hover-plot">{mediaDescription(entry.metadata.plot)}</p>}
         <div className="pv-discovery-hover-actions">
           {entry.kind==="series"&&entry.available&&entry.metadata.missing!==true&&<SeriesPreviewPlay title={title} onChoosingChange={choosing=>{choosingPlayback.current=choosing;cancel();}}/>}
-          {entry.kind==="movie"&&<MoviePreviewPlay title={title}/>}
+          {entry.kind==="movie"&&<MoviePreviewPlay title={title} onChoosingChange={choosing=>{choosingPlayback.current=choosing;cancel();}}/>}
           <Link to={detail} aria-label={`More info about ${entry.title}`}><Info size={16} aria-hidden="true"/>More Info</Link>
         </div>
       </div>

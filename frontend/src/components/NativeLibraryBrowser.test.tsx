@@ -910,3 +910,13 @@ it("inherits a YouTube channel banner for video page backgrounds",async()=>{
  await screen.findByRole("heading",{name:"S1:E1 - First Episode"});
  await waitFor(()=>expect(document.querySelector('img[src*="/show/banner?"]')).toBeTruthy());
 });
+
+it.each(["backdrop", "fanart"])("uses current-library %s backgrounds instead of posters on small screens", async kind => {
+ localStorage.setItem("posterview.dashboardBackdropEnabled", "true");
+ vi.stubGlobal("matchMedia", vi.fn(() => ({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()})));
+ vi.mocked(nativeLibraries.catalog).mockResolvedValue([{...series,artwork:[{kind,path:"background.jpg",source:"local"},{kind:"poster",path:"poster.jpg",source:"local"}]}]);
+ mount();
+ const background = await screen.findByTestId("dashboard-backdrop");
+ await waitFor(() => expect(background.querySelector("img")?.getAttribute("src")).toContain(`/art/native/show/${kind}?`));
+ expect(background.querySelector('img[src*="/poster?"]')).toBeNull();
+});

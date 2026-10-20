@@ -1,0 +1,52 @@
+name: posterview-workspace
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: posterview-workspace:local
+    init: true
+    environment:
+      POSTERVIEW_DATA_DIR: /config
+      POSTERVIEW_BIND: 0.0.0.0:7979
+      POSTERVIEW_UI_DIR: /workspace/frontend/dist
+      PUID: ${PUID:-10001}
+      PGID: ${PGID:-100}
+      RUST_LOG: posterview_server=info,tower_http=info
+    volumes:
+      - .:/workspace
+      - ${POSTERVIEW_DEV_APPDATA:-/mnt/user/appdata/posterview-development}:/config
+      - rust-target:/build
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - ${POSTERVIEW_DEV_MEDIA_ROOT:-/mnt/user}:/media
+    ports:
+      - "${POSTERVIEW_DEV_API_PORT:-7979}:7979"
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost:7979/api/health]
+      interval: 15s
+      timeout: 5s
+      start_period: 15m
+    restart: unless-stopped
+  frontend:
+    image: posterview-workspace:local
+    init: true
+    command: [sh, -c, "npm ci && npm run dev -- --host 0.0.0.0 --strictPort"]
+    working_dir: /workspace/frontend
+    environment:
+      POSTERVIEW_DEV_API_TARGET: http://backend:7979
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "${POSTERVIEW_DEV_PORT:-5173}:5173"
+    volumes:
+      - .:/workspace
+      - node-modules:/workspace/frontend/node_modules
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+volumes:
+  rust-target:
+  cargo-registry:
+  cargo-git:
+  node-modules:

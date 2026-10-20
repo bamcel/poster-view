@@ -35,9 +35,12 @@ it("keeps the mobile selection control square while preserving its compact deskt
   expect(selector.className).toContain("size-11");
   expect(selector.className).toContain("min-h-11");
   expect(selector.className).toContain("min-w-11");
-  expect(selector.className).toContain("md:size-7");
-  expect(selector.className).toContain("md:min-h-7");
-  expect(selector.className).toContain("md:min-w-7");
+  expect(selector.className).toContain("md:size-[42px]");
+  expect(selector.className).toContain("md:min-h-[42px]");
+  expect(selector.className).toContain("md:min-w-[42px]");
+  const circle = selector.querySelector('[aria-hidden="true"]')!;
+  expect(circle.className).toContain("size-[33px]");
+  expect(circle.className).toContain("md:size-[21px]");
 });
 it("renders both colored effects together", () => {
   const { container } = render(<PosterCard title="Book" image="poster.jpg" coloredEffect="both" />);
