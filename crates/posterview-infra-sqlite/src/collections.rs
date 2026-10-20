@@ -83,7 +83,7 @@ fn insert_members(
             continue;
         }
         let permitted: bool = db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM native_library_items l JOIN catalog_items i ON i.id=l.item_id JOIN native_libraries n ON n.id=l.library_id WHERE l.library_id=?1 AND l.item_id=?2 AND i.kind IN ('movie','series') AND n.library_type IN ('movies','shows','anime'))",
+            "SELECT EXISTS(SELECT 1 FROM native_library_items l JOIN catalog_items i ON i.id=l.item_id JOIN native_libraries n ON n.id=l.library_id WHERE l.library_id=?1 AND l.item_id=?2 AND i.kind IN ('movie','series') AND n.library_type IN ('movies','shows','mixed','anime'))",
             params![member.library_id, member.item_id], |row| row.get(0),
         )?;
         if !permitted {

@@ -330,7 +330,10 @@ fn match_native(
     libraries.retain(|library| {
         matches!(
             library.library_type,
-            NativeLibraryType::Movies | NativeLibraryType::Shows | NativeLibraryType::Anime
+            NativeLibraryType::Movies
+                | NativeLibraryType::Shows
+                | NativeLibraryType::Anime
+                | NativeLibraryType::Mixed
         )
     });
     libraries.sort_by(|left, right| {

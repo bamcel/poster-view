@@ -1,10 +1,64 @@
 use serde::{Deserialize, Serialize};
 
+/// User-confirmed origin of one media file version, independent of its resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MediaSource {
+    #[serde(rename = "bluray")]
+    BluRay,
+    #[serde(rename = "bd")]
+    Bd,
+    #[serde(rename = "uhd-bluray")]
+    UhdBluRay,
+    #[serde(rename = "dvd")]
+    Dvd,
+    #[serde(rename = "web-dl")]
+    WebDl,
+    #[serde(rename = "webrip")]
+    WebRip,
+    #[serde(rename = "hdtv")]
+    Hdtv,
+    #[serde(rename = "mixed")]
+    Mixed,
+    #[serde(rename = "other")]
+    Other,
+}
+
+impl MediaSource {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::BluRay => "bluray",
+            Self::Bd => "bd",
+            Self::UhdBluRay => "uhd-bluray",
+            Self::Dvd => "dvd",
+            Self::WebDl => "web-dl",
+            Self::WebRip => "webrip",
+            Self::Hdtv => "hdtv",
+            Self::Mixed => "mixed",
+            Self::Other => "other",
+        }
+    }
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "bluray" => Some(Self::BluRay),
+            "bd" => Some(Self::Bd),
+            "uhd-bluray" => Some(Self::UhdBluRay),
+            "dvd" => Some(Self::Dvd),
+            "web-dl" => Some(Self::WebDl),
+            "webrip" => Some(Self::WebRip),
+            "hdtv" => Some(Self::Hdtv),
+            "mixed" => Some(Self::Mixed),
+            "other" => Some(Self::Other),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NativeLibraryType {
     Movies,
     Shows,
+    Mixed,
     Anime,
     Books,
     Youtube,
@@ -15,6 +69,7 @@ impl NativeLibraryType {
         match self {
             Self::Movies => "movies",
             Self::Shows => "shows",
+            Self::Mixed => "mixed",
             Self::Anime => "anime",
             Self::Books => "books",
             Self::Youtube => "youtube",
@@ -169,6 +224,26 @@ pub struct NativeScanProgress {
 
 #[cfg(test)]
 mod compatibility_tests {
+    #[test]
+    fn bd_media_source_roundtrips() {
+        let source = super::MediaSource::parse("bd").unwrap();
+        assert_eq!(source.as_str(), "bd");
+        assert_eq!(serde_json::to_string(&source).unwrap(), "\"bd\"");
+        assert_eq!(
+            serde_json::from_str::<super::MediaSource>("\"bd\"").unwrap(),
+            source
+        );
+    }
+    #[test]
+    fn mixed_media_source_roundtrips() {
+        let source = super::MediaSource::parse("mixed").unwrap();
+        assert_eq!(source.as_str(), "mixed");
+        assert_eq!(serde_json::to_string(&source).unwrap(), "\"mixed\"");
+        assert_eq!(
+            serde_json::from_str::<super::MediaSource>("\"mixed\"").unwrap(),
+            source
+        );
+    }
     #[test]
     fn retired_sync_options_are_accepted_but_not_exposed() {
         let options: super::NativeLibraryOptions = serde_json::from_value(serde_json::json!({

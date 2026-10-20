@@ -12,7 +12,7 @@ import {useCatalogPrefetch} from "../lib/catalogPrefetch";
 import {HOME_RESET_EVENT} from "../lib/homeNavigation";
 import {libraryPath} from "../lib/mediaPaths";
 import {Navigate} from "react-router-dom";
-import {Link, useSearchParams} from "../lib/libraryNavigation";
+import {Link, useNavigate, useSearchParams} from "../lib/libraryNavigation";
 import {useContext,useEffect,useState} from "react";
 import {createPortal} from "react-dom";
 import {HeaderSearchTarget} from "../lib/headerSearch";
@@ -27,12 +27,14 @@ import {groupHomeTitles} from "../lib/homeTitleGroups";
 
 function LibraryTile({library,libraries}:{library:NativeLibrary;libraries:NativeLibrary[]}) {
  const prefetchCatalog=useCatalogPrefetch(),client=useQueryClient(),isAdmin=useIsAdmin();
+ const navigate=useNavigate();
  const invalidate=()=>Promise.all([client.invalidateQueries({queryKey:["native-scan",library.id]}),client.invalidateQueries({queryKey:["native-catalog",library.id]})]);
  const tile=<Link onMouseEnter={()=>prefetchCatalog(library.id,library.library_type)} onFocus={()=>prefetchCatalog(library.id,library.library_type)} to={libraryPath(library,libraries)} aria-label={`Open ${library.name}`} className="pv-home-landscape-card pv-home-library-card group block rounded-xl text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent">
   <div className="overflow-hidden rounded-md transition-transform duration-200 group-hover:scale-[1.03]"><LibraryPosterStrip library={library.id}/></div>
   <h3 className="mt-2 text-sm font-medium text-white group-hover:text-accent">{library.name}</h3>
  </Link>;
  return isAdmin?<CardActionMenu label={`${library.name} library actions`} actions={[
+  {label:"Go to library",onSelect:()=>navigate(libraryPath(library,libraries))},
   {label:"Scan Library Files",onSelect:async()=>{await nativeLibraries.scan(library.id);await invalidate();},success:`Scan requested for ${library.name}.`},
   {label:"Refresh Metadata",onSelect:async()=>{await nativeLibraries.refresh(library.id,{replaceMetadata:false,replaceImages:false});await invalidate();},success:`Metadata refresh requested for ${library.name}.`}
  ]}>{tile}</CardActionMenu>:tile;
@@ -52,7 +54,9 @@ function LibraryHome(){
  const results=term?groupHomeTitles(catalogs.flatMap((catalog,index)=>(catalog.data??[]).filter(entry=>entry.available&&entry.kind!=="season"&&[entry.title,entry.metadata.originaltitle].some(value=>typeof value==="string"&&value.toLocaleLowerCase().includes(term))).map(entry=>({entry,library:libraries.data![index]})))):[];
  const sections=[{name:"Movies",kinds:["movie"]},{name:"Series",kinds:["series"]},{name:"Episodes",kinds:["episode"]},{name:"Books",kinds:["book","book_series"]}].map(section=>({...section,results:results.filter(({entry})=>section.kinds.includes(entry.kind))})).filter(section=>section.results.length>0);
  const loading=!!term&&(libraries.isPending||catalogs.some(catalog=>catalog.isPending));
- const bannerLoading=libraries.isPending||catalogs.some((catalog,index)=>(!["books","youtube"].includes(libraries.data![index].library_type)||libraries.data![index].library_type==="youtube"&&readYoutubeHomepagePreferences(libraries.data![index].id).featured)&&catalog.isPending);
+ // Keep ready titles visible while slower libraries finish or refresh in the background.
+ const hasReadyTitles=titles.some(({entry})=>entry.available&&entry.metadata.missing!==true);
+ const bannerLoading=!hasReadyTitles&&(libraries.isPending||catalogs.some((catalog,index)=>(!["books","youtube"].includes(libraries.data![index].library_type)||libraries.data![index].library_type==="youtube"&&readYoutubeHomepagePreferences(libraries.data![index].id).featured)&&catalog.isPending));
  const featured=!term&&(bannerLoading||titles.length>0);
  const searchControl=<div role="search" className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-2">
    <div className="relative w-full max-w-[21rem]">
@@ -66,14 +70,14 @@ function LibraryHome(){
    </LibraryPopup>
   </div>;
  return <main className="relative z-10 h-full overflow-y-auto pt-5 pb-8">
-  <HomeBackground libraries={libraries.data??[]}/>
+  <HomeBackground libraries={libraries.data??[]} librariesLoading={libraries.isPending}/>
   <div className="relative z-10 min-h-full">
   {searchTarget&&createPortal(searchControl,searchTarget)}
   <header className={featured&&searchTarget?"sr-only":"mb-3 flex flex-col gap-3 px-5 pt-3 sm:px-8 md:px-12"}>
    <h1 className={featured?"sr-only":"text-2xl font-semibold text-white"}>{term?"Search results":"My Media"}</h1>
    {!searchTarget&&searchControl}
   </header>
-  {libraries.isPending&&<p role="status" className="px-5 text-muted sm:px-8 md:px-12">Loading libraries…</p>}
+  {libraries.isPending&&<p role="status" className="sr-only">Loading libraries…</p>}
   {libraries.error&&<p role="alert" className="px-5 text-danger sm:px-8 md:px-12">{libraries.error.message}</p>}
   {libraries.data?.length===0&&<div className="space-y-3 px-5 text-muted sm:px-8 md:px-12"><p>Your libraries will appear here once you add them.</p><Link className="text-accent hover:underline" to="/settings/libraries">Add a library</Link></div>}
   {term?<div className="px-5 sm:px-8 md:px-12">
@@ -89,13 +93,13 @@ function LibraryHome(){
    {section.results.length>100&&<p className="mt-3 text-sm text-muted">Showing 100 of {section.results.length} matches. Refine your search to see fewer results.</p>}
    </section>)}</div>
   </div>:<>
-   {bannerLoading?<section className="pv-home-hero" aria-label="Loading featured title" aria-busy="true"><p role="status" className="pv-home-hero-content text-muted">Loading featured titles…</p></section>:<FeaturedTitle titles={titles}/>}
+   {bannerLoading?<section className="pv-home-hero" aria-label="Loading featured title" aria-busy="true"><p role="status" className="sr-only">Loading featured titles…</p></section>:<FeaturedTitle titles={titles}/>}
    <div className="px-5 sm:px-8 md:px-12">
    <div className="pv-home-library-section"><HomeMediaRow label="My Libraries" ariaLabel="My libraries" wrap>
     {libraries.data?.map(library=><LibraryTile key={library.id} library={library} libraries={libraries.data??[]}/>)}
    </HomeMediaRow></div>
    <ContinueWatching/>
-   {catalogs.some((catalog,index)=>catalog.isPending&&!["books","youtube"].includes(libraries.data![index].library_type))&&<p role="status" className="mt-6 text-muted">Discovering your titles…</p>}
+   {catalogs.some((catalog,index)=>catalog.isPending&&!["books","youtube"].includes(libraries.data![index].library_type))&&<p role="status" className="sr-only">Discovering your titles…</p>}
    {catalogs.map((catalog,index)=>catalog.error&&<p role="alert" key={libraries.data![index].id} className="mt-4 text-danger">Could not load discoveries from {libraries.data![index].name}: {catalog.error.message}</p>)}
    <HomeDiscovery titles={titles.filter(title=>title.library.library_type!=="youtube")}/>
    </div>

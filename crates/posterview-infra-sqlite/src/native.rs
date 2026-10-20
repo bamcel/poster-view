@@ -173,7 +173,51 @@ INSERT INTO schema_migrations(version,name) VALUES(2,'native_scan_options_and_ar
         )?;
     }
     tx.commit()?;
+    migrate_mixed(db)?;
     Ok(())
+}
+
+fn migrate_mixed(db: &Connection) -> Result<(), StoreError> {
+    let applied: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version=8)",
+        [],
+        |row| row.get(0),
+    )?;
+    if applied {
+        return Ok(());
+    }
+    db.pragma_update(None, "foreign_keys", false)?;
+    let result = (|| {
+        let tx = db.unchecked_transaction()?;
+        tx.execute_batch(r#"
+CREATE TABLE native_libraries_mixed (
+ id TEXT PRIMARY KEY, name TEXT NOT NULL CHECK(length(trim(name)) BETWEEN 1 AND 120),
+ library_type TEXT NOT NULL CHECK(library_type IN ('movies','shows','mixed','anime','books','youtube')),
+ anime_content TEXT NOT NULL CHECK(anime_content IN ('both','shows','movies')),
+ revision INTEGER NOT NULL DEFAULT 1,
+ created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+ options_json TEXT NOT NULL DEFAULT '{}'
+);
+INSERT INTO native_libraries_mixed SELECT id,name,library_type,anime_content,revision,created_at,updated_at,options_json FROM native_libraries;
+DROP TABLE native_libraries;
+ALTER TABLE native_libraries_mixed RENAME TO native_libraries;
+CREATE UNIQUE INDEX native_library_name ON native_libraries(name COLLATE NOCASE);
+INSERT INTO schema_migrations(version,name) VALUES(8,'mixed_movie_and_show_libraries');
+"#)?;
+        let invalid: i64 =
+            tx.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })?;
+        if invalid != 0 {
+            return Err(StoreError::Validation(
+                "Library migration found invalid references.".into(),
+            ));
+        }
+        tx.commit()?;
+        Ok(())
+    })();
+    db.pragma_update(None, "foreign_keys", true)?;
+    result
 }
 
 // SQLite cannot extend a CHECK constraint in place. Rebuild only the parent
@@ -353,6 +397,7 @@ impl ServerStore {
         let permitted = match library_type.as_str() {
             "movies" => kind == "movie",
             "shows" | "youtube" => kind == "series",
+            "mixed" => matches!(kind, "movie" | "series"),
             "anime" => {
                 (kind == "movie" && content != "shows") || (kind == "series" && content != "movies")
             }
@@ -377,7 +422,7 @@ impl ServerStore {
         Ok(id)
     }
 
-    /// Add a provider/local observation only if it does not replace a locked or manual field.
+    /// Add a provider/local observation only if it does not replace a locked field.
     /// Returns false when the selected value was preserved.
     pub fn observe_native_metadata(
         &self,
@@ -391,8 +436,14 @@ impl ServerStore {
                 "An observation needs a field and a non-manual source.".into(),
             ));
         }
-        let db = self.write_connection()?;
-        let changed=db.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=catalog_metadata_fields.revision+1,updated_at=datetime('now') WHERE catalog_metadata_fields.locked=0 AND catalog_metadata_fields.source<>'manual'",params![item,field,value.to_string(),source])?;
+        let mut db = self.write_connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let (all, locks) = crate::native_catalog::metadata_locks(&tx, item)?;
+        if locks[field].as_bool().unwrap_or(all) {
+            return Ok(false);
+        }
+        let changed=tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=catalog_metadata_fields.revision+1,updated_at=datetime('now') WHERE catalog_metadata_fields.locked=0",params![item,field,value.to_string(),source])?;
+        tx.commit()?;
         Ok(changed > 0)
     }
 
@@ -547,6 +598,63 @@ impl ServerStore {
 mod tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryType};
+    #[test]
+    fn mixed_library_migration_preserves_roots_and_accepts_movies_and_series() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = ServerStore::new(dir.path());
+        let db = store.connection().unwrap();
+        db.execute_batch(SCHEMA).unwrap();
+        db.execute_batch("INSERT INTO schema_migrations(version,name) VALUES(1,'legacy');
+          INSERT INTO native_libraries(id,name,library_type,anime_content) VALUES('old','Existing','movies','both');
+          INSERT INTO native_library_roots VALUES('old','Movies',0);
+          INSERT INTO catalog_items(id,kind,title) VALUES('item','movie','Existing movie');
+          INSERT INTO native_library_items VALUES('old','item');").unwrap();
+        migrate(&db).unwrap();
+        migrate(&db).unwrap();
+        assert_eq!(store.native_libraries().unwrap()[0].paths, ["Movies"]);
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM native_library_items", [], |row| row
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.query_row("PRAGMA foreign_keys", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        let saved = store
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Mixed".into(),
+                    library_type: NativeLibraryType::Mixed,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into(), "Shows".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        assert_eq!(saved.library_type, NativeLibraryType::Mixed);
+        assert!(
+            store
+                .create_native_catalog_item(&saved.id, "movie", "Film")
+                .is_ok()
+        );
+        assert!(
+            store
+                .create_native_catalog_item(&saved.id, "series", "Show")
+                .is_ok()
+        );
+        assert!(
+            store
+                .create_native_catalog_item(&saved.id, "book", "Book")
+                .is_err()
+        );
+    }
     #[test]
     fn youtube_migration_preserves_existing_library_relations() {
         let dir = tempfile::tempdir().unwrap();

@@ -1,6 +1,6 @@
 import { apiRequest } from "./client";
 
-export type NativeLibraryType = "movies" | "shows" | "anime" | "books" | "youtube";
+export type NativeLibraryType = "movies" | "shows" | "mixed" | "anime" | "books" | "youtube";
 export interface NativeLibraryOptions {
   youtube_mode?: "single_channel" | "multiple_channels"; youtube_channels?: string[];
   show_missing_files?:boolean; show_missing_specials?:boolean; show_specials_in_seasons?:boolean;

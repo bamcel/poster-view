@@ -118,3 +118,17 @@ it("uses still frames for visible mobile artwork",()=>{
  expect(screen.getByAltText("Poster").getAttribute("src")).toContain("still=1");
  expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
 });
+
+it("reports backdrop readiness only after the displayed image has decoded", async () => {
+ let decoded!:()=>void;
+ const decode=vi.fn(()=>new Promise<void>(resolve=>{decoded=resolve;}));
+ const ready=vi.fn();
+ render(<AnimatedArtwork src="/backdrop.jpg" alt="Backdrop ready" onReady={ready}/>);
+ const image=screen.getByAltText("Backdrop ready");
+ Object.defineProperty(image,"decode",{value:decode,configurable:true});
+ await act(async()=>image.dispatchEvent(new Event("load")));
+ expect(decode).toHaveBeenCalledOnce();
+ expect(ready).not.toHaveBeenCalled();
+ await act(async()=>decoded());
+ expect(ready).toHaveBeenCalledOnce();
+});

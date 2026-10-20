@@ -4,13 +4,13 @@ import {catalogQueryOptions,catalogView} from "./nativeCatalogQueries";
 vi.mock("../api/nativeLibraries",()=>({nativeLibraries:{catalog:vi.fn(async()=>[]),summaries:vi.fn(async()=>[])}}));
 afterEach(()=>vi.clearAllMocks());
 it("uses summaries for video libraries and keeps the legacy catalog for books and YouTube",async()=>{
- for(const library_type of ["anime","shows","movies"] as const){
+ for(const library_type of ["anime","shows","movies","mixed"] as const){
   const options=catalogQueryOptions({id:library_type,library_type});
   expect(options.queryKey).toEqual(["native-catalog",library_type,"summary"]);
   await options.queryFn();
  }
  expect(nativeLibraries.catalog).not.toHaveBeenCalled();
- expect(nativeLibraries.summaries).toHaveBeenCalledTimes(3);
+ expect(nativeLibraries.summaries).toHaveBeenCalledTimes(4);
  for(const library_type of ["books","youtube"] as const){
   const options=catalogQueryOptions({id:library_type,library_type});
   expect(options.queryKey).toEqual(["native-catalog",library_type]);

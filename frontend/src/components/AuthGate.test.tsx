@@ -1,5 +1,5 @@
 import {QueryClient,QueryClientProvider} from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AuthGate from "./AuthGate";
 import { api } from "../api/client";
@@ -13,10 +13,10 @@ vi.mock("../api/client", () => ({
   },
 }));
 
-afterEach(cleanup);
+afterEach(() => {cleanup();vi.useRealTimers();});
 
 describe("AuthGate", () => {
-  afterEach(cleanup);
+  afterEach(() => {cleanup();vi.useRealTimers();});
 
   beforeEach(() => {
     localStorage.clear();
@@ -178,4 +178,65 @@ it.each([true,false])("requests remembered sessions only while selected: %s", as
   expect(JSON.stringify(localStorage)).not.toContain("private-password");
   fireEvent(window, new Event("posterview:unauthorized"));
   expect((await screen.findByRole("checkbox", { name: "Remember me" }) as HTMLInputElement).checked).toBe(false);
+});
+
+it("shows the poster splash until the remembered session is resolved without flashing sign-in",async()=>{
+ vi.useFakeTimers();
+ let resolve!:(status:{authenticated:boolean})=>void;
+ vi.mocked(api.authStatus).mockReturnValueOnce(new Promise(done=>{resolve=done;}));
+ render(<AuthGate><p>Remembered library</p></AuthGate>);
+ expect(screen.queryByRole("status",{name:"Loading PosterView"})).toBeNull();
+ await act(async()=>{await vi.advanceTimersByTimeAsync(400);});
+ expect(screen.getByRole("status",{name:"Loading PosterView"})).toBeTruthy();
+ expect(screen.getByAltText("PosterView")).toBeTruthy();
+ expect(screen.queryByRole("button",{name:"Sign in"})).toBeNull();
+ await act(async()=>resolve({authenticated:true}));
+ expect(screen.getByText("Remembered library")).toBeTruthy();
+ expect(screen.queryByRole("status",{name:"Loading PosterView"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Sign in"})).toBeNull();
+});
+it("reveals sign-in only after an unauthenticated session is confirmed",async()=>{
+ let resolve!:(status:{authenticated:boolean})=>void;
+ vi.mocked(api.authStatus).mockReturnValueOnce(new Promise(done=>{resolve=done;}));
+ render(<AuthGate><p>Private library</p></AuthGate>);
+ expect(screen.queryByLabelText("Password")).toBeNull();
+ await act(async()=>resolve({authenticated:false}));
+ expect(screen.getByLabelText("Password")).toBeTruthy();
+ expect(screen.queryByText("Private library")).toBeNull();
+});
+it("keeps the splash during a server outage and restores remembered access on retry",async()=>{
+ vi.useFakeTimers();
+ vi.mocked(api.authStatus).mockRejectedValueOnce(new Error("Server restarting")).mockResolvedValue({authenticated:true});
+ render(<AuthGate><p>Recovered library</p></AuthGate>);
+ await act(async()=>{});
+ await act(async()=>{await vi.advanceTimersByTimeAsync(400);});
+ expect(screen.getByText("Reconnecting to PosterView…")).toBeTruthy();
+ expect(screen.queryByLabelText("Password")).toBeNull();
+ await act(async()=>{await vi.advanceTimersByTimeAsync(2_000);});
+ expect(screen.getByText("Recovered library")).toBeTruthy();
+ expect(screen.queryByLabelText("Password")).toBeNull();
+});
+it("shows reconnecting instead of login when a periodic session check fails",async()=>{
+ vi.useFakeTimers();
+ vi.mocked(api.authStatus).mockResolvedValueOnce({authenticated:true}).mockRejectedValueOnce(new Error("Offline")).mockResolvedValue({authenticated:true});
+ render(<AuthGate><p>Session content</p></AuthGate>);
+ await act(async()=>{});
+ expect(screen.getByText("Session content")).toBeTruthy();
+ await act(async()=>{await vi.advanceTimersByTimeAsync(15_400);});
+ await act(async()=>{await vi.advanceTimersByTimeAsync(400);});
+ expect(screen.getByText("Reconnecting to PosterView…")).toBeTruthy();
+ expect(screen.queryByLabelText("Password")).toBeNull();
+ await act(async()=>{await vi.advanceTimersByTimeAsync(2_000);});
+ expect(screen.getByText("Session content")).toBeTruthy();
+});
+it("does not flash a splash for a fast remembered session", async () => {
+ vi.useFakeTimers();
+ vi.mocked(api.authStatus).mockResolvedValue({authenticated:true});
+ render(<AuthGate><p>Fast library</p></AuthGate>);
+ expect(screen.queryByAltText("PosterView")).toBeNull();
+ await act(async()=>{});
+ expect(screen.getByText("Fast library")).toBeTruthy();
+ await act(async()=>{await vi.advanceTimersByTimeAsync(500);});
+ expect(screen.queryByRole("status",{name:"Loading PosterView"})).toBeNull();
+ expect(screen.getByText("Fast library")).toBeTruthy();
 });

@@ -15,7 +15,7 @@ export default function CharacterHoverCard({person, children, portrait}: {person
   const [position, setPosition] = useState<{left: number; top: number; width: number} | null>(null);
   const name = typeof person.name === "string" && person.name.trim() ? person.name.trim() : "Character";
   const role = typeof person.role === "string" ? person.role.trim() : "";
-  const biography = mediaDescription(String(person.biography ?? person.description ?? "").replace(/~![\s\S]*?(?:!~|$)/g, "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1")).trim();
+  const biography = mediaDescription(String(person.biography ?? person.description ?? "").replace(/~![\s\S]*?(?:!~|$)/g, "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1")).split("\n").filter(line => !/^[\t ]*_{2,}.+?_{2,}/.test(line)).join("\n").trim();
   function cancel() {clearTimeout(timer.current); timer.current = undefined;}
   function close() {cancel(); setPosition(null);}
   function open() {
@@ -52,10 +52,11 @@ export default function CharacterHoverCard({person, children, portrait}: {person
   return <div ref={anchor} className="pv-character-anchor w-48 shrink-0 rounded-xl p-4" onMouseEnter={() => {dismissed.current = false; cancel(); timer.current = setTimeout(open, 350);}} onMouseLeave={leave} onFocus={event => {if (anchor.current?.contains(event.target)) {opener.current = event.target; open();}}} onBlur={event => blur(event.relatedTarget)}>
     {children}
     <button type="button" className="pv-character-trigger" aria-label={`Preview ${name}`} aria-expanded={!!position} aria-controls={position ? id : undefined} onClick={event => {opener.current = event.currentTarget; dismissed.current = false; open();}} onKeyDown={event => {if (position && event.key === "Tab" && !event.shiftKey) {event.preventDefault(); panel.current?.querySelector<HTMLButtonElement>("button")?.focus();}}}><Info size={17} aria-hidden="true"/></button>
-    {position && createPortal(<div ref={panel} id={id} role="region" aria-label={`Profile of ${name}`} className="pv-character-panel" style={{...position, maxHeight: `min(420px, calc(100dvh - ${position.top + 12}px))`}} onMouseEnter={cancel} onMouseLeave={leave} onFocus={cancel} onBlur={event => blur(event.relatedTarget)}>
+    {position && createPortal(<div ref={panel} id={id} role="region" aria-label={`Profile of ${name}`} className="pv-character-panel pv-popup-surface" style={{...position, maxHeight: `min(420px, calc(100dvh - ${position.top + 12}px))`}} onMouseEnter={cancel} onMouseLeave={leave} onFocus={cancel} onBlur={event => blur(event.relatedTarget)}>
       <button type="button" className="pv-character-dismiss" aria-label={`Close profile of ${name}`} onClick={dismiss}><X size={18} aria-hidden="true"/></button>
-      <div className="pv-character-heading"><div className="pv-character-portrait">{portrait}</div><div><span className="pv-character-eyebrow">Character</span><h3>{name}</h3>{role && <p className="pv-character-role">{role.replace(/_/g, " ").toLowerCase()}</p>}</div></div>
-      {biography ? <p className="pv-character-biography">{biography}</p> : <p className="pv-character-empty">No character biography available.</p>}
+      <div className="pv-character-art"><div className="pv-character-art-tint" aria-hidden="true">{portrait}</div><div className="pv-character-portrait">{portrait}</div></div>
+      <div className="pv-character-body"><div className="pv-character-heading"><span className="pv-character-eyebrow">Character</span><h3>{name}</h3>{role && <p className="pv-character-role">{role.replace(/_/g, " ").toLowerCase()}</p>}</div>
+      {biography ? <p className="pv-character-biography">{biography}</p> : <p className="pv-character-empty">No character biography available.</p>}</div>
     </div>, document.body)}
   </div>;
 }

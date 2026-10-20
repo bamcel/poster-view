@@ -7,7 +7,7 @@ import { readYoutubeHomepagePreferences, useYoutubeHomepagePreferencesRevision }
 import DashboardBackdrop from "./DashboardBackdrop";
 
 /** The page background is independent of the featured headline's artwork. */
-export default function HomeBackground({ libraries }: { libraries: NativeLibrary[] }) {
+export default function HomeBackground({ libraries, librariesLoading = false }: { libraries: NativeLibrary[]; librariesLoading?: boolean }) {
   useYoutubeHomepagePreferencesRevision();
   const [overlay, setOverlay] = useState(backdropOverlay);
   useEffect(() => {
@@ -30,6 +30,7 @@ export default function HomeBackground({ libraries }: { libraries: NativeLibrary
     const kind = entry.artwork.some(art => art.kind === "backdrop") ? "backdrop" : entry.artwork.some(art => art.kind === "fanart") ? "fanart" : null;
     return kind ? [`${nativeLibraries.artworkUrl(sources[index].id, entry.id, kind)}?v=${encodeURIComponent(nativeArtworkVersion(entry, kind))}`] : [];
   })))];
-  if (urls.length === 0) return null;
-  return <DashboardBackdrop desktopUrls={urls} mobileUrls={urls} overlayStrength={overlay} />;
+  const loading = librariesLoading || catalogs.some(catalog => catalog.isPending);
+  if (urls.length === 0 && !loading) return null;
+  return <DashboardBackdrop desktopUrls={urls} mobileUrls={urls} overlayStrength={overlay} cacheKey="home" loading={loading} allowedLibraryIds={librariesLoading ? undefined : sources.map(library => library.id)} />;
 }

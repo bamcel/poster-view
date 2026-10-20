@@ -24,6 +24,20 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
+it("creates a mixed movie and TV library without anime content controls", async () => {
+  mount(<LibraryDialog onClose={vi.fn()} onSaved={vi.fn()} />);
+  fireEvent.change(screen.getByLabelText("Name"), {target:{value:"Mixed media"}});
+  fireEvent.change(screen.getByLabelText("Library type"), {target:{value:"mixed"}});
+  expect(screen.queryByLabelText("Anime content")).toBeNull();
+  fireEvent.click(screen.getByRole("button",{name:"Next"}));
+  fireEvent.click(await screen.findByRole("checkbox",{name:"Shows"}));
+  fireEvent.click(screen.getByRole("checkbox",{name:"Movies"}));
+  fireEvent.click(screen.getByRole("button",{name:"Select Folders"}));
+  fireEvent.click(screen.getByRole("button",{name:/Review/}));
+  fireEvent.click(screen.getByRole("button",{name:"Create library"}));
+  await waitFor(()=>expect(nativeLibraries.save).toHaveBeenCalledWith(expect.objectContaining({name:"Mixed media",library_type:"mixed",paths:["Shows","Movies"]}),undefined));
+});
+
 it("creates an Anime library with multiple media folders and no remote-server import", async () => {
   mount(<NativeLibrariesSection />);
   fireEvent.click(screen.getByRole("button", { name: "New Library" }));

@@ -11,6 +11,8 @@ import LoginBackdrop from "./LoginBackdrop";
 export default function AuthGate({ children }: { children: ReactNode }) {
   const queryClient=useContext(QueryClientContext);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [showSplash, setShowSplash] = useState(false);
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [displayName, setDisplayName] = useState("");
@@ -54,7 +56,12 @@ export default function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const refresh = () => {
+      if (cancelled || inFlight) return;
+      clearTimeout(retryTimer);
+      inFlight = true;
       const requestedRevision = revision.current;
       void api.authStatus().then((status) => {
         if (cancelled || requestedRevision !== revision.current) return;
@@ -69,11 +76,16 @@ export default function AuthGate({ children }: { children: ReactNode }) {
         const nextIdentity=status.user?`${status.user.id}:${status.user.revision}`:null;
         if(identity.current!==null && nextIdentity!==identity.current) { queryClient?.clear(); window.dispatchEvent(new Event("posterview:account-changed")); }
         identity.current=nextIdentity;
+        setReconnecting(false);
         setSession(status);
         setAuthenticated(status.authenticated);
       }).catch(() => {
-        if (!cancelled && requestedRevision === revision.current) setAuthenticated(false);
-      });
+        if (!cancelled && requestedRevision === revision.current) {
+          setReconnecting(true);
+          setAuthenticated(null);
+          retryTimer = setTimeout(refresh, 2_000);
+        }
+      }).finally(() => { inFlight = false; });
     };
     refresh();
     const timer = window.setInterval(refresh, 15_000);
@@ -83,10 +95,20 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
       clearInterval(timer);
+      clearTimeout(retryTimer);
       window.removeEventListener("posterview:unauthorized", expired);
       window.removeEventListener("posterview:security-changed", refresh);
     };
   }, [expire,queryClient]);
+
+  useEffect(() => {
+    if (authenticated !== null) {
+      setShowSplash(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowSplash(true), 400);
+    return () => clearTimeout(timer);
+  }, [authenticated]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -129,7 +151,13 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   }
 
   if (authenticated === null) {
-    return <div className="grid h-full place-items-center"><Loader2 className="size-6 animate-spin text-accent" /></div>;
+    return <main className="relative grid h-full overflow-hidden place-items-center bg-base px-6 py-6" aria-busy="true">
+      {showSplash && <><LoginBackdrop />
+      <section role="status" aria-label="Loading PosterView" className="relative z-10 flex w-full max-w-xl flex-col items-center gap-6 text-center">
+        <img src="/posterview-wordmark.png?v=3" alt="PosterView" className="w-full object-contain drop-shadow-lg"/>
+        {reconnecting && <p className="text-sm text-white/80">Reconnecting to PosterView…</p>}
+      </section></>}
+    </main>;
   }
   if (authenticated) return <AuthSessionContext.Provider value={session}>{children}</AuthSessionContext.Provider>;
 

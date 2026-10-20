@@ -1,6 +1,6 @@
 import {AuthSessionContext} from "../lib/authContext";
 import type {AuthSession} from "../api/client";
-import {act,render, screen, cleanup, fireEvent, within} from "@testing-library/react";
+import {act,render, screen, cleanup, fireEvent, within, waitFor} from "@testing-library/react";
 import {QueryClient, QueryClientProvider} from "@tanstack/react-query";
 import {MemoryRouter, Routes, Route} from "react-router-dom";
 import {afterEach, beforeEach, it, expect, vi} from "vitest";
@@ -142,7 +142,7 @@ it("groups matching media into ordered rows and hides empty sections",async()=>{
  expect(screen.getAllByRole("region").map(region=>region.getAttribute("aria-label"))).toEqual(["Episodes"]);
 });
 
-it("waits for all enabled catalogs before choosing the first banner",async()=>{
+it("keeps the first ready banner stable as earlier libraries finish loading",async()=>{
  vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"anime",name:"Anime",library_type:"anime"},{id:"korean",name:"Korean",library_type:"shows"},{id:"books",name:"Books",library_type:"books"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
  let resolveAnime!:(entries:Awaited<ReturnType<typeof nativeLibraries.catalog>>)=>void;
  const anime=new Promise<Awaited<ReturnType<typeof nativeLibraries.catalog>>>(resolve=>{resolveAnime=resolve;});
@@ -150,12 +150,14 @@ it("waits for all enabled catalogs before choosing the first banner",async()=>{
  vi.mocked(nativeLibraries.catalog).mockImplementation(id=>id==="anime"?anime:Promise.resolve([entry("bon","Bon Appetit")]));
  mount();
  await screen.findByRole("region",{name:"Explore Your Libraries"});
- expect(screen.getByRole("region",{name:"Loading featured title"}).getAttribute("aria-busy")).toBe("true");
- expect(within(screen.getByRole("region",{name:"Loading featured title"})).queryByRole("heading")).toBeNull();
+ const firstBanner=await screen.findByRole("region",{name:"Featured title"});
+ expect(within(firstBanner).getByRole("heading",{name:"Bon Appetit"})).toBeTruthy();
  await act(async()=>resolveAnime([entry("anime-show","Anime First")]));
  const banner=await screen.findByRole("region",{name:"Featured title"});
+ await screen.findByRole("button",{name:"Next featured title"});
+ expect(within(banner).getByRole("heading",{name:"Bon Appetit"})).toBeTruthy();
+ fireEvent.click(screen.getByRole("button",{name:"Next featured title"}));
  expect(within(banner).getByRole("heading",{name:"Anime First"})).toBeTruthy();
- expect(within(screen.getByRole("region",{name:"Featured title"})).queryByRole("heading",{name:"Bon Appetit"})).toBeNull();
 });
 
 it("excludes denied libraries and replaces a banner when library access changes",async()=>{
@@ -182,6 +184,13 @@ it("excludes denied libraries and replaces a banner when library access changes"
  expect(screen.queryByRole("region",{name:"Featured title"})).toBeNull();
 });
 
+it("opens the library from its named context-menu shortcut",async()=>{
+ vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"films",name:"Films",library_type:"movies"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
+ mount();fireEvent.contextMenu(await screen.findByRole("link",{name:"Open Films"}));
+ fireEvent.click(await screen.findByRole("menuitem",{name:"Go to library"}));
+ expect(await screen.findByText("Opened library page")).toBeTruthy();
+ expect(nativeLibraries.scan).not.toHaveBeenCalled();expect(nativeLibraries.refresh).not.toHaveBeenCalled();
+});
 it.each(["Scan Library Files","Refresh Metadata"])("offers admin library action %s without navigating",async action=>{
  vi.mocked(nativeLibraries.list).mockResolvedValue([{id:"films",name:"Films",library_type:"movies"}] as Awaited<ReturnType<typeof nativeLibraries.list>>);
  vi.mocked(nativeLibraries.scan).mockResolvedValue();vi.mocked(nativeLibraries.refresh).mockResolvedValue();
@@ -231,5 +240,36 @@ it("keeps cached YouTube artwork out of featured rotation until enabled, then in
  expect(within(hero).getByRole("link",{name:"More info about Outdoor Channel"}).getAttribute("href")).toContain("youtube_channel=UC-channel");
  expect(screen.queryByRole("button",{name:"Next featured title"})).toBeNull();
  act(()=>{localStorage.setItem("posterview.youtubeHomepage.youtube",JSON.stringify({featured:false,background:true}));window.dispatchEvent(new Event("posterview-youtube-homepage"));});
+ expect(screen.queryByRole("region",{name:"Featured title"})).toBeNull();
+});
+
+it("shows ready featured titles while another library is still loading",async()=>{
+ const libraries=[{id:"fast",name:"Fast",library_type:"movies"},{id:"slow",name:"Slow",library_type:"shows"}] as Awaited<ReturnType<typeof nativeLibraries.list>>;
+ const fast={...entryDefaults,id:"ready",title:"Ready Film",kind:"movie",available:true,metadata:{},artwork:[{kind:"backdrop",path:"ready.jpg",source:"local"}]};
+ const later={...fast,id:"later",title:"Later Series",kind:"series"};
+ let finish!:(entries:Awaited<ReturnType<typeof nativeLibraries.catalog>>)=>void;
+ const slow=new Promise<Awaited<ReturnType<typeof nativeLibraries.catalog>>>(resolve=>{finish=resolve;});
+ vi.mocked(nativeLibraries.list).mockResolvedValue(libraries);
+ vi.mocked(nativeLibraries.catalog).mockImplementation(async id=>id==="fast"?[fast]:slow);
+ mount();
+ const hero=await screen.findByRole("region",{name:"Featured title"});
+ expect(within(hero).getByRole("heading",{name:"Ready Film"})).toBeTruthy();
+ expect(screen.queryByRole("region",{name:"Loading featured title"})).toBeNull();
+ expect(screen.queryByRole("button",{name:"Next featured title"})).toBeNull();
+ await act(async()=>{finish([later]);await slow;});
+ expect(await screen.findByRole("button",{name:"Next featured title"})).toBeTruthy();
+ expect(screen.getByRole("region",{name:"Featured title"})).toBeTruthy();
+});
+it("keeps the featured loading state until an available title is ready",async()=>{
+ const libraries=[{id:"empty",name:"Empty",library_type:"movies"},{id:"slow",name:"Slow",library_type:"shows"}] as Awaited<ReturnType<typeof nativeLibraries.list>>;
+ let finish!:(entries:Awaited<ReturnType<typeof nativeLibraries.catalog>>)=>void;
+ const slow=new Promise<Awaited<ReturnType<typeof nativeLibraries.catalog>>>(resolve=>{finish=resolve;});
+ vi.mocked(nativeLibraries.list).mockResolvedValue(libraries);
+ vi.mocked(nativeLibraries.catalog).mockImplementation(async id=>id==="empty"?[]:slow);
+ mount();
+ expect(await screen.findByRole("region",{name:"Loading featured title"})).toBeTruthy();
+ expect(screen.queryByRole("region",{name:"Featured title"})).toBeNull();
+ await act(async()=>{finish([]);await slow;});
+ await waitFor(()=>expect(screen.queryByRole("region",{name:"Loading featured title"})).toBeNull());
  expect(screen.queryByRole("region",{name:"Featured title"})).toBeNull();
 });

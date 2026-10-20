@@ -108,7 +108,10 @@ fn library_allowed(user: &UserAccount, id: &str) -> bool {
 fn eligible_type(kind: NativeLibraryType) -> bool {
     matches!(
         kind,
-        NativeLibraryType::Movies | NativeLibraryType::Shows | NativeLibraryType::Anime
+        NativeLibraryType::Movies
+            | NativeLibraryType::Shows
+            | NativeLibraryType::Mixed
+            | NativeLibraryType::Anime
     )
 }
 fn catalog(

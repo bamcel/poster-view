@@ -4,6 +4,22 @@ import { afterEach, expect, it } from "vitest";
 import NativeLibrarySettings from "./NativeLibrarySettings";
 import { defaultNativeOptions } from "../api/nativeLibraries";
 afterEach(cleanup);
+it("configures movie and TV providers independently in mixed libraries", () => {
+  function Mixed() {
+    const [options,setOptions]=useState({...defaultNativeOptions});
+    return <><NativeLibrarySettings options={options} type="mixed" animeContent="movies" section={3} onChange={setOptions}/><output data-testid="mixed">{JSON.stringify(options)}</output></>;
+  }
+  render(<Mixed/>);
+  expect(screen.getByLabelText("Movie Metadata Downloaders: TheMovieDb")).toBeTruthy();
+  expect(screen.getByLabelText("Series Metadata Downloaders: TheMovieDb")).toBeTruthy();
+  expect(screen.getByLabelText("Season Metadata Downloaders: TheTVDB")).toBeTruthy();
+  expect(screen.getByLabelText("Episode Metadata Downloaders: TheMovieDb")).toBeTruthy();
+  expect(screen.queryByLabelText(/AniList/)).toBeNull();
+  fireEvent.click(screen.getByLabelText("Movie Metadata Downloaders: TheTVDB"));
+  const options=JSON.parse(screen.getByTestId("mixed").textContent!);
+  expect(options.metadata_providers.movie).toEqual(["tmdb","tvdb"]);
+  expect(options.metadata_providers.series).toBeUndefined();
+});
 function Harness({section}: {section: number}) {
   const [options, setOptions] = useState({...defaultNativeOptions});
   return <><NativeLibrarySettings options={options} type="anime" animeContent="both" section={section} onChange={setOptions} /><output data-testid="options">{JSON.stringify(options)}</output></>;

@@ -911,6 +911,7 @@ pub(crate) async fn enrich(
                 let durable_context = job_context.clone();
                 jobs.spawn(async move {
                     let mut entry = entry;
+                    let before = entry.clone();
                     let mut warnings = Vec::new();
                     let identity = check_identity(&entry, &library, &context.parents);
                     let mut primary_delay = None;
@@ -927,6 +928,7 @@ pub(crate) async fn enrich(
                     if let Some(delay) = primary_delay {
                         entry.metadata["_provider_check"] = json!({"identity":check_identity(&entry, &library, &context.parents),"until":chrono::Utc::now().timestamp()+delay});
                     }
+                    crate::native_operations::preserve_locked_metadata(&before, &mut entry);
                     // Sidecar persistence must include enrichment of unchanged
                     // media files, not only entries whose file stat changed.
                     entry.metadata["_scan_unchanged"] = json!(false);

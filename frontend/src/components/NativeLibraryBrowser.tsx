@@ -81,6 +81,8 @@ import {
 } from "../lib/dashboardSettings";
 
 
+const providerNames:Record<string,string>={comicvine:"ComicVine",anilist:"AniList",mal:"MyAnimeList",mangadex:"MangaDex",tmdb:"TheMovieDB",tvdb:"TheTVDB",anidb:"AniDB",imdb:"IMDb"};
+
 function number(value: unknown): number | undefined {
   const n = Number(value);
   return value != null && value !== "" && Number.isFinite(n) ? n : undefined;
@@ -208,12 +210,14 @@ function PersonPortrait({person, images}: {person: Record<string, unknown>; imag
 
 function Modal({
   title,
+  titleActions,
   onClose,
   children,
   backdrop,
 }: {
   backdrop?: string;
   title: string;
+  titleActions?: ReactNode;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -226,7 +230,7 @@ function Modal({
     return ()=>{window.removeEventListener(BACKDROP_BLUR_EVENT,update);window.removeEventListener(BACKDROP_OVERLAY_EVENT,update);window.removeEventListener("storage",update);};
   },[]);
   const metadata = title === "Edit Metadata" || title === "Identify" || title === "Fetch Metadata";
-  return <PopupPage title={title} closeLabel="Close editor" onClose={onClose} bodyClassName={metadata?"overflow-hidden p-0":""} backdrop={<>{backdrop&&<div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl"><img src={sizedArtwork(stillArtwork(backdrop),1280)} alt="" className="h-full w-full scale-110 object-cover" style={{filter:`blur(${appearance.blur}px)`}} onError={event=>{event.currentTarget.style.visibility="hidden";}}/><div className="absolute inset-0 md:hidden" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).mobile}}/><div className="absolute inset-0 hidden md:block" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).desktop}}/></div>}
+  return <PopupPage title={title} titleActions={titleActions} closeLabel="Close editor" onClose={onClose} bodyClassName={metadata?"overflow-hidden p-0":""} backdrop={<>{backdrop&&<div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl"><img src={sizedArtwork(stillArtwork(backdrop),1280)} alt="" className="h-full w-full scale-110 object-cover" style={{filter:`blur(${appearance.blur}px)`}} onError={event=>{event.currentTarget.style.visibility="hidden";}}/><div className="absolute inset-0 md:hidden" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).mobile}}/><div className="absolute inset-0 hidden md:block" style={{backgroundImage:backdropOverlayGradients(appearance.overlay).desktop}}/></div>}
       {title==="Identify"&&backdrop&&<div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 rounded-2xl bg-gradient-to-b from-black/10 via-black/25 to-black/50"/>}
 </>}>{children}</PopupPage>;
 }
@@ -283,14 +287,13 @@ export default function NativeLibraryBrowser({
   const [artFilter, setArtFilter] = useState("all");
   const [metadataFilter,setMetadataFilter]=useState("all");
   useEffect(()=>{const reset=()=>{setSearch("");setSort("title");setArtFilter("all");setMetadataFilter("all");};window.addEventListener(HOME_RESET_EVENT,reset);return()=>window.removeEventListener(HOME_RESET_EVENT,reset);},[]);
-  const providerNames:Record<string,string>={comicvine:"ComicVine",anilist:"AniList",mal:"MyAnimeList",mangadex:"MangaDex",tmdb:"TheMovieDB",tvdb:"TheTVDB",anidb:"AniDB",imdb:"IMDb"};
   const providerKind=library.library_type==="books"?"book_series":library.library_type==="movies"?"movie":"series";
-  const metadataProviders=(library.options?.metadata_providers?.[providerKind]??(library.library_type==="books"?["comicvine","anilist","mal"]:library.library_type==="anime"?["anilist","tmdb","tvdb","mal","anidb"]:library.library_type==="movies"?["tmdb","imdb"]:["tmdb","tvdb","imdb"])).filter(p=>providerNames[p]);
-  const hasId=(entry:NativeCatalogEntry,provider:string)=>{const ids=entry.metadata.identifiers as Record<string,unknown>|undefined;const value=ids?.[provider];return (typeof value==="string"&&!!value.trim()&&value.trim()!=="0")||(typeof value==="number"&&value>0);};
+  const metadataProviders=useMemo(() => (library.library_type==="mixed"?[...new Set([...(library.options?.metadata_providers?.movie??["tmdb"]),...(library.options?.metadata_providers?.series??["tmdb"])])]:library.options?.metadata_providers?.[providerKind]??(library.library_type==="books"?["comicvine","anilist","mal"]:library.library_type==="anime"?["anilist","tmdb","tvdb","mal","anidb"]:library.library_type==="movies"?["tmdb","imdb"]:["tmdb","tvdb","imdb"])).filter(p=>providerNames[p]),[library.library_type,library.options?.metadata_providers,providerKind]);
   const [editor, setEditor] = useState<{
     id: string;
     kind: "metadata" | "artwork" | "identify" | "fetch-metadata" | "remove-identification" | "refresh-metadata" | "missing-files";
   } | null>(null);
+  const [metadataLockControl,setMetadataLockControl]=useState<ReactNode>(null);
   const [showBackdrop, setShowBackdrop] = useState(dashboardBackdropEnabled);
   const [overlay, setOverlay] = useState(backdropOverlay);
   useEffect(() => {
@@ -376,39 +379,51 @@ export default function NativeLibraryBrowser({
   };
   const [scanningFolder,setScanningFolder]=useState(false);
   const scanFolder=async(entry:NativeCatalogEntry)=>{setScanningFolder(true);setRefreshError("");try{await nativeLibraries.scanFolder(library.id,entry.id);await client.invalidateQueries({queryKey:["native-scan",library.id]});}catch(e){setRefreshError((e as Error).message);}finally{setScanningFolder(false);}};
-  const visible = entries
-    .filter(e=>showMissingEntry(library,e))
-    .filter((e) =>
-      search
-        ? e.title.toLowerCase().includes(search.toLowerCase())
-        : !e.parent_path,
-    )
-    .filter(
-      (e) =>
-        artFilter === "all" ||
-        !e.artwork.some(
-          (a) =>
-            a.kind === (artFilter === "missing-poster" ? "poster" : artFilter === "missing-banner" ? "banner" : "backdrop"),
-        ),
-    )
-    .filter(e=>metadataFilter==="all" || (metadataFilter==="missing-ids" ? !Object.keys(providerNames).some(p=>hasId(e,p)) : metadataFilter==="missing-configured-ids" ? metadataProviders.some(p=>!hasId(e,p)) : metadataFilter==="missing-description" ? !String(e.metadata.plot??"").trim() : metadataFilter==="missing-year" ? !number(e.metadata.year) : !hasId(e,metadataFilter.replace("missing-id-",""))))
-    .sort((a, b) =>
-      sort === "title"
-        ? titleSortKey(a.title, a.metadata.sorttitle).localeCompare(titleSortKey(b.title, b.metadata.sorttitle))
-        : sort === "newest"
-          ? (number(b.metadata.year) ?? 0) - (number(a.metadata.year) ?? 0)
-          : (number(a.metadata.year) ?? 0) - (number(b.metadata.year) ?? 0),
-    );
-  const selectable=visible.filter(entry=>["movie","series"].includes(entry.kind)&&entry.available&&entry.metadata.missing!==true);
-  const selection=useLibrarySelection(`${collectionAccount}:${library.id}`,selectable.map(entry=>entry.id),isAdmin&&!selected);
+  const visible = useMemo(() => {
+    const entryProviders=(entry:NativeCatalogEntry)=>library.library_type==="mixed"?(library.options?.metadata_providers?.[entry.kind==="movie"?"movie":"series"]??["tmdb"]).filter(provider=>providerNames[provider]):metadataProviders;
+    const hasId=(entry:NativeCatalogEntry,provider:string)=>{const ids=entry.metadata.identifiers as Record<string,unknown>|undefined;const value=ids?.[provider];return (typeof value==="string"&&!!value.trim()&&value.trim()!=="0")||(typeof value==="number"&&value>0);};
+    const searchTerm=search.toLowerCase();
+    return entries
+      .filter(e=>showMissingEntry(library,e))
+      .filter((e) =>
+        search
+          ? e.title.toLowerCase().includes(searchTerm)
+          : !e.parent_path,
+      )
+      .filter(
+        (e) =>
+          artFilter === "all" ||
+          !e.artwork.some(
+            (a) =>
+              a.kind === (artFilter === "missing-poster" ? "poster" : artFilter === "missing-banner" ? "banner" : "backdrop"),
+          ),
+      )
+      .filter(e=>metadataFilter==="all" || (metadataFilter==="missing-ids" ? !Object.keys(providerNames).some(p=>hasId(e,p)) : metadataFilter==="missing-configured-ids" ? entryProviders(e).some(p=>!hasId(e,p)) : metadataFilter==="missing-description" ? !String(e.metadata.plot??"").trim() : metadataFilter==="missing-year" ? !number(e.metadata.year) : !hasId(e,metadataFilter.replace("missing-id-",""))))
+      .sort((a, b) =>
+        sort === "title"
+          ? titleSortKey(a.title, a.metadata.sorttitle).localeCompare(titleSortKey(b.title, b.metadata.sorttitle))
+          : sort === "newest"
+            ? (number(b.metadata.year) ?? 0) - (number(a.metadata.year) ?? 0)
+            : (number(a.metadata.year) ?? 0) - (number(b.metadata.year) ?? 0),
+      );
+  },[entries,library,search,artFilter,metadataFilter,sort,metadataProviders]);
+  const selectableIds=useMemo(()=>visible.filter(entry=>["movie","series"].includes(entry.kind)&&entry.available&&entry.metadata.missing!==true).map(entry=>entry.id),[visible]);
+  const selectableSet=useMemo(()=>new Set(selectableIds),[selectableIds]);
+  const selection=useLibrarySelection(`${collectionAccount}:${library.id}`,selectableIds,isAdmin&&!selected);
   const groupEnabled=collectionPreference.data?.group_collections===true&&!search.trim()&&artFilter==="all"&&metadataFilter==="all"&&!selection.active;
-  const grouped=groupEnabled?groupLibraryTitles(visible,collections.data??[],library.id):{collections:[],entries:visible};
-  const gridItems=[...grouped.entries.map(entry=>({entry,collection:undefined})),...grouped.collections.map(collection=>({entry:undefined,collection}))].sort((a,b)=>{
-    const aTitle=a.entry?.title??a.collection!.title,bTitle=b.entry?.title??b.collection!.title;
-    if(sort==="title")return titleSortKey(aTitle,a.entry?.metadata.sorttitle).localeCompare(titleSortKey(bTitle,b.entry?.metadata.sorttitle));
-    const year=(item:typeof a)=>{if(item.entry)return number(item.entry.metadata.year)??0;const years=item.collection!.members.map(member=>number(member.entry.metadata.year)).filter((year):year is number=>year!=null);return years.length?Math.min(...years):0;};
-    return sort==="newest"?year(b)-year(a):year(a)-year(b);
-  });
+  const grouped=useMemo(()=>groupEnabled?groupLibraryTitles(visible,collections.data??[],library.id):{collections:[],entries:visible},[groupEnabled,visible,collections.data,library.id]);
+  const gridItems=useMemo(()=>{
+    const items=[...grouped.entries.map(entry=>({entry,collection:undefined})),...grouped.collections.map(collection=>({entry:undefined,collection}))];
+    if(!grouped.collections.length)return items;
+    // Compute collection release years once, rather than once per comparison.
+    const ranked=items.map(item=>{
+      const title=titleSortKey(item.entry?.title??item.collection!.title,item.entry?.metadata.sorttitle);
+      const years=item.collection?.members.map(member=>number(member.entry.metadata.year)).filter((year):year is number=>year!=null)??[];
+      const year=item.entry?number(item.entry.metadata.year)??0:years.length?Math.min(...years):0;
+      return {item,title,year};
+    });
+    return ranked.sort((a,b)=>sort==="title"?a.title.localeCompare(b.title):sort==="newest"?b.year-a.year:a.year-b.year).map(({item})=>item);
+  },[grouped,sort]);
   const saveGrouping=async(value:boolean)=>{
     setSavingCollectionPreference(true);setCollectionError("");
     try{const result=await collectionsApi.setPreferences(library.id,{group_collections:value});client.setQueryData(["collections",collectionAccount,"preferences",library.id],result);}
@@ -454,15 +469,18 @@ export default function NativeLibraryBrowser({
     >
       {!selected &&
         showBackdrop &&
-        backgroundUrls.length > 0 && (
+        (backgroundUrls.length > 0 || catalog.isPending) && (
           <DashboardBackdrop
             desktopUrls={backgroundUrls}
             mobileUrls={backgroundUrls}
             overlayStrength={overlay}
+            cacheKey={`library:${library.id}`}
+            loading={catalog.isPending}
+            allowedLibraryIds={[library.id]}
           />
         )}
       {catalog.isPending && (
-        <p role="status" className="p-8 text-muted">
+        <p role="status" className="sr-only">
           Loading catalog…
         </p>
       )}
@@ -541,7 +559,7 @@ export default function NativeLibraryBrowser({
                 {isAdmin&&library.library_type!=="books"&&<button type="button" className="rounded-full border border-border px-3 py-2 text-sm" onClick={event=>{event.currentTarget.closest("dialog")?.close();selection.start();}}>Select titles</button>}
                 {collectionError&&<p role="alert" className="text-sm text-danger">{collectionError}</p>}
                 <LibraryViewPreferences library={library.id} youtube={library.library_type === "youtube"}/>
-                <ArtworkPreferences library={library.id}/>{library.library_type === "books" && <BookPreferences/>}{library.library_type === "anime" && <AnimePreferences library={library.id}/>} {(["shows","movies"].includes(library.library_type))&&<VideoPreferences library={library.id}/>}</div>
+                <ArtworkPreferences library={library.id}/>{library.library_type === "books" && <BookPreferences/>}{library.library_type === "anime" && <AnimePreferences library={library.id}/>} {(["shows","movies","mixed"].includes(library.library_type))&&<VideoPreferences library={library.id}/>}</div>
               </LibraryPopup>
               </div></HeaderSearchControl>
             </div>
@@ -558,7 +576,7 @@ export default function NativeLibraryBrowser({
                 <PosterCard
                   selected={selection.ids.has(entry.id)}
                   selectionMode={selection.active}
-                  onSelect={isAdmin&&selectable.some(item=>item.id===entry.id)?range=>selection.toggle(entry.id,range):undefined}
+                  onSelect={isAdmin&&selectableSet.has(entry.id)?range=>selection.toggle(entry.id,range):undefined}
                   animationOnHover={hoverOnly}
                   key={entry.id}
                   coloredEffect={library.library_type === "books" && String(entry.metadata.edition ?? "").trim().toLowerCase() === "colored" ? bookDisplay.coloredEffect : "off"}
@@ -603,7 +621,7 @@ export default function NativeLibraryBrowser({
       {isAdmin && editEntry && (editor?.kind === "artwork" ? (
         artworkEnabled && <div className="pointer-events-none fixed inset-0 z-50 bg-transparent">
           <section aria-label={`Artwork for ${editEntry.title}`} className="pointer-events-auto ml-auto h-full w-full max-w-md shadow-2xl" onClick={event => event.stopPropagation()}>
-            <ArtworkPanel serverId={0} item={nativeArtworkItem(library, editEntry, entries)} libraryTitle={library.name} libraryType={library.library_type === "anime" ? "anime" : library.library_type === "books" ? "book" : library.library_type === "movies" ? "movie" : "show"} onClose={() => setEditor(null)} />
+            <ArtworkPanel serverId={0} item={nativeArtworkItem(library, editEntry, entries)} libraryTitle={library.name} libraryType={library.library_type === "anime" ? "anime" : library.library_type === "books" ? "book" : editEntry.kind === "movie" ? "movie" : "show"} onClose={() => setEditor(null)} />
           </section>
         </div>
       ) : editor && ["remove-identification","refresh-metadata","missing-files"].includes(editor.kind) ? (
@@ -615,8 +633,8 @@ export default function NativeLibraryBrowser({
           <IdentifyPanel library={library} entry={editEntry} busy={false} onSaved={updated}/>
         </Modal>
       ) : (
-        <Modal backdrop={editorBackdrop} title="Edit Metadata" onClose={() => setEditor(null)}>
-          <EntryEditor library={library} entry={editEntry} busy={false} onSaved={updated} dialog />
+        <Modal title="Edit Metadata" titleActions={metadataLockControl} onClose={() => setEditor(null)}>
+          <EntryEditor library={library} entry={editEntry} busy={false} onSaved={updated} dialog onLockAllControlChange={setMetadataLockControl} />
         </Modal>
       ))}
 
@@ -749,7 +767,7 @@ function NativeDetail({
   const credits = (Array.isArray(entry.metadata.credits)
     ? (entry.metadata.credits as Record<string, unknown>[])
     : []).filter(credit => {
-      if (["shows","movies"].includes(library.library_type) && (credit.category==="crew"?!videoPreferences.crew:!videoPreferences.casts)) return false;
+      if (["shows","movies","mixed"].includes(library.library_type) && (credit.category==="crew"?!videoPreferences.crew:!videoPreferences.casts)) return false;
       if (credit.category === "crew") return true;
       if (credit.category === "character" || characterNames.has(voiceName(credit.name))) return false;
       return !voiceCast || (credit.category !== "voice" && !voiceCast.names.has(voiceName(credit.name)));

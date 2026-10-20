@@ -7,6 +7,182 @@ use sha2::{Digest, Sha256};
 fn invalid(message: &str) -> StoreError {
     StoreError::Validation(message.into())
 }
+
+pub(super) fn metadata_locks(
+    db: &rusqlite::Connection,
+    item: &str,
+) -> Result<(bool, Value), StoreError> {
+    let mut locks = json!({});
+    let mut all = false;
+    let mut query = db.prepare("SELECT field,CASE WHEN substr(field,1,1)='_' THEN value_json ELSE 'null' END,locked FROM catalog_metadata_fields WHERE item_id=?1 AND ((locked=1 AND substr(field,1,1)<>'_') OR field IN ('_field_locks','_metadata_locked'))")?;
+    for row in query.query_map([item], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, bool>(2)?,
+        ))
+    })? {
+        let (field, raw, locked) = row?;
+        if field == "_metadata_locked" {
+            all = raw == "true";
+        }
+        if field == "_field_locks" {
+            let stored: Value =
+                serde_json::from_str(&raw).map_err(|_| invalid("Invalid metadata locks."))?;
+            if let Some(values) = stored.as_object() {
+                for (key, value) in values {
+                    locks[key] = value.clone();
+                }
+            }
+        } else if !field.starts_with('_') && locked {
+            locks[&field] = json!(true);
+        }
+    }
+    Ok((all, locks))
+}
+
+fn validate_metadata_locks(value: &Value) -> Result<(), StoreError> {
+    let fields = value
+        .as_object()
+        .ok_or_else(|| invalid("Field locks must be an object."))?;
+    if fields.len() > 500
+        || fields.iter().any(|(field, value)| {
+            field.is_empty() || field.starts_with('_') || field.len() > 80 || !value.is_boolean()
+        })
+    {
+        return Err(invalid("Invalid metadata field lock."));
+    }
+    Ok(())
+}
+
+fn store_metadata_locks(
+    db: &rusqlite::Connection,
+    item: &str,
+    all: Option<bool>,
+    patch: Option<&Value>,
+) -> Result<(), StoreError> {
+    if let Some(all) = all {
+        db.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_metadata_locked',?2,'internal',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json",params![item,all.to_string()])?;
+    }
+    if let Some(patch) = patch {
+        validate_metadata_locks(patch)?;
+        let locks = patch.clone();
+        db.execute("UPDATE catalog_metadata_fields SET locked=0 WHERE item_id=?1 AND substr(field,1,1)<>'_'",[item])?;
+        for (field, value) in patch.as_object().unwrap() {
+            db.execute(
+                "UPDATE catalog_metadata_fields SET locked=?3 WHERE item_id=?1 AND field=?2",
+                params![item, field, i64::from(value.as_bool().unwrap())],
+            )?;
+        }
+        db.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_field_locks',?2,'internal',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json",params![item,locks.to_string()])?;
+    }
+    Ok(())
+}
+
+fn hydrate_metadata_locks(
+    db: &rusqlite::Connection,
+    entries: &mut [NativeCatalogEntry],
+) -> Result<(), StoreError> {
+    let indices: std::collections::HashMap<_, _> = entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| (entry.id.clone(), index))
+        .collect();
+    for entry in entries.iter_mut() {
+        entry.metadata["_field_locks"] = json!({});
+        entry.metadata["_metadata_locked"] = json!(false);
+    }
+    let ids = json!(
+        entries
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect::<Vec<_>>()
+    )
+    .to_string();
+    let mut query = db.prepare("SELECT item_id,field,CASE WHEN substr(field,1,1)='_' THEN value_json ELSE 'null' END,locked FROM catalog_metadata_fields WHERE item_id IN (SELECT value FROM json_each(?1)) AND ((locked=1 AND substr(field,1,1)<>'_') OR field IN ('_field_locks','_metadata_locked')) ORDER BY CASE WHEN field='_field_locks' THEN 1 ELSE 0 END")?;
+    for row in query.query_map([ids], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, bool>(3)?,
+        ))
+    })? {
+        let (id, field, raw, locked) = row?;
+        if let Some(index) = indices.get(&id) {
+            let metadata = &mut entries[*index].metadata;
+            if field == "_metadata_locked" {
+                metadata[&field] = json!(raw == "true");
+            } else if field == "_field_locks" {
+                let values: Value =
+                    serde_json::from_str(&raw).map_err(|_| invalid("Invalid metadata locks."))?;
+                if let Some(values) = values.as_object() {
+                    for (key, value) in values {
+                        metadata["_field_locks"][key] = value.clone();
+                    }
+                }
+            } else if locked && !field.starts_with('_') {
+                metadata["_field_locks"][&field] = json!(true);
+            }
+        }
+    }
+    for entry in entries {
+        entry.metadata["_title_locked"] = json!(
+            entry.metadata["_field_locks"]["title"]
+                .as_bool()
+                .unwrap_or(entry.metadata["_metadata_locked"] == true)
+        );
+    }
+    Ok(())
+}
+
+// Resolve parent defaults at read time so a series/season edit applies immediately
+// without copying values into every episode or rewriting their sidecars.
+fn inherit_media_source(
+    db: &rusqlite::Connection,
+    library: &str,
+    entries: &mut [NativeCatalogEntry],
+) -> Result<(), StoreError> {
+    let mut query=db.prepare("SELECT s.relative_path,i.kind,m.value_json FROM native_catalog_sources s JOIN catalog_items i ON i.id=s.item_id JOIN catalog_metadata_fields m ON m.item_id=i.id AND m.field='media_source' WHERE s.library_id=?1 AND i.kind IN ('series','season')")?;
+    let mut sources = std::collections::HashMap::new();
+    for row in query.query_map([library], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })? {
+        let (path, kind, value) = row?;
+        let value: Value =
+            serde_json::from_str(&value).map_err(|_| invalid("Invalid media source."))?;
+        if let Some(source) = value
+            .as_str()
+            .and_then(posterview_contracts::native::MediaSource::parse)
+        {
+            sources.insert(path, (kind, source.as_str()));
+        }
+    }
+    for entry in entries {
+        if let Some(metadata) = entry.metadata.as_object_mut() {
+            metadata.remove("_inherited_media_source");
+        }
+        if !matches!(entry.kind.as_str(), "episode" | "season") {
+            continue;
+        }
+        let source = std::path::Path::new(&entry.path)
+            .parent()
+            .and_then(|parent| {
+                parent.ancestors().find_map(|parent| {
+                    let (kind, source) = sources.get(parent.to_str()?)?;
+                    (entry.kind == "episode" || kind == "series").then_some(*source)
+                })
+            });
+        if let Some(source) = source {
+            entry.metadata["_inherited_media_source"] = json!(source);
+        }
+    }
+    Ok(())
+}
 fn animation_blocked(
     db: &rusqlite::Connection,
     item: &str,
@@ -458,7 +634,8 @@ impl ServerStore {
             "countries",
             "language",
             "languages",
-            "dateadded"
+            "dateadded",
+            "media_source"
         ])
         .to_string();
         let mut fields = tx.prepare(
@@ -508,6 +685,8 @@ impl ServerStore {
                 entries[*index].artwork.push(image);
             }
         }
+        hydrate_metadata_locks(&tx, &mut entries)?;
+        inherit_media_source(&tx, library, &mut entries)?;
         Ok(entries)
     }
 
@@ -687,6 +866,8 @@ impl ServerStore {
             entry.artwork = images.remove(&id).unwrap_or_default();
             result.push(entry);
         }
+        hydrate_metadata_locks(&tx, &mut result)?;
+        inherit_media_source(&tx, library, &mut result)?;
         Ok(result)
     }
     pub fn ingest_native_catalog(
@@ -767,7 +948,7 @@ impl ServerStore {
                     let id:Option<String> = tx.prepare_cached("SELECT item_id FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2")?.query_row(params![library,path],|r|r.get(0)).optional()?;
                     if let Some(id) = &id {
                         tx.prepare_cached("DELETE FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2")?.execute(params![library,path])?;
-                        tx.prepare_cached("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0")?.execute([id])?;
+                        tx.prepare_cached("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0 AND (field='missing' OR NOT EXISTS(SELECT 1 FROM catalog_metadata_fields l WHERE l.item_id=?1 AND l.field='_metadata_locked' AND l.value_json='true'))")?.execute([id])?;
                     }
                     id
                 } else {
@@ -791,7 +972,7 @@ impl ServerStore {
                 };
                 if let Some((id, path)) = found {
                     tx.prepare_cached("DELETE FROM native_catalog_sources WHERE library_id=?1 AND relative_path=?2")?.execute(params![library,path])?;
-                    tx.prepare_cached("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0")?.execute([&id])?;
+                    tx.prepare_cached("DELETE FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('missing','title') AND locked=0 AND (field='missing' OR NOT EXISTS(SELECT 1 FROM catalog_metadata_fields l WHERE l.item_id=?1 AND l.field='_metadata_locked' AND l.value_json='true'))")?.execute([&id])?;
                     Some(id)
                 } else {
                     None
@@ -799,13 +980,30 @@ impl ServerStore {
             } else {
                 existing
             };
+            let was_existing = existing.is_some();
             let id = existing.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             tx.prepare_cached("INSERT INTO catalog_items(id,kind,title) VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET revision=revision+1")?.execute(params![id,entry.kind,entry.title])?;
             tx.prepare_cached("INSERT OR IGNORE INTO native_library_items VALUES(?1,?2)")?
                 .execute(params![library, id])?;
             tx.prepare_cached("INSERT INTO native_catalog_sources VALUES(?1,?2,?3,json_set(?4,'$.id',?3),1) ON CONFLICT(library_id,relative_path) DO UPDATE SET snapshot_json=excluded.snapshot_json,available=1")?.execute(params![library,entry.path,id,prepared.snapshot])?;
+            let (all_locked, field_locks) = metadata_locks(&tx, &id)?;
             for (field, value, source) in &prepared.fields {
-                tx.prepare_cached("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=revision+1 WHERE locked=0 AND source<>'server' AND (source<>'manual' OR field='title') AND (excluded.source='nfo' OR source<>'nfo' OR (field='voice_cast' AND excluded.source='anilist') OR json_type(value_json)='null' OR value_json IN ('[]','{}') OR (json_type(value_json)='text' AND trim(json_extract(value_json,'$'))=''))")?.execute(params![id,field,value,source])?;
+                if was_existing && (field_locks[field].as_bool().unwrap_or(all_locked)) {
+                    continue;
+                }
+                tx.prepare_cached("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source) VALUES(?1,?2,?3,?4) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=excluded.source,revision=revision+1 WHERE locked=0 AND source<>'server' AND (excluded.source='nfo' OR source<>'nfo' OR (field='voice_cast' AND excluded.source='anilist') OR json_type(value_json)='null' OR value_json IN ('[]','{}') OR (json_type(value_json)='text' AND trim(json_extract(value_json,'$'))=''))")?.execute(params![id,field,value,source])?;
+            }
+            let controls_exist: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM catalog_metadata_fields WHERE item_id=?1 AND field IN ('_field_locks','_metadata_locked'))", [&id], |r|r.get(0))?;
+            if !controls_exist {
+                store_metadata_locks(
+                    &tx,
+                    &id,
+                    entry
+                        .metadata
+                        .get("_metadata_locked")
+                        .and_then(Value::as_bool),
+                    entry.metadata.get("_field_locks"),
+                )?;
             }
             let effective: Value = {
                 let mut fields = tx.prepare_cached(
@@ -912,6 +1110,48 @@ impl ServerStore {
         if current != Some(revision) {
             return Err(StoreError::RevisionConflict);
         }
+        if let Some(sources) = fields.get("media_sources") {
+            let sources = sources
+                .as_object()
+                .ok_or_else(|| invalid("Media sources must be an object keyed by file path."))?;
+            let snapshot:String=tx.query_row("SELECT snapshot_json FROM native_catalog_sources WHERE library_id=?1 AND item_id=?2",params![library,item],|row|row.get(0))?;
+            let entry: NativeCatalogEntry = serde_json::from_str(&snapshot)
+                .map_err(|_| invalid("Invalid catalog snapshot."))?;
+            if !matches!(entry.kind.as_str(), "movie" | "episode")
+                || sources.iter().any(|(path, source)| {
+                    !entry
+                        .files
+                        .iter()
+                        .any(|file| file["path"].as_str() == Some(path.as_str()))
+                        || !source.as_str().is_some_and(|source| {
+                            source.is_empty()
+                                || posterview_contracts::native::MediaSource::parse(source)
+                                    .is_some()
+                        })
+                })
+            {
+                return Err(invalid(
+                    "Choose a supported media source for a file attached to this title.",
+                ));
+            }
+        }
+        if let Some(source) = fields.get("media_source") {
+            let kind: String = tx.query_row(
+                "SELECT kind FROM catalog_items WHERE id=?1",
+                [item],
+                |row| row.get(0),
+            )?;
+            if !matches!(kind.as_str(), "series" | "season")
+                || !source.as_str().is_some_and(|source| {
+                    source.is_empty()
+                        || posterview_contracts::native::MediaSource::parse(source).is_some()
+                })
+            {
+                return Err(invalid(
+                    "Choose a supported media source for a series or season.",
+                ));
+            }
+        }
         if let Some(credits) = fields.get("credits") {
             let previous: Option<String> = tx.query_row(
                 "SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field='credits'",
@@ -944,34 +1184,31 @@ impl ServerStore {
                     .ok_or_else(|| invalid("Title lock must be true or false."))
             })
             .transpose()?;
+        let all_lock = fields
+            .get("_metadata_locked")
+            .map(|v| {
+                v.as_bool()
+                    .ok_or_else(|| invalid("Metadata lock must be true or false."))
+            })
+            .transpose()?;
+        let mut lock_patch = fields
+            .get("_field_locks")
+            .cloned()
+            .unwrap_or(metadata_locks(&tx, item)?.1);
+        validate_metadata_locks(&lock_patch)?;
         if let Some(locked) = title_lock {
-            tx.execute("UPDATE catalog_metadata_fields SET locked=?2,source=CASE WHEN ?2=1 THEN 'manual' WHEN source='manual' THEN 'filename' ELSE source END WHERE item_id=?1 AND field='title'",params![item,i64::from(locked)])?;
+            lock_patch["title"] = json!(locked);
         }
         for (field, value) in fields {
-            if field == "_title_locked" {
-                continue;
-            }
-            let previous: Option<String> = tx
-                .query_row(
-                    "SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field=?2",
-                    params![item, field],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            if previous.as_deref() == Some(value.to_string().as_str()) {
+            if ["_title_locked", "_field_locks", "_metadata_locked"].contains(&field.as_str()) {
                 continue;
             }
             if field.starts_with('_') || field.len() > 80 || value.to_string().len() > 200_000 {
                 return Err(invalid("Invalid metadata field."));
             }
-            tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='manual',locked=1,revision=revision+1",params![item,field,value.to_string()])?;
+            tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'manual',0) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='manual',revision=revision+1",params![item,field,value.to_string()])?;
         }
-        if let Some(locked) = title_lock {
-            tx.execute(
-                "UPDATE catalog_metadata_fields SET locked=?2 WHERE item_id=?1 AND field='title'",
-                params![item, i64::from(locked)],
-            )?;
-        }
+        store_metadata_locks(&tx, item, all_lock, Some(&lock_patch))?;
         let mut effective = json!({});
         {
             let mut stmt = tx.prepare_cached(
@@ -1135,7 +1372,13 @@ impl ServerStore {
         for id in &affected {
             let mut discarded:Value=tx.query_row("SELECT value_json FROM catalog_metadata_fields WHERE item_id=?1 AND field='_identify_discarded'",[id],|r|r.get::<_,String>(0)).optional()?.and_then(|v|serde_json::from_str(&v).ok()).unwrap_or(json!({}));
             let fields=tx.prepare("SELECT field,value_json,source,locked FROM catalog_metadata_fields WHERE item_id=?1")?.query_map([id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,bool>(3)?)))?.collect::<Result<Vec<_>,_>>()?;
+            let (all_locked, locks) = metadata_locks(&tx, id)?;
             for (field, raw, source, locked) in fields {
+                if !field.starts_with('_')
+                    && locks[&field].as_bool().unwrap_or(locked || all_locked)
+                {
+                    continue;
+                }
                 if refresh && field == "identifiers" {
                     continue;
                 }
@@ -1201,7 +1444,7 @@ impl ServerStore {
                     )?;
                 }
             }
-            if changed || replacement.is_some() {
+            if (changed || replacement.is_some()) && !all_locked {
                 tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_nfo_reset','true','manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json='true'",[id])?;
             }
             tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_discarded',?2,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json",params![id,discarded.to_string()])?;
@@ -1219,23 +1462,33 @@ impl ServerStore {
                 tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'_identify_replace_artwork',?2,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json",params![id,replace.to_string()])?;
             }
         }
-        tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'identifiers',?2,'manual',1) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='manual',locked=1,revision=revision+1",params![item,identifiers.to_string()])?;
+        let (all_locked, locks) = metadata_locks(&tx, item)?;
+        if !locks["identifiers"].as_bool().unwrap_or(all_locked) {
+            tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,'identifiers',?2,'manual',0) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='manual',revision=revision+1",params![item,identifiers.to_string()])?;
+        }
         for (field, value) in [("title", json!(title))]
             .into_iter()
             .chain(year.map(|y| ("year", json!(y))))
         {
+            if locks[field].as_bool().unwrap_or(all_locked) {
+                continue;
+            }
             tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'filename',0) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source=CASE WHEN locked=1 THEN source ELSE 'filename' END,revision=revision+1",params![item,field,value.to_string()])?;
         }
         if let Some(fields) = replacement.and_then(Value::as_object) {
             for (field, value) in fields {
-                if field == "identifiers" || field.starts_with('_') || value.is_null() {
+                if locks[field].as_bool().unwrap_or(all_locked)
+                    || field == "identifiers"
+                    || field.starts_with('_')
+                    || value.is_null()
+                {
                     continue;
                 }
                 tx.execute("INSERT INTO catalog_metadata_fields(item_id,field,value_json,source,locked) VALUES(?1,?2,?3,'tvdb',0) ON CONFLICT(item_id,field) DO UPDATE SET value_json=excluded.value_json,source='tvdb',locked=0,revision=revision+1",params![item,field,value.to_string()])?;
             }
         }
         tx.execute(
-            "UPDATE catalog_items SET title=?2,sort_title=lower(?2) WHERE id=?1",
+            "UPDATE catalog_items SET title=COALESCE((SELECT json_extract(value_json,'$') FROM catalog_metadata_fields WHERE item_id=?1 AND field='title'),?2),sort_title=lower(COALESCE((SELECT json_extract(value_json,'$') FROM catalog_metadata_fields WHERE item_id=?1 AND field='title'),?2)) WHERE id=?1",
             params![item, title],
         )?;
         for id in affected {
@@ -1416,6 +1669,436 @@ fn project_metadata(
 mod tests {
     use super::*;
     use posterview_contracts::native::{AnimeContent, NativeLibraryInput, NativeLibraryType};
+    #[test]
+    fn metadata_field_locks_protect_refresh_and_replace_but_allow_manual_edits() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = ServerStore::new(temp.path());
+        db.initialize().unwrap();
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let mut scanned = NativeCatalogEntry {
+            id: String::new(),
+            path: "Movies/Test.mkv".into(),
+            kind: "movie".into(),
+            parent_path: None,
+            title: "Original".into(),
+            metadata: json!({"title":"Original","plot":"Original plot"}),
+            artwork: vec![],
+            files: vec![],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, &[scanned.clone()])
+            .unwrap();
+        let current = || db.native_catalog(&library.id).unwrap().remove(0);
+        let entry = current();
+        assert_eq!(entry.metadata["_field_locks"], json!({}));
+        assert_eq!(entry.metadata["_metadata_locked"], false);
+        db.edit_native_entry(
+            &library.id,
+            &entry.id,
+            entry.revision,
+            &json!({"plot":"Manual"}),
+        )
+        .unwrap();
+        scanned.metadata["plot"] = json!("Refreshed");
+        db.ingest_native_catalog(&library.id, library.revision, &[scanned.clone()])
+            .unwrap();
+        assert_eq!(current().metadata["plot"], "Refreshed");
+        let entry = current();
+        db.edit_native_entry(
+            &library.id,
+            &entry.id,
+            entry.revision,
+            &json!({"plot":"Locked manual","_field_locks":{"plot":true,"future":true}}),
+        )
+        .unwrap();
+        scanned.metadata["plot"] = json!("Overwrite");
+        scanned.metadata["future"] = json!("Do not add");
+        db.ingest_native_catalog(&library.id, library.revision, &[scanned.clone()])
+            .unwrap();
+        assert_eq!(current().metadata["plot"], "Locked manual");
+        assert!(current().metadata["future"].is_null());
+        let entry = current();
+        db.edit_native_entry(
+            &library.id,
+            &entry.id,
+            entry.revision,
+            &json!({"plot":"Still editable"}),
+        )
+        .unwrap();
+        let entry = current();
+        db.identify_native_entry_with_metadata(
+            &library.id,
+            &entry.id,
+            entry.revision,
+            "Replacement",
+            Some(2025),
+            &json!({"tmdb":"123"}),
+            Some(&json!({"title":"Replacement","plot":"Replace all"})),
+        )
+        .unwrap();
+        assert_eq!(current().metadata["plot"], "Still editable");
+        let entry = current();
+        db.edit_native_entry(
+            &library.id,
+            &entry.id,
+            entry.revision,
+            &json!({"_metadata_locked":true,"_field_locks":{}}),
+        )
+        .unwrap();
+        scanned.metadata["new_field"] = json!("Must not appear");
+        db.ingest_native_catalog(&library.id, library.revision, &[scanned.clone()])
+            .unwrap();
+        assert!(current().metadata["new_field"].is_null());
+        assert!(
+            !db.observe_native_metadata(&entry.id, "plot", &json!("Observed overwrite"), "server")
+                .unwrap()
+        );
+        assert!(
+            !db.observe_native_metadata(&entry.id, "never_seen", &json!("Observed new"), "server")
+                .unwrap()
+        );
+        let entry = current();
+        db.identify_native_entry_with_metadata(
+            &library.id,
+            &entry.id,
+            entry.revision,
+            "Blocked title",
+            Some(2030),
+            &json!({"tmdb":"999"}),
+            Some(&json!({"title":"Blocked title","plot":"Blocked plot"})),
+        )
+        .unwrap();
+        assert_eq!(current().title, "Replacement");
+        assert_eq!(current().metadata["plot"], "Still editable");
+        let entry = current();
+        db.edit_native_entry(
+            &library.id,
+            &entry.id,
+            entry.revision,
+            &json!({"_metadata_locked":true,"_field_locks":{"plot":false}}),
+        )
+        .unwrap();
+        db.ingest_native_catalog(&library.id, library.revision, &[scanned.clone()])
+            .unwrap();
+        assert_eq!(current().metadata["plot"], "Overwrite");
+        assert!(
+            db.observe_native_metadata(&entry.id, "plot", &json!("Observed allowed"), "server")
+                .unwrap()
+        );
+        assert_eq!(current().metadata["plot"], "Observed allowed");
+        let entry = current();
+        db.edit_native_entry(
+            &library.id,
+            &entry.id,
+            entry.revision,
+            &json!({"_metadata_locked":false,"_field_locks":{}}),
+        )
+        .unwrap();
+        db.ingest_native_catalog(&library.id, library.revision, &[scanned])
+            .unwrap();
+        assert_eq!(current().metadata["new_field"], "Must not appear");
+        assert_eq!(current().metadata["future"], "Do not add");
+        let entry = current();
+        assert!(
+            db.edit_native_entry(
+                &library.id,
+                &entry.id,
+                entry.revision,
+                &json!({"_field_locks":{"title":"yes"}})
+            )
+            .is_err()
+        );
+        assert!(
+            db.edit_native_entry(
+                &library.id,
+                &entry.id,
+                entry.revision,
+                &json!({"_metadata_locked":"yes"})
+            )
+            .is_err()
+        );
+        let mut imported = entry.clone();
+        imported.path = "Movies/Imported.mkv".into();
+        imported.metadata = json!({"title":"Imported", "plot":"Imported plot", "_field_locks":{"plot":true},"_metadata_locked":false});
+        db.ingest_native_catalog_scoped(
+            &library.id,
+            library.revision,
+            &[imported.clone()],
+            Some(&["Movies/Imported.mkv".into()]),
+        )
+        .unwrap();
+        imported.metadata["plot"] = json!("Stale NFO");
+        imported.metadata["_field_locks"] = json!({});
+        db.ingest_native_catalog_scoped(
+            &library.id,
+            library.revision,
+            &[imported],
+            Some(&["Movies/Imported.mkv".into()]),
+        )
+        .unwrap();
+        assert_eq!(
+            db.native_catalog_path(&library.id, "Movies/Imported.mkv")
+                .unwrap()
+                .unwrap()
+                .metadata["plot"],
+            "Imported plot"
+        );
+    }
+
+    #[test]
+    fn series_sources_apply_to_episodes_with_season_overrides_and_clear_inheritance() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = ServerStore::new(temp.path());
+        store.initialize().unwrap();
+        let library = store
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Shows".into(),
+                    library_type: NativeLibraryType::Shows,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Shows".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let make =
+            |path: &str, kind: &str, parent: Option<&str>, metadata: Value| NativeCatalogEntry {
+                id: String::new(),
+                path: path.into(),
+                kind: kind.into(),
+                parent_path: parent.map(str::to_owned),
+                title: path.into(),
+                metadata,
+                artwork: vec![],
+                files: vec![],
+                nfo_path: None,
+                nfo_xml: None,
+                available: true,
+                revision: 1,
+            };
+        let entries = vec![
+            make(
+                "Shows/Example",
+                "series",
+                None,
+                json!({"media_source":"bluray"}),
+            ),
+            make(
+                "Shows/Example/Season 1",
+                "season",
+                Some("Shows/Example"),
+                json!({"season":1}),
+            ),
+            make(
+                "Shows/Example/Season 2",
+                "season",
+                Some("Shows/Example"),
+                json!({"season":2,"media_source":"hdtv"}),
+            ),
+            make(
+                "Shows/Example/Season 1/One.mkv",
+                "episode",
+                Some("Shows/Example/Season 1"),
+                json!({"season":1,"episode":1}),
+            ),
+            make(
+                "Shows/Example/Season 2/Two.mkv",
+                "episode",
+                Some("Shows/Example/Season 2"),
+                json!({"season":2,"episode":1}),
+            ),
+        ];
+        store
+            .ingest_native_catalog(&library.id, library.revision, &entries)
+            .unwrap();
+        let episode = store
+            .native_catalog_path(&library.id, "Shows/Example/Season 1/One.mkv")
+            .unwrap()
+            .unwrap();
+        assert_eq!(episode.metadata["_inherited_media_source"], "bluray");
+        assert!(episode.metadata.get("media_source").is_none());
+        let series = store
+            .native_catalog_path(&library.id, "Shows/Example")
+            .unwrap()
+            .unwrap();
+        store
+            .edit_native_entry(
+                &library.id,
+                &series.id,
+                series.revision,
+                &json!({"media_source":"web-dl"}),
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .native_catalog_item(&library.id, &episode.id)
+                .unwrap()
+                .unwrap()
+                .metadata["_inherited_media_source"],
+            "web-dl"
+        );
+        let second = store
+            .native_catalog_path(&library.id, "Shows/Example/Season 2/Two.mkv")
+            .unwrap()
+            .unwrap();
+        assert_eq!(second.metadata["_inherited_media_source"], "hdtv");
+        let summaries = store.native_catalog_summaries(&library.id).unwrap();
+        assert_eq!(
+            summaries
+                .iter()
+                .find(|entry| entry.id == second.id)
+                .unwrap()
+                .metadata["_inherited_media_source"],
+            "hdtv"
+        );
+        let season = store
+            .native_catalog_path(&library.id, "Shows/Example/Season 2")
+            .unwrap()
+            .unwrap();
+        store
+            .edit_native_entry(
+                &library.id,
+                &season.id,
+                season.revision,
+                &json!({"media_source":"","_field_locks":{"media_source":true}}),
+            )
+            .unwrap();
+        assert_eq!(
+            store
+                .native_catalog_item(&library.id, &second.id)
+                .unwrap()
+                .unwrap()
+                .metadata["_inherited_media_source"],
+            "web-dl"
+        );
+        let series = store
+            .native_catalog_item(&library.id, &series.id)
+            .unwrap()
+            .unwrap();
+        store
+            .edit_native_entry(
+                &library.id,
+                &series.id,
+                series.revision,
+                &json!({"media_source":"","_field_locks":{"media_source":true}}),
+            )
+            .unwrap();
+        store
+            .ingest_native_catalog(&library.id, library.revision, &entries)
+            .unwrap();
+        assert!(
+            store
+                .native_catalog_item(&library.id, &second.id)
+                .unwrap()
+                .unwrap()
+                .metadata
+                .get("_inherited_media_source")
+                .is_none()
+        );
+    }
+    #[test]
+    fn media_sources_are_per_attached_file_and_survive_rescanning() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = ServerStore::new(temp.path());
+        store.initialize().unwrap();
+        let library = store
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Sources".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into()],
+                    revision: None,
+                    options: Default::default(),
+                },
+            )
+            .unwrap();
+        let entry = NativeCatalogEntry {
+            id: String::new(),
+            path: "Movies/Film.mkv".into(),
+            kind: "movie".into(),
+            parent_path: None,
+            title: "Film".into(),
+            metadata: json!({"title":"Film"}),
+            artwork: vec![],
+            files: vec![
+                json!({"path":"Movies/Film.mkv"}),
+                json!({"path":"Movies/Film - UHD.mkv"}),
+            ],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        store
+            .ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
+            .unwrap();
+        let saved = store.native_catalog(&library.id).unwrap().remove(0);
+        assert!(
+            store
+                .edit_native_entry(
+                    &library.id,
+                    &saved.id,
+                    saved.revision,
+                    &json!({"media_sources":{"elsewhere.mkv":"bluray"}})
+                )
+                .is_err()
+        );
+        assert!(
+            store
+                .edit_native_entry(
+                    &library.id,
+                    &saved.id,
+                    saved.revision,
+                    &json!({"media_sources":{"Movies/Film.mkv":"invented"}})
+                )
+                .is_err()
+        );
+        let sources = json!({"Movies/Film.mkv":"bluray","Movies/Film - UHD.mkv":"web-dl"});
+        store
+            .edit_native_entry(
+                &library.id,
+                &saved.id,
+                saved.revision,
+                &json!({"media_sources":sources}),
+            )
+            .unwrap();
+        store
+            .ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
+        let fresh = store.native_catalog(&library.id).unwrap().remove(0);
+        assert_eq!(fresh.metadata["media_sources"], sources);
+        store
+            .edit_native_entry(
+                &library.id,
+                &fresh.id,
+                fresh.revision,
+                &json!({"media_sources":{}}),
+            )
+            .unwrap();
+        assert_eq!(
+            store.native_catalog(&library.id).unwrap()[0].metadata["media_sources"],
+            json!({})
+        );
+    }
 
     #[test]
     fn unchanged_projection_keeps_credits_and_changed_or_locked_inputs_rebuild() {
@@ -1926,7 +2609,7 @@ mod tests {
             &library.id,
             &saved.id,
             saved.revision,
-            &json!({"airs_before_season":null}),
+            &json!({"airs_before_season":null,"_field_locks":{"airs_before_season":true}}),
         )
         .unwrap();
         entry.metadata["airs_before_season"] = json!(2);
@@ -2490,7 +3173,7 @@ mod tests {
             &library.id,
             &current.id,
             current.revision,
-            &json!({"plot":"Manual plot"}),
+            &json!({"plot":"Manual plot","_field_locks":{"plot":true}}),
         )
         .unwrap();
         db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))
@@ -2514,7 +3197,7 @@ mod tests {
             &library.id,
             &current.id,
             current.revision,
-            &json!({"voice_cast":manual}),
+            &json!({"voice_cast":manual,"_field_locks":{"plot":true,"voice_cast":true}}),
         )
         .unwrap();
         db.ingest_native_catalog(&library.id, library.revision, std::slice::from_ref(&entry))

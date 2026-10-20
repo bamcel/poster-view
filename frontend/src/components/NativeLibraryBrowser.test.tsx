@@ -128,6 +128,14 @@ afterEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
 });
+it("browses movies and series together in a mixed library", async()=>{
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue([series,season,episode,{...series,id:"film",path:"Movies/Film",kind:"movie",title:"Example Movie"}]);
+  mount("/",{...library,library_type:"mixed",name:"Mixed media"});
+  expect(await screen.findByText("Example Series")).toBeTruthy();
+  expect(await screen.findByText("Example Movie")).toBeTruthy();
+  expect(screen.queryByText(episode.title)).toBeNull();
+});
+
 function alphabeticalTitles(sorttitle?: string): NativeCatalogEntry[] {
   return ["Dandadan", "The Apothecary Diaries", "Blue Box"].map((title, index) => ({
     ...series, id: `title-${index}`, path: `Anime/Title-${index}`, title,
@@ -611,7 +619,7 @@ it("saves a TV title without resubmitting invalid imported credits", async()=>{
  fireEvent.click(screen.getByRole("button",{name:"Edit Metadata"}));
  fireEvent.change(screen.getByLabelText("Title"),{target:{value:"New title"}});
  fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
- await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",imported,{title:"New title"}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",imported,{title:"New title",_field_locks:{title:true},_title_locked:true}));
 });
 
 it("edits an episode NFO directly from its season row without navigating",async()=>{
@@ -621,7 +629,7 @@ it("edits an episode NFO directly from its season row without navigating",async(
  expect((await screen.findByLabelText("Title") as HTMLInputElement).value).toBe("First Episode");
  fireEvent.change(screen.getByLabelText("Title"),{target:{value:"Edited episode title"}});
  fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
- await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",episode,{title:"Edited episode title"}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",episode,{title:"Edited episode title",_field_locks:{title:true},_title_locked:true}));
  expect(screen.getByTestId("location").textContent).toContain("native_item=season");
 });
 it("places a special before its target episode while keeping its identity",async()=>{
@@ -643,7 +651,7 @@ it("includes explicitly edited credits in the metadata patch", async()=>{
  fireEvent.click(screen.getByRole("button",{name:"Edit Metadata"}));
  fireEvent.change(screen.getByLabelText("Credit 1 name"),{target:{value:"Correct actor"}});
  fireEvent.click(screen.getByRole("button",{name:"Save metadata"}));
- await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",imported,{credits:[{name:"Correct actor",category:"cast"}]}));
+ await waitFor(()=>expect(nativeLibraries.editItem).toHaveBeenCalledWith("native",imported,{credits:[{name:"Correct actor",category:"cast"}],_field_locks:{credits:true}}));
 });
 
 it("excludes specials from the series season count while keeping their folder",async()=>{
@@ -919,4 +927,44 @@ it.each(["backdrop", "fanart"])("uses current-library %s backgrounds instead of 
  const background = await screen.findByTestId("dashboard-backdrop");
  await waitFor(() => expect(background.querySelector("img")?.getAttribute("src")).toContain(`/art/native/show/${kind}?`));
  expect(background.querySelector('img[src*="/poster?"]')).toBeNull();
+});
+
+it("updates year sorting without changing the input order of equal-year titles",async()=>{
+  const entries=[
+    {...series,id:"zulu",path:"Anime/Zulu",title:"Zulu",metadata:{year:2020}},
+    {...series,id:"alpha",path:"Anime/Alpha",title:"Alpha",metadata:{year:2020}},
+    {...series,id:"new",path:"Anime/New",title:"Newest",metadata:{year:2024}},
+  ];
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue(entries);
+  mount();
+  await screen.findByRole("button",{name:/Open Zulu/});
+  const order=()=>screen.getAllByRole("button",{name:/Open /}).map(button=>within(button).getByText(/^(Alpha|Newest|Zulu)$/).textContent);
+  expect(order()).toEqual(["Alpha","Newest","Zulu"]);
+  fireEvent.click(screen.getByRole("button",{name:"Filter and sort titles"}));
+  fireEvent.change(screen.getByLabelText("Sort titles"),{target:{value:"newest"}});
+  expect(order()).toEqual(["Newest","Zulu","Alpha"]);
+  fireEvent.change(screen.getByLabelText("Sort titles"),{target:{value:"oldest"}});
+  expect(order()).toEqual(["Zulu","Alpha","Newest"]);
+  fireEvent.change(screen.getByLabelText("Sort titles"),{target:{value:"title"}});
+  expect(order()).toEqual(["Alpha","Newest","Zulu"]);
+});
+
+it("sorts grouped collections by their earliest member year alongside individual titles",async()=>{
+  const entries=[
+    {...series,id:"first",path:"Anime/First",title:"First",metadata:{year:2000}},
+    {...series,id:"last",path:"Anime/Last",title:"Last",metadata:{year:2010}},
+    {...series,id:"middle",path:"Anime/Middle",title:"Middle",metadata:{year:2005}},
+  ];
+  vi.mocked(nativeLibraries.catalog).mockResolvedValue(entries);
+  vi.mocked(collectionsApi.preferences).mockResolvedValue({group_collections:true});
+  vi.mocked(collectionsApi.list).mockResolvedValue([{id:"group",title:"Grouped titles",overview:"",ordering:"release",revision:1,created_at:"",updated_at:"",members:entries.slice(0,2).map(entry=>({library_id:library.id,item_id:entry.id,library_name:library.name,entry}))}]);
+  mount();
+  const collection=await screen.findByRole("link",{name:/Grouped titles/});
+  const middle=screen.getByRole("button",{name:/Open Middle/});
+  expectDocumentOrder(collection,middle);
+  fireEvent.click(screen.getByRole("button",{name:"Filter and sort titles"}));
+  fireEvent.change(screen.getByLabelText("Sort titles"),{target:{value:"newest"}});
+  expectDocumentOrder(middle,collection);
+  fireEvent.change(screen.getByLabelText("Sort titles"),{target:{value:"oldest"}});
+  expectDocumentOrder(collection,middle);
 });

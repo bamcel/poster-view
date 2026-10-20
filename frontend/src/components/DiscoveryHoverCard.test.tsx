@@ -27,6 +27,13 @@ it("allows crossing from the anchor to the portal and dismisses after leaving bo
   act(() => vi.advanceTimersByTime(500)); expect(screen.getByRole("region")).toBeTruthy();
   fireEvent.mouseLeave(screen.getByRole("region")); act(() => vi.advanceTimersByTime(180)); expect(screen.queryByRole("region")).toBeNull();
 });
+it("places measured media formats between the metadata and genres",()=>{
+ const item=title();item.entry.files[0].media_info={streams:[{codec_type:"video",width:1920,height:1080},{codec_type:"audio",channels:6,channel_layout:"5.1"}]};
+ mount(item);fireEvent.focus(screen.getByRole("link",{name:"Details Sample"}));
+ const row=screen.getByRole("group",{name:"Media formats"});
+ expect(screen.getByText("2025 · PG · 92 min · 8.2/10").nextElementSibling).toBe(row);
+ expect(row.nextElementSibling?.textContent).toBe("Drama");
+});
 it("opens on keyboard focus and Escape restores the opener without reopening", () => {
   mount(); const trigger = screen.getByRole("link", {name: "Details Sample"}); act(() => trigger.focus());
   expect(screen.getByRole("region")).toBeTruthy(); fireEvent.keyDown(window, {key: "Escape"});

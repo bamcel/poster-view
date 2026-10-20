@@ -40,3 +40,18 @@ it("cancels delayed opening when leaving or unmounting", () => {
   const view = mount(); fireEvent.mouseEnter(anchor()); fireEvent.mouseLeave(anchor()); act(() => vi.advanceTimersByTime(500)); expect(screen.queryByRole("region")).toBeNull();
   fireEvent.mouseEnter(anchor()); view.unmount(); act(() => vi.advanceTimersByTime(500)); expect(screen.queryByRole("region")).toBeNull();
 });
+
+it.each(["\n", "\r\n", "<br>", "&lt;br&gt;"])("hides underscore metadata labels and their values with %s separators", separator => {
+ const biography=["A member of the team.","__Height:__ 190 cm"," __Affiliation:__ Cleaners",'__Jinki:__ "Umbreaker"',"__A much longer metadata field:__ a private detail","Still part of the biography with __inline emphasis__."] .join(separator);
+ mount({name:"Maomao",biography});
+ fireEvent.click(screen.getByRole("button",{name:"Preview Maomao"}));
+ const panel=screen.getByRole("region",{name:"Profile of Maomao"});
+ expect(panel.textContent).toContain("A member of the team.");
+ expect(panel.textContent).toContain("Still part of the biography with __inline emphasis__.");
+ for(const hidden of ["Height","190 cm","Affiliation","Cleaners","Jinki","Umbreaker","private detail"])expect(panel.textContent).not.toContain(hidden);
+});
+it("shows the empty biography message when only underscore metadata remains",()=>{
+ mount({name:"Maomao",biography:"__Height:__ 190 cm"});
+ fireEvent.click(screen.getByRole("button",{name:"Preview Maomao"}));
+ expect(screen.getByText("No character biography available.")).toBeTruthy();
+});

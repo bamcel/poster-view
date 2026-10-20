@@ -1,6 +1,6 @@
 use crate::{AppState, HttpError};
 use posterview_contracts::native::{
-    AnimeContent, NativeArtwork, NativeCatalogEntry, NativeLibrary, NativeLibraryType,
+    AnimeContent, MediaSource, NativeArtwork, NativeCatalogEntry, NativeLibrary, NativeLibraryType,
 };
 use serde_json::{Value, json};
 use std::{
@@ -226,6 +226,38 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
     if !fields.is_object() {
         fields = json!({});
     }
+    if let Some(source) = root.get_child("mediasource") {
+        fields.as_object_mut().unwrap().remove("mediasource");
+        fields["media_source"] = json!(
+            source
+                .get_text()
+                .and_then(|text| MediaSource::parse(&text))
+                .map_or("", MediaSource::as_str)
+        );
+    }
+    if let Some(sources) = root.get_child("mediasources") {
+        let mut mappings = serde_json::Map::new();
+        for node in &sources.children {
+            let XMLNode::Element(source) = node else {
+                continue;
+            };
+            if source.name != "source" {
+                continue;
+            }
+            let Some(path) = source
+                .attributes
+                .get("path")
+                .filter(|path| !path.is_empty())
+            else {
+                continue;
+            };
+            if let Some(source) = source.get_text().and_then(|text| MediaSource::parse(&text)) {
+                mappings.insert(path.clone(), json!(source.as_str()));
+            }
+        }
+        fields.as_object_mut().unwrap().remove("mediasources");
+        fields["media_sources"] = Value::Object(mappings);
+    }
     if let Some(youtube) = root.get_child("youtube") {
         let mut metadata = value(youtube);
         if !metadata.is_object() {
@@ -249,6 +281,32 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
         }).collect();
         metadata["playlists"] = json!(playlists);
         fields["youtube"] = metadata;
+    }
+    if let Some(locks) = root.get_child("posterviewlocks") {
+        fields.as_object_mut().unwrap().remove("posterviewlocks");
+        fields["_metadata_locked"] =
+            json!(locks.attributes.get("all").is_some_and(|v| v == "true"));
+        let mut field_locks = serde_json::Map::new();
+        for node in &locks.children {
+            let XMLNode::Element(field) = node else {
+                continue;
+            };
+            if field.name != "field" {
+                continue;
+            }
+            let Some(name) = field
+                .attributes
+                .get("name")
+                .filter(|name| !name.is_empty() && !name.starts_with('_'))
+            else {
+                continue;
+            };
+            field_locks.insert(
+                name.clone(),
+                json!(field.attributes.get("locked").is_none_or(|v| v != "false")),
+            );
+        }
+        fields["_field_locks"] = Value::Object(field_locks);
     }
     for field in ["year", "season", "episode", "runtime", "volumes"] {
         if let Some(v) = fields[field].as_str().and_then(|v| v.parse::<i64>().ok()) {
@@ -339,7 +397,12 @@ pub(crate) fn parse_nfo(bytes: &[u8]) -> Result<(String, Value), String> {
         fields["credits"] = json!(credits);
     }
     let mut sources = json!({});
-    for field in fields.as_object().unwrap().keys() {
+    for field in fields
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter(|field| !field.starts_with('_'))
+    {
         sources[field] = json!("nfo");
     }
     if manual_voices {
@@ -855,8 +918,28 @@ pub(crate) fn collect_scoped(
                 }
             });
         let youtube = library.library_type == NativeLibraryType::Youtube;
-        let show = youtube
+        let mixed = library.library_type == NativeLibraryType::Mixed;
+        let mixed_show = if mixed {
+            let boundary = scan_roots
+                .iter()
+                .filter(|path| dir.starts_with(path))
+                .max_by_key(|path| path.components().count())
+                .unwrap_or(&root);
+            match sidecar.as_ref().map(|(kind, _, _, _)| kind.as_str()) {
+                Some("movie") => false,
+                Some("episodedetails") => true,
+                _ => {
+                    numbers.is_some()
+                        || series_directory(dir, boundary).join("tvshow.nfo").is_file()
+                }
+            }
+        } else {
+            false
+        };
+        let show = mixed_show
+            || youtube
             || (!books
+                && !mixed
                 && library.library_type != NativeLibraryType::Movies
                 && library.anime_content != AnimeContent::Movies
                 && (numbers.is_some()
@@ -1240,6 +1323,15 @@ fn group_video_versions(
             }
         }
         for version in group {
+            if let Some(sources) = version.metadata["media_sources"].as_object() {
+                if !title.metadata["media_sources"].is_object() {
+                    title.metadata["media_sources"] = json!({});
+                }
+                let target = title.metadata["media_sources"].as_object_mut().unwrap();
+                for (path, source) in sources {
+                    target.entry(path.clone()).or_insert_with(|| source.clone());
+                }
+            }
             for file in version.files {
                 if !title
                     .files
@@ -1328,6 +1420,21 @@ mod version_tests {
         assert_eq!(versions[0].files.len(), 2);
         assert_eq!(versions[0].files[1]["version_name"], "UHD");
         assert_eq!(versions[0].files[1]["version_id"], "Film/Film - UHD.mkv");
+    }
+
+    #[test]
+    fn grouping_preserves_sources_for_each_file_and_primary_conflicts_win() {
+        let mut original = movie("Film/Film - Original.mkv");
+        original.metadata["media_sources"] =
+            json!({"Film/Film - Original.mkv":"bluray", "Film/Film - UHD.mkv":"uhd-bluray"});
+        let mut uhd = movie("Film/Film - UHD.mkv");
+        uhd.metadata["media_sources"] =
+            json!({"Film/Film - UHD.mkv":"web-dl", "Film/alternate.mkv":"dvd"});
+        let grouped = group_video_versions(vec![original, uhd], &[]);
+        assert_eq!(
+            grouped[0].metadata["media_sources"],
+            json!({"Film/Film - Original.mkv":"bluray", "Film/Film - UHD.mkv":"uhd-bluray", "Film/alternate.mkv":"dvd"})
+        );
     }
 
     #[test]
@@ -1563,8 +1670,80 @@ fn write_special_placement(xml: &mut Element, metadata: &Value) {
         xml.children.push(XMLNode::Element(element));
     }
 }
+fn write_media_sources(xml: &mut Element, metadata: &Value) {
+    if let Some(source) = metadata.get("media_source") {
+        xml.children.retain(
+            |node| !matches!(node, XMLNode::Element(element) if element.name == "mediasource"),
+        );
+        let mut element = Element::new("mediasource");
+        if let Some(source) = source.as_str().and_then(MediaSource::parse) {
+            element.children.push(XMLNode::Text(source.as_str().into()));
+        }
+        xml.children.push(XMLNode::Element(element));
+    }
+    let Some(sources) = metadata.get("media_sources").and_then(Value::as_object) else {
+        return;
+    };
+    xml.children.retain(
+        |node| !matches!(node, XMLNode::Element(element) if element.name == "mediasources"),
+    );
+    let mut block = Element::new("mediasources");
+    for (path, source) in sources {
+        let Some(source) = source.as_str().and_then(MediaSource::parse) else {
+            continue;
+        };
+        if path.is_empty() {
+            continue;
+        }
+        let mut element = Element::new("source");
+        element.attributes.insert("path".into(), path.clone());
+        element.children.push(XMLNode::Text(source.as_str().into()));
+        block.children.push(XMLNode::Element(element));
+    }
+    xml.children.push(XMLNode::Element(block));
+}
 fn clear_identity_nfo(xml: &mut Element) {
-    xml.children.retain(|node|!matches!(node,XMLNode::Element(e) if !["fileinfo","streamdetails","season","episode","thumb","fanart","art","logo","banner","posterview"].contains(&e.name.as_str())));
+    xml.children.retain(|node|!matches!(node,XMLNode::Element(e) if !["fileinfo","streamdetails","season","episode","thumb","fanart","art","logo","banner","posterview","mediasources","mediasource","posterviewlocks"].contains(&e.name.as_str())));
+}
+fn write_metadata_locks(xml: &mut Element, metadata: &Value) {
+    if metadata.get("_field_locks").is_none()
+        && metadata.get("_metadata_locked").is_none()
+        && metadata.get("_title_locked").is_none()
+    {
+        return;
+    }
+    xml.children.retain(
+        |node| !matches!(node, XMLNode::Element(element) if element.name == "posterviewlocks"),
+    );
+    let all = metadata["_metadata_locked"] == true;
+    let mut fields = BTreeMap::new();
+    if let Some(locks) = metadata["_field_locks"].as_object() {
+        for (name, locked) in locks {
+            if !name.is_empty()
+                && !name.starts_with('_')
+                && let Some(locked) = locked.as_bool()
+            {
+                fields.insert(name.as_str(), locked);
+            }
+        }
+    }
+    if !fields.contains_key("title") && metadata["_title_locked"] == true {
+        fields.insert("title", true);
+    }
+    // False overrides matter when the rest of the file is locked.
+    fields.retain(|_, locked| *locked || all);
+    if !all && fields.is_empty() {
+        return;
+    }
+    let mut block = Element::new("posterviewlocks");
+    block.attributes.insert("all".into(), all.to_string());
+    for (name, locked) in fields {
+        let mut field = Element::new("field");
+        field.attributes.insert("name".into(), name.into());
+        field.attributes.insert("locked".into(), locked.to_string());
+        block.children.push(XMLNode::Element(field));
+    }
+    xml.children.push(XMLNode::Element(block));
 }
 fn write_nfo_inner(
     state: &AppState,
@@ -1672,6 +1851,8 @@ fn write_nfo_inner(
         xml.children.push(XMLNode::Element(element));
     }
     write_special_placement(&mut xml, &entry.metadata);
+    write_media_sources(&mut xml, &entry.metadata);
+    write_metadata_locks(&mut xml, &entry.metadata);
     for (field, tag) in [("genres", "genre"), ("tags", "tag"), ("studios", "studio")] {
         if let Some(values) = entry.metadata[field].as_array() {
             xml.children
@@ -1871,6 +2052,135 @@ fn is_artwork_video(path: &Path, media_stems: &std::collections::BTreeSet<PathBu
         ]
         .iter()
         .any(|n| stem == *n || stem.ends_with(&format!("-{n}")))
+}
+
+#[cfg(test)]
+mod mixed_library_tests {
+    use super::*;
+
+    #[test]
+    fn mixed_scan_keeps_movies_and_groups_named_and_nfo_episodes() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let root = temp.path().join("media");
+        for path in [
+            "Mixed/Film",
+            "Mixed/Named Show/Season 1",
+            "Mixed/Nfo Show/Season 2",
+        ] {
+            fs::create_dir_all(root.join(path)).unwrap();
+        }
+        for path in [
+            "Mixed/Film/Feature.mkv",
+            "Mixed/Named Show/Season 1/Show S01E02.mkv",
+            "Mixed/Nfo Show/Season 2/Pilot.mkv",
+        ] {
+            fs::write(root.join(path), b"fixture").unwrap();
+        }
+        fs::write(root.join("Mixed/Nfo Show/Season 2/Pilot.nfo"), "<episodedetails><title>Pilot</title><season>2</season><episode>1</episode></episodedetails>").unwrap();
+        let store = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
+        let library = store
+            .save_native_library(
+                None,
+                &posterview_contracts::native::NativeLibraryInput {
+                    name: "Mixed".into(),
+                    library_type: NativeLibraryType::Mixed,
+                    // An irrelevant anime-only option must not turn mixed episodes into movies.
+                    anime_content: AnimeContent::Movies,
+                    paths: vec!["Mixed".into()],
+                    options: Default::default(),
+                    revision: None,
+                },
+            )
+            .unwrap();
+        let (entries, _) = collect(&state, &library).unwrap();
+        assert_eq!(
+            entries.iter().filter(|entry| entry.kind == "movie").count(),
+            1
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| entry.kind == "series")
+                .count(),
+            2
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| entry.kind == "season")
+                .count(),
+            2
+        );
+        let episodes = entries
+            .iter()
+            .filter(|entry| entry.kind == "episode")
+            .collect::<Vec<_>>();
+        assert_eq!(episodes.len(), 2);
+        assert!(episodes.iter().all(|entry| entry.parent_path.is_some()));
+        assert!(
+            episodes
+                .iter()
+                .any(|entry| entry.metadata["season"] == 1 && entry.metadata["episode"] == 2)
+        );
+        assert!(
+            episodes
+                .iter()
+                .any(|entry| entry.metadata["season"] == 2 && entry.metadata["episode"] == 1)
+        );
+    }
+
+    #[test]
+    fn mixed_scan_uses_show_nfo_ancestors_and_honors_movie_nfo() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = crate::test_support::state(temp.path());
+        let root = temp.path().join("media");
+        fs::create_dir_all(root.join("Mixed/Show/Season 1")).unwrap();
+        fs::write(
+            root.join("Mixed/Show/tvshow.nfo"),
+            "<tvshow><title>Show</title></tvshow>",
+        )
+        .unwrap();
+        fs::write(root.join("Mixed/Show/Season 1/Unnumbered.mkv"), b"fixture").unwrap();
+        fs::write(root.join("Mixed/Show/Film S01E01.mkv"), b"fixture").unwrap();
+        fs::write(
+            root.join("Mixed/Show/Film S01E01.nfo"),
+            "<movie><title>Film</title></movie>",
+        )
+        .unwrap();
+        let store = posterview_infra_sqlite::ServerStore::new(state.runtime.data_dir());
+        let library = store
+            .save_native_library(
+                None,
+                &posterview_contracts::native::NativeLibraryInput {
+                    name: "Mixed".into(),
+                    library_type: NativeLibraryType::Mixed,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Mixed".into()],
+                    options: Default::default(),
+                    revision: None,
+                },
+            )
+            .unwrap();
+        let (entries, _) = collect(&state, &library).unwrap();
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.path.ends_with("Unnumbered.mkv") && entry.kind == "episode")
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.path.ends_with("Film S01E01.mkv") && entry.kind == "movie")
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|entry| entry.kind == "series")
+                .count(),
+            1
+        );
+    }
 }
 
 #[cfg(test)]
@@ -2177,6 +2487,183 @@ mod media_info_cache_tests {
             &json!({"posterview_probe_version": MEDIA_INFO_VERSION, "streams": []})
         ));
         assert!(!current_media_info(&json!({"posterview_probe_version": 1})));
+    }
+}
+
+#[cfg(test)]
+mod metadata_lock_nfo_tests {
+    use super::*;
+
+    fn roundtrip(xml: &Element) -> Value {
+        let mut bytes = Vec::new();
+        xml.write(&mut bytes).unwrap();
+        parse_nfo(&bytes).unwrap().1
+    }
+
+    #[test]
+    fn absent_locks_are_unlocked_and_do_not_change_existing_xml() {
+        let mut xml = Element::parse(b"<movie><custom>keep</custom></movie>".as_slice()).unwrap();
+        write_metadata_locks(&mut xml, &json!({}));
+        let fields = roundtrip(&xml);
+        assert!(fields.get("_field_locks").is_none());
+        assert!(fields.get("_metadata_locked").is_none());
+        assert!(xml.get_child("posterviewlocks").is_none());
+        assert!(xml.get_child("custom").is_some());
+    }
+
+    #[test]
+    fn selected_locks_roundtrip_in_deterministic_order_and_survive_identity_clear() {
+        let mut xml = Element::new("tvshow");
+        write_metadata_locks(
+            &mut xml,
+            &json!({"_field_locks":{"title":true,"plot":true}}),
+        );
+        clear_identity_nfo(&mut xml);
+        let fields = roundtrip(&xml);
+        assert_eq!(fields["_metadata_locked"], false);
+        assert_eq!(fields["_field_locks"], json!({"title":true,"plot":true}));
+        assert!(fields.get("posterviewlocks").is_none());
+        assert!(fields["_sources"].get("_field_locks").is_none());
+        let names: Vec<_> = xml
+            .get_child("posterviewlocks")
+            .unwrap()
+            .children
+            .iter()
+            .filter_map(XMLNode::as_element)
+            .map(|field| field.attributes["name"].as_str())
+            .collect();
+        assert_eq!(names, ["plot", "title"]);
+    }
+
+    #[test]
+    fn lock_all_keeps_unlocked_field_overrides_and_explicit_unlock_clears_xml() {
+        let mut xml = Element::new("season");
+        write_metadata_locks(
+            &mut xml,
+            &json!({"_metadata_locked":true,"_field_locks":{"plot":false}}),
+        );
+        let fields = roundtrip(&xml);
+        assert_eq!(fields["_metadata_locked"], true);
+        assert_eq!(fields["_field_locks"]["plot"], false);
+        write_metadata_locks(
+            &mut xml,
+            &json!({"_metadata_locked":false,"_field_locks":{},"_title_locked":false}),
+        );
+        assert!(xml.get_child("posterviewlocks").is_none());
+        assert!(roundtrip(&xml).get("_metadata_locked").is_none());
+    }
+
+    #[test]
+    fn legacy_title_lock_and_explicit_map_precedence_are_preserved() {
+        let mut xml = Element::new("movie");
+        write_metadata_locks(&mut xml, &json!({"_title_locked":true}));
+        assert_eq!(roundtrip(&xml)["_field_locks"]["title"], true);
+        write_metadata_locks(
+            &mut xml,
+            &json!({"_title_locked":true,"_field_locks":{"title":false}}),
+        );
+        assert!(xml.get_child("posterviewlocks").is_none());
+    }
+}
+
+#[cfg(test)]
+mod media_source_nfo_tests {
+    use super::*;
+
+    #[test]
+    fn series_and_season_source_roundtrip_preserves_custom_xml_and_identity_clear() {
+        for root in ["tvshow", "series", "season"] {
+            let input = format!(
+                "<{root}><title>Title</title><custom keep=\"yes\">untouched</custom><mediasource>web-dl</mediasource></{root}>"
+            );
+            let (_, fields) = parse_nfo(input.as_bytes()).unwrap();
+            assert_eq!(fields["media_source"], "web-dl");
+            assert!(fields.get("mediasource").is_none());
+            let mut xml = Element::parse(input.as_bytes()).unwrap();
+            write_media_sources(&mut xml, &fields);
+            assert_eq!(xml.get_child("custom").unwrap().attributes["keep"], "yes");
+            let mut bytes = Vec::new();
+            xml.write(&mut bytes).unwrap();
+            assert_eq!(parse_nfo(&bytes).unwrap().1["media_source"], "web-dl");
+            clear_identity_nfo(&mut xml);
+            assert!(xml.get_child("mediasource").is_some());
+            assert!(xml.get_child("title").is_none());
+        }
+    }
+
+    #[test]
+    fn series_source_missing_is_preserved_and_explicit_empty_clears_override() {
+        for source in ["", "unknown", "invalid"] {
+            let input = format!("<season><mediasource>{source}</mediasource></season>");
+            assert_eq!(parse_nfo(input.as_bytes()).unwrap().1["media_source"], "");
+        }
+        let mut xml = Element::parse(
+            b"<season><custom>keep</custom><mediasource>bluray</mediasource></season>".as_slice(),
+        )
+        .unwrap();
+        write_media_sources(&mut xml, &json!({}));
+        assert_eq!(
+            xml.get_child("mediasource").unwrap().get_text().as_deref(),
+            Some("bluray")
+        );
+        write_media_sources(&mut xml, &json!({"media_source":""}));
+        let mut bytes = Vec::new();
+        xml.write(&mut bytes).unwrap();
+        let (_, fields) = parse_nfo(&bytes).unwrap();
+        assert_eq!(fields["media_source"], "");
+        assert_eq!(fields["custom"], "keep");
+        assert!(xml.get_child("mediasource").unwrap().children.is_empty());
+        assert!(
+            parse_nfo(b"<tvshow/>")
+                .unwrap()
+                .1
+                .get("media_source")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn sources_roundtrip_per_file_without_touching_unknown_xml() {
+        let input = br#"<movie><title>Film</title><custom keep="yes">untouched</custom><mediasources><source path="Film/Original.mkv">bluray</source><source path="Film/UHD &amp; HDR.mkv">web-dl</source></mediasources></movie>"#;
+        let (_, fields) = parse_nfo(input).unwrap();
+        assert_eq!(
+            fields["media_sources"],
+            json!({"Film/Original.mkv":"bluray", "Film/UHD & HDR.mkv":"web-dl"})
+        );
+        assert!(fields.get("mediasources").is_none());
+        let mut xml = Element::parse(input.as_slice()).unwrap();
+        write_media_sources(&mut xml, &fields);
+        let mut bytes = Vec::new();
+        xml.write(&mut bytes).unwrap();
+        let (_, roundtrip) = parse_nfo(&bytes).unwrap();
+        assert_eq!(roundtrip["media_sources"], fields["media_sources"]);
+        assert_eq!(xml.get_child("custom").unwrap().attributes["keep"], "yes");
+        clear_identity_nfo(&mut xml);
+        assert!(xml.get_child("mediasources").is_some());
+    }
+
+    #[test]
+    fn unknown_blank_and_missing_sources_stay_hidden_and_explicit_empty_clears() {
+        let input = br#"<movie><custom>keep</custom><mediasources><source path="one.mkv">unknown</source><source path="two.mkv"></source><source>bluray</source></mediasources></movie>"#;
+        let (_, fields) = parse_nfo(input).unwrap();
+        assert_eq!(fields["media_sources"], json!({}));
+        let mut xml = Element::parse(input.as_slice()).unwrap();
+        write_media_sources(&mut xml, &json!({}));
+        assert_eq!(xml.get_child("mediasources").unwrap().children.len(), 3);
+        write_media_sources(&mut xml, &json!({"media_sources":{}}));
+        let mut bytes = Vec::new();
+        xml.write(&mut bytes).unwrap();
+        let (_, fields) = parse_nfo(&bytes).unwrap();
+        assert_eq!(fields["media_sources"], json!({}));
+        assert_eq!(fields["custom"], "keep");
+        assert!(xml.get_child("mediasources").unwrap().children.is_empty());
+        assert!(
+            parse_nfo(b"<movie/>")
+                .unwrap()
+                .1
+                .get("media_sources")
+                .is_none()
+        );
     }
 }
 

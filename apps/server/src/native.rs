@@ -478,6 +478,18 @@ pub(crate) fn scan_checkpoint_signature(
         // changes the actual metadata being enriched after a restart.
         fields.remove("_sources");
         if fields
+            .get("_field_locks")
+            .is_some_and(|value| value.as_object().is_some_and(|locks| locks.is_empty()))
+        {
+            fields.remove("_field_locks");
+        }
+        if fields
+            .get("_metadata_locked")
+            .is_some_and(|value| value == false)
+        {
+            fields.remove("_metadata_locked");
+        }
+        if fields
             .get("_title_locked")
             .is_none_or(|value| value == false)
         {
@@ -829,12 +841,7 @@ async fn run_scan_scoped_mode(
                 &mut entry.metadata,
                 &previous.metadata["credits"],
             );
-            if previous.metadata["_title_locked"] == true {
-                entry.metadata["title"] = previous.metadata["title"].clone();
-                entry.metadata["_title_locked"] = serde_json::json!(true);
-                entry.metadata["_sources"]["title"] = serde_json::json!("manual");
-                entry.title = previous.title.clone();
-            }
+            crate::native_operations::preserve_locked_metadata(previous, entry);
             // Server-authoritative shared fields survive local NFO rescans.
             if let Some(fields) = previous.metadata.as_object() {
                 for (field, value) in fields {
@@ -936,6 +943,9 @@ async fn run_scan_scoped_mode(
     }
     for entry in &mut entries {
         normalize_season_title(entry);
+        if let Some(previous) = existing.get(&entry.path) {
+            crate::native_operations::preserve_locked_metadata(previous, entry);
+        }
     }
     // Publish the local catalog before network enrichment so large libraries are usable immediately.
     let mut local_entries = entries.clone();
@@ -1388,7 +1398,11 @@ pub(crate) async fn edit_item(
         if entry.metadata["missing"] != true
             && library.options.save_nfo
             && !only_visual_fields
-            && (entry.kind != "season" || entry.nfo_path.is_some())
+            && (entry.kind != "season"
+                || entry.nfo_path.is_some()
+                || input.metadata.get("media_source").is_some()
+                || input.metadata.get("_field_locks").is_some()
+                || input.metadata.get("_metadata_locked").is_some())
         {
             match crate::native_scan::write_nfo(&state, &entry) {
                 Ok((path, xml)) => db
@@ -2313,6 +2327,171 @@ pub(crate) mod scan_tests {
                 .len(),
             4
         );
+    }
+
+    #[tokio::test]
+    async fn series_and_season_media_sources_write_parent_nfos_and_apply_to_episodes() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let folder = temp.path().join("media/Shows/Example/Season 1");
+        fs::create_dir_all(&folder).unwrap();
+        let db = store(&state);
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Shows".into(),
+                    library_type: NativeLibraryType::Shows,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Shows".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        save_nfo: true,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        let make = |path: &str, kind: &str, parent: Option<&str>, metadata: serde_json::Value| {
+            posterview_contracts::native::NativeCatalogEntry {
+                id: String::new(),
+                path: path.into(),
+                kind: kind.into(),
+                parent_path: parent.map(str::to_owned),
+                title: "Example".into(),
+                metadata,
+                artwork: vec![],
+                files: vec![],
+                nfo_path: None,
+                nfo_xml: None,
+                available: true,
+                revision: 1,
+            }
+        };
+        db.ingest_native_catalog(
+            &library.id,
+            library.revision,
+            &[
+                make(
+                    "Shows/Example",
+                    "series",
+                    None,
+                    serde_json::json!({"title":"Example"}),
+                ),
+                make(
+                    "Shows/Example/Season 1",
+                    "season",
+                    Some("Shows/Example"),
+                    serde_json::json!({"season":1}),
+                ),
+                make(
+                    "Shows/Example/Season 1/One.mkv",
+                    "episode",
+                    Some("Shows/Example/Season 1"),
+                    serde_json::json!({"season":1,"episode":1}),
+                ),
+            ],
+        )
+        .unwrap();
+        for (path, source) in [
+            ("Shows/Example", "bluray"),
+            ("Shows/Example/Season 1", "web-dl"),
+        ] {
+            let entry = db.native_catalog_path(&library.id, path).unwrap().unwrap();
+            let Json(result) = edit_item(
+                State(state.clone()),
+                Path((library.id.clone(), entry.id)),
+                Json(EditRequest {
+                    revision: entry.revision,
+                    metadata: serde_json::json!({"media_source":source}),
+                }),
+            )
+            .await
+            .unwrap();
+            assert_eq!(result["warnings"], serde_json::json!([]));
+        }
+        let (_, series) = crate::native_scan::parse_nfo(
+            &fs::read(folder.parent().unwrap().join("tvshow.nfo")).unwrap(),
+        )
+        .unwrap();
+        let (_, season) =
+            crate::native_scan::parse_nfo(&fs::read(folder.join("season.nfo")).unwrap()).unwrap();
+        assert_eq!(series["media_source"], "bluray");
+        assert_eq!(season["media_source"], "web-dl");
+        assert_eq!(
+            db.native_catalog_path(&library.id, "Shows/Example/Season 1/One.mkv")
+                .unwrap()
+                .unwrap()
+                .metadata["_inherited_media_source"],
+            "web-dl"
+        );
+    }
+
+    #[tokio::test]
+    async fn media_source_edits_write_each_version_to_nfo_and_clear_unknown() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let folder = temp.path().join("media/Movies");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("Film.mkv"), b"fixture").unwrap();
+        fs::write(folder.join("Film - UHD.mkv"), b"fixture").unwrap();
+        let db = store(&state);
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        save_nfo: true,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        let entry = posterview_contracts::native::NativeCatalogEntry {
+            id: String::new(),
+            path: "Movies/Film.mkv".into(),
+            kind: "movie".into(),
+            parent_path: None,
+            title: "Film".into(),
+            metadata: serde_json::json!({"title":"Film"}),
+            artwork: vec![],
+            files: vec![
+                serde_json::json!({"path":"Movies/Film.mkv"}),
+                serde_json::json!({"path":"Movies/Film - UHD.mkv"}),
+            ],
+            nfo_path: None,
+            nfo_xml: None,
+            available: true,
+            revision: 1,
+        };
+        db.ingest_native_catalog(&library.id, library.revision, &[entry])
+            .unwrap();
+        let entry = db.native_catalog(&library.id).unwrap().remove(0);
+        let Json(result)=edit_item(State(state.clone()),Path((library.id.clone(),entry.id.clone())),Json(EditRequest{revision:entry.revision,metadata:serde_json::json!({"media_sources":{"Movies/Film.mkv":"bluray","Movies/Film - UHD.mkv":"web-dl"}})})).await.unwrap();
+        assert_eq!(result["warnings"], serde_json::json!([]));
+        let xml = fs::read(folder.join("Film.nfo")).unwrap();
+        let (_, metadata) = crate::native_scan::parse_nfo(&xml).unwrap();
+        assert_eq!(metadata["media_sources"]["Movies/Film - UHD.mkv"], "web-dl");
+        let fresh = db.native_catalog(&library.id).unwrap().remove(0);
+        let Json(cleared) = edit_item(
+            State(state),
+            Path((library.id, fresh.id)),
+            Json(EditRequest {
+                revision: fresh.revision,
+                metadata: serde_json::json!({"media_sources":{}}),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(cleared["warnings"], serde_json::json!([]));
+        let (_, metadata) =
+            crate::native_scan::parse_nfo(&fs::read(folder.join("Film.nfo")).unwrap()).unwrap();
+        assert_eq!(metadata["media_sources"], serde_json::json!({}));
     }
 
     #[tokio::test]
@@ -3351,7 +3530,7 @@ pub(crate) mod scan_tests {
             &library.id,
             &show.id,
             show.revision,
-            &serde_json::json!({"title":"Manual Title","genres":["Manual Genre"]}),
+            &serde_json::json!({"title":"Manual Title","genres":["Manual Genre"],"_field_locks":{"title":true,"genres":true}}),
         )
         .unwrap();
         let uploaded = crate::native_provider::store_image(
@@ -3755,6 +3934,80 @@ pub(crate) mod scan_tests {
         }
     }
     #[tokio::test]
+    async fn metadata_locks_survive_scan_and_replace_all_nfo_writes() {
+        let temp = tempfile::tempdir().unwrap();
+        let state = state(temp.path());
+        let dir = temp.path().join("media/Movies/Test");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("Test.mkv"), b"fixture").unwrap();
+        fs::write(
+            dir.join("Test.nfo"),
+            "<movie><title>Test</title><plot>Original</plot><year>2000</year></movie>",
+        )
+        .unwrap();
+        let db = store(&state);
+        let library = db
+            .save_native_library(
+                None,
+                &NativeLibraryInput {
+                    name: "Movies".into(),
+                    library_type: NativeLibraryType::Movies,
+                    anime_content: AnimeContent::Both,
+                    paths: vec!["Movies".into()],
+                    revision: None,
+                    options: NativeLibraryOptions {
+                        fetch_missing: false,
+                        save_nfo: true,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap();
+        run_scan(state.clone(), library.clone()).await.unwrap();
+        let entry = db
+            .native_catalog(&library.id)
+            .unwrap()
+            .into_iter()
+            .find(|e| e.kind == "movie")
+            .unwrap();
+        let _ = edit_item(
+            State(state.clone()),
+            Path((library.id.clone(), entry.id.clone())),
+            Json(EditRequest {
+                revision: entry.revision,
+                metadata: serde_json::json!({"plot":"Protected", "_field_locks":{"plot":true}}),
+            }),
+        )
+        .await
+        .unwrap();
+        fs::write(
+            dir.join("Test.nfo"),
+            "<movie><title>Test</title><plot>Changed by scan</plot><year>2024</year></movie>",
+        )
+        .unwrap();
+        run_scan(state.clone(), library.clone()).await.unwrap();
+        let entry = db
+            .native_catalog_item(&library.id, &entry.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(entry.metadata["plot"], "Protected");
+        assert_eq!(entry.metadata["year"], 2024);
+        db.identify_native_entry_with_metadata(
+            &library.id,
+            &entry.id,
+            entry.revision,
+            &entry.title,
+            None,
+            &serde_json::json!({}),
+            Some(&serde_json::json!({"_refresh_from_providers":true})),
+        )
+        .unwrap();
+        run_scan(state.clone(), library).await.unwrap();
+        let xml = fs::read_to_string(dir.join("Test.nfo")).unwrap();
+        assert!(xml.contains("Protected"));
+        assert!(xml.contains("posterviewlocks"));
+    }
+    #[tokio::test]
     async fn manual_scan_nfo_writes_do_not_restart_monitor_scans() {
         let temp = tempfile::tempdir().unwrap();
         let state = state(temp.path());
@@ -4042,7 +4295,9 @@ pub(crate) async fn remove_variant(
 }
 
 fn normalize_season_title(entry: &mut NativeCatalogEntry) {
-    if entry.kind != "season" || entry.metadata["_title_locked"] == true {
+    if entry.kind != "season"
+        || crate::native_operations::metadata_field_locked(&entry.metadata, "title")
+    {
         return;
     }
     let Some(season) = entry.metadata["season"].as_u64().or_else(|| {

@@ -12,7 +12,7 @@ import {nativeLibraries, type NativeLibrary, type NativeCatalogEntry, type Ident
 const names:Record<string,string>={mangadex:"MangaDex",comicvine:"ComicVine",anilist:"AniList",tmdb:"TheMovieDB",tvdb:"TheTVDB",mal:"MyAnimeList",imdb:"IMDb",anidb:"AniDB"};
 const inputClass="w-full rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent";
 export default function IdentifyPanel(props:{library:NativeLibrary;entry:NativeCatalogEntry;busy:boolean;onSaved:()=>void}){
- if(props.library.library_type==="shows"&&props.entry.kind==="series")return <TVIdentifyPanel {...props}/>;
+ if(["shows","mixed"].includes(props.library.library_type)&&props.entry.kind==="series")return <TVIdentifyPanel {...props}/>;
  return <ProviderIdentifyPanel {...props}/>;
 }
 function ProviderIdentifyPanel({library,entry,busy,onSaved}:{library:NativeLibrary;entry:NativeCatalogEntry;busy:boolean;onSaved:()=>void}) {

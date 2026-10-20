@@ -6,10 +6,10 @@ import "./PopupPage.css";
 let openPages=0;
 let previousOverflow="";
 
-type Props={portalContainer?:HTMLElement|null;ariaLabel?:string;closeDisabled?:boolean;plainClose?:boolean;title:string;description?:ReactNode;onClose:()=>void;children:ReactNode;navigation?:ReactNode;footer?:ReactNode;layout?:"page"|"compact";bodyClassName?:string;headerActions?:ReactNode;closeLabel?:string;backdrop?:ReactNode;dismissOnBackdrop?:boolean};
+type Props={portalContainer?:HTMLElement|null;ariaLabel?:string;closeDisabled?:boolean;plainClose?:boolean;title:string;titleActions?:ReactNode;description?:ReactNode;onClose:()=>void;children:ReactNode;navigation?:ReactNode;footer?:ReactNode;layout?:"page"|"compact";bodyClassName?:string;headerActions?:ReactNode;closeLabel?:string;backdrop?:ReactNode;dismissOnBackdrop?:boolean};
 
 /** Feature content owns its data and actions; this shell owns modal geometry and dismissal. */
-export default function PopupPage({portalContainer,ariaLabel,closeDisabled=false,plainClose=false,title,description,onClose,children,navigation,footer,layout="page",bodyClassName="",headerActions,closeLabel,backdrop,dismissOnBackdrop=false}:Props){
+export default function PopupPage({portalContainer,ariaLabel,closeDisabled=false,plainClose=false,title,titleActions,description,onClose,children,navigation,footer,layout="page",bodyClassName="",headerActions,closeLabel,backdrop,dismissOnBackdrop=false}:Props){
  const dialog=useRef<HTMLDialogElement>(null),heading=useId(),descriptionId=useId();
  const close=useRef(onClose);close.current=onClose;
  useEffect(()=>{
@@ -29,7 +29,7 @@ export default function PopupPage({portalContainer,ariaLabel,closeDisabled=false
   }} onCancel={event=>{event.preventDefault();if(!closeDisabled)close.current();}} onClick={event=>{if(!closeDisabled&&dismissOnBackdrop&&event.target===event.currentTarget){const rect=event.currentTarget.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)close.current();}}}>
   {backdrop&&<div className="pv-popup-decoration" aria-hidden="true">{backdrop}</div>}
   <header className="pv-popup-header">
-   <div className="min-w-0 flex-1"><h2 id={heading} className="text-lg font-semibold">{title}</h2>{description&&<div id={descriptionId} className="mt-2 text-sm text-muted">{description}</div>}</div>
+   <div className="min-w-0 flex-1"><div className="flex items-center gap-3"><h2 id={heading} className="text-lg font-semibold">{title}</h2>{titleActions}</div>{description&&<div id={descriptionId} className="mt-2 text-sm text-muted">{description}</div>}</div>
    {headerActions}<button type="button" aria-label={closeLabel??`Close ${title}`} disabled={closeDisabled} onClick={()=>close.current()} className={`pv-popup-close${plainClose?" pv-popup-close-plain":""}`} data-icon-button={plainClose?undefined:"true"}><X className="size-5" aria-hidden="true"/></button>
   </header>
   {navigation&&<nav className="pv-popup-navigation" aria-label={`${title} sections`}>{navigation}</nav>}

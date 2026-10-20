@@ -1,6 +1,15 @@
 @import "tailwindcss";
 @import "./popupSurfaces.css";
 
+/* Match the home Play / More Info surface without changing navigation geometry. */
+#app-navigation :is(.pv-sidebar-glass-selected, .pv-sidebar-glass-hover:hover) {
+  background: #ffffff18;
+  outline: 1px solid #ffffff40;
+  outline-offset: -1px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
 /* Match the home hero's translucent Play / More Info surfaces. */
 .pv-profile-trigger { background: var(--pv-menu-background, #1d2026b3); border: 1px solid #ffffff40; backdrop-filter: blur(var(--pv-menu-blur, 8px)); -webkit-backdrop-filter: blur(var(--pv-menu-blur, 8px)); }
 .pv-profile-trigger { border-radius: 999px; transition: background-color .15s; }

@@ -1,4 +1,5 @@
 import MoviePreviewPlay from "./MoviePreviewPlay";
+import DiscoveryFormats from "./DiscoveryFormats";
 import { mediaDescription } from "../lib/mediaDescription";
 import {useEffect, useId, useRef, useState, type ReactNode} from "react";
 import {createPortal} from "react-dom";
@@ -86,6 +87,7 @@ export default function DiscoveryHoverCard({title, children}: {title: HomeTitle;
         {artwork&&!failed&&<img className="pv-discovery-hover-tint" src={sizedArtwork(artwork,640)} alt="" aria-hidden="true" decoding="async"/>}
         <h3>{entry.title}</h3>
         <p className="pv-discovery-hover-metadata">{[year ? String(year) : "", text(entry.metadata.mpaa), entry.kind === "series" ? "Series" : runtime ? `${Math.round(runtime)} min` : "Movie", rating ? `${Number(rating.toFixed(1))}/10` : ""].filter(Boolean).join(" · ")}</p>
+        <DiscoveryFormats title={title}/>
         {genres.length > 0 && <p className="pv-discovery-hover-genres">{genres.join(" · ")}</p>}
         {mediaDescription(entry.metadata.plot) && <p className="pv-discovery-hover-plot">{mediaDescription(entry.metadata.plot)}</p>}
         <div className="pv-discovery-hover-actions">

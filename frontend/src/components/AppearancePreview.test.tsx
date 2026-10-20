@@ -13,6 +13,11 @@ vi.mock("./LibraryPosterStrip",()=>({default:()=> <div>Library collage</div>}));
 vi.mock("../lib/serverContext", () => ({ useServers: () => ({ servers: [], selectedId: null, setSelectedId: vi.fn() }) }));
 let measure: () => void;
 beforeEach(() => {
+  vi.stubGlobal("matchMedia", (media: string) => ({
+    matches: media === "(min-width: 768px)", media, onchange: null,
+    addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+  }));
   const measurements = new Set<() => void>();
   measure = () => measurements.forEach(callback => callback());
   vi.stubGlobal("ResizeObserver", class {

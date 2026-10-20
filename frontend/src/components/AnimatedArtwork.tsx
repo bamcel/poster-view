@@ -12,8 +12,8 @@ export function stillArtwork(src: string) {
 }
 
 /** Silent artwork plays only when visible, active, and motion is allowed. */
-export default function AnimatedArtwork({src, alt, className, onError, format: override, active = true, fill = false, width}: {
-  src: string; alt: string; className?: string; onError?: () => void; format?: string; active?: boolean; fill?: boolean; width?: number;
+export default function AnimatedArtwork({src, alt, className, onError, onReady, format: override, active = true, fill = false, width}: {
+  src: string; alt: string; className?: string; onError?: () => void; onReady?: () => void; format?: string; active?: boolean; fill?: boolean; width?: number;
 }) {
   const [,refreshFraming]=useState(0);
   useEffect(()=>{if(!new URLSearchParams(src.split("?")[1]??"").has("backdropKey"))return;const refresh=()=>refreshFraming(v=>v+1);window.addEventListener(backdropFramingEvent,refresh);window.addEventListener("storage",refresh);return()=>{window.removeEventListener(backdropFramingEvent,refresh);window.removeEventListener("storage",refresh);};},[src]);
@@ -65,10 +65,16 @@ export default function AnimatedArtwork({src, alt, className, onError, format: o
   } catch { /* Invalid placement leaves the original artwork visible. */ }
 
   if (!overlay && framing?.logo?.enabled) overlay={...framing.logo,logo:framing.logo.src};
-  if (!animated && !overlay && !framing) return <img src={fallback} alt={alt} className={className} loading="lazy" draggable={false} onError={onError}/>;
+  const loaded = async (image: HTMLImageElement) => {
+    if (!onReady) return;
+    const source = image.currentSrc || image.src;
+    try { await image.decode?.(); } catch { onError?.(); return; }
+    if (image.isConnected && (image.currentSrc || image.src) === source) onReady();
+  };
+  if (!animated && !overlay && !framing) return <img src={fallback} alt={alt} className={className} loading="lazy" draggable={false} onLoad={event=>void loaded(event.currentTarget)} onError={onError}/>;
   const mediaClass = fill ? "absolute inset-0 h-full w-full object-cover object-top" : "h-full w-full max-h-[inherit] max-w-[inherit] [object-fit:inherit] [object-position:inherit]";
   return <div ref={element} className={className} style={fill ? {position: "absolute", inset: 0, overflow: "hidden"} : overlay || framing ? {position:"relative",overflow:"hidden"} : undefined}>
-    {animated && !play && fallback === mediaSrc ? <span className="sr-only">{alt}: animated preview paused</span> : format === "webm" && play ? <video ref={video} src={originalSrc} poster={fallback} aria-label={alt} className={mediaClass} style={mediaStyle} autoPlay loop muted playsInline preload="auto" onError={()=>setFailed(true)}/> : <img src={format === "gif" && play ? originalSrc : fallback} alt={alt} className={mediaClass} style={mediaStyle} loading={visible ? "eager" : "lazy"} draggable={false} onError={onError}/>}
+    {animated && !play && fallback === mediaSrc ? <span className="sr-only">{alt}: animated preview paused</span> : format === "webm" && play ? <video ref={video} src={originalSrc} poster={fallback} aria-label={alt} className={mediaClass} style={mediaStyle} autoPlay loop muted playsInline preload="auto" onError={()=>setFailed(true)}/> : <img src={format === "gif" && play ? originalSrc : fallback} alt={alt} className={mediaClass} style={mediaStyle} loading={visible ? "eager" : "lazy"} draggable={false} onLoad={event=>void loaded(event.currentTarget)} onError={onError}/>}
     {overlay && <img src={requestedWidth ? sizedArtwork(overlay.logo,requestedWidth * overlay.width / 100) : overlay.logo} alt="" aria-hidden="true" className="pointer-events-none absolute" style={{left:`${overlay.x}%`,top:`${overlay.y}%`,width:`${overlay.width}%`,opacity:overlay.opacity/100}}/>}
   </div>;
 }
